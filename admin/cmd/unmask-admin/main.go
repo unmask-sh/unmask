@@ -144,6 +144,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	base := strings.TrimRight(s.Server.BasePath, "/")
 
+	// /unmask/challenge/ が新 path. /unmask/challenge.html は legacy 互換用.
+	mux.HandleFunc(base+"/challenge/",
+		handlers.MethodOnly(http.MethodGet, h.ServeChallenge))
 	mux.HandleFunc(base+"/challenge.html",
 		handlers.MethodOnly(http.MethodGet, h.ServeChallenge))
 	mux.HandleFunc(base+"/api/verify",

@@ -32,26 +32,32 @@ type Handler struct {
 	Settings settings.Settings
 }
 
-// loadChallengeHTML returns the bot-challenge.html bytes.  Order:
+// loadChallengeHTML returns the challenge.html bytes.  Order:
 //
 //   - settings.challenge.challenge_html_path (override for ops)
-//   - /usr/share/unmask/challenge/bot-challenge.html (RPM/deb)
-//   - embedded assets/static/bot-challenge.html (default)
+//   - /usr/share/unmask/challenge/challenge.html (RPM/deb)
+//   - embedded assets/static/challenge.html (default)
+//
+// 互換のため bot-challenge.html (= 旧 file 名) も fallback で見る.
 func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	if p := h.Settings.Challenge.ChallengeHTMLPath; p != "" {
 		return os.ReadFile(p)
 	}
 	for _, p := range []string{
+		"/usr/share/unmask/challenge/challenge.html",
 		"/usr/share/unmask/challenge/bot-challenge.html",
 	} {
 		if b, err := os.ReadFile(p); err == nil {
 			return b, nil
 		}
 	}
+	if b, err := assets.Static.ReadFile(filepath.ToSlash("static/challenge.html")); err == nil {
+		return b, nil
+	}
 	return assets.Static.ReadFile(filepath.ToSlash("static/bot-challenge.html"))
 }
 
-// ServeChallenge: GET {base}/challenge.html
+// ServeChallenge: GET {base}/challenge/ (legacy: {base}/challenge.html)
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))

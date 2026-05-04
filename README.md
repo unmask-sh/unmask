@@ -43,7 +43,7 @@ build matrix (per-nginx-version prebuilt `.so`) is not yet automated.
                  │   • final_challenge map (UA × verdict × bv cookie)
                  │   • rate_limit zone (100r/min)
                  │
-                 ├─ /unmask/challenge.html  ─proxy_pass─▶ admin app
+                 ├─ /unmask/challenge/      ─proxy_pass─▶ admin app
                  │                                          (PoW + CAPTCHA)
                  │
                  └─ /unmask/api/...         ─proxy_pass─▶ admin app
@@ -64,7 +64,7 @@ build matrix (per-nginx-version prebuilt `.so`) is not yet automated.
 | Path | Purpose |
 |------|---------|
 | `ja4-module/` | nginx dynamic module (C, Apache 2.0) computing JA4 from ClientHello |
-| `challenge/`  | static `bot-challenge.html` (PoW + CAPTCHA UI) — also embedded into the admin binary |
+| `challenge/`  | static `challenge.html` (PoW + CAPTCHA UI) — also embedded into the admin binary |
 | `admin/`      | Go server + CLI (HTTP verify endpoints + dashboard + migrate / aggregate) |
 | `nginx/`      | conf snippets (verdict map, rate_limit, location blocks) |
 | `sql/`        | SQLite / MariaDB schema for `unmask_event` |

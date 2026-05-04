@@ -335,7 +335,7 @@ dl.flow dd{margin:0;color:#334155}
     <dd><code>(bv_valid, is_search_bot, is_google_ip, is_known_browser, ja4_verdict, serve_bot_challenge)</code> 6 シグナルで challenge 発動を最終判定</dd>
 
     <dt>4. challenge HTML 配信</dt>
-    <dd><code>final_challenge=1</code> の location は internal rewrite で <code>/unmask/challenge.html</code> へ → admin が 403 + sub_filter 済み HTML を返す (= phase=<b>serve</b> ログ)</dd>
+    <dd><code>final_challenge=1</code> の location は internal rewrite で <code>/unmask/challenge/</code> へ → admin が 403 + sub_filter 済み HTML を返す (= phase=<b>serve</b> ログ)</dd>
 
     <dt>5. JS 起動</dt>
     <dd>HTML 内 JS が flags / window 等を集めて debug ビーコン送信 (= phase=<b>load</b>)</dd>

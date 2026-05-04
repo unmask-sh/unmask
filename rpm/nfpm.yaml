@@ -78,8 +78,8 @@ contents:
     dst: /etc/unmask/nginx/secret.conf.example
 
   # challenge HTML (admin app は embed 版を持つが、 ops が編集できる外側にも置く)
-  - src: ../challenge/bot-challenge.html
-    dst: /usr/share/unmask/challenge/bot-challenge.html
+  - src: ../challenge/challenge.html
+    dst: /usr/share/unmask/challenge/challenge.html
 
   # systemd
   - src: ./unmask-admin.service

@@ -5,7 +5,7 @@ unmask の今後の作業項目. close したものは取り除く / 「Done」 
 ## 着手予定 (= 優先順は文脈次第)
 
 ### challenge HTML JS のモジュール化
-現状 `challenge/bot-challenge.html` は 427 行の inline JS. PoW / behavioral
+現状 `challenge/challenge.html` は 427 行の inline JS. PoW / behavioral
 collector / cookie_err 検出 / debug ビーコンの各 phase が混ざっている. 別 file に
 切り出して embed 結合するか、 JS bundler を入れずに `<script src=>` と
 `add_header Content-Security-Policy` で nonce 配信する形に整理.

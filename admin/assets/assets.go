@@ -4,7 +4,7 @@
 // 内訳:
 //   - crawler-user-agents.json   bot UA pattern source
 //   - templates/*.html           dashboard templates
-//   - static/bot-challenge.html  challenge HTML (= challenge/ から copy)
+//   - static/challenge.html      challenge HTML (= challenge/ から copy)
 package assets
 
 import "embed"

@@ -18,7 +18,7 @@
 | `lib/Tool/Controller/Api/BotChallenge.pm`    | `admin/` の verify endpoints |
 | `lib/Tool/Controller/Admin/BotChallengeDebug.pm` | `admin/` のダッシュボード |
 | `templates/tool/admin/bot_challenge_debug/`  | `admin/templates/` |
-| `data/bot-challenge.html`                    | `challenge/bot-challenge.html` ← コピー済 |
+| `data/bot-challenge.html`                    | `challenge/challenge.html` ← コピー済 (rename 済) |
 | `conf/middle/nginx/nginx-front_reverse_proxy-production.conf` の bot 関連 | `nginx/` の snippets |
 | `lib/Tool/Command/AggregateAccessLog.pm` の verdict 判定部分 | `admin/internal/classify/` + `admin/cmd/unmask-admin/` の aggregate sub-command |
 | `data/runtime/crawler-user-agents.json`      | `admin/assets/` で `embed` (同じ format) |

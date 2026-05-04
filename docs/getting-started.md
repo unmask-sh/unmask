@@ -24,7 +24,7 @@ sudo apk add --allow-untrusted ./unmask_0.1.0_x86_64.apk
 |---|---|
 | `/usr/sbin/unmask-admin` | Go static binary (admin server + CLI) |
 | `/usr/lib/nginx/modules/ngx_http_ja4_module.so` | JA4 + BV 検証 dynamic module |
-| `/usr/share/unmask/challenge/bot-challenge.html` | challenge HTML (admin に embed もされている) |
+| `/usr/share/unmask/challenge/challenge.html` | challenge HTML (admin に embed もされている) |
 | `/etc/unmask/config.yml` | admin app の config (random secret 自動生成済) |
 | `/etc/unmask/nginx/*.conf` `*.map` | nginx include 用 snippets |
 | `/etc/unmask/nginx/secret.conf` | `unmask_bv_secret` directive (config.yml と同期) |
@@ -59,7 +59,7 @@ http {
 
             # JA4 で偽装露呈した browser を challenge へ
             if ($final_challenge = 1) {
-                rewrite ^ /unmask/challenge.html last;
+                rewrite ^ /unmask/challenge/ last;
             }
 
             # 元の handling
@@ -96,7 +96,7 @@ curl -sk -I https://example.com/ | grep -i x-ja4
 `?_test_ja4=1` を付けると強制的に bot 判定で challenge HTML を踏める:
 
 ```sh
-curl -sk "https://example.com/unmask/challenge.html?_test_ja4=1" -o /dev/null -w "%{http_code}\n"
+curl -sk "https://example.com/unmask/challenge/?_test_ja4=1" -o /dev/null -w "%{http_code}\n"
 # -> 403  (= 中身は 403 だが challenge HTML 本文)
 ```
 
@@ -210,7 +210,7 @@ sudo systemctl reload nginx
 ## 7. トラブルシューティング
 
 - **challenge HTML が 200 で返る** → `proxy_intercept_errors off;` が
-  `/unmask/challenge.html` の location に入っているか確認 (= unmask-server.conf
+  `/unmask/challenge/` の location に入っているか確認 (= unmask-server.conf
   に元から入っている)
 - **ブラウザで JS 動作せず loop** → dashboard の `cookie_err` 列が増えていれば
   3rd-party cookie 制限. SameSite 周りを再確認
