@@ -52,9 +52,11 @@ build matrix (per-nginx-version prebuilt `.so`) is not yet automated.
                                                             • debug beacons
                                                             • _bv cookie issue (HMAC-SHA1)
 
-[admin app] (Python / FastAPI / uvicorn, systemd unit)
-   • SQLite (default) / MariaDB (optional)
-   • web UI with funnel, 30-day chart, IP popovers, country breakdown
+[admin app] (Go static binary, systemd unit)
+   • single binary `unmask-admin` (no runtime deps; CGO-free, runs on Alpine/MUSL too)
+   • SQLite (default, embedded via modernc.org/sqlite) / MariaDB (optional)
+   • web UI with funnel, daily chart, IP popovers, verdict breakdown
+   • sub-commands: serve / migrate / aggregate / config-init
 ```
 
 ## Components
@@ -62,12 +64,29 @@ build matrix (per-nginx-version prebuilt `.so`) is not yet automated.
 | Path | Purpose |
 |------|---------|
 | `ja4-module/` | nginx dynamic module (C, Apache 2.0) computing JA4 from ClientHello |
-| `challenge/`  | static `bot-challenge.html` (PoW + CAPTCHA UI) |
-| `admin/`      | FastAPI app for verify endpoints + dashboard |
+| `challenge/`  | static `bot-challenge.html` (PoW + CAPTCHA UI) — also embedded into the admin binary |
+| `admin/`      | Go server + CLI (HTTP verify endpoints + dashboard + migrate / aggregate) |
 | `nginx/`      | conf snippets (verdict map, rate_limit, location blocks) |
-| `sql/`        | SQLite / MariaDB schema for `unmask_event` (replaces `bot_challenge_debug`) |
-| `rpm/`        | RPM spec, build scripts |
+| `sql/`        | SQLite / MariaDB schema for `unmask_event` |
+| `rpm/`        | nfpm config + systemd unit + install scripts (rpm / deb / apk from one file) |
 | `docs/`       | architecture / migration / spec docs |
+
+## Building
+
+```sh
+# admin server only (host arch)
+make build
+
+# admin server + ja4 nginx module (downloads nginx source)
+make build-all NGINX_VERSION=1.26.2
+
+# rpm + deb packages (requires nfpm)
+make package UNMASK_VERSION=0.1.0
+```
+
+The admin binary is a single static executable: drop `dist/unmask-admin-linux-amd64`
+on any modern Linux box, run `unmask-admin config-init -out /etc/unmask/config.yml`,
+`unmask-admin migrate`, then `unmask-admin serve`.
 
 ## Heritage
 

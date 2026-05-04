@@ -1,0 +1,42 @@
+[Unit]
+Description=unmask admin (JA4 bot challenge backend)
+Documentation=https://github.com/unmask-sh/unmask
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unmask
+Group=unmask
+
+# config は /etc/unmask/config.yml. -config で上書き可能.
+Environment=UNMASK_CONFIG=/etc/unmask/config.yml
+ExecStart=/usr/sbin/unmask-admin serve
+
+# 安全設定 (= systemd hardening)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+ReadWritePaths=/var/lib/unmask /var/log/unmask
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# resource
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=append:/var/log/unmask/admin.log
+StandardError=append:/var/log/unmask/admin.log
+
+[Install]
+WantedBy=multi-user.target

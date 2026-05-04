@@ -1,0 +1,13 @@
+[Unit]
+Description=Run unmask aggregate hourly
+Documentation=https://github.com/unmask-sh/unmask
+
+[Timer]
+# 毎時 7 分 (= 0 分は他 cron との衝突が多いのでズラす). 起動時にも 1 度走る.
+OnCalendar=*-*-* *:07:00
+Persistent=true
+RandomizedDelaySec=60
+Unit=unmask-aggregate.service
+
+[Install]
+WantedBy=timers.target

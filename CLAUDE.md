@@ -20,8 +20,8 @@
 | `templates/tool/admin/bot_challenge_debug/`  | `admin/templates/` |
 | `data/bot-challenge.html`                    | `challenge/bot-challenge.html` ← コピー済 |
 | `conf/middle/nginx/nginx-front_reverse_proxy-production.conf` の bot 関連 | `nginx/` の snippets |
-| `lib/Tool/Command/AggregateAccessLog.pm` の verdict 判定部分 | `admin/` の cron 集計 |
-| `data/runtime/crawler-user-agents.json`      | `admin/` で再利用 (= 同じ format) |
+| `lib/Tool/Command/AggregateAccessLog.pm` の verdict 判定部分 | `admin/internal/classify/` + `admin/cmd/unmask-admin/` の aggregate sub-command |
+| `data/runtime/crawler-user-agents.json`      | `admin/assets/` で `embed` (同じ format) |
 
 `tool` 側を読んで動作仕様を確認するのは OK. ただし **コードのコピペは
 最小限にとどめ、 unmask 用に書き直す** こと. 理由:
@@ -35,15 +35,26 @@
 |---|---|---|
 | nginx module | C | 1 種類しかないし dynamic module は C 必須 |
 | challenge JS | プレーン JS | PoW / CAPTCHA UI は外部依存ゼロ. polyfill 不要 |
-| admin app    | Python 3.9+ / FastAPI / Jinja2 | RPM 配布で同梱しやすい. chart.js は HTML 直書き |
-| CLI         | Python (admin と同じ venv) | `unmask-cli setup / migrate / aggregate` |
+| admin app    | **Go** (stdlib + 3rd party 3 個) | 単一 static binary で RPM/deb/Alpine 全部行ける. Python venv 依存を引きずらない |
+| CLI         | Go (admin と同 binary or 兄弟 binary) | `unmask-admin serve / migrate / aggregate` |
+
+### Go 採用理由 (= 2026-05-04 Python から切替)
+
+- 配布対象が **RHEL/Rocky 9+ に限らない** (Debian/Ubuntu/Alpine/Arch 等も) ため、 OS 標準 Python を借りる前提が崩れる
+- Go なら CGO 無しで pure-Go static binary になり、 musl ベースの Alpine でも動く
+- third-party は 3 個だけ:
+  - `modernc.org/sqlite` (pure-Go SQLite. CGO 不要)
+  - `github.com/go-sql-driver/mysql` (MariaDB driver, pure Go)
+  - `gopkg.in/yaml.v3` (config 読み)
+- `embed` で challenge HTML / template / crawler-user-agents.json を binary に同梱できる
+- パッケージングは **nfpm** で同じ YAML から rpm/deb 両方ビルド
 
 ## 重要な設計原則
 
 1. **nginx は stock のまま** — module 追加だけで動くこと. OpenResty / haproxy 等
    の外部依存はゼロ.
-2. **admin app は単一バイナリ的に install** — Python の場合は wheel + venv で
-   `/opt/unmask/` 配下完結.
+2. **admin app は単一 static binary** — Go (`unmask-admin`) を `/usr/sbin/`
+   に置くだけ. ランタイム依存は libc のみ. Alpine 用に MUSL build も用意.
 3. **SQLite default** — 小規模 site で外部 DB なしで動く. MariaDB / Postgres は
    設定で切替可能.
 4. **検索 bot は絶対通す** — Googlebot / GPTBot 等で順位事故は再発させない.
