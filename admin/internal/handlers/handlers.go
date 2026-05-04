@@ -138,6 +138,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		score := captcha.Score(payload.Sig)
+		Metrics.ObserveScore(score)
 		if score >= h.Settings.Challenge.CaptchaScoreThreshold {
 			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, ja4, "captcha")
 			h.setBVCookie(w, val)

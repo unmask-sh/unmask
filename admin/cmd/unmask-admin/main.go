@@ -169,6 +169,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
+	// metrics (Prometheus text format).  bind=127.0.0.1 default なので
+	// 通常は scrape 元 (= prometheus exporter / agent) もループバックから読む.
+	mux.HandleFunc(base+"/metrics",
+		handlers.MethodOnly(http.MethodGet, h.Metrics))
+
 	return mux
 }
 

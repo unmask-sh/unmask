@@ -100,6 +100,31 @@ curl -sk "https://example.com/unmask/challenge.html?_test_ja4=1" -o /dev/null -w
 # -> 403  (= 中身は 403 だが challenge HTML 本文)
 ```
 
+### Prometheus metrics
+
+`/unmask/metrics` が Prometheus text format で expose される.
+
+```yaml
+# prometheus.yml の scrape config 例
+scrape_configs:
+  - job_name: unmask
+    static_configs:
+      - targets: ['127.0.0.1:8765']
+    metrics_path: /unmask/metrics
+    scrape_interval: 30s
+```
+
+主要 metric:
+
+| name | type | 内容 |
+|---|---|---|
+| `unmask_event_total{phase,verdict}` | counter | challenge funnel の累積件数 |
+| `unmask_event_unique_ip` | gauge | 直近 24h の unique IP 数 |
+| `unmask_verify_score_*` | histogram | behavioral score 分布 |
+| `unmask_db_query_seconds_*` | counter | DB クエリの sum/count |
+
+DB から読む counter は 30 秒キャッシュされる (= scrape 間隔より短いので scrape ごとには更新).
+
 ### dashboard
 
 ```sh
