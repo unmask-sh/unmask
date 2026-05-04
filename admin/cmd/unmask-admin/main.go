@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/geoip"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -110,7 +111,16 @@ func cmdServe(args []string) error {
 	}
 	defer conn.Close()
 
-	h := &handlers.Handler{DB: conn, Settings: s}
+	gip := geoip.Open(s.GeoIP.MMDBPath)
+	defer gip.Close()
+	if s.GeoIP.MMDBPath != "" {
+		if gip.Loaded() {
+			log.Printf("geoip: loaded %s", s.GeoIP.MMDBPath)
+		} else {
+			log.Printf("geoip: failed to load %s (= 国別 chart は表示されない)", s.GeoIP.MMDBPath)
+		}
+	}
+	h := &handlers.Handler{DB: conn, Settings: s, GeoIP: gip}
 	mux := buildRouter(s, h)
 
 	addr := fmt.Sprintf("%s:%d", s.Server.Bind, s.Server.Port)

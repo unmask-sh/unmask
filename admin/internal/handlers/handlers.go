@@ -19,6 +19,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/geoip"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -31,6 +32,7 @@ const (
 type Handler struct {
 	DB       *db.DB
 	Settings settings.Settings
+	GeoIP    *geoip.Reader // optional, may be nil/empty (= mmdb 未指定)
 }
 
 // site name の許容文字: lowercase alnum + dash, 1〜32 文字, 先頭/末尾 dash 不可.

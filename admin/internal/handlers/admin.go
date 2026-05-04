@@ -176,6 +176,8 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("daily serve by kind: %v", err)
 	}
+	countries, _ := dashboard.CountriesByServe(ctx, h.DB, h.GeoIP, site, 30, 15)
+	countriesJSON, _ := json.Marshal(countries)
 
 	type kindPt struct {
 		Date string `json:"date"`
@@ -212,6 +214,9 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"JSErrors":      jsErrs,
 		"DailyKindJSON": template.JS(dailyKindJSON),
 		"DailyTotal":    dailyTotal,
+		"Countries":     countries,
+		"CountriesJSON": template.JS(countriesJSON),
+		"GeoIPLoaded":   h.GeoIP != nil && h.GeoIP.Loaded(),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {

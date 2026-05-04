@@ -16,6 +16,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/geoip"
 )
 
 // Range は 1d / 7d / 30d. 不正値は 1d.
@@ -908,6 +909,13 @@ type DailyTotal struct {
 	UniqIPs int
 }
 
+// CountryRow: 国別合計 (= 30 日 chart の右側 horizontal bar 用).
+type CountryRow struct {
+	CountryCode string // ISO 3166-1 alpha-2 (= "JP", "US")
+	Req         int
+	UniqIPs     int
+}
+
 // DailyServeByKind: phase='serve' を date × ip × verdict × ua × rl で集計し、
 // 各行を classify.IsBot で分類して date × kind 別 req 数を返す.
 // 同時に日別合計 + uniq IP も返す.  本家 BotChallengeDebug._build_serve_30d 相当.
@@ -1009,6 +1017,62 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]D
 	}
 
 	return daily, totals, nil
+}
+
+// CountriesByServe: phase='serve' を ip 別に集計 → geoip lookup → 国コード別の
+// req / uniq IP 集計を返す. geoip.Reader が空 (= mmdb 未指定 / 読込失敗) の場合は
+// 空 list を返す (= 利用側で「国別 chart は出さない」 と判断する).
+func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site string, days, limit int) ([]CountryRow, error) {
+	if gip == nil || !gip.Loaded() {
+		return nil, nil
+	}
+	since := d.NowMinusMinutes(days * 24 * 60)
+	stmt := fmt.Sprintf(`
+        SELECT ip_address, COUNT(*) AS n
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='serve'
+        GROUP BY ip_address`, since, siteCond(site))
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type acc struct {
+		req     int
+		uniqIPs int
+	}
+	byCC := map[string]*acc{}
+	for rows.Next() {
+		var raw []byte
+		var n int
+		if err := rows.Scan(&raw, &n); err != nil {
+			return nil, err
+		}
+		cc := gip.LookupBytes(raw)
+		if cc == "" {
+			continue
+		}
+		a, ok := byCC[cc]
+		if !ok {
+			a = &acc{}
+			byCC[cc] = a
+		}
+		a.req += n
+		a.uniqIPs++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]CountryRow, 0, len(byCC))
+	for cc, a := range byCC {
+		out = append(out, CountryRow{CountryCode: cc, Req: a.req, UniqIPs: a.uniqIPs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Req > out[j].Req })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 // ---- legacy: phase 別 daily series (= 既存 chart 用. 段階廃止予定) ----

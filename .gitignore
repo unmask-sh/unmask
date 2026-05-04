@@ -36,3 +36,4 @@ data/
 *.sqlite
 *.db
 config.local.yml
+dist/

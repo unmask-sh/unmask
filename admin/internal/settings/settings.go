@@ -76,11 +76,19 @@ type Server struct {
 	AdminToken string `yaml:"admin_token"`
 }
 
+// GeoIP: optional MaxMind GeoLite2 / GeoIP2 mmdb 連携.
+//   mmdb_path: country DB の path (= 例: /etc/unmask/GeoLite2-Country.mmdb)
+//   未指定なら国別 chart は表示されない.  License 上 binary 同梱は不可.
+type GeoIP struct {
+	MMDBPath string `yaml:"mmdb_path"`
+}
+
 type Settings struct {
 	DB        DB        `yaml:"db"`
 	Secret    Secret    `yaml:"secret"`
 	Challenge Challenge `yaml:"challenge"`
 	Server    Server    `yaml:"server"`
+	GeoIP     GeoIP     `yaml:"geoip"`
 }
 
 func defaults() Settings {

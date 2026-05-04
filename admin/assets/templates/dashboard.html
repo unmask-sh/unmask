@@ -416,20 +416,39 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 10) 30 日推移 (= 本家相当: phase=serve を is_bot kind 別 stacked bar) -->
 <div class="bcd-card">
-  <h2>bot-challenge 30 日推移 <span class="src">🗄 phase=serve を classify.IsBot で分類</span></h2>
-  <canvas id="chart" height="280"></canvas>
-  <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+  <h2>bot-challenge 30 日推移 <span class="src-badge db">🗄 DB</span> <span style="font-size:.7rem;color:#94a3b8;font-weight:normal">(phase=serve を classify.IsBot で分類)</span></h2>
+  <div style="display:grid;grid-template-columns:{{if .GeoIPLoaded}}2fr 1fr{{else}}1fr{{end}};gap:1rem">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">日別 (is_bot 別 stacked)</h6>
+      <canvas id="chart" height="280"></canvas>
+      <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    {{if .GeoIPLoaded}}
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">国別 (上位 15) 期間合計</h6>
+      <canvas id="country-chart" height="280"></canvas>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">GeoIP: {{len .Countries}} 国観測 / phase=serve 集計</p>
+    </div>
+    {{else}}
+    <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
+      国別 chart を出すには<br>
+      <code style="background:#fff;padding:.05rem .3rem;border-radius:.15rem">geoip.mmdb_path</code><br>
+      を config.yml に設定して<br>
+      MaxMind GeoLite2-Country.mmdb を指定
+    </div>
+    {{end}}
+  </div>
   {{if .DailyTotal}}
   <table class="bcd-table" style="margin-top:.8rem">
     <thead><tr><th>日付</th><th class="bcd-num">request</th><th class="bcd-num">uniq IP</th></tr></thead>
     <tbody>
       {{range .DailyTotal}}
-      <tr><td>{{.Date}}</td><td class="bcd-num">{{.Req}}</td><td class="bcd-num">{{.UniqIPs}}</td></tr>
+      <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
       {{end}}
     </tbody>
   </table>
   {{else}}
-  <p class="muted" style="font-size:.9rem">データなし (= 直近 30 日で phase=serve なし)</p>
+  <p class="muted" style="font-size:.9rem;margin-top:.6rem">データなし (= 直近 30 日で phase=serve なし)</p>
   {{end}}
 </div>
 
@@ -772,6 +791,45 @@ const dailyKind = {{.DailyKindJSON}};
     hi.style.height = h + 'px';
   });
   c.addEventListener('mouseleave', hide);
+})();
+
+// 国別 horizontal bar (= 本家相当, geoip 有効時のみ)
+{{if .GeoIPLoaded}}
+const countries = {{.CountriesJSON}};
+{{end}}
+(function(){
+  const c = document.getElementById('country-chart');
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = 280;
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+  if (typeof countries === 'undefined' || !countries || !countries.length) {
+    ctx.fillStyle='#94a3b8'; ctx.font='13px sans-serif';
+    ctx.fillText('no data', 20, 40); return;
+  }
+  const max = Math.max(1, ...countries.map(c => c.Req));
+  const padL = 50, padR = 50, padT = 4, padB = 4;
+  const w = W - padL - padR, h = H - padT - padB;
+  const rowH = Math.max(12, h / countries.length);
+  ctx.font='11px ui-monospace,Menlo,monospace';
+  countries.forEach((row, i) => {
+    const y = padT + i * rowH;
+    // 国コード ラベル (左)
+    ctx.fillStyle = '#475569';
+    ctx.textAlign = 'right';
+    ctx.fillText(row.CountryCode, padL - 6, y + rowH/2 + 3);
+    // bar
+    const bw = (row.Req / max) * w;
+    ctx.fillStyle = '#3b82f6';
+    ctx.fillRect(padL, y + 2, bw, rowH - 4);
+    // count ラベル (右)
+    ctx.fillStyle = '#0f172a';
+    ctx.textAlign = 'left';
+    ctx.fillText(row.Req.toLocaleString(), padL + bw + 4, y + rowH/2 + 3);
+  });
 })();
 </script>
 
