@@ -48,19 +48,10 @@ cookie の kind 全体を HMAC 入力に流すだけで site=A の cookie が si
 HMAC 検証通過する. 別 domain 構成なら browser cookie scoping で防げるので
 priority 中.
 
-### dashboard: レート制限ヒット (100r/min) 集計
-本家にはあるが unmask には実装無し. 集計元は nginx access log (= `limit_req`
-の 429 を `log_format unmask` で吐いた行). 取り込むには:
-(a) `unmask-admin tail-access-log -path /var/log/nginx/access.log` で stream
-    parse して `unmask_event` の独立 phase に書くか,
-(b) nginx の `error_log` に `limit_req` の info/warn を出させて parse,
-(c) ngx_http_unmask_module 内で `429` を直接 `phase=rate_limit` として
-    /unmask/api/debug に POST する (= 一番直接的).
-
 ### dashboard: GeoIP / ASN を IP popover に出す
-IP popover は現状 rDNS + family のみ. 国 / city / ISP を出すには MaxMind
-GeoLite2 mmdb 等が必要. ライセンス上 RPM 同梱は不可. user 任意 install:
-`/etc/unmask/geoip/GeoLite2-City.mmdb` がある時だけ有効化する optional.
+IP popover は現状 rDNS + family のみ. **国は 30 日推移 card に horizontal bar で
+表示済 (= geoip.mmdb_path 設定時)**. ASN / city も popover に出すなら GeoLite2-City
++ ASN DB を追加サポート要.
 
 ## アイデア (= まだ採用するか未確定)
 
@@ -98,3 +89,9 @@ $client_ja4 をラベルにして per-fingerprint の bytes/req を nginx-vts �
 - Prometheus /metrics endpoint
 - handler integration test (httptest + sqlite tempdir)
 - docs/getting-started.md
+- multi-site (= /unmask/admin/<site>/, /unmask/api/<site>/...)
+- 30 日推移 chart (= 本家相当 stacked bar + hover popover)
+- 国別 horizontal bar chart (= geoip.mmdb_path 任意設定)
+- レート制限ヒット card (= phase=serve + payload.rl=1 を IP/path 別集計)
+- 説明 popover 35+ 箇所 (= 本家 bootstrap popover 相当)
+- dashboard 全 card を本家 HTML/CSS に揃える

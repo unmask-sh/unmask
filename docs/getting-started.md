@@ -166,6 +166,22 @@ sudo nginx -t && sudo systemctl reload nginx
 17 4 * * * /usr/sbin/unmask-admin build-google-ip -out /etc/unmask/nginx/google-ip.conf && /usr/sbin/nginx -t && /bin/systemctl reload nginx
 ```
 
+### GeoIP (国別 chart) を有効化する
+
+dashboard の「30 日推移」 card に国別 horizontal bar を出す任意機能。 MaxMind
+GeoLite2-Country.mmdb (= 無料で取得可能) を指定:
+
+```yaml
+# /etc/unmask/config.yml
+geoip:
+  mmdb_path: /usr/share/GeoIP/GeoLite2-Country.mmdb
+```
+
+`unmask-admin restart` 後、 dashboard の右側に国別 bar が出る。 mmdb が無ければ
+chart は出ない (= 起動には影響しない).
+
+mmdb の取得は MaxMind の license に従う (= 配布はできない).
+
 ### crawler-user-agents.json を最新化する
 
 monperrus/crawler-user-agents (= upstream) は週次で更新される. binary 再 build
