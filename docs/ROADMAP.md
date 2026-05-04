@@ -37,6 +37,17 @@ docker-compose で nginx + admin + curl を上げて、 以下 4 シナリオを
 `/unmask/api/bv-check` endpoint は ja4 module を load できない環境向けに残置.
 ja4 module + $unmask_bv_valid に完全移行できると判断したら remove.
 
+### ja4-module で BV cookie の site binding を検証
+multi-site (= 同一 domain 上に複数論理サイト) 構成での cross-site cookie replay
+を完全に防御するため、 ja4-module 内で `$unmask_site` 変数を読んで HMAC 入力に
+含めるか、 cookie の kind 部分が "captcha-<site>" の <site> と一致するか確認する
+ロジックを追加する.
+
+現状: admin が発行する cookie kind には site が入っているが, ja4-module 側は
+cookie の kind 全体を HMAC 入力に流すだけで site=A の cookie が site=B でも
+HMAC 検証通過する. 別 domain 構成なら browser cookie scoping で防げるので
+priority 中.
+
 ### dashboard: レート制限ヒット (100r/min) 集計
 本家にはあるが unmask には実装無し. 集計元は nginx access log (= `limit_req`
 の 429 を `log_format unmask` で吐いた行). 取り込むには:
