@@ -52,7 +52,7 @@ tr.rl-row td{background:#fff7ed}
 .bcd-card .bcd-table.bcd-ready{visibility:visible}
 .flex{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
 @media(max-width:60rem){.flex{grid-template-columns:1fr}}
-canvas{max-width:100%;background:#fff;padding:.5rem;border-radius:.25rem}
+canvas{display:block;width:100%;max-width:100%;background:#fff;border-radius:.25rem}
 dl.flow{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.4rem 1rem}
 dl.flow dt{font-weight:700;color:#475569}
 dl.flow dd{margin:0;color:#334155}
@@ -462,6 +462,8 @@ document.addEventListener('DOMContentLoaded', function(){
 
 // 30 日 stacked bar chart (= 本家 _build_serve_30d 相当, 純 canvas で実装).
 // data: [{date, kind, req}, ...].  kind = classify.Category 値 (0/1/2/4/5/6) + 99(rate_limit).
+// hover で popover を出して 当日の全 kind 件数 + 合計 を表示 (= 本家の chart.js
+// tooltip mode='index' 相当).
 const dailyKind = {{.DailyKindJSON}};
 (function(){
   const c = document.getElementById('chart');
@@ -502,7 +504,12 @@ const dailyKind = {{.DailyKindJSON}};
 
   const padL = 56, padR = 16, padT = 16, padB = 44;
   const w = W - padL - padR, h = H - padT - padB;
-  const barW = Math.max(2, Math.floor(w / Math.max(1, dates.length)) - 2);
+  // 30 日固定幅にして、 観測のない日は空の column として表示する形にしたいが、
+  // 少データの可読性優先で「観測日のみ」 軸. 1 日しかなければ bar を太くしすぎないよう max を設ける.
+  const colW = w / dates.length;
+  const barW = Math.min(60, Math.max(2, Math.floor(colW) - 2));
+  // bar 開始位置: colW の中央に barW を置く.
+  const barOffset = Math.max(0, (colW - barW) / 2);
 
   // y 軸 grid + ラベル
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
@@ -518,7 +525,7 @@ const dailyKind = {{.DailyKindJSON}};
   ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif';
   dates.forEach((d,i) => {
     if (i % labelEvery !== 0 && i !== dates.length-1) return;
-    const x = padL + (i + 0.5) * (w / dates.length);
+    const x = padL + (i + 0.5) * colW;
     ctx.save();
     ctx.translate(x, H - padB + 4);
     ctx.rotate(-Math.PI/4);
@@ -526,9 +533,9 @@ const dailyKind = {{.DailyKindJSON}};
     ctx.restore();
   });
 
-  // stacked bar
+  // stacked bar (= colW 中央に barW で描画)
   dates.forEach((d, i) => {
-    const x = padL + (i * w / dates.length) + 1;
+    const x = padL + (i * colW) + barOffset;
     let yCursor = padT + h; // 下端から積み上げ
     kinds.forEach(k => {
       const v = (data[k]&&data[k][d]) || 0;
@@ -540,15 +547,82 @@ const dailyKind = {{.DailyKindJSON}};
     });
   });
 
-  // legend (= HTML 側にも書き出す)
+  // legend (= chart.js デフォルト凡例と同等の "is_bot=N (label)" 表記)
   const legendEl = document.getElementById('chart-legend');
   if (legendEl) {
     legendEl.innerHTML = kinds.map(k =>
-      '<span style="display:inline-block;width:.7rem;height:.7rem;background:' +
-      (KIND_COLOR[k]||'#94a3b8') + ';margin-right:.3rem;border-radius:.15rem;vertical-align:middle"></span>' +
-      'kind=' + k + ' ' + (KIND_LABEL[k] || '?')
-    ).join('&nbsp;&nbsp;');
+      '<span style="display:inline-flex;align-items:center;gap:.35rem;margin-right:1rem">' +
+        '<span style="display:inline-block;width:.85rem;height:.85rem;background:' +
+        (KIND_COLOR[k]||'#94a3b8') + ';border-radius:.15rem"></span>' +
+        'is_bot=' + k + ' (' + (KIND_LABEL[k] || '?') + ')' +
+      '</span>'
+    ).join('');
   }
+
+  // hover popover (= chart.js の tooltip mode='index' 相当).
+  // mousemove で x 座標から date index を逆算し、 全 kind 件数を popover で出す.
+  const pop = document.createElement('div');
+  pop.style.cssText = 'position:absolute;background:rgba(15,23,42,.95);color:#f1f5f9;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;line-height:1.45;pointer-events:none;display:none;z-index:50;box-shadow:0 .375rem 1rem rgba(0,0,0,.18);min-width:11rem;backdrop-filter:blur(2px)';
+  // canvas の親に対して absolute 位置取り
+  c.parentNode.style.position = 'relative';
+  c.parentNode.appendChild(pop);
+
+  // 直前のホイル位置の bar の x 範囲をハイライトする要素.
+  const hi = document.createElement('div');
+  hi.style.cssText = 'position:absolute;background:rgba(148,163,184,.15);border-radius:.15rem;pointer-events:none;display:none;z-index:1';
+  c.parentNode.appendChild(hi);
+
+  function hide(){ pop.style.display='none'; hi.style.display='none'; }
+
+  c.addEventListener('mousemove', function(e){
+    const rect = c.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    // chart 領域外なら hide
+    if (mx < padL || mx > W - padR || my < padT || my > padT + h) { hide(); return; }
+    const idx = Math.floor((mx - padL) / colW);
+    if (idx < 0 || idx >= dates.length) { hide(); return; }
+    const date = dates[idx];
+
+    // popover content
+    const rows = kinds.map(k => ({ k:k, v:(data[k]&&data[k][date])||0 }))
+                      .filter(r => r.v > 0)
+                      .sort((a,b) => b.v - a.v);
+    if (!rows.length) { hide(); return; }
+    const total = rows.reduce((s,r) => s + r.v, 0);
+
+    let html = '<div style="font-weight:700;margin-bottom:.3rem">' + date + '</div>';
+    html += rows.map(r =>
+      '<div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0">' +
+        '<span style="width:.6rem;height:.6rem;background:' + (KIND_COLOR[r.k]||'#94a3b8') + ';border-radius:50%;display:inline-block;flex-shrink:0"></span>' +
+        '<span style="flex:1">is_bot=' + r.k + ' (' + (KIND_LABEL[r.k]||'?') + ')</span>' +
+        '<span style="font-variant-numeric:tabular-nums;font-weight:600;margin-left:.6rem">' + r.v.toLocaleString() + '</span>' +
+      '</div>'
+    ).join('');
+    html += '<div style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid rgba(241,245,249,.2);display:flex;justify-content:space-between"><span style="font-weight:700">合計</span><span style="font-variant-numeric:tabular-nums;font-weight:700">' + total.toLocaleString() + '</span></div>';
+    pop.innerHTML = html;
+
+    pop.style.display = 'block';
+    // 位置: mouse の右上に表示, 画面右端でオーバーするときだけ左へ flip.
+    const barX = padL + (idx * colW);
+    const parentW = c.parentNode.clientWidth;
+    let leftPx = mx + 16;
+    if (leftPx + pop.offsetWidth > parentW - 8) {
+      leftPx = Math.max(8, mx - pop.offsetWidth - 16);
+    }
+    let topPx = my - pop.offsetHeight - 12;
+    if (topPx < padT) topPx = my + 16;
+    pop.style.left = leftPx + 'px';
+    pop.style.top  = topPx + 'px';
+
+    // ハイライト bar (= 当該 date 列を半透明)
+    hi.style.display = 'block';
+    hi.style.left = barX + 'px';
+    hi.style.top  = padT + 'px';
+    hi.style.width  = Math.max(2, colW) + 'px';
+    hi.style.height = h + 'px';
+  });
+  c.addEventListener('mouseleave', hide);
 })();
 </script>
 
