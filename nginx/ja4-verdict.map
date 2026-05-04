@@ -1,0 +1,32 @@
+# JA4 → verdict mapping.  /etc/unmask/nginx/ja4-verdict.map に install され、
+# unmask.conf の `map $effective_ja4 $ja4_verdict` から include される.
+#
+# verdict naming:
+#   bot_*       TLS fingerprint で偽装が露呈した「真の bot」
+#   suspect_*   Chrome 風だが ALPN h1 (= 古い / 偽装疑いだが確証なし)
+#   ok          (default. ここには書かない)
+#
+# 観測ログから新種が見つかったら追記する. dev/staging で `unmask-cli analyze`
+# (TODO: 用意) でクラスター化してから採用するのを推奨.
+#
+# 注意:
+#   - Googlebot 由来 JA4 (= t13d181300_e8a523a41297_) は **絶対に bot_ 扱いしない**.
+#     順位事故の経験から学んだ罠. UA / IP 救済で十分なので二重計上で混乱するだけ.
+
+# ---- Chrome 風 cipher (8daaf6152771) + 非 h2 ALPN: UA 偽装 bot 典型 ----
+"~^t13d[0-9]+h1_8daaf6152771_"   "bot_chrome_fake_h1";
+"~^t13d[0-9]+00_8daaf6152771_"   "bot_chrome_fake_noalpn";
+
+# ---- 多数 UA ローテーション型 residential proxy ----
+"~^t13d1812h1_85036bcba153_"     "bot_h1_18_12";
+"~^t13d4412h1_fd39b124ee10_"     "bot_h1_44_12";
+"~^t13d311[01]00_e8f1e7e78f70_"  "bot_noalpn_311";
+"~^t13d521100_b262b3658495_"     "bot_noalpn_521";
+
+# ---- TLS 1.2 使用 + 確定シグネチャ (現代ブラウザは TLS 1.3) ----
+"~^t12d660600_d16616bd43e4_"     "bot_tls12_a";
+"~^t12d430700_1ce71f0edbb1_"     "bot_tls12_b";
+"~^t12d210700_76e208dd3e22_"     "bot_tls12_c";
+
+# ---- 緩い: Chrome 風 cipher + ALPN h1 全般 ----
+"~^t13d[0-9]+h1_"                "suspect_h1";

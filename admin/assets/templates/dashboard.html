@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>unmask · dashboard</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f7f8fa;color:#222;font-size:14px}
+h1{font-size:1.4em;margin:0 0 .2em}
+h2{font-size:1.05em;margin:1.6em 0 .4em;border-left:3px solid #4a90d9;padding-left:.5em}
+.meta{color:#777;font-size:.8em;margin-bottom:1em}
+table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04);margin-bottom:.4em}
+th,td{padding:.4em .6em;text-align:right;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+th{background:#f0f3f7;font-weight:600;font-size:.85em;color:#555}
+tr.total td{font-weight:bold;background:#fafbfd;border-top:2px solid #ccc}
+.muted{color:#999}
+.mono{font-family:'SF Mono','Menlo',monospace;font-size:.85em}
+.bar{display:inline-block;height:6px;background:#4a90d9;border-radius:3px;vertical-align:middle;margin-right:.4em}
+.tag{display:inline-block;padding:.1em .5em;border-radius:.5em;font-size:.75em;background:#eef}
+.tag.bot{background:#fdd}
+.tag.suspect{background:#feb}
+.tag.ok{background:#dfd}
+.note{color:#aaa;font-size:.78em}
+.flex{display:flex;gap:1.5em;align-items:flex-start}
+.flex>*{flex:1}
+canvas{max-width:100%;background:#fff;padding:.6em;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.ip-cell{cursor:help;text-decoration:underline dotted #aaa}
+#ip-popover{position:absolute;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:.6em .8em;font-size:.78em;min-width:240px;max-width:360px;z-index:10;display:none}
+#ip-popover h3{margin:0 0 .3em;font-size:.95em}
+#ip-popover dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2em .8em}
+#ip-popover dt{color:#777}
+#ip-popover dd{margin:0}
+#ip-popover .err{color:#c33}
+</style>
+</head>
+<body>
+<h1>unmask · dashboard</h1>
+<p class="meta">直近 {{.Days}} 日 ({{.RangeText}}). DB driver = {{.Driver}}.</p>
+
+<h2>Challenge ファネル (verdict 別)</h2>
+<table>
+<thead><tr>
+  <th>verdict</th><th>serve</th><th>silent</th><th>load</th><th>pow</th><th>captcha</th>
+  <th>verify_ok</th><th>verify_ng</th><th>cookie_err</th><th>JS error</th>
+  <th>PoW率</th><th>CAPTCHA率</th>
+</tr></thead>
+<tbody>
+{{range .Funnel}}
+<tr {{if eq .Verdict "TOTAL"}}class="total"{{end}}>
+  <td>
+    {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
+    {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
+    {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
+    {{else}}<span class="tag">{{.Verdict}}</span>{{end}}
+  </td>
+  <td>{{.Serve}}</td>
+  <td class="muted">{{.Silent}}</td>
+  <td>{{.Load}}</td>
+  <td>{{.PoW}}</td>
+  <td>{{.Captcha}}</td>
+  <td>{{.VerifyOK}}</td>
+  <td>{{.VerifyNG}}</td>
+  <td>{{.CookieErr}}</td>
+  <td>{{.JSError}}</td>
+  <td>{{percent .PowRate}}</td>
+  <td>{{percent .CaptchaRate}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+<p class="note">silent = serve - load. JS が動かない bot のおおよその下限値.</p>
+
+<div class="flex">
+  <div>
+    <h2>JA4 verdict 分布</h2>
+    <table>
+      <thead><tr><th>verdict</th><th>件数</th></tr></thead>
+      <tbody>
+        {{range .VerdictDist}}
+        <tr><td class="mono">{{.Verdict}}</td><td>{{.Count}}</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  <div>
+    <h2>verify_ng が多い IP</h2>
+    <table>
+      <thead><tr><th>IP</th><th>件数</th></tr></thead>
+      <tbody>
+        {{range .CaptchaFailIPs}}
+        <tr><td class="mono ip-cell" data-ip="{{.IP}}">{{.IP}}</td><td>{{.Count}}</td></tr>
+        {{else}}
+        <tr><td colspan="2" class="muted">該当なし</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2>{{.Days}} 日の推移</h2>
+<canvas id="chart" height="320"></canvas>
+
+<script>
+// chart.js を使わず素の canvas で書く. RPM 配布で外部 CDN 依存を避ける.
+const series = {{.SeriesJSON}};
+(function(){
+  const c = document.getElementById('chart');
+  const ctx = c.getContext('2d');
+  const W = c.width = c.clientWidth, H = c.height = 320;
+  if (!series.length){ ctx.fillStyle='#999'; ctx.fillText('no data', 20, 40); return; }
+
+  const fields = ['serve','load','pow','captcha','verify_ok'];
+  const colors = ['#888','#4a90d9','#e09c00','#d35a5a','#3aa657'];
+  let max = 1;
+  series.forEach(d => fields.forEach(f => { if (d[f] > max) max = d[f]; }));
+
+  const padL = 50, padR = 10, padT = 16, padB = 36;
+  const w = W - padL - padR, h = H - padT - padB;
+  // grid
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  for (let i=0;i<=4;i++){
+    const y = padT + h*i/4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+    ctx.fillStyle='#aaa'; ctx.font='11px sans-serif';
+    ctx.fillText(Math.round(max*(1-i/4)), 6, y+3);
+  }
+  // x axis labels (= 5 日おき)
+  ctx.fillStyle = '#888'; ctx.font='10px sans-serif';
+  series.forEach((d,i)=>{
+    if (i % Math.max(1, Math.floor(series.length/8)) === 0){
+      const x = padL + w*i/Math.max(1,series.length-1);
+      ctx.fillText(d.date.slice(5), x-12, H-12);
+    }
+  });
+  // lines
+  fields.forEach((f, fi)=>{
+    ctx.strokeStyle = colors[fi]; ctx.lineWidth = 2; ctx.beginPath();
+    series.forEach((d,i)=>{
+      const x = padL + w*i/Math.max(1,series.length-1);
+      const y = padT + h*(1 - (d[f]||0)/max);
+      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  });
+  // legend
+  ctx.font='11px sans-serif';
+  fields.forEach((f, fi)=>{
+    const x = padL + fi*100;
+    ctx.fillStyle = colors[fi]; ctx.fillRect(x, 4, 12, 6);
+    ctx.fillStyle = '#333'; ctx.fillText(f, x+16, 11);
+  });
+})();
+</script>
+
+<div id="ip-popover"></div>
+<script>
+// IP popover: hover で /admin/api/myip?ip=X を fetch して reverse DNS 等表示.
+(function(){
+  const pop = document.getElementById('ip-popover');
+  const cache = new Map();
+  let timer = null;
+
+  function show(html, x, y){
+    pop.innerHTML = html;
+    pop.style.left = (x + 12) + 'px';
+    pop.style.top  = (y + 12) + 'px';
+    pop.style.display = 'block';
+  }
+  function hide(){ pop.style.display = 'none'; }
+  function fmt(d){
+    if (d.error) return '<span class="err">' + d.error + '</span>';
+    let h = '<h3>' + d.ip + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + d.family + '</dd>';
+    h += '<dt>private</dt><dd>' + (d.is_private ? 'yes' : 'no') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.join('<br>') + '</dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd class="muted">(none)</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+
+  document.querySelectorAll('.ip-cell').forEach(td => {
+    td.addEventListener('mouseenter', e => {
+      clearTimeout(timer);
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      if (cache.has(ip)){ show(fmt(cache.get(ip)), x, y); return; }
+      timer = setTimeout(() => {
+        show('looking up ' + ip + '...', x, y);
+        fetch('api/myip?ip=' + encodeURIComponent(ip))
+          .then(r => r.json())
+          .then(d => { cache.set(ip, d); show(fmt(d), x, y); })
+          .catch(() => show('<span class="err">lookup failed</span>', x, y));
+      }, 200);
+    });
+    td.addEventListener('mouseleave', () => { clearTimeout(timer); hide(); });
+  });
+})();
+</script>
+
+</body>
+</html>
