@@ -5,31 +5,53 @@
 <title>unmask · sites</title>
 <meta name="robots" content="noindex, nofollow">
 <style>
+html{font-size:16px}
 *{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f1f5f9;color:#0f172a;font-size:14px}
-h1{font-size:1.5em;margin:0 0 .2em}
-.meta{color:#64748b;font-size:.85em;margin-bottom:1em}
-.bcd-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
-.bcd-controls a{padding:.3em .9em;border:1px solid #cbd5e1;border-radius:4px;text-decoration:none;color:#334155;background:#fff}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem;letter-spacing:.02em}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo svg{display:block;color:#93c5fd}
+.unmask-header .crumb{font-size:.85rem;color:#94a3b8}
+.unmask-header .spacer{flex:1}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-controls{display:flex;gap:.625rem;align-items:center;flex-wrap:wrap;margin-bottom:.875rem}
+.bcd-controls a{padding:.3rem .9rem;border:1px solid #cbd5e1;border-radius:.25rem;text-decoration:none;color:#334155;background:#fff;font-size:.9rem}
 .bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
-.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;margin-bottom:16px}
-.bcd-card h2{font-size:16px;font-weight:700;margin:0 0 10px;color:#334155}
-.sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
-.site-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;text-decoration:none;color:#0f172a;display:block;transition:border-color .1s}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));gap:.875rem}
+.site-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;text-decoration:none;color:#0f172a;display:block;transition:border-color .1s}
 .site-card:hover{border-color:#3b82f6}
-.site-card h3{margin:0 0 .4em;font-size:1.1em;font-family:ui-monospace,Menlo,monospace}
+.site-card h3{margin:0 0 .4rem;font-size:1.2rem;font-family:ui-monospace,Menlo,monospace}
 .site-card h3 .badge{display:inline-block;background:#0f172a;color:#fff;font-size:.7em;padding:.1em .5em;border-radius:1em;vertical-align:middle;margin-left:.4em;font-family:inherit}
-.site-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2em .8em;font-size:.9em}
+.site-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem;font-size:.95rem}
 .site-card dt{color:#64748b}
 .site-card dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
 .muted{color:#94a3b8}
-.note{color:#64748b;font-size:.9em;line-height:1.6;margin-top:1em}
-.note code{background:#f1f5f9;padding:.1em .4em;border-radius:3px;font-size:.95em}
+.note{color:#64748b;font-size:.95rem;line-height:1.6;margin-top:1rem}
+.note code{background:#f1f5f9;padding:.1em .4em;border-radius:.2rem;font-size:.95em;font-family:ui-monospace,Menlo,monospace}
 </style>
 </head>
 <body>
 
-<h1>unmask · sites</h1>
+<header class="unmask-header">
+  <a href="/unmask/admin/" class="logo" title="unmask · admin top">
+    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M12 2 A 10 10 0 0 0 12 22 Z" fill="currentColor"/>
+    </svg>
+    unmask
+  </a>
+  <span class="crumb">/ sites</span>
+  <span class="spacer"></span>
+</header>
+
+<main class="unmask-main">
+
+<h1>sites</h1>
 <p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
 
 <div class="bcd-controls">
@@ -63,5 +85,6 @@ h1{font-size:1.5em;margin:0 0 .2em}
 として &lt;site-id&gt; に <code>[a-z0-9-]{1,32}</code> の任意 ID を入れる. 省略すると <code>default</code> 扱い.
 </p>
 
+</main>
 </body>
 </html>
