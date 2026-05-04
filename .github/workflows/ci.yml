@@ -1,0 +1,129 @@
+# CI: lint + test + admin binary build (multi-arch) + nginx module build (matrix)
+#
+# release: tag を push したら自動で nfpm で rpm/deb/apk をビルドして release に貼る
+# (= release.yml は別 file).
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------
+  # Go の lint / vet / test
+  # --------------------------------------------------------------------
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: admin/go.sum
+      - name: gofmt
+        working-directory: admin
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt issues:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go vet
+        working-directory: admin
+        run: go vet ./...
+      - name: go test
+        working-directory: admin
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: coverage report
+        working-directory: admin
+        run: go tool cover -func=coverage.out | tail -5
+
+  # --------------------------------------------------------------------
+  # admin binary (= cross compile linux/{amd64,arm64})
+  # --------------------------------------------------------------------
+  build-admin:
+    runs-on: ubuntu-latest
+    needs: go-test
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: admin/go.sum
+      - name: build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          cd admin && CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
+                     -o ../dist/unmask-admin-linux-${GOARCH} ./cmd/unmask-admin
+          file ../dist/unmask-admin-linux-${GOARCH}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unmask-admin-linux-${{ matrix.goarch }}
+          path: dist/unmask-admin-linux-${{ matrix.goarch }}
+          retention-days: 14
+
+  # --------------------------------------------------------------------
+  # ja4 module (matrix: nginx version × arch).  arm64 は qemu-user で代用しても
+  # OK だが、 module はソースから native build する必要があるので native runner
+  # に揃える方が確実.  GitHub Actions の linux/arm64 runner は ubuntu-22.04-arm
+  # (= 2024 後半 GA) で利用可能.
+  # --------------------------------------------------------------------
+  build-module:
+    needs: go-test
+    strategy:
+      fail-fast: false
+      matrix:
+        nginx: ["1.24.0", "1.26.2", "1.28.0"]
+        runner: [ubuntu-latest]
+        include:
+          - nginx: "1.26.2"
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libpcre2-dev zlib1g-dev
+      - name: download nginx source
+        run: |
+          curl -sSL "https://nginx.org/download/nginx-${{ matrix.nginx }}.tar.gz" -o nginx.tgz
+          tar -xzf nginx.tgz
+      - name: build module
+        run: |
+          cd nginx-${{ matrix.nginx }}
+          ./configure --with-compat --with-http_ssl_module \
+                      --add-dynamic-module=$GITHUB_WORKSPACE/ja4-module
+          make modules
+          ls -la objs/ngx_http_ja4_module.so
+      - name: rename + arch suffix
+        id: arch
+        run: |
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64)  goarch=amd64 ;;
+            aarch64) goarch=arm64 ;;
+            *)       goarch=$arch ;;
+          esac
+          mkdir -p dist
+          cp nginx-${{ matrix.nginx }}/objs/ngx_http_ja4_module.so \
+             dist/ngx_http_ja4_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
+          echo "goarch=${goarch}" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ngx-ja4-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
+          path: dist/*.so
+          retention-days: 14

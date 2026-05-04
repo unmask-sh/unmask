@@ -1,0 +1,134 @@
+# release: tag (v*) push で各 arch の admin binary, ja4 module, rpm/deb/apk
+# を artifact として release に貼る.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # release 作成用
+
+jobs:
+  # admin binary (linux/amd64, linux/arm64)
+  build-admin:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          cache-dependency-path: admin/go.sum
+      - name: build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          cd admin && CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" \
+                     -o ../dist/unmask-admin-linux-${GOARCH} ./cmd/unmask-admin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: admin-linux-${{ matrix.goarch }}
+          path: dist/
+
+  # ja4 module (linux/amd64, linux/arm64) for stable nginx
+  build-module:
+    strategy:
+      fail-fast: false
+      matrix:
+        nginx: ["1.24.0", "1.26.2", "1.28.0"]
+        runner: [ubuntu-latest]
+        include:
+          - nginx: "1.26.2"
+            runner: ubuntu-22.04-arm
+          - nginx: "1.28.0"
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libpcre2-dev zlib1g-dev
+      - run: |
+          curl -sSL "https://nginx.org/download/nginx-${{ matrix.nginx }}.tar.gz" -o nginx.tgz
+          tar -xzf nginx.tgz
+          cd nginx-${{ matrix.nginx }}
+          ./configure --with-compat --with-http_ssl_module \
+                      --add-dynamic-module=$GITHUB_WORKSPACE/ja4-module
+          make modules
+      - id: arch
+        run: |
+          arch=$(uname -m)
+          case "$arch" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; *) goarch=$arch ;; esac
+          mkdir -p dist
+          cp nginx-${{ matrix.nginx }}/objs/ngx_http_ja4_module.so \
+             dist/ngx_http_ja4_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
+          echo "goarch=${goarch}" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: module-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
+          path: dist/
+
+  # nfpm rpm / deb / apk
+  package:
+    needs: [build-admin, build-module]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        format: [rpm, deb, apk]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: stage release tree
+        run: |
+          mkdir -p dist
+          # admin
+          cp artifacts/admin-linux-${{ matrix.arch }}/unmask-admin-linux-${{ matrix.arch }} dist/
+          # module: nginx 1.26.2 を default に rename して同梱
+          cp artifacts/module-nginx1.26.2-${{ matrix.arch }}/ngx_http_ja4_module-nginx1.26.2-linux-${{ matrix.arch }}.so \
+             dist/ngx_http_ja4_module-linux-${{ matrix.arch }}.so
+          ls -la dist/
+      - name: install nfpm
+        run: |
+          curl -sSL https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz \
+            | tar -xz -C /usr/local/bin nfpm
+      - name: build package
+        env:
+          UNMASK_VERSION: ${{ github.ref_name }}
+        run: |
+          # nfpm.yaml の arch を override
+          version=${UNMASK_VERSION#v}
+          cd rpm
+          UNMASK_VERSION=$version nfpm pkg --packager ${{ matrix.format }} \
+            --target ../dist \
+            -f <(sed "s/^arch: .*/arch: ${{ matrix.arch }}/" nfpm.yaml)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ matrix.format }}-${{ matrix.arch }}
+          path: dist/*.${{ matrix.format }}
+
+  # まとめて GitHub Release に貼る
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: flatten
+        run: |
+          mkdir -p dist
+          find artifacts -type f \( -name "unmask-admin-*" -o -name "*.so" -o -name "*.rpm" -o -name "*.deb" -o -name "*.apk" \) -exec cp {} dist/ \;
+          ls -la dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
