@@ -576,12 +576,23 @@ const dailyKind = {{.DailyKindJSON}};
 
   c.addEventListener('mousemove', function(e){
     const rect = c.getBoundingClientRect();
+    // canvas は responsive で resize し得るので毎回 clientWidth を読む.
+    const curW = c.clientWidth || W;
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    // chart 領域外なら hide
-    if (mx < padL || mx > W - padR || my < padT || my > padT + h) { hide(); return; }
+    // chart 描画領域外なら hide
+    if (mx < padL || mx > curW - padR || my < padT || my > padT + h) { hide(); return; }
     const idx = Math.floor((mx - padL) / colW);
     if (idx < 0 || idx >= dates.length) { hide(); return; }
+    // 実 bar の x 範囲: padL + idx*colW + barOffset .. + barW
+    // この範囲外 (= 列の余白) では popover を出さない (= 1 day data のとき
+    // 全幅 colW で常時 idx=0 になり「グラフ外でも popover が出る」 を防ぐ).
+    const barLeft  = padL + idx * colW + barOffset;
+    const barRight = barLeft + barW;
+    // 列スパンに対してある程度の許容幅 (= 16px) 内なら表示してよい
+    // (= chart.js の interaction='nearest' 風. ただし列をまたいで広がりすぎない).
+    const tol = 16;
+    if (mx < barLeft - tol || mx > barRight + tol) { hide(); return; }
     const date = dates[idx];
 
     // popover content
@@ -615,11 +626,11 @@ const dailyKind = {{.DailyKindJSON}};
     pop.style.left = leftPx + 'px';
     pop.style.top  = topPx + 'px';
 
-    // ハイライト bar (= 当該 date 列を半透明)
+    // ハイライト bar (= 実 bar 幅 + 余白少しで)
     hi.style.display = 'block';
-    hi.style.left = barX + 'px';
+    hi.style.left = (barLeft - 4) + 'px';
     hi.style.top  = padT + 'px';
-    hi.style.width  = Math.max(2, colW) + 'px';
+    hi.style.width  = (barW + 8) + 'px';
     hi.style.height = h + 'px';
   });
   c.addEventListener('mouseleave', hide);
