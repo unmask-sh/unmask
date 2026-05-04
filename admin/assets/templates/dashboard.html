@@ -425,8 +425,9 @@ document.addEventListener('DOMContentLoaded', function(){
         return s === '' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
-    // 0 件 row が無い / 全部 0 件 のときは toggle 不要.
-    if (zeroRows.length === 0 || zeroRows.length === rows.length) {
+    // 0 件 row が 0 個のとき (= toggle で操作する対象が無い) は toggle 不要.
+    // 全行が 0 件のときも toggle は出す (= user が「0 件を隠す」 と言ったら全行隠れる).
+    if (zeroRows.length === 0) {
       tbl.classList.add('bcd-ready');
       return;
     }
