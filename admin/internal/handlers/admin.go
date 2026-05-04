@@ -139,21 +139,22 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	cookieFails, _ := dashboard.CookieSetFails(ctx, h.DB, site, hours)
 	stealth, _ := dashboard.StealthPassed(ctx, h.DB, site, hours)
 	jsErrs, _ := dashboard.JSErrors(ctx, h.DB, site, hours)
-	series, _ := dashboard.DailySeries(ctx, h.DB, 30) // chart は常に 30 日 (= site 別 chart は別途 query)
+	// 30 日推移は本家相当: phase='serve' を is_bot kind 別に stacked bar で出す.
+	dailyKind, dailyTotal, err := dashboard.DailyServeByKind(ctx, h.DB, site, 30)
+	if err != nil {
+		log.Printf("daily serve by kind: %v", err)
+	}
 
-	type seriesPt struct {
-		Date     string `json:"date"`
-		Serve    int    `json:"serve"`
-		Load     int    `json:"load"`
-		PoW      int    `json:"pow"`
-		Captcha  int    `json:"captcha"`
-		VerifyOK int    `json:"verify_ok"`
+	type kindPt struct {
+		Date string `json:"date"`
+		Kind int    `json:"kind"`
+		Req  int    `json:"req"`
 	}
-	pts := make([]seriesPt, 0, len(series))
-	for _, b := range series {
-		pts = append(pts, seriesPt{b.Date, b.Serve, b.Load, b.PoW, b.Captcha, b.VerifyOK})
+	kindPts := make([]kindPt, 0, len(dailyKind))
+	for _, b := range dailyKind {
+		kindPts = append(kindPts, kindPt{b.Date, b.Kind, b.Req})
 	}
-	seriesJSON, _ := json.Marshal(pts)
+	dailyKindJSON, _ := json.Marshal(kindPts)
 
 	now := time.Now()
 	rangeText := fmt.Sprintf("直近 %s (%s〜)",
@@ -173,8 +174,9 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"VerifyNG":    verifyNG,
 		"CookieFails": cookieFails,
 		"Stealth":     stealth,
-		"JSErrors":    jsErrs,
-		"SeriesJSON":  template.JS(seriesJSON),
+		"JSErrors":      jsErrs,
+		"DailyKindJSON": template.JS(dailyKindJSON),
+		"DailyTotal":    dailyTotal,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {

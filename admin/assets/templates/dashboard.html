@@ -333,10 +333,23 @@ dl.flow dd{margin:0;color:#334155}
   </table>
 </div>
 
-<!-- 10) 30 日推移 -->
+<!-- 10) 30 日推移 (= 本家相当: phase=serve を is_bot kind 別 stacked bar) -->
 <div class="bcd-card">
-  <h2>30 日推移 (= challenge phase 別件数)</h2>
-  <canvas id="chart" height="320"></canvas>
+  <h2>bot-challenge 30 日推移 <span class="src">🗄 phase=serve を classify.IsBot で分類</span></h2>
+  <canvas id="chart" height="280"></canvas>
+  <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+  {{if .DailyTotal}}
+  <table class="bcd-table" style="margin-top:.8rem">
+    <thead><tr><th>日付</th><th class="bcd-num">request</th><th class="bcd-num">uniq IP</th></tr></thead>
+    <tbody>
+      {{range .DailyTotal}}
+      <tr><td>{{.Date}}</td><td class="bcd-num">{{.Req}}</td><td class="bcd-num">{{.UniqIPs}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="muted" style="font-size:.9rem">データなし (= 直近 30 日で phase=serve なし)</p>
+  {{end}}
 </div>
 
 <!-- 11) JS error -->
@@ -447,49 +460,95 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 });
 
-// 30 日 chart (= 純 canvas, 外部 dep なし)
-const series = {{.SeriesJSON}};
+// 30 日 stacked bar chart (= 本家 _build_serve_30d 相当, 純 canvas で実装).
+// data: [{date, kind, req}, ...].  kind = classify.Category 値 (0/1/2/4/5/6) + 99(rate_limit).
+const dailyKind = {{.DailyKindJSON}};
 (function(){
   const c = document.getElementById('chart');
   if (!c) return;
   const ctx = c.getContext('2d');
-  const W = c.width = c.clientWidth, H = c.height = 320;
-  if (!series.length){ ctx.fillStyle='#94a3b8'; ctx.fillText('no data', 20, 40); return; }
-  const fields = ['serve','load','pow','captcha','verify_ok'];
-  const colors = ['#64748b','#3b82f6','#f59e0b','#ef4444','#10b981'];
-  let max = 1;
-  series.forEach(d => fields.forEach(f => { if (d[f] > max) max = d[f]; }));
-  const padL = 50, padR = 10, padT = 16, padB = 36;
+  const KIND_LABEL = {0:'human', 1:'search/AI/ads', 2:'ja4_bot', 4:'old_ua', 5:'service', 6:'user_dev', 99:'rate_limit'};
+  const KIND_COLOR = {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'};
+
+  // pixel ratio 対応: device pixel に合わせて draw.
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = 280;
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  if (!dailyKind || !dailyKind.length){
+    ctx.fillStyle='#94a3b8'; ctx.font='13px sans-serif';
+    ctx.fillText('no data (= phase=serve が直近 30 日でゼロ)', 20, 40);
+    return;
+  }
+
+  // 集計: date 軸 + kind 軸でマップ化
+  const dateSet = new Set();
+  const kindSet = new Set();
+  const data = {}; // data[kind][date] = req
+  dailyKind.forEach(r => {
+    dateSet.add(r.date);
+    kindSet.add(r.kind);
+    if (!data[r.kind]) data[r.kind] = {};
+    data[r.kind][r.date] = r.req;
+  });
+  const dates = Array.from(dateSet).sort();
+  const kinds = Array.from(kindSet).sort((a,b) => a-b);
+
+  // 各 date の合計でスケール決定
+  const dateTotals = dates.map(d => kinds.reduce((s,k) => s + ((data[k]&&data[k][d])||0), 0));
+  let max = Math.max(1, ...dateTotals);
+
+  const padL = 56, padR = 16, padT = 16, padB = 44;
   const w = W - padL - padR, h = H - padT - padB;
+  const barW = Math.max(2, Math.floor(w / Math.max(1, dates.length)) - 2);
+
+  // y 軸 grid + ラベル
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+  ctx.font='11px sans-serif'; ctx.fillStyle='#94a3b8';
   for (let i=0;i<=4;i++){
     const y = padT + h*i/4;
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
-    ctx.fillStyle='#94a3b8'; ctx.font='11px sans-serif';
-    ctx.fillText(Math.round(max*(1-i/4)), 6, y+3);
+    ctx.fillText(Math.round(max*(1-i/4)).toLocaleString(), 8, y+3);
   }
+
+  // x 軸ラベル (= 約 8 本おき)
+  const labelEvery = Math.max(1, Math.floor(dates.length/10));
   ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif';
-  series.forEach((d,i)=>{
-    if (i % Math.max(1, Math.floor(series.length/8)) === 0){
-      const x = padL + w*i/Math.max(1,series.length-1);
-      ctx.fillText(d.date.slice(5), x-12, H-12);
-    }
+  dates.forEach((d,i) => {
+    if (i % labelEvery !== 0 && i !== dates.length-1) return;
+    const x = padL + (i + 0.5) * (w / dates.length);
+    ctx.save();
+    ctx.translate(x, H - padB + 4);
+    ctx.rotate(-Math.PI/4);
+    ctx.fillText(d.slice(5), 0, 0);
+    ctx.restore();
   });
-  fields.forEach((f, fi)=>{
-    ctx.strokeStyle = colors[fi]; ctx.lineWidth = 2; ctx.beginPath();
-    series.forEach((d,i)=>{
-      const x = padL + w*i/Math.max(1,series.length-1);
-      const y = padT + h*(1 - (d[f]||0)/max);
-      if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+
+  // stacked bar
+  dates.forEach((d, i) => {
+    const x = padL + (i * w / dates.length) + 1;
+    let yCursor = padT + h; // 下端から積み上げ
+    kinds.forEach(k => {
+      const v = (data[k]&&data[k][d]) || 0;
+      if (v <= 0) return;
+      const segH = (v / max) * h;
+      ctx.fillStyle = KIND_COLOR[k] || '#94a3b8';
+      ctx.fillRect(x, yCursor - segH, barW, segH);
+      yCursor -= segH;
     });
-    ctx.stroke();
   });
-  ctx.font='11px sans-serif';
-  fields.forEach((f, fi)=>{
-    const x = padL + fi*100;
-    ctx.fillStyle = colors[fi]; ctx.fillRect(x, 4, 12, 6);
-    ctx.fillStyle = '#334155'; ctx.fillText(f, x+16, 11);
-  });
+
+  // legend (= HTML 側にも書き出す)
+  const legendEl = document.getElementById('chart-legend');
+  if (legendEl) {
+    legendEl.innerHTML = kinds.map(k =>
+      '<span style="display:inline-block;width:.7rem;height:.7rem;background:' +
+      (KIND_COLOR[k]||'#94a3b8') + ';margin-right:.3rem;border-radius:.15rem;vertical-align:middle"></span>' +
+      'kind=' + k + ' ' + (KIND_LABEL[k] || '?')
+    ).join('&nbsp;&nbsp;');
+  }
 })();
 </script>
 

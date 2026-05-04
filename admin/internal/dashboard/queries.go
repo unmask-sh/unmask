@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
 
@@ -759,6 +760,128 @@ type DailyBucket struct {
 	Captcha  int
 	VerifyOK int
 }
+
+// is_bot kind: classify.Category と同値 (= 0/1/2/4/5/6) + 99 = rate_limit (= 100r/min 超過).
+const KindRateLimit = 99
+
+// DailyKindBucket: 日付 × is_bot kind 別の req 数.  本家 _build_serve_30d と同じ集計軸.
+type DailyKindBucket struct {
+	Date string
+	Kind int
+	Req  int
+}
+
+// DailyTotal: 日別合計 (req + uniq IP).
+type DailyTotal struct {
+	Date    string
+	Req     int
+	UniqIPs int
+}
+
+// DailyServeByKind: phase='serve' を date × ip × verdict × ua × rl で集計し、
+// 各行を classify.IsBot で分類して date × kind 別 req 数を返す.
+// 同時に日別合計 + uniq IP も返す.  本家 BotChallengeDebug._build_serve_30d 相当.
+//
+// 戻り値:
+//   - daily: stacked bar 用の (date, kind, req) リスト
+//   - total: 日別 req + uniq IP リスト
+func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]DailyKindBucket, []DailyTotal, error) {
+	since := d.NowMinusMinutes(days * 24 * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	stmt := fmt.Sprintf(`
+        SELECT DATE(date_created) AS d,
+               ip_address,
+               COALESCE(ja4_verdict, '') AS verdict,
+               COALESCE(user_agent, '') AS ua,
+               CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END AS is_rl,
+               COUNT(*) AS n
+        FROM unmask_event
+        WHERE phase='serve' AND date_created > %s%s
+        GROUP BY DATE(date_created), ip_address, ja4_verdict, user_agent, is_rl
+        ORDER BY d`, jsonRL, since, siteCond(site))
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	type dkKey struct {
+		date string
+		kind int
+	}
+	byDateKind := map[dkKey]int{}
+	type totalAcc struct {
+		req      int
+		uniqIPs  map[string]bool
+	}
+	byTotal := map[string]*totalAcc{}
+	dateSeen := map[string]bool{}
+
+	for rows.Next() {
+		var dRaw any
+		var ipPacked []byte
+		var verdict, ua string
+		var isRL int
+		var n int
+		if err := rows.Scan(&dRaw, &ipPacked, &verdict, &ua, &isRL, &n); err != nil {
+			return nil, nil, err
+		}
+		date := scalarString(dRaw)
+		dateSeen[date] = true
+
+		var kind int
+		if isRL == 1 {
+			kind = KindRateLimit
+		} else {
+			kind = int(classify.IsBot(ua, verdict))
+		}
+		byDateKind[dkKey{date, kind}] += n
+
+		ipKey := string(ipPacked)
+		t, ok := byTotal[date]
+		if !ok {
+			t = &totalAcc{uniqIPs: map[string]bool{}}
+			byTotal[date] = t
+		}
+		t.req += n
+		t.uniqIPs[ipKey] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	// daily: sort by date asc, kind asc
+	dailyKeys := make([]dkKey, 0, len(byDateKind))
+	for k := range byDateKind {
+		dailyKeys = append(dailyKeys, k)
+	}
+	sort.Slice(dailyKeys, func(i, j int) bool {
+		if dailyKeys[i].date != dailyKeys[j].date {
+			return dailyKeys[i].date < dailyKeys[j].date
+		}
+		return dailyKeys[i].kind < dailyKeys[j].kind
+	})
+	daily := make([]DailyKindBucket, 0, len(dailyKeys))
+	for _, k := range dailyKeys {
+		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
+	}
+
+	// total: sort by date asc
+	totalKeys := make([]string, 0, len(byTotal))
+	for k := range byTotal {
+		totalKeys = append(totalKeys, k)
+	}
+	sort.Strings(totalKeys)
+	totals := make([]DailyTotal, 0, len(totalKeys))
+	for _, date := range totalKeys {
+		t := byTotal[date]
+		totals = append(totals, DailyTotal{Date: date, Req: t.req, UniqIPs: len(t.uniqIPs)})
+	}
+
+	return daily, totals, nil
+}
+
+// ---- legacy: phase 別 daily series (= 既存 chart 用. 段階廃止予定) ----
 
 func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error) {
 	stmt := fmt.Sprintf(`
