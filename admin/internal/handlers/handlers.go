@@ -117,20 +117,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
 		// 原 path (= rate-limit ヒット時の原 URL):
-		// 優先順:
-		//   1. ?_orig=<uri> (= named location @unmask_rate_challenge が rewrite で
-		//      クエリに乗せる. proxy_set_header 不要で運用簡素化)
-		//   2. X-Original-URI ヘッダ (= 古い nginx config 互換用 fallback)
-		//   3. Referer (= ブラウザが送ってくれば最後の頼り)
-		origURI := r.URL.Query().Get("_orig")
-		if origURI == "" {
-			origURI = r.Header.Get("X-Original-URI")
-		}
-		if origURI == "" {
-			origURI = r.Header.Get("Referer")
-		}
-		// query string 除去 + ?_rl=1 のような unmask 内部 query を捨てる
-		origPath := stripQuery(origURI)
+		// nginx の named location @unmask_rate_challenge が rewrite で
+		// `?_orig=$uri` を乗せる. ここから読むだけ.
+		origPath := stripQuery(r.URL.Query().Get("_orig"))
 		payload := map[string]any{
 			"hit": hitInt, "rl": rlInt, "test": testInt,
 		}
@@ -382,21 +371,14 @@ func readCookieMax(r *http.Request, name string, maxlen int) string {
 	return v
 }
 
-// stripQuery returns the path portion of a URL/URI (= drops `?...` and `#...`).
+// stripQuery: ?_orig=<uri> から取り出した値の query string と fragment を削る.
+// ($uri は path だけだが念のため安全策.  上限 200 文字.)
 func stripQuery(s string) string {
 	if i := strings.IndexByte(s, '?'); i >= 0 {
 		s = s[:i]
 	}
 	if i := strings.IndexByte(s, '#'); i >= 0 {
 		s = s[:i]
-	}
-	// Referer の場合 protocol+host も含むので、 path だけに削る.
-	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
-		// 3 個目の "/" 以降が path
-		idx := strings.IndexByte(s[8:], '/')
-		if idx >= 0 {
-			s = s[8+idx:]
-		}
 	}
 	if len(s) > 200 {
 		s = s[:200]
