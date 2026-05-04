@@ -141,28 +141,26 @@ func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
 	}
 	rows3.Close()
 
-	// D) verdict 一覧 = fixed list + DB に出てきた未知 verdict
+	// D) verdict 一覧 = fixed list 順 + DB に出てきた未知 verdict (= 末尾に名前順で追加).
+	// 本家と同じく fixedVerdicts の declaration order を維持する.
 	seen := map[string]bool{}
-	for _, v := range fixedVerdicts {
+	order := append([]string{}, fixedVerdicts...)
+	for _, v := range order {
 		seen[v] = true
 	}
+	var unknown []string
 	for k := range byVP {
 		if !seen[k.verdict] {
 			seen[k.verdict] = true
-			fixedVerdicts = append(fixedVerdicts, k.verdict)
+			unknown = append(unknown, k.verdict)
 		}
 	}
-
-	// row 構築
-	fixedNoExt := make([]string, 0, len(seen))
-	for v := range seen {
-		fixedNoExt = append(fixedNoExt, v)
-	}
-	sort.Strings(fixedNoExt)
+	sort.Strings(unknown)
+	order = append(order, unknown...)
 
 	var out []FunnelRow
 	total := FunnelRow{Verdict: "TOTAL"}
-	for _, v := range fixedNoExt {
+	for _, v := range order {
 		row := FunnelRow{
 			Verdict:   v,
 			Serve:     byVP[vp{v, "serve"}],
@@ -288,6 +286,20 @@ func VerdictDistribution(ctx context.Context, d *db.DB, hours int) ([]VerdictCou
 		return nil, err
 	}
 	all := append([]string{}, fixedVerdicts...)
+	seen := map[string]bool{}
+	for _, v := range all {
+		seen[v] = true
+	}
+	// DB に出ている未知 verdict も末尾に追加 (= 0 件項目原則は維持しつつ unknown もカバー).
+	var unknown []string
+	for v := range by {
+		if !seen[v] {
+			unknown = append(unknown, v)
+		}
+	}
+	sort.Strings(unknown)
+	all = append(all, unknown...)
+
 	out := make([]VerdictCount, 0, len(all))
 	for _, v := range all {
 		if r, ok := by[v]; ok {
@@ -296,11 +308,12 @@ func VerdictDistribution(ctx context.Context, d *db.DB, hours int) ([]VerdictCou
 			out = append(out, VerdictCount{Verdict: v})
 		}
 	}
+	// 件数 desc → verdict alpha の sort. ただし 0 件は declaration 順で末尾に流れる.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
-		return out[i].Verdict < out[j].Verdict
+		return false
 	})
 	return out, nil
 }

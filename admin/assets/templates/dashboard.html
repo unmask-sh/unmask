@@ -29,8 +29,9 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-.bcd-zero-row{display:none}
-.bcd-zero-row.expanded{display:table-row}
+/* 0 件 row 折りたたみ. デフォルト = 表示 (= 0 件もカバレッジ確認のため見せる).
+   .bcd-zero-collapsed クラスが付いた時だけ hide する. user が toggle で切替. */
+.bcd-zero-collapsed .bcd-zero-row{display:none}
 .bcd-zero-toggle{font-size:11px;color:#64748b;cursor:pointer;padding:6px 0 0;user-select:none}
 .bcd-zero-toggle:hover{color:#0f172a;text-decoration:underline}
 .bcd-card .bcd-table{visibility:hidden}
@@ -354,7 +355,9 @@ dl.flow dd{margin:0;color:#334155}
 </div>
 
 <script>
-// 0 件 row 折りたたみ.
+// 0 件 row 折りたたみ — 設計原則:
+//   default = 表示 (= 0 件もカバレッジ確認のため見せる).
+//   toggle で「隠す ⇄ 表示」 切替. 1 行でも 0 があれば toggle を出す.
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
@@ -366,19 +369,22 @@ document.addEventListener('DOMContentLoaded', function(){
         return s === '' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
-    if (zeroRows.length >= 3) {
-      zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
-      var toggle = document.createElement('div');
-      toggle.className = 'bcd-zero-toggle';
-      toggle.textContent = '▼ 0 件 ' + zeroRows.length + ' 行を表示';
-      var expanded = false;
-      toggle.addEventListener('click', function(){
-        expanded = !expanded;
-        zeroRows.forEach(function(tr){ tr.classList.toggle('expanded', expanded); });
-        toggle.textContent = (expanded ? '▲ 0 件 ' : '▼ 0 件 ') + zeroRows.length + ' 行を' + (expanded ? '隠す' : '表示');
-      });
-      tbl.parentNode.insertBefore(toggle, tbl.nextSibling);
+    // 全 row が 0 / 0 行 0 件のときは toggle 不要.
+    if (zeroRows.length === 0 || zeroRows.length === rows.length) {
+      tbl.classList.add('bcd-ready');
+      return;
     }
+    zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
+    // tbl の親 .bcd-card に collapse 状態を付ける. default は collapsed しない.
+    var card = tbl.closest('.bcd-card') || tbl.parentNode;
+    var toggle = document.createElement('div');
+    toggle.className = 'bcd-zero-toggle';
+    toggle.textContent = '▲ 0 件 ' + zeroRows.length + ' 行を隠す';
+    toggle.addEventListener('click', function(){
+      var collapsed = card.classList.toggle('bcd-zero-collapsed');
+      toggle.textContent = (collapsed ? '▼ 0 件 ' : '▲ 0 件 ') + zeroRows.length + ' 行を' + (collapsed ? '表示' : '隠す');
+    });
+    tbl.parentNode.insertBefore(toggle, tbl.nextSibling);
     tbl.classList.add('bcd-ready');
   });
 });
