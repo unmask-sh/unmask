@@ -28,6 +28,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-table th,.bcd-table td{padding:.3rem .65rem;text-align:left;border-bottom:1px solid #f1f5f9;vertical-align:top}
 .bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:.85rem}
 .bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* .bcd-id: visual は bcd-num と同じだが「ID/ラベル」 列で
+   集計値ではない. 0 件判定 (= bcd-zero-row 判定) から除外する. */
+.bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.875rem}
 .bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
 tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
@@ -173,7 +176,7 @@ dl.flow dd{margin:0;color:#334155}
       <tbody>
         {{range .FlagsRows}}
         <tr>
-          <td class="bcd-num">{{.Flags}}</td>
+          <td class="bcd-id">{{.Flags}}</td>
           <td class="bcd-flagbits">{{.Bin}}</td>
           <td class="bcd-num">{{.Count}}</td>
           <td class="bcd-num">{{.UniqIP}}</td>
