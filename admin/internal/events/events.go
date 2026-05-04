@@ -53,6 +53,7 @@ func PackIP(s string) []byte {
 }
 
 type Event struct {
+	Site        string // "" → "default" として INSERT
 	IPPacked    []byte
 	UserAgent   string
 	JA4         string
@@ -89,12 +90,17 @@ func Insert(ctx context.Context, d *db.DB, e *Event) error {
 		}
 	}
 
+	site := e.Site
+	if site == "" {
+		site = "default"
+	}
+
 	const stmt = `INSERT INTO unmask_event
-        (ip_address, user_agent, ja4, ja4_verdict, phase, flags, reload_count,
+        (site, ip_address, user_agent, ja4, ja4_verdict, phase, flags, reload_count,
          cookie_bv, cookie_br, payload_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	_, err := d.ExecContext(ctx, stmt,
-		e.IPPacked, sqlStr(ua), ja4, verdict, e.Phase,
+		site, e.IPPacked, sqlStr(ua), ja4, verdict, e.Phase,
 		e.Flags, e.ReloadCount, cookieBV, cookieBR, payloadText,
 	)
 	if err != nil {

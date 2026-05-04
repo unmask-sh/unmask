@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS unmask_event (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    site            VARCHAR(64) NOT NULL DEFAULT 'default',
     ip_address      VARBINARY(16) NOT NULL,
     user_agent      VARCHAR(255),
     ja4             VARCHAR(40),
@@ -18,7 +19,8 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     KEY idx_date     (date_created),
     KEY idx_ip_date  (ip_address, date_created),
     KEY idx_phase    (phase, date_created),
-    KEY idx_verdict  (ja4_verdict, date_created)
+    KEY idx_verdict  (ja4_verdict, date_created),
+    KEY idx_site     (site, date_created)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS unmask_aggregate (

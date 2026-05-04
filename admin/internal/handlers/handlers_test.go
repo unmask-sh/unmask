@@ -31,6 +31,7 @@ func newTestHandler(t *testing.T) *Handler {
 	const schema = `
         CREATE TABLE unmask_event (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            site VARCHAR(64) NOT NULL DEFAULT 'default',
             ip_address BLOB NOT NULL,
             user_agent VARCHAR(255),
             ja4 VARCHAR(40),
@@ -43,6 +44,7 @@ func newTestHandler(t *testing.T) *Handler {
             payload_json TEXT,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX idx_e_phase ON unmask_event(phase, date_created);
+        CREATE INDEX idx_e_site ON unmask_event(site, date_created);
     `
 	for _, stmt := range strings.Split(schema, ";") {
 		if strings.TrimSpace(stmt) == "" {

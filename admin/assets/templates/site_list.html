@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>unmask · sites</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f1f5f9;color:#0f172a;font-size:13px}
+h1{font-size:1.4em;margin:0 0 .2em}
+.meta{color:#64748b;font-size:.82em;margin-bottom:1em}
+.bcd-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.bcd-controls a{padding:.3em .9em;border:1px solid #cbd5e1;border-radius:4px;text-decoration:none;color:#334155;background:#fff}
+.bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;margin-bottom:16px}
+.bcd-card h2{font-size:14px;font-weight:700;margin:0 0 10px;color:#334155}
+.sites{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.site-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;text-decoration:none;color:#0f172a;display:block;transition:border-color .1s}
+.site-card:hover{border-color:#3b82f6}
+.site-card h3{margin:0 0 .4em;font-size:1.05em;font-family:ui-monospace,Menlo,monospace}
+.site-card h3 .badge{display:inline-block;background:#0f172a;color:#fff;font-size:.65em;padding:.1em .5em;border-radius:1em;vertical-align:middle;margin-left:.4em;font-family:inherit}
+.site-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2em .8em;font-size:.85em}
+.site-card dt{color:#64748b}
+.site-card dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
+.muted{color:#94a3b8}
+.note{color:#64748b;font-size:.85em;line-height:1.6;margin-top:1em}
+.note code{background:#f1f5f9;padding:.1em .4em;border-radius:3px;font-size:.95em}
+</style>
+</head>
+<body>
+
+<h1>unmask · sites</h1>
+<p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
+
+<div class="bcd-controls">
+  <span style="color:#64748b">集計期間:</span>
+  <a href="?range=24h" {{if eq .Range "24h"}}class="active"{{end}}>24h</a>
+  <a href="?range=7d"  {{if eq .Range "7d" }}class="active"{{end}}>7d</a>
+  <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>30d</a>
+</div>
+
+<div class="sites">
+  {{range .Sites}}
+  <a class="site-card" href="{{.Site}}/?range={{$.Range}}">
+    <h3>
+      {{.Site}}
+      {{if eq .Site "default"}}<span class="badge">default</span>{{end}}
+    </h3>
+    <dl>
+      <dt>events (total)</dt><dd>{{.Events}}</dd>
+      <dt>serve</dt><dd>{{.Serve}}</dd>
+      <dt>verify_ok</dt><dd>{{.Verify}}</dd>
+      <dt>uniq IP</dt><dd>{{.UniqIP}}</dd>
+      <dt>last seen</dt><dd>{{if .LastSeen}}{{.LastSeen}}{{else}}<span class="muted">(none)</span>{{end}}</dd>
+    </dl>
+  </a>
+  {{end}}
+</div>
+
+<p class="note">
+新しい site を有効にするには nginx config で:<br>
+<code>if ($final_challenge = 1) { rewrite ^ /unmask/challenge/&lt;site-id&gt;/ last; }</code><br>
+として &lt;site-id&gt; に <code>[a-z0-9-]{1,32}</code> の任意 ID を入れる. 省略すると <code>default</code> 扱い.
+</p>
+
+</body>
+</html>

@@ -53,7 +53,11 @@ dl.flow dd{margin:0;color:#334155}
 </head>
 <body>
 
-<h1>unmask · bot challenge debug</h1>
+<h1>
+  unmask · bot challenge debug
+  <span style="font-size:.65em;color:#64748b">site = <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  <a href="../" style="font-size:.55em;color:#3b82f6;text-decoration:none;margin-left:.6em">← sites</a>
+</h1>
 <p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
 
 <div class="bcd-controls">
@@ -471,7 +475,7 @@ const series = {{.SeriesJSON}};
       if (cache.has(ip)){ show(fmt(cache.get(ip)), x, y); return; }
       timer = setTimeout(() => {
         show('looking up ' + ip + '…', x, y);
-        fetch('api/myip?ip=' + encodeURIComponent(ip))
+        fetch('../api/myip?ip=' + encodeURIComponent(ip))
           .then(r => r.json())
           .then(d => { cache.set(ip, d); show(fmt(d), x, y); })
           .catch(() => show('lookup failed', x, y));

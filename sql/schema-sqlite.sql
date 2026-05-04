@@ -14,6 +14,7 @@
 -- SQLite は BLOB で受ける. MariaDB 側は VARBINARY(16).
 CREATE TABLE IF NOT EXISTS unmask_event (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    site            VARCHAR(64) NOT NULL DEFAULT 'default',
     ip_address      BLOB NOT NULL,
     user_agent      VARCHAR(255),
     ja4             VARCHAR(40),
@@ -31,6 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_unmask_event_date     ON unmask_event(date_create
 CREATE INDEX IF NOT EXISTS idx_unmask_event_ip_date  ON unmask_event(ip_address, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_phase    ON unmask_event(phase, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_verdict  ON unmask_event(ja4_verdict, date_created);
+CREATE INDEX IF NOT EXISTS idx_unmask_event_site     ON unmask_event(site, date_created);
 
 -- unmask_aggregate: 日次集計の cache. dashboard を毎回 full scan させないため.
 -- unmask-cli aggregate コマンドで前日分以前を埋める.

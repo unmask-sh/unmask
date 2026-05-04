@@ -66,8 +66,48 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// AdminDashboard: GET {base}/admin/
+// AdminSiteList: GET {base}/admin/  — 観測された site の一覧.
+func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := loadDashboardTemplate()
+	if err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	rng := r.URL.Query().Get("range")
+	if rng != "7d" && rng != "30d" {
+		rng = "24h"
+	}
+	hours := dashboard.RangeHours(rng)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sites, err := dashboard.Sites(ctx, h.DB, hours)
+	if err != nil {
+		log.Printf("sites: %v", err)
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	now := time.Now()
+	rangeText := fmt.Sprintf("直近 %s (%s〜)",
+		rng, now.Add(-time.Duration(hours)*time.Hour).Format("2006-01-02 15:04"))
+	data := map[string]any{
+		"Range":     rng,
+		"RangeText": rangeText,
+		"Driver":    string(h.DB.Driver),
+		"Sites":     sites,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := tmpl.ExecuteTemplate(w, "site_list.html", data); err != nil {
+		log.Printf("site list render: %v", err)
+	}
+}
+
+// AdminDashboard: GET {base}/admin/{site}/  — site 別 dashboard.
 func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
+	site, ok := pickSite(r)
+	if !ok {
+		http.Error(w, "invalid site id", http.StatusBadRequest)
+		return
+	}
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
 		log.Printf("dashboard tmpl load: %v", err)
@@ -84,22 +124,22 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
-	funnel, err := dashboard.Funnel(ctx, h.DB, hours)
+	funnel, err := dashboard.Funnel(ctx, h.DB, site, hours)
 	if err != nil {
 		log.Printf("funnel: %v", err)
 		http.Error(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	cookieRows, _ := dashboard.CookieStatus(ctx, h.DB, hours)
-	flagsRows, _ := dashboard.FlagsDistribution(ctx, h.DB, hours)
-	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, hours)
-	hitRows, _ := dashboard.JA4HitBreakdown(ctx, h.DB, hours)
-	loopRows, _ := dashboard.ReloadLoops(ctx, h.DB, hours)
-	verifyNG, _ := dashboard.VerifyNGRanking(ctx, h.DB, hours, 30)
-	cookieFails, _ := dashboard.CookieSetFails(ctx, h.DB, hours)
-	stealth, _ := dashboard.StealthPassed(ctx, h.DB, hours)
-	jsErrs, _ := dashboard.JSErrors(ctx, h.DB, hours)
-	series, _ := dashboard.DailySeries(ctx, h.DB, 30) // chart は常に 30 日
+	cookieRows, _ := dashboard.CookieStatus(ctx, h.DB, site, hours)
+	flagsRows, _ := dashboard.FlagsDistribution(ctx, h.DB, site, hours)
+	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, site, hours)
+	hitRows, _ := dashboard.JA4HitBreakdown(ctx, h.DB, site, hours)
+	loopRows, _ := dashboard.ReloadLoops(ctx, h.DB, site, hours)
+	verifyNG, _ := dashboard.VerifyNGRanking(ctx, h.DB, site, hours, 30)
+	cookieFails, _ := dashboard.CookieSetFails(ctx, h.DB, site, hours)
+	stealth, _ := dashboard.StealthPassed(ctx, h.DB, site, hours)
+	jsErrs, _ := dashboard.JSErrors(ctx, h.DB, site, hours)
+	series, _ := dashboard.DailySeries(ctx, h.DB, 30) // chart は常に 30 日 (= site 別 chart は別途 query)
 
 	type seriesPt struct {
 		Date     string `json:"date"`
@@ -120,6 +160,7 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		rng, now.Add(-time.Duration(hours)*time.Hour).Format("2006-01-02 15:04"))
 
 	data := map[string]any{
+		"Site":        site,
 		"Range":       rng,
 		"RangeText":   rangeText,
 		"Driver":      string(h.DB.Driver),
@@ -141,18 +182,26 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AdminFunnelJSON: GET {base}/admin/api/funnel?range=24h
+// AdminFunnelJSON: GET {base}/admin/api/funnel?site=&range=24h
 func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 	rng := r.URL.Query().Get("range")
 	if rng != "7d" && rng != "30d" {
 		rng = "24h"
 	}
+	site := r.URL.Query().Get("site")
+	if site != "" && !siteIDRE.MatchString(site) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
+		return
+	}
+	if site == "" {
+		site = defaultSite
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	rows, err := dashboard.Funnel(ctx, h.DB, dashboard.RangeHours(rng))
+	rows, err := dashboard.Funnel(ctx, h.DB, site, dashboard.RangeHours(rng))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": 0, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "range": rng, "funnel": rows})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "site": site, "range": rng, "funnel": rows})
 }

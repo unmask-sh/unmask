@@ -29,6 +29,88 @@ func RangeHours(s string) int {
 	}
 }
 
+// siteCond returns "AND site = '<site>'" if site is non-empty.
+// 空 string → "" (= 全 site 集計).
+//
+// SQL injection 防止: 呼び出し側で必ず site を validate (= [a-z0-9-]{1,32}) してから
+// 渡すこと. handlers.pickSite が regex で弾くので、 ここでは literal 連結する.
+func siteCond(site string) string {
+	if site == "" {
+		return ""
+	}
+	return " AND site = '" + site + "'"
+}
+
+// SiteSummary: /admin/ 一覧用の site 別サマリー.
+type SiteSummary struct {
+	Site     string
+	Events   int
+	Serve    int
+	Verify   int
+	UniqIP   int
+	LastSeen string
+}
+
+// Sites returns one row per distinct site observed in the last `hours` hours,
+// plus 'default' even if no events.
+func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
+	stmt := fmt.Sprintf(`
+        SELECT site,
+               COUNT(*) AS n,
+               SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS n_serve,
+               SUM(CASE WHEN phase='verify_ok' THEN 1 ELSE 0 END) AS n_verify,
+               COUNT(DISTINCT ip_address) AS uniq,
+               MAX(date_created) AS last_seen
+        FROM unmask_event
+        WHERE date_created > %s
+        GROUP BY site`, d.NowMinusMinutes(hours*60))
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	by := map[string]SiteSummary{}
+	for rows.Next() {
+		var s SiteSummary
+		var serve, verify, uniq sql.NullInt64
+		var ls sql.NullString
+		if err := rows.Scan(&s.Site, &s.Events, &serve, &verify, &uniq, &ls); err != nil {
+			return nil, err
+		}
+		s.Serve = int(serve.Int64)
+		s.Verify = int(verify.Int64)
+		s.UniqIP = int(uniq.Int64)
+		s.LastSeen = ls.String
+		by[s.Site] = s
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// "default" は常に list に出す
+	if _, ok := by["default"]; !ok {
+		by["default"] = SiteSummary{Site: "default"}
+	}
+	out := make([]SiteSummary, 0, len(by))
+	for _, v := range by {
+		out = append(out, v)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		// default を先頭に, あとは event 数 desc
+		if out[i].Site == "default" {
+			return true
+		}
+		if out[j].Site == "default" {
+			return false
+		}
+		if out[i].Events != out[j].Events {
+			return out[i].Events > out[j].Events
+		}
+		return out[i].Site < out[j].Site
+	})
+	return out, nil
+}
+
 // fixedVerdicts: nginx の ja4-verdict.map に載せている主要 verdict + ok / (none).
 // 0 件でも常時表示する.
 var fixedVerdicts = []string{
@@ -69,14 +151,14 @@ type FunnelRow struct {
 
 // Funnel returns one row per verdict in the fixed list plus a rate_limit row
 // (= IP-joined for serves where payload.rl=1) and a TOTAL row.
-func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
+func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 
 	// A) verdict × phase の base 集計
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, phase, COUNT(*) AS n
-        FROM unmask_event WHERE date_created > %s
-        GROUP BY ja4_verdict, phase`, since)
+        FROM unmask_event WHERE date_created > %s%s
+        GROUP BY ja4_verdict, phase`, since, siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -99,8 +181,8 @@ func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(DISTINCT ip_address) AS uniq_ip,
                SUM(CASE WHEN flags = 0 AND ja4_verdict LIKE 'bot_%%' THEN 1 ELSE 0 END) AS stealth
-        FROM unmask_event WHERE date_created > %s AND phase = 'load'
-        GROUP BY ja4_verdict`, since)
+        FROM unmask_event WHERE date_created > %s%s AND phase = 'load'
+        GROUP BY ja4_verdict`, since, siteCond(site))
 	rows2, err := d.QueryContext(ctx, stmt2)
 	if err != nil {
 		return nil, err
@@ -123,8 +205,8 @@ func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
 	stmt3 := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                SUM(CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END) AS rl
-        FROM unmask_event WHERE date_created > %s AND phase = 'serve'
-        GROUP BY ja4_verdict`, jsonRL, since)
+        FROM unmask_event WHERE date_created > %s%s AND phase = 'serve'
+        GROUP BY ja4_verdict`, jsonRL, since, siteCond(site))
 	rows3, err := d.QueryContext(ctx, stmt3)
 	if err != nil {
 		return nil, err
@@ -193,15 +275,15 @@ func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
 	}
 
 	// rate_limit 行: serves で rl=1 だった IP の全 phase 遷移を IP join で集計
-	rlRow, err := rateLimitFunnelRow(ctx, d, since)
+	rlRow, err := rateLimitFunnelRow(ctx, d, site, since)
 	if err == nil {
 		out = append([]FunnelRow{rlRow}, out...)
 	}
 
 	// total の uniq は別 SQL (= 同 IP が verdict 横断でカウントされないよう)
 	row := d.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s AND phase = 'load'`,
-		since))
+		`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s%s AND phase = 'load'`,
+		since, siteCond(site)))
 	_ = row.Scan(&total.LoadUniq)
 	if total.Load > 0 {
 		total.PowRate = float64(total.PoW) / float64(total.Load)
@@ -211,8 +293,9 @@ func Funnel(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
 	return out, nil
 }
 
-func rateLimitFunnelRow(ctx context.Context, d *db.DB, since string) (FunnelRow, error) {
+func rateLimitFunnelRow(ctx context.Context, d *db.DB, site, since string) (FunnelRow, error) {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	sc := siteCond(site)
 	stmt := fmt.Sprintf(`
         SELECT
           SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END)     AS n_serve,
@@ -225,12 +308,12 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, since string) (FunnelRow,
           SUM(CASE WHEN phase='cookie_err' THEN 1 ELSE 0 END) AS n_cookie_err,
           SUM(CASE WHEN phase='error' THEN 1 ELSE 0 END)     AS n_error
         FROM unmask_event
-        WHERE date_created > %s
+        WHERE date_created > %s%s
           AND ip_address IN (
               SELECT ip_address FROM unmask_event
-              WHERE date_created > %s AND phase='serve'
+              WHERE date_created > %s%s AND phase='serve'
                 AND %s IN ('1', 1)
-          )`, since, since, jsonRL)
+          )`, since, sc, since, sc, jsonRL)
 	row := d.QueryRowContext(ctx, stmt)
 	var r FunnelRow
 	r.Verdict = "rate_limit"
@@ -262,13 +345,13 @@ type VerdictCount struct {
 	UniqIP  int
 }
 
-func VerdictDistribution(ctx context.Context, d *db.DB, hours int) ([]VerdictCount, error) {
+func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) ([]VerdictCount, error) {
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(*) AS cnt,
                COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s
-        GROUP BY ja4_verdict`, d.NowMinusMinutes(hours*60))
+        FROM unmask_event WHERE date_created > %s%s
+        GROUP BY ja4_verdict`, d.NowMinusMinutes(hours*60), siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -324,7 +407,7 @@ type CookieStatusRow struct {
 	Count int
 }
 
-func CookieStatus(ctx context.Context, d *db.DB, hours int) ([]CookieStatusRow, error) {
+func CookieStatus(ctx context.Context, d *db.DB, site string, hours int) ([]CookieStatusRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	stmt := fmt.Sprintf(`
         SELECT
@@ -332,7 +415,7 @@ func CookieStatus(ctx context.Context, d *db.DB, hours int) ([]CookieStatusRow, 
           SUM(CASE WHEN cookie_bv IS NOT NULL AND cookie_bv <> '' THEN 1 ELSE 0 END) AS bv_set,
           SUM(CASE WHEN cookie_br IS NULL OR cookie_br = '' THEN 1 ELSE 0 END) AS br_none,
           SUM(CASE WHEN cookie_br IS NOT NULL AND cookie_br <> '' THEN 1 ELSE 0 END) AS br_set
-        FROM unmask_event WHERE date_created > %s AND phase='load'`, since)
+        FROM unmask_event WHERE date_created > %s%s AND phase='load'`, since, siteCond(site))
 	row := d.QueryRowContext(ctx, stmt)
 	var bvN, bvS, brN, brS sql.NullInt64
 	if err := row.Scan(&bvN, &bvS, &brN, &brS); err != nil {
@@ -370,11 +453,11 @@ var flagsNotes = map[int]string{
 	31: "全部 (1|2|4|8|16) — 完全 headless",
 }
 
-func FlagsDistribution(ctx context.Context, d *db.DB, hours int) ([]FlagsRow, error) {
+func FlagsDistribution(ctx context.Context, d *db.DB, site string, hours int) ([]FlagsRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT flags, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s AND phase='load'
-        GROUP BY flags`, d.NowMinusMinutes(hours*60))
+        FROM unmask_event WHERE date_created > %s%s AND phase='load'
+        GROUP BY flags`, d.NowMinusMinutes(hours*60), siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -426,7 +509,7 @@ type JA4HitRow struct {
 	UniqIP int
 }
 
-func JA4HitBreakdown(ctx context.Context, d *db.DB, hours int) ([]JA4HitRow, error) {
+func JA4HitBreakdown(ctx context.Context, d *db.DB, site string, hours int) ([]JA4HitRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	hitExpr := jsonExtract(d, "payload_json", "$.ja4_hit")
 	stmt := fmt.Sprintf(`
@@ -438,8 +521,8 @@ func JA4HitBreakdown(ctx context.Context, d *db.DB, hours int) ([]JA4HitRow, err
           END AS kind,
           COUNT(*) AS n,
           COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s AND phase='load'
-        GROUP BY kind`, hitExpr, hitExpr, since)
+        FROM unmask_event WHERE date_created > %s%s AND phase='load'
+        GROUP BY kind`, hitExpr, hitExpr, since, siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -474,14 +557,14 @@ type ReloadLoopRow struct {
 	LastSeen  string
 }
 
-func ReloadLoops(ctx context.Context, d *db.DB, hours int) ([]ReloadLoopRow, error) {
+func ReloadLoops(ctx context.Context, d *db.DB, site string, hours int) ([]ReloadLoopRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(reload_count) AS max_rc,
                MAX(flags) AS max_flags, MAX(user_agent) AS ua, MAX(date_created) AS last_seen
-        FROM unmask_event WHERE date_created > %s AND phase='load' AND reload_count >= 1
+        FROM unmask_event WHERE date_created > %s%s AND phase='load' AND reload_count >= 1
         GROUP BY ip_address
         HAVING max_rc >= 2 OR n >= 3
-        ORDER BY max_rc DESC, n DESC LIMIT 50`, d.NowMinusMinutes(hours*60))
+        ORDER BY max_rc DESC, n DESC LIMIT 50`, d.NowMinusMinutes(hours*60), siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -515,7 +598,7 @@ type VerifyNGRow struct {
 	LastSeen     string
 }
 
-func VerifyNGRanking(ctx context.Context, d *db.DB, hours, limit int) ([]VerifyNGRow, error) {
+func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hours, limit int) ([]VerifyNGRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	method := jsonExtract(d, "payload_json", "$.method")
 	score := jsonExtract(d, "payload_json", "$.score")
@@ -528,8 +611,8 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, hours, limit int) ([]VerifyN
                MAX(user_agent) AS ua,
                MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
                MAX(date_created) AS last_seen
-        FROM unmask_event WHERE date_created > %s AND phase='verify_ng'
-        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, since)
+        FROM unmask_event WHERE date_created > %s%s AND phase='verify_ng'
+        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, since, siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -565,14 +648,14 @@ type CookieFailRow struct {
 	LastSeen string
 }
 
-func CookieSetFails(ctx context.Context, d *db.DB, hours int) ([]CookieFailRow, error) {
+func CookieSetFails(ctx context.Context, d *db.DB, site string, hours int) ([]CookieFailRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	cookieOK := jsonExtract(d, "payload_json", "$.cookie_set_ok")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(user_agent) AS ua, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s AND phase='pow' AND %s IN ('false', 0)
-        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, cookieOK)
+        WHERE date_created > %s%s AND phase='pow' AND %s IN ('false', 0)
+        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, siteCond(site), cookieOK)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -600,13 +683,13 @@ type StealthRow struct {
 	LastSeen string
 }
 
-func StealthPassed(ctx context.Context, d *db.DB, hours int) ([]StealthRow, error) {
+func StealthPassed(ctx context.Context, d *db.DB, site string, hours int) ([]StealthRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COALESCE(ja4_verdict,'(none)') AS v,
                MAX(user_agent) AS ua, COUNT(*) AS n, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s AND phase='verify_ok' AND ja4_verdict LIKE 'bot_%%'
-        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60))
+        WHERE date_created > %s%s AND phase='verify_ok' AND ja4_verdict LIKE 'bot_%%'
+        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -638,13 +721,13 @@ type JSErrorRow struct {
 	Date     string
 }
 
-func JSErrors(ctx context.Context, d *db.DB, hours int) ([]JSErrorRow, error) {
+func JSErrors(ctx context.Context, d *db.DB, site string, hours int) ([]JSErrorRow, error) {
 	errMsg := jsonExtract(d, "payload_json", "$.error_msg")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, user_agent, flags, %s AS err, date_created
         FROM unmask_event
-        WHERE date_created > %s AND phase='error'
-        ORDER BY id DESC LIMIT 30`, errMsg, d.NowMinusMinutes(hours*60))
+        WHERE date_created > %s%s AND phase='error'
+        ORDER BY id DESC LIMIT 30`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

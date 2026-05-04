@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -144,38 +145,45 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	base := strings.TrimRight(s.Server.BasePath, "/")
 
-	// /unmask/challenge/ が新 path. /unmask/challenge.html は legacy 互換用.
-	mux.HandleFunc(base+"/challenge/",
-		handlers.MethodOnly(http.MethodGet, h.ServeChallenge))
-	mux.HandleFunc(base+"/challenge.html",
-		handlers.MethodOnly(http.MethodGet, h.ServeChallenge))
-	mux.HandleFunc(base+"/api/verify",
-		handlers.MethodOnly(http.MethodPost, h.VerifyJSON))
-	mux.HandleFunc(base+"/api/captcha/new",
-		handlers.MethodOnly(http.MethodGet, h.CaptchaNew))
-	mux.HandleFunc(base+"/api/debug",
-		handlers.MethodOnly(http.MethodPost, h.DebugBeacon))
-	mux.HandleFunc(base+"/api/bv-check",
-		handlers.MethodOnly(http.MethodGet, h.BVCheck))
+	// Go 1.22 enhanced ServeMux. {site} は per-site path param. literal pattern が
+	// より specific として優先されるので、 default site 用の literal と {site} 用の
+	// wildcard を併存させても routing は明確.
 
-	// admin
-	mux.HandleFunc(base+"/admin/",
-		handlers.MethodOnly(http.MethodGet, h.AuthMiddleware(h.AdminDashboard)))
-	mux.HandleFunc(base+"/admin/api/funnel",
-		handlers.MethodOnly(http.MethodGet, h.AuthMiddleware(h.AdminFunnelJSON)))
-	mux.HandleFunc(base+"/admin/api/myip",
-		handlers.MethodOnly(http.MethodGet, h.AuthMiddleware(h.AdminMyIP)))
+	// challenge HTML
+	mux.HandleFunc("GET "+base+"/challenge/{$}", h.ServeChallenge)
+	mux.HandleFunc("GET "+base+"/challenge/{site}/{$}", h.ServeChallenge)
+	// legacy URL: /unmask/challenge.html → 同 handler (= リダイレクトは nginx 側で)
+	mux.HandleFunc("GET "+base+"/challenge.html", h.ServeChallenge)
+
+	// API endpoints (default + per-site)
+	mux.HandleFunc("POST "+base+"/api/verify", h.VerifyJSON)
+	mux.HandleFunc("POST "+base+"/api/{site}/verify", h.VerifyJSON)
+	mux.HandleFunc("GET "+base+"/api/captcha/new", h.CaptchaNew)
+	mux.HandleFunc("GET "+base+"/api/{site}/captcha/new", h.CaptchaNew)
+	mux.HandleFunc("POST "+base+"/api/debug", h.DebugBeacon)
+	mux.HandleFunc("POST "+base+"/api/{site}/debug", h.DebugBeacon)
+	mux.HandleFunc("GET "+base+"/api/bv-check", h.BVCheck)
+	mux.HandleFunc("GET "+base+"/api/{site}/bv-check", h.BVCheck)
+
+	// admin: /admin/ で site 一覧, /admin/{site}/ で per-site dashboard
+	mux.HandleFunc("GET "+base+"/admin/{$}",
+		h.AuthMiddleware(h.AdminSiteList))
+	mux.HandleFunc("GET "+base+"/admin/{site}/{$}",
+		h.AuthMiddleware(h.AdminDashboard))
+	mux.HandleFunc("GET "+base+"/admin/api/funnel",
+		h.AuthMiddleware(h.AdminFunnelJSON))
+	mux.HandleFunc("GET "+base+"/admin/api/myip",
+		h.AuthMiddleware(h.AdminMyIP))
 
 	// health
-	mux.HandleFunc(base+"/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+base+"/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
 	// metrics (Prometheus text format).  bind=127.0.0.1 default なので
 	// 通常は scrape 元 (= prometheus exporter / agent) もループバックから読む.
-	mux.HandleFunc(base+"/metrics",
-		handlers.MethodOnly(http.MethodGet, h.Metrics))
+	mux.HandleFunc("GET "+base+"/metrics", h.Metrics)
 
 	return mux
 }
@@ -218,6 +226,14 @@ func cmdMigrate(args []string) error {
 	}
 	defer conn.Close()
 
+	// 既存 DB に site 列が無ければ ALTER で追加 (= 0.1 → 0.2 migration).
+	// 注意: schema を流す前に ALTER を走らせる必要がある. site 列を参照する index
+	// 生成 (= "CREATE INDEX ... ON unmask_event(site,...)") が前提とする列を
+	// 無いまま実行すると失敗するため.
+	if err := ensureSiteColumn(conn); err != nil {
+		return err
+	}
+
 	schema := schemaSQLite
 	if conn.Driver == db.DriverMariaDB {
 		schema = schemaMariaDB
@@ -234,6 +250,100 @@ func cmdMigrate(args []string) error {
 	}
 	fmt.Println("schema applied")
 	return nil
+}
+
+// ensureSiteColumn: 旧 schema (site 列が無い) の DB に ALTER で site を追加する.
+// idempotent: 既にある場合は no-op. テーブル自体が無い場合 (= 新規 install) も no-op
+// (= 後から走る CREATE TABLE で site 列込みで作られる).
+func ensureSiteColumn(conn *db.DB) error {
+	hasTbl, err := hasTable(conn, "unmask_event")
+	if err != nil {
+		return fmt.Errorf("introspect table: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	hasCol, err := hasColumn(conn, "unmask_event", "site")
+	if err != nil {
+		return fmt.Errorf("introspect site column: %w", err)
+	}
+	if hasCol {
+		return nil
+	}
+	stmt := `ALTER TABLE unmask_event ADD COLUMN site VARCHAR(64) NOT NULL DEFAULT 'default'`
+	if _, err := conn.Exec(stmt); err != nil {
+		return fmt.Errorf("add site column: %w", err)
+	}
+	idx := `CREATE INDEX `
+	if conn.Driver == db.DriverSQLite {
+		idx += `IF NOT EXISTS idx_unmask_event_site ON unmask_event(site, date_created)`
+	} else {
+		idx += `idx_site ON unmask_event(site, date_created)`
+	}
+	if _, err := conn.Exec(idx); err != nil {
+		// duplicate index は SQLite の IF NOT EXISTS で潰れるが MariaDB は素通し
+		// しないので warning 出すだけ.
+		fmt.Fprintf(os.Stderr, "warning: index create skipped: %v\n", err)
+	}
+	fmt.Println("schema applied: added site column")
+	return nil
+}
+
+// hasTable returns true if `table` exists in the current DB.
+func hasTable(conn *db.DB, table string) (bool, error) {
+	if conn.Driver == db.DriverSQLite {
+		row := conn.QueryRow(
+			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?`,
+			table)
+		var n int
+		if err := row.Scan(&n); err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+	row := conn.QueryRow(
+		`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+		table)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// hasColumn returns true if `table.column` exists.
+func hasColumn(conn *db.DB, table, col string) (bool, error) {
+	if conn.Driver == db.DriverSQLite {
+		rows, err := conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid int
+			var name, typ string
+			var notnull, pk int
+			var dflt sql.NullString
+			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+				return false, err
+			}
+			if name == col {
+				return true, nil
+			}
+		}
+		return false, rows.Err()
+	}
+	// MariaDB / MySQL
+	row := conn.QueryRow(
+		`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+		table, col)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func splitStatements(sql string) []string {
@@ -392,6 +502,7 @@ func randHex(n int) string {
 const schemaSQLite = `
 CREATE TABLE IF NOT EXISTS unmask_event (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    site            VARCHAR(64) NOT NULL DEFAULT 'default',
     ip_address      BLOB NOT NULL,
     user_agent      VARCHAR(255),
     ja4             VARCHAR(40),
@@ -408,6 +519,7 @@ CREATE INDEX IF NOT EXISTS idx_unmask_event_date     ON unmask_event(date_create
 CREATE INDEX IF NOT EXISTS idx_unmask_event_ip_date  ON unmask_event(ip_address, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_phase    ON unmask_event(phase, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_verdict  ON unmask_event(ja4_verdict, date_created);
+CREATE INDEX IF NOT EXISTS idx_unmask_event_site     ON unmask_event(site, date_created);
 
 CREATE TABLE IF NOT EXISTS unmask_aggregate (
     bucket_date     DATE NOT NULL,
@@ -428,6 +540,7 @@ CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
 const schemaMariaDB = `
 CREATE TABLE IF NOT EXISTS unmask_event (
     id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    site            VARCHAR(64) NOT NULL DEFAULT 'default',
     ip_address      VARBINARY(16) NOT NULL,
     user_agent      VARCHAR(255),
     ja4             VARCHAR(40),
@@ -443,7 +556,8 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     KEY idx_date     (date_created),
     KEY idx_ip_date  (ip_address, date_created),
     KEY idx_phase    (phase, date_created),
-    KEY idx_verdict  (ja4_verdict, date_created)
+    KEY idx_verdict  (ja4_verdict, date_created),
+    KEY idx_site     (site, date_created)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS unmask_aggregate (

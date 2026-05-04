@@ -25,11 +25,28 @@ import (
 const (
 	challengePlaceholder = "/*__JA4_HIT__*/0"
 	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
+	defaultSite          = "default"
 )
 
 type Handler struct {
 	DB       *db.DB
 	Settings settings.Settings
+}
+
+// site name の許容文字: lowercase alnum + dash, 1〜32 文字, 先頭/末尾 dash 不可.
+var siteIDRE = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$`)
+
+// pickSite は r.PathValue("site") を読んで validate する. 空 / 不正 → "default".
+// 不正値が来たら ok=false を返して呼び出し側で 400 を返せる.
+func pickSite(r *http.Request) (site string, ok bool) {
+	s := r.PathValue("site")
+	if s == "" {
+		return defaultSite, true
+	}
+	if !siteIDRE.MatchString(s) {
+		return "", false
+	}
+	return s, true
 }
 
 // loadChallengeHTML returns the challenge.html bytes.  Order:
@@ -59,6 +76,11 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 
 // ServeChallenge: GET {base}/challenge/ (legacy: {base}/challenge.html)
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
+	site, ok := pickSite(r)
+	if !ok {
+		http.Error(w, "invalid site id", http.StatusBadRequest)
+		return
+	}
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	hit := "0"
@@ -93,6 +115,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
 		_ = events.Insert(r.Context(), h.DB, &events.Event{
+			Site:       site,
 			IPPacked:   pkt,
 			UserAgent:  r.Header.Get("User-Agent"),
 			JA4:        safeJA4(ja4),
@@ -120,6 +143,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 //   - 新方式 (behavioral):  { token, sig: { mouseTrail, ... } }
 //   - 旧方式 (math 加算):   { token, answer }
 func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
+	site, ok := pickSite(r)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "read"})
@@ -137,6 +165,12 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 
 	ip := clientIP(r)
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	// kind は cookie の HMAC 入力に site を埋め込む形にする (= cross-site replay 対策).
+	// "default" の場合は従来通り "captcha" のみで back compat 維持.
+	kind := "captcha"
+	if site != defaultSite {
+		kind = "captcha-" + site
+	}
 
 	if payload.Sig != nil {
 		if payload.Token == "" {
@@ -146,7 +180,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		score := captcha.Score(payload.Sig)
 		Metrics.ObserveScore(score)
 		if score >= h.Settings.Challenge.CaptchaScoreThreshold {
-			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, ja4, "captcha")
+			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, ja4, kind)
 			h.setBVCookie(w, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
@@ -175,7 +209,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if captcha.VerifyMath(ans, payload.Token, h.Settings.Secret.CaptchaSecretBase) {
-		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, ja4, "captcha")
+		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, ja4, kind)
 		h.setBVCookie(w, val)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
@@ -191,6 +225,11 @@ func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 
 // DebugBeacon: POST {base}/api/debug — challenge HTML 内 JS が phase ビーコン送信
 func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
+	site, ok := pickSite(r)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
+		return
+	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0})
@@ -235,6 +274,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(body, &raw)
 
 	_ = events.Insert(r.Context(), h.DB, &events.Event{
+		Site:        site,
 		IPPacked:    pkt,
 		UserAgent:   r.Header.Get("User-Agent"),
 		JA4:         ja4,
