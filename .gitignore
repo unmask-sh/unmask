@@ -1,0 +1,38 @@
+# build artifacts
+build/
+*.so
+*.o
+*.a
+objs/
+nginx-*/
+nginx-*.tar.gz
+openssl-*/
+openssl-*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# RPM build
+rpmbuild/
+*.rpm
+*.src.rpm
+BUILD/
+SOURCES/
+SRPMS/
+RPMS/
+
+# editor
+.vscode/
+.idea/
+*.swp
+
+# runtime
+data/
+*.sqlite
+*.db
+config.local.yml
