@@ -29,9 +29,11 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-/* 0 件 row 折りたたみ. デフォルト = 表示 (= 0 件もカバレッジ確認のため見せる).
-   .bcd-zero-collapsed クラスが付いた時だけ hide する. user が toggle で切替. */
-.bcd-zero-collapsed .bcd-zero-row{display:none}
+/* 0 件 row 折りたたみ. デフォルト = 隠す (= ノイズ抑制).
+   .bcd-zero-shown が card に付いたとき "表示" 状態. user の toggle 状態は
+   localStorage に保存される (= 再読込・他 site 遷移後も保持). */
+.bcd-zero-row{display:none}
+.bcd-zero-shown .bcd-zero-row{display:table-row}
 .bcd-zero-toggle{font-size:12px;color:#64748b;cursor:pointer;padding:6px 0 0;user-select:none}
 .bcd-zero-toggle:hover{color:#0f172a;text-decoration:underline}
 .bcd-card .bcd-table{visibility:hidden}
@@ -360,9 +362,13 @@ dl.flow dd{margin:0;color:#334155}
 
 <script>
 // 0 件 row 折りたたみ — 設計原則:
-//   default = 表示 (= 0 件もカバレッジ確認のため見せる).
-//   toggle で「隠す ⇄ 表示」 切替. 1 行でも 0 があれば toggle を出す.
+//   default = 隠す (= ノイズ抑制).
+//   user が toggle で「表示 ⇄ 隠す」 切替, 状態は localStorage に保存.
+//   key: "unmask:zero:" + (h2 テキスト or table の data-table 属性).
 document.addEventListener('DOMContentLoaded', function(){
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
+
   document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
@@ -373,22 +379,37 @@ document.addEventListener('DOMContentLoaded', function(){
         return s === '' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
-    // 全 row が 0 / 0 行 0 件のときは toggle 不要.
+    // 0 件 row が無い / 全部 0 件 のときは toggle 不要.
     if (zeroRows.length === 0 || zeroRows.length === rows.length) {
       tbl.classList.add('bcd-ready');
       return;
     }
     zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
-    // tbl の親 .bcd-card に collapse 状態を付ける. default は collapsed しない.
+
     var card = tbl.closest('.bcd-card') || tbl.parentNode;
+    // table 識別 key = card の h2 テキスト. なければ DOM 順 index.
+    var h2 = card.querySelector('h2');
+    var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
+    var key = 'unmask:zero:' + keySrc;
+
+    function applyState(shown){
+      card.classList.toggle('bcd-zero-shown', shown);
+      toggle.textContent = (shown ? '▲ 0 件 ' : '▼ 0 件 ') + zeroRows.length + ' 行を' + (shown ? '隠す' : '表示');
+    }
+
+    // 初期状態: localStorage に "shown" があれば表示, それ以外は default = 隠す.
+    var saved = lsGet(key);
+    var initShown = (saved === 'shown');
+
     var toggle = document.createElement('div');
     toggle.className = 'bcd-zero-toggle';
-    toggle.textContent = '▲ 0 件 ' + zeroRows.length + ' 行を隠す';
     toggle.addEventListener('click', function(){
-      var collapsed = card.classList.toggle('bcd-zero-collapsed');
-      toggle.textContent = (collapsed ? '▼ 0 件 ' : '▲ 0 件 ') + zeroRows.length + ' 行を' + (collapsed ? '表示' : '隠す');
+      var nowShown = !card.classList.contains('bcd-zero-shown');
+      applyState(nowShown);
+      lsSet(key, nowShown ? 'shown' : 'hidden');
     });
     tbl.parentNode.insertBefore(toggle, tbl.nextSibling);
+    applyState(initShown);
     tbl.classList.add('bcd-ready');
   });
 });
