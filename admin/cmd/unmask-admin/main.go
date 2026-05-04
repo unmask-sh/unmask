@@ -162,6 +162,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// challenge HTML
 	mux.HandleFunc("GET "+base+"/challenge/{$}", h.ServeChallenge)
 	mux.HandleFunc("GET "+base+"/challenge/{site}/{$}", h.ServeChallenge)
+	// rate-limit 経由 (= nginx の rewrite で /unmask/_rl<原 URI> に変形).
+	// path subtree match (= trailing slash, no {$}) で _rl/ 以降の任意 path を catch.
+	// challenge/{site} の routing と衝突しないよう独立 namespace にしている.
+	mux.HandleFunc("GET "+base+"/_rl/", h.ServeChallenge)
 	// legacy URL: /unmask/challenge.html → 同 handler (= リダイレクトは nginx 側で)
 	mux.HandleFunc("GET "+base+"/challenge.html", h.ServeChallenge)
 

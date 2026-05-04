@@ -77,6 +77,9 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 }
 
 // ServeChallenge: GET {base}/challenge/ (legacy: {base}/challenge.html)
+//
+// rate-limit 経由 (= nginx の rewrite で /unmask/challenge/rl1<原 URI> 形式) は
+// path prefix "/rl1/" を検出して原 URI を復元 + rl=1 扱いにする.
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	site, ok := pickSite(r)
 	if !ok {
@@ -89,12 +92,25 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(verdict, "bot_") {
 		hit = "1"
 	}
+
+	// rate-limit 経由判定: URL.Path に "/_rl/" prefix があれば rl=1.
+	// 原 URI を path 残り部分 + RawQuery から復元 (= nginx の split に合わせて連結).
 	rl := "0"
-	test := "0"
-	if r.URL.Query().Get("_rl") == "1" {
+	var rlOrigURI string
+	if i := strings.Index(r.URL.Path, "/_rl/"); i >= 0 {
 		rl = "1"
 		hit = "1"
+		// /_rl までを切り捨てた残りが原 path. (例: "/unmask/_rl/foo" → "/foo")
+		rlOrigURI = r.URL.Path[i+len("/_rl"):]
+		if rlOrigURI == "" {
+			rlOrigURI = "/"
+		}
+		if r.URL.RawQuery != "" {
+			rlOrigURI += "?" + r.URL.RawQuery
+		}
 	}
+
+	test := "0"
 	if r.URL.Query().Get("_test_ja4") == "1" {
 		test = "1"
 		hit = "1"
@@ -116,10 +132,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		hitInt, _ := strconv.Atoi(hit)
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
-		// 原 path (= rate-limit ヒット時の原 URL):
-		// nginx の named location @unmask_rate_challenge が rewrite で
-		// `?_orig=$uri` を乗せる. ここから読むだけ.
-		origPath := stripQuery(r.URL.Query().Get("_orig"))
+		// 原 URI (= path + query): rate-limit 経由なら rlOrigURI に復元済み.
+		// path-only 集計用に query を分離した版も持つ.
+		origPath := truncateAt(rlOrigURI, 200)
 		payload := map[string]any{
 			"hit": hitInt, "rl": rlInt, "test": testInt,
 		}
@@ -371,17 +386,10 @@ func readCookieMax(r *http.Request, name string, maxlen int) string {
 	return v
 }
 
-// stripQuery: ?_orig=<uri> から取り出した値の query string と fragment を削る.
-// ($uri は path だけだが念のため安全策.  上限 200 文字.)
-func stripQuery(s string) string {
-	if i := strings.IndexByte(s, '?'); i >= 0 {
-		s = s[:i]
-	}
-	if i := strings.IndexByte(s, '#'); i >= 0 {
-		s = s[:i]
-	}
-	if len(s) > 200 {
-		s = s[:200]
+// truncateAt は s を最大 n 文字に切る (= dashboard で長い URL が崩れないよう保険).
+func truncateAt(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
 	}
 	return s
 }

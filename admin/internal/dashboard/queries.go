@@ -670,13 +670,24 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
+	// path 集計時は query string を捨てる (= 同じ /api/x で query 違いを 1 行に集約).
+	// driver で SUBSTRING 関数名が違う:
+	//   SQLite : CASE WHEN instr(p, '?') > 0 THEN substr(p, 1, instr(p, '?')-1) ELSE p END
+	//   MySQL  : SUBSTRING_INDEX(p, '?', 1)
+	var pathExpr string
+	if d.Driver == db.DriverSQLite {
+		pathExpr = fmt.Sprintf(`CASE WHEN instr(%s, '?') > 0 THEN substr(%s, 1, instr(%s, '?')-1) ELSE %s END`,
+			jsonPath, jsonPath, jsonPath, jsonPath)
+	} else {
+		pathExpr = fmt.Sprintf(`SUBSTRING_INDEX(%s, '?', 1)`, jsonPath)
+	}
 	stmt := fmt.Sprintf(`
         SELECT %s AS path, COUNT(*) AS n
         FROM unmask_event
         WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
           AND %s IS NOT NULL AND %s <> ''
-        GROUP BY %s ORDER BY n DESC LIMIT ?`,
-		jsonPath, since, siteCond(site), jsonRL, jsonPath, jsonPath, jsonPath)
+        GROUP BY path ORDER BY n DESC LIMIT ?`,
+		pathExpr, since, siteCond(site), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
