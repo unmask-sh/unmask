@@ -61,6 +61,8 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				return fmt.Sprintf("%.1f%%", float64(num)/float64(denom)*100)
 			},
+			// HTML エスケープを bypass (= 説明文に <code> 等を含めるため)
+			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
 		}
 		sub, err := fs.Sub(assets.Templates, "templates")
 		if err != nil {
@@ -158,6 +160,9 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cookieRows, _ := dashboard.CookieStatus(ctx, h.DB, site, hours)
+	rlSummary, _ := dashboard.RateLimitSummary(ctx, h.DB, site, hours)
+	rlIPs, _ := dashboard.RateLimitIPs(ctx, h.DB, site, hours, 30)
+	rlPaths, _ := dashboard.RateLimitPaths(ctx, h.DB, site, hours, 30)
 	flagsRows, _ := dashboard.FlagsDistribution(ctx, h.DB, site, hours)
 	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, site, hours)
 	hitRows, _ := dashboard.JA4HitBreakdown(ctx, h.DB, site, hours)
@@ -194,6 +199,9 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"Driver":      string(h.DB.Driver),
 		"Funnel":      funnel,
 		"CookieRows":  cookieRows,
+		"RLSummary":   rlSummary,
+		"RLIPs":       rlIPs,
+		"RLPaths":     rlPaths,
 		"FlagsRows":   flagsRows,
 		"VerdictDist": verdictDist,
 		"HitRows":     hitRows,

@@ -183,17 +183,76 @@ dl.flow dd{margin:0;color:#334155}
   </div>
 </div>
 
-<!-- 2) cookie 通過状況 -->
+<!-- 2) レート制限ヒット (= rl=1 経由 serve) -->
 <div class="bcd-card">
-  <h2>cookie 通過状況 (load phase) <span class="src-badge db" title="unmask_event DB 由来">🗄 DB</span></h2>
+  <h2>レート制限ヒット (100 r/min 超過 → CAPTCHA 強制) <span class="src-badge db" title="phase=serve + payload.rl=1 を集計">🗄 DB</span></h2>
   <p class="desc">
-    challenge HTML 起動時の <code>_bv</code> / <code>_br</code> cookie 持参状況. <code>_bv</code> 有り = 過去 3 日に CAPTCHA 通過したリピーター. <code>_br</code> 有り = challenge 経由で reload を経験.
+    app path で 1 IP / 100 req/min を超過したリクエスト (= 専用 CAPTCHA 直行で PoW スキップ).
+    除外: 過去 3 日 CAPTCHA 通過済 / 正規検索 bot UA / Google 公式 IP.
+    {{if .RLSummary.From}}<br><b>集計対象期間</b>: {{.RLSummary.From}} 〜 {{.RLSummary.To}} JST{{end}}
+    / <b>合計ヒット数</b>: {{comma .RLSummary.Total}}
+  </p>
+  <div style="display:grid;grid-template-columns:7fr 5fr;gap:1rem">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">IP 別 (top 30)</h6>
+      <table class="bcd-table">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.ip">IP</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.count">件数</span></th>
+          <th><span class="help-dotted" data-help-key="rl.ua">UA</span></th>
+          <th><span class="help-dotted" data-help-key="rl.last_seen">last seen</span></th>
+        </tr></thead>
+        <tbody>
+          {{range .RLIPs}}
+          <tr>
+            <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+            <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
+            <td class="bcd-mono">{{.UA}}</td>
+            <td class="bcd-mono">{{.LastSeen}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="muted">該当なし</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">path 別 (top 30)</h6>
+      <table class="bcd-table">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.path">path</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.path_count">件数</span></th>
+        </tr></thead>
+        <tbody>
+          {{range .RLPaths}}
+          <tr>
+            <td class="bcd-mono">{{.Path}}</td>
+            <td class="bcd-num">{{comma .Count}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="2" class="muted">該当なし</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- 3) cookie 通過状況 (= 本家相当の 4 区分) -->
+<div class="bcd-card">
+  <h2>cookie 通過状況 <span class="src-badge db" title="unmask_event DB 由来 (load phase)">🗄 DB</span></h2>
+  <p class="desc">
+    challenge HTML 起動時 (= load phase) の <code>cookie_bv</code> / <code>cookie_br</code> 持参状況で 4 区分に分類. <code>captcha</code> format = HMAC 署名済 (3 日免除), <code>br</code> only = PoW 通過版.
   </p>
   <table class="bcd-table">
-    <thead><tr><th>区分</th><th class="bcd-num">件数</th></tr></thead>
+    <thead><tr><th>区分</th><th class="bcd-num">件数</th><th>説明</th></tr></thead>
     <tbody>
       {{range .CookieRows}}
-      <tr><td>{{.Kind}}</td><td class="bcd-num">{{comma .Count}}</td></tr>
+      <tr>
+        <td{{if .Color}} style="color:{{.Color}}"{{end}}>{{if eq .Kind "total"}}<b>{{.Label}}</b>{{else if .Color}}<b>{{.Label}}</b>{{else}}{{.Label}}{{end}}</td>
+        <td class="bcd-num"{{if eq .Kind "pow_passed"}} style="color:#0ea5e9;font-weight:bold"{{else if eq .Kind "total"}} style="font-weight:bold"{{end}}>{{comma .Count}}</td>
+        <td style="font-size:.88rem;color:#475569">{{safeHTML .Description}}</td>
+      </tr>
       {{end}}
     </tbody>
   </table>
@@ -395,36 +454,89 @@ dl.flow dd{margin:0;color:#334155}
   </table>
 </div>
 
-<!-- 12) challenge 発動フロー (説明) -->
+<!-- 12) challenge 発動フロー (= 本家相当: bcd-flow text + bcd-legend dl) -->
 <div class="bcd-card">
   <h2>challenge 発動フロー</h2>
-  <dl class="flow">
-    <dt>1. TLS handshake</dt>
-    <dd>nginx + ja4 module が ClientHello から JA4 fingerprint を計算 → <code>$client_ja4</code></dd>
-
-    <dt>2. verdict map</dt>
-    <dd><code>map $effective_ja4 $ja4_verdict { ... }</code> で <code>ok</code> / <code>bot_*</code> / <code>suspect_*</code> に分類</dd>
-
-    <dt>3. final_challenge map</dt>
-    <dd><code>(bv_valid, is_search_bot, is_google_ip, is_known_browser, ja4_verdict, serve_bot_challenge)</code> 6 シグナルで challenge 発動を最終判定</dd>
-
-    <dt>4. challenge HTML 配信</dt>
-    <dd><code>final_challenge=1</code> の location は internal rewrite で <code>/unmask/challenge/</code> へ → admin が 403 + sub_filter 済み HTML を返す (= phase=<b>serve</b> ログ)</dd>
-
-    <dt>5. JS 起動</dt>
-    <dd>HTML 内 JS が flags / window 等を集めて debug ビーコン送信 (= phase=<b>load</b>)</dd>
-
-    <dt>6. PoW</dt>
-    <dd>djb2 hash で 1〜2 秒の計算 → cookie set 試行 (= phase=<b>pow</b>). bot_* verdict なら PoW skip して直接 CAPTCHA</dd>
-
-    <dt>7. CAPTCHA</dt>
-    <dd>behavioral checkbox (mouseTrail / clickAt / windowSize / etc) を score 化. 0.5 以上で通過. (= phase=<b>captcha</b>)</dd>
-
-    <dt>8. verify</dt>
-    <dd>admin /api/verify が score を確認 → HMAC-SHA1 署名済 _bv cookie 発行 (= phase=<b>verify_ok</b>). 失敗時は <b>verify_ng</b></dd>
-
-    <dt>9. 通過後</dt>
-    <dd>nginx の <code>$unmask_bv_valid</code> 変数 (= ja4 module が cookie を inline 検証) が <b>1</b> を返す → final_challenge=0 → 透過パス</dd>
+  <style>
+    .bcd-flow{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem;line-height:1.55;color:#334155;background:#f8fafc;padding:.9rem 1.1rem;border-radius:.4rem;white-space:pre;overflow-x:auto}
+    .bcd-flow .pass{color:#059669;font-weight:bold}
+    .bcd-flow .block{color:#dc2626;font-weight:bold}
+    .bcd-flow .branch{color:#6366f1}
+    .bcd-flow b{color:#0f172a}
+    .bcd-legend{font-size:.85rem;line-height:1.7}
+    .bcd-legend dt{color:#0f172a;margin-top:.5rem;font-weight:600}
+    .bcd-legend dd{margin-left:1.5em;color:#475569}
+    .bcd-legend code{background:#f1f5f9;padding:.05rem .25rem;border-radius:.15rem;font-size:.78rem;color:#0f172a;font-family:ui-monospace,Menlo,monospace}
+  </style>
+  <div class="bcd-flow">リクエスト到着
+│
+▼ <span class="branch">①</span> _bv cookie 有 + HMAC 検証 OK ?    ──── YES ──▶ <span class="pass">通過</span> (CAPTCHA 通過済 → 3 日免除)
+│ NO
+▼ <span class="branch">②</span> UA = 正規検索 bot ?              ──── YES ──▶ <span class="pass">通過</span> (Googlebot / Bingbot / GPTBot / ClaudeBot 等)
+│ NO
+▼ <span class="branch">③</span> リモート IP = Google 公式 IP ?    ──── YES ──▶ <span class="pass">通過</span> (Google IP 約 2,000 範囲)
+│ NO
+▼ <span class="branch">④</span> UA = 既知ブラウザ ?               ──── NO  ──▶ <span class="pass">通過</span> (curl/wget/独自 bot は素通し)
+│ YES
+▼ <span class="branch">⑤</span> JA4 verdict が bot_* ?           ──── YES ──▶ <span class="block">challenge 発動 → CAPTCHA 強制</span> (PoW スキップ)
+│ NO
+▼ <span class="branch">⑥</span> Honeypot path 踏み (wp-login 等)?  ──── YES ──▶ <span class="block">challenge 発動 → PoW 自動</span> (透明通過, 1〜2 秒スピナー)
+│ NO
+▼ <span class="pass">通過</span> (静的ファイル / /api/* / 既知ブラウザの ja4=ok / 等)
+</div>
+  <h6 style="margin-top:.9rem;font-size:1rem;color:#0f172a;font-weight:600">補足</h6>
+  <dl class="bcd-legend">
+    <dt>① 設計方針</dt>
+    <dd>
+      <b>方針</b>: <b>「ブラウザを偽装している bot」 だけを狙い撃ちする.</b> 素直な UA の bot (<code>python-requests</code> / <code>curl</code> / <code>wget</code> / ClaudeBot / GPTBot 等のクローラ系 UA) は基本 challenge を通さず素通しさせる.
+      <br><br>
+      <b>背景</b>: 過去に Googlebot 等の正規検索 bot が誤って challenge にハマり検索順位を落とす事故があった. ログ解析の結果、<b>「既知ブラウザ (Chrome/Safari/Firefox/Edge) を名乗りつつ JA4 TLS fingerprint が bot 由来」</b>のアクセスが多かったため、 偽装 bot に絞って check し検索 bot や素直な bot は素通しさせる方針に切替.
+    </dd>
+    <dt>② クライアント分類</dt>
+    <dd>
+      <b>素通し</b> (challenge を経由しない):
+      <ul style="margin:.1rem 0 .4rem;padding-left:1.5em">
+        <li>正規検索 bot UA (Googlebot / Bingbot / Yeti / YandexBot / GPTBot / ChatGPT-User / OAI-SearchBot 等)</li>
+        <li>Google 公式 IP 範囲 (約 2,000 範囲. UA に Googlebot を含まない Search Console 経由のリクエスト救済)</li>
+        <li>既知ブラウザを名乗らない素直な UA (curl / python-requests / wget / 独自 bot UA)</li>
+        <li>過去 3 日に CAPTCHA 通過済 (= HMAC 署名済 <code>_bv</code> cookie 保持)</li>
+      </ul>
+      <b>challenge 対象</b>:
+      <ul style="margin:.1rem 0 0;padding-left:1.5em">
+        <li>UA が既知ブラウザ (Chrome/Safari/Firefox/Edge/Opera) を名乗っている AND</li>
+        <li>(JA4 TLS fingerprint が bot 分類 OR honeypot path 踏み)</li>
+      </ul>
+    </dd>
+    <dt>③ challenge の中身: PoW vs CAPTCHA</dt>
+    <dd>
+      <b>PoW (Proof-of-Work)</b>: JA4 = ok (= TLS 正常) の正規ブラウザ向け. JS で djb2 ハッシュ計算 → cookie set → reload. ユーザー操作不要、 透明通過.
+      <br>
+      <b>CAPTCHA</b>: JA4 = bot_* (= TLS で偽装露呈) のクライアント向け. PoW では止められない/突破された前提なので強制. behavioral checkbox (= mouseTrail / clickAt / windowSize 等を score 化) または数字加算 fallback. 通過時にサーバーが HMAC 署名済 <code>_bv</code> cookie を発行 → 以降 3 日間免除.
+    </dd>
+    <dt>④ 副作用: cookie jar を持たない bot は永久ループ</dt>
+    <dd>
+      scraping bot は PoW で書いた <code>_bv</code> を再送しないため、 reload 後にまた challenge → 永久ループ → 実質ブロック.
+      cookie を保存・再送する正規ブラウザだけが脱出できる設計.
+    </dd>
+    <dt>⑤ <code>_bv</code> cookie の検証</dt>
+    <dd>
+      <b>bv = bot verification</b>. challenge 通過の証拠として client が持つ cookie. format: <code>day.hmac_sig.kind</code>.
+      <br><br>
+      <b>nginx <code>$unmask_bv_valid</code> 変数</b>: <code>ngx_http_ja4_module</code> が cookie を読み HMAC-SHA1 検証する. 値は:
+      <ul style="margin:.1rem 0 0;padding-left:1.5em">
+        <li><code>1</code> = (day, remote_ip, ja4, kind) で HMAC OK + 3 日以内 = 正当な通過済</li>
+        <li><code>0</code> = cookie 無 / 期限切れ / IP 変更 / HMAC 不一致 / 改ざん</li>
+      </ul>
+      <code>final_challenge</code> map の最優先条件 (<code>"~^1:" → 0</code>) で参照され、 <b>bv_valid=1 なら challenge 完全免除</b>.
+    </dd>
+    <dt>⑥ challenge 配信方式 (= placeholder 書き換え)</dt>
+    <dd>
+      nginx で JA4 が bot_* と判定 → internal rewrite で <code>/unmask/challenge/</code> 配信. admin が HTML 内の placeholder <code>/*__JA4_HIT__*/0</code> を <code>/*__JA4_HIT__*/1</code> に書き換えて返す. JS は placeholder 値を見て即判定 (= bot_* なら PoW skip → 即 CAPTCHA).
+      <br><br>
+      旧方式の <code>?c=1</code> URL クエリは internal rewrite で URL バーに反映されず JS の <code>location.search</code> で判定不能 → 永久ループの原因になったため廃止.
+      <br><br>
+      status code は Cloudflare 互換で <b>403</b> (= 5xx はサイト健全性メトリクスを汚染するため避ける).
+    </dd>
   </dl>
 </div>
 

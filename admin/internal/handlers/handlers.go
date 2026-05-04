@@ -114,6 +114,21 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		hitInt, _ := strconv.Atoi(hit)
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
+		// 原 path (= rate-limit ヒット時の原 URL): nginx の internal rewrite では
+		// $request_uri が原 URI のままなので proxy_set_header X-Original-URI で
+		// 渡してもらう. 無ければ Referer を fallback.
+		origURI := r.Header.Get("X-Original-URI")
+		if origURI == "" {
+			origURI = r.Header.Get("Referer")
+		}
+		// query string 除去 + ?_rl=1 のような unmask 内部 query を捨てる
+		origPath := stripQuery(origURI)
+		payload := map[string]any{
+			"hit": hitInt, "rl": rlInt, "test": testInt,
+		}
+		if origPath != "" {
+			payload["orig_path"] = origPath
+		}
 		_ = events.Insert(r.Context(), h.DB, &events.Event{
 			Site:       site,
 			IPPacked:   pkt,
@@ -121,9 +136,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			JA4:        safeJA4(ja4),
 			JA4Verdict: verdict,
 			Phase:      string(events.PhaseServe),
-			Payload: map[string]any{
-				"hit": hitInt, "rl": rlInt, "test": testInt,
-			},
+			Payload:    payload,
 		})
 	}
 
@@ -359,6 +372,28 @@ func readCookieMax(r *http.Request, name string, maxlen int) string {
 		v = v[:maxlen]
 	}
 	return v
+}
+
+// stripQuery returns the path portion of a URL/URI (= drops `?...` and `#...`).
+func stripQuery(s string) string {
+	if i := strings.IndexByte(s, '?'); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.IndexByte(s, '#'); i >= 0 {
+		s = s[:i]
+	}
+	// Referer の場合 protocol+host も含むので、 path だけに削る.
+	if strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") {
+		// 3 個目の "/" 以降が path
+		idx := strings.IndexByte(s[8:], '/')
+		if idx >= 0 {
+			s = s[8+idx:]
+		}
+	}
+	if len(s) > 200 {
+		s = s[:200]
+	}
+	return s
 }
 
 var safeJA4RE = regexp.MustCompile(`^[a-zA-Z0-9_]{8,40}$`)

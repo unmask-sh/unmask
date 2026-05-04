@@ -410,31 +410,47 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) 
 	return out, nil
 }
 
-// CookieStatusRow: load phase での _bv / _br cookie 持参状況.
+// CookieStatusRow: load phase での cookie 持参状況の 4 区分 (= 本家相当).
+//   total          : load phase 件数 (= challenge HTML が JS 起動した全件. nginx 全 req
+//                    数までは取れないので proxy 値として使う)
+//   captcha_passed : cookie_bv が CAPTCHA 通過済 cookie format ("day.sig.captcha")
+//   pow_passed     : cookie_br set + cookie_bv 無し or 旧 format
+//   none           : どちらの cookie も無し
 type CookieStatusRow struct {
-	Kind  string // "bv=valid" / "bv=invalid" / "bv=none" / "br=set" 等
-	Count int
+	Kind        string // "total" / "captcha_passed" / "pow_passed" / "none"
+	Label       string // 表示用ラベル ("total" / "CAPTCHA 通過" / "PoW 通過" / "cookie 無")
+	Count       int
+	Description string // 右列の説明
+	Color       string // 行の文字色 (本家と揃える)
 }
 
 func CookieStatus(ctx context.Context, d *db.DB, site string, hours int) ([]CookieStatusRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	stmt := fmt.Sprintf(`
         SELECT
-          SUM(CASE WHEN cookie_bv IS NULL OR cookie_bv = '' THEN 1 ELSE 0 END) AS bv_none,
-          SUM(CASE WHEN cookie_bv IS NOT NULL AND cookie_bv <> '' THEN 1 ELSE 0 END) AS bv_set,
-          SUM(CASE WHEN cookie_br IS NULL OR cookie_br = '' THEN 1 ELSE 0 END) AS br_none,
-          SUM(CASE WHEN cookie_br IS NOT NULL AND cookie_br <> '' THEN 1 ELSE 0 END) AS br_set
+          COUNT(*) AS total,
+          SUM(CASE WHEN cookie_bv LIKE '%%.captcha' THEN 1 ELSE 0 END) AS captcha,
+          SUM(CASE WHEN (cookie_br IS NOT NULL AND cookie_br <> '')
+                    AND (cookie_bv IS NULL OR cookie_bv = '' OR cookie_bv NOT LIKE '%%.captcha')
+                  THEN 1 ELSE 0 END) AS pow,
+          SUM(CASE WHEN (cookie_bv IS NULL OR cookie_bv = '')
+                    AND (cookie_br IS NULL OR cookie_br = '')
+                  THEN 1 ELSE 0 END) AS none_
         FROM unmask_event WHERE date_created > %s%s AND phase='load'`, since, siteCond(site))
 	row := d.QueryRowContext(ctx, stmt)
-	var bvN, bvS, brN, brS sql.NullInt64
-	if err := row.Scan(&bvN, &bvS, &brN, &brS); err != nil {
+	var total, capt, pow, noneN sql.NullInt64
+	if err := row.Scan(&total, &capt, &pow, &noneN); err != nil {
 		return nil, err
 	}
 	return []CookieStatusRow{
-		{"_bv 無し (= 初回 / 期限切れ)", int(bvN.Int64)},
-		{"_bv 有り (= 過去通過済)", int(bvS.Int64)},
-		{"_br 無し (= 初回 reload)", int(brN.Int64)},
-		{"_br 有り (= reload 経験あり)", int(brS.Int64)},
+		{Kind: "total", Label: "total", Count: int(total.Int64),
+			Description: "直近の challenge HTML 起動 (load phase) 全件"},
+		{Kind: "captcha_passed", Label: "CAPTCHA 通過", Count: int(capt.Int64), Color: "#16a34a",
+			Description: `<code>cookie_bv</code> = "&lt;day&gt;.&lt;sig&gt;.captcha" format. HMAC 署名済 _bv cookie で検証 OK (= 過去 3 日に CAPTCHA 通過したリピーター)`},
+		{Kind: "pow_passed", Label: "PoW 通過", Count: int(pow.Int64), Color: "#0ea5e9",
+			Description: `<code>cookie_br</code> set + <code>cookie_bv</code> なし or 別 format. PoW 通過版 cookie を持つ. 通常ブラウザの大半はここ`},
+		{Kind: "none", Label: "cookie 無", Count: int(noneN.Int64), Color: "#94a3b8",
+			Description: `cookie 無し (= 初回 / 期限切れ / cookie 拒否 / 偽装 bot 等)`},
 	}, nil
 }
 
@@ -594,6 +610,111 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hours int) ([]Reloa
 		})
 	}
 	return out, rows.Err()
+}
+
+// RLIPRow: phase=serve + payload.rl=1 を IP 別に集計.
+type RLIPRow struct {
+	IP       string
+	Count    int
+	UA       string
+	LastSeen string
+}
+
+// RLPathRow: phase=serve + payload.rl=1 を 原 path 別に集計.
+type RLPathRow struct {
+	Path  string
+	Count int
+}
+
+// RLSummary: 集計対象期間 + 合計ヒット数 (= header の説明テキスト用).
+type RLSummary struct {
+	From  string
+	To    string
+	Total int
+}
+
+func RateLimitIPs(ctx context.Context, d *db.DB, site string, hours, limit int) ([]RLIPRow, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	stmt := fmt.Sprintf(`
+        SELECT ip_address,
+               COUNT(*) AS n,
+               MAX(user_agent) AS ua,
+               MAX(date_created) AS last_seen
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
+        GROUP BY ip_address ORDER BY n DESC LIMIT ?`, since, siteCond(site), jsonRL)
+	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RLIPRow
+	for rows.Next() {
+		var raw []byte
+		var n int
+		var ua, ls sql.NullString
+		if err := rows.Scan(&raw, &n, &ua, &ls); err != nil {
+			return nil, err
+		}
+		out = append(out, RLIPRow{
+			IP: ipFromBytes(raw), Count: n,
+			UA: truncate(ua.String, 60), LastSeen: ls.String,
+		})
+	}
+	return out, rows.Err()
+}
+
+func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int) ([]RLPathRow, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
+	stmt := fmt.Sprintf(`
+        SELECT %s AS path, COUNT(*) AS n
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
+          AND %s IS NOT NULL AND %s <> ''
+        GROUP BY %s ORDER BY n DESC LIMIT ?`,
+		jsonPath, since, siteCond(site), jsonRL, jsonPath, jsonPath, jsonPath)
+	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RLPathRow
+	for rows.Next() {
+		var p sql.NullString
+		var n int
+		if err := rows.Scan(&p, &n); err != nil {
+			return nil, err
+		}
+		path := strings.Trim(p.String, `"`)
+		out = append(out, RLPathRow{Path: path, Count: n})
+	}
+	return out, rows.Err()
+}
+
+func RateLimitSummary(ctx context.Context, d *db.DB, site string, hours int) (RLSummary, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	stmt := fmt.Sprintf(`
+        SELECT COUNT(*) AS n,
+               MIN(date_created) AS f,
+               MAX(date_created) AS t
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)`,
+		since, siteCond(site), jsonRL)
+	row := d.QueryRowContext(ctx, stmt)
+	var s RLSummary
+	var n sql.NullInt64
+	var f, t sql.NullString
+	if err := row.Scan(&n, &f, &t); err != nil {
+		return s, err
+	}
+	s.Total = int(n.Int64)
+	s.From = f.String
+	s.To = t.String
+	return s, nil
 }
 
 // VerifyNGRow: verify_ng IP ranking with method (math/behavioral) breakdown.
