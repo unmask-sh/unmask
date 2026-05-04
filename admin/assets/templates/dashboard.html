@@ -6,25 +6,25 @@
 <meta name="robots" content="noindex, nofollow">
 <style>
 *{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f1f5f9;color:#0f172a;font-size:13px}
-h1{font-size:1.4em;margin:0 0 .2em}
-.meta{color:#64748b;font-size:.82em;margin-bottom:1em}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f1f5f9;color:#0f172a;font-size:14px}
+h1{font-size:1.5em;margin:0 0 .2em}
+.meta{color:#64748b;font-size:.85em;margin-bottom:1em}
 .bcd-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .bcd-controls a{padding:.3em .9em;border:1px solid #cbd5e1;border-radius:4px;text-decoration:none;color:#334155;background:#fff}
 .bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
 .bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;margin-bottom:16px}
-.bcd-card h2{font-size:14px;font-weight:700;margin:0 0 10px;color:#334155}
-.bcd-card h2 .src{font-size:10px;color:#94a3b8;font-weight:normal;margin-left:.4em}
-.bcd-table{font-size:12px;width:100%;border-collapse:collapse}
+.bcd-card h2{font-size:16px;font-weight:700;margin:0 0 10px;color:#334155}
+.bcd-card h2 .src{font-size:11px;color:#94a3b8;font-weight:normal;margin-left:.4em}
+.bcd-table{font-size:13px;width:100%;border-collapse:collapse}
 .bcd-table th,.bcd-table td{padding:4px 10px;text-align:left;border-bottom:1px solid #f1f5f9;vertical-align:top}
-.bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:11px}
+.bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:12px}
 .bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
 .bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
 tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
 tr.total td.bcd-num{font-weight:700}
 tr.rl-row td{background:#fff7ed}
-.tag{display:inline-block;padding:.05em .5em;border-radius:.5em;font-size:.78em}
+.tag{display:inline-block;padding:.05em .5em;border-radius:.5em;font-size:.82em}
 .tag.bot{background:#fee2e2;color:#991b1b}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
@@ -32,7 +32,7 @@ tr.rl-row td{background:#fff7ed}
 /* 0 件 row 折りたたみ. デフォルト = 表示 (= 0 件もカバレッジ確認のため見せる).
    .bcd-zero-collapsed クラスが付いた時だけ hide する. user が toggle で切替. */
 .bcd-zero-collapsed .bcd-zero-row{display:none}
-.bcd-zero-toggle{font-size:11px;color:#64748b;cursor:pointer;padding:6px 0 0;user-select:none}
+.bcd-zero-toggle{font-size:12px;color:#64748b;cursor:pointer;padding:6px 0 0;user-select:none}
 .bcd-zero-toggle:hover{color:#0f172a;text-decoration:underline}
 .bcd-card .bcd-table{visibility:hidden}
 .bcd-card .bcd-table.bcd-ready{visibility:visible}
@@ -43,8 +43,8 @@ dl.flow{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.4em 1em}
 dl.flow dt{font-weight:700;color:#475569}
 dl.flow dd{margin:0;color:#334155}
 .muted{color:#94a3b8}
-#ip-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:.6em .9em;font-size:.78em;min-width:240px;max-width:380px;z-index:100;display:none}
-#ip-popover h3{margin:0 0 .3em;font-size:.92em}
+#ip-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:.6em .9em;font-size:.85em;min-width:240px;max-width:380px;z-index:100;display:none}
+#ip-popover h3{margin:0 0 .3em;font-size:1em}
 #ip-popover dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2em .8em}
 #ip-popover dt{color:#64748b}
 #ip-popover dd{margin:0}
@@ -55,8 +55,8 @@ dl.flow dd{margin:0;color:#334155}
 
 <h1>
   unmask · bot challenge debug
-  <span style="font-size:.65em;color:#64748b">site = <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
-  <a href="../" style="font-size:.55em;color:#3b82f6;text-decoration:none;margin-left:.6em">← sites</a>
+  <span style="font-size:.7em;color:#64748b">site = <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  <a href="../" style="font-size:.65em;color:#3b82f6;text-decoration:none;margin-left:.6em">← sites</a>
 </h1>
 <p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
 
@@ -116,7 +116,7 @@ dl.flow dd{margin:0;color:#334155}
       {{end}}
     </tbody>
   </table>
-  <p style="margin:.6em 0 0;font-size:11px;color:#94a3b8">↑rl = ?_rl=1 (= rate-limit 経由) で来た serve. stealth = load phase で flags=0 + bot_*. rate_limit 行は IP-join で他 verdict と重複し得る (= TOTAL に加算しない).</p>
+  <p style="margin:.6em 0 0;font-size:12px;color:#94a3b8">↑rl = ?_rl=1 (= rate-limit 経由) で来た serve. stealth = load phase で flags=0 + bot_*. rate_limit 行は IP-join で他 verdict と重複し得る (= TOTAL に加算しない).</p>
 </div>
 
 <!-- 2) cookie 通過状況 -->
