@@ -1,6 +1,9 @@
 /*
- * ngx_http_ja4_module: nginx dynamic module to compute JA4 fingerprint
- * from TLS ClientHello and expose it as $client_ja4 variable.
+ * ngx_http_ja4_module: nginx dynamic module that exposes:
+ *
+ *   $client_ja4         - JA4 fingerprint computed from TLS ClientHello
+ *   $unmask_bv_valid    - "1" if the request's _bv cookie HMAC matches and
+ *                         is within the validity window, else "0".
  *
  * License: Apache 2.0 (clean-room implementation from JA4 specification)
  * Reference: https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md
@@ -9,6 +12,15 @@
  *   a (10 chars): protocol(t/q) + tlsver(2) + sni(d/i) + ciphers(2) + extensions(2) + alpn(2)
  *   b (12 chars): SHA256(sorted hex cipher list)[:12]
  *   c (12 chars): SHA256(sorted hex extensions, then signature_algorithms appended)[:12]
+ *
+ * BV cookie format: "<day>.<sig>.<kind>"
+ *   day  = floor(unix / 86400) as decimal string
+ *   sig  = HMAC-SHA1("<day>:<remote_addr>:<client_ja4>:<kind>", BV_SECRET) hex[:16]
+ *   kind = free-form ASCII (e.g. "captcha")
+ *
+ * Configuration:
+ *   unmask_bv_secret <secret>;        # HTTP main scope. shared with admin app.
+ *   unmask_bv_valid_days <int>;       # default 3
  */
 
 #include <ngx_config.h>
@@ -19,6 +31,7 @@
 
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
+#include <openssl/hmac.h>
 
 #define NGX_JA4_MAX 64
 
@@ -30,26 +43,57 @@ typedef struct {
 /* ex_data index for storing JA4 string on SSL object */
 static int ngx_http_ja4_ssl_ex_data_idx = -1;
 
+/* Per-http main config: shared BV secret for $unmask_bv_valid */
+typedef struct {
+    ngx_str_t   bv_secret;
+    ngx_int_t   bv_valid_days;
+} ngx_http_ja4_main_conf_t;
+
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf);
+static void *ngx_http_ja4_create_main_conf(ngx_conf_t *cf);
+static char *ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf);
 static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_bv_valid_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+
+static ngx_command_t ngx_http_ja4_commands[] = {
+    { ngx_string("unmask_bv_secret"),
+      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_str_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_ja4_main_conf_t, bv_secret),
+      NULL },
+    { ngx_string("unmask_bv_valid_days"),
+      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_ja4_main_conf_t, bv_valid_days),
+      NULL },
+    ngx_null_command
+};
 
 static ngx_http_module_t ngx_http_ja4_module_ctx = {
-    NULL,                /* preconfiguration */
-    ngx_http_ja4_init,   /* postconfiguration */
-    NULL, NULL, NULL, NULL, NULL, NULL
+    NULL,                              /* preconfiguration */
+    ngx_http_ja4_init,                 /* postconfiguration */
+    ngx_http_ja4_create_main_conf,     /* create main configuration */
+    ngx_http_ja4_init_main_conf,       /* init main configuration */
+    NULL, NULL, NULL, NULL
 };
 
 ngx_module_t ngx_http_ja4_module = {
     NGX_MODULE_V1,
     &ngx_http_ja4_module_ctx,
-    NULL, NGX_HTTP_MODULE,
+    ngx_http_ja4_commands,
+    NGX_HTTP_MODULE,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NGX_MODULE_V1_PADDING
 };
 
 static ngx_http_variable_t ngx_http_ja4_vars[] = {
     { ngx_string("client_ja4"), NULL, ngx_http_ja4_variable, 0,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("unmask_bv_valid"), NULL, ngx_http_unmask_bv_valid_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     ngx_http_null_variable
 };
@@ -95,8 +139,6 @@ static void ngx_ja4_sha12(const char *in, size_t inlen, char *out12) {
 static int ngx_ja4_client_hello_cb(SSL *ssl, int *al, void *arg) {
     ngx_http_ja4_ctx_t *ctx;
     (void)al; (void)arg;
-
-    fprintf(stderr, "[ja4] client_hello_cb fired idx=%d\n", ngx_http_ja4_ssl_ex_data_idx);
 
     /* Allocate ctx */
     ctx = OPENSSL_malloc(sizeof(*ctx));
@@ -364,6 +406,195 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
             SSL_CTX_set_client_hello_cb(sscf->ssl.ctx,
                                         ngx_ja4_client_hello_cb, NULL);
         }
+    }
+    return NGX_OK;
+}
+
+/* ----------------------------------------------------------------------
+ * Main conf
+ * -------------------------------------------------------------------- */
+
+static void *
+ngx_http_ja4_create_main_conf(ngx_conf_t *cf)
+{
+    ngx_http_ja4_main_conf_t *cnf =
+        ngx_pcalloc(cf->pool, sizeof(ngx_http_ja4_main_conf_t));
+    if (cnf == NULL) return NULL;
+    cnf->bv_valid_days = NGX_CONF_UNSET;
+    /* bv_secret left zero-init: empty ngx_str_t */
+    return cnf;
+}
+
+static char *
+ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
+{
+    ngx_http_ja4_main_conf_t *cnf = conf;
+    if (cnf->bv_valid_days == NGX_CONF_UNSET) {
+        cnf->bv_valid_days = 3;
+    }
+    return NGX_CONF_OK;
+}
+
+/* ----------------------------------------------------------------------
+ * $unmask_bv_valid: parse _bv cookie and verify HMAC-SHA1 signature.
+ *
+ * Cookie value form: "<day>.<sig16>.<kind>"
+ *   sig16 = HMAC-SHA1("<day>:<remote_addr>:<client_ja4>:<kind>", BV_SECRET)
+ *           hex[:16]
+ *
+ * Returns "1" if signature matches and day is within [today-bv_valid_days, today],
+ * otherwise "0". Also returns "0" if bv_secret was not configured.
+ * -------------------------------------------------------------------- */
+
+/* Read decimal int from `s` (length n). Negative on parse failure. */
+static int64_t
+ngx_unmask_atoll(const u_char *s, size_t n)
+{
+    if (n == 0 || n > 19) return -1;
+    int64_t v = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (s[i] < '0' || s[i] > '9') return -1;
+        v = v * 10 + (s[i] - '0');
+    }
+    return v;
+}
+
+/* Find _bv cookie value. Sets `out` to the value bytes (within r pool space)
+ * and returns NGX_OK; returns NGX_DECLINED if not present. */
+static ngx_int_t
+ngx_unmask_get_bv_cookie(ngx_http_request_t *r, ngx_str_t *out)
+{
+    static ngx_str_t name = ngx_string("_bv");
+#if (nginx_version >= 1023000)
+    ngx_table_elt_t *elt = ngx_http_parse_multi_header_lines(r, r->headers_in.cookie, &name, out);
+    if (elt == NULL) return NGX_DECLINED;
+#else
+    if (ngx_http_parse_multi_header_lines(&r->headers_in.cookies, &name, out) == NGX_DECLINED) {
+        return NGX_DECLINED;
+    }
+#endif
+    return NGX_OK;
+}
+
+/* hex-encode a byte buffer into `dst` (must be 2*n bytes). */
+static void
+ngx_unmask_hex(char *dst, const unsigned char *src, size_t n)
+{
+    static const char H[] = "0123456789abcdef";
+    for (size_t i = 0; i < n; i++) {
+        dst[i*2]   = H[(src[i] >> 4) & 0xF];
+        dst[i*2+1] = H[src[i] & 0xF];
+    }
+}
+
+/* Constant-time memcmp wrapper. Returns 0 iff equal. */
+static int
+ngx_unmask_ct_memcmp(const void *a, const void *b, size_t n)
+{
+    return CRYPTO_memcmp(a, b, n);
+}
+
+static ngx_int_t
+ngx_http_unmask_bv_valid_variable(ngx_http_request_t *r,
+                                  ngx_http_variable_value_t *v,
+                                  uintptr_t data)
+{
+    (void)data;
+
+    static const u_char zero[] = "0";
+    static const u_char one[]  = "1";
+
+    /* Default: 0 (= invalid). */
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+    v->len = 1;
+    v->data = (u_char *)zero;
+
+    ngx_http_ja4_main_conf_t *mcf =
+        ngx_http_get_module_main_conf(r, ngx_http_ja4_module);
+    if (mcf == NULL || mcf->bv_secret.len == 0) {
+        return NGX_OK;
+    }
+
+    /* Read cookie. */
+    ngx_str_t cookie;
+    if (ngx_unmask_get_bv_cookie(r, &cookie) != NGX_OK) {
+        return NGX_OK;
+    }
+    if (cookie.len < 4 || cookie.len > 80) {
+        return NGX_OK;
+    }
+
+    /* Split "day.sig.kind". */
+    u_char *dot1 = ngx_strlchr(cookie.data, cookie.data + cookie.len, '.');
+    if (dot1 == NULL) return NGX_OK;
+    u_char *dot2 = ngx_strlchr(dot1 + 1, cookie.data + cookie.len, '.');
+    if (dot2 == NULL) return NGX_OK;
+
+    size_t day_len  = dot1 - cookie.data;
+    size_t sig_len  = dot2 - (dot1 + 1);
+    size_t kind_len = (cookie.data + cookie.len) - (dot2 + 1);
+
+    if (day_len == 0 || day_len > 10) return NGX_OK;
+    if (sig_len != 16) return NGX_OK;
+    if (kind_len == 0 || kind_len > 32) return NGX_OK;
+
+    int64_t cookie_day = ngx_unmask_atoll(cookie.data, day_len);
+    if (cookie_day < 0) return NGX_OK;
+
+    /* Validity window. */
+    int64_t today = (int64_t)(ngx_time() / 86400);
+    if (cookie_day > today) return NGX_OK;
+    if (today - cookie_day > mcf->bv_valid_days) return NGX_OK;
+
+    /* Read remote_addr and client_ja4 ($effective_ja4 might not be available
+     * here — we use $client_ja4 only). */
+    ngx_str_t remote = r->connection->addr_text;
+
+    /* Get $client_ja4 from SSL ex_data. If TLS not present, ja4="" — that
+     * still matches admin-issued cookies for non-TLS test clients, but in
+     * production every challenge target should be TLS. */
+    u_char *ja4_data = (u_char *)"";
+    size_t  ja4_len  = 0;
+    if (r->connection && r->connection->ssl) {
+        SSL *ssl_obj = r->connection->ssl->connection;
+        if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
+            ngx_http_ja4_ctx_t *jctx = SSL_get_ex_data(
+                ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
+            if (jctx && jctx->ja4.len > 0) {
+                ja4_data = jctx->ja4.data;
+                ja4_len  = jctx->ja4.len;
+            }
+        }
+    }
+
+    /* Build "<day>:<remote>:<ja4>:<kind>" in a pool buffer. */
+    size_t msg_len = day_len + 1 + remote.len + 1 + ja4_len + 1 + kind_len;
+    u_char *msg = ngx_pnalloc(r->pool, msg_len);
+    if (msg == NULL) return NGX_OK;
+    u_char *p = msg;
+    p = ngx_cpymem(p, cookie.data, day_len);  *p++ = ':';
+    p = ngx_cpymem(p, remote.data, remote.len); *p++ = ':';
+    p = ngx_cpymem(p, ja4_data, ja4_len); *p++ = ':';
+    p = ngx_cpymem(p, dot2 + 1, kind_len);
+
+    /* HMAC-SHA1. */
+    unsigned char mac[20];
+    unsigned int mac_len = sizeof(mac);
+    if (HMAC(EVP_sha1(),
+             mcf->bv_secret.data, mcf->bv_secret.len,
+             msg, msg_len,
+             mac, &mac_len) == NULL || mac_len != 20) {
+        return NGX_OK;
+    }
+
+    char expected[40];
+    ngx_unmask_hex(expected, mac, 20);
+    /* Compare first 16 hex chars (= 8 bytes of mac, but we compare hex). */
+    if (ngx_unmask_ct_memcmp(expected, dot1 + 1, 16) == 0) {
+        v->len = 1;
+        v->data = (u_char *)one;
     }
     return NGX_OK;
 }
