@@ -71,6 +71,9 @@ contents:
   - src: ../nginx/ja4-verdict.map
     dst: /etc/unmask/nginx/ja4-verdict.map
     type: config|noreplace
+  - src: ../nginx/honeypot.map
+    dst: /etc/unmask/nginx/honeypot.map
+    type: config|noreplace
   - src: ../nginx/secret.conf.example
     dst: /etc/unmask/nginx/secret.conf.example
 
