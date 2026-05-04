@@ -116,10 +116,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		hitInt, _ := strconv.Atoi(hit)
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
-		// 原 path (= rate-limit ヒット時の原 URL): nginx の internal rewrite では
-		// $request_uri が原 URI のままなので proxy_set_header X-Original-URI で
-		// 渡してもらう. 無ければ Referer を fallback.
-		origURI := r.Header.Get("X-Original-URI")
+		// 原 path (= rate-limit ヒット時の原 URL):
+		// 優先順:
+		//   1. ?_orig=<uri> (= named location @unmask_rate_challenge が rewrite で
+		//      クエリに乗せる. proxy_set_header 不要で運用簡素化)
+		//   2. X-Original-URI ヘッダ (= 古い nginx config 互換用 fallback)
+		//   3. Referer (= ブラウザが送ってくれば最後の頼り)
+		origURI := r.URL.Query().Get("_orig")
+		if origURI == "" {
+			origURI = r.Header.Get("X-Original-URI")
+		}
 		if origURI == "" {
 			origURI = r.Header.Get("Referer")
 		}
