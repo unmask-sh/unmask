@@ -37,6 +37,20 @@ docker-compose で nginx + admin + curl を上げて、 以下 4 シナリオを
 `/unmask/api/bv-check` endpoint は ja4 module を load できない環境向けに残置.
 ja4 module + $unmask_bv_valid に完全移行できると判断したら remove.
 
+### dashboard: レート制限ヒット (100r/min) 集計
+本家にはあるが unmask には実装無し. 集計元は nginx access log (= `limit_req`
+の 429 を `log_format unmask` で吐いた行). 取り込むには:
+(a) `unmask-admin tail-access-log -path /var/log/nginx/access.log` で stream
+    parse して `unmask_event` の独立 phase に書くか,
+(b) nginx の `error_log` に `limit_req` の info/warn を出させて parse,
+(c) ngx_http_unmask_module 内で `429` を直接 `phase=rate_limit` として
+    /unmask/api/debug に POST する (= 一番直接的).
+
+### dashboard: GeoIP / ASN を IP popover に出す
+IP popover は現状 rDNS + family のみ. 国 / city / ISP を出すには MaxMind
+GeoLite2 mmdb 等が必要. ライセンス上 RPM 同梱は不可. user 任意 install:
+`/etc/unmask/geoip/GeoLite2-City.mmdb` がある時だけ有効化する optional.
+
 ## アイデア (= まだ採用するか未確定)
 
 ### prometheus exporter の grafana dashboard JSON
