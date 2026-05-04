@@ -706,6 +706,63 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int
 	return out, rows.Err()
 }
 
+// RLQueryCount: 1 path に対する 1 query string とその件数.
+type RLQueryCount struct {
+	Query string
+	Count int
+}
+
+// RateLimitQueriesByPath: 各 path ごとの頻出 query string を top N で返す.
+// 戻り値: path string → []RLQueryCount (= count desc, 最大 perPathLimit 件).
+// 空 query (= "" のリクエスト) は省略する.
+func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hours, perPathLimit int) (map[string][]RLQueryCount, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
+	// path / query を SQL で分離.
+	var pathExpr, queryExpr string
+	if d.Driver == db.DriverSQLite {
+		pathExpr = fmt.Sprintf(`CASE WHEN instr(%s, '?') > 0 THEN substr(%s, 1, instr(%s, '?')-1) ELSE %s END`,
+			jsonPath, jsonPath, jsonPath, jsonPath)
+		queryExpr = fmt.Sprintf(`CASE WHEN instr(%s, '?') > 0 THEN substr(%s, instr(%s, '?')+1) ELSE '' END`,
+			jsonPath, jsonPath, jsonPath)
+	} else {
+		pathExpr = fmt.Sprintf(`SUBSTRING_INDEX(%s, '?', 1)`, jsonPath)
+		queryExpr = fmt.Sprintf(`CASE WHEN LOCATE('?', %s) > 0 THEN SUBSTRING(%s, LOCATE('?', %s)+1) ELSE '' END`,
+			jsonPath, jsonPath, jsonPath)
+	}
+	stmt := fmt.Sprintf(`
+        SELECT %s AS p, %s AS q, COUNT(*) AS n
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
+          AND %s IS NOT NULL AND %s <> ''
+        GROUP BY p, q
+        HAVING q <> ''
+        ORDER BY p, n DESC`,
+		pathExpr, queryExpr, since, siteCond(site), jsonRL, jsonPath, jsonPath)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string][]RLQueryCount{}
+	for rows.Next() {
+		var p, q sql.NullString
+		var n int
+		if err := rows.Scan(&p, &q, &n); err != nil {
+			return nil, err
+		}
+		path := strings.Trim(p.String, `"`)
+		query := strings.Trim(q.String, `"`)
+		if len(out[path]) >= perPathLimit {
+			continue // top N 既達なので skip
+		}
+		out[path] = append(out[path], RLQueryCount{Query: query, Count: n})
+	}
+	return out, rows.Err()
+}
+
 func RateLimitSummary(ctx context.Context, d *db.DB, site string, hours int) (RLSummary, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")

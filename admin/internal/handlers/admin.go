@@ -163,6 +163,8 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	rlSummary, _ := dashboard.RateLimitSummary(ctx, h.DB, site, hours)
 	rlIPs, _ := dashboard.RateLimitIPs(ctx, h.DB, site, hours, 30)
 	rlPaths, _ := dashboard.RateLimitPaths(ctx, h.DB, site, hours, 30)
+	rlPathQueries, _ := dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hours, 5)
+	rlPathQueriesJSON, _ := json.Marshal(rlPathQueries)
 	flagsRows, _ := dashboard.FlagsDistribution(ctx, h.DB, site, hours)
 	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, site, hours)
 	hitRows, _ := dashboard.JA4HitBreakdown(ctx, h.DB, site, hours)
@@ -201,9 +203,10 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		"Driver":      string(h.DB.Driver),
 		"Funnel":      funnel,
 		"CookieRows":  cookieRows,
-		"RLSummary":   rlSummary,
-		"RLIPs":       rlIPs,
-		"RLPaths":     rlPaths,
+		"RLSummary":         rlSummary,
+		"RLIPs":             rlIPs,
+		"RLPaths":           rlPaths,
+		"RLPathQueriesJSON": template.JS(rlPathQueriesJSON),
 		"FlagsRows":   flagsRows,
 		"VerdictDist": verdictDist,
 		"HitRows":     hitRows,

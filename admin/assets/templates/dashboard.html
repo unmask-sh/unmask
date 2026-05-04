@@ -226,7 +226,7 @@ dl.flow dd{margin:0;color:#334155}
         <tbody>
           {{range .RLPaths}}
           <tr>
-            <td class="bcd-mono">{{.Path}}</td>
+            <td class="bcd-mono rl-path-cell" data-path="{{.Path}}">{{.Path}}</td>
             <td class="bcd-num">{{comma .Count}}</td>
           </tr>
           {{else}}
@@ -922,6 +922,51 @@ const countries = {{.CountriesJSON}};
   document.querySelectorAll('tr.total td:first-child b, tr.rl-row td:first-child b').forEach(function(el){
     var t = el.textContent.trim();
     attach(el, 'verdict.' + t);
+  });
+})();
+
+// レート制限ヒット path popover (= 各 path の頻出 query top 5)
+(function(){
+  const data = {{.RLPathQueriesJSON}};
+  if (!data) return;
+  const cells = document.querySelectorAll('.rl-path-cell');
+  if (!cells.length) return;
+  // 専用 popover 要素を生成 (= help-popover を流用)
+  const pop = document.getElementById('help-popover');
+  if (!pop) return;
+  let timer = null;
+  function show(html, x, y){
+    pop.innerHTML = html;
+    pop.style.left = (x + 12) + 'px';
+    pop.style.top  = (y + 12) + 'px';
+    pop.style.display = 'block';
+  }
+  function hide(){ pop.style.display = 'none'; }
+  cells.forEach(function(cell){
+    const path = cell.dataset.path;
+    const list = data[path] || [];
+    if (!list.length) return; // query 全部空 → popover なし
+    cell.style.cursor = 'help';
+    cell.style.textDecoration = 'underline dotted #94a3b8';
+    cell.addEventListener('mouseenter', function(e){
+      // pageX/pageY はブラウザによって dispatched event で正しく計算されないことがある.
+      // clientX/Y + scrollX/Y で document 座標を強制的に得る (= 実 user / 自動 dispatch 両対応).
+      const x = e.clientX + window.scrollX;
+      const y = e.clientY + window.scrollY;
+      clearTimeout(timer);
+      timer = setTimeout(function(){
+        let html = '<div style="font-weight:700;margin-bottom:.3rem;font-family:ui-monospace,Menlo,monospace">' + path + '</div>';
+        html += '<div style="font-size:.78rem;color:#64748b;margin-bottom:.3rem">頻出 query top ' + list.length + '</div>';
+        html += list.map(function(r){
+          return '<div style="display:flex;gap:.6rem;margin:.15rem 0;font-size:.82rem">' +
+            '<code style="flex:1;background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;word-break:break-all">?' + r.Query + '</code>' +
+            '<span style="font-variant-numeric:tabular-nums;font-weight:600">' + r.Count.toLocaleString() + '</span>' +
+            '</div>';
+        }).join('');
+        show(html, x, y);
+      }, 150);
+    });
+    cell.addEventListener('mouseleave', function(){ clearTimeout(timer); hide(); });
   });
 })();
 
