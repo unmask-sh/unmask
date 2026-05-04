@@ -51,6 +51,13 @@ dl.flow dd{margin:0;color:#334155}
 #ip-popover dt{color:#64748b}
 #ip-popover dd{margin:0}
 .ipclick{cursor:help;text-decoration:underline dotted #94a3b8}
+/* 説明 popover (= 本家 example.invalid の bootstrap popover 相当) */
+[data-help]{cursor:help;text-decoration:underline dotted #94a3b8}
+.tag[data-help]{text-decoration:none}
+#help-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:.7em 1em;font-size:.88em;line-height:1.5;min-width:260px;max-width:480px;z-index:200;display:none;color:#0f172a}
+#help-popover code{background:#f1f5f9;padding:.05em .35em;border-radius:3px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
+#help-popover b{color:#0f172a}
+#help-popover br + br{display:block;content:"";margin-top:.4em}
 </style>
 </head>
 <body>
@@ -75,19 +82,19 @@ dl.flow dd{margin:0;color:#334155}
   <table class="bcd-table">
     <thead><tr>
       <th>verdict</th>
-      <th class="bcd-num">serve</th>
-      <th class="bcd-num">↑rl</th>
-      <th class="bcd-num">load</th>
-      <th class="bcd-num">uniq</th>
-      <th class="bcd-num">stealth</th>
-      <th class="bcd-num">pow</th>
-      <th class="bcd-num">captcha</th>
-      <th class="bcd-num">verify_ok</th>
-      <th class="bcd-num">verify_ng</th>
-      <th class="bcd-num">cookie_err</th>
-      <th class="bcd-num">JS err</th>
-      <th class="bcd-num">PoW率</th>
-      <th class="bcd-num">CAPTCHA率</th>
+      <th class="bcd-num" data-help-key="phase.serve">serve</th>
+      <th class="bcd-num" data-help-key="phase.rl">↑rl</th>
+      <th class="bcd-num" data-help-key="phase.load">load</th>
+      <th class="bcd-num" data-help-key="phase.uniq">uniq</th>
+      <th class="bcd-num" data-help-key="phase.stealth">stealth</th>
+      <th class="bcd-num" data-help-key="phase.pow">pow</th>
+      <th class="bcd-num" data-help-key="phase.captcha">captcha</th>
+      <th class="bcd-num" data-help-key="phase.verify_ok">verify_ok</th>
+      <th class="bcd-num" data-help-key="phase.verify_ng">verify_ng</th>
+      <th class="bcd-num" data-help-key="phase.cookie_err">cookie_err</th>
+      <th class="bcd-num" data-help-key="phase.js_error">JS err</th>
+      <th class="bcd-num" data-help-key="phase.pow_rate">PoW率</th>
+      <th class="bcd-num" data-help-key="phase.captcha_rate">CAPTCHA率</th>
     </tr></thead>
     <tbody>
       {{range .Funnel}}
@@ -137,7 +144,7 @@ dl.flow dd{margin:0;color:#334155}
 <div class="flex">
   <!-- 3) flags 分布 -->
   <div class="bcd-card">
-    <h2>flags 分布 (load phase)</h2>
+    <h2 data-help-key="flags.flags">flags 分布 (load phase)</h2>
     <table class="bcd-table">
       <thead><tr><th>flags</th><th>bin</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th><th>意味</th></tr></thead>
       <tbody>
@@ -226,14 +233,14 @@ dl.flow dd{margin:0;color:#334155}
   <h2>CAPTCHA 失敗 (verify_ng) IP ランキング <span class="src">🗄 DB</span></h2>
   <table class="bcd-table">
     <thead><tr>
-      <th>IP</th>
-      <th class="bcd-num">total</th>
-      <th class="bcd-num">behavioral</th>
-      <th class="bcd-num">math</th>
-      <th class="bcd-num">avg score</th>
-      <th>ja4</th>
-      <th>UA</th>
-      <th>last seen</th>
+      <th data-help-key="vng.ip">IP</th>
+      <th class="bcd-num" data-help-key="vng.total">total</th>
+      <th class="bcd-num" data-help-key="vng.behavioral">behavioral</th>
+      <th class="bcd-num" data-help-key="vng.math">math</th>
+      <th class="bcd-num" data-help-key="vng.avg_score">avg score</th>
+      <th data-help-key="vng.ja4">ja4</th>
+      <th data-help-key="vng.ua">UA</th>
+      <th data-help-key="vng.last_seen">last seen</th>
     </tr></thead>
     <tbody>
       {{range .VerifyNG}}
@@ -460,8 +467,98 @@ const series = {{.SeriesJSON}};
 })();
 </script>
 
+<div id="help-popover"></div>
 <div id="ip-popover"></div>
+
+<script id="help-data" type="application/json">
+{
+  "verdict.bot_chrome_fake_h1": "<b>bot_chrome_fake_h1</b>: Chrome 風 cipher (8daaf6152771) + <b>ALPN=h1</b> (HTTP/1.1). 正規 Chrome は HTTP/2 (h2) を使う. = headless Chrome / 古い Puppeteer / stealth 化されていない自動化ツールの典型. 真の bot 偽装ブラウザの最頻シグネチャ.",
+  "verdict.bot_chrome_fake_noalpn": "<b>bot_chrome_fake_noalpn</b>: Chrome 風 cipher + <b>ALPN なし</b>. 古い HTTP クライアントや TLS スタックを自前実装した bot.",
+  "verdict.bot_h1_18_12": "<b>bot_h1_18_12</b>: 18 cipher + 12 extension + ALPN=h1. residential proxy 群で観測される高頻度シグネチャ (~129 UA rotation).",
+  "verdict.bot_h1_44_12": "<b>bot_h1_44_12</b>: 44 cipher + 12 extension + ALPN=h1. 別の residential proxy 群 (~74 UA rotation).",
+  "verdict.bot_noalpn_311": "<b>bot_noalpn_311</b>: 31 cipher + 1 extension + ALPN なし. 多 UA rotation 型 bot. Sogou web spider もここに含まれる (UA で is_search_bot=1 救済).",
+  "verdict.bot_noalpn_521": "<b>bot_noalpn_521</b>: 52 cipher + 1 extension + ALPN なし. UA rotation 型 bot.",
+  "verdict.bot_tls12_a": "<b>bot_tls12_a</b>: <b>TLS 1.2</b> 使用. 現代ブラウザは TLS 1.3 標準のため 1.2 は古いツール / curl 系の典型.",
+  "verdict.bot_tls12_b": "<b>bot_tls12_b</b>: TLS 1.2 + 別シグネチャ. 7 UA rotation.",
+  "verdict.bot_tls12_c": "<b>bot_tls12_c</b>: TLS 1.2 + 別シグネチャ.",
+  "verdict.suspect_h1": "<b>suspect_h1</b>: Chrome 風 cipher + ALPN=h1 全般 (緩い判定). bot_chrome_fake_h1 に該当しない補完ルール. 誤検知の可能性あり.",
+  "verdict.ok": "<b>ok</b>: 正規 TLS fingerprint. Chrome / Safari / Firefox / Edge 等の主流ブラウザの典型. nginx <code>$ja4_verdict</code> map のどの bot regex にも match しなかった = default 値.",
+  "verdict.(none)": "<b>(none)</b>: <code>ja4_verdict</code> カラムが NULL. nginx の <code>proxy_set_header X-JA4-Verdict</code> 設定追加前のレコード. 設定後は記録される.",
+  "verdict.rate_limit": "<b>rate_limit</b>: ja4_verdict 横断の疑似 verdict. nginx で 100 r/min 超え (= unmask_rate zone) → <code>?_rl=1</code> で /unmask/challenge/ に rewrite された IP の各 phase 遷移を <b>IP-join</b> で集計.<br><br>注意点: IP は NAT / mobile carrier / proxy で複数クライアント共有される可能性あり. <b>厳密な 1 IP = 1 client ではない</b>ため大体の傾向把握用. 真の rate limit hit 数は <code>serve</code> 列 (= 直接 INSERT 数) を信じる.",
+  "verdict.TOTAL": "<b>TOTAL</b>: ja4_verdict 横断の合算 (= bot_* / suspect_* / ok / (none) を加算). rate_limit 行は IP-join で他 verdict と重複するため除外.<br><br>silent = serve - load.",
+
+  "phase.serve": "<b>serve</b>: challenge ページが配信された数. admin が controller 到達時に <code>unmask_event.phase='serve'</code> で INSERT したもの. JS 起動しない bot でも確実にカウントできる. silent = serve - load = JS 起動しなかった bot.",
+  "phase.silent": "<b>silent = serve - load</b>: challenge 配信されたが JS が起動しなかった数 (実質 stealth bot 確定). 発生要因:<br>・ JS 無効環境 (lynx/w3m, JS off browser)<br>・ HEAD method (curl -I 等, response body 取得せず script 評価されない)<br>・ HTML 取得のみの bot (scraper / archiver)<br>・ 即離脱 (<code>_bcDebug('load')</code> 送信前にページ閉じる)<br>・ CSP / network エラー (<code>/unmask/api/debug</code> POST がブロック)",
+  "phase.rl": "<b>↑rl</b>: 同 IP 100 r/min 超過 (= nginx の unmask_rate zone) で <code>?_rl=1</code> 付きで rewrite された serve 数 (内訳). PoW スキップ → CAPTCHA 直行.",
+  "phase.load": "<b>load</b>: challenge ページの JS が起動した瞬間 = ブラウザが script を eval 出来た. 原始的 bot は load にすら来ない (= JS 動かないから). <code>_bcDebug('load')</code> 送信時点.",
+  "phase.uniq": "<b>uniq IP</b>: load phase の unique IP 数. load 件数 / uniq IP = 1 IP あたりの平均 load 回数. 1 に近いほど人間的 (= 1 回見て離脱), 大きいほど reload 連打 / scraper 系.",
+  "phase.stealth": "<b>stealth</b>: load 時 flags=0 (= webdriver/plugins/languages/screen 全クリア) + JA4 verdict が bot_* = ヘッドレス痕跡なし + TLS で偽装露呈 = 完全偽装 bot 候補. Puppeteer/Playwright 等の最新 stealth ツール使用者.",
+  "phase.pow": "<b>pow</b>: Proof-of-Work 計算完了 + _bv cookie set 直後. 直後に reload して元ページに戻る (= 透明通過). 正規ブラウザの大半はここで完結.",
+  "phase.captcha": "<b>captcha</b>: CAPTCHA 画面表示 (= behavioral checkbox / 数字加算 fallback). JA4=bot_* で PoW スキップした人 or PoW 失敗で fallback した人.",
+  "phase.verify_ok": "<b>verify_ok</b>: CAPTCHA 通過 (behavioral score>=0.5 or 数字加算正解). HMAC 署名 _bv cookie 発行で 3 日免除. payload_json の method=math 値で内訳判別可.",
+  "phase.verify_ng": "<b>verify_ng</b>: CAPTCHA 失敗 (behavioral score 不足 / 数字加算不正解 / token 改ざん 等). 多回失敗の IP は人間救済対象 or solver 攻撃中の bot. payload_json の method=math/score 値で内訳判別可.",
+  "phase.cookie_err": "<b>cookie_err</b>: Cookie 書き込み不能 (Safari ITP / プライベート browse / Cookie 拒否). _bv 保存できないので challenge 永遠ループしてしまう環境向けに早期諦めさせる.",
+  "phase.js_error": "<b>JS error</b>: challenge JS が例外を投げた (構文エラー / CSP 違反 / global 関数衝突等). window.onerror で捕捉. payload_json の error_msg / error_filename / error_lineno に詳細.",
+  "phase.pow_rate": "<b>PoW率 = pow / load</b>: 正規ブラウザが challenge スピナーを透明通過した率. ja4=ok の場合 99%+ 期待. 低いとブラウザ互換性問題の疑い.",
+  "phase.captcha_rate": "<b>CAPTCHA率 = verify_ok / captcha</b>: CAPTCHA 画面に進んだ中で実際に通過した率 = bot solver 連携 / 人手介入の指標. 通常はかなり低いが、 突破あれば偽装 bot が成功してる証拠.",
+
+  "flags.flags": "<b>flags</b>: challenge ページ JS が <code>load</code> 時に <code>navigator</code> / <code>screen</code> / <code>window</code> を覗いて bot 痕跡を検出する 5 bit のシグナル.<br><br><b>各 bit</b>:<br><code>1</code> = webdriver (= <code>navigator.webdriver === true</code>. headless Chrome 等)<br><code>2</code> = plugins 空 (= <code>navigator.plugins.length === 0</code>)<br><code>4</code> = screen=0 (= <code>screen.width === 0 || screen.height === 0</code>)<br><code>8</code> = languages 空 (= <code>navigator.languages.length === 0</code>)<br><code>16</code> = Chrome 名乗り + <code>window.chrome</code> 不在 (= UA 偽装疑い)<br><br><b>注意</b>: challenge フローには影響しない. PoW / CAPTCHA 判定は JA4 verdict のみで決まる. flags は監視シグナル.<br><br><b>解釈</b>:<br>・<code>flags=2</code> 単体: 正規 Chrome の大半が該当 → ノイズ<br>・<code>flags=0</code> + JA4=<code>ok</code>: 正規ブラウザ.<br>・<code>flags=0</code> + JA4=<code>bot_*</code>: <span style=\"color:#dc2626\"><b>stealth bot</b></span>. 痕跡を全部隠ぺい + TLS で偽装露呈 → ファネルの stealth 列に該当.<br>・<code>flags=1</code> (webdriver): WebDriver / Selenium. 隠蔽されていないシンプル bot.",
+
+  "vng.ip": "CAPTCHA 検証 (verify_ng) に失敗したクライアント IP",
+  "vng.total": "この IP の verify_ng 件数合計 (= behavioral + math). 5 件以上は赤強調 (= 困った人間 or solver bot 攻撃中)",
+  "vng.behavioral": "チェックボックス behavioral 検査で score < 0.5 と判定された回数. 古いブラウザ・アクセシビリティ device で起こりやすい (= 救済対象)",
+  "vng.math": "数字加算 fallback でも不正解だった回数. behavioral 失敗後の再検査. > 0 は赤強調 (= 数字も解けない = bot 疑い強)",
+  "vng.avg_score": "behavioral 検査で計算された score の平均 (0.0〜1.0). 低いほど bot 度高い. 0.5 未満で fail",
+  "vng.ja4": "TLS fingerprint verdict (ok / bot_* / suspect_* / (none))",
+  "vng.ua": "User-Agent (最後に観測された 50 文字)",
+  "vng.last_seen": "最後に verify_ng が起きた時刻"
+}
+</script>
 <script>
+// 説明 popover (= 本家 example.invalid の bootstrap popover 相当).
+// data-help-key="..." の element は HELP[key] を表示.
+// .tag の verdict 名は textContent から HELP["verdict.<text>"] を auto lookup.
+(function(){
+  var helpEl = document.getElementById('help-data');
+  var HELP = {};
+  try { HELP = JSON.parse(helpEl.textContent); } catch(e) { console.warn('help-data parse:', e); }
+  var pop = document.getElementById('help-popover');
+  var timer = null;
+  function show(html, x, y){
+    pop.innerHTML = html;
+    var maxL = window.innerWidth - 500;
+    pop.style.left = Math.min(x + 12, maxL) + 'px';
+    pop.style.top  = (y + 12) + 'px';
+    pop.style.display = 'block';
+  }
+  function hide(){ pop.style.display = 'none'; }
+  function attach(el, key){
+    var html = HELP[key];
+    if (!html) return;
+    el.setAttribute('data-help', '1'); // CSS の cursor:help / underline 用
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ show(html, x, y); }, 150);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); hide(); });
+  }
+  // 1) data-help-key 明示の element
+  document.querySelectorAll('[data-help-key]').forEach(function(el){
+    attach(el, el.getAttribute('data-help-key'));
+  });
+  // 2) verdict tag (= .tag.bot / .tag.suspect / .tag.ok / .tag.none) は textContent から
+  document.querySelectorAll('.tag').forEach(function(el){
+    var t = el.textContent.trim();
+    attach(el, 'verdict.' + t);
+  });
+  // 3) total / rate_limit 行 (= タグじゃなく <b> で囲ってある) も対応
+  document.querySelectorAll('tr.total td:first-child b, tr.rl-row td:first-child b').forEach(function(el){
+    var t = el.textContent.trim();
+    attach(el, 'verdict.' + t);
+  });
+})();
+
 // IP popover (rDNS + family).
 (function(){
   const pop = document.getElementById('ip-popover');
