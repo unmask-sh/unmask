@@ -448,18 +448,19 @@ type FlagsRow struct {
 }
 
 // flag bit 解説 (= 本家 BotChallengeDebug.pm $flags_help と揃える).
+// 本家は短キーワードで運用 ("webdriver", "no-plugins", "chrome-spoof" 等).
 var flagsNotes = map[int]string{
-	0:  "正常 (= 全 check pass)",
-	1:  "navigator.webdriver=true",
-	2:  "navigator.plugins.length=0",
-	4:  "screen 0x0 (= headless 確実)",
-	8:  "navigator.languages 空",
-	16: "window.chrome 欠落 (= Chrome 名乗りなのに API なし)",
-	3:  "1+2 (= webdriver + no plugins)",
-	5:  "1+4 (= webdriver + 0x0 screen)",
-	9:  "1+8",
-	17: "1+16",
-	31: "全部 (1|2|4|8|16) — 完全 headless",
+	0:  "-",
+	1:  "webdriver",
+	2:  "no-plugins",
+	4:  "no-languages",
+	8:  "screen-zero",
+	16: "chrome-spoof",
+	3:  "webdriver, no-plugins",
+	5:  "webdriver, no-languages",
+	9:  "webdriver, screen-zero",
+	17: "webdriver, chrome-spoof",
+	31: "webdriver, no-plugins, no-languages, screen-zero, chrome-spoof",
 }
 
 func FlagsDistribution(ctx context.Context, d *db.DB, site string, hours int) ([]FlagsRow, error) {

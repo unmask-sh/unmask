@@ -185,12 +185,15 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 2) cookie 通過状況 -->
 <div class="bcd-card">
-  <h2>cookie 通過状況 (load phase) <span class="src">🗄 DB</span></h2>
+  <h2>cookie 通過状況 (load phase) <span class="src-badge db" title="unmask_event DB 由来">🗄 DB</span></h2>
+  <p class="desc">
+    challenge HTML 起動時の <code>_bv</code> / <code>_br</code> cookie 持参状況. <code>_bv</code> 有り = 過去 3 日に CAPTCHA 通過したリピーター. <code>_br</code> 有り = challenge 経由で reload を経験.
+  </p>
   <table class="bcd-table">
     <thead><tr><th>区分</th><th class="bcd-num">件数</th></tr></thead>
     <tbody>
       {{range .CookieRows}}
-      <tr><td>{{.Kind}}</td><td class="bcd-num">{{.Count}}</td></tr>
+      <tr><td>{{.Kind}}</td><td class="bcd-num">{{comma .Count}}</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -199,16 +202,16 @@ dl.flow dd{margin:0;color:#334155}
 <div class="flex">
   <!-- 3) flags 分布 -->
   <div class="bcd-card">
-    <h2 data-help-key="flags.flags">flags 分布 (load phase)</h2>
+    <h2>flags 分布 (load phase) <span class="help-dotted" data-help-key="flags.flags" style="color:#94a3b8;border:none;font-size:.9rem;font-weight:normal">?</span></h2>
+    <p class="desc">bit値: 1=webdriver, 2=plugins空, 4=languages空, 8=screen=0, 16=Chrome+!window.chrome</p>
     <table class="bcd-table">
-      <thead><tr><th>flags</th><th>bin</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th><th>意味</th></tr></thead>
+      <thead><tr><th>flags (bin)</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th><th>意味</th></tr></thead>
       <tbody>
         {{range .FlagsRows}}
         <tr>
-          <td class="bcd-id">{{.Flags}}</td>
-          <td class="bcd-flagbits">{{.Bin}}</td>
-          <td class="bcd-num">{{.Count}}</td>
-          <td class="bcd-num">{{.UniqIP}}</td>
+          <td class="bcd-flagbits">{{.Bin}} ({{.Flags}})</td>
+          <td class="bcd-num">{{comma .Count}}</td>
+          <td class="bcd-num">{{comma .UniqIP}}</td>
           <td>{{.Note}}</td>
         </tr>
         {{end}}
@@ -224,15 +227,9 @@ dl.flow dd{margin:0;color:#334155}
       <tbody>
         {{range .VerdictDist}}
         <tr>
-          <td>
-            {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
-            {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
-            {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
-            {{else if eq .Verdict "(none)"}}<span class="tag none">{{.Verdict}}</span>
-            {{else}}{{.Verdict}}{{end}}
-          </td>
-          <td class="bcd-num">{{.Count}}</td>
-          <td class="bcd-num">{{.UniqIP}}</td>
+          <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span></td>
+          <td class="bcd-num">{{comma .Count}}</td>
+          <td class="bcd-num">{{comma .UniqIP}}</td>
         </tr>
         {{end}}
       </tbody>
@@ -242,19 +239,20 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 5) JA4 hit 判定 -->
 <div class="bcd-card">
-  <h2>JA4 hit 判定 (load phase) <span class="src">payload_json.ja4_hit</span></h2>
+  <h2>JA4 hit 判定 (load phase)</h2>
+  <p class="desc">challenge HTML JS が <code>/*__JA4_HIT__*/0</code> placeholder を見て nginx の JA4 verdict を判別. 1=PoW スキップ → captcha 直行, 0=通常 PoW.</p>
   <table class="bcd-table">
     <thead><tr><th>kind</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th></tr></thead>
     <tbody>
       {{range .HitRows}}
       <tr>
         <td>
-          {{if eq .Kind "ja4_hit"}}<span class="tag bot">{{.Kind}}</span>
-          {{else if eq .Kind "normal"}}<span class="tag ok">{{.Kind}}</span>
-          {{else}}<span class="tag none">{{.Kind}}</span>{{end}}
+          {{if eq .Kind "ja4_hit"}}<span class="help-dotted" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "normal"}}<span class="help-dotted" style="color:#16a34a;border-bottom-color:#16a34a">{{.Kind}}</span>
+          {{else}}<span class="help-dotted" style="color:#94a3b8">{{.Kind}}</span>{{end}}
         </td>
-        <td class="bcd-num">{{.Count}}</td>
-        <td class="bcd-num">{{.UniqIP}}</td>
+        <td class="bcd-num">{{comma .Count}}</td>
+        <td class="bcd-num">{{comma .UniqIP}}</td>
       </tr>
       {{end}}
     </tbody>
@@ -263,15 +261,15 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 6) reload ループ検出 -->
 <div class="bcd-card">
-  <h2>reload ループ検出 (= 同 IP で load の reload_count ≥ 2)</h2>
+  <h2>reload ループ検出 (同 IP で load phase の reload_count ≥2)</h2>
   <table class="bcd-table">
     <thead><tr><th>IP</th><th class="bcd-num">件数</th><th class="bcd-num">max reload</th><th class="bcd-num">max flags</th><th>UA</th><th>last seen</th></tr></thead>
     <tbody>
       {{range .LoopRows}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td class="bcd-num">{{.Count}}</td>
-        <td class="bcd-num">{{.MaxReload}}</td>
+        <td class="bcd-num">{{comma .Count}}</td>
+        <td class="bcd-num">{{comma .MaxReload}}</td>
         <td class="bcd-num">{{.MaxFlags}}</td>
         <td class="bcd-mono">{{.UA}}</td>
         <td class="bcd-mono">{{.LastSeen}}</td>
@@ -285,32 +283,27 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 7) CAPTCHA 失敗 IP ランキング -->
 <div class="bcd-card">
-  <h2>CAPTCHA 失敗 (verify_ng) IP ランキング <span class="src">🗄 DB</span></h2>
+  <h2>CAPTCHA 失敗 IP ランキング <span class="src-badge db" title="unmask_event DB 由来">🗄 DB</span></h2>
   <table class="bcd-table">
     <thead><tr>
-      <th data-help-key="vng.ip">IP</th>
-      <th class="bcd-num" data-help-key="vng.total">total</th>
-      <th class="bcd-num" data-help-key="vng.behavioral">behavioral</th>
-      <th class="bcd-num" data-help-key="vng.math">math</th>
-      <th class="bcd-num" data-help-key="vng.avg_score">avg score</th>
-      <th data-help-key="vng.ja4">ja4</th>
-      <th data-help-key="vng.ua">UA</th>
-      <th data-help-key="vng.last_seen">last seen</th>
+      <th><span class="help-dotted" data-help-key="vng.ip">IP</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">total</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.behavioral">behavioral</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.math">math</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.avg_score">avg score</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ja4">JA4</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ua">UA</span></th>
+      <th><span class="help-dotted" data-help-key="vng.last_seen">last seen</span></th>
     </tr></thead>
     <tbody>
       {{range .VerifyNG}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td class="bcd-num">{{.Total}}</td>
-        <td class="bcd-num">{{.Behavioral}}</td>
-        <td class="bcd-num">{{.Math}}</td>
-        <td class="bcd-num">{{score .AvgScore}}</td>
-        <td>
-          {{if hasPrefix .JA4 "bot_"}}<span class="tag bot">{{.JA4}}</span>
-          {{else if hasPrefix .JA4 "suspect_"}}<span class="tag suspect">{{.JA4}}</span>
-          {{else if eq .JA4 "ok"}}<span class="tag ok">{{.JA4}}</span>
-          {{else}}<span class="tag none">{{.JA4}}</span>{{end}}
-        </td>
+        <td class="bcd-num{{if ge .Total 5}} n-stealth{{end}}">{{comma .Total}}</td>
+        <td class="bcd-num">{{comma .Behavioral}}</td>
+        <td class="bcd-num{{if gt .Math 0}} n-stealth{{end}}">{{comma .Math}}</td>
+        <td class="bcd-num n-muted">{{score .AvgScore}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{.JA4}}">{{.JA4}}</span></td>
         <td class="bcd-mono">{{.UA}}</td>
         <td class="bcd-mono">{{.LastSeen}}</td>
       </tr>
@@ -321,7 +314,7 @@ dl.flow dd{margin:0;color:#334155}
   </table>
 </div>
 
-<!-- 8) Cookie set 失敗 -->
+<!-- 8) Cookie error -->
 <div class="bcd-card">
   <h2>Cookie error (PoW で cookie_set_ok=false / cookie が即読み戻し失敗)</h2>
   <table class="bcd-table">
@@ -330,7 +323,7 @@ dl.flow dd{margin:0;color:#334155}
       {{range .CookieFails}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td class="bcd-num">{{.Count}}</td>
+        <td class="bcd-num">{{comma .Count}}</td>
         <td class="bcd-mono">{{.UA}}</td>
         <td class="bcd-mono">{{.LastSeen}}</td>
       </tr>
@@ -350,8 +343,8 @@ dl.flow dd{margin:0;color:#334155}
       {{range .Stealth}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td><span class="tag bot">{{.Verdict}}</span></td>
-        <td class="bcd-num">{{.Count}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span></td>
+        <td class="bcd-num n-stealth">{{comma .Count}}</td>
         <td class="bcd-mono">{{.UA}}</td>
         <td class="bcd-mono">{{.LastSeen}}</td>
       </tr>
