@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -31,6 +30,10 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"percent": func(x float64) string {
 				return fmt.Sprintf("%.1f%%", x*100)
 			},
+			"score": func(x float64) string {
+				return fmt.Sprintf("%.2f", x)
+			},
+			"add": func(a, b int) int { return a + b },
 		}
 		sub, err := fs.Sub(assets.Templates, "templates")
 		if err != nil {
@@ -43,15 +46,13 @@ func loadDashboardTemplate() (*template.Template, error) {
 	return dashboardTmpl, dashboardTmplErr
 }
 
-// AuthMiddleware checks `admin_token` from settings if non-empty.  When token
-// is empty, the handler is unauth'd (= bind 127.0.0.1 前提).
+// AuthMiddleware: admin_token が空なら無認証.
 func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	tok := h.Settings.Server.AdminToken
 	if tok == "" {
 		return next
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		// query string ?token= or header X-Unmask-Token
 		got := r.URL.Query().Get("token")
 		if got == "" {
 			got = r.Header.Get("X-Unmask-Token")
@@ -74,27 +75,32 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	days := 7
-	if v := r.URL.Query().Get("days"); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n >= 1 && n <= 60 {
-			days = n
-		}
+	rng := r.URL.Query().Get("range")
+	if rng != "7d" && rng != "30d" {
+		rng = "24h"
 	}
+	hours := dashboard.RangeHours(rng)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
-	funnel, err := dashboard.Funnel(ctx, h.DB, days)
+	funnel, err := dashboard.Funnel(ctx, h.DB, hours)
 	if err != nil {
-		log.Printf("funnel query: %v", err)
-		http.Error(w, "db error", http.StatusInternalServerError)
+		log.Printf("funnel: %v", err)
+		http.Error(w, "db error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, days)
-	failIPs, _ := dashboard.CaptchaFailIPs(ctx, h.DB, days, 30)
-	series, _ := dashboard.DailySeries(ctx, h.DB, days)
+	cookieRows, _ := dashboard.CookieStatus(ctx, h.DB, hours)
+	flagsRows, _ := dashboard.FlagsDistribution(ctx, h.DB, hours)
+	verdictDist, _ := dashboard.VerdictDistribution(ctx, h.DB, hours)
+	hitRows, _ := dashboard.JA4HitBreakdown(ctx, h.DB, hours)
+	loopRows, _ := dashboard.ReloadLoops(ctx, h.DB, hours)
+	verifyNG, _ := dashboard.VerifyNGRanking(ctx, h.DB, hours, 30)
+	cookieFails, _ := dashboard.CookieSetFails(ctx, h.DB, hours)
+	stealth, _ := dashboard.StealthPassed(ctx, h.DB, hours)
+	jsErrs, _ := dashboard.JSErrors(ctx, h.DB, hours)
+	series, _ := dashboard.DailySeries(ctx, h.DB, 30) // chart は常に 30 日
 
-	// chart 用に JSON シリアライズ.
 	type seriesPt struct {
 		Date     string `json:"date"`
 		Serve    int    `json:"serve"`
@@ -110,18 +116,24 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	seriesJSON, _ := json.Marshal(pts)
 
 	now := time.Now()
-	rangeText := fmt.Sprintf("%s 〜 %s",
-		now.AddDate(0, 0, -days).Format("2006-01-02"),
-		now.Format("2006-01-02"))
+	rangeText := fmt.Sprintf("直近 %s (%s〜)",
+		rng, now.Add(-time.Duration(hours)*time.Hour).Format("2006-01-02 15:04"))
 
 	data := map[string]any{
-		"Days":           days,
-		"RangeText":      rangeText,
-		"Driver":         string(h.DB.Driver),
-		"Funnel":         funnel,
-		"VerdictDist":    verdictDist,
-		"CaptchaFailIPs": failIPs,
-		"SeriesJSON":     template.JS(seriesJSON),
+		"Range":       rng,
+		"RangeText":   rangeText,
+		"Driver":      string(h.DB.Driver),
+		"Funnel":      funnel,
+		"CookieRows":  cookieRows,
+		"FlagsRows":   flagsRows,
+		"VerdictDist": verdictDist,
+		"HitRows":     hitRows,
+		"LoopRows":    loopRows,
+		"VerifyNG":    verifyNG,
+		"CookieFails": cookieFails,
+		"Stealth":     stealth,
+		"JSErrors":    jsErrs,
+		"SeriesJSON":  template.JS(seriesJSON),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
@@ -129,20 +141,18 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AdminFunnelJSON: GET {base}/admin/api/funnel?days=7  → JSON 形式.
+// AdminFunnelJSON: GET {base}/admin/api/funnel?range=24h
 func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
-	days := 7
-	if v := r.URL.Query().Get("days"); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n >= 1 && n <= 60 {
-			days = n
-		}
+	rng := r.URL.Query().Get("range")
+	if rng != "7d" && rng != "30d" {
+		rng = "24h"
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	rows, err := dashboard.Funnel(ctx, h.DB, days)
+	rows, err := dashboard.Funnel(ctx, h.DB, dashboard.RangeHours(rng))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": 0, "error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "funnel": rows})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "range": rng, "funnel": rows})
 }

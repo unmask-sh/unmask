@@ -2,139 +2,415 @@
 <html lang="ja">
 <head>
 <meta charset="utf-8">
-<title>unmask · dashboard</title>
+<title>unmask · bot challenge debug</title>
 <meta name="robots" content="noindex, nofollow">
 <style>
 *{box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f7f8fa;color:#222;font-size:14px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:1.5em 2em;background:#f1f5f9;color:#0f172a;font-size:13px}
 h1{font-size:1.4em;margin:0 0 .2em}
-h2{font-size:1.05em;margin:1.6em 0 .4em;border-left:3px solid #4a90d9;padding-left:.5em}
-.meta{color:#777;font-size:.8em;margin-bottom:1em}
-table{border-collapse:collapse;width:100%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.04);margin-bottom:.4em}
-th,td{padding:.4em .6em;text-align:right;border-bottom:1px solid #eee;font-variant-numeric:tabular-nums}
-th:first-child,td:first-child{text-align:left}
-th{background:#f0f3f7;font-weight:600;font-size:.85em;color:#555}
-tr.total td{font-weight:bold;background:#fafbfd;border-top:2px solid #ccc}
-.muted{color:#999}
-.mono{font-family:'SF Mono','Menlo',monospace;font-size:.85em}
-.bar{display:inline-block;height:6px;background:#4a90d9;border-radius:3px;vertical-align:middle;margin-right:.4em}
-.tag{display:inline-block;padding:.1em .5em;border-radius:.5em;font-size:.75em;background:#eef}
-.tag.bot{background:#fdd}
-.tag.suspect{background:#feb}
-.tag.ok{background:#dfd}
-.note{color:#aaa;font-size:.78em}
-.flex{display:flex;gap:1.5em;align-items:flex-start}
-.flex>*{flex:1}
-canvas{max-width:100%;background:#fff;padding:.6em;border-radius:6px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
-.ip-cell{cursor:help;text-decoration:underline dotted #aaa}
-#ip-popover{position:absolute;background:#fff;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.12);padding:.6em .8em;font-size:.78em;min-width:240px;max-width:360px;z-index:10;display:none}
-#ip-popover h3{margin:0 0 .3em;font-size:.95em}
+.meta{color:#64748b;font-size:.82em;margin-bottom:1em}
+.bcd-controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.bcd-controls a{padding:.3em .9em;border:1px solid #cbd5e1;border-radius:4px;text-decoration:none;color:#334155;background:#fff}
+.bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:14px 18px;margin-bottom:16px}
+.bcd-card h2{font-size:14px;font-weight:700;margin:0 0 10px;color:#334155}
+.bcd-card h2 .src{font-size:10px;color:#94a3b8;font-weight:normal;margin-left:.4em}
+.bcd-table{font-size:12px;width:100%;border-collapse:collapse}
+.bcd-table th,.bcd-table td{padding:4px 10px;text-align:left;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:11px}
+.bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px}
+.bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
+tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
+tr.total td.bcd-num{font-weight:700}
+tr.rl-row td{background:#fff7ed}
+.tag{display:inline-block;padding:.05em .5em;border-radius:.5em;font-size:.78em}
+.tag.bot{background:#fee2e2;color:#991b1b}
+.tag.suspect{background:#fef3c7;color:#92400e}
+.tag.ok{background:#dcfce7;color:#166534}
+.tag.none{background:#e2e8f0;color:#475569}
+.bcd-zero-row{display:none}
+.bcd-zero-row.expanded{display:table-row}
+.bcd-zero-toggle{font-size:11px;color:#64748b;cursor:pointer;padding:6px 0 0;user-select:none}
+.bcd-zero-toggle:hover{color:#0f172a;text-decoration:underline}
+.bcd-card .bcd-table{visibility:hidden}
+.bcd-card .bcd-table.bcd-ready{visibility:visible}
+.flex{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:920px){.flex{grid-template-columns:1fr}}
+canvas{max-width:100%;background:#fff;padding:.5em;border-radius:4px}
+dl.flow{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.4em 1em}
+dl.flow dt{font-weight:700;color:#475569}
+dl.flow dd{margin:0;color:#334155}
+.muted{color:#94a3b8}
+#ip-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:6px;box-shadow:0 6px 16px rgba(0,0,0,.12);padding:.6em .9em;font-size:.78em;min-width:240px;max-width:380px;z-index:100;display:none}
+#ip-popover h3{margin:0 0 .3em;font-size:.92em}
 #ip-popover dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2em .8em}
-#ip-popover dt{color:#777}
+#ip-popover dt{color:#64748b}
 #ip-popover dd{margin:0}
-#ip-popover .err{color:#c33}
+.ipclick{cursor:help;text-decoration:underline dotted #94a3b8}
 </style>
 </head>
 <body>
-<h1>unmask · dashboard</h1>
-<p class="meta">直近 {{.Days}} 日 ({{.RangeText}}). DB driver = {{.Driver}}.</p>
 
-<h2>Challenge ファネル (verdict 別)</h2>
-<table>
-<thead><tr>
-  <th>verdict</th><th>serve</th><th>silent</th><th>load</th><th>pow</th><th>captcha</th>
-  <th>verify_ok</th><th>verify_ng</th><th>cookie_err</th><th>JS error</th>
-  <th>PoW率</th><th>CAPTCHA率</th>
-</tr></thead>
-<tbody>
-{{range .Funnel}}
-<tr {{if eq .Verdict "TOTAL"}}class="total"{{end}}>
-  <td>
-    {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
-    {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
-    {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
-    {{else}}<span class="tag">{{.Verdict}}</span>{{end}}
-  </td>
-  <td>{{.Serve}}</td>
-  <td class="muted">{{.Silent}}</td>
-  <td>{{.Load}}</td>
-  <td>{{.PoW}}</td>
-  <td>{{.Captcha}}</td>
-  <td>{{.VerifyOK}}</td>
-  <td>{{.VerifyNG}}</td>
-  <td>{{.CookieErr}}</td>
-  <td>{{.JSError}}</td>
-  <td>{{percent .PowRate}}</td>
-  <td>{{percent .CaptchaRate}}</td>
-</tr>
-{{end}}
-</tbody>
-</table>
-<p class="note">silent = serve - load. JS が動かない bot のおおよその下限値.</p>
+<h1>unmask · bot challenge debug</h1>
+<p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
+
+<div class="bcd-controls">
+  <span style="color:#64748b">集計期間:</span>
+  <a href="?range=24h" {{if eq .Range "24h"}}class="active"{{end}}>24h</a>
+  <a href="?range=7d"  {{if eq .Range "7d" }}class="active"{{end}}>7d</a>
+  <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>30d</a>
+</div>
+
+<!-- 1) チャレンジ ファネル -->
+<div class="bcd-card">
+  <h2>チャレンジ ファネル (JA4 verdict 別) <span class="src">🗄 DB / unmask_event</span></h2>
+  <table class="bcd-table">
+    <thead><tr>
+      <th>verdict</th>
+      <th class="bcd-num">serve</th>
+      <th class="bcd-num">↑rl</th>
+      <th class="bcd-num">load</th>
+      <th class="bcd-num">uniq</th>
+      <th class="bcd-num">stealth</th>
+      <th class="bcd-num">pow</th>
+      <th class="bcd-num">captcha</th>
+      <th class="bcd-num">verify_ok</th>
+      <th class="bcd-num">verify_ng</th>
+      <th class="bcd-num">cookie_err</th>
+      <th class="bcd-num">JS err</th>
+      <th class="bcd-num">PoW率</th>
+      <th class="bcd-num">CAPTCHA率</th>
+    </tr></thead>
+    <tbody>
+      {{range .Funnel}}
+      <tr {{if eq .Verdict "TOTAL"}}class="total"{{else if eq .Verdict "rate_limit"}}class="rl-row"{{end}}>
+        <td>
+          {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
+          {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
+          {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
+          {{else if eq .Verdict "(none)"}}<span class="tag none">{{.Verdict}}</span>
+          {{else if eq .Verdict "rate_limit"}}<b>rate_limit</b>
+          {{else if eq .Verdict "TOTAL"}}<b>TOTAL</b>
+          {{else}}{{.Verdict}}{{end}}
+        </td>
+        <td class="bcd-num">{{.Serve}}</td>
+        <td class="bcd-num muted">{{.ServeRL}}</td>
+        <td class="bcd-num">{{.Load}}</td>
+        <td class="bcd-num muted">{{.LoadUniq}}</td>
+        <td class="bcd-num">{{.Stealth}}</td>
+        <td class="bcd-num">{{.PoW}}</td>
+        <td class="bcd-num">{{.Captcha}}</td>
+        <td class="bcd-num">{{.VerifyOK}}</td>
+        <td class="bcd-num">{{.VerifyNG}}</td>
+        <td class="bcd-num">{{.CookieErr}}</td>
+        <td class="bcd-num">{{.JSError}}</td>
+        <td class="bcd-num">{{percent .PowRate}}</td>
+        <td class="bcd-num">{{percent .CaptchaRate}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  <p style="margin:.6em 0 0;font-size:11px;color:#94a3b8">↑rl = ?_rl=1 (= rate-limit 経由) で来た serve. stealth = load phase で flags=0 + bot_*. rate_limit 行は IP-join で他 verdict と重複し得る (= TOTAL に加算しない).</p>
+</div>
+
+<!-- 2) cookie 通過状況 -->
+<div class="bcd-card">
+  <h2>cookie 通過状況 (load phase) <span class="src">🗄 DB</span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>区分</th><th class="bcd-num">件数</th></tr></thead>
+    <tbody>
+      {{range .CookieRows}}
+      <tr><td>{{.Kind}}</td><td class="bcd-num">{{.Count}}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
 
 <div class="flex">
-  <div>
-    <h2>JA4 verdict 分布</h2>
-    <table>
-      <thead><tr><th>verdict</th><th>件数</th></tr></thead>
+  <!-- 3) flags 分布 -->
+  <div class="bcd-card">
+    <h2>flags 分布 (load phase)</h2>
+    <table class="bcd-table">
+      <thead><tr><th>flags</th><th>bin</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th><th>意味</th></tr></thead>
       <tbody>
-        {{range .VerdictDist}}
-        <tr><td class="mono">{{.Verdict}}</td><td>{{.Count}}</td></tr>
+        {{range .FlagsRows}}
+        <tr>
+          <td class="bcd-num">{{.Flags}}</td>
+          <td class="bcd-flagbits">{{.Bin}}</td>
+          <td class="bcd-num">{{.Count}}</td>
+          <td class="bcd-num">{{.UniqIP}}</td>
+          <td>{{.Note}}</td>
+        </tr>
         {{end}}
       </tbody>
     </table>
   </div>
-  <div>
-    <h2>verify_ng が多い IP</h2>
-    <table>
-      <thead><tr><th>IP</th><th>件数</th></tr></thead>
+
+  <!-- 4) JA4 verdict 分布 -->
+  <div class="bcd-card">
+    <h2>JA4 verdict 分布</h2>
+    <table class="bcd-table">
+      <thead><tr><th>verdict</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th></tr></thead>
       <tbody>
-        {{range .CaptchaFailIPs}}
-        <tr><td class="mono ip-cell" data-ip="{{.IP}}">{{.IP}}</td><td>{{.Count}}</td></tr>
-        {{else}}
-        <tr><td colspan="2" class="muted">該当なし</td></tr>
+        {{range .VerdictDist}}
+        <tr>
+          <td>
+            {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
+            {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
+            {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
+            {{else if eq .Verdict "(none)"}}<span class="tag none">{{.Verdict}}</span>
+            {{else}}{{.Verdict}}{{end}}
+          </td>
+          <td class="bcd-num">{{.Count}}</td>
+          <td class="bcd-num">{{.UniqIP}}</td>
+        </tr>
         {{end}}
       </tbody>
     </table>
   </div>
 </div>
 
-<h2>{{.Days}} 日の推移</h2>
-<canvas id="chart" height="320"></canvas>
+<!-- 5) JA4 hit 判定 -->
+<div class="bcd-card">
+  <h2>JA4 hit 判定 (load phase) <span class="src">payload_json.ja4_hit</span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>kind</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th></tr></thead>
+    <tbody>
+      {{range .HitRows}}
+      <tr>
+        <td>
+          {{if eq .Kind "ja4_hit"}}<span class="tag bot">{{.Kind}}</span>
+          {{else if eq .Kind "normal"}}<span class="tag ok">{{.Kind}}</span>
+          {{else}}<span class="tag none">{{.Kind}}</span>{{end}}
+        </td>
+        <td class="bcd-num">{{.Count}}</td>
+        <td class="bcd-num">{{.UniqIP}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 6) reload ループ検出 -->
+<div class="bcd-card">
+  <h2>reload ループ検出 (= 同 IP で load の reload_count ≥ 2)</h2>
+  <table class="bcd-table">
+    <thead><tr><th>IP</th><th class="bcd-num">件数</th><th class="bcd-num">max reload</th><th class="bcd-num">max flags</th><th>UA</th><th>last seen</th></tr></thead>
+    <tbody>
+      {{range .LoopRows}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-num">{{.Count}}</td>
+        <td class="bcd-num">{{.MaxReload}}</td>
+        <td class="bcd-num">{{.MaxFlags}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono">{{.LastSeen}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" class="muted">該当なし</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 7) CAPTCHA 失敗 IP ランキング -->
+<div class="bcd-card">
+  <h2>CAPTCHA 失敗 (verify_ng) IP ランキング <span class="src">🗄 DB</span></h2>
+  <table class="bcd-table">
+    <thead><tr>
+      <th>IP</th>
+      <th class="bcd-num">total</th>
+      <th class="bcd-num">behavioral</th>
+      <th class="bcd-num">math</th>
+      <th class="bcd-num">avg score</th>
+      <th>ja4</th>
+      <th>UA</th>
+      <th>last seen</th>
+    </tr></thead>
+    <tbody>
+      {{range .VerifyNG}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-num">{{.Total}}</td>
+        <td class="bcd-num">{{.Behavioral}}</td>
+        <td class="bcd-num">{{.Math}}</td>
+        <td class="bcd-num">{{score .AvgScore}}</td>
+        <td>
+          {{if hasPrefix .JA4 "bot_"}}<span class="tag bot">{{.JA4}}</span>
+          {{else if hasPrefix .JA4 "suspect_"}}<span class="tag suspect">{{.JA4}}</span>
+          {{else if eq .JA4 "ok"}}<span class="tag ok">{{.JA4}}</span>
+          {{else}}<span class="tag none">{{.JA4}}</span>{{end}}
+        </td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono">{{.LastSeen}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="8" class="muted">該当なし</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 8) Cookie set 失敗 -->
+<div class="bcd-card">
+  <h2>Cookie error (PoW で cookie_set_ok=false / cookie が即読み戻し失敗)</h2>
+  <table class="bcd-table">
+    <thead><tr><th>IP</th><th class="bcd-num">件数</th><th>UA</th><th>last seen</th></tr></thead>
+    <tbody>
+      {{range .CookieFails}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-num">{{.Count}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono">{{.LastSeen}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4" class="muted">該当なし</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 9) stealth 突破 -->
+<div class="bcd-card">
+  <h2>完全 stealth 突破 IP (verify_ok かつ ja4_verdict=bot_*)</h2>
+  <table class="bcd-table">
+    <thead><tr><th>IP</th><th>verdict</th><th class="bcd-num">件数</th><th>UA</th><th>last seen</th></tr></thead>
+    <tbody>
+      {{range .Stealth}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td><span class="tag bot">{{.Verdict}}</span></td>
+        <td class="bcd-num">{{.Count}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono">{{.LastSeen}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">該当なし (= stealth 突破はゼロ)</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 10) 30 日推移 -->
+<div class="bcd-card">
+  <h2>30 日推移 (= challenge phase 別件数)</h2>
+  <canvas id="chart" height="320"></canvas>
+</div>
+
+<!-- 11) JS error -->
+<div class="bcd-card">
+  <h2>JS エラー (window.onerror で捕捉)</h2>
+  <table class="bcd-table">
+    <thead><tr><th>IP</th><th>UA</th><th class="bcd-num">flags</th><th>error</th><th>date</th></tr></thead>
+    <tbody>
+      {{range .JSErrors}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-num">{{.Flags}}</td>
+        <td class="bcd-mono">{{.Error}}</td>
+        <td class="bcd-mono">{{.Date}}</td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">該当なし</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<!-- 12) challenge 発動フロー (説明) -->
+<div class="bcd-card">
+  <h2>challenge 発動フロー</h2>
+  <dl class="flow">
+    <dt>1. TLS handshake</dt>
+    <dd>nginx + ja4 module が ClientHello から JA4 fingerprint を計算 → <code>$client_ja4</code></dd>
+
+    <dt>2. verdict map</dt>
+    <dd><code>map $effective_ja4 $ja4_verdict { ... }</code> で <code>ok</code> / <code>bot_*</code> / <code>suspect_*</code> に分類</dd>
+
+    <dt>3. final_challenge map</dt>
+    <dd><code>(bv_valid, is_search_bot, is_google_ip, is_known_browser, ja4_verdict, serve_bot_challenge)</code> 6 シグナルで challenge 発動を最終判定</dd>
+
+    <dt>4. challenge HTML 配信</dt>
+    <dd><code>final_challenge=1</code> の location は internal rewrite で <code>/unmask/challenge.html</code> へ → admin が 403 + sub_filter 済み HTML を返す (= phase=<b>serve</b> ログ)</dd>
+
+    <dt>5. JS 起動</dt>
+    <dd>HTML 内 JS が flags / window 等を集めて debug ビーコン送信 (= phase=<b>load</b>)</dd>
+
+    <dt>6. PoW</dt>
+    <dd>djb2 hash で 1〜2 秒の計算 → cookie set 試行 (= phase=<b>pow</b>). bot_* verdict なら PoW skip して直接 CAPTCHA</dd>
+
+    <dt>7. CAPTCHA</dt>
+    <dd>behavioral checkbox (mouseTrail / clickAt / windowSize / etc) を score 化. 0.5 以上で通過. (= phase=<b>captcha</b>)</dd>
+
+    <dt>8. verify</dt>
+    <dd>admin /api/verify が score を確認 → HMAC-SHA1 署名済 _bv cookie 発行 (= phase=<b>verify_ok</b>). 失敗時は <b>verify_ng</b></dd>
+
+    <dt>9. 通過後</dt>
+    <dd>nginx の <code>$unmask_bv_valid</code> 変数 (= ja4 module が cookie を inline 検証) が <b>1</b> を返す → final_challenge=0 → 透過パス</dd>
+  </dl>
+</div>
 
 <script>
-// chart.js を使わず素の canvas で書く. RPM 配布で外部 CDN 依存を避ける.
+// 0 件 row 折りたたみ.
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
+    var rows = Array.from(tbl.querySelectorAll('tbody tr'));
+    var zeroRows = rows.filter(function(tr){
+      var nums = tr.querySelectorAll('.bcd-num');
+      if (!nums.length) return false;
+      return Array.from(nums).every(function(td){
+        var s = td.textContent.trim().replace(/[,%\s]/g,'');
+        return s === '' || s === '0' || s === '0.0' || s === '0.00';
+      });
+    });
+    if (zeroRows.length >= 3) {
+      zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
+      var toggle = document.createElement('div');
+      toggle.className = 'bcd-zero-toggle';
+      toggle.textContent = '▼ 0 件 ' + zeroRows.length + ' 行を表示';
+      var expanded = false;
+      toggle.addEventListener('click', function(){
+        expanded = !expanded;
+        zeroRows.forEach(function(tr){ tr.classList.toggle('expanded', expanded); });
+        toggle.textContent = (expanded ? '▲ 0 件 ' : '▼ 0 件 ') + zeroRows.length + ' 行を' + (expanded ? '隠す' : '表示');
+      });
+      tbl.parentNode.insertBefore(toggle, tbl.nextSibling);
+    }
+    tbl.classList.add('bcd-ready');
+  });
+});
+
+// 30 日 chart (= 純 canvas, 外部 dep なし)
 const series = {{.SeriesJSON}};
 (function(){
   const c = document.getElementById('chart');
+  if (!c) return;
   const ctx = c.getContext('2d');
   const W = c.width = c.clientWidth, H = c.height = 320;
-  if (!series.length){ ctx.fillStyle='#999'; ctx.fillText('no data', 20, 40); return; }
-
+  if (!series.length){ ctx.fillStyle='#94a3b8'; ctx.fillText('no data', 20, 40); return; }
   const fields = ['serve','load','pow','captcha','verify_ok'];
-  const colors = ['#888','#4a90d9','#e09c00','#d35a5a','#3aa657'];
+  const colors = ['#64748b','#3b82f6','#f59e0b','#ef4444','#10b981'];
   let max = 1;
   series.forEach(d => fields.forEach(f => { if (d[f] > max) max = d[f]; }));
-
   const padL = 50, padR = 10, padT = 16, padB = 36;
   const w = W - padL - padR, h = H - padT - padB;
-  // grid
-  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
   for (let i=0;i<=4;i++){
     const y = padT + h*i/4;
     ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
-    ctx.fillStyle='#aaa'; ctx.font='11px sans-serif';
+    ctx.fillStyle='#94a3b8'; ctx.font='11px sans-serif';
     ctx.fillText(Math.round(max*(1-i/4)), 6, y+3);
   }
-  // x axis labels (= 5 日おき)
-  ctx.fillStyle = '#888'; ctx.font='10px sans-serif';
+  ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif';
   series.forEach((d,i)=>{
     if (i % Math.max(1, Math.floor(series.length/8)) === 0){
       const x = padL + w*i/Math.max(1,series.length-1);
       ctx.fillText(d.date.slice(5), x-12, H-12);
     }
   });
-  // lines
   fields.forEach((f, fi)=>{
     ctx.strokeStyle = colors[fi]; ctx.lineWidth = 2; ctx.beginPath();
     series.forEach((d,i)=>{
@@ -144,24 +420,22 @@ const series = {{.SeriesJSON}};
     });
     ctx.stroke();
   });
-  // legend
   ctx.font='11px sans-serif';
   fields.forEach((f, fi)=>{
     const x = padL + fi*100;
     ctx.fillStyle = colors[fi]; ctx.fillRect(x, 4, 12, 6);
-    ctx.fillStyle = '#333'; ctx.fillText(f, x+16, 11);
+    ctx.fillStyle = '#334155'; ctx.fillText(f, x+16, 11);
   });
 })();
 </script>
 
 <div id="ip-popover"></div>
 <script>
-// IP popover: hover で /admin/api/myip?ip=X を fetch して reverse DNS 等表示.
+// IP popover (rDNS + family).
 (function(){
   const pop = document.getElementById('ip-popover');
   const cache = new Map();
   let timer = null;
-
   function show(html, x, y){
     pop.innerHTML = html;
     pop.style.left = (x + 12) + 'px';
@@ -170,10 +444,11 @@ const series = {{.SeriesJSON}};
   }
   function hide(){ pop.style.display = 'none'; }
   function fmt(d){
-    if (d.error) return '<span class="err">' + d.error + '</span>';
+    if (d.error) return '<span style="color:#dc2626">' + d.error + '</span>';
     let h = '<h3>' + d.ip + '</h3><dl>';
     h += '<dt>family</dt><dd>' + d.family + '</dd>';
-    h += '<dt>private</dt><dd>' + (d.is_private ? 'yes' : 'no') + '</dd>';
+    if (d.is_private) h += '<dt></dt><dd>private</dd>';
+    if (d.is_loopback) h += '<dt></dt><dd>loopback</dd>';
     if (d.reverse_dns && d.reverse_dns.length){
       h += '<dt>rDNS</dt><dd>' + d.reverse_dns.join('<br>') + '</dd>';
     } else {
@@ -182,19 +457,18 @@ const series = {{.SeriesJSON}};
     h += '</dl>';
     return h;
   }
-
-  document.querySelectorAll('.ip-cell').forEach(td => {
+  document.querySelectorAll('.ipclick').forEach(td => {
     td.addEventListener('mouseenter', e => {
       clearTimeout(timer);
       const ip = td.dataset.ip;
       const x = e.pageX, y = e.pageY;
       if (cache.has(ip)){ show(fmt(cache.get(ip)), x, y); return; }
       timer = setTimeout(() => {
-        show('looking up ' + ip + '...', x, y);
+        show('looking up ' + ip + '…', x, y);
         fetch('api/myip?ip=' + encodeURIComponent(ip))
           .then(r => r.json())
           .then(d => { cache.set(ip, d); show(fmt(d), x, y); })
-          .catch(() => show('<span class="err">lookup failed</span>', x, y));
+          .catch(() => show('lookup failed', x, y));
       }, 200);
     });
     td.addEventListener('mouseleave', () => { clearTimeout(timer); hide(); });
