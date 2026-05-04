@@ -32,6 +32,31 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    集計値ではない. 0 件判定 (= bcd-zero-row 判定) から除外する. */
 .bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.875rem}
+/* card 内 description (= 本家の <p style="font-size:11px;color:#64748b"> 同等) */
+.bcd-card .desc{font-size:.7rem;color:#64748b;margin:0 0 .5rem;line-height:1.55}
+.bcd-card .desc code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace}
+.bcd-card .desc strong{font-weight:700}
+/* source badge (= h2 横の 🗄 DB / 📜 nginx log 等) */
+.src-badge{display:inline-block;padding:.05rem .35rem;border-radius:.2rem;font-size:.65rem;font-weight:600;vertical-align:middle;margin-left:.3rem}
+.src-badge.db{background:#dbeafe;color:#1e40af}
+.src-badge.log{background:#fef3c7;color:#92400e}
+/* 本家の TOTAL / rate_limit 行スタイル */
+tr.bcd-rl{background:#fef3c7}
+tr.bcd-total{background:#e0e7ff;font-weight:700;border-top:2px solid #6366f1}
+tr.bcd-total td{font-weight:700}
+/* dotted-underline help span (= 本家の bootstrap popover style 互換) */
+.help-dotted{cursor:help;border-bottom:1px dotted #94a3b8}
+/* table 全体 — 本家 .table .table-sm 相当の最低限 */
+table.bcd-table{margin-bottom:0;color:#212529}
+table.bcd-table > tbody > tr > td,
+table.bcd-table > thead > tr > th{border-bottom:1px solid #e5e7eb;padding:.4rem .6rem;font-size:.85rem}
+table.bcd-table > thead > tr > th{border-bottom:2px solid #cbd5e1;background:#f8fafc;color:#475569;font-weight:600}
+/* numeric cell 色 (本家と同じトーン) */
+.n-muted{color:#64748b}
+.n-faint{color:#94a3b8}
+.n-zero{color:#cbd5e1}
+.n-warn{color:#f59e0b;font-weight:600}
+.n-stealth{color:#dc2626;font-weight:700}
 .bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
 tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
 tr.total td.bcd-num{font-weight:700}
@@ -104,54 +129,58 @@ dl.flow dd{margin:0;color:#334155}
 
 <!-- 1) チャレンジ ファネル -->
 <div class="bcd-card">
-  <h2>チャレンジ ファネル (JA4 verdict 別) <span class="src">🗄 DB / unmask_event</span></h2>
+  <h2>チャレンジ ファネル (JA4 verdict 別) <span class="src-badge db" title="unmask_event DB 由来 (JS beacon)">🗄 DB</span></h2>
+  <p class="desc">
+    verdict 別に <code>serve → load → pow → captcha → verify_ok</code> の遷移. JA4 hit (= placeholder 書き換えで isJa4Hit=1) では PoW スキップして即 captcha に進むので pow は 0 になる.<br>
+    <strong>rate_limit</strong> 行は ja4_verdict 横断の疑似 verdict (= 100 r/min 超え経由 IP の挙動を IP-join で集計). <strong>TOTAL</strong> 行は ja4 verdict 別の合算 (= rate_limit 重複除外).<br>
+    <strong>silent</strong> (= serve - load) = challenge 配信されたが JS が起動しなかった (Cookie 拒否 / 古い browser / HEAD method / scraper).
+  </p>
+  <div style="overflow-x:auto">
   <table class="bcd-table">
     <thead><tr>
       <th>verdict</th>
-      <th class="bcd-num" data-help-key="phase.serve">serve</th>
-      <th class="bcd-num" data-help-key="phase.rl">↑rl</th>
-      <th class="bcd-num" data-help-key="phase.load">load</th>
-      <th class="bcd-num" data-help-key="phase.uniq">uniq</th>
-      <th class="bcd-num" data-help-key="phase.stealth">stealth</th>
-      <th class="bcd-num" data-help-key="phase.pow">pow</th>
-      <th class="bcd-num" data-help-key="phase.captcha">captcha</th>
-      <th class="bcd-num" data-help-key="phase.verify_ok">verify_ok</th>
-      <th class="bcd-num" data-help-key="phase.verify_ng">verify_ng</th>
-      <th class="bcd-num" data-help-key="phase.cookie_err">cookie_err</th>
-      <th class="bcd-num" data-help-key="phase.js_error">JS err</th>
-      <th class="bcd-num" data-help-key="phase.pow_rate">PoW率</th>
-      <th class="bcd-num" data-help-key="phase.captcha_rate">CAPTCHA率</th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.serve">serve</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.rl">rl</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.load">load</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.uniq">uniq IP</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.silent">silent</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.stealth">stealth</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow">pow</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha">captcha</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ok">verify_ok</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ng">verify_ng</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.cookie_err">cookie_err</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.js_error">JS error</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_rate">PoW率</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha_rate">CAPTCHA率</span></th>
     </tr></thead>
     <tbody>
       {{range .Funnel}}
-      <tr {{if eq .Verdict "TOTAL"}}class="total"{{else if eq .Verdict "rate_limit"}}class="rl-row"{{end}}>
+      <tr {{if eq .Verdict "TOTAL"}}class="bcd-total"{{else if eq .Verdict "rate_limit"}}class="bcd-rl"{{end}}>
         <td>
-          {{if hasPrefix .Verdict "bot_"}}<span class="tag bot">{{.Verdict}}</span>
-          {{else if hasPrefix .Verdict "suspect_"}}<span class="tag suspect">{{.Verdict}}</span>
-          {{else if eq .Verdict "ok"}}<span class="tag ok">{{.Verdict}}</span>
-          {{else if eq .Verdict "(none)"}}<span class="tag none">{{.Verdict}}</span>
-          {{else if eq .Verdict "rate_limit"}}<b>rate_limit</b>
-          {{else if eq .Verdict "TOTAL"}}<b>TOTAL</b>
-          {{else}}{{.Verdict}}{{end}}
+          {{if eq .Verdict "rate_limit"}}<span class="help-dotted" data-help-key="verdict.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:700">rate_limit</span>
+          {{else if eq .Verdict "TOTAL"}}<span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
+          {{else}}<span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>{{end}}
         </td>
-        <td class="bcd-num">{{.Serve}}</td>
-        <td class="bcd-num muted">{{.ServeRL}}</td>
-        <td class="bcd-num">{{.Load}}</td>
-        <td class="bcd-num muted">{{.LoadUniq}}</td>
-        <td class="bcd-num">{{.Stealth}}</td>
-        <td class="bcd-num">{{.PoW}}</td>
-        <td class="bcd-num">{{.Captcha}}</td>
-        <td class="bcd-num">{{.VerifyOK}}</td>
-        <td class="bcd-num">{{.VerifyNG}}</td>
-        <td class="bcd-num">{{.CookieErr}}</td>
-        <td class="bcd-num">{{.JSError}}</td>
-        <td class="bcd-num">{{percent .PowRate}}</td>
-        <td class="bcd-num">{{percent .CaptchaRate}}</td>
+        <td class="bcd-num n-muted">{{comma .Serve}}</td>
+        <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{else}} n-zero{{end}}">{{comma .ServeRL}}</td>
+        <td class="bcd-num">{{comma .Load}}</td>
+        <td class="bcd-num n-muted">{{comma .LoadUniq}}</td>
+        <td class="bcd-num n-faint">{{comma .Silent}}</td>
+        <td class="bcd-num{{if gt .Stealth 0}} n-stealth{{end}}">{{comma .Stealth}}</td>
+        <td class="bcd-num">{{comma .PoW}}</td>
+        <td class="bcd-num">{{comma .Captcha}}</td>
+        <td class="bcd-num">{{comma .VerifyOK}}</td>
+        <td class="bcd-num">{{comma .VerifyNG}}</td>
+        <td class="bcd-num">{{comma .CookieErr}}</td>
+        <td class="bcd-num">{{comma .JSError}}</td>
+        <td class="bcd-num">{{rate .PoW .Load}}</td>
+        <td class="bcd-num">{{rate .VerifyOK .Captcha}}</td>
       </tr>
       {{end}}
     </tbody>
   </table>
-  <p style="margin:.6rem 0 0;font-size:.85rem;color:#94a3b8">↑rl = ?_rl=1 (= rate-limit 経由) で来た serve. stealth = load phase で flags=0 + bot_*. rate_limit 行は IP-join で他 verdict と重複し得る (= TOTAL に加算しない).</p>
+  </div>
 </div>
 
 <!-- 2) cookie 通過状況 -->
@@ -418,11 +447,14 @@ document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
+      // rate_limit / TOTAL 行は常時表示 (= 0 件 collapse 対象から除外)
+      if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-total')) return false;
       var nums = tr.querySelectorAll('.bcd-num');
       if (!nums.length) return false;
       return Array.from(nums).every(function(td){
         var s = td.textContent.trim().replace(/[,%\s]/g,'');
-        return s === '' || s === '0' || s === '0.0' || s === '0.00';
+        // "-" も「データなし」 とみなす (= rate が load=0 のとき表示).
+        return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
     // 0 件 row が 0 個のとき (= toggle で操作する対象が無い) は toggle 不要.

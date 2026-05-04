@@ -34,6 +34,33 @@ func loadDashboardTemplate() (*template.Template, error) {
 				return fmt.Sprintf("%.2f", x)
 			},
 			"add": func(a, b int) int { return a + b },
+			// 整数を 3 桁区切りで render (= 1234 → "1,234"). 本家と同じ format.
+			"comma": func(n int) string {
+				s := fmt.Sprintf("%d", n)
+				neg := false
+				if strings.HasPrefix(s, "-") {
+					neg = true
+					s = s[1:]
+				}
+				out := ""
+				for i, c := range s {
+					if i > 0 && (len(s)-i)%3 == 0 {
+						out += ","
+					}
+					out += string(c)
+				}
+				if neg {
+					out = "-" + out
+				}
+				return out
+			},
+			// 比率 formatter: load=0 (or denom=0) のときは "-".
+			"rate": func(num, denom int) string {
+				if denom <= 0 {
+					return "-"
+				}
+				return fmt.Sprintf("%.1f%%", float64(num)/float64(denom)*100)
+			},
 		}
 		sub, err := fs.Sub(assets.Templates, "templates")
 		if err != nil {

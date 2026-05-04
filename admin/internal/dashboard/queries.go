@@ -139,6 +139,7 @@ type FunnelRow struct {
 	ServeRL     int     // ?_rl=1 (= rate-limit 経由) 経由の serve
 	Load        int
 	LoadUniq    int     // load phase の unique IP
+	Silent      int     // = max(0, Serve - Load).  challenge 配信されたが JS 起動しなかった数
 	Stealth     int     // load phase で flags=0 + bot_*
 	PoW         int
 	Captcha     int
@@ -258,6 +259,9 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 			CookieErr: byVP[vp{v, "cookie_err"}],
 			JSError:   byVP[vp{v, "error"}],
 		}
+		if row.Serve > row.Load {
+			row.Silent = row.Serve - row.Load
+		}
 		if row.Load > 0 {
 			row.PowRate = float64(row.PoW) / float64(row.Load)
 			row.CaptchaRate = float64(row.Captcha) / float64(row.Load)
@@ -265,6 +269,7 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 		total.Serve += row.Serve
 		total.ServeRL += row.ServeRL
 		total.Load += row.Load
+		total.Silent += row.Silent
 		total.Stealth += row.Stealth
 		total.PoW += row.PoW
 		total.Captcha += row.Captcha
@@ -332,6 +337,9 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site, since string) (Funn
 	r.VerifyNG = int(vng.Int64)
 	r.CookieErr = int(ce.Int64)
 	r.JSError = int(jse.Int64)
+	if r.Serve > r.Load {
+		r.Silent = r.Serve - r.Load
+	}
 	if r.Load > 0 {
 		r.PowRate = float64(r.PoW) / float64(r.Load)
 		r.CaptchaRate = float64(r.Captcha) / float64(r.Load)
