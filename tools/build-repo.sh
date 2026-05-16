@@ -85,6 +85,9 @@ if [ "$HAVE_CREATEREPO" = 1 ]; then
         for f in "$DIST"/*.noarch.rpm; do
             [ -f "$f" ] && cp "$f" "$arch_dir"/
         done
+        # latest alias for unmask-release (= install docs link to a stable URL)
+        latest=$(ls -1 "$arch_dir"/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
+        [ -n "$latest" ] && cp -f "$latest" "$arch_dir/unmask-release-latest.noarch.rpm"
     done
 
     # generate repodata
@@ -114,6 +117,9 @@ if [ "$HAVE_APT" = 1 ]; then
     POOL="$OUT/deb/pool/main/u/unmask"
     mkdir -p "$POOL"
     cp "$DIST"/*.deb "$POOL"/ 2>/dev/null || true
+    # latest alias for unmask-release (= install docs link to a stable URL)
+    latest=$(ls -1 "$POOL"/unmask-release_[0-9]*_all.deb 2>/dev/null | sort -V | tail -1)
+    [ -n "$latest" ] && cp -f "$latest" "$POOL/unmask-release_latest_all.deb"
 
     DSTABLE="$OUT/deb/dists/stable"
     for arch in amd64 arm64; do
