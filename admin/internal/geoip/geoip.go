@@ -1,11 +1,13 @@
-// Package geoip: 任意の MaxMind .mmdb (GeoLite2-Country / GeoIP2-Country)
-// から IP → ISO 3166-1 alpha-2 国コードを引く.
+// Package geoip: optionally read MaxMind .mmdb files (GeoLite2-Country /
+// -City / -ASN) to resolve IP → country / city / ASN.
 //
-// 設計:
-//   - DB が無いとき (= settings.GeoIP.MMDBPath 未指定 or open 失敗) は
-//     Lookup() が "" を返す. 利用側は空なら国別表示を skip する.
-//   - 1 IP / 1 lookup で in-memory cache (= dashboard で同 IP が重複頻出するため).
-//   - thread-safe (= sync.Mutex で reader 保護).
+// Design:
+//   - When the DB is absent (= path unset / open failed), Lookup() /
+//     LookupInfo() return empty (= "" / Info{}).  Callers don't need nil-checks.
+//   - Cache each (IP, lookup) in memory (= the dashboard hits the same IP repeatedly).
+//   - thread-safe (= sync.Mutex guards both the reader and the cache).
+//   - Country DB / City DB are interchangeable: with a City DB you get both
+//     country + city.  Read the record's `country.iso_code` and `city.names.en`.
 package geoip
 
 import (
@@ -15,40 +17,64 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 )
 
-type Reader struct {
-	mu     sync.Mutex
-	db     *maxminddb.Reader
-	cache  map[string]string
-	loaded bool
-	path   string
+// Info: geographic + network info associated with an IP.
+// Fields not resolved come back as the zero value (= "" / 0).
+type Info struct {
+	Country     string // ISO 3166-1 alpha-2 (e.g. "JP")
+	CountryName string // English name (e.g. "Japan")
+	City        string // English city name (e.g. "Tokyo").  Only populated with a City DB
+	ASN         uint   // Autonomous System Number (e.g. 4713)
+	ASNOrg      string // ASN organization (e.g. "NTT Communications")
 }
 
-// Open opens the mmdb at `path`. Empty path returns a no-op Reader (= Lookup
-// always returns ""). This makes geoip optional: callers don't need to nil-check.
-func Open(path string) *Reader {
-	r := &Reader{cache: map[string]string{}, path: path}
-	if path == "" {
-		return r
+type Reader struct {
+	mu       sync.Mutex
+	geoDB    *maxminddb.Reader // Country or City DB
+	asnDB    *maxminddb.Reader // ASN DB
+	cache    map[string]Info
+	geoPath  string
+	asnPath  string
+	loaded   bool // whether geoDB opened
+	asnReady bool // whether asnDB opened
+}
+
+// Open opens the GeoIP DBs at the given paths.  Both are optional;
+// passing "" for either disables that lookup.
+func Open(geoPath, asnPath string) *Reader {
+	r := &Reader{
+		cache:   map[string]Info{},
+		geoPath: geoPath,
+		asnPath: asnPath,
 	}
-	db, err := maxminddb.Open(path)
-	if err != nil {
-		// open 失敗時は no-op として返す (= 起動止めない).
-		return r
+	if geoPath != "" {
+		if db, err := maxminddb.Open(geoPath); err == nil {
+			r.geoDB = db
+			r.loaded = true
+		}
 	}
-	r.db = db
-	r.loaded = true
+	if asnPath != "" {
+		if db, err := maxminddb.Open(asnPath); err == nil {
+			r.asnDB = db
+			r.asnReady = true
+		}
+	}
 	return r
 }
 
-// Close releases the underlying reader.
+// Close releases both readers.
 func (r *Reader) Close() {
-	if r == nil || r.db == nil {
+	if r == nil {
 		return
 	}
-	_ = r.db.Close()
+	if r.geoDB != nil {
+		_ = r.geoDB.Close()
+	}
+	if r.asnDB != nil {
+		_ = r.asnDB.Close()
+	}
 }
 
-// Loaded reports whether the DB is ready (= 国別 chart を表示してよい指標).
+// Loaded reports whether the geo DB is ready (= used to decide whether to show the per-country chart).
 func (r *Reader) Loaded() bool {
 	if r == nil {
 		return false
@@ -58,39 +84,120 @@ func (r *Reader) Loaded() bool {
 	return r.loaded
 }
 
-// Lookup returns the ISO country code for `ip`.  Returns "" when:
-//   - the reader was opened with empty path (= no DB)
-//   - the IP can't be parsed
-//   - the DB has no record for the IP
-//   - any internal error
-func (r *Reader) Lookup(ip string) string {
-	if r == nil || r.db == nil {
-		return ""
+// ASNLoaded reports whether the ASN DB is ready.
+func (r *Reader) ASNLoaded() bool {
+	if r == nil {
+		return false
 	}
 	r.mu.Lock()
-	if cc, ok := r.cache[ip]; ok {
+	defer r.mu.Unlock()
+	return r.asnReady
+}
+
+// Reload: swap the mmdb path while keeping the existing reader.
+// Called when the path changes via the settings UI (= no server restart needed).
+// On failure (= file cannot open), reset the corresponding DB to nil and loaded=false.
+// If the path is unchanged, do nothing (= avoid a needless close).
+func (r *Reader) Reload(geoPath, asnPath string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if geoPath != r.geoPath {
+		if r.geoDB != nil {
+			_ = r.geoDB.Close()
+			r.geoDB = nil
+		}
+		r.loaded = false
+		r.geoPath = geoPath
+		if geoPath != "" {
+			if db, err := maxminddb.Open(geoPath); err == nil {
+				r.geoDB = db
+				r.loaded = true
+			}
+		}
+	}
+	if asnPath != r.asnPath {
+		if r.asnDB != nil {
+			_ = r.asnDB.Close()
+			r.asnDB = nil
+		}
+		r.asnReady = false
+		r.asnPath = asnPath
+		if asnPath != "" {
+			if db, err := maxminddb.Open(asnPath); err == nil {
+				r.asnDB = db
+				r.asnReady = true
+			}
+		}
+	}
+	// Discard the cache on a path change (= results may change with a new DB).
+	r.cache = map[string]Info{}
+}
+
+// Lookup returns the ISO country code only (= compatibility API).
+// Still called as-is from the per-country chart.
+func (r *Reader) Lookup(ip string) string {
+	return r.LookupInfo(ip).Country
+}
+
+// LookupInfo returns full info for the given IP string.  Empty Info{} if
+// no DB is loaded or the IP isn't found.
+func (r *Reader) LookupInfo(ip string) Info {
+	if r == nil || (r.geoDB == nil && r.asnDB == nil) {
+		return Info{}
+	}
+	r.mu.Lock()
+	if info, ok := r.cache[ip]; ok {
 		r.mu.Unlock()
-		return cc
+		return info
 	}
 	r.mu.Unlock()
 
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
-		return r.cacheSet(ip, "")
+		return r.cacheSet(ip, Info{})
 	}
-	var rec struct {
-		Country struct {
-			ISOCode string `maxminddb:"iso_code"`
-		} `maxminddb:"country"`
+	info := Info{}
+
+	if r.geoDB != nil {
+		// Union record that reads from either Country DB or City DB.
+		// City DB has country + city.  Country DB has only country (city is zero).
+		var rec struct {
+			Country struct {
+				ISOCode string            `maxminddb:"iso_code"`
+				Names   map[string]string `maxminddb:"names"`
+			} `maxminddb:"country"`
+			City struct {
+				Names map[string]string `maxminddb:"names"`
+			} `maxminddb:"city"`
+		}
+		if err := r.geoDB.Lookup(parsed, &rec); err == nil {
+			info.Country = rec.Country.ISOCode
+			if rec.Country.Names != nil {
+				info.CountryName = rec.Country.Names["en"]
+			}
+			if rec.City.Names != nil {
+				info.City = rec.City.Names["en"]
+			}
+		}
 	}
-	if err := r.db.Lookup(parsed, &rec); err != nil {
-		return r.cacheSet(ip, "")
+	if r.asnDB != nil {
+		var rec struct {
+			ASN uint   `maxminddb:"autonomous_system_number"`
+			Org string `maxminddb:"autonomous_system_organization"`
+		}
+		if err := r.asnDB.Lookup(parsed, &rec); err == nil {
+			info.ASN = rec.ASN
+			info.ASNOrg = rec.Org
+		}
 	}
-	return r.cacheSet(ip, rec.Country.ISOCode)
+	return r.cacheSet(ip, info)
 }
 
-// LookupBytes is the binary-IP variant for unmask_event rows where
-// ip_address は packed bytes で格納されている.
+// LookupBytes is for packed bytes (= unmask_event.ip_address).  Used by the per-country chart aggregation.
 func (r *Reader) LookupBytes(b []byte) string {
 	switch len(b) {
 	case 4:
@@ -101,7 +208,7 @@ func (r *Reader) LookupBytes(b []byte) string {
 	return ""
 }
 
-func (r *Reader) cacheSet(key, val string) string {
+func (r *Reader) cacheSet(key string, val Info) Info {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.cache[key] = val

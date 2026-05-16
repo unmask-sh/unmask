@@ -1,23 +1,23 @@
 // Package captcha: behavioral signal scoring + math fallback.
 //
-// 入力 signal (challenge HTML 内 JS から POST されるもの):
+// Input signal (POSTed by the JS inside the challenge HTML):
 //
-//	mouseTrail      [][x, y, t]       最大 200 点 (clientX, clientY, performance.now() ms)
+//	mouseTrail      [][x, y, t]       up to 200 points (clientX, clientY, performance.now() ms)
 //	scrolls         [][scrollY, t]
-//	keys            int (キー押下回数)
-//	clickAt         float (= load 後 ms)
+//	keys            int (key press count)
+//	clickAt         float (= ms after load)
 //	hasMouseEvents  bool
 //	hasTouchEvents  bool
 //	windowSize      [w, h]
 //	screenSize      [w, h]
 //
-// スコアリング (1.0 = 完全人間):
+// Scoring (1.0 = clearly human):
 //
-//	入力デバイスイベント無し                  -0.6
-//	clickAt < 500ms (= ロード即クリック)      -0.5
-//	mouseEvents 有なのに mouseTrail < 5 点    -0.3
-//	mouseTrail が完全直線 (= 平均偏差 < 2px)  -0.3
-//	windowSize = [0,0] / 欠損 (= headless)    -0.4
+//	no input device events                       -0.6
+//	clickAt < 500ms (= clicked immediately)      -0.5
+//	mouseEvents present yet mouseTrail < 5 pts   -0.3
+//	mouseTrail is a perfect line (mean dev <2px) -0.3
+//	windowSize = [0,0] / missing (= headless)    -0.4
 package captcha
 
 import (
@@ -63,7 +63,7 @@ func Score(s *Signal) float64 {
 		score -= 0.3
 	}
 
-	// 直線性チェック: trail の中間点群の、 first→last 直線からの平均距離.
+	// Straightness check: mean distance of mid-trail points from the first→last line.
 	if len(s.MouseTrail) >= 10 {
 		first := s.MouseTrail[0]
 		last := s.MouseTrail[len(s.MouseTrail)-1]
@@ -103,8 +103,8 @@ func Score(s *Signal) float64 {
 
 // MathChallenge returns (a, b, token).  Verify the answer with VerifyMath.
 //
-// token は HMAC(answer, secret_for_today). secret は day rotate するので
-// 古い challenge は時間切れで自然に無効になる.
+// token is HMAC(answer, secret_for_today).  secret rotates daily, so old
+// challenges naturally expire.
 func MathChallenge(captchaSecretBase string) (int, int, string) {
 	a := randomInt(1, 20)
 	b := randomInt(1, 20)
@@ -142,7 +142,7 @@ func mathSecret(base string, day int64) []byte {
 func randomInt(min, max int) int {
 	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min+1)))
 	if err != nil {
-		// CSPRNG 障害は実質的に起きない. fallback は時刻ベース.
+		// CSPRNG failure should be effectively impossible; fall back to a time-based value.
 		return min + int(time.Now().UnixNano())%int(max-min+1)
 	}
 	return min + int(n.Int64())

@@ -8,12 +8,20 @@ Wants=network-online.target
 Type=simple
 User=unmask
 Group=unmask
+# Add admin to the nginx group so nginx workers can write to /run/unmask/log.sock.
+# (= the shipped preinstall script runs `usermod -aG nginx unmask`.)
+SupplementaryGroups=nginx
 
-# config は /etc/unmask/config.yml. -config で上書き可能.
+# Config: /etc/unmask/config.yml.  Overridable via -config.
 Environment=UNMASK_CONFIG=/etc/unmask/config.yml
 ExecStart=/usr/sbin/unmask-admin serve
 
-# 安全設定 (= systemd hardening)
+# Auto-create /run/unmask/ on startup (= 0750 unmask:unmask, on tmpfs).
+# admin binds log.sock here; group access is needed for sharing.
+RuntimeDirectory=unmask
+RuntimeDirectoryMode=0750
+
+# Hardening (= systemd hardening)
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
@@ -25,7 +33,8 @@ ProtectControlGroups=yes
 RestrictRealtime=yes
 LockPersonality=yes
 RestrictNamespaces=yes
-ReadWritePaths=/var/lib/unmask /var/log/unmask
+# /etc/unmask needs write access so the web settings UI can update config.yml + nginx-rendered*.conf.
+ReadWritePaths=/var/lib/unmask /var/log/unmask /run/unmask /etc/unmask
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
@@ -34,9 +43,18 @@ SystemCallErrorNumber=EPERM
 LimitNOFILE=65536
 Restart=on-failure
 RestartSec=5s
+# SIGHUP is used by admin to reopen the log file (= logrotate postrotate).
+# The default Restart=on-failure treats a SIGHUP exit as "clean" (systemd
+# semantics), so include SIGHUP in RestartForceExitStatus to ensure auto-recovery
+# even if a build dies before handling SIGHUP.
+RestartForceExitStatus=SIGHUP
 
-StandardOutput=append:/var/log/unmask/admin.log
-StandardError=append:/var/log/unmask/admin.log
+# admin opens /var/log/unmask/admin.log directly and reopens on SIGHUP
+# (= internal/logwriter).  We do NOT use systemd's append: (= once systemd
+# holds the fd, admin cannot swap the fd after logrotate renames the file).
+# stdout / stderr are routed to journal as a fallback for startup errors etc.
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

@@ -1,25 +1,123 @@
-// Package dashboard: ダッシュボード用の集計クエリ群.
+// Package dashboard: aggregation queries for the dashboard.
 //
-// 本家 (= <internal-codebase>/lib/Tool/Controller/Admin/BotChallengeDebug.pm) の
-// 構成に揃える: 1) ファネル (verdict 別) 2) cookie 通過 3) flags 分布
-// 4) JA4 verdict 分布 5) JA4 hit 判定 6) reload ループ 7) CAPTCHA 失敗 IP
-// 8) cookie_set_ok=false 9) stealth 突破 10) JS error 11) 30日推移
+// Layout: 1) funnel (per verdict) 2) cookie passage 3) flags distribution
+// 4) JA4 verdict distribution 5) JA4 hit verdict 6) reload loop 7) CAPTCHA fail IP
+// 8) cookie_set_ok=false 9) stealth bypass 10) JS error 11) 30-day trend.
 package dashboard
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log"
 	"net"
+	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// Range は 1d / 7d / 30d. 不正値は 1d.
+// BotVerdictNames: collects all verdict names with action=bot or suspect from
+// settings. Combines preset (= all, including disabled) and extra rules (= same)
+// into a deduped list.
+//
+// Use: building `ja4_verdict IN (?, ?, ...)` SQL + classify fast lookup (= map).
+//
+// "Includes disabled" because we aggregate historical events. Even after a user
+// disables a verdict, past events were recorded with that verdict name and
+// should still count as bot.
+func BotVerdictNames(n settings.Nginx) []string {
+	seen := map[string]bool{}
+	for _, g := range nginxconf.JA4VerdictGroups {
+		for _, rule := range g.Rules {
+			if nginxconf.IsBotAction(rule.Action) {
+				seen[rule.Verdict] = true
+			}
+		}
+	}
+	for _, p := range n.JA4Verdicts.Extra {
+		if nginxconf.IsBotAction(p.Action) {
+			seen[p.Verdict] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for v := range seen {
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// BotVerdictSet: set form of the same list. For classify cache lookup.
+func BotVerdictSet(n settings.Nginx) map[string]bool {
+	out := map[string]bool{}
+	for _, v := range BotVerdictNames(n) {
+		out[v] = true
+	}
+	return out
+}
+
+// inClause: helper to build `IN (?, ?, ...)`. Also appends values to args slice.
+// Empty list returns "IN ('')" (= no match). Dialect-independent.
+func inClause(values []string) (string, []any) {
+	if len(values) == 0 {
+		return "IN ('')", nil
+	}
+	placeholders := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, v := range values {
+		placeholders[i] = "?"
+		args[i] = v
+	}
+	return "IN (" + strings.Join(placeholders, ",") + ")", args
+}
+
+// inClauseInt: `IN (?, ?, ...)` for an int slice. Used for ID-based linking.
+// Empty list returns "IN (-1)" (= no match; -1 is never used as an ID).
+func inClauseInt(values []int) (string, []any) {
+	if len(values) == 0 {
+		return "IN (-1)", nil
+	}
+	placeholders := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, v := range values {
+		placeholders[i] = "?"
+		args[i] = v
+	}
+	return "IN (" + strings.Join(placeholders, ",") + ")", args
+}
+
+// parseDateTimeToUnix: converts a SQLite/MariaDB datetime string
+// ("2006-01-02 15:04:05" UTC) to unix seconds. Returns 0 for parse error / empty.
+//
+// Use: lets the template reformat LastSeen-style columns in browser TZ by
+// passing <time class="js-datetime" data-ts="<unix>">.
+func parseDateTimeToUnix(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	// Accept SQLite default format ("2006-01-02 15:04:05") and RFC3339
+	// ("2006-01-02T15:04:05Z"). Treat as UTC when no TZ info is present
+	// (= schema uses CURRENT_TIMESTAMP which is UTC).
+	for _, layout := range []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z",
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Unix()
+		}
+	}
+	return 0
+}
+
+// Range accepts 1d / 7d / 30d. Invalid input falls back to 1d.
 func RangeHours(s string) int {
 	switch s {
 	case "7d":
@@ -32,10 +130,10 @@ func RangeHours(s string) int {
 }
 
 // siteCond returns "AND site = '<site>'" if site is non-empty.
-// 空 string → "" (= 全 site 集計).
+// Empty string → "" (= aggregate across all sites).
 //
-// SQL injection 防止: 呼び出し側で必ず site を validate (= [a-z0-9-]{1,32}) してから
-// 渡すこと. handlers.pickSite が regex で弾くので、 ここでは literal 連結する.
+// SQL injection guard: caller must validate site (= [a-z0-9-]{1,32}) before
+// passing in. handlers.pickSite gates with a regex so this concatenates literally.
 func siteCond(site string) string {
 	if site == "" {
 		return ""
@@ -43,14 +141,38 @@ func siteCond(site string) string {
 	return " AND site = '" + site + "'"
 }
 
-// SiteSummary: /admin/ 一覧用の site 別サマリー.
+// hostValRE: allowed chars for host filter values (= hostname / host id). Since
+// it is embedded into SQL literally, restrict strictly to alnum + ._- only.
+// Values containing anything else are ignored in hostCond (= SQL injection guard).
+var hostValRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// hostCond: SQL fragment for the host multi-select filter. Returns "" if empty
+// or all-invalid (= all hosts). unmask_event has a host column (= identifies
+// machine of origin in shared DB). Note: unmask_cookie_minute lacks a host
+// column, so the host filter has no effect on CookieStatus / DailyPassByDay
+// (= they remain aggregated across all hosts).
+func hostCond(hosts []string) string {
+	valid := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if hostValRE.MatchString(h) {
+			valid = append(valid, "'"+h+"'")
+		}
+	}
+	if len(valid) == 0 {
+		return ""
+	}
+	return " AND host IN (" + strings.Join(valid, ",") + ")"
+}
+
+// SiteSummary: per-site summary for the /admin/ index.
 type SiteSummary struct {
-	Site     string
-	Events   int
-	Serve    int
-	Verify   int
-	UniqIP   int
-	LastSeen string
+	Site       string
+	Events     int
+	Serve      int
+	Verify     int
+	UniqIP     int
+	LastSeen   string
+	LastSeenTS int64 // unix sec UTC; template emits <time class="js-datetime" data-ts="..."> and JS formats it in browser TZ
 }
 
 // Sites returns one row per distinct site observed in the last `hours` hours,
@@ -83,13 +205,14 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 		s.Verify = int(verify.Int64)
 		s.UniqIP = int(uniq.Int64)
 		s.LastSeen = ls.String
+		s.LastSeenTS = parseDateTimeToUnix(ls.String)
 		by[s.Site] = s
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// "default" は常に list に出す
+	// "default" always appears in the list
 	if _, ok := by["default"]; !ok {
 		by["default"] = SiteSummary{Site: "default"}
 	}
@@ -98,7 +221,7 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 		out = append(out, v)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
-		// default を先頭に, あとは event 数 desc
+		// default first, then by event count desc
 		if out[i].Site == "default" {
 			return true
 		}
@@ -113,35 +236,39 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	return out, nil
 }
 
-// fixedVerdicts: nginx の ja4-verdict.map に載せている主要 verdict + ok / (none).
-// 0 件でも常時表示する.
-var fixedVerdicts = []string{
-	"bot_chrome_fake_h1",
-	"bot_chrome_fake_noalpn",
-	"bot_h1_18_12",
-	"bot_h1_44_12",
-	"bot_noalpn_311",
-	"bot_noalpn_521",
-	"bot_tls12_a",
-	"bot_tls12_b",
-	"bot_tls12_c",
-	"suspect_h1",
-	"ok",
-	"(none)",
+// fixedVerdicts: verdicts always shown even at 0 (= all presets + ok + (none)).
+// Preset verdict names are collected dynamically from nginxconf.JA4VerdictGroups
+// (= no hardcode). User-added extra-rule verdicts appear on first observed
+// traffic, so they are not part of the fixed list.
+func fixedVerdicts() []string {
+	out := make([]string, 0, 16)
+	seen := map[string]bool{}
+	for _, g := range nginxconf.JA4VerdictGroups {
+		for _, rule := range g.Rules {
+			if rule.Verdict == "" || seen[rule.Verdict] {
+				continue
+			}
+			seen[rule.Verdict] = true
+			out = append(out, rule.Verdict)
+		}
+	}
+	sort.Strings(out)
+	out = append(out, "ok", "(none)")
+	return out
 }
 
-// keyFlags: load phase の flags 列で常時表示する代表値.
+// keyFlags: representative flags-column values always shown for the load phase.
 var keyFlags = []int{0, 1, 2, 4, 8, 16, 3, 5, 9, 17, 31}
 
-// FunnelRow: 1 行 = 1 verdict (= JA4 verdict + 集約済みカテゴリ).
+// FunnelRow: one row = one verdict (= JA4 verdict + aggregated categories).
 type FunnelRow struct {
-	Verdict     string  // "ok" / "bot_chrome_fake_h1" / "rate_limit" / "TOTAL" / ...
-	Serve       int     // challenge HTML が配信された数
-	ServeRL     int     // ?_rl=1 (= rate-limit 経由) 経由の serve
+	Verdict     string  // free label. "ok" / "rate_limit" / "TOTAL" / preset / extra
+	Serve       int     // count of challenge HTML deliveries
+	ServeRL     int     // serves that came via ?_rl=1 (= rate-limit path)
 	Load        int
-	LoadUniq    int     // load phase の unique IP
-	Silent      int     // = max(0, Serve - Load).  challenge 配信されたが JS 起動しなかった数
-	Stealth     int     // load phase で flags=0 + bot_*
+	LoadUniq    int     // unique IPs in the load phase
+	Silent      int     // = max(0, Serve - Load). Challenge served but JS never started
+	Stealth     int     // load phase rows with flags=0 + verdict configured as bot/suspect
 	PoW         int
 	Captcha     int
 	VerifyOK    int
@@ -154,14 +281,41 @@ type FunnelRow struct {
 
 // Funnel returns one row per verdict in the fixed list plus a rate_limit row
 // (= IP-joined for serves where payload.rl=1) and a TOTAL row.
-func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow, error) {
+//
+// botVerdicts is the list of verdict names configured as action=bot or suspect
+// in settings (= preset + extra merged). Used for stealth-count classification.
+// An empty list disables the stealth concept (stealth=0 is always emitted).
+func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 
-	// A) verdict × phase の base 集計
+	// canon: normalization for ID-based linking. If the ID is known, snap to
+	// the current preset name (= reflects renames). For unknown IDs (= NULL / 0)
+	// try a registry name lookup, then fall back to the raw name. This merges
+	// pre- and post-rename events with the same ID into one group. Unknown
+	// names (= non-preset) stay as-is.
+	canon := func(id int64, raw string) string {
+		if reg != nil {
+			if id > 0 {
+				if cur := reg.IDToVerdict(int(id)); cur != "" {
+					return cur
+				}
+			}
+			if raw != "" {
+				if regID := reg.NameToID(raw); regID > 0 {
+					if cur := reg.IDToVerdict(regID); cur != "" {
+						return cur
+					}
+				}
+			}
+		}
+		return raw
+	}
+
+	// A) base aggregation by verdict × phase. SELECT id too so canon can use it.
 	stmt := fmt.Sprintf(`
-        SELECT COALESCE(ja4_verdict, '(none)') AS v, phase, COUNT(*) AS n
+        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid, phase, COUNT(*) AS n
         FROM unmask_event WHERE date_created > %s%s
-        GROUP BY ja4_verdict, phase`, since, siteCond(site))
+        GROUP BY ja4_verdict, ja4_verdict_id, phase`, since, siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -170,23 +324,36 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 	byVP := map[vp]int{}
 	for rows.Next() {
 		var v, p string
+		var vid sql.NullInt64
 		var n int
-		if err := rows.Scan(&v, &p, &n); err != nil {
+		if err := rows.Scan(&v, &vid, &p, &n); err != nil {
 			rows.Close()
 			return nil, err
 		}
-		byVP[vp{v, p}] = n
+		byVP[vp{canon(vid.Int64, v), p}] += n
 	}
 	rows.Close()
 
-	// B) verdict × phase=load の uniq IP, stealth (= flags=0 + bot_*) 集計
+	// B) uniq IP + stealth (= flags=0 + verdict configured as bot/suspect) for
+	// verdict × phase=load. Stealth detection is ID-based; falls back to
+	// name-based if the bot ID list is empty.
+	var botFilter string
+	var botFilterArgs []any
+	if reg != nil {
+		botFilter, botFilterArgs = inClauseInt(reg.BotIDs())
+		botFilter = "ja4_verdict_id " + botFilter
+	} else {
+		nameIn, nameArgs := inClause(botVerdicts)
+		botFilter = "ja4_verdict " + nameIn
+		botFilterArgs = nameArgs
+	}
 	stmt2 := fmt.Sprintf(`
-        SELECT COALESCE(ja4_verdict, '(none)') AS v,
+        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                COUNT(DISTINCT ip_address) AS uniq_ip,
-               SUM(CASE WHEN flags = 0 AND ja4_verdict LIKE 'bot_%%' THEN 1 ELSE 0 END) AS stealth
+               SUM(CASE WHEN flags = 0 AND %s THEN 1 ELSE 0 END) AS stealth
         FROM unmask_event WHERE date_created > %s%s AND phase = 'load'
-        GROUP BY ja4_verdict`, since, siteCond(site))
-	rows2, err := d.QueryContext(ctx, stmt2)
+        GROUP BY ja4_verdict, ja4_verdict_id`, botFilter, since, siteCond(site)+hostCond(hosts))
+	rows2, err := d.QueryContext(ctx, stmt2, botFilterArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -194,22 +361,27 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 	loadByV := map[string]loadAgg{}
 	for rows2.Next() {
 		var v string
-		var u, st sql.NullInt64
-		if err := rows2.Scan(&v, &u, &st); err != nil {
+		var vid, u, st sql.NullInt64
+		if err := rows2.Scan(&v, &vid, &u, &st); err != nil {
 			rows2.Close()
 			return nil, err
 		}
-		loadByV[v] = loadAgg{int(u.Int64), int(st.Int64)}
+		k := canon(vid.Int64, v)
+		ex := loadByV[k]
+		// Strictly, uniq IP should be re-computed with COUNT(DISTINCT) on the DB
+		// side to avoid duplicates, but this approximation is good enough for the
+		// rename-merge case (= unlikely the same IP hits both old and new names).
+		loadByV[k] = loadAgg{ex.uniq + int(u.Int64), ex.stealth + int(st.Int64)}
 	}
 	rows2.Close()
 
-	// C) phase=serve で payload.rl=1 だった verdict 別件数
+	// C) per-verdict counts where phase=serve and payload.rl=1
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt3 := fmt.Sprintf(`
-        SELECT COALESCE(ja4_verdict, '(none)') AS v,
+        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                SUM(CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END) AS rl
         FROM unmask_event WHERE date_created > %s%s AND phase = 'serve'
-        GROUP BY ja4_verdict`, jsonRL, since, siteCond(site))
+        GROUP BY ja4_verdict, ja4_verdict_id`, jsonRL, since, siteCond(site)+hostCond(hosts))
 	rows3, err := d.QueryContext(ctx, stmt3)
 	if err != nil {
 		return nil, err
@@ -217,19 +389,20 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 	rlByV := map[string]int{}
 	for rows3.Next() {
 		var v string
-		var n sql.NullInt64
-		if err := rows3.Scan(&v, &n); err != nil {
+		var vid, n sql.NullInt64
+		if err := rows3.Scan(&v, &vid, &n); err != nil {
 			rows3.Close()
 			return nil, err
 		}
-		rlByV[v] = int(n.Int64)
+		rlByV[canon(vid.Int64, v)] += int(n.Int64)
 	}
 	rows3.Close()
 
-	// D) verdict 一覧 = fixed list 順 + DB に出てきた未知 verdict (= 末尾に名前順で追加).
-	// 本家と同じく fixedVerdicts の declaration order を維持する.
+	// D) verdict list = fixed-list order + unknown verdicts seen in the DB
+	// (= appended in name order). The fixed list is all presets + ok + (none).
+	// User extra-rule verdicts are added via seenInDB when first observed.
 	seen := map[string]bool{}
-	order := append([]string{}, fixedVerdicts...)
+	order := fixedVerdicts()
 	for _, v := range order {
 		seen[v] = true
 	}
@@ -281,16 +454,16 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 		out = append(out, row)
 	}
 
-	// rate_limit 行: serves で rl=1 だった IP の全 phase 遷移を IP join で集計
-	rlRow, err := rateLimitFunnelRow(ctx, d, site, since)
+	// rate_limit row: aggregate all-phase transitions of IPs with rl=1 serves via IP join
+	rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
 	if err == nil {
 		out = append([]FunnelRow{rlRow}, out...)
 	}
 
-	// total の uniq は別 SQL (= 同 IP が verdict 横断でカウントされないよう)
+	// total uniq is a separate SQL (= so the same IP is not counted across verdicts)
 	row := d.QueryRowContext(ctx, fmt.Sprintf(
 		`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s%s AND phase = 'load'`,
-		since, siteCond(site)))
+		since, siteCond(site)+hostCond(hosts)))
 	_ = row.Scan(&total.LoadUniq)
 	if total.Load > 0 {
 		total.PowRate = float64(total.PoW) / float64(total.Load)
@@ -300,14 +473,15 @@ func Funnel(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow,
 	return out, nil
 }
 
-func rateLimitFunnelRow(ctx context.Context, d *db.DB, site, since string) (FunnelRow, error) {
+func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []string, since string, botVerdicts []string) (FunnelRow, error) {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	sc := siteCond(site)
+	sc := siteCond(site)+hostCond(hosts)
+	botIn, botArgs := inClause(botVerdicts)
 	stmt := fmt.Sprintf(`
         SELECT
           SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END)     AS n_serve,
           SUM(CASE WHEN phase='load' THEN 1 ELSE 0 END)      AS n_load,
-          SUM(CASE WHEN phase='load' AND flags=0 AND ja4_verdict LIKE 'bot_%%' THEN 1 ELSE 0 END) AS n_stealth,
+          SUM(CASE WHEN phase='load' AND flags=0 AND ja4_verdict `+botIn+` THEN 1 ELSE 0 END) AS n_stealth,
           SUM(CASE WHEN phase='pow' THEN 1 ELSE 0 END)       AS n_pow,
           SUM(CASE WHEN phase='captcha' THEN 1 ELSE 0 END)   AS n_captcha,
           SUM(CASE WHEN phase='verify_ok' THEN 1 ELSE 0 END) AS n_verify_ok,
@@ -321,7 +495,7 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site, since string) (Funn
               WHERE date_created > %s%s AND phase='serve'
                 AND %s IN ('1', 1)
           )`, since, sc, since, sc, jsonRL)
-	row := d.QueryRowContext(ctx, stmt)
+	row := d.QueryRowContext(ctx, stmt, botArgs...)
 	var r FunnelRow
 	r.Verdict = "rate_limit"
 	var serve, load, stealth, pow, capt, vok, vng, ce, jse sql.NullInt64
@@ -348,20 +522,20 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site, since string) (Funn
 	return r, nil
 }
 
-// VerdictCount: JA4 verdict 別件数 + uniq IP.
+// VerdictCount: per-JA4-verdict count + uniq IP.
 type VerdictCount struct {
 	Verdict string
 	Count   int
 	UniqIP  int
 }
 
-func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) ([]VerdictCount, error) {
+func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(*) AS cnt,
                COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE date_created > %s%s
-        GROUP BY ja4_verdict`, d.NowMinusMinutes(hours*60), siteCond(site))
+        GROUP BY ja4_verdict`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -378,12 +552,13 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) 
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	all := append([]string{}, fixedVerdicts...)
+	all := fixedVerdicts()
 	seen := map[string]bool{}
 	for _, v := range all {
 		seen[v] = true
 	}
-	// DB に出ている未知 verdict も末尾に追加 (= 0 件項目原則は維持しつつ unknown もカバー).
+	// Append unknown verdicts seen in the DB at the tail (= keeps the 0-row
+	// policy while still covering unknowns).
 	var unknown []string
 	for v := range by {
 		if !seen[v] {
@@ -401,7 +576,7 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) 
 			out = append(out, VerdictCount{Verdict: v})
 		}
 	}
-	// 件数 desc → verdict alpha の sort. ただし 0 件は declaration 順で末尾に流れる.
+	// Sort by count desc → verdict alpha. 0-count rows trail in declaration order.
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
@@ -411,61 +586,86 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hours int) 
 	return out, nil
 }
 
-// CookieStatusRow: load phase での cookie 持参状況の 4 区分 (= 本家相当).
-//   total          : load phase 件数 (= challenge HTML が JS 起動した全件. nginx 全 req
-//                    数までは取れないので proxy 値として使う)
-//   captcha_passed : cookie_bv が CAPTCHA 通過済 cookie format ("day.sig.captcha")
-//   pow_passed     : cookie_br set + cookie_bv 無し or 旧 format
-//   none           : どちらの cookie も無し
+// CookieStatusRow: 4-way breakdown of cookie presence across all nginx requests.
+//
+// Data source: unmask_cookie_minute table (= aggregated from nginx access_log
+// over a unix socket). If /etc/unmask/nginx-rendered.conf is not included in
+// http {}, everything returns 0 (= the access_log directive never fires).
+//
+//   total          : all nginx-received requests
+//   captcha_passed : _bv cookie HMAC verified OK (= bv=1)
+//   pow_passed     : _br cookie present (= bv=0 & bp=1)
+//   none           : neither cookie
 type CookieStatusRow struct {
 	Kind        string // "total" / "captcha_passed" / "pow_passed" / "none"
-	Label       string // 表示用ラベル ("total" / "CAPTCHA 通過" / "PoW 通過" / "cookie 無")
+	Label       string // display label ("total" / "CAPTCHA passed" / "PoW passed" / "no cookie")
 	Count       int
-	Description string // 右列の説明
-	Color       string // 行の文字色 (本家と揃える)
+	Description string // right-column description
+	Color       string // row text color
 }
 
-func CookieStatus(ctx context.Context, d *db.DB, site string, hours int) ([]CookieStatusRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
+// CookieStatus: SUM aggregation from the unmask_cookie_minute table.
+// hours = 24 / 168 / 720. site = "" aggregates all sites (not used by dashboard).
+//
+// In environments where nginx log.conf is not included the table stays empty,
+// so all-zero rows are returned (= the card itself is still rendered).
+func CookieStatus(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CookieStatusRow, error) {
+	// bucket_min = unix sec / 60. cutoff is computed in the same unit.
+	cutoffMin := d.NowMinusMinutes(hours * 60)
+	if d.Driver == db.DriverSQLite {
+		// SQLite: strftime('%s','now','-N minutes') / 60
+		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", hours*60)
+	} else {
+		// MariaDB: UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL N MINUTE)) DIV 60
+		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", hours*60)
+	}
+
+	cond := ""
+	if site != "" {
+		cond = " AND site = '" + site + "'"
+	}
+
+	// kind/cnt normalized schema. Aggregate the 3 kinds total / captcha / pow in one query.
 	stmt := fmt.Sprintf(`
         SELECT
-          COUNT(*) AS total,
-          SUM(CASE WHEN cookie_bv LIKE '%%.captcha' THEN 1 ELSE 0 END) AS captcha,
-          SUM(CASE WHEN (cookie_br IS NOT NULL AND cookie_br <> '')
-                    AND (cookie_bv IS NULL OR cookie_bv = '' OR cookie_bv NOT LIKE '%%.captcha')
-                  THEN 1 ELSE 0 END) AS pow,
-          SUM(CASE WHEN (cookie_bv IS NULL OR cookie_bv = '')
-                    AND (cookie_br IS NULL OR cookie_br = '')
-                  THEN 1 ELSE 0 END) AS none_
-        FROM unmask_event WHERE date_created > %s%s AND phase='load'`, since, siteCond(site))
+          COALESCE(SUM(CASE WHEN kind = 'total'   THEN cnt ELSE 0 END), 0) AS total,
+          COALESCE(SUM(CASE WHEN kind = 'captcha' THEN cnt ELSE 0 END), 0) AS bv,
+          COALESCE(SUM(CASE WHEN kind = 'pow'     THEN cnt ELSE 0 END), 0) AS bp
+        FROM unmask_cookie_minute
+        WHERE bucket_min > %s%s`, cutoffMin, cond)
 	row := d.QueryRowContext(ctx, stmt)
-	var total, capt, pow, noneN sql.NullInt64
-	if err := row.Scan(&total, &capt, &pow, &noneN); err != nil {
+	var total, bv, bp sql.NullInt64
+	if err := row.Scan(&total, &bv, &bp); err != nil {
 		return nil, err
 	}
+	t := int(total.Int64)
+	b := int(bv.Int64)
+	p := int(bp.Int64)
+	none := t - b - p
+	if none < 0 {
+		none = 0
+	}
+	// Label / Description are resolved by i18n on the template side
+	// (= "cookie.row.<kind>" / "cookie.desc.<kind>"). Server side only sets
+	// Kind / Count / Color.
 	return []CookieStatusRow{
-		{Kind: "total", Label: "total", Count: int(total.Int64),
-			Description: "直近の challenge HTML 起動 (load phase) 全件"},
-		{Kind: "captcha_passed", Label: "CAPTCHA 通過", Count: int(capt.Int64), Color: "#16a34a",
-			Description: `<code>cookie_bv</code> = "&lt;day&gt;.&lt;sig&gt;.captcha" format. HMAC 署名済 _bv cookie で検証 OK (= 過去 3 日に CAPTCHA 通過したリピーター)`},
-		{Kind: "pow_passed", Label: "PoW 通過", Count: int(pow.Int64), Color: "#0ea5e9",
-			Description: `<code>cookie_br</code> set + <code>cookie_bv</code> なし or 別 format. PoW 通過版 cookie を持つ. 通常ブラウザの大半はここ`},
-		{Kind: "none", Label: "cookie 無", Count: int(noneN.Int64), Color: "#94a3b8",
-			Description: `cookie 無し (= 初回 / 期限切れ / cookie 拒否 / 偽装 bot 等)`},
+		{Kind: "total", Count: t},
+		{Kind: "captcha_passed", Count: b, Color: "#16a34a"},
+		{Kind: "pow_passed", Count: p, Color: "#0ea5e9"},
+		{Kind: "none", Count: none, Color: "#94a3b8"},
 	}, nil
 }
 
-// FlagsRow: flags ビット分布 (load phase).
+// FlagsRow: flags-bit distribution (load phase).
 type FlagsRow struct {
 	Flags  int
-	Bin    string // 5 桁 bit 表記
+	Bin    string // 5-bit binary notation
 	Count  int
 	UniqIP int
 	Note   string
 }
 
-// flag bit 解説 (= 本家 BotChallengeDebug.pm $flags_help と揃える).
-// 本家は短キーワードで運用 ("webdriver", "no-plugins", "chrome-spoof" 等).
+// Flag-bit notes. Short keywords like "webdriver", "no-plugins", "chrome-spoof".
 var flagsNotes = map[int]string{
 	0:  "-",
 	1:  "webdriver",
@@ -480,11 +680,11 @@ var flagsNotes = map[int]string{
 	31: "webdriver, no-plugins, no-languages, screen-zero, chrome-spoof",
 }
 
-func FlagsDistribution(ctx context.Context, d *db.DB, site string, hours int) ([]FlagsRow, error) {
+func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT flags, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE date_created > %s%s AND phase='load'
-        GROUP BY flags`, d.NowMinusMinutes(hours*60), siteCond(site))
+        GROUP BY flags`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -529,69 +729,84 @@ func FlagsDistribution(ctx context.Context, d *db.DB, site string, hours int) ([
 	return out, nil
 }
 
-// JA4HitRow: load phase の payload_json.ja4_hit 別件数.
-type JA4HitRow struct {
-	Kind   string // "ja4_hit" / "normal" / "unknown"
+// CaptchaForceRow: per-reason counts from load-phase payload_json.force_reason.
+//
+// Reason values are decided at serve time:
+//
+//	"none"       normal PoW (= not forced)
+//	"ja4_bot"    JA4 verdict action=bot
+//	"honeypot"   hit a honeypot path
+//	"banned"     hit the persistent BAN list
+//	"protected"  protected path (captcha / strict mode)
+//	"rate_limit" rate-limit redirect (= /_rl/...)
+//	"test"       debug path (_test_ja4 / _force=captcha)
+//	"unknown"    flag not recorded (= old challenge.html etc.; normally absent)
+type CaptchaForceRow struct {
+	Kind   string
 	Count  int
 	UniqIP int
 }
 
-func JA4HitBreakdown(ctx context.Context, d *db.DB, site string, hours int) ([]JA4HitRow, error) {
+// captchaForceKinds: display order = none / each forced reason / unknown.
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "unknown"}
+
+func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
-	hitExpr := jsonExtract(d, "payload_json", "$.ja4_hit")
+	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	stmt := fmt.Sprintf(`
         SELECT
           CASE
-            WHEN %s IN ('1', 1) THEN 'ja4_hit'
-            WHEN %s IN ('0', 0) THEN 'normal'
+            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','test') THEN %s
             ELSE 'unknown'
           END AS kind,
           COUNT(*) AS n,
           COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE date_created > %s%s AND phase='load'
-        GROUP BY kind`, hitExpr, hitExpr, since, siteCond(site))
+        GROUP BY kind`, reasonExpr, reasonExpr, since, siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	by := map[string]JA4HitRow{}
+	by := map[string]CaptchaForceRow{}
 	for rows.Next() {
-		var v JA4HitRow
+		var v CaptchaForceRow
 		if err := rows.Scan(&v.Kind, &v.Count, &v.UniqIP); err != nil {
 			return nil, err
 		}
 		by[v.Kind] = v
 	}
-	out := make([]JA4HitRow, 0, 3)
-	for _, k := range []string{"ja4_hit", "normal", "unknown"} {
+	out := make([]CaptchaForceRow, 0, len(captchaForceKinds))
+	for _, k := range captchaForceKinds {
 		if r, ok := by[k]; ok {
 			out = append(out, r)
 		} else {
-			out = append(out, JA4HitRow{Kind: k})
+			out = append(out, CaptchaForceRow{Kind: k})
 		}
 	}
 	return out, nil
 }
 
-// ReloadLoopRow: 同 IP の load phase で reload_count >= 2.
+// ReloadLoopRow: same IP, load phase, reload_count >= 2.
 type ReloadLoopRow struct {
-	IP        string
-	Count     int
-	MaxReload int
-	MaxFlags  int
-	UA        string
-	LastSeen  string
+	IP          string
+	Count       int
+	MaxReload   int
+	MaxFlags    int
+	UA          string
+	LastSeen    string
+	LastSeenTS  int64
+	CountryCode string
 }
 
-func ReloadLoops(ctx context.Context, d *db.DB, site string, hours int) ([]ReloadLoopRow, error) {
+func ReloadLoops(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]ReloadLoopRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(reload_count) AS max_rc,
                MAX(flags) AS max_flags, MAX(user_agent) AS ua, MAX(date_created) AS last_seen
         FROM unmask_event WHERE date_created > %s%s AND phase='load' AND reload_count >= 1
         GROUP BY ip_address
         HAVING max_rc >= 2 OR n >= 3
-        ORDER BY max_rc DESC, n DESC LIMIT 50`, d.NowMinusMinutes(hours*60), siteCond(site))
+        ORDER BY max_rc DESC, n DESC LIMIT 50`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -607,34 +822,36 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hours int) ([]Reloa
 		}
 		out = append(out, ReloadLoopRow{
 			IP: ipFromBytes(raw), Count: n, MaxReload: mr, MaxFlags: mf,
-			UA: truncate(ua.String, 50), LastSeen: ls.String,
+			UA: truncate(ua.String, 50), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
 }
 
-// RLIPRow: phase=serve + payload.rl=1 を IP 別に集計.
+// RLIPRow: phase=serve + payload.rl=1 aggregated per IP.
 type RLIPRow struct {
-	IP       string
-	Count    int
-	UA       string
-	LastSeen string
+	IP          string
+	Count       int
+	UA          string
+	LastSeen    string
+	LastSeenTS  int64
+	CountryCode string
 }
 
-// RLPathRow: phase=serve + payload.rl=1 を 原 path 別に集計.
+// RLPathRow: phase=serve + payload.rl=1 aggregated per original path.
 type RLPathRow struct {
 	Path  string
 	Count int
 }
 
-// RLSummary: 集計対象期間 + 合計ヒット数 (= header の説明テキスト用).
+// RLSummary: aggregation period + total hit count (= header description text).
 type RLSummary struct {
 	From  string
 	To    string
 	Total int
 }
 
-func RateLimitIPs(ctx context.Context, d *db.DB, site string, hours, limit int) ([]RLIPRow, error) {
+func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLIPRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt := fmt.Sprintf(`
@@ -644,7 +861,7 @@ func RateLimitIPs(ctx context.Context, d *db.DB, site string, hours, limit int) 
                MAX(date_created) AS last_seen
         FROM unmask_event
         WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
-        GROUP BY ip_address ORDER BY n DESC LIMIT ?`, since, siteCond(site), jsonRL)
+        GROUP BY ip_address ORDER BY n DESC LIMIT ?`, since, siteCond(site)+hostCond(hosts), jsonRL)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -660,18 +877,18 @@ func RateLimitIPs(ctx context.Context, d *db.DB, site string, hours, limit int) 
 		}
 		out = append(out, RLIPRow{
 			IP: ipFromBytes(raw), Count: n,
-			UA: truncate(ua.String, 60), LastSeen: ls.String,
+			UA: truncate(ua.String, 60), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
 }
 
-func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int) ([]RLPathRow, error) {
+func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLPathRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
-	// path 集計時は query string を捨てる (= 同じ /api/x で query 違いを 1 行に集約).
-	// driver で SUBSTRING 関数名が違う:
+	// When aggregating by path, drop the query string (= merge different queries
+	// for /api/x into a single row). The SUBSTRING function name differs per driver:
 	//   SQLite : CASE WHEN instr(p, '?') > 0 THEN substr(p, 1, instr(p, '?')-1) ELSE p END
 	//   MySQL  : SUBSTRING_INDEX(p, '?', 1)
 	var pathExpr string
@@ -687,7 +904,7 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int
         WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
           AND %s IS NOT NULL AND %s <> ''
         GROUP BY path ORDER BY n DESC LIMIT ?`,
-		pathExpr, since, siteCond(site), jsonRL, jsonPath, jsonPath)
+		pathExpr, since, siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -706,20 +923,20 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hours, limit int
 	return out, rows.Err()
 }
 
-// RLQueryCount: 1 path に対する 1 query string とその件数.
+// RLQueryCount: a single query string for a given path with its count.
 type RLQueryCount struct {
 	Query string
 	Count int
 }
 
-// RateLimitQueriesByPath: 各 path ごとの頻出 query string を top N で返す.
-// 戻り値: path string → []RLQueryCount (= count desc, 最大 perPathLimit 件).
-// 空 query (= "" のリクエスト) は省略する.
-func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hours, perPathLimit int) (map[string][]RLQueryCount, error) {
+// RateLimitQueriesByPath: returns the top-N frequent query strings per path.
+// Result: path string → []RLQueryCount (= count desc, up to perPathLimit entries).
+// Empty queries (= requests with no query string) are skipped.
+func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hosts []string, hours, perPathLimit int) (map[string][]RLQueryCount, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
-	// path / query を SQL で分離.
+	// Split path / query in SQL.
 	var pathExpr, queryExpr string
 	if d.Driver == db.DriverSQLite {
 		pathExpr = fmt.Sprintf(`CASE WHEN instr(%s, '?') > 0 THEN substr(%s, 1, instr(%s, '?')-1) ELSE %s END`,
@@ -739,7 +956,7 @@ func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hours, p
         GROUP BY p, q
         HAVING q <> ''
         ORDER BY p, n DESC`,
-		pathExpr, queryExpr, since, siteCond(site), jsonRL, jsonPath, jsonPath)
+		pathExpr, queryExpr, since, siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -756,14 +973,14 @@ func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hours, p
 		path := strings.Trim(p.String, `"`)
 		query := strings.Trim(q.String, `"`)
 		if len(out[path]) >= perPathLimit {
-			continue // top N 既達なので skip
+			continue // already at top N, skip
 		}
 		out[path] = append(out[path], RLQueryCount{Query: query, Count: n})
 	}
 	return out, rows.Err()
 }
 
-func RateLimitSummary(ctx context.Context, d *db.DB, site string, hours int) (RLSummary, error) {
+func RateLimitSummary(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (RLSummary, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt := fmt.Sprintf(`
@@ -772,7 +989,7 @@ func RateLimitSummary(ctx context.Context, d *db.DB, site string, hours int) (RL
                MAX(date_created) AS t
         FROM unmask_event
         WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)`,
-		since, siteCond(site), jsonRL)
+		since, siteCond(site)+hostCond(hosts), jsonRL)
 	row := d.QueryRowContext(ctx, stmt)
 	var s RLSummary
 	var n sql.NullInt64
@@ -796,9 +1013,11 @@ type VerifyNGRow struct {
 	UA           string
 	JA4          string
 	LastSeen     string
+	LastSeenTS   int64
+	CountryCode  string
 }
 
-func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hours, limit int) ([]VerifyNGRow, error) {
+func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]VerifyNGRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	method := jsonExtract(d, "payload_json", "$.method")
 	score := jsonExtract(d, "payload_json", "$.score")
@@ -812,7 +1031,7 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hours, limit in
                MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
                MAX(date_created) AS last_seen
         FROM unmask_event WHERE date_created > %s%s AND phase='verify_ng'
-        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, since, siteCond(site))
+        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, since, siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -831,31 +1050,34 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hours, limit in
 		out = append(out, VerifyNGRow{
 			IP: ipFromBytes(raw), Total: total,
 			Math: int(math.Int64), Behavioral: int(beh.Int64),
-			AvgScore: avg.Float64,
-			UA:       truncate(ua.String, 50),
-			JA4:      ja4.String,
-			LastSeen: ls.String,
+			AvgScore:   avg.Float64,
+			UA:         truncate(ua.String, 50),
+			JA4:        ja4.String,
+			LastSeen:   ls.String,
+			LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
 }
 
-// CookieFailRow: pow phase で cookie_set_ok=false が含まれるもの.
+// CookieFailRow: pow phase rows that contain cookie_set_ok=false.
 type CookieFailRow struct {
-	IP       string
-	Count    int
-	UA       string
-	LastSeen string
+	IP          string
+	Count       int
+	UA          string
+	LastSeen    string
+	LastSeenTS  int64
+	CountryCode string
 }
 
-func CookieSetFails(ctx context.Context, d *db.DB, site string, hours int) ([]CookieFailRow, error) {
+func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CookieFailRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	cookieOK := jsonExtract(d, "payload_json", "$.cookie_set_ok")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(user_agent) AS ua, MAX(date_created) AS ls
         FROM unmask_event
         WHERE date_created > %s%s AND phase='pow' AND %s IN ('false', 0)
-        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, siteCond(site), cookieOK)
+        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, siteCond(site)+hostCond(hosts), cookieOK)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -869,28 +1091,38 @@ func CookieSetFails(ctx context.Context, d *db.DB, site string, hours int) ([]Co
 		if err := rows.Scan(&raw, &n, &ua, &ls); err != nil {
 			return nil, err
 		}
-		out = append(out, CookieFailRow{IP: ipFromBytes(raw), Count: n, UA: truncate(ua.String, 50), LastSeen: ls.String})
+		out = append(out, CookieFailRow{IP: ipFromBytes(raw), Count: n, UA: truncate(ua.String, 50), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String)})
 	}
 	return out, rows.Err()
 }
 
-// StealthRow: verify_ok 通過したのに ja4_verdict=bot_*. 完全 stealth bot 容疑.
+// StealthRow: passed verify_ok but ja4_verdict is configured as bot/suspect.
+// Full stealth-bot suspect.
 type StealthRow struct {
-	IP       string
-	Verdict  string
-	UA       string
-	Count    int
-	LastSeen string
+	IP          string
+	Verdict     string
+	UA          string
+	Count       int
+	LastSeen    string
+	LastSeenTS  int64
+	CountryCode string
 }
 
-func StealthPassed(ctx context.Context, d *db.DB, site string, hours int) ([]StealthRow, error) {
+// StealthPassed: botVerdicts is the list of verdict names configured as
+// action=bot or suspect in settings. Prefix-based detection is removed
+// (= supports arbitrary naming).
+func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string) ([]StealthRow, error) {
+	if len(botVerdicts) == 0 {
+		return nil, nil // no verdicts marked as bot → stealth is 0 by definition
+	}
+	botIn, botArgs := inClause(botVerdicts)
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COALESCE(ja4_verdict,'(none)') AS v,
                MAX(user_agent) AS ua, COUNT(*) AS n, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='verify_ok' AND ja4_verdict LIKE 'bot_%%'
-        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site))
-	rows, err := d.QueryContext(ctx, stmt)
+        WHERE date_created > %s%s AND phase='verify_ok' AND ja4_verdict %s
+        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), botIn)
+	rows, err := d.QueryContext(ctx, stmt, botArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -906,28 +1138,30 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hours int) ([]Ste
 		}
 		out = append(out, StealthRow{
 			IP: ipFromBytes(raw), Verdict: v, UA: truncate(ua.String, 80),
-			Count: n, LastSeen: ls.String,
+			Count: n, LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
 }
 
-// JSErrorRow: error phase に payload に乗ってくる JS エラー.
+// JSErrorRow: a JS error carried in payload of the error phase.
 type JSErrorRow struct {
-	IP       string
-	UA       string
-	Flags    int
-	Error    string
-	Date     string
+	IP          string
+	UA          string
+	Flags       int
+	Error       string
+	Date        string
+	DateTS      int64
+	CountryCode string
 }
 
-func JSErrors(ctx context.Context, d *db.DB, site string, hours int) ([]JSErrorRow, error) {
+func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]JSErrorRow, error) {
 	errMsg := jsonExtract(d, "payload_json", "$.error_msg")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, user_agent, flags, %s AS err, date_created
         FROM unmask_event
         WHERE date_created > %s%s AND phase='error'
-        ORDER BY id DESC LIMIT 30`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site))
+        ORDER BY id DESC LIMIT 30`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -943,14 +1177,15 @@ func JSErrors(ctx context.Context, d *db.DB, site string, hours int) ([]JSErrorR
 		}
 		out = append(out, JSErrorRow{
 			IP: ipFromBytes(raw), UA: truncate(ua.String, 80), Flags: fl,
-			Error: truncate(strings.Trim(errStr.String, `"`), 120),
-			Date:  ds.String,
+			Error:  truncate(strings.Trim(errStr.String, `"`), 120),
+			Date:   ds.String,
+			DateTS: parseDateTimeToUnix(ds.String),
 		})
 	}
 	return out, rows.Err()
 }
 
-// DailyBucket: 日次推移系列.
+// DailyBucket: daily trend series.
 type DailyBucket struct {
 	Date     string
 	Serve    int
@@ -960,51 +1195,84 @@ type DailyBucket struct {
 	VerifyOK int
 }
 
-// is_bot kind: classify.Category と同値 (= 0/1/2/4/5/6) + 99 = rate_limit (= 100r/min 超過).
+// is_bot kind: same as classify.Category (= 0/1/2/4/5/6) + 99 = rate_limit (= >100r/min).
 const KindRateLimit = 99
 
-// DailyKindBucket: 日付 × is_bot kind 別の req 数.  本家 _build_serve_30d と同じ集計軸.
+// pass kind: 4-way breakdown for the 30-day chart (= derived from unmask_cookie_minute).
+//
+//	KindWhitePass  : passed through with no signal (= cnt_total - bv - bp - fc)
+//	KindCaptchaPass: holds CAPTCHA-passed cookie (= cnt_bv / _bv cookie)
+//	KindPoWPass    : holds PoW-passed cookie (= cnt_bp / _br cookie)
+//	KindNotPass    : received a challenge (= cnt_fc)
+//
+// Numeric order = stacked-bar stack order, so white → captcha → pow → not_pass.
+const (
+	KindWhitePass   = 1
+	KindCaptchaPass = 2
+	KindPoWPass     = 3
+	KindNotPass     = 4
+)
+
+// DailyKindBucket: per-(date × is_bot kind) request count.
 type DailyKindBucket struct {
 	Date string
 	Kind int
 	Req  int
 }
 
-// DailyTotal: 日別合計 (req + uniq IP).
+// DailyTotal: per-day totals (req + uniq IP).
 type DailyTotal struct {
 	Date    string
 	Req     int
 	UniqIPs int
 }
 
-// CountryRow: 国別合計 (= 30 日 chart の右側 horizontal bar 用).
+// CountryRow: per-country totals (= for the right-side horizontal bar on the 30-day chart).
 type CountryRow struct {
 	CountryCode string // ISO 3166-1 alpha-2 (= "JP", "US")
 	Req         int
 	UniqIPs     int
 }
 
-// DailyServeByKind: phase='serve' を date × ip × verdict × ua × rl で集計し、
-// 各行を classify.IsBot で分類して date × kind 別 req 数を返す.
-// 同時に日別合計 + uniq IP も返す.  本家 BotChallengeDebug._build_serve_30d 相当.
+// DailyServeByKind: aggregate phase='serve' by date × ip × verdict × ua × rl,
+// classify each row with classify.IsBot, and return per-(date × kind) request
+// counts. Also returns per-day totals + uniq IP.
 //
-// 戻り値:
-//   - daily: stacked bar 用の (date, kind, req) リスト
-//   - total: 日別 req + uniq IP リスト
-func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]DailyKindBucket, []DailyTotal, error) {
+// Return:
+//   - daily: list of (date, kind, req) for the stacked bar
+//   - total: list of per-day req + uniq IP
+//
+// On high-traffic sites the event cardinality is high
+// (= tens of thousands of ip × verdict × ua combinations) and the Go classify
+// loop hits the 8s timeout. Mitigation: aggregate UA on the SQL side using
+// verdict + truncated UA prefix, which compresses the distinct-combination
+// count. UA prefix is enough for classification (= same UA pattern always lands
+// in the same category).
+func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string) ([]DailyKindBucket, []DailyTotal, error) {
+	t0 := time.Now()
+	defer func() {
+		if elapsed := time.Since(t0); elapsed > 500*time.Millisecond {
+			log.Printf("DailyServeByKind: %v elapsed (slow)", elapsed)
+		}
+	}()
 	since := d.NowMinusMinutes(days * 24 * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	// Truncate UA to 80 chars before grouping (= compresses cardinality.
+	// Grouping by full UA can yield tens of thousands of distinct rows; the
+	// 80-char prefix collapses same-UA families into one row).
 	stmt := fmt.Sprintf(`
         SELECT DATE(date_created) AS d,
                ip_address,
                COALESCE(ja4_verdict, '') AS verdict,
-               COALESCE(user_agent, '') AS ua,
+               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
                CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END AS is_rl,
                COUNT(*) AS n
         FROM unmask_event
         WHERE phase='serve' AND date_created > %s%s
-        GROUP BY DATE(date_created), ip_address, ja4_verdict, user_agent, is_rl
-        ORDER BY d`, jsonRL, since, siteCond(site))
+        GROUP BY DATE(date_created), ip_address, ja4_verdict, SUBSTR(user_agent, 1, 80), is_rl`,
+		jsonRL, since, siteCond(site)+hostCond(hosts))
+	// No ORDER BY (= Go side re-sorts by date/kind, so SQLite's
+	// "USE TEMP B-TREE FOR ORDER BY" would be wasted work).
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
@@ -1023,6 +1291,20 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]D
 	byTotal := map[string]*totalAcc{}
 	dateSeen := map[string]bool{}
 
+	// classify cache (= same (ua, isJA4Bot) tuple always maps to the same kind).
+	// Memoize because calling IsBot per row across tens of thousands of rows
+	// runs a regex with 600 alternations each time, which is heavy.
+	// Verdict name → action lookup is a single-pass through botSet.
+	botSet := map[string]bool{}
+	for _, v := range botVerdicts {
+		botSet[v] = true
+	}
+	type classifyKey struct {
+		ua    string
+		isBot bool
+	}
+	classifyCache := make(map[classifyKey]int, 256)
+
 	for rows.Next() {
 		var dRaw any
 		var ipPacked []byte
@@ -1035,11 +1317,23 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]D
 		date := scalarString(dRaw)
 		dateSeen[date] = true
 
-		var kind int
+		// rate_limit hits are a signal orthogonal to the bot-type breakdown,
+		// so they are excluded here and shown in a dedicated rate_limit card.
 		if isRL == 1 {
-			kind = KindRateLimit
+			continue
+		}
+		isBot := botSet[verdict]
+		ck := classifyKey{ua, isBot}
+		var kind int
+		if v, ok := classifyCache[ck]; ok {
+			kind = v
 		} else {
-			kind = int(classify.IsBot(ua, verdict))
+			action := ""
+			if isBot {
+				action = "bot"
+			}
+			kind = int(classify.IsBot(ua, action))
+			classifyCache[ck] = kind
 		}
 		byDateKind[dkKey{date, kind}] += n
 
@@ -1087,10 +1381,92 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, days int) ([]D
 	return daily, totals, nil
 }
 
-// CountriesByServe: phase='serve' を ip 別に集計 → geoip lookup → 国コード別の
-// req / uniq IP 集計を返す. geoip.Reader が空 (= mmdb 未指定 / 読込失敗) の場合は
-// 空 list を返す (= 利用側で「国別 chart は出さない」 と判断する).
-func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site string, days, limit int) ([]CountryRow, error) {
+// DailyPassByDay: aggregate all nginx requests from unmask_cookie_minute by
+// date and return a stacked-bar list with 3 categories: white_pass / pow_pass /
+// not_pass.
+//
+// Data source: nginx access_log syslog datagram → memory bucket → DB UPSERT.
+// In environments where nginx-rendered.conf is not included in http {}, the
+// table stays empty (= returns all zeros).
+//
+// Day boundaries use the server-local TZ (= SQLite 'localtime' /
+// MariaDB DATE(FROM_UNIXTIME)). Uniq IP cannot be computed because the
+// cookie_minute table has no IP column → DailyTotal.UniqIPs is left at 0
+// (= per-IP detail is available via ip-popover / a separate card).
+func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, days int) ([]DailyKindBucket, []DailyTotal, error) {
+	cutoffMin := ""
+	dateExpr := ""
+	if d.Driver == db.DriverSQLite {
+		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", days*24*60)
+		dateExpr = `DATE(bucket_min * 60, 'unixepoch', 'localtime')`
+	} else {
+		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", days*24*60)
+		dateExpr = `DATE(FROM_UNIXTIME(bucket_min * 60))`
+	}
+	cond := ""
+	if site != "" {
+		cond = " AND site = '" + site + "'"
+	}
+	// kind/cnt normalized schema. Aggregate total / captcha / pow /
+	// challenge_served in one CASE query. Even if a new kind ("signature" etc.)
+	// is added later, we keep the current 3-way display (= pass / pow_pass /
+	// not_pass) until dashboard requirements change.
+	stmt := fmt.Sprintf(`
+        SELECT %s AS d,
+               COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
+        FROM unmask_cookie_minute
+        WHERE bucket_min > %s%s
+        GROUP BY d
+        ORDER BY d`, dateExpr, cutoffMin, cond)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	daily := []DailyKindBucket{}
+	totals := []DailyTotal{}
+	for rows.Next() {
+		var dRaw any
+		var total, bv, bp, fc int
+		if err := rows.Scan(&dRaw, &total, &bv, &bp, &fc); err != nil {
+			return nil, nil, err
+		}
+		date := scalarString(dRaw)
+		notPass := fc
+		white := total - bv - bp - notPass
+		if white < 0 {
+			white = 0
+		}
+		// Drop 0-count buckets (= cleaner stacked bar on the chart)
+		if white > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindWhitePass, Req: white})
+		}
+		if bv > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindCaptchaPass, Req: bv})
+		}
+		if bp > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindPoWPass, Req: bp})
+		}
+		if notPass > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindNotPass, Req: notPass})
+		}
+		totals = append(totals, DailyTotal{Date: date, Req: total, UniqIPs: 0})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return daily, totals, nil
+}
+
+// CountriesByServe: aggregate phase='serve' per IP → geoip lookup → return
+// per-country req / uniq IP aggregates. Returns an empty list when geoip.Reader
+// is empty (= mmdb not configured / failed to load), so callers know not to
+// show the country chart.
+func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
 	if gip == nil || !gip.Loaded() {
 		return nil, nil
 	}
@@ -1099,7 +1475,7 @@ func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site str
         SELECT ip_address, COUNT(*) AS n
         FROM unmask_event
         WHERE date_created > %s%s AND phase='serve'
-        GROUP BY ip_address`, since, siteCond(site))
+        GROUP BY ip_address`, since, siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1143,7 +1519,7 @@ func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site str
 	return out, nil
 }
 
-// ---- legacy: phase 別 daily series (= 既存 chart 用. 段階廃止予定) ----
+// ---- legacy: per-phase daily series (= for the existing chart; deprecated) ----
 
 func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error) {
 	stmt := fmt.Sprintf(`
@@ -1200,8 +1576,8 @@ func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error)
 // helpers
 // ----------------------------------------------------------------
 
-// jsonExtract returns a SQL fragment that extracts a JSON path. SQLite と
-// MariaDB は呼び出し名 / 引用記号が違う.
+// jsonExtract returns a SQL fragment that extracts a JSON path. SQLite and
+// MariaDB use different function names / quoting.
 func jsonExtract(d *db.DB, col, path string) string {
 	if d.Driver == db.DriverSQLite {
 		return fmt.Sprintf("json_extract(%s, '%s')", col, path)
@@ -1240,7 +1616,7 @@ func scalarString(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
-// Pinger: dashboard 用 health helper.
+// Pinger: dashboard health helper.
 func Pinger(d *db.DB) error {
 	return d.PingContext(context.Background())
 }

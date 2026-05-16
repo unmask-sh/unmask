@@ -1,15 +1,17 @@
 #!/bin/sh
-# user / data dir は purge 時のみ削除する.
-# rpm 完全 remove ($1 = 0) / dpkg purge ($1 = "purge") を区別.
-set -eu
+# The user / data dir is removed only on purge.
+# Distinguishes rpm full-remove ($1 = 0) from dpkg purge ($1 = "purge").
 
 case "${1:-}" in
     0|purge)
-        # data は残す方針 (= 復旧運用のため). user 削除は手動でやる.
-        :
+        # Data is kept (= recovery scenarios).  User removal is left to the operator.
+        # The systemd drop-in placed by postinst is removed (= on full remove only).
+        rm -rf /etc/systemd/system/unmask-admin.service.d 2>/dev/null || true
         ;;
 esac
 
 if command -v systemctl >/dev/null 2>&1; then
     systemctl daemon-reload || true
 fi
+
+exit 0

@@ -1,0 +1,46 @@
+# unmask forward_auth for Caddy v2.
+#
+# Caddy v2 has a native forward_auth directive, so this reads almost exactly
+# like nginx's auth_request.
+#
+# Flow:
+#   client → Caddy → forward_auth (= subrequest to unmask-admin)
+#                  ← 200 / 401 / 403
+#                  → 200 = pass / 401 = redirect to challenge / 403 = block
+#
+# Feature limit: only JA4 is unavailable.  Otherwise on par with native mode.
+
+example.com {
+    # /unmask/* (= challenge HTML / verify API / admin UI) → proxy to admin.
+    handle /unmask/* {
+        reverse_proxy 127.0.0.1:9477
+    }
+
+    # Protect everything else with forward_auth.
+    handle {
+        forward_auth 127.0.0.1:9477 {
+            uri /unmask/api/check
+            # Headers to forward into the subrequest.
+            header_up X-Original-URI  {http.request.uri}
+            header_up X-Original-IP   {http.request.remote.host}
+            header_up X-Original-UA   {http.request.header.User-Agent}
+            header_up X-Original-Host {http.request.host}
+            # multi-site: optionally inject a site id.
+            # header_up X-Unmask-Site "blog-jp"
+
+            # Keep admin's X-Unmask-Action header so error_page can branch on it.
+            copy_headers X-Unmask-Action X-Unmask-Reason
+        }
+
+        # Check passed → normal reverse_proxy / file_server etc.
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    # 401 (= challenge required) → redirect to /unmask/challenge/.
+    handle_errors {
+        @auth_challenge expression {http.error.status_code} == 401
+        @auth_blocked   expression {http.error.status_code} == 403
+        redir @auth_challenge /unmask/challenge/ 302
+        respond @auth_blocked "Access denied by unmask" 403
+    }
+}

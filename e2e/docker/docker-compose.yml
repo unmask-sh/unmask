@@ -1,0 +1,60 @@
+# e2e docker compose: nginx + unmask-admin + shared unix socket volume.
+#
+# Start:
+#   make e2e-docker
+#
+# What happens:
+#   1. Build admin image (= multi-stage golang → alpine)
+#   2. Build nginx image (= debian build + nginx 1.26 + unmask module)
+#   3. Share tmpfs `/run/unmask` between the 2 containers
+#   4. Publish nginx :8443 to localhost:8443
+#   5. From the host, run e2e/run.sh with BASE_URL=https://localhost:8443
+
+name: unmask-e2e
+
+services:
+  admin:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/admin/Dockerfile
+    volumes:
+      - unmask-run:/run/unmask
+      - unmask-data:/var/lib/unmask
+      - unmask-conf:/etc/unmask
+    # admin runs in order: migrate → render-nginx → serve.
+    # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
+    command: >
+      sh -c "/usr/local/bin/unmask-admin migrate     -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask-admin render-nginx -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask-admin serve       -config /etc/unmask/admin.yml"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/nginx/Dockerfile
+    depends_on:
+      admin:
+        condition: service_healthy
+    volumes:
+      - unmask-run:/run/unmask
+      - unmask-conf:/etc/unmask:ro
+    ports:
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD", "openssl", "s_client", "-connect", "127.0.0.1:8443", "-servername", "localhost"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  unmask-run:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  unmask-data:
+  unmask-conf:

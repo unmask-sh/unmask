@@ -1,0 +1,71 @@
+{{- /*
+  host_picker: shared host filter UI for every admin page. Sits in the top
+  bar to the left of the TZ / language picker. Multi-select <details> dropdown.
+
+  Selection persists in the unmask_hosts cookie at global scope (same pattern
+  as the TZ / language picker). Comma-separated host IDs; empty = all hosts.
+  "Apply" writes the cookie and reloads.
+
+  Data (.Hosts / .HostSelected / .SelfHostID) is injected by addMeToData on
+  every admin page render.
+*/ -}}
+{{ define "host_picker" }}
+<span class="host-picker">
+  <details class="hp-dd">
+    <summary>{{ t .Lang "hunt.filter.host" }}: <b>{{ if .HostSelected }}{{ len .HostSelected }} {{ t .Lang "hunt.filter.host_selected" }}{{ else }}{{ t .Lang "hunt.filter.host_all" }}{{ end }}</b></summary>
+    <div class="hp-list">
+      {{ range .Hosts }}
+      <label><input type="checkbox" class="hp-host" value="{{ . }}" {{ if index $.HostSelected . }}checked{{ end }}>{{ . }}{{ if eq . $.SelfHostID }} <span class="hp-self">({{ t $.Lang "hunt.filter.host_self" }})</span>{{ end }}</label>
+      {{ else }}
+      <div class="hp-empty">(no hosts)</div>
+      {{ end }}
+      <div class="hp-actions">
+        <button type="button" class="hp-apply">OK</button>
+        <button type="button" class="hp-reset">{{ t .Lang "hunt.filter.reset" }}</button>
+      </div>
+    </div>
+  </details>
+</span>
+<style>
+.host-picker{position:relative;font-size:.8rem}
+.host-picker .hp-dd>summary{list-style:none;cursor:pointer;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;color:#0f172a;white-space:nowrap}
+.host-picker .hp-dd>summary::-webkit-details-marker{display:none}
+.host-picker .hp-dd>summary::after{content:"▾";margin-left:.35rem;color:#94a3b8;font-size:.65rem}
+.host-picker .hp-dd[open]>summary::after{content:"▴"}
+.host-picker .hp-list{position:absolute;top:calc(100% + .25rem);right:0;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);padding:.4rem .6rem;min-width:13rem;max-height:18rem;overflow-y:auto;z-index:600}
+.host-picker .hp-list label{display:flex;align-items:center;gap:.4rem;padding:.18rem 0;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#0f172a;cursor:pointer}
+.host-picker .hp-list label:hover{background:#f1f5f9}
+.host-picker .hp-self{color:#0ea5e9;font-size:.68rem;font-family:inherit}
+.host-picker .hp-empty{color:#94a3b8;font-size:.78rem;padding:.18rem 0}
+.host-picker .hp-actions{display:flex;gap:.4rem;margin-top:.4rem;padding-top:.4rem;border-top:1px solid #f1f5f9}
+.host-picker .hp-actions button{flex:1;padding:.25rem 0;font-size:.75rem;border-radius:.2rem;cursor:pointer}
+.host-picker .hp-apply{border:1px solid #0f172a;background:#0f172a;color:#fff;font-weight:600}
+.host-picker .hp-reset{border:1px solid #cbd5e1;background:#fff;color:#475569}
+</style>
+<script>
+(function(){
+  // Host filter persists in the unmask_hosts cookie at global scope (same
+  // pattern as TZ / language picker).
+  // Check boxes + OK → comma-separated cookie write → reload.
+  // Reset → empty cookie → reload.
+  var dd = document.querySelector('.host-picker .hp-dd');
+  if (!dd) return;
+  function setCookie(v){
+    document.cookie = 'unmask_hosts=' + encodeURIComponent(v) +
+      '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
+  }
+  var applyBtn = dd.querySelector('.hp-apply');
+  var resetBtn = dd.querySelector('.hp-reset');
+  if (applyBtn) applyBtn.addEventListener('click', function(){
+    var sel = [];
+    dd.querySelectorAll('.hp-host:checked').forEach(function(b){ sel.push(b.value); });
+    setCookie(sel.join(','));
+    location.reload();
+  });
+  if (resetBtn) resetBtn.addEventListener('click', function(){
+    setCookie('');
+    location.reload();
+  });
+})();
+</script>
+{{ end }}

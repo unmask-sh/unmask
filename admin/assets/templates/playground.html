@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<title>unmask · {{ t .Lang "playground.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem;max-width:64rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1.2rem;line-height:1.6}
+.bcd-card{background:#fff;border:.0625rem solid #e2e8f0;border-radius:.5rem;padding:1.2rem 1.4rem;margin-bottom:1rem}
+.field{margin-bottom:.9rem}
+.field label{display:block;font-size:.825rem;color:#475569;font-weight:600;margin-bottom:.25rem}
+.field input{width:100%;padding:.45rem .6rem;font-size:.95rem;border:.0625rem solid #cbd5e1;border-radius:.3rem;font-family:ui-monospace,Menlo,monospace}
+.field input:focus{outline:none;border-color:#3b82f6}
+.btn{padding:.5rem 1.2rem;font-size:.95rem;background:#3b82f6;color:#fff;border:none;border-radius:.3rem;cursor:pointer;font-weight:600}
+.btn:hover{background:#2563eb}
+.preset-row{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem}
+.preset-btn{font-size:.75rem;background:#e0e7ff;color:#3730a3;padding:.2rem .55rem;border:.0625rem solid #c7d2fe;border-radius:.25rem;cursor:pointer;font-family:ui-monospace,Menlo,monospace}
+.preset-btn:hover{background:#c7d2fe}
+#result{margin-top:1.2rem;display:none}
+#result.show{display:block}
+.summary{font-size:1.05rem;font-weight:600;padding:.9rem 1.1rem;border-radius:.4rem;margin-bottom:1rem;line-height:1.5}
+.summary.bot{background:#fee2e2;color:#991b1b;border:.0625rem solid #fca5a5}
+.summary.suspect{background:#fef3c7;color:#92400e;border:.0625rem solid #fcd34d}
+.summary.ok{background:#d1fae5;color:#065f46;border:.0625rem solid #6ee7b7}
+.summary.info{background:#dbeafe;color:#1e40af;border:.0625rem solid #93c5fd}
+table.detail{width:100%;border-collapse:collapse;font-size:.875rem}
+table.detail th{text-align:left;padding:.4rem .6rem;border-bottom:.0625rem solid #f1f5f9;color:#64748b;font-weight:600;width:9rem}
+table.detail td{padding:.4rem .6rem;border-bottom:.0625rem solid #f1f5f9;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+.tag{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.75rem;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,sans-serif;text-transform:uppercase;letter-spacing:.04em}
+.tag-bot{background:#fee2e2;color:#991b1b}
+.tag-suspect{background:#fef3c7;color:#92400e}
+.tag-ok{background:#d1fae5;color:#065f46}
+/* Header right side (picker + user_menu). Same style as other templates. */
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/" class="active">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+</header>
+<main class="unmask-main">
+<h1>{{ t .Lang "playground.title" }}</h1>
+<p class="meta">{{ safeHTML (t .Lang "playground.intro") }}</p>
+
+<div class="bcd-card">
+  <div class="field">
+    <label>{{ t .Lang "playground.field.ja4" }}</label>
+    <input type="text" id="ja4" placeholder="t13d1516h2_8daaf6152771_b186095e22b6">
+    <div class="preset-row">
+      <button type="button" class="preset-btn" data-fill-ja4="t13d1516h2_8daaf6152771_b186095e22b6">Chrome</button>
+      <button type="button" class="preset-btn" data-fill-ja4="t13d1715h2_5b57614c22b0_a54a3a4c5d4d">Firefox</button>
+      <button type="button" class="preset-btn" data-fill-ja4="t13d1517h2_8daaf6152771_e5627efa2ab1">Safari</button>
+      <button type="button" class="preset-btn" data-fill-ja4="t13d99h1_dev_test">unmask demo: bot-like</button>
+    </div>
+  </div>
+  <div class="field">
+    <label>{{ t .Lang "playground.field.ua" }}</label>
+    <input type="text" id="ua" placeholder="Mozilla/5.0 ...">
+    <div class="preset-row">
+      <button type="button" class="preset-btn" data-fill-ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36">Chrome 130</button>
+      <button type="button" class="preset-btn" data-fill-ua="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)">Googlebot</button>
+      <button type="button" class="preset-btn" data-fill-ua="Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.0; +https://openai.com/gptbot)">GPTBot</button>
+      <button type="button" class="preset-btn" data-fill-ua="curl/8.0">curl</button>
+      <button type="button" class="preset-btn" data-fill-ua="python-requests/2.31.0">requests</button>
+    </div>
+  </div>
+  <div class="field">
+    <label>{{ t .Lang "playground.field.ip" }}</label>
+    <input type="text" id="ip" placeholder="(optional) 1.2.3.4">
+  </div>
+  <button type="button" class="btn" id="eval-btn">{{ t .Lang "playground.evaluate" }}</button>
+</div>
+
+<div id="result" class="bcd-card">
+  <div id="summary" class="summary"></div>
+  <table class="detail">
+    <tbody id="detail-body"></tbody>
+  </table>
+</div>
+
+<script>
+function $(id){ return document.getElementById(id); }
+document.querySelectorAll('[data-fill-ja4]').forEach(b => b.addEventListener('click', () => $('ja4').value = b.dataset.fillJa4));
+document.querySelectorAll('[data-fill-ua]').forEach(b => b.addEventListener('click', () => $('ua').value = b.dataset.fillUa));
+
+$('eval-btn').addEventListener('click', () => {
+  fetch('{{.BasePath}}/admin/api/playground/eval', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ ja4: $('ja4').value.trim(), ua: $('ua').value.trim(), ip: $('ip').value.trim() })
+  }).then(r => r.json()).then(d => {
+    if (d.ok !== 1) { alert('error: ' + (d.error || '?')); return; }
+    var s = d.summary || '';
+    var sum = $('summary');
+    sum.textContent = s;
+    sum.className = 'summary ' + (s.indexOf('🚫') >= 0 ? 'bot' : s.indexOf('⚠️') >= 0 ? 'suspect' : s.indexOf('✅') >= 0 ? 'ok' : 'info');
+    var rows = '';
+    if (d.ja4_match) {
+      rows += '<tr><th>JA4 hit pattern</th><td>' + esc(d.ja4_match.pattern) + '</td></tr>';
+      rows += '<tr><th>JA4 verdict</th><td>' + esc(d.ja4_match.verdict || '(empty)') + '</td></tr>';
+      rows += '<tr><th>JA4 action</th><td><span class="tag tag-' + esc(d.ja4_match.action) + '">' + esc(d.ja4_match.action) + '</span></td></tr>';
+      rows += '<tr><th>JA4 source</th><td>' + esc(d.ja4_match.source) + '</td></tr>';
+    } else {
+      rows += '<tr><th>JA4 hit pattern</th><td>(no match)</td></tr>';
+    }
+    rows += '<tr><th>UA classify</th><td>' + esc(d.classify) + '</td></tr>';
+    rows += '<tr><th>bypass IP</th><td>' + (d.bypass_ip ? 'yes' : 'no') + '</td></tr>';
+    $('detail-body').innerHTML = rows;
+    $('result').classList.add('show');
+  }).catch(e => alert('fetch error: ' + e));
+});
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+</script>
+</main>
+</body>
+</html>

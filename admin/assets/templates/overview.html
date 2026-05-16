@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<title>unmask · {{ t .Lang "overview.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+/* Hero box: showcases the "blocks" headline prominently. */
+.hero{background:linear-gradient(135deg,#dc2626 0%,#7f1d1d 100%);color:#fff;border-radius:.5rem;padding:1.6rem 2rem;margin-bottom:1.2rem;display:flex;align-items:center;gap:1.6rem;flex-wrap:wrap}
+.hero .icon{font-size:3.5rem;line-height:1}
+.hero .body{flex:1;min-width:14rem}
+.hero .label{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;font-weight:600}
+.hero .value{font-size:4rem;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:.05rem 0;text-shadow:0 .15rem .5rem rgba(0,0,0,.2)}
+.hero .desc{font-size:.92rem;opacity:.92;line-height:1.5}
+.hero .sub{font-size:.78rem;opacity:.7;margin-top:.4rem}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:.75rem;margin-bottom:1rem}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;display:flex;flex-direction:column;gap:.2rem}
+.kpi .label{font-size:.78rem;color:#64748b;text-transform:uppercase;letter-spacing:.05em}
+.kpi .value{font-size:2rem;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums;line-height:1.1;text-align:right}
+.kpi .sub{font-size:.75rem;color:#94a3b8}
+.kpi.warn .value{color:#dc2626}
+/* Host filtering is unified into the shared host_picker in the top bar (old host-filter CSS removed). */
+.host-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;color:#475569;background:#f8fafc;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem}
+.shortcut-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.6rem}
+.shortcut{display:block;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.85rem 1rem;text-decoration:none;color:#0f172a;transition:border-color .1s,transform .05s}
+.shortcut:hover{border-color:#3b82f6;transform:translateY(-1px)}
+.shortcut .ico{font-size:1.4rem;display:block;margin-bottom:.2rem}
+.shortcut .ttl{font-weight:600;color:#0f172a;font-size:.92rem}
+.shortcut .desc{font-size:.78rem;color:#64748b;margin-top:.15rem;line-height:1.4}
+table.recent{width:100%;border-collapse:collapse;font-size:.85rem}
+table.recent thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+table.recent tbody td{padding:.4rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+table.recent tbody tr:hover{background:#f8fafc}
+table.recent td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.78rem}
+/* IP display unified across all cards: flag + IP + popover (same as dashboard / bans / hunt). */
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.muted{color:#94a3b8}
+.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+/* Phase pill: states grouped into 3 colors (green=pass / red=block / yellow=evaluating / gray=meta).
+ * Same palette as hunt.html. See hunt.html comments for details. */
+.ph-serve{background:#fef3c7;color:#92400e}      /* yellow: evaluating (challenge issued) */
+.ph-load{background:#fef3c7;color:#92400e}       /* yellow: evaluating */
+.ph-captcha{background:#fef3c7;color:#92400e}    /* yellow: evaluating */
+.ph-pow{background:#dcfce7;color:#166534}        /* green: pass */
+.ph-verify_ok{background:#dcfce7;color:#166534}  /* green: pass */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}  /* red: block */
+.ph-cookie_err{background:#fee2e2;color:#991b1b} /* red: block */
+.ph-error{background:#e2e8f0;color:#475569}      /* gray: meta */
+.ph-check{background:#e2e8f0;color:#475569}      /* gray: meta */
+.ph-check-pass{background:#dcfce7;color:#166534} /* green: pass */
+.ph-check-block{background:#fee2e2;color:#991b1b}/* red: block */
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/" class="active">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "host_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+</header>
+<main class="unmask-main">
+<h1>{{ t .Lang "overview.title" }}</h1>
+<p class="meta">{{ t .Lang "overview.subtitle" }}</p>
+
+{{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
+
+<div class="hero">
+  <div class="icon">{{ if gt .KPIServes 0 }}🛡️{{ else }}😴{{ end }}</div>
+  <div class="body">
+    <div class="label">{{ t .Lang "overview.hero.label" }}</div>
+    <div class="value">{{ comma .KPIServes }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span></div>
+    <div class="desc">
+      {{ if gt .KPIServes 0 }}
+        {{ safeHTML (t .Lang "overview.hero.desc") }}
+      {{ else }}
+        {{ t .Lang "overview.hero.zero" }}
+      {{ end }}
+    </div>
+    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }} · phase=serve</div>
+  </div>
+</div>
+
+<div class="kpi-grid">
+  <div class="kpi">
+    <div class="label">{{ t .Lang "overview.kpi.events" }}</div>
+    <div class="value">{{ comma .KPIEvents }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }}</div>
+  </div>
+  <div class="kpi warn">
+    <div class="label">{{ t .Lang "overview.kpi.serves" }}</div>
+    <div class="value">{{ comma .KPIServes }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">{{ t .Lang "overview.kpi.verify" }}</div>
+    <div class="value">{{ comma .KPIVerify }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.verify_sub" }}</div>
+  </div>
+  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
+    <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
+    <div class="value">{{ comma .KPICurrentBans }}</div>
+    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
+  </div>
+</div>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "overview.recent_h" }}</h2>
+  <table class="recent">
+    <thead>
+      <tr>
+        <th>{{ t .Lang "hunt.col.at" }}</th>
+        <th>IP</th>
+        <th>JA4</th>
+        <th>verdict</th>
+        <th>phase</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Recent }}
+      <tr>
+        <td class="mono">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Host }} <span class="host-badge">{{ .Host }}</span>{{ end }}</td>
+        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span></td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "overview.recent_empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+  <div style="margin-top:.5rem;text-align:right">
+    <a href="{{.BasePath}}/admin/hunt/" style="font-size:.85rem;color:#475569;text-decoration:none">{{ t .Lang "overview.recent_more" }} →</a>
+  </div>
+</div>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "overview.shortcut_h" }}</h2>
+  <div class="shortcut-grid">
+    <a class="shortcut" href="{{.BasePath}}/admin/stats/">
+      <span class="ico">📊</span>
+      <div class="ttl">{{ t .Lang "nav.stats" }}</div>
+      <div class="desc">{{ t .Lang "overview.short.stats" }}</div>
+    </a>
+    <a class="shortcut" href="{{.BasePath}}/admin/hunt/">
+      <span class="ico">🎯</span>
+      <div class="ttl">{{ t .Lang "nav.hunt" }}</div>
+      <div class="desc">{{ t .Lang "overview.short.hunt" }}</div>
+    </a>
+    <a class="shortcut" href="{{.BasePath}}/admin/bans/">
+      <span class="ico">🚫</span>
+      <div class="ttl">{{ t .Lang "nav.bans" }}</div>
+      <div class="desc">{{ t .Lang "overview.short.bans" }}</div>
+    </a>
+    <a class="shortcut" href="{{.BasePath}}/admin/settings/">
+      <span class="ico">⚙️</span>
+      <div class="ttl">{{ t .Lang "nav.settings" }}</div>
+      <div class="desc">{{ t .Lang "overview.short.settings" }}</div>
+    </a>
+    <a class="shortcut" href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">
+      <span class="ico">📖</span>
+      <div class="ttl">{{ t .Lang "nav.docs" }}</div>
+      <div class="desc">{{ t .Lang "overview.short.docs" }}</div>
+    </a>
+  </div>
+</div>
+
+</main>
+
+<div id="ip-popover" data-popover="ip"></div>
+<script>
+// IP popover (rDNS + GeoIP + ASN). Same form as dashboard / hunt / bans
+// (every IP display unified as "flag + IP + popover").
+(function(){
+  const pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  const pin = window.popoverPin.install(pop);
+  const cache = new Map();
+  let timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    const na = '<span class="muted">(unavailable)</span>';
+    const ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    const ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    const flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                    '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    const types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      const cn = d.country_name ? esc(d.country_name) : '';
+      const cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + ip + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(r => r.json())
+      .then(d => { cache.set(ip, d); cb(fmt(d)); })
+      .catch(() => cb('lookup failed'));
+  }
+  document.querySelectorAll('.ipclick').forEach(td => {
+    td.addEventListener('mouseenter', e => {
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      timer = setTimeout(() => {
+        fetchAndFmt(ip, html => pin.showHover(html, x, y));
+      }, 200);
+    });
+    td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', e => {
+      e.preventDefault();
+      clearTimeout(timer);
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td));
+    });
+  });
+})();
+</script>
+</body>
+</html>

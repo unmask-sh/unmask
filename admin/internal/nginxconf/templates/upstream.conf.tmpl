@@ -1,0 +1,23 @@
+# /etc/unmask/upstream.conf — unmask_admin upstream block emitted by admin.
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# Usage:
+#   Add `include /etc/unmask/upstream.conf;` to nginx conf.d etc.  The
+#   /etc/nginx/conf.d/unmask-web.conf shipped by unmask-web-nginx hard-codes
+#   the upstream block; replace `upstream unmask_admin { ... }` there with a
+#   one-line include.
+#
+# bind forms:
+#   - TCP    : server.bind = "127.0.0.1:..."        in config.yml → server host:port
+#   - socket : server.bind = "unix:/path/to.sock"   in config.yml → server unix:/path
+#
+# Using a socket eliminates port collisions and firewall config, and is
+# slightly faster than TCP loopback.  The socket file's permission is
+# controlled by server.socket_mode / server.socket_group in config.yml
+# (= default 0660, group nginx).
+
+upstream unmask_admin {
+    server {{ .UpstreamServer }};
+    keepalive 16;
+}

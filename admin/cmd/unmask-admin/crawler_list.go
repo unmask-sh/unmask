@@ -1,13 +1,13 @@
-// update-crawler-list: monperrus/crawler-user-agents から最新 JSON を取得.
+// update-crawler-list: fetch the latest JSON from monperrus/crawler-user-agents.
 //
-// embed 同梱の crawler-user-agents.json を更新するには binary 再 build が
-// 必要だが、 admin 側は環境変数 UNMASK_CRAWLER_UA_JSON で外部 path を優先
-// 読み込みできる (= classify package が見る).
+// Updating the embedded crawler-user-agents.json requires a binary rebuild, but the
+// admin side can prefer an external path via the UNMASK_CRAWLER_UA_JSON env var
+// (= consulted by the classify package).
 //
-// 使い方:
+// Usage:
 //
 //	unmask-admin update-crawler-list -out /etc/unmask/crawler-user-agents.json
-//	systemctl restart unmask-admin   # cache を取り直すため
+//	systemctl restart unmask-admin   # to refresh the cache
 package main
 
 import (

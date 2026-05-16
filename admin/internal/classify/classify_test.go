@@ -2,7 +2,7 @@ package classify
 
 import "testing"
 
-// 既知ブラウザ判定の代表ケース.
+// Representative cases for known-browser detection.
 func TestIsKnownBrowser(t *testing.T) {
 	cases := []struct {
 		ua   string
@@ -43,12 +43,16 @@ func TestClassify_SearchAI(t *testing.T) {
 }
 
 func TestClassify_JA4Bot(t *testing.T) {
-	// search_ai ではない UA + bot_* verdict
-	if got := IsBot("Mozilla/5.0 ... Chrome/120 Safari/537", "bot_chrome_fake_h1"); got != JA4Bot {
-		t.Errorf("bot_ verdict should give JA4Bot, got %v", got)
+	// non-search_ai UA + ja4Action="bot"
+	if got := IsBot("Mozilla/5.0 ... Chrome/120 Safari/537", "bot"); got != JA4Bot {
+		t.Errorf(`action="bot" should give JA4Bot, got %v`, got)
 	}
-	// search_ai UA は ja4 verdict より優先 (= 通すべき bot を弾かない)
-	if got := IsBot("Googlebot/2.1", "bot_chrome_fake_h1"); got != SearchAI {
+	// suspect is also treated as JA4Bot
+	if got := IsBot("Mozilla/5.0 ... Chrome/120 Safari/537", "suspect"); got != JA4Bot {
+		t.Errorf(`action="suspect" should give JA4Bot, got %v`, got)
+	}
+	// search_ai UA takes precedence over the ja4 action (= don't block bots that should be allowed)
+	if got := IsBot("Googlebot/2.1", "bot"); got != SearchAI {
 		t.Errorf("search_ai should win over JA4 bot, got %v", got)
 	}
 }

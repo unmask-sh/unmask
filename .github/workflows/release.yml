@@ -1,5 +1,5 @@
-# release: tag (v*) push で各 arch の admin binary, ja4 module, rpm/deb/apk
-# を artifact として release に貼る.
+# release: on a tag (v*) push, attach the admin binary, ja4 module, and rpm/deb/apk
+# artifacts for each arch to the GitHub release.
 name: release
 
 on:
@@ -7,7 +7,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write   # release 作成用
+  contents: write   # needed to create the release
 
 jobs:
   # admin binary (linux/amd64, linux/arm64)
@@ -59,15 +59,15 @@ jobs:
           tar -xzf nginx.tgz
           cd nginx-${{ matrix.nginx }}
           ./configure --with-compat --with-http_ssl_module \
-                      --add-dynamic-module=$GITHUB_WORKSPACE/ja4-module
+                      --add-dynamic-module=$GITHUB_WORKSPACE/nginx-module
           make modules
       - id: arch
         run: |
           arch=$(uname -m)
           case "$arch" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; *) goarch=$arch ;; esac
           mkdir -p dist
-          cp nginx-${{ matrix.nginx }}/objs/ngx_http_ja4_module.so \
-             dist/ngx_http_ja4_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
+          cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
+             dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
           echo "goarch=${goarch}" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
@@ -92,9 +92,9 @@ jobs:
           mkdir -p dist
           # admin
           cp artifacts/admin-linux-${{ matrix.arch }}/unmask-admin-linux-${{ matrix.arch }} dist/
-          # module: nginx 1.26.2 を default に rename して同梱
-          cp artifacts/module-nginx1.26.2-${{ matrix.arch }}/ngx_http_ja4_module-nginx1.26.2-linux-${{ matrix.arch }}.so \
-             dist/ngx_http_ja4_module-linux-${{ matrix.arch }}.so
+          # module: rename the nginx 1.26.2 build as the default and bundle it
+          cp artifacts/module-nginx1.26.2-${{ matrix.arch }}/ngx_http_unmask_module-nginx1.26.2-linux-${{ matrix.arch }}.so \
+             dist/ngx_http_unmask_module-linux-${{ matrix.arch }}.so
           ls -la dist/
       - name: install nfpm
         run: |
@@ -104,7 +104,7 @@ jobs:
         env:
           UNMASK_VERSION: ${{ github.ref_name }}
         run: |
-          # nfpm.yaml の arch を override
+          # override the arch field in nfpm.yaml
           version=${UNMASK_VERSION#v}
           cd rpm
           UNMASK_VERSION=$version nfpm pkg --packager ${{ matrix.format }} \
@@ -115,7 +115,7 @@ jobs:
           name: pkg-${{ matrix.format }}-${{ matrix.arch }}
           path: dist/*.${{ matrix.format }}
 
-  # まとめて GitHub Release に貼る
+  # attach everything to the GitHub Release
   publish:
     needs: package
     runs-on: ubuntu-latest

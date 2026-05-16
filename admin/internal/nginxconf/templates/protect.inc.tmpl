@@ -1,0 +1,32 @@
+# /etc/unmask/native/protect.inc — auto-rendered by unmask-admin / DO NOT EDIT
+#
+# Usage: include this in the location { } you want to protect, inside the
+# user's server { }:
+#
+#     location / {
+#         include /etc/unmask/native/protect.inc;
+#         proxy_pass http://backend;
+#     }
+#
+# Enables rate-limit + forced challenge on JA4 / honeypot / protected-path hits
+# + fail-open when the admin daemon is down.
+#
+#  generated_at: {{ .GeneratedAt }}
+#  unmask_version: {{ .Version }}
+
+# rate-limit.  The zone itself is declared via `limit_req_zone` in
+# nginx-rendered.conf (http {} scope).  limit_req_status 429 overrides the
+# default 503 to 429, then error_page 429 chains into `@unmask_rate_challenge`.
+limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
+limit_req_status 429;
+error_page 429 = @unmask_rate_challenge;
+
+# JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
+# force challenge.  The original URI is passed to the challenge handler via the
+# `_orig` query, so unmask-admin can record "URL the user originally tried" on
+# the hunt page.  Note: $request_uri includes path + query, and nginx rewrite
+# args are not URL-encoded, so anything after a second `?` bleeds into args.
+# We accept this since aggregation is at the path level.
+if ($final_challenge = 1) {
+    rewrite ^ /unmask/challenge/?_orig=$request_uri last;
+}

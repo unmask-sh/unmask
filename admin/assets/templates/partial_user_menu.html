@@ -1,0 +1,49 @@
+{{/*
+  user_menu: username dropdown at the right end of the header.
+
+  Expected data:
+    - .Lang     : i18n lang
+    - .BasePath : "/unmask"
+    - .Me       : *handlers.SessionPayload (UserID + Role + Exp). Hidden if nil.
+    - .MeName   : current user's username (display).
+
+  Display by role:
+    - superadmin: user management + audit log + logout
+    - admin     : audit log + logout
+    - viewer    : logout only
+*/}}
+{{ define "user_menu" }}
+{{ if .Me }}
+<div class="user-menu" tabindex="0" id="user-menu">
+  <span class="user-menu-trigger">
+    <span class="user-menu-name">{{ if .MeName }}{{ .MeName }}{{ else }}user{{ end }}</span>
+    <span class="user-menu-arrow">▾</span>
+  </span>
+  <div class="user-menu-pop">
+    {{ if eq .Me.Role "superadmin" }}
+    <a href="{{ .BasePath }}/admin/users/">{{ t .Lang "nav.users" }}</a>
+    {{ end }}
+    {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
+    <a href="{{ .BasePath }}/admin/audit/">{{ t .Lang "nav.audit" }}</a>
+    {{ end }}
+    <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
+    <a href="{{ .BasePath }}/admin/logout">{{ t .Lang "nav.logout" }}</a>
+  </div>
+</div>
+<script>
+(function(){
+  var m = document.getElementById('user-menu');
+  if (!m) return;
+  // Open on hover; click also toggles (for touch devices).
+  m.querySelector('.user-menu-trigger').addEventListener('click', function(e){
+    e.stopPropagation();
+    m.classList.toggle('open');
+  });
+  // Close on outside click.
+  document.addEventListener('click', function(e){
+    if (!m.contains(e.target)) m.classList.remove('open');
+  });
+})();
+</script>
+{{ end }}
+{{ end }}

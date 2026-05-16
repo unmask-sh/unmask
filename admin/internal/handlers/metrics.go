@@ -1,6 +1,6 @@
 // /unmask/metrics — Prometheus text format exporter (pure stdlib, no client_golang).
 //
-// 出力する metric:
+// Emitted metrics:
 //
 //	unmask_event_total{phase=...,verdict=...}      counter
 //	unmask_verify_score_count                      score histogram (count)
@@ -8,11 +8,12 @@
 //	unmask_verify_score_bucket{le=...}             score histogram (bucket)
 //	unmask_db_query_seconds{op=...} (sum/count)    DB query latency (Counter pair)
 //
-// challenge phase は admin への request 時に events.Insert がカウントするので、
-// /metrics ハンドラ呼び出し時に DB から直接 GROUP BY して読む (= 30 秒 cache).
+// challenge phases are counted by events.Insert on each admin request, so the
+// /metrics handler reads them by GROUP BY directly from the DB on invocation
+// (= cached for 30 seconds).
 //
-// client_golang を使わない理由: dependency を増やしたくない. counter と
-// histogram は stdlib + sync/atomic で実装可能. text format は単純.
+// Why no client_golang: avoid adding a dependency.  Counter and histogram are
+// implementable with stdlib + sync/atomic, and the text format is simple.
 package handlers
 
 import (
@@ -25,12 +26,12 @@ import (
 	"time"
 )
 
-// scoreBuckets: behavioral score を観測する histogram bucket 境界.
+// scoreBuckets: histogram bucket boundaries for behavioral score observations.
 var scoreBuckets = []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
 
 type metricsState struct {
 	scoreCount uint64
-	scoreSum   uint64    // microseconds っぽく x1000 で固定小数点
+	scoreSum   uint64    // microsecond-style fixed-point: x1000
 	scoreBkt   []uint64  // len = len(scoreBuckets)+1 (last = +Inf)
 	qLat       sync.Map // op string -> *latencyAcc
 
@@ -48,7 +49,7 @@ var Metrics = &metricsState{
 	scoreBkt: make([]uint64, len(scoreBuckets)+1),
 }
 
-// ObserveScore: /api/verify が score を計算するたびに呼ぶ.
+// ObserveScore: called each time /api/verify computes a score.
 func (m *metricsState) ObserveScore(score float64) {
 	atomic.AddUint64(&m.scoreCount, 1)
 	atomic.AddUint64(&m.scoreSum, uint64(score*1000))

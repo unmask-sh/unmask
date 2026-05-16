@@ -1,0 +1,40 @@
+# unmask-admin config (= inside the e2e docker container).
+# Not for production use.  Fixed secret + sqlite tempdir + socket path for e2e only.
+
+db:
+  driver: sqlite
+  sqlite_path: /var/lib/unmask/unmask.sqlite
+
+secret:
+  bv_secret: "e2e-docker-bv-secret-do-not-use-in-prod"
+  captcha_secret_base: "e2e-docker-captcha-base-do-not-use-in-prod"
+
+challenge:
+  cookie_days: 3
+  captcha_score_threshold: 0.5
+  debug_rate_limit_per_5min: 200
+
+server:
+  bind: 0.0.0.0
+  port: 9477
+  base_path: /unmask
+
+# Shares /run/unmask with the nginx container via a shared volume -> aggregation goes over the socket.
+nginx_log:
+  socket_path: /run/unmask/log.sock
+
+# render-nginx output dir (= /etc/unmask is shared with the nginx container).
+nginx:
+  output_dir: /etc/unmask
+  # docker compose resolves the service name "admin".  This value is overridden on the
+  # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
+  upstream_addr: admin:9477
+  rate_limit_per_min: 100
+  admin_allow_from:
+    - 0.0.0.0/0
+  metrics_allow_from:
+    - 0.0.0.0/0
+  sites:
+    - id: default
+      hosts: ["*"]
+      honeypot_use_defaults: true

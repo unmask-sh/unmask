@@ -1,12 +1,12 @@
 // Package db: thin SQLite / MariaDB abstraction.
 //
-// ORM 不採用. 集計クエリは生 SQL の方が明快なので database/sql のごく薄い
-// ラッパーだけを提供する.
+// No ORM.  Aggregation queries read more clearly as raw SQL, so this package
+// only exposes a very thin wrapper around database/sql.
 //
-// driver 差分:
-//   - placeholder: SQLite は ?, MariaDB は %s ではなく ? も使えるが MySQL 接続では ?
-//     どちらも ? で揃える (database/sql 標準).
-//   - 「N 分前」 SQL fragment は driver で違うので NowMinusMinutes() で生成.
+// Driver differences:
+//   - placeholder: SQLite uses ?, MariaDB also takes ? (database/sql standard),
+//     so we use ? for both.
+//   - "N minutes ago" SQL fragments differ per driver; generate via NowMinusMinutes().
 package db
 
 import (
@@ -37,24 +37,31 @@ type DB struct {
 }
 
 // Open returns a configured *DB. SQLite path's parent directory is created if
-// missing (一発で立ち上がる体験のため).
+// missing (so first-run "just works").
 func Open(s settings.DB) (*DB, error) {
 	switch s.Driver {
 	case "", string(DriverSQLite):
 		if err := os.MkdirAll(filepath.Dir(s.SQLitePath), 0o755); err != nil {
 			return nil, fmt.Errorf("mkdir sqlite parent: %w", err)
 		}
-		// _pragma=... で WAL + busy timeout. challenge write と dashboard read の競合用.
+		// _pragma=... = WAL + busy timeout.  Prevents challenge-write vs dashboard-read contention.
 		dsn := s.SQLitePath +
 			"?_pragma=journal_mode(WAL)" +
 			"&_pragma=synchronous(NORMAL)" +
-			"&_pragma=busy_timeout(3000)"
+			"&_pragma=busy_timeout(5000)" +
+			"&_pragma=cache_size(-20000)" + // -20000 = 20MB page cache
+			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
+			"&_pragma=mmap_size(268435456)" // 256MB mmap to speed up page reads
 		conn, err := sql.Open("sqlite", dsn)
 		if err != nil {
 			return nil, err
 		}
-		// SQLite 単一書込み制約: write は逐次. read は別 goroutine で並列でいい.
-		conn.SetMaxOpenConns(1)
+		// WAL mode allows multiple parallel readers; writes are serial (SQLite constraint).
+		// MaxOpen=1 also serializes reads, so the dashboard contends with auth_request
+		// writes and hits the 8s timeout.  Parallelising reads improves latency.
+		conn.SetMaxOpenConns(8)
+		conn.SetMaxIdleConns(4)
+		conn.SetConnMaxLifetime(time.Hour)
 		if err := conn.PingContext(context.Background()); err != nil {
 			conn.Close()
 			return nil, err
@@ -90,7 +97,7 @@ func Open(s settings.DB) (*DB, error) {
 }
 
 // NowMinusMinutes returns a SQL fragment representing "now - n minutes" for
-// the active driver.  Use it inline (= clientside parameterization は不可).
+// the active driver.  Use it inline (= cannot be parameterised client-side).
 func (d *DB) NowMinusMinutes(n int) string {
 	if d.Driver == DriverSQLite {
 		return fmt.Sprintf("datetime('now', '-%d minutes')", n)

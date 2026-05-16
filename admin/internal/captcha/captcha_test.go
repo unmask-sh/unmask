@@ -2,7 +2,7 @@ package captcha
 
 import "testing"
 
-// 完全人間っぽい signal: 入力イベント有り, 遅め click, 揺らぎのある trail.
+// Fully human-like signal: input events present, slow click, jittery trail.
 func TestScore_HumanLike(t *testing.T) {
 	s := &Signal{
 		HasMouseEvents: true,
@@ -18,7 +18,7 @@ func TestScore_HumanLike(t *testing.T) {
 	}
 }
 
-// 入力イベント無し + 即 click + window 0 = 完全 bot.
+// No input events + instant click + window 0 = clearly a bot.
 func TestScore_BotLike(t *testing.T) {
 	s := &Signal{
 		HasMouseEvents: false,
@@ -31,7 +31,7 @@ func TestScore_BotLike(t *testing.T) {
 	}
 }
 
-// 完全直線 trail = bot 疑い (-0.3).
+// Perfectly straight trail = suspected bot (-0.3).
 func TestScore_StraightLine(t *testing.T) {
 	trail := make([][]float64, 0, 12)
 	for i := 0; i < 12; i++ {

@@ -2,35 +2,48 @@
 //
 // usage:
 //
-//	unmask-admin serve          # FastAPI 風の HTTP server を起動
-//	unmask-admin migrate        # schema を作成
-//	unmask-admin aggregate      # incremental 集計 (cron 用)
-//	unmask-admin config-init    # ランダム secret 入りの config.yml を出す
+//	unmask-admin serve          # start the HTTP server (FastAPI-style)
+//	unmask-admin migrate        # create the schema
+//	unmask-admin aggregate      # incremental aggregate (cron)
+//	unmask-admin config-init    # emit a config.yml with a random secret
 //	unmask-admin version
 //
-// すべてのサブコマンドは -config <path> で config を上書きできる.
+// Every sub-command can override the config with -config <path>.
 package main
 
 import (
 	"context"
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	osuser "os/user"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/feedserver"
 	"github.com/unmask-sh/unmask/admin/internal/geoip"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
+	"github.com/unmask-sh/unmask/admin/internal/logwriter"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
+	"github.com/unmask-sh/unmask/admin/internal/mail"
+	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
+	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
 const Version = "0.1.0"
@@ -53,10 +66,24 @@ func main() {
 		err = cmdAggregate(args)
 	case "config-init":
 		err = cmdConfigInit(args)
-	case "build-google-ip":
-		err = cmdBuildGoogleIP(args)
 	case "update-crawler-list":
 		err = cmdUpdateCrawlerList(args)
+	case "review-crawler-list":
+		err = cmdReviewCrawlerList(args)
+	case "render-nginx":
+		err = cmdRenderNginx(args)
+	case "events":
+		err = cmdEvents(args)
+	case "analyze":
+		err = cmdAnalyze(args)
+	case "user":
+		err = cmdUser(args)
+	case "doctor":
+		err = cmdDoctor(args)
+	case "feed-build":
+		err = cmdFeedBuild(args)
+	case "apply-preset":
+		err = cmdApplyPreset(args)
 	case "version", "-v", "--version":
 		fmt.Println("unmask-admin", Version)
 	case "help", "-h", "--help":
@@ -79,8 +106,19 @@ usage:
   unmask-admin migrate [-config PATH]
   unmask-admin aggregate [-config PATH] [-days N]
   unmask-admin config-init [-out PATH]
-  unmask-admin build-google-ip [-out PATH] [-ipv6=true]
   unmask-admin update-crawler-list [-out PATH]
+  unmask-admin review-crawler-list [-url URL]
+  unmask-admin render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
+  unmask-admin events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
+  unmask-admin analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
+  unmask-admin user list [-config PATH]
+  unmask-admin user create <username> [-role superadmin|admin|viewer] [-password PASS]
+  unmask-admin user reset-password <username> [-password PASS]
+  unmask-admin user set-role <username> <role>
+  unmask-admin user delete <username>
+  unmask-admin doctor [-config PATH]
+  unmask-admin feed-build [-config PATH] [-dry-run]
+  unmask-admin apply-preset <strict|balanced|monitor> [-config PATH]
   unmask-admin version
 
 env:
@@ -90,6 +128,36 @@ env:
 
 func loadSettings(configPath string) (settings.Settings, error) {
 	return settings.Load(configPath)
+}
+
+// resolveHostID decides the name that uniquely identifies this host.
+// Priority:
+//  1. server.host_id in config.yml (explicit when hostnames collide on a shared DB)
+//  2. os.Hostname() (usually sufficient; multi-host setups split automatically as long as the machine name differs)
+//  3. "default" (last resort if both above are empty or hostname retrieval failed)
+//
+// Hostnames longer than 64 chars are truncated to fit the schema constraint (VARCHAR(64)).
+// Control characters and whitespace cause migration / index issues, so apply a simple sanitize.
+func resolveHostID(configured string) string {
+	pick := strings.TrimSpace(configured)
+	if pick == "" {
+		if h, err := os.Hostname(); err == nil {
+			pick = strings.TrimSpace(h)
+		}
+	}
+	if pick == "" {
+		pick = "default"
+	}
+	pick = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, pick)
+	if len(pick) > 64 {
+		pick = pick[:64]
+	}
+	return pick
 }
 
 // ----------------------------------------------------------------
@@ -105,27 +173,249 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	conn, err := db.Open(s.DB)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
+	// Switch the log destination to our own file open (rather than systemd
+	// StandardOutput=append:).  Needed so we can reopen the fd on SIGHUP for
+	// logrotate compatibility.  On failure (permission etc.), fall back to
+	// stderr and continue startup.
+	var lw *logwriter.LogWriter
+	if s.Server.LogPath != "" {
+		w, err := logwriter.New(s.Server.LogPath)
+		if err != nil {
+			log.Printf("logwriter: %v (= stderr fallback)", err)
+		} else {
+			lw = w
+			log.SetOutput(lw)
+			log.Printf("logwriter: writing to %s (reopen on SIGHUP)", lw.Path())
+		}
 	}
-	defer conn.Close()
+	// Serve still starts even when DB connection fails (incomplete db: section
+	// in admin.yml, or DB server not running).  The setup wizard at
+	// /admin/setup/ accepts driver / connection info and hot-swaps it after
+	// completion.  When conn == nil, the setup gate redirects every other URL.
+	var conn *db.DB
+	if c, err := db.Open(s.DB); err != nil {
+		log.Printf("db: open failed (redirecting to setup wizard): %v", err)
+	} else {
+		conn = c
+		defer conn.Close()
+		// Run idempotent migrations at startup.  Even when a binary upgrade
+		// requires a new column (old schema + new binary), event insert won't
+		// break.  Serve continues on failure (don't disrupt existing
+		// operations; a UI warning surfaces it even when setup is unfinished).
+		if err := db.Migrate(conn); err != nil {
+			log.Printf("db: migrate failed at startup (continuing with old schema; recommend running `unmask-admin migrate` manually): %v", err)
+		}
+	}
 
-	gip := geoip.Open(s.GeoIP.MMDBPath)
+	// The initial admin user is now created via the **install wizard**
+	// (/admin/setup/) — a unified design for "right after rpm/deb/apk
+	// install / docker startup / manual install": user opens the admin UI in
+	// a browser and the wizard appears (same flow as cacti / zabbix /
+	// nextcloud).  Random password output to the log has been removed.
+	//
+	// CLI-oriented users can still bypass the wizard with
+	// `unmask-admin user create <name> -role superadmin -password <pw>`.
+	var userRepo *user.Repository
+	if conn != nil {
+		userRepo = user.New(conn)
+	}
+
+	gip := geoip.Open(s.GeoIP.MMDBPath, s.GeoIP.MMDBASNPath)
 	defer gip.Close()
 	if s.GeoIP.MMDBPath != "" {
 		if gip.Loaded() {
 			log.Printf("geoip: loaded %s", s.GeoIP.MMDBPath)
 		} else {
-			log.Printf("geoip: failed to load %s (= 国別 chart は表示されない)", s.GeoIP.MMDBPath)
+			log.Printf("geoip: failed to load %s (country chart will not render)", s.GeoIP.MMDBPath)
 		}
 	}
-	h := &handlers.Handler{DB: conn, Settings: s, GeoIP: gip}
-	mux := buildRouter(s, h)
+	if s.GeoIP.MMDBASNPath != "" {
+		if gip.ASNLoaded() {
+			log.Printf("geoip-asn: loaded %s", s.GeoIP.MMDBASNPath)
+		} else {
+			log.Printf("geoip-asn: failed to load %s (popover will not show ASN)", s.GeoIP.MMDBASNPath)
+		}
+	}
 
-	addr := fmt.Sprintf("%s:%d", s.Server.Bind, s.Server.Port)
+	// Tail of nginx-only access_log + 1-minute flush goroutine + ban manager
+	// only start when the DB is connected (setup complete).  Right after the
+	// setup wizard finishes we expect a service restart to enable everything
+	// (no hot-spawn, for simplicity).
+	var nlog *nginxlog.Reader
+	var banMgr *ban.Manager
+	if conn != nil {
+		// Enabled=false skips socket bind / recv loop (zero overhead).  The
+		// flush loop still runs so buckets can be increased from inside via Bump.
+		nlogSock := s.NginxLog.SocketPath
+		if !s.NginxLog.Enabled {
+			nlogSock = ""
+		}
+		nlog = nginxlog.Start(nlogSock, conn)
+		defer nlog.Close()
+		banDur := time.Duration(s.Nginx.Honeypot.BanDuration) * time.Second
+		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur, s.Nginx.BypassIPs)
+		banMgr.Start()
+		defer banMgr.Close()
+		nlog.SetHoneypotCallback(banMgr.Add)
+	}
+
+	// External webhook notifications (optional).  Safe no-op even when URL is empty.
+	notifierInst := notifier.New(notifier.Config{
+		Disabled:            s.Notifications.Disabled,
+		URL:                 s.Notifications.URL,
+		Format:              s.Notifications.Format,
+		Sites:               s.Notifications.SiteLabel,
+		BanEvents:           s.Notifications.BanEvents,
+		ChallengeBurst:      s.Notifications.ChallengeBurst,
+		BurstThresholdPer5m: s.Notifications.BurstThresholdPer5m,
+	})
+	// SMTP mailer (optional).  Empty Host -> no-op.  Used by alert mail / password reset.
+	mailerInst := mail.New(mail.Config{
+		Host:               s.SMTP.Host,
+		Port:               s.SMTP.Port,
+		Username:           s.SMTP.Username,
+		Password:           s.SMTP.Password,
+		FromAddress:        s.SMTP.FromAddress,
+		FromName:           s.SMTP.FromName,
+		StartTLS:           s.SMTP.StartTLS,
+		InsecureSkipVerify: s.SMTP.InsecureSkipVerify,
+	})
+	// Wire mail notifications into the notifier.  The recipient resolver is a
+	// thin closure that calls UserRepo.AlertRecipients.  On failure, return
+	// an empty list to skip mail sending.
+	notifierInst.WithMail(mailerInst, func() []string {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		xs, err := userRepo.AlertRecipients(ctx)
+		if err != nil {
+			log.Printf("alert recipients lookup: %v", err)
+			return nil
+		}
+		return xs
+	})
+	if banMgr != nil {
+		banMgr.OnCreated = notifierInst.BanCreated
+	}
+
+	hostID := resolveHostID(s.Server.HostID)
+	log.Printf("host id: %s (recorded in the events.host column)", hostID)
+
+	limiter := ratelimit.New()
+	// GC stale entries (no hits in the last hour) every minute.  Prevents memory bloat.
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			limiter.Purge()
+		}
+	}()
+
+	// Raw events are written via the batch flusher (N rows per single tx).
+	// Started once at startup; settings save hot-reloads it; shutdown drains it.
+	if conn != nil {
+		events.StartFlusher(conn, s.EventsBatchSize, s.EventsBatchIntervalMs)
+	}
+
+	h := &handlers.Handler{
+		DB:          conn,
+		Settings:    s,
+		ConfigPath:  settings.ResolvePath(*configPath),
+		Version:     Version,
+		HostID:      hostID,
+		GeoIP:       gip,
+		NginxLog:    nlog,
+		BanMgr:      banMgr,
+		UserRepo:    userRepo,
+		Notifier:    notifierInst,
+		Mailer:      mailerInst,
+		RateLimiter: limiter,
+	}
+
+	// Shared feed client: pass SettingsGetter / SettingsUpdate through Handler.
+	// The Run() goroutine handles register + periodic pull only when submit or
+	// subscribe is ON.  Without ConfigPath we can't persist, so don't build the
+	// client at all (h.SharedFeed=nil also ignores the BAN button's share).
+	if h.ConfigPath != "" {
+		h.SharedFeed = &sharedfeed.Client{
+			UserAgent:      "unmask-admin/" + Version,
+			SettingsGetter: h.SnapshotSettings,
+			SettingsUpdate: h.UpdateSettings,
+		}
+		go h.SharedFeed.Run(context.Background(), time.Hour)
+	}
+
+	// feed-server (hub mode).  Only Active() in the unmask.sh production.
+	// Normal installs are no-op (ServeRegister / ServeSubmit handlers are not bound).
+	var feedSrv *feedserver.Server
+	if s.FeedServer.Active() {
+		fs, err := feedserver.Open(s.FeedServer, nil)
+		if err != nil {
+			return fmt.Errorf("feedserver open: %w", err)
+		}
+		feedSrv = fs
+		defer fs.Close()
+		// BuildAndWrite + PruneExpired every hour.  Run once at startup as well.
+		go func() {
+			run := func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				if err := fs.BuildAndWrite(ctx); err != nil {
+					log.Printf("feedserver build: %v", err)
+				}
+				if n, err := fs.PruneExpired(ctx); err != nil {
+					log.Printf("feedserver prune: %v", err)
+				} else if n > 0 {
+					log.Printf("feedserver: pruned %d expired submissions", n)
+				}
+			}
+			run()
+			t := time.NewTicker(time.Hour)
+			defer t.Stop()
+			for range t.C {
+				run()
+			}
+		}()
+	}
+
+	mux := buildRouter(s, h, feedSrv)
+
+	// Prune old rows from unmask_event every 24h (those exceeding
+	// h.Settings.EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
+	// permanently.  retention <= 0 -> no-op.  Run once at startup to sweep
+	// backlog from immediately after install / restart.  Referring to
+	// h.Settings inside the goroutine hot-picks up web UI saves.
+	if conn != nil {
+		go func() {
+			runPrune := func() {
+				retention := h.Settings.EventsRetentionDays
+				if retention <= 0 {
+					return
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				n, err := events.PruneOldEvents(ctx, conn, retention)
+				if err != nil {
+					log.Printf("events prune: %v", err)
+					return
+				}
+				if n > 0 {
+					log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
+				}
+			}
+			runPrune()
+			t := time.NewTicker(24 * time.Hour)
+			defer t.Stop()
+			for range t.C {
+				runPrune()
+			}
+		}()
+	}
+
+	listener, listenDesc, err := openListener(s.Server)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
 	srv := &http.Server{
-		Addr:              addr,
 		Handler:           withAccessLog(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -133,41 +423,173 @@ func cmdServe(args []string) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
+	// Treat SIGHUP as logrotate's "please reopen the log file" request
+	// (don't stop the process).  SIGINT / SIGTERM trigger graceful shutdown.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 	go func() {
-		<-sigCh
-		log.Printf("shutdown signal received")
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(ctx)
+		for sig := range sigCh {
+			if sig == syscall.SIGHUP {
+				if lw != nil {
+					if err := lw.Reopen(); err != nil {
+						log.Printf("logwriter: reopen failed: %v", err)
+					} else {
+						log.Printf("logwriter: reopened %s (via SIGHUP)", lw.Path())
+					}
+				}
+				continue
+			}
+			log.Printf("shutdown signal received: %s", sig)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = srv.Shutdown(ctx)
+			cancel()
+			// Drain the event flusher queue + perform a final flush.
+			events.StopFlusher()
+			return
+		}
 	}()
 
 	log.Printf("unmask-admin %s listening on %s base=%s driver=%s",
-		Version, addr, s.Server.BasePath, conn.Driver)
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		Version, listenDesc, s.Server.BasePath, conn.Driver)
+	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
 }
 
-func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
+// openListener listens on a unix domain socket when bind is "unix:/path",
+// otherwise TCP "host:port".
+//
+// Extra steps for the unix case:
+//   - If an existing file at that path is a socket, unlink it and re-listen
+//     (cleans up leftovers from a dead prior process).  A regular file is an
+//     error (avoids accidentally clobbering something).
+//   - chmod (SocketMode, default 0660) to set permissions.
+//   - chown (SocketGroup, default "nginx") to set group owner.  If the group
+//     doesn't exist, log a warning and skip chown (keep chmod).
+//
+// The 2nd return is a descriptor for log display ("unix:/path" / "host:port").
+func openListener(s settings.Server) (net.Listener, string, error) {
+	if strings.HasPrefix(s.Bind, "unix:") {
+		path := strings.TrimPrefix(s.Bind, "unix:")
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return nil, "", fmt.Errorf("unix socket path is empty (a path is required after `bind: unix:`)")
+		}
+		// stale socket cleanup.  If it's actually a socket file, unlink is safe.
+		if fi, err := os.Lstat(path); err == nil {
+			if fi.Mode()&os.ModeSocket != 0 {
+				if err := os.Remove(path); err != nil {
+					return nil, "", fmt.Errorf("remove stale socket %s: %w", path, err)
+				}
+			} else {
+				return nil, "", fmt.Errorf("%s exists and is not a socket (refusing to overwrite another file; verify / remove manually)", path)
+			}
+		}
+		ln, err := net.Listen("unix", path)
+		if err != nil {
+			return nil, "", err
+		}
+		// Permissions.  Default 0660 (owner rw + group rw).  Include group rw
+		// so the nginx worker can read/write through group access.
+		mode := parseFileMode(s.SocketMode, 0660)
+		if err := os.Chmod(path, mode); err != nil {
+			ln.Close()
+			return nil, "", fmt.Errorf("chmod %s: %w", path, err)
+		}
+		// Group owner.  Default "nginx".  Warn only if the group doesn't exist.
+		group := s.SocketGroup
+		if group == "" {
+			group = "nginx"
+		}
+		if g, err := osuser.LookupGroup(group); err == nil {
+			gid, _ := strconv.Atoi(g.Gid)
+			if err := os.Chown(path, -1, gid); err != nil {
+				log.Printf("socket chown :%s failed: %v (insufficient permission?  socket stays at default uid)", group, err)
+			}
+		} else {
+			log.Printf("socket group %q lookup failed: %v (chown skipped; the nginx worker may not be able to read it.  change SocketGroup or run groupadd)", group, err)
+		}
+		return ln, "unix:" + path, nil
+	}
+
+	// TCP path.
+	addr := fmt.Sprintf("%s:%d", s.Bind, s.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, "", err
+	}
+	return ln, addr, nil
+}
+
+// parseFileMode interprets an octal string like "0660" as os.FileMode.  Empty
+// or invalid returns the fallback.  Leading "0" is optional.
+func parseFileMode(s string, fallback os.FileMode) os.FileMode {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseUint(s, 8, 32)
+	if err != nil {
+		log.Printf("socket_mode %q parse failed (write in octal, e.g. 0660): %v.  fallback %#o", s, err, fallback)
+		return fallback
+	}
+	return os.FileMode(v)
+}
+
+func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.Server) *http.ServeMux {
 	mux := http.NewServeMux()
 	base := strings.TrimRight(s.Server.BasePath, "/")
 
-	// Go 1.22 enhanced ServeMux. {site} は per-site path param. literal pattern が
-	// より specific として優先されるので、 default site 用の literal と {site} 用の
-	// wildcard を併存させても routing は明確.
+	// Feed hub endpoints (bound only on unmask.sh when settings.FeedServer.Active()).
+	// Public endpoints, no auth.  register is per-IP rate-limited; submit
+	// uses Bearer token auth.  Not bound on normal installs.
+	//
+	// The paths are **not under** base_path (typically /unmask).  Clients
+	// default to `https://unmask.sh/api/feed/{register,submit}`
+	// (DefaultSharedFeed*URL in settings/SharedFeed).  base_path is reserved
+	// for the admin UI.
+	if feedSrv != nil {
+		mux.HandleFunc("POST /api/feed/register", feedSrv.ServeRegister)
+		mux.HandleFunc("POST /api/feed/submit", feedSrv.ServeSubmit)
+	}
 
-	// challenge HTML
+	// Go 1.22 enhanced ServeMux.  {site} is a per-site path param.  Literal
+	// patterns are preferred as more specific, so the literal for the default
+	// site and the {site} wildcard can coexist without routing ambiguity.
+
+	// challenge HTML / JS
 	mux.HandleFunc("GET "+base+"/challenge/{$}", h.ServeChallenge)
 	mux.HandleFunc("GET "+base+"/challenge/{site}/{$}", h.ServeChallenge)
-	// rate-limit 経由 (= nginx の rewrite で /unmask/_rl<原 URI> に変形).
-	// path subtree match (= trailing slash, no {$}) で _rl/ 以降の任意 path を catch.
-	// challenge/{site} の routing と衝突しないよう独立 namespace にしている.
+	mux.HandleFunc("GET "+base+"/static/challenge.js", h.ServeChallengeJS)
+	// Country-flag PNGs for the country chart (251 countries embedded).  ISO
+	// 3166-1 alpha-2 + special (unknown).  No auth, same as challenge.js
+	// (static images).
+	mux.HandleFunc("GET "+base+"/static/flags/{name}", h.ServeFlag)
+	// Pinned popover implementation shared by every admin page (click-pin /
+	// drag / collapse / close).  Used to be inline-duplicated in
+	// dashboard.html / hunt.html.  No auth.
+	mux.HandleFunc("GET "+base+"/static/popover-pin.js", h.ServePopoverPinJS)
+	mux.HandleFunc("GET "+base+"/static/popover-pin.css", h.ServePopoverPinCSS)
+	mux.HandleFunc("GET "+base+"/static/icon.png", h.ServeIcon)
+	// Rate-limit path (nginx rewrites the original URI into /unmask/_rl<orig URI>).
+	// Path subtree match (trailing slash, no {$}) catches any path after
+	// _rl/.  Kept as a separate namespace to avoid collisions with
+	// challenge/{site} routing.
 	mux.HandleFunc("GET "+base+"/_rl/", h.ServeChallenge)
-	// legacy URL: /unmask/challenge.html → 同 handler (= リダイレクトは nginx 側で)
+	// legacy URL: /unmask/challenge.html -> same handler (redirect handled by nginx)
 	mux.HandleFunc("GET "+base+"/challenge.html", h.ServeChallenge)
+	// debug / test pages (sanity checks).  Exposed via two paths:
+	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
+	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)
+	mux.HandleFunc("GET "+base+"/test/{$}",            h.PublicTestGate(h.TestIndex))
+	mux.HandleFunc("GET "+base+"/test/reset-cookie",   h.PublicTestGate(h.ResetCookie))
+	mux.HandleFunc("GET "+base+"/test/force-pow",      h.PublicTestGate(h.ForcePoW))
+	mux.HandleFunc("GET "+base+"/test/force-captcha",  h.PublicTestGate(h.ForceCaptcha))
+	mux.HandleFunc("GET "+base+"/admin/test/{$}",           h.AuthMiddleware(h.TestIndex))
+	mux.HandleFunc("GET "+base+"/admin/test/reset-cookie",  h.AuthMiddleware(h.ResetCookie))
+	mux.HandleFunc("GET "+base+"/admin/test/force-pow",     h.AuthMiddleware(h.ForcePoW))
+	mux.HandleFunc("GET "+base+"/admin/test/force-captcha", h.AuthMiddleware(h.ForceCaptcha))
 
 	// API endpoints (default + per-site)
 	mux.HandleFunc("POST "+base+"/api/verify", h.VerifyJSON)
@@ -176,18 +598,110 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/api/{site}/captcha/new", h.CaptchaNew)
 	mux.HandleFunc("POST "+base+"/api/debug", h.DebugBeacon)
 	mux.HandleFunc("POST "+base+"/api/{site}/debug", h.DebugBeacon)
-	mux.HandleFunc("GET "+base+"/api/bv-check", h.BVCheck)
-	mux.HandleFunc("GET "+base+"/api/{site}/bv-check", h.BVCheck)
 
-	// admin: /admin/ で site 一覧, /admin/{site}/ で per-site dashboard
+	// admin: login / logout are not behind session middleware (they're the
+	// auth endpoints themselves), but IP allow_from is checked upfront to
+	// prevent brute force from unauthorized IPs.
+	// Wrapping every admin route in SetupGate redirects to /admin/setup/ when
+	// setup is needed.  The setup endpoint itself needs no auth (there's no
+	// user yet).
+	mux.HandleFunc("GET "+base+"/admin/login", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminLoginGet)))
+	mux.HandleFunc("POST "+base+"/admin/login", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminLoginPost)))
+	// Password reminder (via mail).  Available only after the setup wizard completes (must pass the setup gate).
+	mux.HandleFunc("GET "+base+"/admin/forgot-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminForgotPasswordGet)))
+	mux.HandleFunc("POST "+base+"/admin/forgot-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminForgotPasswordPost)))
+	mux.HandleFunc("GET "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordGet)))
+	mux.HandleFunc("POST "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordPost)))
+	mux.HandleFunc("GET "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.AdminLogout))
+	mux.HandleFunc("POST "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.AdminLogout))
+	// install wizard (cacti / zabbix style).  No auth required; once complete,
+	// SetupGate redirects to /admin/ (prevents re-running setup).
+	mux.HandleFunc("GET "+base+"/admin/setup/{$}", h.SetupGate(h.AdminSetupIndex))
+	mux.HandleFunc("POST "+base+"/admin/setup/token", h.SetupGate(h.AdminSetupSaveToken))
+	mux.HandleFunc("POST "+base+"/admin/setup/db", h.SetupGate(h.AdminSetupSaveDB))
+	mux.HandleFunc("POST "+base+"/admin/setup/user", h.SetupGate(h.AdminSetupSaveUser))
+	mux.HandleFunc("POST "+base+"/admin/setup/mode", h.SetupGate(h.AdminSetupSaveMode))
+	mux.HandleFunc("POST "+base+"/admin/setup/install", h.SetupGate(h.AdminSetupInstall))
+	mux.HandleFunc("GET "+base+"/admin/setup/done", h.AdminSetupDone)
+	// admin: /admin/ renders the top dashboard (summary).
+	// /admin/stats/ shows the site list (or jumps straight to chart when site<=1).  /admin/stats/{site}/ shows per-site chart.
 	mux.HandleFunc("GET "+base+"/admin/{$}",
+		h.AuthMiddleware(h.AdminTopOverview))
+	mux.HandleFunc("GET "+base+"/admin/stats/{$}",
 		h.AuthMiddleware(h.AdminSiteList))
-	mux.HandleFunc("GET "+base+"/admin/{site}/{$}",
+	mux.HandleFunc("GET "+base+"/admin/stats/{site}/{$}",
 		h.AuthMiddleware(h.AdminDashboard))
 	mux.HandleFunc("GET "+base+"/admin/api/funnel",
 		h.AuthMiddleware(h.AdminFunnelJSON))
 	mux.HandleFunc("GET "+base+"/admin/api/myip",
 		h.AuthMiddleware(h.AdminMyIP))
+	mux.HandleFunc("GET "+base+"/admin/api/events/stream",
+		h.AuthMiddleware(h.AdminEventsStream))
+
+	// settings (web editing UI).  GET: viewer or above; POST: admin or above.
+	mux.HandleFunc("GET "+base+"/admin/settings/{$}",
+		h.AuthMiddleware(h.AdminSettingsIndex))
+	mux.HandleFunc("POST "+base+"/admin/settings/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))
+	// webhook test send (notifications tab's "send test" button)
+	mux.HandleFunc("POST "+base+"/admin/api/notify/test",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))
+	mux.HandleFunc("POST "+base+"/admin/api/smtp/test",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSMTPTest)))
+
+	// JA4 playground (visualize "what would happen if I entered this JA4 + UA?")
+	mux.HandleFunc("GET "+base+"/admin/playground/{$}",
+		h.AuthMiddleware(h.AdminPlayground))
+	mux.HandleFunc("POST "+base+"/admin/api/playground/eval",
+		h.AuthMiddleware(h.AdminPlaygroundEval))
+
+	// auth_request mode endpoint (called by all of nginx auth_request /
+	// Apache forward-auth / Caddy forward_auth / Envoy ext_authz).
+	// No auth (the HTTP server's subrequest).  Supports both GET / POST.
+	mux.HandleFunc("GET "+base+"/api/check", h.AuthCheck)
+	mux.HandleFunc("POST "+base+"/api/check", h.AuthCheck)
+	mux.HandleFunc("GET "+base+"/api/{site}/check", h.AuthCheck)
+	mux.HandleFunc("POST "+base+"/api/{site}/check", h.AuthCheck)
+
+	// users management tab (superadmin only)
+	mux.HandleFunc("GET "+base+"/admin/users/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminUsersIndex)))
+	mux.HandleFunc("GET "+base+"/admin/users/new",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminUsersNew)))
+	mux.HandleFunc("GET "+base+"/admin/users/{id}/edit",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminUsersEdit)))
+	mux.HandleFunc("POST "+base+"/admin/users/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminUsersSave)))
+
+	// persistent BAN tab (admin or above)
+	mux.HandleFunc("GET "+base+"/admin/bans/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBansIndex)))
+	mux.HandleFunc("POST "+base+"/admin/bans/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBansSave)))
+
+	// bot hunt tab (admin or above)
+	mux.HandleFunc("GET "+base+"/admin/hunt/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntIndex)))
+	mux.HandleFunc("POST "+base+"/admin/hunt/action",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntAction)))
+
+	// audit log viewer tab (admin or above)
+	mux.HandleFunc("GET "+base+"/admin/audit/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAuditIndex)))
+
+	// Change own password (available to every role; current password required).
+	mux.HandleFunc("GET "+base+"/admin/profile/{$}",
+		h.AuthMiddleware(h.AdminProfileIndex))
+	mux.HandleFunc("POST "+base+"/admin/profile/save",
+		h.AuthMiddleware(h.AdminProfileSave))
+
+	// docs consolidated at unmask.sh/docs/ (in-admin docs would be duplicate maintenance, so removed).
+	// Redirect legacy /admin/docs/ /admin/install/ traffic to external docs with 302.
+	docsRedirect := func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "https://unmask.sh/docs/", http.StatusFound)
+	}
+	mux.HandleFunc("GET "+base+"/admin/docs/{$}", h.AuthMiddleware(docsRedirect))
+	mux.HandleFunc("GET "+base+"/admin/install/{$}", h.AuthMiddleware(docsRedirect))
 
 	// health
 	mux.HandleFunc("GET "+base+"/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -195,8 +709,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		_, _ = w.Write([]byte("ok\n"))
 	})
 
-	// metrics (Prometheus text format).  bind=127.0.0.1 default なので
-	// 通常は scrape 元 (= prometheus exporter / agent) もループバックから読む.
+	// metrics (Prometheus text format).  bind=127.0.0.1 by default, so the
+	// scraper (prometheus exporter / agent) typically reads from loopback.
 	mux.HandleFunc("GET "+base+"/metrics", h.Metrics)
 
 	return mux
@@ -221,6 +735,14 @@ func (s *statusRecorder) WriteHeader(c int) {
 	s.ResponseWriter.WriteHeader(c)
 }
 
+// Flush forwards the http.Flusher needed by streaming handlers such as SSE.
+// No-op when the underlying ResponseWriter does not implement Flusher.
+func (s *statusRecorder) Flush() {
+	if f, ok := s.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 // ----------------------------------------------------------------
 // migrate
 // ----------------------------------------------------------------
@@ -239,150 +761,31 @@ func cmdMigrate(args []string) error {
 		return err
 	}
 	defer conn.Close()
-
-	// 既存 DB に site 列が無ければ ALTER で追加 (= 0.1 → 0.2 migration).
-	// 注意: schema を流す前に ALTER を走らせる必要がある. site 列を参照する index
-	// 生成 (= "CREATE INDEX ... ON unmask_event(site,...)") が前提とする列を
-	// 無いまま実行すると失敗するため.
-	if err := ensureSiteColumn(conn); err != nil {
+	if err := db.Migrate(conn); err != nil {
 		return err
 	}
-
-	schema := schemaSQLite
-	if conn.Driver == db.DriverMariaDB {
-		schema = schemaMariaDB
-	}
-	// driver ごとに statement を分けて execute (multi-statement 非対応の driver 配慮).
-	for _, stmt := range splitStatements(schema) {
-		s := strings.TrimSpace(stmt)
-		if s == "" {
-			continue
-		}
-		if _, err := conn.Exec(s); err != nil {
-			return fmt.Errorf("apply schema: %w\n--- stmt ---\n%s", err, s)
-		}
-	}
 	fmt.Println("schema applied")
+	// ID-based linking: backfill ja4_verdict_id for existing rows via name lookup.
+	// Build the preset registry from built-in + settings.Extra.
+	extras := make([]nginxconf.ExtraVerdict, 0, len(s.Nginx.JA4Verdicts.Extra))
+	for _, e := range s.Nginx.JA4Verdicts.Extra {
+		extras = append(extras, nginxconf.ExtraVerdict{
+			ID: e.ID, Verdict: e.Verdict, Action: e.Action, Pattern: e.Pattern,
+		})
+	}
+	reg := nginxconf.BuildVerdictRegistry(extras)
+	nameToID := reg.AllNameToID()
+	if n, err := db.BackfillVerdictIDs(conn, nameToID); err != nil {
+		return fmt.Errorf("backfill verdict id: %w", err)
+	} else if n > 0 {
+		fmt.Printf("backfilled ja4_verdict_id for %d row(s)\n", n)
+	}
 	return nil
 }
 
-// ensureSiteColumn: 旧 schema (site 列が無い) の DB に ALTER で site を追加する.
-// idempotent: 既にある場合は no-op. テーブル自体が無い場合 (= 新規 install) も no-op
-// (= 後から走る CREATE TABLE で site 列込みで作られる).
-func ensureSiteColumn(conn *db.DB) error {
-	hasTbl, err := hasTable(conn, "unmask_event")
-	if err != nil {
-		return fmt.Errorf("introspect table: %w", err)
-	}
-	if !hasTbl {
-		return nil
-	}
-	hasCol, err := hasColumn(conn, "unmask_event", "site")
-	if err != nil {
-		return fmt.Errorf("introspect site column: %w", err)
-	}
-	if hasCol {
-		return nil
-	}
-	stmt := `ALTER TABLE unmask_event ADD COLUMN site VARCHAR(64) NOT NULL DEFAULT 'default'`
-	if _, err := conn.Exec(stmt); err != nil {
-		return fmt.Errorf("add site column: %w", err)
-	}
-	idx := `CREATE INDEX `
-	if conn.Driver == db.DriverSQLite {
-		idx += `IF NOT EXISTS idx_unmask_event_site ON unmask_event(site, date_created)`
-	} else {
-		idx += `idx_site ON unmask_event(site, date_created)`
-	}
-	if _, err := conn.Exec(idx); err != nil {
-		// duplicate index は SQLite の IF NOT EXISTS で潰れるが MariaDB は素通し
-		// しないので warning 出すだけ.
-		fmt.Fprintf(os.Stderr, "warning: index create skipped: %v\n", err)
-	}
-	fmt.Println("schema applied: added site column")
-	return nil
-}
-
-// hasTable returns true if `table` exists in the current DB.
-func hasTable(conn *db.DB, table string) (bool, error) {
-	if conn.Driver == db.DriverSQLite {
-		row := conn.QueryRow(
-			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?`,
-			table)
-		var n int
-		if err := row.Scan(&n); err != nil {
-			return false, err
-		}
-		return n > 0, nil
-	}
-	row := conn.QueryRow(
-		`SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
-		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
-		table)
-	var n int
-	if err := row.Scan(&n); err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
-// hasColumn returns true if `table.column` exists.
-func hasColumn(conn *db.DB, table, col string) (bool, error) {
-	if conn.Driver == db.DriverSQLite {
-		rows, err := conn.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
-		if err != nil {
-			return false, err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var cid int
-			var name, typ string
-			var notnull, pk int
-			var dflt sql.NullString
-			if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
-				return false, err
-			}
-			if name == col {
-				return true, nil
-			}
-		}
-		return false, rows.Err()
-	}
-	// MariaDB / MySQL
-	row := conn.QueryRow(
-		`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
-		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
-		table, col)
-	var n int
-	if err := row.Scan(&n); err != nil {
-		return false, err
-	}
-	return n > 0, nil
-}
-
-func splitStatements(sql string) []string {
-	// `--` で始まる行と空行を捨てて、 `;` で分割する素朴な splitter.
-	var lines []string
-	for _, l := range strings.Split(sql, "\n") {
-		t := strings.TrimSpace(l)
-		if t == "" || strings.HasPrefix(t, "--") {
-			continue
-		}
-		lines = append(lines, l)
-	}
-	body := strings.Join(lines, "\n")
-	parts := strings.Split(body, ";")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if strings.TrimSpace(p) != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
 
 // ----------------------------------------------------------------
-// aggregate (= cron 用. 現時点では event テーブルから日次集計を unmask_aggregate に書く)
+// aggregate (for cron; currently writes daily aggregates from the event table into unmask_aggregate)
 // ----------------------------------------------------------------
 
 func cmdAggregate(args []string) error {
@@ -453,6 +856,88 @@ func cmdAggregate(args []string) error {
 }
 
 // ----------------------------------------------------------------
+// events (tail -f style streaming of unmask_event; exit on SIGINT)
+// ----------------------------------------------------------------
+
+func cmdEvents(args []string) error {
+	fs := flag.NewFlagSet("events", flag.ExitOnError)
+	configPath := fs.String("config", "", "path to config.yml")
+	site := fs.String("site", "", "filter by site id (empty = all sites)")
+	phase := fs.String("phase", "", "filter by phase (load / pow / verify_ok / etc.)")
+	host := fs.String("host", "", "filter by host id (comma-separated for multiple; empty = all hosts)")
+	since := fs.Int64("since", -1, "start id (-1 = from MAX(id) onward; 0 = everything)")
+	pollMs := fs.Int("poll-ms", 1000, "polling interval in ms")
+	_ = fs.Parse(args)
+	var hosts []string
+	if h := strings.TrimSpace(*host); h != "" {
+		hosts = strings.Split(h, ",")
+	}
+
+	s, err := loadSettings(*configPath)
+	if err != nil {
+		return err
+	}
+	conn, err := db.Open(s.DB)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() { <-sigCh; cancel() }()
+
+	sinceID := *since
+	if sinceID < 0 {
+		mx, err := events.MaxID(ctx, conn)
+		if err != nil {
+			return err
+		}
+		sinceID = mx
+		fmt.Fprintf(os.Stderr, "tailing unmask_event from id=%d (tail)\n", sinceID)
+	}
+
+	pollDur := time.Duration(*pollMs) * time.Millisecond
+	for {
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(os.Stderr, "stopped")
+			return nil
+		default:
+		}
+		rows, err := events.FetchSince(ctx, conn, sinceID, *site, *phase, hosts, 200)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				return nil
+			}
+			fmt.Fprintf(os.Stderr, "fetch error: %v\n", err)
+			time.Sleep(pollDur)
+			continue
+		}
+		for _, r := range rows {
+			fmt.Printf("[%d] %s %-9s host=%-12s site=%-8s ip=%-15s ja4=%s verdict=%s flags=%d ua=%q\n",
+				r.ID, r.Date, r.Phase, r.Host, r.Site, r.IP, r.JA4, r.Verdict, r.Flags, truncForCLI(r.UA, 60))
+			if r.ID > sinceID {
+				sinceID = r.ID
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(pollDur):
+		}
+	}
+}
+
+func truncForCLI(s string, n int) string {
+	if len(s) > n {
+		return s[:n] + "…"
+	}
+	return s
+}
+
+// ----------------------------------------------------------------
 // config-init
 // ----------------------------------------------------------------
 
@@ -475,7 +960,7 @@ db:
   #   database: unmask
 
 secret:
-  # _bv cookie HMAC-SHA1 key. 漏洩時はこの値を変えて nginx の bv-check も再 sync.
+  # _bv cookie HMAC-SHA1 key.  If leaked, change this and re-sync nginx's secret.conf.
   bv_secret: %q
   # math captcha token HMAC-SHA256 base
   captcha_secret_base: %q
@@ -484,13 +969,16 @@ challenge:
   cookie_days: 3
   captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 20
-  challenge_html_path: ""   # 空なら binary 内の embed 版を使う
+  challenge_html_path: ""   # empty -> use the embedded version inside the binary
 
 server:
   bind: 127.0.0.1
-  port: 8765
+  port: 9477
   base_path: /unmask
-  admin_token: ""           # 空なら無認証 (= bind 127.0.0.1 前提)
+
+# Authentication is the internal user DB.  At first start, an admin/superadmin
+# is auto-created and the random password is shown in the log exactly once.
+# CLI management: unmask-admin user create / reset-password / set-role / delete
 `, bv, cb)
 
 	if *out == "-" {
@@ -508,85 +996,6 @@ func randHex(n int) string {
 	return hex.EncodeToString(buf)
 }
 
-// ----------------------------------------------------------------
-// embedded schema (= sql/ から ldflags/embed で取り込みたいが、 ここでは直書き).
-// sql/schema-*.sql を編集したら同期すること.
-// ----------------------------------------------------------------
-
-const schemaSQLite = `
-CREATE TABLE IF NOT EXISTS unmask_event (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    site            VARCHAR(64) NOT NULL DEFAULT 'default',
-    ip_address      BLOB NOT NULL,
-    user_agent      VARCHAR(255),
-    ja4             VARCHAR(40),
-    ja4_verdict     VARCHAR(40),
-    phase           VARCHAR(16) NOT NULL,
-    flags           INTEGER NOT NULL DEFAULT 0,
-    reload_count    INTEGER NOT NULL DEFAULT 0,
-    cookie_bv       VARCHAR(80),
-    cookie_br       VARCHAR(8),
-    payload_json    TEXT,
-    date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX IF NOT EXISTS idx_unmask_event_date     ON unmask_event(date_created);
-CREATE INDEX IF NOT EXISTS idx_unmask_event_ip_date  ON unmask_event(ip_address, date_created);
-CREATE INDEX IF NOT EXISTS idx_unmask_event_phase    ON unmask_event(phase, date_created);
-CREATE INDEX IF NOT EXISTS idx_unmask_event_verdict  ON unmask_event(ja4_verdict, date_created);
-CREATE INDEX IF NOT EXISTS idx_unmask_event_site     ON unmask_event(site, date_created);
-
-CREATE TABLE IF NOT EXISTS unmask_aggregate (
-    bucket_date     DATE NOT NULL,
-    bucket_kind     VARCHAR(16) NOT NULL,
-    bucket_key      VARCHAR(64) NOT NULL,
-    cnt             INTEGER NOT NULL,
-    PRIMARY KEY (bucket_date, bucket_kind, bucket_key)
-);
-CREATE INDEX IF NOT EXISTS idx_unmask_aggregate_date ON unmask_aggregate(bucket_date);
-
-CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
-    name        VARCHAR(32) PRIMARY KEY,
-    last_id     INTEGER NOT NULL DEFAULT 0,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-`
-
-const schemaMariaDB = `
-CREATE TABLE IF NOT EXISTS unmask_event (
-    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    site            VARCHAR(64) NOT NULL DEFAULT 'default',
-    ip_address      VARBINARY(16) NOT NULL,
-    user_agent      VARCHAR(255),
-    ja4             VARCHAR(40),
-    ja4_verdict     VARCHAR(40),
-    phase           VARCHAR(16) NOT NULL,
-    flags           INT NOT NULL DEFAULT 0,
-    reload_count    INT NOT NULL DEFAULT 0,
-    cookie_bv       VARCHAR(80),
-    cookie_br       VARCHAR(8),
-    payload_json    LONGTEXT,
-    date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    KEY idx_date     (date_created),
-    KEY idx_ip_date  (ip_address, date_created),
-    KEY idx_phase    (phase, date_created),
-    KEY idx_verdict  (ja4_verdict, date_created),
-    KEY idx_site     (site, date_created)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS unmask_aggregate (
-    bucket_date     DATE NOT NULL,
-    bucket_kind     VARCHAR(16) NOT NULL,
-    bucket_key      VARCHAR(64) NOT NULL,
-    cnt             INT NOT NULL,
-    PRIMARY KEY (bucket_date, bucket_kind, bucket_key),
-    KEY idx_date (bucket_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
-    name        VARCHAR(32) NOT NULL,
-    last_id     BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-`
+// (bootstrapInitialAdmin was removed in v0.1.  Admin creation is now
+// unified to either the install wizard or the CLI sub-command
+// `unmask-admin user create`.)

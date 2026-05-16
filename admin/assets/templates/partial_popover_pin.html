@@ -1,0 +1,13 @@
+{{- /*
+  popover_pin_assets: shared CSS + JS for the pinned popover used across all
+  admin pages (click-to-pin / drag / collapse / close). Pages that use
+  popovers (dashboard / hunt / settings / etc.) should place
+  `{{ template "popover_pin_assets" . }}` at the end of <head>.
+
+  Backing assets: admin/assets/static/popover-pin.{js,css} (served via
+  ServePopoverPinJS / ServePopoverPinCSS handlers).
+*/ -}}
+{{ define "popover_pin_assets" -}}
+<link rel="stylesheet" href="{{ .BasePath }}/static/popover-pin.css">
+<script src="{{ .BasePath }}/static/popover-pin.js"></script>
+{{- end }}

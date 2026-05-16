@@ -1,101 +1,42 @@
 # unmask
 
-**Unmask the bots that pretend to be browsers.**
+> **The bot challenge that respects search engines.**
+> JA4 TLS fingerprint + behavioral checks.
 
-unmask is a JA4 TLS-fingerprint based bot challenge system for nginx.
-It targets bots that lie about their UA (e.g. claim to be Chrome but
-have a JA4 of headless Chromium / Puppeteer / Playwright), while letting
-honest bots (curl, ClaudeBot, Googlebot...) pass through unchallenged.
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](#status)
 
-## Why another bot challenge
+**unmask** is a self-hosted bot management gateway for nginx and Apache.
+It combines JA4 TLS fingerprinting with behavioral checks to distinguish
+legitimate search / AI crawlers from disguised scrapers, with search-bot
+preservation as the default posture.
 
-There are excellent OSS challenge tools (Anubis, CrowdSec) and great
-commercial bot managers (Cloudflare, DataDome). unmask aims for a niche
-those don't fully cover:
+## Features
 
-- **TLS fingerprint as the primary signal**, not just JS heuristics
-  (Anubis is JS-only; we add JA4 verdicts)
-- **Search engine and AI crawler whitelist** baked in (UA + IP),
-  so a Googlebot / GPTBot scraping spree never gets stuck on a PoW page
-- **CAPTCHA fallback** when PoW alone is not enough, with a behavioral
-  checkbox + math escape hatch
-- **One RPM**: nginx module + challenge page + admin dashboard ship together,
-  installed on a stock nginx with `yum install unmask`
+- **Two-stage search-bot rescue** — UA list + official IP range double-check. Designed not to break Googlebot / GPTBot / ClaudeBot.
+- **JA4 fingerprint** — Computed from the TLS handshake. Exposes headless Chromium / Puppeteer / Playwright through their UA disguise.
+- **Behavioral CAPTCHA** — 5-axis score from mouseTrail / scroll / window-size. Harder to defeat than a plain checkbox or PoW.
+
+## Install
+
+Official install guide: **https://unmask.sh/install/**
+
+rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — step by step.
+
+## Docs
+
+Official docs: **https://unmask.sh/docs/**
+
+Mode selection (native / auth_request), JA4 via load balancer, per-server config examples, FAQ.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-🚧 **early development** — extracted from a production deployment as a
-clean-room reusable distribution. C module compiles and loads but the
-build matrix (per-nginx-version prebuilt `.so`) is not yet automated.
-
-## Architecture
-
-```
-[client] ─TLS─▶ nginx
-                 │
-                 ├─ unmask JA4 module (.so)
-                 │   • SSL_client_hello_cb
-                 │   • compute JA4
-                 │   • expose $client_ja4
-                 │
-                 ├─ unmask config snippet
-                 │   • verdict map (bot_/suspect_/ok)
-                 │   • final_challenge map (UA × verdict × bv cookie)
-                 │   • rate_limit zone (100r/min)
-                 │
-                 ├─ /unmask/challenge/      ─proxy_pass─▶ admin app
-                 │                                          (PoW + CAPTCHA)
-                 │
-                 └─ /unmask/api/...         ─proxy_pass─▶ admin app
-                                                            • PoW verify
-                                                            • CAPTCHA verify
-                                                            • debug beacons
-                                                            • _bv cookie issue (HMAC-SHA1)
-
-[admin app] (Go static binary, systemd unit)
-   • single binary `unmask-admin` (no runtime deps; CGO-free, runs on Alpine/MUSL too)
-   • SQLite (default, embedded via modernc.org/sqlite) / MariaDB (optional)
-   • web UI with funnel, daily chart, IP popovers, verdict breakdown
-   • sub-commands: serve / migrate / aggregate / config-init
-```
-
-## Components
-
-| Path | Purpose |
-|------|---------|
-| `ja4-module/` | nginx dynamic module (C, Apache 2.0) computing JA4 from ClientHello |
-| `challenge/`  | static `challenge.html` (PoW + CAPTCHA UI) — also embedded into the admin binary |
-| `admin/`      | Go server + CLI (HTTP verify endpoints + dashboard + migrate / aggregate) |
-| `nginx/`      | conf snippets (verdict map, rate_limit, location blocks) |
-| `sql/`        | SQLite / MariaDB schema for `unmask_event` |
-| `rpm/`        | nfpm config + systemd unit + install scripts (rpm / deb / apk from one file) |
-| `docs/`       | architecture / migration / spec docs |
-
-## Building
-
-```sh
-# admin server only (host arch)
-make build
-
-# admin server + ja4 nginx module (downloads nginx source)
-make build-all NGINX_VERSION=1.26.2
-
-# rpm + deb packages (requires nfpm)
-make package UNMASK_VERSION=0.1.0
-```
-
-The admin binary is a single static executable: drop `dist/unmask-admin-linux-amd64`
-on any modern Linux box, run `unmask-admin config-init -out /etc/unmask/config.yml`,
-`unmask-admin migrate`, then `unmask-admin serve`.
-
-## Heritage
-
-This system was first developed inside a Mojolicious/Perl codebase. The
-extraction documents (`docs/migration-from-mojo.md`) describe what was
-ported and what was rewritten so newcomers can read the production-tested
-ideas without needing the original Perl.
+**pre-release (v0.1)** — Packages, install wizard, and per-HTTP-server support are complete.
 
 ## License
 
-Apache 2.0 (clean-room implementation; not derived from FoxIO's BSL-licensed
-JA4 reference module).
+Apache 2.0. See [LICENSE](LICENSE) / [NOTICE](NOTICE).

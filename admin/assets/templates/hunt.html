@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<title>unmask · {{ t .Lang "hunt.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px;overflow-x:hidden;overflow-y:scroll}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5;overflow-x:hidden}
+/* if the hunt raw-log table's columns overflow the viewport, contain scrolling within the
+   wrapper — body itself must never scroll horizontally (= forced after the URL column added introduced the issue). */
+.unmask-main{max-width:100%;overflow-x:hidden}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.banner{padding:.6rem .9rem;border-radius:.3rem;margin-bottom:1rem;font-weight:600}
+.banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.range-bar{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;font-size:.85rem}
+.range-bar a{padding:.25rem .8rem;border:1px solid #cbd5e1;border-radius:.2rem;text-decoration:none;color:#334155;background:#fff}
+.range-bar a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+/* card width follows content.  IP card grows for IPv4 (= 15 char) or IPv6 as needed.
+   JA4 card grows just enough for 36 mono chars.  UA card takes the remaining space. */
+.rank-grid{display:grid;grid-template-columns:auto auto 1fr;gap:.75rem;margin-bottom:1.25rem}
+@media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
+.rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
+.rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
+table.rank,table.events{width:100%;border-collapse:collapse;font-size:.8rem}
+/* rank table: width follows content.  IP / JA4 / UA have known max lengths so nowrap
+   shows them fully.  action column is nowrap too so buttons don't overflow.  UA is the only
+   variable-length one, distributed naturally via inner table-layout (= UA card stays wide at 1fr).
+   No ellipsis -> no need for a title. */
+table.rank{table-layout:auto;width:auto}
+table.rank td.key{max-width:none;white-space:nowrap;overflow:visible;text-overflow:clip}
+table.rank td.actions{text-align:left;white-space:nowrap}
+table.rank td.num{white-space:nowrap}
+/* raw-log table: fixed-content columns use nowrap with their natural width.  UA / verdict use ellipsis. */
+table.events td.at,table.events td.ipclick{white-space:nowrap}
+table.events td.mono{white-space:nowrap;max-width:none;overflow:visible;text-overflow:clip}
+table.events td.verdict-cell{max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.events td.url{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#475569}
+table.events td.actions{white-space:nowrap;width:auto}
+.events-scroll{overflow-x:auto;max-width:100%}    /* when the table is wider than the screen, scroll inside the wrapper (= avoid body-level horizontal scroll).  max-width:100% pins it to the parent (= .unmask-main) width. */
+.events-scroll table.events{min-width:100%}
+table.rank thead th,table.events thead th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+table.rank tbody td,table.events tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+table.rank tbody tr:hover,table.events tbody tr:hover{background:#f8fafc}
+table.rank td.num,table.events td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569;font-family:ui-monospace,Menlo,monospace}
+table.rank td.key,table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* hunt raw log: table-layout:fixed forces it into the viewport and kills the inner events-scroll. */
+table.events{table-layout:fixed;width:100%}
+.events-scroll{overflow-x:hidden}
+/* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
+ * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
+ * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
+ * (= same purpose as flex min-width:0).  Content uses white-space:nowrap for one line + text-overflow:ellipsis. */
+.rank-card-ua{min-width:0;overflow:hidden}
+.rank-card-ua table.rank{width:100%}
+.rank-card-ua table.rank td.key{max-width:0;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.74rem}
+/* country flag PNG (= left of the IP cell).  16x12 png rendered subtly at 14px wide.
+ * Served from the existing /static/flags/<cc>.png handler (= same pattern as the dashboard country chart). */
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+table.events td.verdict-cell{max-width:8rem}
+table.events td.actions{text-align:right;white-space:nowrap}
+table.rank td.actions{text-align:left;white-space:nowrap}
+.rank-act{display:inline-block;padding:.1rem .45rem;font-size:.7rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155;margin-left:.2rem;text-decoration:none}
+.rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
+.rank-act.danger{color:#b91c1c;border-color:#fca5a5}
+.rank-act.danger:hover{background:#dc2626;color:#fff;border-color:#dc2626}
+.muted{color:#94a3b8}
+.filter-bar{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap}
+.filter-bar input,.filter-bar select{padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff}
+.filter-bar input{width:14rem}
+.filter-bar button{padding:.3rem .8rem;font-size:.85rem;border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:.2rem;cursor:pointer;font-weight:600}
+.filter-bar button.reset{background:#fff;color:#475569;border-color:#cbd5e1;font-weight:normal}
+/* host filtering is consolidated into the shared host_picker in the top bar (= old host-filter CSS removed). */
+/* small host badge inside an event row (= rendered alongside the "at" column) */
+.host-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;color:#475569;background:#f8fafc;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem}
+table.events td.ua{max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
+table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
+.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.rl-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.65rem;font-weight:700;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace;background:#fef3c7;color:#92400e}
+/* phase pill: states grouped into 3 colors.
+ *   green  = pass (= passed through. PoW solve / CAPTCHA solve OK / check pass)
+ *   red    = reject (= verify failed / bad cookie / check block.  Definitively rejected state)
+ *   yellow = in progress (= intermediate state from challenge fired through solve submission.
+ *            serve belongs here.  Returning the challenge HTML is "granting a solve chance",
+ *            not "reject")
+ *   gray   = meta / unknown (= auth_request parent event / JS exception) */
+.ph-serve{background:#fef3c7;color:#92400e}         /* yellow in-progress (= challenge HTML returned, solve chance granted) */
+.ph-load{background:#fef3c7;color:#92400e}          /* yellow in-progress (= challenge HTML loaded + JS started) */
+.ph-captcha{background:#fef3c7;color:#92400e}       /* yellow in-progress (= CAPTCHA UI shown, awaiting solve) */
+.ph-pow{background:#dcfce7;color:#166534}           /* green pass (= PoW solve verified OK) */
+.ph-verify_ok{background:#dcfce7;color:#166534}     /* green pass (= CAPTCHA / math solve verified OK) */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}     /* red reject (= bad solve / cookie -> re-challenge) */
+.ph-cookie_err{background:#fee2e2;color:#991b1b}    /* red reject (= cookie format invalid) */
+.ph-error{background:#e2e8f0;color:#475569}         /* gray meta (= JS exception / unclassified) */
+/* sub-decisions inside check: pass = green family, block = red family.  challenge isn't recorded but listed for completeness. */
+.ph-check{background:#e2e8f0;color:#475569}         /* gray meta (= auth_request parent event) */
+.ph-check-pass{background:#dcfce7;color:#166534}    /* green pass */
+.ph-check-block{background:#fee2e2;color:#991b1b}   /* red reject */
+.pager{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem}
+.pager a,.pager span{padding:.3rem .8rem;border:1px solid #cbd5e1;border-radius:.2rem;text-decoration:none;color:#475569;font-size:.85rem}
+.pager a:hover{background:#f1f5f9;color:#0f172a}
+.pager span.disabled{color:#cbd5e1;cursor:not-allowed}
+/* live tail */
+.live-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
+.live-bar button{padding:.25rem .8rem;font-size:.78rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155}
+.live-bar button.active{background:#dc2626;color:#fff;border-color:#dc2626}
+.live-bar .live-dot{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;background:#94a3b8}
+/* streaming indicator only animates the opacity of a single small red dot on a cycle.
+   will-change hints the compositor so the work stays off the main thread. */
+.live-bar.streaming .live-dot{background:#dc2626;will-change:opacity;animation:live-pulse 2s steps(2,end) infinite}
+@keyframes live-pulse{0%{opacity:1}50%{opacity:.4}100%{opacity:1}}
+.live-tail{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;background:#0f172a;color:#cbd5e1;padding:.5rem .7rem;border-radius:.3rem;max-height:18rem;overflow-y:auto;line-height:1.7}
+.live-tail .ev{padding:.1rem 0;border-bottom:1px solid #1e293b}
+.live-tail .ev .ts{color:#64748b;margin-right:.6rem}
+.live-tail .ev .host{color:#a78bfa;margin-right:.6rem;font-size:.65rem;border:1px solid #312e81;padding:0 .25rem;border-radius:.15rem;background:#1e1b4b}
+.live-tail .ev .ip{color:#93c5fd;margin-right:.6rem}
+.live-tail .ev .ph{color:#fbbf24;margin-right:.4rem}
+.live-tail .ev .ja4{color:#86efac}
+/* dropdown CSS for the user-menu partial */
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+/* picker (= dark theme inside header) */
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+/* IP popover (= rDNS + GeoIP + ASN, same shape as the dashboard).
+ * popover base + pinned styling (= drag / collapse / close) live in /static/popover-pin.css.
+ * This page only carries the trigger-side .ipclick CSS. */
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/" class="active">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "host_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+</header>
+<main class="unmask-main">
+<h1>{{ t .Lang "hunt.title" }}</h1>
+<p class="meta">{{ safeHTML (t .Lang "hunt.subtitle") }}</p>
+
+{{ if .Saved }}<div class="banner ok">{{ t .Lang "hunt.saved" }}</div>{{ end }}
+{{ if .Error }}<div class="banner bad">{{ t .Lang "hunt.error_prefix" }}{{ .Error }}</div>{{ end }}
+
+<div class="range-bar">
+  <span style="color:#64748b">{{ t .Lang "hunt.range_label" }}</span>
+  <a href="?range=1h"  {{ if eq .Range "1h" }}class="active"{{ end }}>1 {{ t .Lang "hunt.range.hour" }}</a>
+  <a href="?range=6h"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
+  <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
+</div>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "hunt.live_h" }}</h2>
+  <div class="live-bar" id="live-bar">
+    <button id="live-toggle" type="button">{{ t .Lang "hunt.live.start" }}</button>
+    <span class="live-dot"></span>
+    <span class="muted" id="live-status">{{ t .Lang "hunt.live.stopped" }}</span>
+  </div>
+  <div class="live-tail" id="live-tail"></div>
+</div>
+
+<div class="rank-grid">
+  <!-- IP ranking -->
+  <div class="rank-card">
+    <h3>{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</h3>
+    <table class="rank">
+      <thead><tr><th>IP</th><th class="num">req</th><th></th></tr></thead>
+      <tbody>
+      {{ range .IPRank }}
+      <tr>
+        <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
+        <td class="num">{{ .Count }}</td>
+        <td class="actions">
+          {{ if .BypassIP }}
+            <span class="rank-registered" title="bypass IPs">
+              <span class="action-pill action-ok">bypass</span>
+            </span>
+          {{ else if .Banned }}
+            <span class="rank-registered" title="unmask_ban">
+              <span class="action-pill action-bot">already BANned</span>
+            </span>
+          {{ else }}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .Key }}" data-ja4="">
+              <input type="hidden" name="op" value="ban">
+              <input type="hidden" name="ip" value="{{ .Key }}">
+              <input type="hidden" name="duration_sec" value="0">
+              <input type="hidden" name="reason" value="bot hunt (= IP {{ .Count }} req)">
+              <input type="hidden" name="range" value="{{ $.Range }}">
+              <input type="hidden" name="share" value="">
+              <input type="hidden" name="comment" value="">
+              <input type="hidden" name="accept_terms" value="">
+              <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
+            </form>
+          {{ end }}
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="3" class="muted" style="text-align:center;padding:.5rem">{{ t .Lang "hunt.empty" }}</td></tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- JA4 ranking -->
+  <div class="rank-card">
+    <h3>{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</h3>
+    <table class="rank">
+      <thead><tr><th>JA4</th><th class="num">req</th><th></th></tr></thead>
+      <tbody>
+      {{ range .JA4Rank }}
+      <tr>
+        <td class="key"{{ if .Key }} title="{{ .Key }}"{{ end }}>{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        <td class="num">{{ .Count }}</td>
+        <td class="actions">
+          {{ if and .Key (ne .Key "NOT_TRUSTED") }}
+            {{ if .Verdict }}
+            {{/* already registered = show the verdict name + source.  No action button. */}}
+            <span class="rank-registered" title="{{ .Source }}">
+              <span class="action-pill action-{{ .Action }}">{{ .Verdict }}</span>
+            </span>
+            {{ else }}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" onsubmit="return confirm('Register JA4 {{ .Key }} as bot?')">
+              <input type="hidden" name="op" value="ja4_bot">
+              <input type="hidden" name="pattern" value="{{ .Key }}">
+              <input type="hidden" name="title" value="bot hunt ({{ .Count }} req)">
+              <input type="hidden" name="range" value="{{ $.Range }}">
+              <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_bot" }}</button>
+            </form>
+            {{ end }}
+          {{ end }}
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="3" class="muted" style="text-align:center;padding:.5rem">{{ t .Lang "hunt.empty" }}</td></tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- UA ranking -->
+  <div class="rank-card rank-card-ua">
+    <h3>{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</h3>
+    <table class="rank">
+      <thead><tr><th>UA</th><th class="num">req</th><th></th></tr></thead>
+      <tbody>
+      {{ range .UARank }}
+      <tr>
+        <td class="key" title="{{ .Key }}">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        <td class="num">{{ .Count }}</td>
+        <td class="actions">
+          {{ if .Key }}
+            {{ if .Listed }}
+            {{/* already registered = show the group / extra name. */}}
+            <span class="rank-registered" title="{{ .Listed }}">
+              {{ if eq .Category "search_ai" }}
+                <span class="action-pill action-ok">search_ai: {{ .Listed }}</span>
+              {{ else }}
+                <span class="action-pill action-bot">{{ .Listed }}</span>
+              {{ end }}
+            </span>
+            {{ else }}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" onsubmit="return confirm('Add UA pattern {{ .Key }} to blacklist?')">
+              <input type="hidden" name="op" value="ua_blacklist">
+              <input type="hidden" name="pattern" value="{{ .Key }}">
+              <input type="hidden" name="title" value="bot hunt ({{ .Count }} req)">
+              <input type="hidden" name="range" value="{{ $.Range }}">
+              <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
+            </form>
+            {{ end }}
+          {{ end }}
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="3" class="muted" style="text-align:center;padding:.5rem">{{ t .Lang "hunt.empty" }}</td></tr>
+      {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "hunt.events_h" }}</h2>
+  <form method="GET" class="filter-bar">
+    <input type="hidden" name="range" value="{{ .Range }}">
+    <input type="text" name="ip"  placeholder="IP {{ t .Lang "hunt.filter.exact" }}" value="{{ .IPFilter }}">
+    <input type="text" name="ja4" placeholder="JA4 substring" value="{{ .JA4Filter }}">
+    <select name="phase">
+      <option value="">{{ t .Lang "hunt.filter.all_phase" }}</option>
+      <option value="serve"  {{ if eq .Phase "serve"  }}selected{{ end }}>serve</option>
+      <option value="verify" {{ if eq .Phase "verify" }}selected{{ end }}>verify</option>
+      <option value="verify_ng"  {{ if eq .Phase "verify_ng"  }}selected{{ end }}>verify_ng</option>
+      <option value="verify_low" {{ if eq .Phase "verify_low" }}selected{{ end }}>verify_low</option>
+    </select>
+    {{- /* host filtering is consolidated into the shared host_picker in the top bar (= legacy in-body host-filter removed). */ -}}
+    <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
+    {{ if or .IPFilter .JA4Filter .Phase .HostSelected }}
+    <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
+    {{ end }}
+  </form>
+  <div class="events-scroll">
+  <table class="events">
+    <thead>
+      <tr>
+        <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
+        <th style="width:10.5rem">IP</th>
+        <th style="width:10rem">JA4</th>
+        <th style="width:5rem">verdict</th>
+        <th style="width:5rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+<strong>phase list</strong> &mdash; event types showing the challenge progression.  Colors match the pills on table rows.<br><br>
+<span class="phase-pill ph-serve">serve</span> moment the challenge HTML was returned (= entry point that injected forced CAPTCHA / PoW due to JA4 bot / honeypot / rate-limit / protected path / etc.)<br><br>
+<span class="phase-pill ph-load">load</span> client browser loaded the challenge HTML and JS started (= still unpassed, around the start of PoW computation)<br><br>
+<span class="phase-pill ph-pow">pow</span> client solved the PoW (= SHA-256 hash) and submitted; server verification OK (= right before _bv cookie is issued)<br><br>
+<span class="phase-pill ph-captcha">captcha</span> moment the client <strong>displayed</strong> the CAPTCHA UI (= still unpassed, before solving starts)<br><br>
+<span class="phase-pill ph-verify_ok">verify_ok</span> CAPTCHA / math solution submitted &rarr; server verification OK (= passed. <code>_bv</code> cookie issued)<br><br>
+<span class="phase-pill ph-verify_ng">verify_ng</span> submitted CAPTCHA solution / <code>_bv</code> cookie was invalid / signature mismatched / score too low &rarr; re-challenge<br><br>
+<span class="phase-pill ph-cookie_err">cookie_err</span> <code>_bv</code> cookie format invalid (= expired / tampered / cookie from another site / etc.) &rarr; re-challenge<br><br>
+<span class="phase-pill ph-error">error</span> challenge.js hit a JS exception / unhandled state.  Normally zero; non-zero suggests a client-environment issue or a bot variant<br><br>
+<span class="phase-pill ph-check">check</span> one auth_request mode <code>/api/check</code> decision (= decision API usable from web servers other than nginx)<br><br>
+<span class="phase-pill ph-check-pass">check(pass)</span> <code>/api/check</code> ruled pass<br><br>
+<span class="phase-pill ph-check-block">check(block)</span> <code>/api/check</code> ruled block via BAN / forced CAPTCHA / honeypot / etc.<br><br>
+when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-limit hit from a separate layer
+<button type="button" class="info-popup-close" aria-label="close">&times;</button></span></span></th>
+        <th style="width:2.5rem">flags</th>
+        <th>URL</th>
+        <th>UA</th>
+        <th style="width:4rem"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Rows }}
+      <tr>
+        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Host }} <span class="host-badge">{{ .Host }}</span>{{ end }}</td>
+        <td class="mono ipclick" data-ip="{{ .IP }}" title="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono verdict-cell"{{ if .Verdict }} title="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge" title="rate-limit hit (zone: {{ .RLZone }})">rl:{{ .RLZone }}</span>{{ end }}</td>
+        <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
+        <td class="url mono" title="{{ .Path }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="ua" title="{{ .UA }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="actions">
+          {{ if .Banned }}
+            <span class="rank-registered" title="unmask_ban">
+              <span class="action-pill action-bot">already BANned</span>
+            </span>
+          {{ else }}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+              <input type="hidden" name="op" value="ban">
+              <input type="hidden" name="ip"  value="{{ .IP }}">
+              <input type="hidden" name="ja4" value="{{ .JA4 }}">
+              <input type="hidden" name="duration_sec" value="0">
+              <input type="hidden" name="reason" value="bot hunt (= event row)">
+              <input type="hidden" name="range" value="{{ $.Range }}">
+              <input type="hidden" name="share" value="">
+              <input type="hidden" name="comment" value="">
+              <input type="hidden" name="accept_terms" value="">
+              <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
+            </form>
+          {{ end }}
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  <div class="pager">
+    {{ $hostQS := "" }}{{ range $h, $on := .HostSelected }}{{ if $on }}{{ $hostQS = printf "%s&host=%s" $hostQS $h }}{{ end }}{{ end }}
+    {{ if .HasPrev }}<a href="?range={{ .Range }}&ip={{ .IPFilter }}&ja4={{ .JA4Filter }}&phase={{ .Phase }}{{ $hostQS }}&offset={{ .PrevOffset }}">← {{ t .Lang "audit.prev" }}</a>{{ else }}<span class="disabled">← {{ t .Lang "audit.prev" }}</span>{{ end }}
+    {{ if .HasMore }}<a href="?range={{ .Range }}&ip={{ .IPFilter }}&ja4={{ .JA4Filter }}&phase={{ .Phase }}{{ $hostQS }}&offset={{ .NextOffset }}">{{ t .Lang "audit.next" }} →</a>{{ else }}<span class="disabled">{{ t .Lang "audit.next" }} →</span>{{ end }}
+  </div>
+</div>
+
+</main>
+<div id="ip-popover" data-popover="ip"></div>
+
+<!-- BAN confirmation modal (= with share / comment).  If SharedFeedActive=true,
+     shows the share row.  Otherwise behaves like a simple confirm. -->
+<dialog id="ban-dialog" class="ban-dialog" data-feed-active="{{ if .SharedFeedActive }}1{{ else }}0{{ end }}">
+  <form method="dialog" class="ban-dialog-body">
+    <h3>{{ t .Lang "hunt.ban.dialog_h" }}</h3>
+    <p class="ban-dialog-target"><code id="ban-dialog-target"></code></p>
+    {{/* share group: share checkbox + (only when no prior opt-in) a nested terms gate beneath it.
+         The BAN itself doesn't require consent (= the group is fully optional). */}}
+    <div class="ban-dialog-share-group">
+      <label class="ban-dialog-share">
+        <input type="checkbox" id="ban-dialog-share" {{ if .SharedFeedActive }}checked{{ else }}disabled{{ end }}>
+        <span>{{ t .Lang "hunt.ban.share_label" }}</span>
+      </label>
+      {{ if not .SharedFeedActive }}
+      {{/* no prior opt-in: complete terms consent + share within the dialog.  Checking the box flips submit_enabled + TermsAcceptedAt on the server */}}
+      <div class="ban-dialog-terms-gate">
+        <div class="ban-dialog-terms-gate-h">{{ t .Lang "hunt.ban.terms_gate_h" }}</div>
+        <label class="ban-dialog-terms">
+          <input type="checkbox" id="ban-dialog-terms">
+          <span>{{ safeHTML (t .Lang "hunt.ban.terms_label") }}</span>
+        </label>
+        <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
+      </div>
+      {{ end }}
+      <div id="ban-dialog-comment-row" class="ban-dialog-comment"{{ if not .SharedFeedActive }} style="display:none"{{ end }}>
+        <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
+        <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
+        <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
+      </div>
+    </div>
+    <div class="ban-dialog-actions">
+      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="ok" class="rank-act danger" id="ban-dialog-ok">{{ t .Lang "hunt.ban.confirm" }}</button>
+    </div>
+  </form>
+</dialog>
+<style>
+.ban-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:28rem;width:90%;background:#fff;color:#0f172a}
+.ban-dialog::backdrop{background:rgba(15,23,42,.45)}
+.ban-dialog-body{display:flex;flex-direction:column;gap:.6rem;padding:1rem 1.1rem;margin:0}
+.ban-dialog-body h3{margin:0;font-size:1rem}
+.ban-dialog-target{margin:0;font-size:.85rem;color:#475569;word-break:break-all}
+.ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
+.ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem}
+.ban-dialog-share{display:flex;align-items:center;gap:.45rem;font-size:.875rem;cursor:pointer}
+.ban-dialog-share input:disabled+span{color:#94a3b8;cursor:not-allowed}
+/* terms gate: a consent box nested beneath the share checkbox.  Left indent + tree
+ * line visually convey "this is a prerequisite for sharing".  Placed as a fully optional
+ * subordinate UI since BAN execution itself needs no consent. */
+.ban-dialog-terms-gate{margin-left:1.6rem;padding:.45rem .65rem;background:#f8fafc;border-left:.15rem solid #cbd5e1;border-radius:0 .25rem .25rem 0;display:flex;flex-direction:column;gap:.3rem}
+.ban-dialog-terms-gate-h{font-size:.72rem;color:#475569;font-weight:600;letter-spacing:.02em}
+.ban-dialog-terms{display:flex;align-items:flex-start;gap:.45rem;font-size:.8rem;cursor:pointer;margin:0}
+.ban-dialog-terms input{margin-top:.15rem}
+.ban-dialog-terms a{color:#1d4ed8;text-decoration:underline}
+.ban-dialog-terms-note{font-size:.7rem;color:#64748b;margin:0 0 0 1.4rem;line-height:1.45}
+.ban-dialog-comment{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
+.ban-dialog-comment label{color:#475569;font-size:.78rem}
+.ban-dialog-comment textarea{width:100%;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem;resize:vertical}
+.ban-dialog-counter{text-align:right;color:#94a3b8;font-size:.72rem}
+.ban-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.3rem}
+</style>
+
+<script>
+// popoverPin / installInfoTipPinning live in /static/popover-pin.js
+// (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution).
+
+
+// IP popover (rDNS + GeoIP + ASN).
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop) return;
+  var pin = window.popoverPin.install(pop);
+  var cache = new Map();
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    // unavailable placeholder
+    var na = '<span class="muted">(unavailable)</span>';
+    // flag PNG (= server-side ServeFlag falls back to unknown.png; JS branches explicitly too)
+    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                  '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+
+    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+
+    // family (= v4/v6, required)
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+
+    // type (= private / loopback / public, always decided)
+    var types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+
+    // rDNS (= can be empty / can fail lookup)
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+
+    // country (= GeoIP. may be empty if mmdb isn't loaded or there's no match)
+    if (d.country || d.country_name) {
+      var cn = d.country_name ? esc(d.country_name) : '';
+      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+
+    // city (= needs the GeoIP City DB. Always empty with country-only DB)
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+
+    // ASN + org (= GeoLite2-ASN.mmdb. empty when mmdb isn't loaded)
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + esc(ip) + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
+      .catch(function(){ cb('lookup failed'); });
+  }
+  document.querySelectorAll('.ipclick').forEach(function(td){
+    td.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){
+        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); });
+      }, 200);
+    });
+    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      e.preventDefault();
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      // pass html so the unpin path can also re-display primary as a hover popover
+      // (= instant on fetchAndFmt cache hit. UX: "click again = unpin + return to hover state").
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+    });
+  });
+})();
+// live tail (= reuses the existing SSE /admin/api/events/stream)
+//
+// Browser-load mitigations for high traffic:
+//   1. rAF batch (= incoming events accumulate in a queue and are inserted in a
+//      DocumentFragment per frame.  Caps reflows at 60/sec).
+//   2. Page Visibility (= disconnect SSE + clear queue when the tab is inactive.
+//      Auto-reconnect when it returns).
+//   3. scroll-aware pause (= while the user scrolls up to read logs, hold
+//      incoming events in a buffer.  Scrolling back to the top releases the buffer).
+(function(){
+  var bar = document.getElementById('live-bar');
+  var btn = document.getElementById('live-toggle');
+  var tail = document.getElementById('live-tail');
+  var status = document.getElementById('live-status');
+  var startLabel = "{{ t .Lang "hunt.live.start" }}";
+  var stopLabel  = "{{ t .Lang "hunt.live.stop"  }}";
+  var streamingLabel = "{{ t .Lang "hunt.live.streaming" }}";
+  var stoppedLabel   = "{{ t .Lang "hunt.live.stopped" }}";
+  var errLabel       = "{{ t .Lang "hunt.live.err" }}";
+
+  var MAX_LINES   = 200;     // display cap.  Excess rows are dropped from the bottom
+  var MAX_BUFFER  = 1000;    // upper bound for rAF-pending / scroll-pause buffer.  Excess is discarded
+  var es        = null;       // EventSource
+  var queue     = [];         // pending events to insert on the next frame
+  var buffer    = [];         // buffer that accumulates while the user is scrolled up
+  var rafId     = 0;          // requestAnimationFrame id
+  var userOpen  = false;      // whether the user pressed the start button
+  var pausedScroll = false;   // user scrolled up, so we're routing pending events into buffer
+
+  // datetime formatter (= uses the picker's TZ + locale.  Falls back to browser auto if unset).
+  // The server runs in UTC, so showing ev.date raw exposes UTC.
+  // Reformat ev.ts (= unix sec) with Intl.DateTimeFormat.
+  var dtFmt = null;
+  function rebuildDtFmt(){
+    var tzVal  = (function(){ try { return localStorage.getItem('unmask:tz') || ''; } catch(e){ return ''; } })() || undefined;
+    var locVal = (function(){ try { return localStorage.getItem('unmask:locale') || 'ja'; } catch(e){ return 'ja'; } })();
+    try {
+      dtFmt = new Intl.DateTimeFormat(locVal, {
+        timeZone: tzVal,
+        month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+      });
+    } catch(e) {
+      dtFmt = null;
+    }
+  }
+  rebuildDtFmt();
+  // the picker reloads on change, so we commit the value at mount time.  Still listen for
+  // storage events to pick up changes from other tabs (= unused in the same tab since we reload).
+  window.addEventListener('storage', function(e){
+    if (e.key === 'unmask:tz' || e.key === 'unmask:locale') rebuildDtFmt();
+  });
+  function fmtTs(ev){
+    if (ev.ts && dtFmt) {
+      try { return dtFmt.format(new Date(ev.ts * 1000)); } catch(_) {}
+    }
+    return ev.date || '';
+  }
+  // one event -> DOM element.  Setting innerHTML once is cheaper than concatenating strings.
+  function makeEl(ev){
+    var d = document.createElement('div');
+    d.className = 'ev';
+    // for phase=check, render the payload's action as a suffix (= "check(pass)")
+    var phaseTxt = ev.phase || '-';
+    if (ev.phase === 'check' && ev.action) phaseTxt += '(' + ev.action + ')';
+    // host badge: on a multi-host shared DB the tail shows "which machine this came from".
+    // On a single-host install Row.Host is "" with omitempty, so nothing renders.
+    var hostHtml = '';
+    if (ev.host) hostHtml = '<span class="host">' + escapeText(ev.host) + '</span> ';
+    d.innerHTML =
+      '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
+      hostHtml +
+      '<span class="ip">' + escapeText(ev.ip || '-') + '</span>' +
+      '<span class="ph">' + escapeText(phaseTxt) + '</span>' +
+      '<span class="ja4">' + escapeText(ev.ja4 || '-') + '</span> ' +
+      '<span class="muted">' + escapeText(ev.verdict || '') + '</span>';
+    return d;
+  }
+  function escapeText(s){
+    // simple escape (= server should already sanitize; defense in depth).
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  function flush(){
+    rafId = 0;
+    if (queue.length === 0) return;
+    // if the user is scrolled up, divert into the buffer instead of displaying.
+    if (pausedScroll) {
+      buffer = buffer.concat(queue);
+      if (buffer.length > MAX_BUFFER) buffer.splice(0, buffer.length - MAX_BUFFER);
+      queue.length = 0;
+      updateStatus();
+      return;
+    }
+    // queue -> DocumentFragment -> single DOM insert.  Reflow happens once.
+    var frag = document.createDocumentFragment();
+    // newest first (= latest on top).  The queue is in receive order, so traverse in reverse.
+    for (var i = queue.length - 1; i >= 0; i--) {
+      frag.appendChild(makeEl(queue[i]));
+    }
+    queue.length = 0;
+    tail.insertBefore(frag, tail.firstChild);
+    // trim overflow rows from the tail.  Brings the node count in line in one pass.
+    var overflow = tail.childElementCount - MAX_LINES;
+    while (overflow-- > 0 && tail.lastChild) tail.removeChild(tail.lastChild);
+    updateStatus();
+  }
+  function schedule(){
+    if (rafId) return;
+    rafId = requestAnimationFrame(flush);
+  }
+  function updateStatus(){
+    if (!es) {
+      status.textContent = stoppedLabel;
+      return;
+    }
+    if (pausedScroll && buffer.length > 0) {
+      status.textContent = streamingLabel + " · scroll to top to release " + buffer.length + " pending";
+    } else {
+      status.textContent = streamingLabel;
+    }
+  }
+
+  function startSSE(){
+    if (es) return;
+    // if the hunt page URL carries a host[] filter, forward it to the SSE too
+    // (= live tail follows "only the filtered hosts").  No filter -> all hosts.
+    var streamUrl = "{{.BasePath}}/admin/api/events/stream";
+    try {
+      var qs = new URLSearchParams(window.location.search);
+      var hosts = qs.getAll('host');
+      if (hosts.length > 0) {
+        streamUrl += '?' + hosts.map(function(h){ return 'host=' + encodeURIComponent(h); }).join('&');
+      }
+    } catch(_) {}
+    es = new EventSource(streamUrl);
+    es.onmessage = function(e){
+      try {
+        var ev = JSON.parse(e.data);
+        if (!ev || !ev.id) return;
+        queue.push(ev);
+        // the queue itself is capped too so event bursts don't eat memory.
+        if (queue.length > MAX_BUFFER) queue.splice(0, queue.length - MAX_BUFFER);
+        schedule();
+      } catch(_) {}
+    };
+    es.onerror = function(){
+      // EventSource auto-retries on connection drops (= readyState=0 CONNECTING).
+      // Hits often from LB backend timeout / transient network blips, but these aren't
+      // real failures, so show a quiet "reconnecting" message during retry.
+      // Treat as error only on a full close (readyState=2).
+      if (es && es.readyState === 0) {
+        status.textContent = streamingLabel + " (= reconnecting)";
+      } else {
+        status.textContent = errLabel;
+      }
+    };
+    btn.textContent = stopLabel;
+    btn.classList.add('active');
+    bar.classList.add('streaming');
+    updateStatus();
+  }
+  function stopSSE(clearUI){
+    if (es) { es.close(); es = null; }
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    queue.length = 0;
+    if (clearUI) {
+      buffer.length = 0;
+      btn.textContent = startLabel;
+      btn.classList.remove('active');
+      bar.classList.remove('streaming');
+      status.textContent = stoppedLabel;
+    }
+  }
+
+  // user toggle (= full stop.  Don't auto-resume even if visibility returns).
+  btn.addEventListener('click', function(){
+    if (userOpen) {
+      userOpen = false;
+      stopSSE(true);
+    } else {
+      userOpen = true;
+      startSSE();
+    }
+  });
+
+  // Page Visibility: tab inactive -> close SSE (= avoid background DOM updates).
+  // Reconnect on return only if the user had started it.
+  document.addEventListener('visibilitychange', function(){
+    if (!userOpen) return;
+    if (document.hidden) {
+      stopSSE(false);
+      bar.classList.remove('streaming');
+      status.textContent = stoppedLabel + " (= tab hidden)";
+    } else if (!es) {
+      startSSE();
+    }
+  });
+
+  // scroll-aware pause: divert into the buffer while the user is scrolled up.
+  // The tail's newest entries are at the top, so scrollTop > 0 means the user is reading older logs.
+  // Use a passive listener so we don't block main-thread scroll handling.
+  tail.addEventListener('scroll', function(){
+    var atTop = tail.scrollTop <= 4;
+    if (atTop && pausedScroll) {
+      pausedScroll = false;
+      // move the buffer back into the queue and flush immediately.
+      if (buffer.length > 0) {
+        queue = buffer.concat(queue);
+        buffer.length = 0;
+        schedule();
+      } else {
+        updateStatus();
+      }
+    } else if (!atTop && !pausedScroll) {
+      pausedScroll = true;
+      updateStatus();
+    }
+  }, { passive: true });
+
+  // IntersectionObserver: close SSE when the tail container leaves the viewport.
+  // Stops events from streaming in the background while the user has scrolled past the live tail
+  // (= most of the perceived sluggishness came from this).
+  if (typeof IntersectionObserver !== 'undefined') {
+    var io = new IntersectionObserver(function(entries){
+      if (!userOpen) return;
+      var visible = entries[0].isIntersecting;
+      if (!visible && es) {
+        stopSSE(false);
+        bar.classList.remove('streaming');
+        status.textContent = stoppedLabel + " (= paused off-screen)";
+      } else if (visible && !es && !document.hidden) {
+        startSSE();
+      }
+    }, { threshold: 0 });
+    io.observe(tail);
+  }
+
+  // idle auto-pause: close SSE after 5 minutes with no mouse / keyboard activity.
+  // Rescues tabs left open and unattended.
+  var idleTimer = 0;
+  function resetIdle(){
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(function(){
+      if (es) {
+        stopSSE(false);
+        bar.classList.remove('streaming');
+        status.textContent = stoppedLabel + " (= paused after 5 min idle)";
+      }
+    }, 5 * 60 * 1000);
+  }
+  ['mousemove','keydown','scroll'].forEach(function(ev){
+    window.addEventListener(ev, resetIdle, { passive: true });
+  });
+  resetIdle();
+
+  window.addEventListener('beforeunload', function(){ stopSSE(false); });
+})();
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('time.js-datetime').forEach(function(el){
+    var ts = parseInt(el.getAttribute('data-ts'), 10);
+    if (!ts) return;
+    el.textContent = new Date(ts * 1000).toLocaleString();
+  });
+});
+
+// BAN confirm dialog: preventDefault the form submit once -> show the dialog ->
+// on "BAN execute" copy share / comment into hidden inputs and submit.
+// With SharedFeedActive the dialog enables share checkbox + comment row;
+// otherwise it still acts as a simple confirm dialog (= equivalent to the legacy confirm()).
+(function(){
+  var dlg = document.getElementById('ban-dialog');
+  if (!dlg || !dlg.showModal) return; // no <dialog> support -> fall back to the legacy confirm
+  var feedActive = dlg.dataset.feedActive === '1';
+  var target  = document.getElementById('ban-dialog-target');
+  var shareCb = document.getElementById('ban-dialog-share');
+  var termsCb = document.getElementById('ban-dialog-terms'); // exists only when there's no prior opt-in
+  var cmtRow  = document.getElementById('ban-dialog-comment-row');
+  var cmtTa   = document.getElementById('ban-dialog-comment');
+  var cmtCnt  = document.getElementById('ban-dialog-counter');
+  var pending = null; // the form currently being confirmed
+
+  if (cmtTa && cmtCnt){
+    cmtTa.addEventListener('input', function(){
+      cmtCnt.textContent = String(cmtTa.value.length);
+    });
+  }
+  if (shareCb && cmtRow){
+    shareCb.addEventListener('change', function(){
+      if (shareCb.disabled) return;
+      cmtRow.style.display = shareCb.checked ? '' : 'none';
+    });
+  }
+  // terms checkbox: checking it enables share + auto-checks it; unchecking it disables share too
+  if (termsCb && shareCb){
+    termsCb.addEventListener('change', function(){
+      if (termsCb.checked){
+        shareCb.disabled = false;
+        shareCb.checked = true;
+      } else {
+        shareCb.checked = false;
+        shareCb.disabled = true;
+      }
+      if (cmtRow) cmtRow.style.display = shareCb.checked ? '' : 'none';
+    });
+  }
+
+  dlg.addEventListener('close', function(){
+    if (!pending) return;
+    var form = pending; pending = null;
+    if (dlg.returnValue !== 'ok') return;
+    var sIn = form.querySelector('input[name=share]');
+    var cIn = form.querySelector('input[name=comment]');
+    var aIn = form.querySelector('input[name=accept_terms]');
+    if (shareCb && sIn) sIn.value = shareCb.checked ? '1' : '';
+    if (cmtTa && cIn)   cIn.value = (shareCb && shareCb.checked) ? cmtTa.value : '';
+    // accept_terms is set only when the no-prior-opt-in state had terms checked
+    if (aIn) aIn.value = (!feedActive && termsCb && termsCb.checked) ? '1' : '';
+    // re-submit (= bypass the js-ban-form intercept)
+    form.dataset.confirmed = '1';
+    form.submit();
+  });
+
+  document.querySelectorAll('form.js-ban-form').forEach(function(form){
+    form.addEventListener('submit', function(ev){
+      if (form.dataset.confirmed === '1') return; // the re-submit passes straight through
+      ev.preventDefault();
+      var ip  = form.dataset.ip  || '';
+      var ja4 = form.dataset.ja4 || '';
+      if (target) target.textContent = ja4 ? (ip + '  ·  ' + ja4) : ip;
+      if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
+      if (termsCb){ termsCb.checked = false; }
+      if (shareCb){
+        // no prior opt-in: share starts disabled + unchecked (= terms consent enables it)
+        // already opted in: share stays checked (= default ON)
+        if (!feedActive){ shareCb.checked = false; shareCb.disabled = true; }
+      }
+      if (cmtRow) cmtRow.style.display = (shareCb && shareCb.checked && !shareCb.disabled) ? '' : 'none';
+      pending = form;
+      dlg.returnValue = '';
+      dlg.showModal();
+    });
+  });
+})();
+</script>
+</body>
+</html>

@@ -1,19 +1,19 @@
-// Package classify: UA + JA4 verdict から bot 種別を判定する.
+// Package classify: classify a bot kind from UA + JA4 verdict.
 //
-// IsBot 戻り値:
+// IsBot return values:
 //
 //	0  Human
-//	1  SearchAI         search/AI/ads        (Googlebot / GPTBot / ClaudeBot ... 通すべき正規 bot)
-//	2  JA4Bot           ja4_bot              (TLS fingerprint で偽装露呈)
-//	4  OldUA            old_ua               (Chrome/Firefox 30 未満 = 偽装の典型)
+//	1  SearchAI         search/AI/ads        (Googlebot / GPTBot / ClaudeBot ... legitimate bots that should pass)
+//	2  JA4Bot           ja4_bot              (TLS fingerprint exposes spoofing)
+//	4  OldUA            old_ua               (Chrome/Firefox below 30 = classic spoofing signal)
 //	5  Service          service              (SEO / monitoring / scanner / archiver / feed-reader)
-//	6  UserDev          user_dev             (curl / requests / playwright / puppeteer 等)
+//	6  UserDev          user_dev             (curl / requests / playwright / puppeteer etc.)
 //
-// 優先順:
+// Priority:
 //
 //	SearchAI > JA4Bot > OldUA > UserDev > Service > Human
 //
-// heuristic な「IP 単位の挙動」 判定 (= 同 IP 大量等) はここでは扱わない.
+// Heuristic "per-IP behavior" judgments (= many requests from one IP etc.) are out of scope here.
 package classify
 
 import (
@@ -57,7 +57,7 @@ func (c Category) String() string {
 	return "unknown"
 }
 
-// JSON tag → 内部カテゴリ
+// JSON tag → internal category
 var tagCategory = map[string]string{
 	"search-engine":      "search_ai",
 	"ai-crawler":         "search_ai",
@@ -73,7 +73,7 @@ var tagCategory = map[string]string{
 	"browser-automation": "user_dev",
 }
 
-// JSON に含まれない汎用 pattern.
+// Generic patterns not included in the JSON.
 var extraUserDev = []string{
 	"curl", "wget", "python-requests", "axios", "libwww-perl",
 	"go-http-client", "java/", "okhttp", "node-fetch", "httpx", "httpclient",
@@ -85,19 +85,20 @@ var extraService = []string{
 	"xymon", "nagios", "zabbix", "prometheus",
 	`bot\b`, "crawler", "spider", "slurp",
 	"monitoring",
-	// Perl 元コードは `fetch(?!\.)` (= "fetch" not followed by "."). RE2 は negative
-	// lookahead 非対応なので等価表現に書き換え: 「fetch のあとが . 以外 or 行末」.
+	// The original Perl was `fetch(?!\.)` (= "fetch" not followed by ".").
+	// RE2 lacks negative lookahead, so rewrite as an equivalent: "fetch
+	// followed by something other than '.' or end of line".
 	`fetch(?:[^.]|$)`,
 }
 
-// 正規ブラウザ UA prefix.
+// Legitimate browser UA prefix.
 var knownBrowserRE = regexp.MustCompile(
 	`^Mozilla/5\.0\s.*\s(?:Chrome|Safari|Firefox|Edge?)/[0-9]` +
 		`|^Mozilla/5\.0\s.*\sOPR/[0-9]` +
 		`|^Opera/[0-9]`,
 )
 
-// 古いブラウザ判定.
+// Old-browser detection.
 var oldBrowserRE = regexp.MustCompile(
 	`Chrome/(\d+)\b|Firefox/(\d+)\b|rv:(\d+)\.\d`,
 )
@@ -116,9 +117,9 @@ var (
 func getCategoryREs() *categoryREs {
 	cacheOnce.Do(func() {
 		raw := assets.CrawlerUserAgentsJSON
-		// 環境変数 UNMASK_CRAWLER_UA_JSON で binary 同梱を上書き. これは
-		// `unmask-admin update-crawler-list` で取得した最新 JSON を再 build
-		// なしで反映するため.
+		// The UNMASK_CRAWLER_UA_JSON env var overrides the binary-embedded
+		// data.  This lets `unmask-admin update-crawler-list` apply the
+		// latest JSON without a rebuild.
 		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
 			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
 				raw = b
@@ -140,7 +141,7 @@ func buildCategoryREs(jsonRaw []byte) *categoryREs {
 	var searchAI, service, userDev []string
 
 	if len(jsonRaw) > 0 {
-		// 不正バイトを ? に置換 (= utf-8 invalid なエントリは弾く).
+		// Replace invalid bytes with '?' (= drop entries that contain invalid utf-8).
 		clean := sanitizeUTF8(jsonRaw)
 		if err := json.Unmarshal(clean, &data); err != nil {
 			log.Printf("classify: crawler-user-agents.json decode failed: %v", err)
@@ -187,18 +188,19 @@ func buildCategoryREs(jsonRaw []byte) *categoryREs {
 
 // joinAlt builds a case-insensitive `(?i)(?:p1|p2|...)`.
 //
-// 上流 JSON (= crawler-user-agents) や追加 pattern には Perl-only な構文
-// (lookahead, backreference 等) が混じり得るので、 各 pattern を個別に
-// `regexp.Compile` で validate し、 通ったものだけ alternation に入れる.
-// 全部失敗 / 空 list の場合は確実に never match する regex を返す.
+// Upstream JSON (= crawler-user-agents) and extra patterns may contain
+// Perl-only syntax (lookahead, backreferences, etc.), so validate each
+// pattern individually with `regexp.Compile` and only keep the ones that
+// compile.  If everything fails / the list is empty, return a regex
+// guaranteed to never match.
 func joinAlt(parts []string) *regexp.Regexp {
-	const never = `\bX\x00DOES_NOT_MATCH_X\x00\b` // RE2 で確実に何にも match しない
+	const never = `\bX\x00DOES_NOT_MATCH_X\x00\b` // guaranteed to match nothing in RE2
 	good := make([]string, 0, len(parts))
 	for _, p := range parts {
 		if p == "" {
 			continue
 		}
-		// case-insensitive 単体で compile できるか試す.
+		// Probe whether this pattern compiles standalone, case-insensitive.
 		if _, err := regexp.Compile(`(?i)(?:` + p + `)`); err != nil {
 			log.Printf("classify: skip unsupported pattern %q: %v", p, err)
 			continue
@@ -212,7 +214,7 @@ func joinAlt(parts []string) *regexp.Regexp {
 }
 
 // sanitizeUTF8 replaces non-ASCII bytes with '?' to dodge non-utf8 patterns
-// (= 上流 JSON に偶に混じる). JSON 文字列内の \u エスケープには影響しない.
+// (= occasionally present in upstream JSON).  Does not affect \u escapes inside JSON strings.
 func sanitizeUTF8(b []byte) []byte {
 	out := make([]byte, len(b))
 	for i, c := range b {
@@ -257,14 +259,16 @@ func IsOldBrowser(ua string) bool {
 	return false
 }
 
-// IsBot classifies (ua, ja4Verdict) into one of the Category values.
-func IsBot(ua, ja4Verdict string) Category {
+// IsBot classifies (ua, ja4Action) into one of the Category values.
+// ja4Action is one of "bot" / "suspect" / "ok" / "" (= the action enum
+// resolved by settings-side matchJA4.  Verdict-name prefix detection has
+// been removed).
+func IsBot(ua, ja4Action string) Category {
 	res := getCategoryREs()
 	if ua != "" && res.searchAI.MatchString(ua) {
 		return SearchAI
 	}
-	if ja4Verdict != "" && ja4Verdict != "ok" &&
-		(strings.HasPrefix(ja4Verdict, "bot_") || strings.HasPrefix(ja4Verdict, "suspect_")) {
+	if ja4Action == "bot" || ja4Action == "suspect" {
 		return JA4Bot
 	}
 	if IsOldBrowser(ua) {

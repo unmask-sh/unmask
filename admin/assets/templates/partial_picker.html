@@ -1,0 +1,159 @@
+{{ define "lang_tz_picker" }}
+<span class="picker">
+  <label for="picker-tz">{{ t .Lang "picker.tz" }}</label>
+  <select id="picker-tz">
+    <option value="">{{ t .Lang "picker.tz_browser" }}</option>
+    <option value="UTC">UTC</option>
+    <option value="Asia/Tokyo">Asia/Tokyo</option>
+    <option value="America/New_York">America/New_York</option>
+    <option value="America/Los_Angeles">America/Los_Angeles</option>
+    <option value="Europe/London">Europe/London</option>
+    <option value="Europe/Berlin">Europe/Berlin</option>
+    <option value="Asia/Singapore">Asia/Singapore</option>
+    <option value="Asia/Seoul">Asia/Seoul</option>
+    <option value="Asia/Shanghai">Asia/Shanghai</option>
+    <option value="Australia/Sydney">Australia/Sydney</option>
+  </select>
+  <label for="picker-locale">{{ t .Lang "picker.locale" }}</label>
+  <select id="picker-locale">
+    <option value="">{{ t .Lang "picker.locale_browser" }}</option>
+    <option value="ja">日本語</option>
+    <option value="en">English</option>
+  </select>
+</span>
+<script>
+(function(){
+  // localStorage <-> cookie sync + dropdown init + reload-on-change.
+  // localStorage is the source of truth, but without a cookie the
+  // server-rendered text stays in the previous lang, so on first load we
+  // copy localStorage → cookie and reload if needed.
+  const TZ_KEY = 'unmask:tz', LOC_KEY = 'unmask:locale';
+  const tzSel = document.getElementById('picker-tz');
+  const locSel = document.getElementById('picker-locale');
+
+  function lsGet(k, def){ try { return localStorage.getItem(k) ?? def; } catch(e){ return def; } }
+  function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e) {} }
+  function setCookie(name, value){
+    // Write at root path, 1 year retention. Not HttpOnly so JS can read/write.
+    const maxAge = 60*60*24*365;
+    document.cookie = name + '=' + encodeURIComponent(value) + '; path=/; max-age=' + maxAge + '; SameSite=Lax';
+  }
+  function getCookie(name){
+    const m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+
+  // 1. On first run (no localStorage AND no cookie), detect the browser's
+  //    locale / tz as defaults. After that, localStorage wins so that explicit
+  //    picker changes persist.
+  function detectBrowserLocale(){
+    const navLang = (navigator.language || 'ja').toLowerCase();
+    if (navLang.startsWith('en')) return 'en';
+    return 'ja'; // Unknown langs fall back to ja. Add new supported langs here.
+  }
+  function detectBrowserTZ(){
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    } catch (e) { return ''; }
+  }
+
+  let tz  = lsGet(TZ_KEY,  null);
+  let loc = lsGet(LOC_KEY, null);
+
+  if (tz === null) {
+    const ck = getCookie('unmask_tz');
+    tz = ck !== '' ? ck : detectBrowserTZ();
+    lsSet(TZ_KEY, tz);
+  }
+  if (loc === null) {
+    // First run: if the cookie is empty, leave it empty ("" = browser auto /
+    // Accept-Language). Detection is only shown in the dropdown (as the
+    // "browser auto" option); we don't write it to localStorage / cookie
+    // (same pattern as tz).
+    const ck = getCookie('unmask_locale');
+    loc = ck;  // Keep empty string ("") as-is.
+    lsSet(LOC_KEY, loc);
+  }
+
+  // If the detected value isn't in the dropdown options, fall back to
+  // "browser auto" (""). (e.g. detect = "America/Detroit" but no option.)
+  // In that case, localStorage still holds the detection result, and JS
+  // reformat continues to use the detected TZ.
+  if (tzSel) {
+    const opts = Array.from(tzSel.options).map(o => o.value);
+    tzSel.value = opts.includes(tz) ? tz : '';
+  }
+  if (locSel) {
+    const opts = Array.from(locSel.options).map(o => o.value);
+    locSel.value = opts.includes(loc) ? loc : '';
+  }
+
+  // 2. If the cookie has drifted from localStorage, sync (first run or
+  //    cross-tab change).
+  let needReload = false;
+  if (getCookie('unmask_tz') !== (tz || '')) {
+    setCookie('unmask_tz', tz || '');
+    // tz isn't used server-side (all datetimes use js-datetime + JS to
+    // reformat), so no reload needed.
+  }
+  if (getCookie('unmask_locale') !== (loc || '')) {
+    setCookie('unmask_locale', loc || '');
+    // locale affects server-rendered text, so reload is required.
+    needReload = true;
+  }
+  if (needReload) {
+    location.reload();
+    return;
+  }
+
+  // 3. On change, update both localStorage and cookie, then reload.
+  if (tzSel) tzSel.addEventListener('change', function(){
+    lsSet(TZ_KEY, tzSel.value);
+    setCookie('unmask_tz', tzSel.value);
+    // A tz change only requires reformatting js-datetime elements, but it
+    // also affects chart x-axes, so we just reload for simplicity.
+    location.reload();
+  });
+  if (locSel) locSel.addEventListener('change', function(){
+    lsSet(LOC_KEY, locSel.value);
+    setCookie('unmask_locale', locSel.value);
+    location.reload();
+  });
+
+  // 4. Reformat every .js-datetime / .js-date element using the selected
+  //    TZ + locale. <time class="js-datetime" data-ts="<unix_sec>"> uses
+  //    datetime; js-date is date-only.
+  function fmtAll(){
+    const tzVal  = lsGet(TZ_KEY,  '') || undefined; // undefined → browser auto
+    // locale "" (browser auto): use detectBrowserLocale for the display
+    // language. (Intl.DateTimeFormat rejects "", so we resolve to detection
+    // result or "ja" etc.)
+    const locVal = lsGet(LOC_KEY, '') || detectBrowserLocale();
+    const dtFmt = new Intl.DateTimeFormat(locVal, {
+      timeZone: tzVal,
+      year:'numeric', month:'short', day:'2-digit',
+      hour:'2-digit', minute:'2-digit',
+    });
+    const dFmt  = new Intl.DateTimeFormat(locVal, {
+      timeZone: tzVal,
+      year:'numeric', month:'short', day:'2-digit',
+    });
+    document.querySelectorAll('.js-datetime[data-ts]').forEach(function(el){
+      const ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dtFmt.format(new Date(ts*1000));
+    });
+    document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
+      const ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dFmt.format(new Date(ts*1000));
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fmtAll);
+  } else {
+    fmtAll();
+  }
+})();
+</script>
+{{ end }}

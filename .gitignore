@@ -4,8 +4,8 @@ build/
 *.o
 *.a
 objs/
-nginx-*/
-nginx-*.tar.gz
+nginx-[0-9]*/
+nginx-[0-9]*.tar.gz
 openssl-*/
 openssl-*.tar.gz
 
@@ -29,6 +29,7 @@ RPMS/
 # editor
 .vscode/
 .idea/
+.claude/
 *.swp
 
 # runtime
@@ -37,3 +38,6 @@ data/
 *.db
 config.local.yml
 dist/
+
+# demo state (= a sandbox kept running on a test host: cert / sqlite / logs etc.)
+demo/

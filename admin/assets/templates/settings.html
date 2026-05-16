@@ -1,0 +1,2146 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<title>unmask · {{ t .Lang "settings.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px;overflow-y:scroll}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem;letter-spacing:.02em}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none;transition:color .1s}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem;max-width:80rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+
+/* tabs (= bcd-controls compatible). active uses the same navy as dashboard. */
+.bcd-controls{display:flex;gap:.625rem;align-items:center;flex-wrap:wrap;margin-bottom:.875rem}
+.bcd-controls a{padding:.3rem .9rem;border:1px solid #cbd5e1;border-radius:.25rem;text-decoration:none;color:#334155;background:#fff;font-size:.9rem}
+.bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+
+/* settings: left sidebar (= by category) + right content. */
+.settings-shell{display:grid;grid-template-columns:14rem 1fr;gap:1.5rem;align-items:start;margin-top:.5rem}
+.settings-nav{position:sticky;top:1rem;font-size:.875rem}
+.settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
+.settings-nav h3:first-child{margin-top:0}
+.settings-nav ul{list-style:none;padding:0;margin:0}
+.settings-nav li{margin:0}
+.settings-nav a{display:block;padding:.4rem .7rem;border-radius:.3rem;color:#475569;text-decoration:none;font-weight:500;border-left:2px solid transparent;line-height:1.4}
+.settings-nav a:hover{background:#f8fafc;color:#0f172a}
+.settings-nav a.active{background:#eff6ff;color:#1e40af;border-left-color:#3b82f6;font-weight:600}
+.settings-content{min-width:0}
+@media(max-width:48rem){
+  .settings-shell{grid-template-columns:1fr}
+  .settings-nav{position:static;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
+  .settings-nav ul{display:flex;flex-wrap:wrap;gap:.2rem .4rem;margin-bottom:.4rem}
+  .settings-nav h3{margin:.6rem 0 .25rem;font-size:.65rem}
+  .settings-nav a{padding:.25rem .55rem;border-left:none;border-bottom:2px solid transparent;border-radius:.2rem}
+  .settings-nav a.active{background:#eff6ff;border-left:none;border-bottom-color:#3b82f6}
+}
+
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1.25rem 1.5rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .5rem;color:#334155}
+.bcd-card .desc{font-size:.8125rem;color:#64748b;margin:0 0 .75rem;line-height:1.55}
+.bcd-card code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,Consolas,monospace}
+
+.banner{padding:.65rem 1rem;border-radius:.4rem;margin-bottom:1rem;font-size:.9rem;border:1px solid}
+.banner.ok{background:#dcfce7;border-color:#16a34a;color:#14532d}
+.banner.bad{background:#fee2e2;border-color:#dc2626;color:#7f1d1d}
+.banner code{background:rgba(255,255,255,.6);padding:.05em .35em;border-radius:.2rem}
+
+.field{display:block;margin:.75rem 0}
+.field label{display:block;color:#475569;margin-bottom:.25rem;font-size:.8125rem;font-weight:600}
+.field input[type=text],.field textarea,.field input[type=number]{width:100%;background:#f8fafc;border:1px solid #cbd5e1;border-radius:.25rem;color:#0f172a;padding:.45rem .625rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;line-height:1.5}
+.field textarea{min-height:5rem;resize:vertical}
+.field input:focus,.field textarea:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
+.field .note{font-size:.75rem;color:#64748b;margin-top:.25rem;line-height:1.45}
+
+.btn{background:#0f172a;color:#fff;border:0;padding:.5rem 1.25rem;border-radius:.25rem;cursor:pointer;font-size:.875rem;font-weight:600}
+.btn:hover{background:#1e293b}
+.btn.secondary{background:#fff;color:#334155;border:1px solid #cbd5e1}
+.btn.secondary:hover{background:#f1f5f9}
+
+.preset{padding:.5rem 0;border-bottom:1px solid #e2e8f0;display:flex;gap:.6rem;align-items:flex-start}
+.preset:last-child{border-bottom:none}
+.preset input[type=checkbox]{margin-top:.25rem}
+.preset .lbl{flex:1}
+.preset .lbl .ttl{font-weight:600;color:#334155;font-size:.95rem}
+.preset .pat{color:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;margin-top:.15rem;line-height:1.5;word-break:break-all}
+.preset .pat .verdict{color:#92400e;font-weight:700}
+.preset .ttl .added{margin-left:.5rem;font-size:.7rem;color:#94a3b8;font-weight:normal;font-family:ui-monospace,Menlo,monospace}
+/* highlight new presets (= added by version up + not yet acknowledged by user) */
+.preset.is-new{background:#fef3c7;border-radius:.25rem;padding:.45rem .55rem;margin:.15rem -.55rem}
+.preset.is-new .ttl{color:#92400e}
+.preset.is-new .new-badge{display:inline-block;background:#f59e0b;color:#fff;font-size:.65rem;padding:.05rem .35rem;border-radius:.2rem;margin-left:.4rem;font-weight:700;letter-spacing:.02em;cursor:help}
+/* badge at top of card: makes the preset / custom distinction explicit */
+.card-badge{display:inline-block;font-size:.7rem;padding:.1rem .45rem;border-radius:.25rem;margin-left:.4rem;vertical-align:middle;font-weight:600}
+.card-badge.preset{background:#dbeafe;color:#1d4ed8;border:1px solid #93c5fd}
+.card-badge.custom{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+
+/* sub-section (= preset / custom lined up inside the whitelist/blacklist parent card) */
+.ua-section{margin-top:1rem;padding-top:.75rem;border-top:1px dashed #e2e8f0}
+.ua-section:first-of-type{margin-top:1.1rem;padding-top:0;border-top:none}
+.ua-section h3{font-size:.95rem;font-weight:600;margin:0 0 .55rem;color:#475569;display:flex;align-items:center;gap:.5rem}
+.ua-section h3 .card-badge{margin-left:0}
+
+/* extra UA pattern: each row has 2 modes — view (read-only) / edit (input).
+ * Assumes edits are infrequent, so default is view to match preset look + prevent stray edits.
+ * .editing class reveals the input.  No drag reorder (= OR eval, order doesn't matter). */
+.rule-list{display:flex;flex-direction:column;gap:.5rem}
+.rule-row{display:flex;align-items:flex-start;gap:.6rem;padding:.55rem .7rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem;transition:background .12s,border-color .12s}
+.rule-row.editing{background:#f0f9ff;border-color:#93c5fd}
+.rule-row.disabled-row .rule-view{opacity:.5}
+.rule-row .rule-toggle{margin-top:.25rem}
+/* view mode: title (= large) + pattern (= small mono) stacked vertically (= same shape as preset) */
+.rule-view{flex:1;min-width:0;display:flex;flex-direction:column;gap:.1rem}
+.rule-view .ttl{font-weight:600;color:#334155;font-size:.95rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rule-view .ttl.empty{color:#94a3b8;font-weight:normal;font-style:italic}
+.rule-view .pat{color:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;line-height:1.5;word-break:break-all}
+.rule-view .pat.empty{color:#cbd5e1;font-style:italic}
+.rule-view .rule-meta{font-size:.7rem;color:#94a3b8;margin-top:.1rem;font-family:ui-monospace,Menlo,monospace}
+/* mode toggle:
+ *   while view    : checkbox + view + up/down + edit + delete + add
+ *   while editing : title input + pattern input + confirm + delete + add
+ * "confirm" is a client-side toggle that only returns to view mode.  yml persistence is the Save button below.
+ */
+.rule-row.editing .rule-view,
+.rule-row.editing .rule-toggle,
+.rule-row.editing .rule-edit,
+.rule-row.editing .rule-up,
+.rule-row.editing .rule-down{display:none}
+.rule-row:not(.editing) .rule-title,
+.rule-row:not(.editing) .rule-pat,
+.rule-row:not(.editing) .rule-verd,
+.rule-row:not(.editing) .rule-save{display:none}
+.rule-row .rule-save:hover{color:#15803d;border-color:#15803d}
+/* edit mode inputs */
+.rule-row input[type=text]{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;color:#0f172a;padding:.4rem .55rem;font-size:.85rem}
+.rule-row input.rule-title{flex:1;font-family:-apple-system,sans-serif;font-weight:600}
+.rule-row input.rule-pat{flex:2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem}
+.rule-row input.rule-verd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:#92400e}
+.rule-row input:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
+/* row buttons (= ✏️ / 🗑 / ＋) */
+.rule-row button{flex:0 0 auto;width:1.85rem;height:1.85rem;display:inline-flex;align-items:center;justify-content:center;background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;font-size:.95rem;line-height:1;padding:0}
+.rule-row button:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
+.rule-row .rule-del:hover{color:#dc2626;border-color:#dc2626}
+.rule-row .rule-add:hover{color:#16a34a;border-color:#16a34a}
+.rule-row .rule-edit:hover{color:#2563eb;border-color:#2563eb}
+/* disabled trash on preset rows (= visually conveys "cannot be touched") */
+.preset .rule-del-disabled,
+.preset .rule-up-disabled,
+.preset .rule-down-disabled,
+.preset .rule-edit-disabled{width:1.6rem;height:1.6rem;display:inline-flex;align-items:center;justify-content:center;background:#f1f5f9;color:#94a3b8;border:1px solid #e2e8f0;border-radius:.25rem;font-size:.85rem;line-height:1;padding:0;cursor:not-allowed;opacity:.5}
+.preset .rule-up-disabled,
+.preset .rule-down-disabled,
+.preset .rule-edit-disabled{margin-left:.15rem}
+.preset .rule-del-disabled{margin-left:.4rem}
+.preset .rule-del-disabled:hover,
+.preset .rule-up-disabled:hover,
+.preset .rule-down-disabled:hover,
+.preset .rule-edit-disabled:hover{background:#f1f5f9;color:#94a3b8;border-color:#e2e8f0}
+/* "+ Add new" bottom button (= replaces always-present empty default row) */
+.rule-add-bottom{align-self:flex-start;margin-top:.5rem;background:#fff;color:#475569;border:1px dashed #cbd5e1;border-radius:.25rem;padding:.4rem 1rem;cursor:pointer;font-size:.85rem;font-weight:600}
+.rule-add-bottom:hover{color:#16a34a;border-color:#16a34a;border-style:solid;background:#f0fdf4}
+/* settings-preset = official IP range table on the bypass-ips tab */
+.settings-preset{width:100%;border-collapse:collapse;margin-top:.5rem;font-size:.85rem}
+.settings-preset thead th{text-align:left;padding:.4rem .6rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.8rem}
+.settings-preset thead th.num{text-align:right}
+.settings-preset tbody td{padding:.4rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+.settings-preset tbody td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569}
+.settings-preset tbody td a{color:#0f172a;text-decoration:none;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.75rem;color:#64748b}
+.settings-preset tbody td a:hover{text-decoration:underline}
+.settings-preset .badge.new{display:inline-block;margin-left:.4rem;padding:.05rem .4rem;border-radius:.25rem;background:#fef3c7;color:#92400e;font-size:.7rem;font-weight:700}
+/* JA4 verdict tab: pill for displaying the action enum (= behavior visible by color) */
+.action-pill{display:inline-block;padding:.05rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.05em}
+.action-bot{background:#fee2e2;color:#991b1b}
+.action-suspect{background:#fef3c7;color:#92400e}
+.action-ok{background:#dcfce7;color:#166534}
+/* edit mode dropdown */
+.rule-row .rule-action{display:none;padding:.25rem .4rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
+.rule-row.editing .rule-action{display:inline-block}
+/* ? helper right after the h2 title.  Popover shows on hover / focus.  CSS only */
+.bcd-card h2{display:flex;align-items:center;gap:.4rem}
+.info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
+.info-tip:hover,.info-tip:focus{background:#0f172a}
+.info-tip.pinned{background:#3b82f6;cursor:default}
+/* padding-right always reserves space for the close button (= so the text wrap point doesn't shift on pin toggle).
+   z-index defaults to 600 (= hover transient).  pinned drops to 400 via a separate rule so later hovers
+   surface in front of pinned. */
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,90vw);background:#1e293b;color:#f1f5f9;padding:.7rem 2rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
+.info-popup a{color:#93c5fd;text-decoration:underline}
+.info-popup code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+.info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
+/* === pinned mode (= click to pin. Blue outline + close button top-right. doesn't dismiss on mouse leave) ===
+   uses outline (not border) to avoid affecting layout (= preserves wrap point).
+   z-index 400 keeps it behind hover (= 600). */
+.info-tip.pinned .info-popup{display:block;outline:.125rem solid #3b82f6;outline-offset:-.125rem;box-shadow:0 .375rem 1rem rgba(59,130,246,.35);z-index:400}
+/* small hint (= subtle "click to pin" label. hidden while pinned). */
+.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed rgba(255,255,255,.12);font-size:.65rem;color:#64748b;letter-spacing:.04em;font-weight:400;text-transform:none}
+.info-tip.pinned .info-popup::after{display:none}
+.info-popup-close{display:none;position:absolute;top:.25rem;right:.4rem;width:1.4rem;height:1.4rem;background:transparent;color:#cbd5e1;border:0;font-size:1.15rem;line-height:1;cursor:pointer;border-radius:.2rem;padding:0;font-weight:600;z-index:1}
+.info-popup-close:hover{background:rgba(255,255,255,.12);color:#fff}
+.info-tip.pinned .info-popup-close{display:inline-flex;align-items:center;justify-content:center}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+
+<header class="unmask-header">
+  <a href="/unmask/admin/" class="logo" title="unmask · admin top">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="/unmask/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="/unmask/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="/unmask/admin/settings/" class="active">{{ t .Lang "nav.settings" }}</a>
+    <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+</header>
+<main class="unmask-main">
+
+<h1>{{ t .Lang "settings.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;vertical-align:middle;margin-left:.6em">?<span class="info-popup">{{ safeHTML (tf .Lang "settings.foot_msg" .ConfigPath) }}</span></span></h1>
+
+<div class="settings-shell">
+<aside class="settings-nav">
+  <h3>{{ t .Lang "settings.section.basic" }}</h3>
+  <ul>
+    <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
+    <li><a href="?tab=smtp"          {{ if eq .Tab "smtp"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.smtp"          }}</a></li>
+    <li><a href="?tab=notifications" {{ if eq .Tab "notifications" }}class="active"{{ end }}>{{ t .Lang "settings.tab.notifications" }}</a></li>
+    <li><a href="?tab=retention"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
+  </ul>
+  <h3>{{ t .Lang "settings.section.bypass" }}</h3>
+  <ul>
+    <li><a href="?tab=bypass-ips"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}</a></li>
+    <li><a href="?tab=bypass-paths" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}</a></li>
+  </ul>
+  <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
+  <ul>
+    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
+    <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
+    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
+    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
+  </ul>
+  <h3>{{ t .Lang "settings.section.challenge" }}</h3>
+  <ul>
+    <li><a href="?tab=protection-mode" {{ if eq .Tab "protection-mode" }}class="active"{{ end }}>{{ t .Lang "settings.tab.protection_mode" }}</a></li>
+    <li><a href="?tab=captcha"    {{ if eq .Tab "captcha"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.captcha"    }}</a></li>
+    <li><a href="?tab=challenge"  {{ if eq .Tab "challenge"  }}class="active"{{ end }}>{{ t .Lang "settings.tab.challenge"  }}</a></li>
+    <li><a href="?tab=rate-limit" {{ if eq .Tab "rate-limit" }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit" }}</a></li>
+    <li><a href="?tab=theme"      {{ if eq .Tab "theme"      }}class="active"{{ end }}>{{ t .Lang "settings.tab.theme"      }}</a></li>
+  </ul>
+  <h3>{{ t .Lang "settings.section.community" }}</h3>
+  <ul>
+    <li><a href="?tab=shared-feed" {{ if eq .Tab "shared-feed" }}class="active"{{ end }}>{{ t .Lang "settings.tab.shared_feed" }}</a></li>
+  </ul>
+</aside>
+<section class="settings-content">
+
+{{ if .Saved }}
+<div class="banner ok">{{ safeHTML (tf .Lang "settings.saved_banner" "<code>sudo nginx -s reload</code>") }}</div>
+{{ end }}
+{{ if .Error }}
+<div class="banner bad">{{ t .Lang "settings.error_prefix" }}{{ .Error }}</div>
+{{ end }}
+
+{{ if eq .Tab "network" }}
+<div class="bcd-card host-id-card">
+  <h2>{{ t .Lang "settings.network.host" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.host_desc") }}</span></span></h2>
+  <div class="host-id-row">
+    <span class="host-id-label">{{ t .Lang "settings.network.host_resolved" }}</span>
+    <code class="host-id-value">{{ .SelfHostID }}</code>
+    {{ if .ConfiguredHostID }}
+      <span class="host-id-source from-config">{{ t .Lang "settings.network.host_from_config" }}</span>
+    {{ else }}
+      <span class="host-id-source from-hostname">{{ t .Lang "settings.network.host_from_hostname" }}</span>
+    {{ end }}
+  </div>
+  {{ if .ConfiguredHostID }}
+  <div class="host-id-row sub">
+    <span class="host-id-label">{{ t .Lang "settings.network.host_configured" }}</span>
+    <code class="host-id-value">{{ .ConfiguredHostID }}</code>
+  </div>
+  {{ end }}
+  <p class="desc host-id-hint">{{ safeHTML (t .Lang "settings.network.host_hint") }}</p>
+</div>
+<style>
+.host-id-card{background:#f8fafc}
+.host-id-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.85rem;margin:.3rem 0}
+.host-id-row.sub{font-size:.75rem;color:#475569}
+.host-id-label{color:#64748b;font-weight:600}
+.host-id-value{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;padding:.15rem .4rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#7c3aed}
+.host-id-source{font-size:.7rem;padding:.1rem .4rem;border-radius:1rem;font-weight:600}
+.host-id-source.from-config{background:#dcfce7;color:#166534}
+.host-id-source.from-hostname{background:#fef9c3;color:#854d0e}
+.host-id-hint{font-size:.72rem;color:#64748b;margin-top:.5rem;line-height:1.5}
+</style>
+
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=network">
+  <div class="bcd-card listen-card">
+    <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span></h2>
+    <div class="listen-mode-row">
+      <label class="listen-radio"><input type="radio" name="listen_mode" value="tcp" {{ if eq .ListenMode "tcp" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_tcp" }}</span></label>
+      <label class="listen-radio"><input type="radio" name="listen_mode" value="socket" {{ if eq .ListenMode "socket" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_socket" }}</span></label>
+    </div>
+
+    <div class="listen-tcp{{ if ne .ListenMode "tcp" }} hidden{{ end }}">
+      <div class="field listen-pair">
+        <div>
+          <label>{{ t .Lang "settings.network.listen_bind" }}</label>
+          <input type="text" name="tcp_bind" value="{{ if eq .ListenMode "tcp" }}{{ .ListenBind }}{{ else }}127.0.0.1{{ end }}" placeholder="127.0.0.1">
+        </div>
+        <div>
+          <label>{{ t .Lang "settings.network.listen_port" }}</label>
+          <input type="number" name="tcp_port" min="1" max="65535" value="{{ if .ListenPort }}{{ .ListenPort }}{{ else }}9477{{ end }}">
+        </div>
+      </div>
+    </div>
+
+    <div class="listen-socket{{ if ne .ListenMode "socket" }} hidden{{ end }}">
+      <div class="field">
+        <label>{{ t .Lang "settings.network.listen_sock_path" }}</label>
+        <input type="text" name="socket_path" value="{{ .ListenSockPath }}" placeholder="/run/unmask/admin.sock">
+      </div>
+      <div class="field listen-pair">
+        <div>
+          <label>{{ t .Lang "settings.network.listen_sock_mode" }}</label>
+          <input type="text" name="socket_mode" value="{{ .ListenSockMode }}" placeholder="0660" pattern="0?[0-7]{3}">
+        </div>
+        <div>
+          <label>{{ t .Lang "settings.network.listen_sock_group" }}</label>
+          <input type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="nginx">
+        </div>
+      </div>
+    </div>
+
+    <p class="desc listen-warn">⚠ {{ safeHTML (t .Lang "settings.network.listen_restart_warn") }}</p>
+  </div>
+  <style>
+  .listen-card{background:#fffbeb;border-color:#fde68a}
+  .listen-mode-row{display:flex;gap:1.2rem;margin:.4rem 0 .8rem}
+  .listen-radio{display:flex;align-items:center;gap:.35rem;cursor:pointer;font-size:.85rem}
+  .listen-pair{display:grid;grid-template-columns:2fr 1fr;gap:.6rem}
+  .listen-pair label{font-size:.72rem;color:#475569}
+  .listen-warn{font-size:.72rem;color:#b45309;margin-top:.6rem}
+  .listen-tcp.hidden,.listen-socket.hidden{display:none}
+  </style>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.admin" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_desc") }}</span></span></h2>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.admin_allow_label" }}</label>
+      <textarea name="admin_allow_from">{{ range .Cur.AdminAllowFrom }}{{ . }}
+{{ end }}</textarea>
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.metrics_label" }}</label>
+      <textarea name="metrics_allow_from">{{ range .Cur.MetricsAllowFrom }}{{ . }}
+{{ end }}</textarea>
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.geoip" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.geoip_desc") }}</span></span></h2>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.geoip_path_label" }}</label>
+      <input type="text" name="geoip_mmdb_path" id="geoip_mmdb_path" value="{{ .GeoIPMMDBPath }}" placeholder="e.g. /usr/share/GeoIP/GeoLite2-City.mmdb">
+      {{ if .GeoIPCommonGeo }}
+      <div class="geoip-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
+      <ul class="geoip-found">
+        {{ range .GeoIPCommonGeo }}
+        {{ if .Exists }}
+        <li class="found{{ if eq .Path $.GeoIPMMDBPath }} active{{ end }}">
+          <button type="button" class="geoip-pick" data-target="geoip_mmdb_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
+          <code>{{ .Path }}</code>
+          {{ if eq .Path $.GeoIPMMDBPath }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
+          <span class="meta">{{ .Size }} · {{ .MTime }}</span>
+        </li>
+        {{ end }}
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.geoip_asn_label" }}</label>
+      <input type="text" name="geoip_mmdb_asn_path" id="geoip_mmdb_asn_path" value="{{ .GeoIPMMDBASNPath }}" placeholder="e.g. /usr/share/GeoIP/GeoLite2-ASN.mmdb">
+      {{ if .GeoIPCommonASN }}
+      <div class="geoip-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
+      <ul class="geoip-found">
+        {{ range .GeoIPCommonASN }}
+        {{ if .Exists }}
+        <li class="found{{ if eq .Path $.GeoIPMMDBASNPath }} active{{ end }}">
+          <button type="button" class="geoip-pick" data-target="geoip_mmdb_asn_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
+          <code>{{ .Path }}</code>
+          {{ if eq .Path $.GeoIPMMDBASNPath }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
+          <span class="meta">{{ .Size }} · {{ .MTime }}</span>
+        </li>
+        {{ end }}
+        {{ end }}
+      </ul>
+      {{ end }}
+    </div>
+    <p class="desc" style="font-size:.7rem;color:#64748b;margin-top:.4rem">
+      {{ t .Lang "settings.network.geoip_status" }}:
+      {{ if .GeoIPLoaded }}<span style="color:#16a34a">✓ {{ t .Lang "settings.network.geoip_loaded" }}</span>{{ else }}<span style="color:#94a3b8">{{ t .Lang "settings.network.geoip_not_loaded" }}</span>{{ end }}
+      / ASN:
+      {{ if .GeoIPASNLoaded }}<span style="color:#16a34a">✓ {{ t .Lang "settings.network.geoip_loaded" }}</span>{{ else }}<span style="color:#94a3b8">{{ t .Lang "settings.network.geoip_not_loaded" }}</span>{{ end }}
+    </p>
+  </div>
+  <style>
+  .geoip-hint{font-size:.7rem;color:#475569;margin:.4rem 0 .15rem 1.2rem;font-weight:600}
+  .geoip-hint .muted{color:#94a3b8;font-weight:400;margin-left:.4em}
+  .geoip-found{list-style:none;margin:.1rem 0 0 1.2rem;padding:.3rem .4rem;font-size:.72rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.25rem}
+  .geoip-found li{padding:.15rem .25rem;display:flex;align-items:center;gap:.4rem;line-height:1.5}
+  .geoip-found li.found{color:#0f172a}
+  .geoip-found li.missing{color:#94a3b8}
+  .geoip-found li.active{background:#eff6ff;border-radius:.2rem}
+  .geoip-found code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:inherit;background:transparent}
+  .geoip-found .meta{margin-left:auto;color:#64748b;font-size:.68rem}
+  .geoip-found .active-pill{background:#3b82f6;color:#fff;font-size:.62rem;padding:.05rem .35rem;border-radius:.6rem;font-weight:600;letter-spacing:.02em}
+  .geoip-found .dot{display:inline-block;width:1.1rem;text-align:center;color:#cbd5e1}
+  .geoip-pick{font-size:.78rem;padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;line-height:1.3}
+  .geoip-pick:hover{background:#e0e7ff;border-color:#a5b4fc}
+  </style>
+  <script>
+  (function(){
+    // single shared toast displayed sequentially. don't recreate on each click — just rewrite textContent.
+    var toast = document.createElement('div');
+    toast.className = 'geoip-toast';
+    toast.style.display = 'none';
+    document.body.appendChild(toast);
+    var hideTimer = 0;
+    function showToast(msg){
+      toast.textContent = msg;
+      toast.style.display = 'block';
+      // force reflow before applying the animation class (= re-adding class replays the animation)
+      toast.classList.remove('show');
+      // attach `show` on the next frame via requestAnimationFrame.
+      requestAnimationFrame(function(){ toast.classList.add('show'); });
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(function(){
+        toast.classList.remove('show');
+        // display:none after transition ends.
+        setTimeout(function(){ toast.style.display = 'none'; }, 250);
+      }, 1800);
+    }
+
+    document.querySelectorAll('.geoip-pick').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var t = document.getElementById(btn.dataset.target);
+        if (!t) return;
+        t.value = btn.dataset.path;
+        // visual feedback: briefly highlight the input + show a "filled in" toast.
+        t.classList.add('geoip-flash');
+        setTimeout(function(){ t.classList.remove('geoip-flash'); }, 400);
+        showToast('✓ filled in: ' + btn.dataset.path);
+      });
+    });
+  })();
+  </script>
+  <style>
+  /* input flash: briefly turns the background green to make "got filled in" feel tangible. */
+  .geoip-flash{animation:geoip-flash .4s ease}
+  @keyframes geoip-flash{0%{background:#dcfce7}100%{background:transparent}}
+  /* expand the LB preset's CIDR list with <details>. summary stays inline
+     so the existing row layout is preserved. */
+  .lb-cidrs{display:inline}
+  .lb-cidrs>summary{display:inline;cursor:pointer;color:#475569;text-decoration:underline dotted;list-style:none}
+  .lb-cidrs>summary::-webkit-details-marker{display:none}
+  .lb-cidrs>summary::before{content:"▶ ";font-size:.6rem;color:#94a3b8}
+  .lb-cidrs[open]>summary::before{content:"▼ "}
+  .lb-cidrs-body{margin:.4rem 0 .2rem;padding:.45rem .6rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:#334155;line-height:1.6;max-width:30rem}
+  .lb-cidrs-body>div{padding:.05rem 0}
+  .lb-cidrs-src{margin-top:.35rem;padding-top:.35rem;border-top:1px dashed #cbd5e1;font-size:.68rem}
+  .lb-cidrs-src a{color:#2563eb;text-decoration:none}
+  .lb-cidrs-src a:hover{text-decoration:underline}
+  </style>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.lb_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.lb_desc") }}</span></span></h2>
+
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      <p class="desc" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.network.lb_preset_hint" }}</p>
+      {{ range .LBPresets }}
+      <div class="preset lb-preset">
+        <input type="checkbox" name="trusted_lb_preset" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="lb-{{ .ID }}">
+        <label for="lb-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}</div>
+          <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
+            <details class="lb-cidrs"><summary>{{ .CIDRCount }} CIDRs</summary><div class="lb-cidrs-body">{{ range .CIDRs }}<div>{{ . }}</div>{{ end }}{{ if .Source }}<div class="lb-cidrs-src"><a href="{{ .Source }}" target="_blank" rel="noopener">source ↗</a></div>{{ end }}</div></details>
+            · header: <code>{{ .Header }}</code>
+          </div>
+        </label>
+      </div>
+      {{ end }}
+    </div>
+
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.lb_extra_hint") }}</p>
+      <div class="rule-list" data-rule-name="lb_extra">
+        {{ range .LBExtras }}
+        <div class="rule-row editing">
+          <input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+          <input type="text" name="lb_extra_cidrs" value="{{ .CIDRs }}" placeholder="CIDR list (comma-separated)" class="rule-verd">
+          <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
+          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        </div>
+        {{ else }}
+        <div class="rule-row editing">
+          <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+          <input type="text" name="lb_extra_cidrs" placeholder="CIDR list (comma-separated)" class="rule-verd">
+          <input type="text" name="lb_extra_header" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
+          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        </div>
+        {{ end }}
+        <template class="rule-row-template">
+          <div class="rule-row editing">
+            <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+            <input type="text" name="lb_extra_cidrs" placeholder="CIDR list (comma-separated)" class="rule-verd">
+            <input type="text" name="lb_extra_header" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
+            <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+          </div>
+        </template>
+      </div>
+      <button type="button" class="rule-add-bottom" data-target-list="lb_extra">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "bypass-ips" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-ips">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.bypass.preset.title" }}</h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.bypass.preset.desc") }}</p>
+    <table class="settings-preset">
+      <thead>
+        <tr>
+          <th></th>
+          <th>{{ t .Lang "settings.bypass.preset.col.label" }}</th>
+          <th class="num">{{ t .Lang "settings.bypass.preset.col.count" }}</th>
+          <th>{{ t .Lang "settings.bypass.preset.col.creation" }}</th>
+          <th>{{ t .Lang "settings.bypass.preset.col.source" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .BypassPresetGroups }}
+        <tr>
+          <td><input type="checkbox" name="bypass_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }}></td>
+          <td>
+            {{ .Label }}
+            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}
+            {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
+          </td>
+          <td class="num">{{ .PrefixCount }}</td>
+          <td>{{ if gt .CreationTime 0 }}<time class="js-datetime" data-ts="{{ .CreationTime }}">{{ .CreationTime }}</time>{{ else }}-{{ end }}</td>
+          <td><a href="{{ .Source }}" target="_blank" rel="noopener">{{ .Source }}</a></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.bypass.preset.note") }}</div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.bypass.title" }}</h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.bypass.desc") }}</p>
+    <div class="rule-list" data-rule-name="bypass_ip">
+      {{ range .BypassIPsRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="bypass_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="bypass_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .IP }} empty{{ end }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="bypass_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="bypass_ip" value="{{ .IP }}" placeholder="{{ t $.Lang "settings.network.bypass_placeholder" }}" class="rule-pat">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="bypass_enabled" value="1">
+          <input type="hidden" name="bypass_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.network.empty_ip" }}</div>
+          </span>
+          <input type="text" name="bypass_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="bypass_ip" value="" placeholder="{{ t .Lang "settings.network.bypass_placeholder" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="bypass_ip">{{ t .Lang "settings.ua.add_new" }}</button>
+    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.bypass.note") }}</div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "bypass-paths" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.bypass_paths.preset.title" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</span></span></h2>
+    <div class="ua-section">
+      {{ range .BypassPathGroups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
+        <label for="bp-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
+        </label>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.bypass_paths.title" }}</h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</p>
+    <div class="rule-list" data-rule-name="bp_pat">
+      {{ range .BypassPathsRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+        <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="bp_enabled" value="1">
+          <input type="hidden" name="bp_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.bypass_paths.note") }}</div>
+  </div>
+  <datalist id="bp-site-candidates">
+    {{ range .Sites }}<option value="{{ . }}">{{ end }}
+  </datalist>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "ua-filter" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ua-filter">
+  <div class="bcd-card" style="background:#f8fafc;border-style:dashed">
+    <p class="desc" style="font-size:.85rem;line-height:1.55;color:#334155;margin:0">{{ safeHTML (t .Lang "settings.ua.intro") }}</p>
+  </div>
+
+  <!-- whitelist parent card (= contains preset + custom) -->
+  <div class="bcd-card" style="border-left:.25rem solid #16a34a">
+    <h2 style="color:#15803d">✓ {{ t .Lang "settings.ua.white_h" }}</h2>
+    <p class="desc">{{ t .Lang "settings.ua.white_desc" }}</p>
+
+    <!-- preset sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      {{ range .SearchBotGroups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="white_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="white-{{ .ID }}">
+        <label for="white-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
+        </label>
+        <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
+        <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
+        <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
+        <button type="button" class="rule-del-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">🗑</button>
+      </div>
+      {{ end }}
+    </div>
+
+    <!-- custom sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <p class="desc">{{ safeHTML (t .Lang "settings.ua.white_extra_desc") }}</p>
+      <div class="rule-list" data-rule-name="white_extra">
+      {{ range .SearchBotsRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="white_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="white_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="white_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern" }}" class="rule-pat">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <!-- empty row template (= cloned by JS at runtime. inert until cloned) -->
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="white_extra_enabled" value="1">
+          <input type="hidden" name="white_extra_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="white_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="white_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+      </div><!-- /.rule-list -->
+      <button type="button" class="rule-add-bottom" data-target-list="white_extra">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div><!-- /.ua-section custom -->
+  </div><!-- /.bcd-card whitelist parent -->
+
+  <!-- blacklist parent card (= contains preset + custom) -->
+  <div class="bcd-card" style="border-left:.25rem solid #dc2626">
+    <h2 style="color:#b91c1c">✗ {{ t .Lang "settings.ua.black_h" }}</h2>
+    <p class="desc">{{ t .Lang "settings.ua.black_desc" }}</p>
+
+    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#9a3412;margin:0">
+        <input type="checkbox" name="black_all" value="1" {{ if .ChallengeAll }}checked{{ end }} id="black-all-toggle">
+        {{ t .Lang "settings.ua.all_label" }}
+      </label>
+      <div class="note" style="margin-top:.3rem;color:#9a3412">{{ t .Lang "settings.ua.all_note" }}</div>
+    </div>
+
+    <!-- preset sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      {{ range .ChallengeGroups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="black_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="black-{{ .ID }}">
+        <label for="black-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
+        </label>
+        <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
+        <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
+        <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
+        <button type="button" class="rule-del-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">🗑</button>
+      </div>
+      {{ end }}
+    </div>
+
+    <!-- custom sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <p class="desc">{{ safeHTML (t .Lang "settings.ua.black_extra_desc") }}</p>
+      <div class="rule-list" data-rule-name="black_extra">
+      {{ range .ChallengeRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="black_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="black_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="black_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="black_extra_enabled" value="1">
+          <input type="hidden" name="black_extra_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="black_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="black_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+      </div><!-- /.rule-list -->
+      <button type="button" class="rule-add-bottom" data-target-list="black_extra">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div><!-- /.ua-section custom -->
+  </div><!-- /.bcd-card blacklist parent -->
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "ja4-verdicts" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ja4-verdicts">
+  <!-- parent card: JA4 verdict (= contains preset + custom) -->
+  <div class="bcd-card" style="border-left:.25rem solid #6366f1">
+    <h2 style="color:#4338ca">{{ t .Lang "settings.ja4.h" }}</h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.ja4.desc") }}</p>
+
+    <!-- preset sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      {{ range .JA4Groups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="enabled_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="ja4-{{ .ID }}">
+        <label for="ja4-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }}<br>{{ end }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ $r.Action }}</span>{{ end }}</div>
+        </label>
+        <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
+        <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
+        <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
+        <button type="button" class="rule-del-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">🗑</button>
+      </div>
+      {{ end }}
+    </div>
+
+    <!-- custom sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <p class="desc">{{ safeHTML (t .Lang "settings.ja4.extra_desc") }}</p>
+      <div class="rule-list" data-rule-name="ja4_extra">
+        {{ range .JA4Rules }}
+        <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+          <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+          <input type="hidden" name="ja4_extra_id" value="{{ .ID }}">
+          <input type="hidden" name="ja4_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+          <input type="hidden" name="ja4_extra_updated_at" value="{{ .UpdatedAt }}">
+          <span class="rule-view">
+            <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+            <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }} → <span class="verdict">{{ .Verdict }}</span> <span class="action-pill action-{{ .Action }}">{{ .Action }}</span>{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+            {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          </span>
+          <input type="text" name="ja4_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="ja4_extra_pat" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="ja4_extra_verd" value="{{ .Verdict }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.verdict" }}" class="rule-verd">
+          <select name="ja4_extra_action" class="rule-action">
+            <option value="bot" {{ if eq .Action "bot" }}selected{{ end }}>bot</option>
+            <option value="suspect" {{ if eq .Action "suspect" }}selected{{ end }}>suspect</option>
+            <option value="ok" {{ if eq .Action "ok" }}selected{{ end }}>ok</option>
+          </select>
+          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+        {{ end }}
+        <template class="rule-row-template">
+          <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+            <input type="checkbox" class="rule-toggle" checked>
+            <input type="hidden" name="ja4_extra_id" value="0">
+            <input type="hidden" name="ja4_extra_enabled" value="1">
+            <input type="hidden" name="ja4_extra_updated_at" value="0">
+            <span class="rule-view">
+              <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+              <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
+            </span>
+            <input type="text" name="ja4_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+            <input type="text" name="ja4_extra_pat" value="" placeholder="{{ t .Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat">
+            <input type="text" name="ja4_extra_verd" value="" placeholder="{{ t .Lang "settings.ja4.placeholder.verdict" }}" class="rule-verd">
+            <select name="ja4_extra_action" class="rule-action">
+              <option value="bot" selected>bot</option>
+              <option value="suspect">suspect</option>
+              <option value="ok">ok</option>
+            </select>
+            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          </div>
+        </template>
+      </div>
+      <button type="button" class="rule-add-bottom" data-target-list="ja4_extra">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "honeypot" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.honeypot.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.honeypot.desc") }}</span></span></h2>
+
+    <!-- ban_duration: TTL of BANs auto-added when a honeypot is tripped -->
+    <div class="field">
+      <label class="field-label" for="hp-ban-duration">{{ t .Lang "settings.honeypot.ban_duration_h" }}</label>
+      <input type="number" id="hp-ban-duration" name="ban_duration" min="0" max="2592000" step="60"
+             value="{{ .HoneypotBanDuration }}" style="width:8rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.honeypot.ban_duration_unit" }}</span>
+      <div class="note">{{ safeHTML (t .Lang "settings.honeypot.ban_duration_desc") }}</div>
+    </div>
+
+    <!-- preset sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      {{ range .HoneypotGroups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="honeypot_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="hp-{{ .ID }}">
+        <label for="hp-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
+        </label>
+        <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
+        <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
+        <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
+        <button type="button" class="rule-del-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">🗑</button>
+      </div>
+      {{ end }}
+    </div>
+
+    <!-- custom sub-section -->
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <p class="desc">{{ safeHTML (t .Lang "settings.honeypot.extra_desc") }}</p>
+      <div class="rule-list" data-rule-name="honeypot_pat">
+      {{ range .HoneypotRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="honeypot_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="honeypot_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="honeypot_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="honeypot_pat" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="honeypot_enabled" value="1">
+          <input type="hidden" name="honeypot_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="honeypot_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="honeypot_pat" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+      </div>
+      <button type="button" class="rule-add-bottom" data-target-list="honeypot_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "protected" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.protected.preset.title" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.protected.preset.desc") }}</span></span></h2>
+    <div class="ua-section">
+      {{ range .ProtectedPresetGroups }}
+      <div class="preset{{ if .IsNew }} is-new{{ end }}">
+        <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}">
+        <label for="pp-{{ .ID }}" class="lbl">
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ end }}</div>
+        </label>
+      </div>
+      {{ end }}
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.protected.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.protected.desc") }}</span></span></h2>
+
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <div class="rule-list" data-rule-name="protected_pat">
+      {{ range .ProtectedRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="protected_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="protected_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }} <span class="action-pill action-{{ .Mode }}">{{ .Mode }}</span>{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="protected_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="protected_pat" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+        <select name="protected_mode" class="rule-action">
+          <option value="captcha" {{ if eq .Mode "captcha" }}selected{{ end }}>captcha</option>
+          <option value="pow"     {{ if eq .Mode "pow" }}selected{{ end }}>pow</option>
+          <option value="strict"  {{ if eq .Mode "strict" }}selected{{ end }}>strict</option>
+        </select>
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="protected_enabled" value="1">
+          <input type="hidden" name="protected_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="protected_pat" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+          <select name="protected_mode" class="rule-action">
+            <option value="captcha" selected>captcha</option>
+            <option value="pow">pow</option>
+            <option value="strict">strict</option>
+          </select>
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+      </div>
+      <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "protection-mode" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protection-mode">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.protection_mode.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.protection_mode.desc") }}</span></span></h2>
+    {{ if eq .CurrentMode "" }}
+    <div class="note" style="background:#fef3c7;border:.0625rem solid #fde68a;padding:.6rem .8rem;border-radius:.3rem;margin-bottom:.8rem;color:#92400e;font-size:.85rem">
+      {{ safeHTML (t .Lang "settings.protection_mode.handtuned") }}
+    </div>
+    {{ end }}
+    <div class="pmode-row">
+      <label class="pmode-card {{ if eq .CurrentMode "strict" }}selected{{ end }}" data-mode="strict">
+        <input type="radio" name="mode" value="strict" {{ if eq .CurrentMode "strict" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.protection_mode.strict.name" }}{{ if eq .CurrentMode "strict" }} <span class="current-badge">{{ t .Lang "settings.protection_mode.current_badge" }}</span>{{ end }}</strong>
+        <div class="desc">{{ t .Lang "settings.protection_mode.strict.desc" }}</div>
+      </label>
+      <label class="pmode-card {{ if eq .CurrentMode "balanced" }}selected{{ end }}" data-mode="balanced">
+        <input type="radio" name="mode" value="balanced" {{ if eq .CurrentMode "balanced" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.protection_mode.balanced.name" }}{{ if eq .CurrentMode "balanced" }} <span class="current-badge">{{ t .Lang "settings.protection_mode.current_badge" }}</span>{{ end }}</strong>
+        <div class="desc">{{ t .Lang "settings.protection_mode.balanced.desc" }}</div>
+      </label>
+      <label class="pmode-card {{ if eq .CurrentMode "monitor" }}selected{{ end }}" data-mode="monitor">
+        <input type="radio" name="mode" value="monitor" {{ if eq .CurrentMode "monitor" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.protection_mode.monitor.name" }}{{ if eq .CurrentMode "monitor" }} <span class="current-badge">{{ t .Lang "settings.protection_mode.current_badge" }}</span>{{ end }}</strong>
+        <div class="desc">{{ t .Lang "settings.protection_mode.monitor.desc" }}</div>
+      </label>
+    </div>
+    <div class="pmode-diff" id="pmode-diff">
+      <h3>{{ t .Lang "settings.protection_mode.diff_h" }}</h3>
+      <p class="diff-hint">{{ safeHTML (t .Lang "settings.protection_mode.diff_hint") }}</p>
+      <table>
+        <thead><tr><th>{{ t .Lang "settings.protection_mode.diff_col_field" }}</th><th>{{ t .Lang "settings.protection_mode.diff_col_where" }}</th><th>{{ t .Lang "settings.protection_mode.diff_col_current" }}</th><th></th><th>{{ t .Lang "settings.protection_mode.diff_col_new" }}</th></tr></thead>
+        <tbody>
+          <tr data-field="targets_all">
+            <td><code>challenge_targets.all</code><br><span class="lbl">{{ t .Lang "settings.protection_mode.diff_field_targets_all" }}</span></td>
+            <td><a href="?tab=ua-filter" class="where">{{ t .Lang "settings.protection_mode.diff_where_ua_filter" }}</a></td>
+            <td class="cur"></td>
+            <td class="arr">→</td>
+            <td class="new"></td>
+          </tr>
+          <tr data-field="observe_only">
+            <td><code>challenge.observe_only</code><br><span class="lbl">{{ t .Lang "settings.protection_mode.diff_field_observe_only" }}</span></td>
+            <td><span class="where preset-only">{{ t .Lang "settings.protection_mode.diff_where_preset_only" }}</span></td>
+            <td class="cur"></td>
+            <td class="arr">→</td>
+            <td class="new"></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <button type="submit" class="btn" id="pmode-save" disabled>{{ t .Lang "settings.save" }}</button>
+</form>
+<style>
+.pmode-row{display:grid;grid-template-columns:1fr;gap:.7rem;margin:1rem 0}
+@media (min-width:48rem){.pmode-row{grid-template-columns:1fr 1fr 1fr}}
+.pmode-card{padding:.95rem 1rem;border:.125rem solid #e2e8f0;border-radius:.4rem;cursor:pointer;transition:all .15s;background:#fff}
+.pmode-card:hover{border-color:#94a3b8;background:#f8fafc}
+.pmode-card.selected{border-color:#3b82f6;background:#dbeafe;box-shadow:0 0 0 .1875rem rgba(59,130,246,.1)}
+.pmode-card input{display:none}
+.pmode-card strong{display:block;font-size:1rem;margin-bottom:.3rem;color:#0f172a}
+.pmode-card .desc{font-size:.78rem;color:#475569;line-height:1.55}
+.pmode-card .current-badge{display:inline-block;font-size:.62rem;font-weight:700;padding:.1rem .4rem;background:#10b981;color:#fff;border-radius:.2rem;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle;margin-left:.2rem}
+#pmode-save:disabled{background:#cbd5e1;color:#64748b;cursor:not-allowed;opacity:.7}
+#pmode-save:disabled:hover{background:#cbd5e1}
+.pmode-diff{margin-top:1.4rem;padding:1rem 1.2rem;background:#f8fafc;border:.0625rem solid #e2e8f0;border-radius:.4rem}
+.pmode-diff h3{margin:0 0 .3rem;font-size:.95rem;color:#0f172a}
+.pmode-diff .diff-hint{margin:0 0 .8rem;font-size:.8rem;color:#64748b;line-height:1.55}
+.pmode-diff .diff-foot{margin:.8rem 0 0;font-size:.78rem;color:#64748b;line-height:1.55}
+.pmode-diff table{width:100%;border-collapse:collapse;font-size:.85rem;background:#fff;border:.0625rem solid #e2e8f0;border-radius:.3rem;overflow:hidden}
+.pmode-diff th,.pmode-diff td{padding:.5rem .7rem;text-align:left;border-bottom:.0625rem solid #e2e8f0;vertical-align:middle}
+.pmode-diff thead th{background:#f1f5f9;color:#475569;font-weight:600;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+.pmode-diff tbody tr:last-child td{border-bottom:none}
+.pmode-diff .lbl{font-size:.72rem;color:#64748b}
+.pmode-diff code{background:#e2e8f0;padding:.05em .35em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;font-size:.85em;color:#0f172a}
+.pmode-diff .arr{width:1.5rem;text-align:center;color:#94a3b8}
+.pmode-diff .cur,.pmode-diff .new{font-family:ui-monospace,Menlo,monospace;font-weight:600;width:5rem}
+.pmode-diff .where{font-size:.78rem}
+.pmode-diff a.where{color:#3b82f6;text-decoration:underline;text-decoration-color:#bfdbfe;text-underline-offset:.15em}
+.pmode-diff a.where:hover{color:#1d4ed8;text-decoration-color:#3b82f6}
+.pmode-diff .preset-only{color:#94a3b8;font-style:italic}
+.pmode-diff tr.changed .new{color:#0369a1;background:#e0f2fe}
+.pmode-diff tr.same .cur,.pmode-diff tr.same .new{color:#94a3b8}
+.pmode-diff.no-selection{display:none}
+</style>
+<script>
+(function(){
+  // Mapping: each mode's 2-field outcome.  Keep in sync with presets.Apply().
+  var MODES = {
+    strict:   { targets_all: true,  observe_only: false },
+    balanced: { targets_all: false, observe_only: false },
+    monitor:  { targets_all: true,  observe_only: true  },
+  };
+  var current = {
+    targets_all:  {{ if .CurrentTargetsAll }}true{{ else }}false{{ end }},
+    observe_only: {{ if .CurrentObserveOnly }}true{{ else }}false{{ end }},
+  };
+  function fmt(b){ return b ? 'true' : 'false'; }
+  var diff = document.getElementById('pmode-diff');
+  var save = document.getElementById('pmode-save');
+  function updateDiff(){
+    var sel = document.querySelector('input[name="mode"]:checked');
+    if (!sel || !MODES[sel.value]) {
+      diff.classList.add('no-selection');
+      if (save) save.disabled = true;
+      return;
+    }
+    diff.classList.remove('no-selection');
+    var newVals = MODES[sel.value];
+    var anyChange = false;
+    ['targets_all','observe_only'].forEach(function(field){
+      var row = diff.querySelector('tr[data-field="'+field+'"]');
+      if (!row) return;
+      row.querySelector('.cur').textContent = fmt(current[field]);
+      row.querySelector('.new').textContent = fmt(newVals[field]);
+      if (current[field] !== newVals[field]) {
+        row.classList.add('changed'); row.classList.remove('same');
+        anyChange = true;
+      } else {
+        row.classList.add('same'); row.classList.remove('changed');
+      }
+    });
+    if (save) save.disabled = !anyChange;
+  }
+  document.querySelectorAll('.pmode-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.pmode-card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      card.querySelector('input').checked = true;
+      updateDiff();
+    });
+  });
+  updateDiff();
+})();
+</script>
+{{ end }}
+
+{{ if eq .Tab "captcha" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=captcha">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.captcha.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.captcha.desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.captcha.intro") }}</div>
+
+    <div class="field">
+      <label class="captcha-opt"><input type="radio" name="provider" value="builtin"   {{ if or (eq .Captcha.Provider "") (eq .Captcha.Provider "builtin") }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.captcha.provider.builtin" }}</strong>
+        <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.no_setup" }}</span>
+        <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.fast" }}</span>
+        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</div>
+      </label>
+
+      <label class="captcha-opt"><input type="radio" name="provider" value="turnstile" {{ if eq .Captcha.Provider "turnstile" }}checked{{ end }}>
+        <strong>Cloudflare Turnstile</strong>
+        <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.recommended" }}</span>
+        <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.free" }}</span>
+        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.turnstile_desc") }}</div>
+        <div class="captcha-keys">
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="turnstile_site_key"   value="{{ .Captcha.TurnstileSiteKey }}" autocomplete="off" placeholder="0x4AAAAAAA..."></label>
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="password" name="turnstile_secret_key" value="" autocomplete="new-password" placeholder="{{ if .Captcha.TurnstileSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}0x4AAAAAAA...{{ end }}"></label>
+        </div>
+      </label>
+
+      <label class="captcha-opt"><input type="radio" name="provider" value="hcaptcha"  {{ if eq .Captcha.Provider "hcaptcha" }}checked{{ end }}>
+        <strong>hCaptcha</strong>
+        <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.free" }}</span>
+        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.hcaptcha_desc") }}</div>
+        <div class="captcha-keys">
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="hcaptcha_site_key"   value="{{ .Captcha.HCaptchaSiteKey }}" autocomplete="off" placeholder="00000000-0000-..."></label>
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="password" name="hcaptcha_secret_key" value="" autocomplete="new-password" placeholder="{{ if .Captcha.HCaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}ES_...{{ end }}"></label>
+        </div>
+      </label>
+
+      <label class="captcha-opt"><input type="radio" name="provider" value="recaptcha" {{ if eq .Captcha.Provider "recaptcha" }}checked{{ end }}>
+        <strong>Google reCAPTCHA v3</strong>
+        <span class="captcha-tag captcha-tag-warn">{{ t .Lang "settings.captcha.tag.privacy" }}</span>
+        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.recaptcha_desc") }}</div>
+        <div class="captcha-keys">
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="recaptcha_site_key"   value="{{ .Captcha.RecaptchaSiteKey }}" autocomplete="off" placeholder="6Lc..."></label>
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="password" name="recaptcha_secret_key" value="" autocomplete="new-password" placeholder="{{ if .Captcha.RecaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}6Lc...{{ end }}"></label>
+          <label class="captcha-keylabel">{{ t .Lang "settings.captcha.recaptcha_min_score" }}<input type="number" name="recaptcha_min_score" min="0" max="1" step="0.05" value="{{ if gt .Captcha.RecaptchaMinScore 0.0 }}{{ .Captcha.RecaptchaMinScore }}{{ else }}0.5{{ end }}" style="width:6rem"></label>
+        </div>
+      </label>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+<style>
+.captcha-opt{display:block;padding:1rem 1.2rem;border:.0625rem solid #e2e8f0;border-radius:.5rem;margin-bottom:.6rem;cursor:pointer;transition:background .15s,border-color .15s}
+.captcha-opt:hover{background:#f8fafc}
+.captcha-opt input[type=radio]{margin-right:.6rem;transform:scale(1.1)}
+.captcha-opt strong{font-size:1rem}
+.captcha-tag{display:inline-block;font-size:.75rem;padding:.1rem .45rem;border-radius:.25rem;background:#e2e8f0;color:#475569;margin-left:.4rem;font-weight:500}
+.captcha-tag-rec{background:#dbeafe;color:#1e40af}
+.captcha-tag-warn{background:#fef3c7;color:#92400e}
+.captcha-prov-desc{font-size:.825rem;color:#64748b;margin-top:.4rem;line-height:1.5}
+.captcha-keys{margin-top:.7rem;padding-top:.7rem;border-top:.0625rem dashed #e2e8f0;display:grid;grid-template-columns:1fr 1fr;gap:.6rem .8rem}
+.captcha-keylabel{display:flex;flex-direction:column;font-size:.78rem;color:#475569;font-weight:500}
+.captcha-keylabel input{margin-top:.2rem;padding:.35rem .5rem;font-size:.875rem;border:.0625rem solid #cbd5e1;border-radius:.3rem;font-family:ui-monospace,monospace}
+</style>
+{{ end }}
+
+{{ if eq .Tab "challenge" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.challenge.h" }}</h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.challenge.intro") }}</div>
+
+    <div class="field">
+      <label class="field-label" for="ch-cookie-sec">{{ t .Lang "settings.challenge.cookie_seconds" }}</label>
+      <input type="number" id="ch-cookie-sec" name="cookie_seconds" min="60" max="31536000" step="60"
+             value="{{ if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}259200{{ end }}"
+             style="width:8rem"
+             oninput="document.getElementById('ch-cookie-hint').textContent=secToHuman(this.value)">
+      <span class="ch-hint" id="ch-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.cookie_seconds_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="ch-score">{{ t .Lang "settings.challenge.score_threshold" }}</label>
+      <input type="number" id="ch-score" name="captcha_score_threshold" min="0" max="1" step="0.05"
+             value="{{ if gt .Challenge.CaptchaScoreThreshold 0.0 }}{{ .Challenge.CaptchaScoreThreshold }}{{ else }}0.5{{ end }}"
+             style="width:6rem">
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.score_threshold_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="ch-pow-diff">{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
+      <input type="number" id="ch-pow-diff" name="pow_difficulty" min="8" max="24" step="1"
+             value="{{ .Challenge.ResolvedPowDifficulty }}"
+             style="width:6rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">bit</span>
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="ch-debug-rate">{{ t .Lang "settings.challenge.debug_rate" }}</label>
+      <input type="number" id="ch-debug-rate" name="debug_rate_limit_per_5min" min="1" max="10000" step="1"
+             value="{{ if gt .Challenge.DebugRateLimitPer5Min 0 }}{{ .Challenge.DebugRateLimitPer5Min }}{{ else }}20{{ end }}"
+             style="width:6rem">
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.debug_rate_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.challenge.show_credit" }}</label>
+      <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
+        <input type="checkbox" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
+        {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
+      </label>
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.challenge.public_test_pages" }}</label>
+      <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
+        <input type="hidden" name="public_test_pages_present" value="1">
+        <input type="checkbox" name="public_test_pages" value="1" {{ if .Challenge.PublicTestPages }}checked{{ end }}>
+        <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
+      </label>
+      <div class="note">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</div>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+<script>
+// human-readable display next to a seconds input (= 86400 -> "1 d", 3600 -> "1 h", etc.).
+function secToHuman(s){
+  s = parseInt(s, 10);
+  if (!s || s < 0) return "";
+  var d = Math.floor(s / 86400);
+  var h = Math.floor((s % 86400) / 3600);
+  var m = Math.floor((s % 3600) / 60);
+  var parts = [];
+  if (d) parts.push(d + " d");
+  if (h) parts.push(h + " h");
+  if (m) parts.push(m + " m");
+  if (!parts.length) parts.push(s + " s");
+  // nginx HMAC verification works at 1-day granularity, so also show the effective value
+  var ceil = Math.ceil(s / 86400);
+  return "= " + parts.join(" ") + "  (= effective " + ceil + " d)";
+}
+document.addEventListener("DOMContentLoaded", function(){
+  var el = document.getElementById("ch-cookie-sec");
+  if (el) document.getElementById("ch-cookie-hint").textContent = secToHuman(el.value);
+});
+</script>
+{{ end }}
+
+{{ if eq .Tab "rate-limit" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.rate_limit.h" }}</h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.rate_limit.intro") }}</div>
+
+    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
+
+    <div class="field">
+      <label class="field-label" for="rl-rpm">{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
+      <input type="number" id="rl-rpm" name="default_requests_per_min" min="1" max="100000" step="1"
+             value="{{ if gt .RateLimit.Default.RequestsPerMin 0 }}{{ .RateLimit.Default.RequestsPerMin }}{{ else }}100{{ end }}"
+             style="width:8rem">
+      <div class="note">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="rl-burst">{{ t .Lang "settings.rate_limit.burst" }}</label>
+      <input type="number" id="rl-burst" name="default_burst" min="0" max="100000" step="1"
+             value="{{ if gt .RateLimit.Default.Burst 0 }}{{ .RateLimit.Default.Burst }}{{ else }}50{{ end }}"
+             style="width:8rem">
+      <div class="note">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="rl-window">{{ t .Lang "settings.rate_limit.window_sec" }}</label>
+      <input type="number" id="rl-window" name="default_window_sec" min="1" max="3600" step="1"
+             value="{{ if gt .RateLimit.Default.WindowSec 0 }}{{ .RateLimit.Default.WindowSec }}{{ else }}60{{ end }}"
+             style="width:6rem">
+      <div class="note">{{ safeHTML (t .Lang "settings.rate_limit.window_sec_help") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
+      {{ $cm := .RateLimit.Default.ChallengeMode }}
+      {{ if eq $cm "" }}{{ $cm = "captcha_only" }}{{ end }}
+      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
+        <label><input type="radio" name="default_challenge_mode" value="captcha_only" {{ if eq $cm "captcha_only" }}checked{{ end }}>
+          <strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</label>
+        <label><input type="radio" name="default_challenge_mode" value="pow_only" {{ if eq $cm "pow_only" }}checked{{ end }}>
+          <strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</label>
+        <label><input type="radio" name="default_challenge_mode" value="pow_then_captcha" {{ if eq $cm "pow_then_captcha" }}checked{{ end }}>
+          <strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</label>
+        <label><input type="radio" name="default_challenge_mode" value="deny" {{ if eq $cm "deny" }}checked{{ end }}>
+          <strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</label>
+      </div>
+    </div>
+
+    <h3 style="font-size:1rem;margin:1.5rem 0 .4rem">{{ t .Lang "settings.rate_limit.zones_h" }}</h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.zones_help") }}</div>
+    <table id="zones-table" style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead style="background:#f8fafc;color:#475569">
+        <tr>
+          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_name" }}</th>
+          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_paths" }}</th>
+          <th style="text-align:right;padding:.4rem .5rem">r/min</th>
+          <th style="text-align:right;padding:.4rem .5rem">burst</th>
+          <th style="text-align:right;padding:.4rem .5rem">window</th>
+          <th style="text-align:left;padding:.4rem .5rem">mode</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="zones-tbody">
+        {{ range $i, $z := .RateLimit.Zones }}
+        <tr class="zone-row" style="border-top:1px solid #e2e8f0;vertical-align:top">
+          <td style="padding:.3rem .5rem"><input name="zone_{{ $i }}_name" value="{{ $z.Name }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td style="padding:.3rem .5rem"><textarea name="zone_{{ $i }}_paths" rows="2" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical" placeholder="/api/&#10;/v1/">{{ range $z.PathPatterns }}{{ . }}&#10;{{ end }}</textarea></td>
+          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:5rem;text-align:right"></td>
+          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:5rem;text-align:right"></td>
+          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:4.5rem;text-align:right"></td>
+          <td style="padding:.3rem .5rem">
+            <select name="zone_{{ $i }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }}>(inherit default)</option>
+              <option value="captcha_only"     {{ if eq $z.ChallengeMode "captcha_only"     }}selected{{ end }}>captcha_only</option>
+              <option value="pow_only"         {{ if eq $z.ChallengeMode "pow_only"         }}selected{{ end }}>pow_only</option>
+              <option value="pow_then_captcha" {{ if eq $z.ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="deny"             {{ if eq $z.ChallengeMode "deny"             }}selected{{ end }}>deny</option>
+            </select>
+          </td>
+          <td style="padding:.3rem .5rem;text-align:center"><button type="button" onclick="rlRemoveZone(this)" title="{{ t .Lang "settings.rate_limit.remove_zone" }}" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .4rem;cursor:pointer;color:#991b1b">×</button></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+<script>
+// dynamic add / remove of rate-limit zones[] + re-sequence indices after removal.
+(function(){
+  window.rlAddZone = function() {
+    var tbody = document.getElementById('zones-tbody');
+    var i = tbody.querySelectorAll('tr.zone-row').length;
+    var tr = document.createElement('tr');
+    tr.className = 'zone-row';
+    tr.style.borderTop = '1px solid #e2e8f0';
+    tr.style.verticalAlign = 'top';
+    tr.innerHTML =
+      '<td style="padding:.3rem .5rem"><input name="zone_' + i + '_name" placeholder="api_strict" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>' +
+      '<td style="padding:.3rem .5rem"><textarea name="zone_' + i + '_paths" rows="2" placeholder="/api/" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical"></textarea></td>' +
+      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_rpm" min="1" max="100000" value="30" style="width:5rem;text-align:right"></td>' +
+      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_burst" min="0" max="100000" value="10" style="width:5rem;text-align:right"></td>' +
+      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_window" min="1" max="3600" value="60" style="width:4.5rem;text-align:right"></td>' +
+      '<td style="padding:.3rem .5rem"><select name="zone_' + i + '_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">' +
+      '<option value="">(inherit default)</option>' +
+      '<option value="captcha_only">captcha_only</option>' +
+      '<option value="pow_only">pow_only</option>' +
+      '<option value="pow_then_captcha">pow_then_captcha</option>' +
+      '<option value="deny">deny</option>' +
+      '</select></td>' +
+      '<td style="padding:.3rem .5rem;text-align:center"><button type="button" onclick="rlRemoveZone(this)" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .4rem;cursor:pointer;color:#991b1b">×</button></td>';
+    tbody.appendChild(tr);
+  };
+  window.rlRemoveZone = function(btn) {
+    var tr = btn.closest('tr');
+    if (tr) tr.remove();
+    // re-sequence indices after removal (= so the form parser can loop 0..N-1).
+    document.querySelectorAll('#zones-tbody tr.zone-row').forEach(function(tr, i) {
+      tr.querySelectorAll('[name]').forEach(function(el) {
+        el.name = el.name.replace(/^zone_\d+_/, 'zone_' + i + '_');
+      });
+    });
+  };
+})();
+</script>
+{{ end }}
+
+{{ if eq .Tab "theme" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=theme" id="theme-form">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.theme.h" }}</h2>
+    <div class="note" style="margin-bottom:.7rem">{{ t .Lang "settings.theme.intro" }}</div>
+    <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
+
+    <input type="hidden" name="theme" id="theme-input" value="{{ .ChallengeTheme }}">
+
+    <div class="theme-grid">
+      {{ range $opt := .ThemeOptions }}
+      <label class="theme-card{{ if eq $.ChallengeTheme $opt }} selected{{ end }}" data-theme="{{ $opt }}">
+        <div class="theme-card-head">
+          <input type="radio" name="theme_radio" value="{{ $opt }}" {{ if eq $.ChallengeTheme $opt }}checked{{ end }}>
+          <strong>{{ t $.Lang (printf "settings.theme.option.%s" $opt) }}</strong>
+          <span class="theme-applied-tag">{{ t $.Lang "settings.theme.applied" }}</span>
+        </div>
+        <p class="theme-card-desc">{{ t $.Lang (printf "settings.theme.option.%s_desc" $opt) }}</p>
+        <div class="theme-preview-frame">
+          <iframe src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1" loading="lazy" title="theme preview: {{ $opt }}"></iframe>
+        </div>
+      </label>
+      {{ end }}
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+<style>
+.theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
+.theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}
+.theme-card{display:block;border:.125rem solid #e2e8f0;border-radius:.5rem;background:#fafbfc;cursor:pointer;overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .05s;position:relative}
+.theme-card:hover{border-color:#cbd5e1;transform:translateY(-1px);box-shadow:0 .25rem .6rem rgba(0,0,0,.05)}
+.theme-card.selected{border-color:#3b82f6;background:#eff6ff}
+.theme-card.selected .theme-applied-tag{display:inline-block}
+.theme-card-head{display:flex;align-items:center;gap:.5rem;padding:.7rem .9rem;border-bottom:.0625rem solid #e2e8f0;background:#fff}
+.theme-card.selected .theme-card-head{background:#eff6ff;border-bottom-color:#bfdbfe}
+.theme-card-head input[type=radio]{margin:0;transform:scale(1.05);cursor:pointer}
+.theme-card-head strong{font-size:.95rem;color:#0f172a}
+.theme-applied-tag{display:none;margin-left:auto;font-size:.65rem;letter-spacing:.06em;text-transform:uppercase;background:#3b82f6;color:#fff;padding:.15rem .5rem;border-radius:.2rem;font-weight:600}
+.theme-card-desc{font-size:.78rem;color:#475569;padding:.55rem .9rem 0;line-height:1.55;margin:0}
+.theme-preview-frame{margin:.6rem .9rem .9rem;border:.0625rem solid #e2e8f0;border-radius:.35rem;overflow:hidden;background:#f1f5f9;position:relative;height:18rem}
+.theme-preview-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:none}
+</style>
+<script>
+(function(){
+  var input = document.getElementById('theme-input');
+  var cards = document.querySelectorAll('#theme-form .theme-card');
+  if (!input || !cards.length) return;
+  // card click -> update input.value + toggle .selected.  the iframe is disabled with
+  // pointer-events:none, so click reaches the whole label.  label > input[radio] carries
+  // the form-submitted value.  the hidden input matches the section save handler's lookup key.
+  cards.forEach(function(card){
+    card.addEventListener('click', function(){
+      var t = card.getAttribute('data-theme');
+      if (!t) return;
+      input.value = t;
+      cards.forEach(function(c){ c.classList.toggle('selected', c === card); });
+      var radio = card.querySelector('input[type=radio]');
+      if (radio) radio.checked = true;
+    });
+  });
+})();
+</script>
+{{ end }}
+
+{{ if eq .Tab "notifications" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=notifications" id="notify-form">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.notify.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.notify.desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.notify.intro") }}</div>
+
+    <div class="field">
+      <label class="field-label"><input type="checkbox" name="disabled" value="1" {{ if .Notifications.Disabled }}checked{{ end }}> {{ t .Lang "settings.notify.disabled" }}</label>
+      <div class="note">{{ t .Lang "settings.notify.disabled_desc" }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.notify.url" }}</label>
+      <input type="url" name="url" value="{{ .Notifications.URL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
+      <div class="note">{{ safeHTML (t .Lang "settings.notify.url_desc") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.notify.format" }}</label>
+      <select name="format">
+        <option value="slack"   {{ if or (eq .Notifications.Format "") (eq .Notifications.Format "slack") }}selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
+        <option value="discord" {{ if eq .Notifications.Format "discord" }}selected{{ end }}>Discord (= content)</option>
+        <option value="generic" {{ if eq .Notifications.Format "generic" }}selected{{ end }}>generic (= JSON event payload)</option>
+      </select>
+      <div class="note">{{ safeHTML (t .Lang "settings.notify.format_desc") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.notify.site_label" }}</label>
+      <input type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="blog-jp / ec-prod / ..." style="width:24rem">
+      <div class="note">{{ t .Lang "settings.notify.site_label_desc" }}</div>
+    </div>
+
+    <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.notify.events" }}</h3>
+    <div class="field">
+      <label class="field-label"><input type="checkbox" name="ban_events" value="1" {{ if .Notifications.BanEvents }}checked{{ end }}> {{ t .Lang "settings.notify.ban_events" }}</label>
+      <div class="note">{{ t .Lang "settings.notify.ban_events_desc" }}</div>
+    </div>
+    <div class="field">
+      <label class="field-label"><input type="checkbox" name="challenge_burst" value="1" {{ if .Notifications.ChallengeBurst }}checked{{ end }}> {{ t .Lang "settings.notify.challenge_burst" }}</label>
+      <div class="note">{{ t .Lang "settings.notify.challenge_burst_desc" }}</div>
+      <label class="field-label" style="margin-top:.5rem">{{ t .Lang "settings.notify.burst_threshold" }}</label>
+      <input type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
+    </div>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center">
+    <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+    <button type="button" class="btn" id="notify-test-btn" style="background:#475569">{{ t .Lang "settings.notify.test_send" }}</button>
+    <span id="notify-test-result" style="font-size:.875rem"></span>
+  </div>
+</form>
+<script>
+document.getElementById('notify-test-btn').addEventListener('click', function(){
+  var form = document.getElementById('notify-form');
+  var result = document.getElementById('notify-test-result');
+  result.textContent = '...';
+  result.style.color = '#64748b';
+  var fd = new FormData();
+  fd.set('url', form.querySelector('[name=url]').value);
+  fd.set('format', form.querySelector('[name=format]').value);
+  fd.set('site_label', form.querySelector('[name=site_label]').value);
+  fetch('{{ .BasePath }}/admin/api/notify/test', { method:'POST', body: new URLSearchParams(fd) })
+    .then(r => r.json().then(d => ({ status: r.status, data: d })))
+    .then(res => {
+      if (res.data.ok === 1) {
+        result.textContent = '{{ t .Lang "settings.notify.test_ok" }}';
+        result.style.color = '#15803d';
+      } else {
+        result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + (res.data.error || res.status);
+        result.style.color = '#b91c1c';
+      }
+    })
+    .catch(e => {
+      result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + String(e);
+      result.style.color = '#b91c1c';
+    });
+});
+</script>
+{{ end }}
+
+{{ if eq .Tab "smtp" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=smtp" id="smtp-form">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.smtp.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.smtp.desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.smtp.intro") }}</div>
+
+    <div class="field smtp-row">
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.host" }}</label>
+        <input type="text" name="host" value="{{ .SMTP.Host }}" placeholder="smtp.example.com" style="width:100%;font-family:ui-monospace,monospace">
+      </div>
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.port" }}</label>
+        <input type="number" name="port" value="{{ if gt .SMTP.Port 0 }}{{ .SMTP.Port }}{{ else }}587{{ end }}" min="1" max="65535" style="width:6rem">
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label"><input type="checkbox" name="starttls" value="1" {{ if .SMTP.StartTLS }}checked{{ end }}> {{ t .Lang "settings.smtp.starttls" }}</label>
+      <div class="note">{{ t .Lang "settings.smtp.starttls_desc" }}</div>
+    </div>
+
+    <div class="field smtp-row">
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.username" }}</label>
+        <input type="text" name="username" value="{{ .SMTP.Username }}" placeholder="apikey / user@example.com" style="width:100%;font-family:ui-monospace,monospace">
+      </div>
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.password" }}</label>
+        <input type="password" name="password" value="" placeholder="{{ t .Lang "settings.smtp.password_placeholder" }}" autocomplete="new-password" style="width:100%;font-family:ui-monospace,monospace">
+      </div>
+    </div>
+
+    <div class="field smtp-row">
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.from_address" }}</label>
+        <input type="email" name="from_address" value="{{ .SMTP.FromAddress }}" placeholder="unmask@example.com" style="width:100%;font-family:ui-monospace,monospace">
+      </div>
+      <div>
+        <label class="field-label">{{ t .Lang "settings.smtp.from_name" }}</label>
+        <input type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask" style="width:100%">
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label"><input type="checkbox" name="insecure_skip_verify" value="1" {{ if .SMTP.InsecureSkipVerify }}checked{{ end }}> {{ t .Lang "settings.smtp.insecure_skip_verify" }}</label>
+      <div class="note">{{ t .Lang "settings.smtp.insecure_skip_verify_desc" }}</div>
+    </div>
+
+    <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.smtp.test_h" }}</h3>
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.smtp.test_to" }}</label>
+      <input type="email" id="smtp-test-to" placeholder="you@example.com" style="width:24rem">
+      <div class="note">{{ t .Lang "settings.smtp.test_to_desc" }}</div>
+    </div>
+  </div>
+  <div style="display:flex;gap:.6rem;align-items:center">
+    <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+    <button type="button" class="btn" id="smtp-test-btn" style="background:#475569">{{ t .Lang "settings.smtp.test_send" }}</button>
+    <span id="smtp-test-result" style="font-size:.875rem"></span>
+  </div>
+</form>
+<style>
+.smtp-row{display:grid;grid-template-columns:3fr 1fr;gap:.6rem}
+.smtp-row > div > .field-label{font-size:.78rem;color:#475569}
+</style>
+<script>
+document.getElementById('smtp-test-btn').addEventListener('click', function(){
+  var form = document.getElementById('smtp-form');
+  var result = document.getElementById('smtp-test-result');
+  result.textContent = '...';
+  result.style.color = '#64748b';
+  var fd = new FormData();
+  ['host','port','username','password','from_address','from_name'].forEach(function(k){
+    fd.set(k, form.querySelector('[name='+k+']').value);
+  });
+  fd.set('starttls', form.querySelector('[name=starttls]').checked ? '1' : '0');
+  fd.set('insecure_skip_verify', form.querySelector('[name=insecure_skip_verify]').checked ? '1' : '0');
+  fd.set('to', document.getElementById('smtp-test-to').value);
+  fetch('{{ .BasePath }}/admin/api/smtp/test', { method:'POST', body: new URLSearchParams(fd) })
+    .then(r => r.json().then(d => ({ status: r.status, data: d })))
+    .then(res => {
+      if (res.data.ok === 1) {
+        result.textContent = '{{ t .Lang "settings.smtp.test_ok" }}';
+        result.style.color = '#15803d';
+      } else {
+        result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: ' + (res.data.error || res.status);
+        result.style.color = '#b91c1c';
+      }
+    })
+    .catch(e => {
+      result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: ' + String(e);
+      result.style.color = '#b91c1c';
+    });
+});
+</script>
+{{ end }}
+
+{{ if eq .Tab "retention" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=retention">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.retention.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.intro") }}</div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.retention.events_days" }}</label>
+      <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      <div class="note">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</div>
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.retention.nginx_log_h" }} <span style="font-size:.65rem;padding:.1rem .4rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.2rem;font-weight:600;vertical-align:middle">{{ t .Lang "settings.retention.nginx_log_badge" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.nginx_log_desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.nginx_log_intro") }}</div>
+
+    <div class="field">
+      <label>
+        <input type="checkbox" name="nginx_log_enabled" value="1" {{ if .NginxLogEnabled }}checked{{ end }}>
+        {{ t .Lang "settings.retention.nginx_log_enabled" }}
+      </label>
+      <div class="note">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</div>
+    </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.retention.batch_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.batch_desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.batch_intro") }}</div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.retention.batch_size" }}</label>
+      <input type="number" name="events_batch_size" value="{{ .EventsBatchSize }}" min="1" max="1000" style="width:8rem"> {{ t .Lang "settings.retention.batch_size_unit" }}
+      <div class="note">{{ safeHTML (t .Lang "settings.retention.batch_size_desc") }}</div>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.retention.batch_interval" }}</label>
+      <input type="number" name="events_batch_interval_ms" value="{{ .EventsBatchIntervalMs }}" min="50" max="60000" step="50" style="width:8rem"> ms
+      <div class="note">{{ safeHTML (t .Lang "settings.retention.batch_interval_desc") }}</div>
+    </div>
+
+    {{ if gt .EventsDropped 0 }}
+    <div class="note" style="color:#b91c1c;font-weight:600">⚠ {{ t .Lang "settings.retention.dropped_warn" }}: {{ .EventsDropped }}</div>
+    {{ end }}
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+{{ if eq .Tab "shared-feed" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=shared-feed">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.shared_feed.h" }}</h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.shared_feed.intro") }}</div>
+
+    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.shared_feed.terms_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem">{{ safeHTML (t .Lang "settings.shared_feed.terms_desc") }}</div>
+    <label class="field" style="display:flex;align-items:flex-start;gap:.5rem">
+      <input type="checkbox" name="terms_accepted" value="1" {{ if gt .SharedFeed.TermsAcceptedAt 0 }}checked{{ end }} style="margin-top:.25rem">
+      <span>{{ safeHTML (t .Lang "settings.shared_feed.terms_label") }}</span>
+    </label>
+    {{ if gt .SharedFeed.TermsAcceptedAt 0 }}
+    <div class="note" style="font-size:.78rem;color:#64748b;margin-top:.2rem">
+      {{ t .Lang "settings.shared_feed.terms_accepted_at" }}: <time class="js-datetime" data-ts="{{ .SharedFeed.TermsAcceptedAt }}">{{ .SharedFeed.TermsAcceptedAt }}</time>
+    </div>
+    {{ end }}
+
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.shared_feed.toggles_h" }}</h3>
+    <div class="field">
+      <label style="display:flex;align-items:flex-start;gap:.5rem">
+        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .SharedFeed.SubscribeEnabled }}checked{{ end }} style="margin-top:.25rem">
+        <span>
+          <strong>{{ t .Lang "settings.shared_feed.subscribe_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.shared_feed.subscribe_desc") }}</span>
+        </span>
+      </label>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:flex-start;gap:.5rem">
+        <input type="checkbox" name="submit_enabled" value="1" {{ if .SharedFeed.SubmitEnabled }}checked{{ end }} style="margin-top:.25rem" {{ if eq .SharedFeed.TermsAcceptedAt 0 }}disabled{{ end }}>
+        <span>
+          <strong>{{ t .Lang "settings.shared_feed.submit_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.shared_feed.submit_desc") }}</span>
+        </span>
+      </label>
+      {{ if eq .SharedFeed.TermsAcceptedAt 0 }}
+      <div class="note" style="font-size:.78rem;color:#b45309;margin-top:.25rem">⚠ {{ t .Lang "settings.shared_feed.submit_needs_terms" }}</div>
+      {{ end }}
+    </div>
+
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.shared_feed.status_h" }}</h3>
+    <table style="font-size:.85rem;border-collapse:collapse">
+      <tr>
+        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.shared_feed.status_token" }}</td>
+        <td>{{ if .SharedFeed.Token }}<span style="color:#166534">●</span> {{ t .Lang "settings.shared_feed.status_token_ok" }}{{ else }}<span style="color:#94a3b8">○</span> {{ t .Lang "settings.shared_feed.status_token_none" }}{{ end }}</td>
+      </tr>
+      <tr>
+        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.shared_feed.status_last_pull" }}</td>
+        <td>{{ if gt .SharedFeed.LastPulledAt 0 }}<time class="js-datetime" data-ts="{{ .SharedFeed.LastPulledAt }}">{{ .SharedFeed.LastPulledAt }}</time>  ({{ .SharedFeed.Entries }} entries){{ else }}<span class="muted">{{ t .Lang "settings.shared_feed.status_never" }}</span>{{ end }}</td>
+      </tr>
+    </table>
+
+    <details style="margin-top:1.4rem">
+      <summary style="cursor:pointer;color:#475569;font-size:.85rem">{{ t .Lang "settings.shared_feed.advanced_h" }}</summary>
+      <div class="note" style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.shared_feed.advanced_desc") }}</div>
+      <div class="field">
+        <label class="field-label" for="sf-register">register_url</label>
+        <input type="url" id="sf-register" name="register_url" value="{{ .SharedFeed.RegisterURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
+      </div>
+      <div class="field">
+        <label class="field-label" for="sf-submit">submit_url</label>
+        <input type="url" id="sf-submit" name="submit_url" value="{{ .SharedFeed.SubmitURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
+      </div>
+      <div class="field">
+        <label class="field-label" for="sf-feed">feed_url</label>
+        <input type="url" id="sf-feed" name="feed_url" value="{{ .SharedFeed.FeedURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
+      </div>
+    </details>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ end }}
+
+<script>
+// rule-list row actions:
+//   edit click   -> add editing class to switch to input mode (= focus the title input)
+//   add click    -> insert an empty row (= editing) below
+//   delete click -> remove the row (= last remaining row clears value + stays editing)
+//   checkbox change -> sync the hidden enabled field (= 0/1) + toggle the disabled-row class
+//
+// Assumes edits are infrequent, so default is read-only view (= matches preset look).
+// Persistence is the Save button at the bottom of the form (= submitted in one go).
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.rule-list').forEach(function(list){
+    list.addEventListener('click', function(e){
+      const btn = e.target.closest('.rule-edit, .rule-save, .rule-add, .rule-del, .rule-up, .rule-down');
+      if (!btn) {
+        // click on a non-button area -> treat as a whole-row click and toggle the checkbox
+        // (= matches what preset rows get for free via <label>, reproduced here in JS).
+        const row = e.target.closest('.rule-row');
+        if (!row) return;
+        if (row.classList.contains('editing')) return;
+        // clicks on input / checkbox / label keep their default behavior
+        if (e.target.closest('input, label, .rule-meta')) return;
+        const cb = row.querySelector('input.rule-toggle');
+        if (cb) {
+          cb.checked = !cb.checked;
+          cb.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+        return;
+      }
+      e.preventDefault();
+      const row = btn.closest('.rule-row');
+      if (!row) return;
+
+      if (btn.classList.contains('rule-save')) {
+        // confirm: drop the editing class and return to view mode.
+        // sync input values to the view spans (.ttl / .pat) (= immediate visual update).
+        // yml persistence is handled by the Save button below.
+        const ttlInput = row.querySelector('input.rule-title');
+        const patInput = row.querySelector('input.rule-pat');
+        const ttlView  = row.querySelector('.rule-view .ttl');
+        const patView  = row.querySelector('.rule-view .pat');
+        if (ttlView && ttlInput) {
+          if (ttlInput.value.trim() === '') {
+            ttlView.classList.add('empty');
+          } else {
+            ttlView.classList.remove('empty');
+            ttlView.textContent = ttlInput.value;
+          }
+        }
+        if (patView && patInput) {
+          if (patInput.value.trim() === '') {
+            patView.classList.add('empty');
+          } else {
+            patView.classList.remove('empty');
+            patView.textContent = patInput.value;
+          }
+        }
+        row.classList.remove('editing');
+        return;
+      }
+
+      if (btn.classList.contains('rule-up')) {
+        const prev = row.previousElementSibling;
+        if (prev && prev.classList.contains('rule-row')) {
+          row.parentNode.insertBefore(row, prev);
+        }
+        return;
+      }
+      if (btn.classList.contains('rule-down')) {
+        const next = row.nextElementSibling;
+        if (next && next.classList.contains('rule-row')) {
+          row.parentNode.insertBefore(next, row);
+        }
+        return;
+      }
+
+      if (btn.classList.contains('rule-edit')) {
+        row.classList.add('editing');
+        const ttl = row.querySelector('input.rule-title');
+        if (ttl) {
+          ttl.focus();
+          ttl.select();
+        }
+      } else if (btn.classList.contains('rule-add')) {
+        // clone the existing row -> blank the input values + add editing + insert -> focus.
+        const clone = row.cloneNode(true);
+        clone.classList.add('editing');
+        clone.classList.remove('disabled-row');
+        clone.querySelectorAll('input[type=text]').forEach(function(i){ i.value = ''; });
+        // reset checkbox / hidden to enabled (= 1) on the new row.
+        const cb = clone.querySelector('input.rule-toggle');
+        if (cb) cb.checked = true;
+        const hidden = clone.querySelector('input[type=hidden][name$="_enabled"]');
+        if (hidden) hidden.value = '1';
+        // also reset the view to placeholder state (= hidden by CSS while editing, but just in case).
+        const ttl = clone.querySelector('.rule-view .ttl');
+        const pat = clone.querySelector('.rule-view .pat');
+        if (ttl) {
+          ttl.classList.add('empty');
+          ttl.textContent = list.querySelector('.rule-view .ttl.empty')?.textContent || '';
+        }
+        if (pat) {
+          pat.classList.add('empty');
+          pat.textContent = list.querySelector('.rule-view .pat.empty')?.textContent || '';
+        }
+        row.after(clone);
+        const newTtl = clone.querySelector('input.rule-title');
+        if (newTtl) newTtl.focus();
+      } else if (btn.classList.contains('rule-del')) {
+        const rows = list.querySelectorAll('.rule-row');
+        if (rows.length <= 1) {
+          row.querySelectorAll('input[type=text]').forEach(function(i){ i.value = ''; });
+          row.classList.add('editing');
+          row.classList.remove('disabled-row');
+          const cb = row.querySelector('input.rule-toggle');
+          if (cb) cb.checked = true;
+          const hidden = row.querySelector('input[type=hidden][name$="_enabled"]');
+          if (hidden) hidden.value = '1';
+          const ttl = row.querySelector('input.rule-title');
+          if (ttl) ttl.focus();
+        } else {
+          row.remove();
+        }
+      }
+    });
+
+    // sync checkbox state to the hidden enabled field.  Keeps row position and enabled
+    // state aligned in parallel on form submit (= server pairExtras can zip them).
+    list.addEventListener('change', function(e){
+      const cb = e.target.closest('input.rule-toggle');
+      if (!cb) return;
+      const row = cb.closest('.rule-row');
+      if (!row) return;
+      const hidden = row.querySelector('input[type=hidden][name$="_enabled"]');
+      if (hidden) hidden.value = cb.checked ? '1' : '0';
+      row.classList.toggle('disabled-row', !cb.checked);
+    });
+
+    // detect title / pattern input changes -> set hidden updated_at to 0
+    // to tell the server "changed; rewrite with now".
+    list.addEventListener('input', function(e){
+      const inp = e.target.closest('input.rule-title, input.rule-pat');
+      if (!inp) return;
+      const row = inp.closest('.rule-row');
+      if (!row) return;
+      const origPat   = row.dataset.origPat || '';
+      const origTitle = row.dataset.origTitle || '';
+      const curPat    = row.querySelector('input.rule-pat')?.value || '';
+      const curTitle  = row.querySelector('input.rule-title')?.value || '';
+      const changed = (curPat !== origPat) || (curTitle !== origTitle);
+      const hidden = row.querySelector('input[type=hidden][name$="_updated_at"]');
+      if (hidden && changed) hidden.value = '0';
+    });
+  });
+
+  // "+ Add new" button: clone the empty row from the list's inner template, append + focus.
+  document.querySelectorAll('.rule-add-bottom').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      const targetName = btn.getAttribute('data-target-list');
+      const list = document.querySelector('.rule-list[data-rule-name="' + targetName + '"]');
+      if (!list) return;
+      const tmpl = list.querySelector('template.rule-row-template');
+      if (!tmpl) return;
+      const row = tmpl.content.firstElementChild.cloneNode(true);
+      // insert before the template (= ends up at the visible tail)
+      list.insertBefore(row, tmpl);
+      const ttl = row.querySelector('input.rule-title');
+      if (ttl) ttl.focus();
+    });
+  });
+
+});
+</script>
+
+</section>
+</div>
+
+</main>
+
+<script>
+// ============================================================
+// info-tip popover pinned mode
+//   - hover display unchanged (CSS).
+//   - click on ? icon adds the pinned class, blue outline + top-right close button.
+//   - while pinned, mouse leave doesn't dismiss (= CSS .pinned keeps it visible).
+//   - dismissed by the close button or ESC.  clicking another info-tip narrows to one automatically.
+//   - link / code clicks inside the popup retain default behavior (= no toggle).
+// ============================================================
+(function(){
+  function unpinAll(){
+    document.querySelectorAll('.info-tip.pinned').forEach(function(t){
+      t.classList.remove('pinned');
+    });
+  }
+  function ensureCloseButton(tip){
+    var pop = tip.querySelector('.info-popup');
+    if (!pop || pop.querySelector('.info-popup-close')) return;
+    var btn = document.createElement('button');
+    btn.className = 'info-popup-close';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'close');
+    btn.textContent = '×';   // ×
+    pop.appendChild(btn);
+  }
+  document.addEventListener('click', function(e){
+    var closeBtn = e.target.closest('.info-popup-close');
+    if (closeBtn){
+      e.preventDefault();
+      e.stopPropagation();
+      var tip = closeBtn.closest('.info-tip');
+      if (tip) tip.classList.remove('pinned');
+      return;
+    }
+    var tip = e.target.closest('.info-tip');
+    if (!tip){
+      // clicks outside the popup don't dismiss (= by design: close button or ESC only).
+      return;
+    }
+    // link / code clicks inside the popup retain default behavior (= no toggle).
+    if (e.target.closest('.info-popup a, .info-popup code')) return;
+    e.preventDefault();
+    // each .info-tip can be pinned/unpinned independently.  Another popover being pinned doesn't interfere
+    // (= each .info-tip owns its .info-popup child, so other popups display normally via
+    // CSS :hover/:focus).
+    var willPin = !tip.classList.contains('pinned');
+    tip.classList.toggle('pinned', willPin);
+    if (willPin) ensureCloseButton(tip);
+  });
+  // ESC unpins all.
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') unpinAll();
+  });
+})();
+</script>
+
+</body>
+</html>

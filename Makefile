@@ -1,21 +1,30 @@
-# unmask 一括ビルド.
+# unmask top-level build.
 #
 # targets:
 #   make build              admin (host arch)
-#   make build-admin        admin (= GOARCH に従う)
-#   make build-module       ja4 nginx module (.so) for current GOARCH
-#   make build-all          admin + module (= release 用 set)
-#   make package            nfpm で rpm + deb + apk 生成 (要 nfpm)
+#   make build-admin        admin (follows GOARCH)
+#   make build-module       unmask nginx module (.so) for current GOARCH
+#   make build-all          admin + module (release set)
+#   make package            generate rpm + deb + apk via nfpm (requires nfpm)
 #   make test               go test
-#   make clean              dist/, build/ を消す
+#   make clean              remove dist/, build/
 #
-# 環境変数:
+# Environment variables:
 #   UNMASK_VERSION   (default: 0.1.0)  package version
 #   GOOS             (default: linux)
-#   GOARCH           (default: 検出した host arch.  amd64 / arm64 / 386 等)
-#   NGINX_VERSION    (default: 1.26.2) nginx ソース version (module build 用)
-#   NGINX_SRC        (default: build/nginx-$(NGINX_VERSION)) ソース展開先
+#   GOARCH           (default: detected host arch.  amd64 / arm64 / 386 / etc.)
+#   NGINX_VERSION    (default: 1.26.2) nginx source version (for module build)
+#   NGINX_SRC        (default: build/nginx-$(NGINX_VERSION)) source extraction directory
 #   NFPM             (default: nfpm) nfpm binary path
+#   DOCKER_REGISTRY  (default: empty) registry prefix pushed by docker-buildx
+#
+# Required external tools:
+#   - go              (admin binary build)
+#   - gcc / make      (nginx module build)
+#   - nfpm            (rpm/deb/apk: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest)
+#   - envsubst        (env expansion for nfpm yml; bundled with coreutils / gettext-base)
+#   - docker          (docker / docker-buildx target; optional)
+#   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)
 #
 
 UNMASK_VERSION ?= 0.1.0
@@ -26,13 +35,20 @@ NGINX_VERSION  ?= 1.26.2
 NGINX_SRC      ?= build/nginx-$(NGINX_VERSION)
 NFPM           ?= nfpm
 
+# apk signing key.  default is the dev key (memory project key).
+# To sign with another key, pass NFPM_APK_KEY_FILE=... as a make argument / env.
+# Empty -> nfpm skips signing -> unsigned apk (rejected by apk-tools v3).
+NFPM_APK_KEY_FILE ?= ../unmask-keys/oss@unmask.sh-260509.rsa
+NFPM_APK_KEY_NAME ?= oss@unmask.sh-260509.rsa.pub
+export NFPM_APK_KEY_FILE NFPM_APK_KEY_NAME
+
 DIST            = dist
 ADMIN_BIN       = $(DIST)/unmask-admin-$(GOOS)-$(GOARCH)
-MODULE_SO       = $(DIST)/ngx_http_ja4_module-$(GOOS)-$(GOARCH).so
+MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
 GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
 
-.PHONY: build build-all build-admin build-module package package-rpm package-deb package-apk test vet fmt clean help
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down vet fmt clean help
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -41,7 +57,7 @@ help:
 ## build         - admin binary (host arch)
 build: build-admin
 
-## build-all     - admin + ja4 module (release set)
+## build-all     - admin + nginx module (release set)
 build-all: build-admin build-module
 
 ## build-admin   - Go static admin server
@@ -52,19 +68,208 @@ build-admin:
 	@echo "built $(ADMIN_BIN)"
 
 ## build-module  - nginx dynamic module .so (downloads nginx source as needed)
-# 注意: target host nginx と同じ nginx version + 同じ openssl ABI で build しないと
-# load_module で reject される. NGINX_VERSION を target に合わせること.
-# `nginx -V 2>&1 | tr -- - '\n' | grep with-` で本番 build options を確認できる.
+# Note: must build with the same nginx version + same openssl ABI as the
+# target host nginx, or load_module will reject it.  Match NGINX_VERSION to
+# the target.  Use `nginx -V 2>&1 | tr -- - '\n' | grep with-` to inspect
+# the production build options.
+#
+# NGINX_WITH_COMPAT is ON by default.  Requires nginx 1.11.5+ (older nginx is
+# not supported).  Build with NGINX_WITH_COMPAT=0 for things like RHEL 6 EPEL
+# nginx 1.10.3 (loses strict ABI match but builds on older nginx).
+NGINX_WITH_COMPAT ?= 1
+ifeq ($(NGINX_WITH_COMPAT),1)
+NGINX_COMPAT_FLAG = --with-compat
+else
+NGINX_COMPAT_FLAG =
+endif
+
+# arm64 build path switch.  Default is native build assuming QEMU emulation
+# (run inside docker buildx --platform=linux/arm64).  The cross-compile path
+# (EPEL's aarch64-linux-gnu-gcc + sysroot) is not adopted in v0.1 because of
+# missing EPEL sysroot.  When the sysroot is ready, enable NGINX_CROSS_OPTS.
+ifeq ($(GOARCH),arm64)
+NGINX_BUILD_DIR  = objs-arm64
+else
+NGINX_BUILD_DIR  = objs
+endif
+NGINX_CROSS_OPTS =
+
 build-module: $(NGINX_SRC)/configure
 	cd $(NGINX_SRC) && \
-		./configure --with-compat --with-http_ssl_module \
-		            --add-dynamic-module=$(CURDIR)/ja4-module && \
-		$(MAKE) modules
+		./configure --builddir=$(NGINX_BUILD_DIR) $(NGINX_COMPAT_FLAG) --with-http_ssl_module \
+		            $(NGINX_CROSS_OPTS) \
+		            --add-dynamic-module=$(CURDIR)/nginx-module && \
+		$(MAKE) -f $(NGINX_BUILD_DIR)/Makefile modules
 	mkdir -p $(DIST)
-	cp $(NGINX_SRC)/objs/ngx_http_ja4_module.so $(MODULE_SO)
-	@echo "built $(MODULE_SO)"
+	cp $(NGINX_SRC)/$(NGINX_BUILD_DIR)/ngx_http_unmask_module.so $(MODULE_SO)
+	@echo "built $(MODULE_SO) (nginx $(NGINX_VERSION), with-compat=$(NGINX_WITH_COMPAT), arch=$(GOARCH))"
 
-$(NGINX_SRC)/configure: | build
+## build-module-multi - build .so for multiple nginx versions in one go.
+# Output: dist/multi-modules/<nginx-ver>/ngx_http_unmask_module.so
+# package-plugin-nginx-fat bundles these into one rpm/deb/apk as a fat plugin.
+#
+# The default version set covers the standard nginx version on major distros:
+#   1.10.3   RHEL/CentOS 6 EPEL final; older nginx official repo builds
+#   1.12.2   RHEL 7 EPEL
+#   1.14.2   Debian 10 / RHEL nginx official 2018
+#   1.16.1   Ubuntu 18.04 / Debian backports
+#   1.18.0   Debian 11 / Ubuntu 20.04 / 22.04 / Alpine 3.14
+#   1.20.2   RHEL nginx official 2021 / Alpine 3.16
+#   1.22.1   Debian 12 / RHEL nginx official 2022 / Alpine 3.17/3.18
+#   1.24.0   RHEL nginx official 2023 / Alpine 3.19
+#   1.26.2   current stable (Alpine 3.20 / RHEL official latest stable branch)
+#
+# 1.10/1.12 series do not support --with-compat, so build with NGINX_WITH_COMPAT=0.
+# 1.14+ build with --with-compat (stronger ABI compat).
+PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.3 1.30.0
+
+# multi-modules output dir.  amd64 keeps the existing dist/multi-modules/
+# (compat); arm64 etc. coexist as dist/multi-modules-<arch>/.
+# package-plugin-nginx-fat switches the scan target based on GOARCH.
+ifeq ($(GOARCH),amd64)
+MULTI_DIR = $(DIST)/multi-modules
+else
+MULTI_DIR = $(DIST)/multi-modules-$(GOARCH)
+endif
+
+build-module-multi:
+	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (arch=$(GOARCH), OpenSSL 3 from host)"
+	@mkdir -p $(MULTI_DIR)
+	@for v in $(PLUGIN_NGINX_VERSIONS); do \
+		echo ""; \
+		echo "=== nginx $$v ==="; \
+		out=$(MULTI_DIR)/$$v/ngx_http_unmask_module.so; \
+		mkdir -p $$(dirname $$out); \
+		if [ -f $$out ]; then \
+			echo "  cached: $$out (rm to rebuild)"; \
+			continue; \
+		fi; \
+		compat=1; \
+		case "$$v" in 1.10.*|1.11.[0-4]) compat=0 ;; esac; \
+		$(MAKE) build-module NGINX_VERSION=$$v NGINX_WITH_COMPAT=$$compat || { \
+			echo "!!! build failed for nginx $$v (continuing)"; \
+			continue; \
+		}; \
+		cp $(DIST)/ngx_http_unmask_module-linux-$(GOARCH).so $$out; \
+		echo "  saved: $$out"; \
+	done
+	@echo ""
+	@echo ">>> built modules:"
+	@ls -la $(MULTI_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+
+# build-module-multi-openssl11: batch-build OpenSSL 1.1 ABI-linked plugin .so
+# via an AlmaLinux 8 docker container (targets rhel6/7/8, Debian 11, Ubuntu
+# 22.04 hosts).
+# Output: dist/multi-modules-openssl11/<ver>/ngx_http_unmask_module.so.
+# Prereqs: docker installed + unmask-builder-openssl11 image already built.
+#   $ docker build -t unmask-builder-openssl11 build/docker-openssl11/
+MULTI_OPENSSL11_DIR = $(DIST)/multi-modules-openssl11
+build-module-multi-openssl11:
+	@if ! docker image inspect unmask-builder-openssl11 >/dev/null 2>&1; then \
+		echo ">>> building unmask-builder-openssl11 image first"; \
+		docker build -t unmask-builder-openssl11 build/docker-openssl11/; \
+	fi
+	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (OpenSSL 1.1 via docker AlmaLinux 8)"
+	@mkdir -p $(MULTI_OPENSSL11_DIR)
+	@for v in $(PLUGIN_NGINX_VERSIONS); do \
+		echo ""; \
+		echo "=== nginx $$v (OpenSSL 1.1) ==="; \
+		out=$(MULTI_OPENSSL11_DIR)/$$v/ngx_http_unmask_module.so; \
+		if [ -f $$out ]; then \
+			echo "  cached: $$out (rm to rebuild)"; \
+			continue; \
+		fi; \
+		docker run --rm -v "$$(pwd):/work" unmask-builder-openssl11 $$v || { \
+			echo "!!! build failed for nginx $$v (continuing)"; \
+			continue; \
+		}; \
+	done
+	@echo ""
+	@echo ">>> built modules (OpenSSL 1.1):"
+	@ls -la $(MULTI_OPENSSL11_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+
+# build-module-multi-openssl10: batch-build OpenSSL 1.0 ABI-linked plugin .so
+# via a CentOS 7 docker container (targets CentOS 7 / RHEL 7 / Oracle Linux 7
+# and other libcrypto.so.10 hosts).  CentOS 7 hit EOL on 2024-06-30, so repos
+# are sourced from vault.
+# Output: dist/multi-modules-openssl10/<ver>/ngx_http_unmask_module.so.
+# Prereqs: docker installed + unmask-builder-openssl10 image already built.
+#   $ docker build -t unmask-builder-openssl10 build/docker-openssl10/
+MULTI_OPENSSL10_DIR = $(DIST)/multi-modules-openssl10
+.PHONY: build-module-multi-openssl10
+build-module-multi-openssl10:
+	@if ! docker image inspect unmask-builder-openssl10 >/dev/null 2>&1; then \
+		echo ">>> building unmask-builder-openssl10 image first"; \
+		docker build -t unmask-builder-openssl10 build/docker-openssl10/; \
+	fi
+	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (OpenSSL 1.0 via docker CentOS 7 vault)"
+	@mkdir -p $(MULTI_OPENSSL10_DIR)
+	@for v in $(PLUGIN_NGINX_VERSIONS); do \
+		echo ""; \
+		echo "=== nginx $$v (OpenSSL 1.0) ==="; \
+		out=$(MULTI_OPENSSL10_DIR)/$$v/ngx_http_unmask_module.so; \
+		if [ -f $$out ]; then \
+			echo "  cached: $$out (rm to rebuild)"; \
+			continue; \
+		fi; \
+		docker run --rm -v "$$(pwd):/work" unmask-builder-openssl10 $$v || { \
+			echo "!!! build failed for nginx $$v (continuing)"; \
+			continue; \
+		}; \
+	done
+	@echo ""
+	@echo ">>> built modules (OpenSSL 1.0):"
+	@ls -la $(MULTI_OPENSSL10_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+
+# build-module-multi-glibc212: batch-build glibc 2.12 + OpenSSL 1.0 ABI-linked
+# plugin .so via a CentOS 6 docker container (targets CentOS 6 / RHEL 6 hosts).
+# CentOS 6 hit EOL on 2020-11-30, so repos are pinned to the
+# archive.kernel.org HTTP mirror.
+# Output: dist/multi-modules-glibc212/<ver>/ngx_http_unmask_module.so.
+# Prereqs: docker installed + unmask-builder-centos6 image already built.
+#   $ docker build -t unmask-builder-centos6 build/docker-centos6/
+MULTI_GLIBC212_DIR = $(DIST)/multi-modules-glibc212
+.PHONY: build-module-multi-glibc212
+build-module-multi-glibc212:
+	@if ! docker image inspect unmask-builder-centos6 >/dev/null 2>&1; then \
+		echo ">>> building unmask-builder-centos6 image first"; \
+		docker build -t unmask-builder-centos6 build/docker-centos6/; \
+	fi
+	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (glibc 2.12 via docker CentOS 6)"
+	@mkdir -p $(MULTI_GLIBC212_DIR)
+	@for v in $(PLUGIN_NGINX_VERSIONS); do \
+		echo ""; \
+		echo "=== nginx $$v (glibc 2.12 / OpenSSL 1.0) ==="; \
+		out=$(MULTI_GLIBC212_DIR)/$$v/ngx_http_unmask_module.so; \
+		if [ -f $$out ]; then \
+			echo "  cached: $$out (rm to rebuild)"; \
+			continue; \
+		fi; \
+		docker run --rm -v "$$(pwd):/work" unmask-builder-centos6 $$v || { \
+			echo "!!! build failed for nginx $$v (continuing)"; \
+			continue; \
+		}; \
+	done
+	@echo ""
+	@echo ">>> built modules (glibc 2.12):"
+	@ls -la $(MULTI_GLIBC212_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+
+# build-module-multi-all: build OpenSSL 3 + 1.1 + 1.0 + glibc 2.12 ABIs (for unmask-plugin-nginx-fat).
+.PHONY: build-module-multi-all
+build-module-multi-all: build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212
+
+## build-demo    - demo nginx binary + nginx module (same source tree).  For long-running dev environments.
+# Unlike build-module, also generates the nginx binary (objs/nginx).  Not needed at distribution time.
+# Start from demo/ with `<NGINX_SRC>/objs/nginx -p demo -c demo/nginx.conf`.
+build-demo: $(NGINX_SRC)/configure
+	cd $(NGINX_SRC) && \
+		./configure --with-compat --with-http_ssl_module \
+		            --add-dynamic-module=$(CURDIR)/nginx-module && \
+		$(MAKE)
+	@echo "built $(NGINX_SRC)/objs/nginx + nginx module"
+
+$(NGINX_SRC)/configure:
+	mkdir -p build
 	curl -sSL "https://nginx.org/download/nginx-$(NGINX_VERSION).tar.gz" \
 		-o build/nginx-$(NGINX_VERSION).tar.gz
 	tar -xzf build/nginx-$(NGINX_VERSION).tar.gz -C build
@@ -74,28 +279,333 @@ $(NGINX_SRC)/configure: | build
 build:
 	mkdir -p build
 
-## package       - rpm + deb + apk
+## package       - main unmask rpm/deb/apk (admin only, no nginx module).
+# Works with auth_request mode by default.  If you need nginx native (JA4),
+# build the plugin separately with package-plugin-nginx and use it alongside.
 package: package-rpm package-deb package-apk
 
-package-rpm: build-all
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) $(NFPM) pkg --packager rpm --target ../$(DIST)
-package-deb: build-all
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) $(NFPM) pkg --packager deb --target ../$(DIST)
-package-apk: build-all
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) $(NFPM) pkg --packager apk --target ../$(DIST)
+## package-release - generate unmask-release rpm/deb/apk.
+# A tiny noarch package that drops in repo + GPG key.  Users install it once,
+# e.g.:
+#   dnf install -y https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm
+# then `dnf install unmask` pulls in the main body.  Same pattern as
+# zabbix / docker / epel, avoiding "curl URL | sh".
+#
+# Before distribution, replace rpm/release/RPM-GPG-KEY-unmask and
+# rpm/release/unmask.rsa.pub with real keys (currently placeholders).
+package-release:
+	# dearmor the deb keyring (apt's Signed-By: expects a binary keyring).
+	# Leaving ASCII armor as-is makes apt-get update ignore the repo with NO_PUBKEY.
+	mkdir -p build/release
+	gpg --dearmor --yes -o build/release/unmask.gpg < rpm/release/RPM-GPG-KEY-unmask
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) \
+		envsubst '$$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-release.yaml > nfpm-release.tmp.yaml && \
+		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager rpm --target ../$(DIST) && \
+		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager deb --target ../$(DIST) && \
+		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager apk --target ../$(DIST) && \
+		rm -f nfpm-release.tmp.yaml
 
-## test          - go test
-test:
+## repo - assemble a distribution layout including metadata into repo/ from
+# the rpm/deb/apk under dist/ (tools/build-repo.sh). Output: ../unmask-dl-build/.
+# Upload to unmask.sh/dl/ is a separate target.
+# To sign, pass UNMASK_GPG_KEY_ID / UNMASK_RSA_PRIVKEY via environment.
+# deb / apk metadata generation needs apt-ftparchive / apk (which AlmaLinux
+# lacks by default; intended to run on Debian or inside docker).
+repo:
+	./tools/build-repo.sh
+
+## publish - rsync repo/ to unmask.sh/dl/ (a GCE VM) via tools/publish-repo.sh.
+# UNMASK_DL_HOST / UNMASK_DL_USER / UNMASK_DL_PATH / UNMASK_SSH_KEY override
+# the connection.  For --dry-run, run `make publish ARGS=--dry-run`.
+publish:
+	./tools/publish-repo.sh $(ARGS)
+
+## sign-rpm - GPG-sign dist/*.rpm (rpm --addsign).
+# Env: UNMASK_GPG_KEY_ID (required, e.g. 16E42DED2AA369AD or oss@unmask.sh).
+# Prereqs: rpm-sign (dnf install rpm-sign) + secret key loaded in gpg agent.
+sign-rpm:
+	@[ -n "$(UNMASK_GPG_KEY_ID)" ] || { echo "ERR: UNMASK_GPG_KEY_ID not set (e.g. oss@unmask.sh)" >&2; exit 1; }
+	rpm --addsign --define "_gpg_name $(UNMASK_GPG_KEY_ID)" $(DIST)/*.rpm
+
+## sign-verify - verify GPG signatures on dist/*.rpm.
+sign-verify:
+	@for f in $(DIST)/*.rpm; do echo "--- $$f ---"; rpm -K "$$f"; done
+
+# nfpm does not expand env vars in contents.src, so resolve them first via envsubst into a temporary yml.
+define _nfpm_main
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-main.yaml > nfpm-main.$(GOARCH).yaml && \
+		$(NFPM) pkg --config nfpm-main.$(GOARCH).yaml --packager $(1) --target ../$(DIST) && \
+		rm -f nfpm-main.$(GOARCH).yaml
+endef
+
+# The main package only needs the admin binary (no nginx module required).
+package-rpm: build-admin
+	$(call _nfpm_main,rpm)
+package-deb: build-admin
+	$(call _nfpm_main,deb)
+package-apk: build-admin
+	$(call _nfpm_main,apk)
+
+## package-plugin-nginx-fat - bundle .so for multiple nginx versions into one plugin.
+# Prereq: build-module-multi has generated .so for all versions (dist/multi-modules/<ver>/...).
+# postinstall picks the best match based on host nginx version.
+# One rpm/deb/apk handles any host whose nginx is one of PLUGIN_NGINX_VERSIONS.
+# Output filenames (nginx version is not embedded):
+#   dist/unmask-plugin-nginx-<unmask_ver>-1.<arch>.rpm
+#   dist/unmask-plugin-nginx_<unmask_ver>_<arch>.deb
+#   dist/unmask-plugin-nginx_<unmask_ver>_<arch>.apk
+package-plugin-nginx-fat: build-module-multi-all
+	mkdir -p $(DIST)/.tmp-pkg
+	# 1. Assemble the nfpm yml (generate the bundled .so list from build-module-multi output).
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-plugin-nginx-fat.yaml > nfpm-plugin-nginx-fat.$(GOARCH).yaml
+	# 2. Append the bundled .so list to contents.
+	#    OpenSSL 3 build (dist/multi-modules/<v>/...) -> /usr/share/unmask/plugin/openssl3/
+	#    OpenSSL 1.1 build (dist/multi-modules-openssl11/<v>/...) -> /usr/share/unmask/plugin/openssl11/
+	#    postinstall checks the host's libssl version and cp's the right one to /usr/lib/nginx/modules/.
+	@for d in $(MULTI_DIR)/*/; do \
+		v=$$(basename "$$d"); \
+		so="$$d/ngx_http_unmask_module.so"; \
+		[ -f "$$so" ] || continue; \
+		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl3/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  -> bundling nginx $$v (OpenSSL 3)"; \
+	done
+	@for d in $(MULTI_OPENSSL11_DIR)/*/; do \
+		v=$$(basename "$$d"); \
+		so="$$d/ngx_http_unmask_module.so"; \
+		[ -f "$$so" ] || continue; \
+		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl11/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  -> bundling nginx $$v (OpenSSL 1.1)"; \
+	done
+	@for d in $(MULTI_OPENSSL10_DIR)/*/; do \
+		v=$$(basename "$$d"); \
+		so="$$d/ngx_http_unmask_module.so"; \
+		[ -f "$$so" ] || continue; \
+		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl10/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  -> bundling nginx $$v (OpenSSL 1.0)"; \
+	done
+	@for d in $(MULTI_GLIBC212_DIR)/*/; do \
+		v=$$(basename "$$d"); \
+		so="$$d/ngx_http_unmask_module.so"; \
+		[ -f "$$so" ] || continue; \
+		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/glibc212/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  -> bundling nginx $$v (CentOS 6 / glibc 2.12)"; \
+	done
+	# 3. Build all 3 formats.
+	cd rpm && \
+		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager rpm --target ../$(DIST) && \
+		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager deb --target ../$(DIST) && \
+		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager apk --target ../$(DIST) && \
+		rm -f nfpm-plugin-nginx-fat.$(GOARCH).yaml
+	rm -rf $(DIST)/.tmp-pkg
+	@echo ""
+	@echo ">>> fat plugin output:"
+	@ls -lah $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-1.*.rpm \
+	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.deb \
+	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.apk 2>/dev/null
+
+## package-plugin-nginx - optional plugin for the nginx native module (rpm/deb/apk set).
+# Prereq: run `build-module NGINX_VERSION=<host nginx version>` once.
+# Output (a distro-agnostic .so placed at a staging path; postinstall cp's it
+# into nginx's --modules-path=, hence distro-agnostic):
+#   dist/unmask-plugin-nginx-<unmask_ver>-nginx_<X.Y.Z>.<arch>.rpm
+#   dist/unmask-plugin-nginx_<unmask_ver>-nginx_<X.Y.Z>_<arch>.deb
+#   dist/unmask-plugin-nginx_<unmask_ver>-nginx_<X.Y.Z>_<arch>.apk
+package-plugin-nginx: package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk
+
+# Shared macro: expand nfpm config + preinstall into a temporary yml.
+define _nfpm_plugin
+	mkdir -p $(DIST)/.tmp-pkg
+	sed "s|__NGINX_VERSION__|$(NGINX_VERSION)|g" rpm/scripts/preinstall-plugin-nginx.sh > $(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh
+	chmod +x $(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-plugin-nginx.yaml > nfpm-plugin-nginx.$(GOARCH).yaml && \
+		sed -i "s|./scripts/preinstall-plugin-nginx.sh|../$(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh|" nfpm-plugin-nginx.$(GOARCH).yaml && \
+		$(NFPM) pkg --config nfpm-plugin-nginx.$(GOARCH).yaml --packager $(1) --target ../$(DIST) && \
+		rm -f nfpm-plugin-nginx.$(GOARCH).yaml
+	rm -rf $(DIST)/.tmp-pkg
+endef
+
+package-plugin-nginx-rpm: build-module
+	$(call _nfpm_plugin,rpm)
+	# rpm: original name unmask-plugin-nginx-X.Y.Z-1.<arch>.rpm
+	#    -> new name unmask-plugin-nginx-X.Y.Z-nginx_A.B.C.<arch>.rpm
+	@for f in $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-1.*.rpm; do \
+		test -f "$$f" || continue; \
+		new=$$(echo "$$f" | sed "s|-1\\.\\([^.]*\\)\\.rpm$$|-nginx_$(NGINX_VERSION).\\1.rpm|"); \
+		mv "$$f" "$$new"; \
+		echo ">>> plugin rpm: $$new"; \
+	done
+
+package-plugin-nginx-deb: build-module
+	$(call _nfpm_plugin,deb)
+	# deb: original name unmask-plugin-nginx_X.Y.Z_<arch>.deb
+	#    -> new name unmask-plugin-nginx_X.Y.Z-nginx_A.B.C_<arch>.deb
+	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.deb; do \
+		test -f "$$f" || continue; \
+		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)_|"); \
+		mv "$$f" "$$new"; \
+		echo ">>> plugin deb: $$new"; \
+	done
+
+package-plugin-nginx-apk: build-module
+	$(call _nfpm_plugin,apk)
+	# apk: original name unmask-plugin-nginx_X.Y.Z_<arch>.apk
+	#    -> new name unmask-plugin-nginx_X.Y.Z-nginx_A.B.C_<arch>.apk
+	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.apk; do \
+		test -f "$$f" || continue; \
+		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)_|"); \
+		mv "$$f" "$$new"; \
+		echo ">>> plugin apk: $$new"; \
+	done
+
+# ----------------------------------------------------------------
+# unmask-web-<server> packages (drop a snippet into /etc/<httpd>/conf.d/).
+# After install, `https://host/unmask/admin/` immediately renders the UI
+# (zabbix pattern).  Distributed as separate rpm/deb/apk from the main
+# unmask; pick the web server you want and install it.
+# ----------------------------------------------------------------
+
+# Shared macro: run nfpm with one yaml + a given packager.
+define _nfpm_web
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-web-$(1).yaml > nfpm-web-$(1).$(GOARCH).yaml && \
+		$(NFPM) pkg --config nfpm-web-$(1).$(GOARCH).yaml --packager $(2) --target ../$(DIST) && \
+		rm -f nfpm-web-$(1).$(GOARCH).yaml
+endef
+
+## package-web-nginx  - generate the nginx conf.d snippet as rpm/deb/apk
+package-web-nginx:
+	$(call _nfpm_web,nginx,rpm)
+	$(call _nfpm_web,nginx,deb)
+	$(call _nfpm_web,nginx,apk)
+
+## package-web-apache - generate the Apache conf.d snippet as rpm/deb/apk
+package-web-apache:
+	$(call _nfpm_web,apache,rpm)
+	$(call _nfpm_web,apache,deb)
+	$(call _nfpm_web,apache,apk)
+
+## package-web-caddy  - generate the Caddy conf.d snippet as rpm/deb/apk
+package-web-caddy:
+	$(call _nfpm_web,caddy,rpm)
+	$(call _nfpm_web,caddy,deb)
+	$(call _nfpm_web,caddy,apk)
+
+## package-all   - generate rpm/deb/apk for both amd64 and arm64 in one run
+# Note: cross-compiling the nginx module (arm64 host != build host) requires
+# a GCC cross toolchain (aarch64-linux-gnu-gcc).  Without it, only the admin
+# binary is built for arm64.  If you build the .so on another host with
+# `make build-module GOARCH=arm64` and drop it into dist/, this target picks it up.
+package-all:
+	$(MAKE) package GOARCH=amd64
+	@if [ "$$(uname -m)" = "aarch64" ] || command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then \
+		echo ">> arm64 toolchain found, building arm64 packages"; \
+		$(MAKE) package GOARCH=arm64 CC=aarch64-linux-gnu-gcc; \
+	elif [ -f $(DIST)/ngx_http_unmask_module-linux-arm64.so ] && [ -f $(DIST)/unmask-admin-linux-arm64 ]; then \
+		echo ">> arm64 artifacts already present, packaging only"; \
+		$(MAKE) package-rpm GOARCH=arm64; \
+		$(MAKE) package-deb GOARCH=arm64; \
+		$(MAKE) package-apk GOARCH=arm64; \
+	else \
+		echo "!! arm64 cross toolchain not found and no prebuilt arm64 artifacts in $(DIST)/"; \
+		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
+	fi
+
+## docker        - unmask-admin Docker image (host arch). tag: unmask/admin:$(UNMASK_VERSION)
+docker:
+	docker build -t unmask/admin:$(UNMASK_VERSION) -t unmask/admin:latest \
+		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) .
+
+## docker-buildx - multi-arch image (amd64 + arm64).  To push to a registry,
+# pass DOCKER_REGISTRY=docker.io/youruser/.  Unset = local image only.
+DOCKER_REGISTRY ?=
+docker-buildx:
+	docker buildx build \
+		--platform linux/amd64,linux/arm64 \
+		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) \
+		-t $(DOCKER_REGISTRY)unmask/admin:$(UNMASK_VERSION) \
+		-t $(DOCKER_REGISTRY)unmask/admin:latest \
+		$(if $(DOCKER_REGISTRY),--push,--load) \
+		.
+
+## release       - batch-build main unmask + per-nginx-version plugin -> checksums.
+# Main package (admin only): amd64 + arm64 (if cross toolchain is available).
+# Plugin (nginx native module): one per version in NGINX_VERSIONS.
+# Default is latest stable + the highly-compatible 1.18 / 1.20.  To extend, pass via env.
+NGINX_VERSIONS ?= 1.20.2 1.18.0
+release: clean
+	@echo ">>> building release v$(UNMASK_VERSION)"
+	# Main package (admin only / no nginx-module)
+	$(MAKE) build-admin GOARCH=amd64
+	$(MAKE) package-rpm GOARCH=amd64
+	$(MAKE) package-deb GOARCH=amd64
+	$(MAKE) package-apk GOARCH=amd64
+	# arm64 (no cross toolchain needed = pure-Go)
+	$(MAKE) build-admin GOARCH=arm64
+	$(MAKE) package-rpm GOARCH=arm64
+	$(MAKE) package-deb GOARCH=arm64
+	$(MAKE) package-apk GOARCH=arm64
+	# Fat plugin (one package bundling .so for multiple nginx versions).
+	# postinstall picks the best match for host nginx, so one file ships everywhere.
+	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64 || \
+		echo "!!! fat plugin build failed (continuing)"
+	@echo ">>> generating checksums.txt"
+	cd $(DIST) && sha256sum unmask-admin-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
+	@echo ">>> release artifacts in $(DIST)/:"
+	@ls -la $(DIST)/
+
+## test          - go test (admin app) + plugin parser unit test
+test: test-plugin-parser
 	cd admin && go test ./...
+
+## test-plugin-parser - run the stand-alone test in nginx-module/src/ja4_parser_test.c
+.PHONY: test-plugin-parser
+test-plugin-parser:
+	gcc -std=gnu99 -Wall -Wextra \
+		nginx-module/src/ja4_parser.c \
+		nginx-module/src/ja4_parser_test.c \
+		-o $(DIST)/ja4_parser_test
+	$(DIST)/ja4_parser_test
+
+## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
+# Examples:
+#   make e2e BASE_URL=https://localhost:8443
+#   make e2e BASE_URL=https://demo.example.com:8443
+e2e:
+	./e2e/run.sh
+
+## e2e-docker    - bring nginx + admin up via docker-compose and run run.sh (for CI / other hosts).
+# Details in e2e/docker/README.md.  docker (or podman-compose) required.
+e2e-docker:
+	docker compose -f e2e/docker/docker-compose.yml up -d --build --wait
+	@trap 'docker compose -f e2e/docker/docker-compose.yml down -v' EXIT; \
+	    BASE_URL=https://localhost:8443 ./e2e/run.sh
+
+e2e-docker-down:
+	docker compose -f e2e/docker/docker-compose.yml down -v
 
 ## vet           - go vet
 vet:
 	cd admin && go vet ./...
 
-## fmt           - gofmt -l (= unstaged 未整形 ファイル一覧)
+## fmt           - gofmt -l (list of unformatted files)
 fmt:
 	cd admin && gofmt -l . | tee /dev/stderr | (! read x)
 
-## clean         - dist/, build/ を消す
+## clean         - remove dist/, build/
 clean:
 	rm -rf $(DIST) build

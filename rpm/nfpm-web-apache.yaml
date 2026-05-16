@@ -1,0 +1,87 @@
+# unmask-web-apache — drops the Apache HTTP Server web-integration snippet
+# under /etc/httpd/conf.d/ (RHEL) or /etc/apache2/conf-available/ (Debian).
+#
+# default mode = forward-auth via mod_lua + mod_proxy_http (= no ja4 module
+# required).  See /usr/share/unmask/snippets/apache-forward-auth.conf for the
+# full spec.
+
+name: unmask-web-apache
+arch: ${UNMASK_ARCH}
+platform: linux
+version: ${UNMASK_VERSION}
+section: net
+priority: optional
+maintainer: unmask maintainers <oss@example.com>
+description: |
+  Apache HTTP Server web integration for unmask.
+  Drops a config in /etc/httpd/conf.d/ so /unmask/admin/, /unmask/challenge/
+  and the forward-auth gateway are reachable through your existing httpd.
+  After install, restart httpd and open https://your-host/unmask/admin/.
+vendor: unmask
+homepage: https://github.com/unmask-sh/unmask
+license: Apache-2.0
+
+rpm:
+  group: System Environment/Daemons
+  signature:
+    key_file: ${NFPM_RPM_KEY_FILE:-}
+
+deb:
+  fields:
+    Vcs-Browser: https://github.com/unmask-sh/unmask
+
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}
+
+depends:
+  - unmask
+
+# Apache package names depend on distro:
+#   - RHEL:   httpd + mod_lua + mod_proxy_http (= mod_lua is a separate rpm)
+#   - Debian: apache2 + libapache2-mod-lua
+#   - Alpine: apache2 + apache2-mod-lua + apache2-proxy
+overrides:
+  rpm:
+    depends:
+      - unmask
+      - httpd
+      - mod_lua
+  deb:
+    depends:
+      - unmask
+      - apache2
+      - libapache2-mod-lua
+  apk:
+    depends:
+      - unmask
+      - apache2
+      - apache2-mod-lua
+      - apache2-proxy
+
+# Destination: /etc/httpd/conf.d/ on RHEL-family, /etc/apache2/conf-available/
+# on Debian-family.  nfpm has no conditional, so RPM is assumed RHEL layout
+# and deb is assumed Debian layout; per-packager content lists require overrides.
+# For now, default to RHEL layout (= /etc/httpd).  Debian users handle it
+# manually:
+#   cp /etc/httpd/conf.d/unmask-web.conf /etc/apache2/conf-available/unmask-web.conf
+#   && a2enconf unmask-web
+contents:
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /etc/httpd/conf.d/unmask-web.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/httpd/unmask.lua
+    file_info:
+      mode: 0644
+  - src: /usr/share/unmask/snippets/apache-forward-auth.conf
+    dst: /etc/apache2/conf-available/unmask-web.conf
+    type: symlink
+    packager: deb
+
+scripts:
+  postinstall: ./scripts/postinstall-web-apache.sh
+  postremove:  ./scripts/postremove-web-apache.sh

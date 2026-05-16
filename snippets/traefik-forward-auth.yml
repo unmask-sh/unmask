@@ -1,0 +1,52 @@
+# unmask ForwardAuth for Traefik v2 / v3.
+#
+# Traefik dynamic config (= file or kubernetes IngressRoute).
+# This file is a sample for the file provider.
+
+http:
+  middlewares:
+    unmask-auth:
+      forwardAuth:
+        address: "http://127.0.0.1:9477/unmask/api/check"
+        # Forward admin response headers downstream (= for multi-tenant use).
+        authResponseHeaders:
+          - "X-Unmask-Action"
+          - "X-Unmask-Reason"
+        # Pass the original request headers into the subrequest.  Traefik
+        # automatically sets X-Forwarded-*, so admin can recover client IP /
+        # Host from X-Forwarded-For / X-Forwarded-Host.
+
+  routers:
+    your-app:
+      rule: "Host(`example.com`)"
+      service: your-app
+      middlewares:
+        - unmask-auth
+      tls: {}
+
+    # /unmask/* (= challenge HTML / verify API) goes directly to admin.
+    unmask-admin:
+      rule: "Host(`example.com`) && PathPrefix(`/unmask/`)"
+      service: unmask-admin
+      tls: {}
+      priority: 100  # higher than your-app to win on /unmask/*
+
+  services:
+    your-app:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:8080"
+
+    unmask-admin:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9477"
+
+# For redirect-to-challenge, have admin return 401 + Location: header.
+# Traefik's forwardAuth passes the 401 through to the client, and the client
+# is redirected to /unmask/challenge/.
+#
+# For a hard block (= 403), forwardAuth returns 403 as-is.  The client sees
+# the 403 body emitted by unmask-admin.
+
+# Feature limit: only JA4 is unavailable.  All other features match native mode.

@@ -1,20 +1,27 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="{{ .Lang }}">
 <head>
 <meta charset="utf-8">
-<title>unmask · bot challenge debug</title>
+<title>unmask · {{ t .Lang "dashboard.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
 <meta name="robots" content="noindex, nofollow">
 <style>
-/* base: html font-size = 16px (= browser default). 全 size は rem 相対. */
-html{font-size:16px}
+/* base: html font-size = 16px (= browser default). all sizes are rem-relative. */
+html{font-size:16px;overflow-y:scroll}
 *{box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
 .unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
 .unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem;letter-spacing:.02em}
 .unmask-header a.logo:hover{color:#93c5fd}
-.unmask-header a.logo svg{display:block;color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
 .unmask-header .spacer{flex:1}
-.unmask-header .crumb{font-size:.85rem;color:#94a3b8}
+/* breadcrumbs (= below the header, at the start of the white body region).  Muted color. */
+/* primary nav to the right of the logo (= text-link style. plain menu, no button feel).  Shown on every admin page. */
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none;transition:color .1s}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
 .unmask-main{padding:1.5rem 2rem}
 h1{font-size:1.5rem;margin:0 0 .2rem}
 .meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
@@ -27,37 +34,46 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-table{font-size:.95rem;width:100%;border-collapse:collapse}
 .bcd-table th,.bcd-table td{padding:.3rem .65rem;text-align:left;border-bottom:1px solid #f1f5f9;vertical-align:top}
 .bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:.85rem}
-.bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-/* .bcd-id: visual は bcd-num と同じだが「ID/ラベル」 列で
-   集計値ではない. 0 件判定 (= bcd-zero-row 判定) から除外する. */
-.bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* bcd-num / bcd-id specificity must be raised to match selectors under bcd-table,
+   otherwise text-align:left wins (= .bcd-table th is 0,1,1, .bcd-num is 0,1,0). */
+.bcd-table th.bcd-num,.bcd-table td.bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* .bcd-id: visually identical to bcd-num but used for the "ID/label" column,
+   which isn't an aggregated value. Excluded from the zero-row check (= bcd-zero-row detection). */
+.bcd-table th.bcd-id,.bcd-table td.bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.875rem}
-/* card 内 description (= 本家の <p style="font-size:11px;color:#64748b"> 同等) */
+/* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
 .bcd-card .desc{font-size:.7rem;color:#64748b;margin:0 0 .5rem;line-height:1.55}
 .bcd-card .desc code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace}
 .bcd-card .desc strong{font-weight:700}
-/* source badge (= h2 横の 🗄 DB / 📜 nginx log 等) */
+/* source badge (= shown next to h2 — DB / nginx log / etc.) */
 .src-badge{display:inline-block;padding:.05rem .35rem;border-radius:.2rem;font-size:.65rem;font-weight:600;vertical-align:middle;margin-left:.3rem}
 .src-badge.db{background:#dbeafe;color:#1e40af}
 .src-badge.log{background:#fef3c7;color:#92400e}
-/* 本家の TOTAL / rate_limit 行スタイル */
+/* TOTAL / rate_limit row styles */
 tr.bcd-rl{background:#fef3c7}
 tr.bcd-total{background:#e0e7ff;font-weight:700;border-top:2px solid #6366f1}
 tr.bcd-total td{font-weight:700}
-/* dotted-underline help span (= 本家の bootstrap popover style 互換) */
+/* dotted-underline help span (= bootstrap popover style compatible) */
 .help-dotted{cursor:help;border-bottom:1px dotted #94a3b8}
-/* table 全体 — 本家 .table .table-sm 相当の最低限 */
+/* whole-table baseline — minimal .table .table-sm equivalent */
 table.bcd-table{margin-bottom:0;color:#212529}
 table.bcd-table > tbody > tr > td,
 table.bcd-table > thead > tr > th{border-bottom:1px solid #e5e7eb;padding:.4rem .6rem;font-size:.85rem}
 table.bcd-table > thead > tr > th{border-bottom:2px solid #cbd5e1;background:#f8fafc;color:#475569;font-weight:600}
-/* numeric cell 色 (本家と同じトーン) */
+/* numeric cell colors (same tones across the app) */
 .n-muted{color:#64748b}
-.n-faint{color:#94a3b8}
-.n-zero{color:#cbd5e1}
 .n-warn{color:#f59e0b;font-weight:600}
 .n-stealth{color:#dc2626;font-weight:700}
 .bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
+/* per-country chart (= HTML version.  Grid of PNG flag (= /static/flags/<cc>.png) + bar + count). */
+.country-chart{display:grid;gap:.18rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem}
+.country-row{display:flex;align-items:center;gap:.4rem;line-height:1.1}
+.country-row .cc-label{color:#475569;white-space:nowrap;display:flex;align-items:center;gap:.35em;flex:0 0 auto}
+.country-row .cc-bar-wrap{flex:1 1 0}
+.country-row .cc-flag{width:18px;height:12px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.08);display:inline-block;vertical-align:middle;flex-shrink:0}
+.country-row .cc-bar-wrap{position:relative;background:#f1f5f9;border-radius:.1rem;height:.7rem}
+.country-row .cc-bar{background:#3b82f6;height:100%;border-radius:.1rem;min-width:1px;transition:width .25s}
+.country-row .cc-count{color:#0f172a;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
 tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
 tr.total td.bcd-num{font-weight:700}
 tr.rl-row td{background:#fff7ed}
@@ -66,13 +82,11 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-/* 0 件 row 折りたたみ. デフォルト = 隠す (= ノイズ抑制).
-   .bcd-zero-shown が card に付いたとき "表示" 状態. user の toggle 状態は
-   localStorage に保存される (= 再読込・他 site 遷移後も保持). */
+/* zero-row collapse. default = hidden (= reduce noise).
+   "shown" state when .bcd-zero-shown is set on the card. User toggle state is
+   persisted to localStorage (= survives reload and navigation). */
 .bcd-zero-row{display:none}
 .bcd-zero-shown .bcd-zero-row{display:table-row}
-.bcd-zero-toggle{font-size:.85rem;color:#64748b;cursor:pointer;padding:.4rem 0 0;user-select:none}
-.bcd-zero-toggle:hover{color:#0f172a;text-decoration:underline}
 .bcd-card .bcd-table{visibility:hidden}
 .bcd-card .bcd-table.bcd-ready{visibility:visible}
 .flex{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
@@ -82,92 +96,157 @@ dl.flow{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.4rem 1rem}
 dl.flow dt{font-weight:700;color:#475569}
 dl.flow dd{margin:0;color:#334155}
 .muted{color:#94a3b8}
-#ip-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:.4rem;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);padding:.6rem .9rem;font-size:.9rem;min-width:15rem;max-width:24rem;z-index:100;display:none}
-#ip-popover h3{margin:0 0 .3rem;font-size:1rem}
-#ip-popover dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem}
-#ip-popover dt{color:#64748b}
-#ip-popover dd{margin:0}
+/* padding-right always reserves space for the close button (= pin toggle doesn't shift the text wrap).
+   styling applies to both primary and clone via the data-popover attribute (= shared across many pins).
+   primary (= hover transient) sits at a higher z-index, clone (= pinned) at a lower one
+   -> so a new hover can render in front of a pinned popover. */
+/* popover base lives in /static/popover-pin.css.
+ * Only dashboard-specific deltas override here (= font-size / line-height / "ip" h3 size). */
+[data-popover="ip"]{font-size:.9rem}
+[data-popover="ip"] h3{font-size:1rem;font-family:inherit}
 .ipclick{cursor:help;text-decoration:underline dotted #94a3b8}
-/* 説明 popover (= 本家 example.invalid の bootstrap popover 相当) */
+/* unified IP display across all cards: "flag + IP + popover" (= same as bans / hunt). */
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 [data-help]{cursor:help;text-decoration:underline dotted #94a3b8}
 .tag[data-help]{text-decoration:none}
-#help-popover{position:absolute;background:#fff;border:1px solid #cbd5e1;border-radius:.4rem;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);padding:.7rem 1rem;font-size:.95rem;line-height:1.55;min-width:16rem;max-width:30rem;z-index:200;display:none;color:#0f172a}
-#help-popover code{background:#f1f5f9;padding:.05em .35em;border-radius:.2rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
-#help-popover b{color:#0f172a}
-#help-popover br + br{display:block;content:"";margin-top:.4em}
+[data-popover="help"]{padding:.7rem 5.5rem .7rem 1rem;font-size:.95rem;line-height:1.55;min-width:16rem}
+[data-popover="help"] b{color:#0f172a}
+[data-popover="help"] br + br{display:block;content:"";margin-top:.4em}
+
+/* pinned popover styling (= click-pin / drag / collapse / close) lives in
+   /static/popover-pin.css. This page links it via the shared partial. */
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+
+/* funnel-grouped: per-column-group coloring for the challenge funnel table.
+   td/th bg is made transparent so colgroup <col> backgrounds shine through,
+   and highlight rows (= bcd-rl / bcd-total) keep their own color via !important. */
+.funnel-grouped th,.funnel-grouped td{background:transparent}
+.funnel-grouped tr.bcd-rl td{background:#fef3c7 !important}
+.funnel-grouped tr.bcd-total td{background:#e0e7ff !important}
+.funnel-grouped thead tr.funnel-sg th{font-size:.7rem;color:#475569;font-weight:600;padding:.3rem .5rem;text-align:center;letter-spacing:.02em;border-bottom:1px solid #cbd5e1}
+/* group boundary = vertical line on the left of columns 2 / 7 / 10 / 12 */
+.funnel-grouped tr > *:nth-child(2),
+.funnel-grouped tr > *:nth-child(7),
+.funnel-grouped tr > *:nth-child(10),
+.funnel-grouped tr > *:nth-child(12){border-left:1px solid #cbd5e1}
+
 </style>
+{{ template "popover_pin_assets" . }}
 </head>
 <body>
 
 <header class="unmask-header">
   <a href="/unmask/admin/" class="logo" title="unmask · admin top">
-    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-      <!-- circle outline -->
-      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/>
-      <!-- left half = masked (filled), right half = unmasked (empty) -->
-      <path d="M12 2 A 10 10 0 0 0 12 22 Z" fill="currentColor"/>
-    </svg>
+    <img src="/unmask/static/icon.png" width="22" height="22" alt="" style="vertical-align:middle;border-radius:.25rem">
     unmask
   </a>
-  <span class="crumb">/ <a href="/unmask/admin/" style="color:inherit;text-decoration:none">sites</a> / <b style="color:#f1f5f9;font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  <nav class="nav">
+    <a href="/unmask/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="/unmask/admin/stats/" class="active">{{ t .Lang "nav.stats" }}</a>
+    <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="/unmask/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
   <span class="spacer"></span>
+  {{ template "host_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
 </header>
-
 <main class="unmask-main">
 
-<h1>bot challenge debug
-  <span style="font-size:.85rem;color:#64748b;font-weight:normal">— site <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+<h1>{{ t .Lang "dashboard.title" }}
+  <span style="font-size:.85rem;color:#64748b;font-weight:normal">— {{ t .Lang "nav.sites" }} <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
 </h1>
-<p class="meta">{{.RangeText}} / DB driver = {{.Driver}}</p>
+<p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }} / {{ t .Lang "dashboard.driver" }} = {{.Driver}}</p>
 
 <div class="bcd-controls">
-  <span style="color:#64748b">集計期間:</span>
-  <a href="?range=24h" {{if eq .Range "24h"}}class="active"{{end}}>24h</a>
-  <a href="?range=7d"  {{if eq .Range "7d" }}class="active"{{end}}>7d</a>
-  <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>30d</a>
+  <span style="color:#64748b">{{ t .Lang "dashboard.range_label" }}</span>
+  <a href="?range=24h" {{if eq .Range "24h"}}class="active"{{end}}>{{ t .Lang "dashboard.range_24h" }}</a>
+  <a href="?range=7d"  {{if eq .Range "7d" }}class="active"{{end}}>{{ t .Lang "dashboard.range_7d" }}</a>
+  <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>{{ t .Lang "dashboard.range_30d" }}</a>
 </div>
 
-<!-- 1) チャレンジ ファネル -->
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.overview" }}</div>
+
+<!-- 1) challenge funnel -->
 <div class="bcd-card">
-  <h2>チャレンジ ファネル (JA4 verdict 別) <span class="src-badge db" title="unmask_event DB 由来 (JS beacon)">🗄 DB</span></h2>
-  <p class="desc">
-    verdict 別に <code>serve → load → pow → captcha → verify_ok</code> の遷移. JA4 hit (= placeholder 書き換えで isJa4Hit=1) では PoW スキップして即 captcha に進むので pow は 0 になる.<br>
-    <strong>rate_limit</strong> 行は ja4_verdict 横断の疑似 verdict (= 100 r/min 超え経由 IP の挙動を IP-join で集計). <strong>TOTAL</strong> 行は ja4 verdict 別の合算 (= rate_limit 重複除外).<br>
-    <strong>silent</strong> (= serve - load) = challenge 配信されたが JS が起動しなかった (Cookie 拒否 / 古い browser / HEAD method / scraper).
-  </p>
+  <h2>{{ t .Lang "dashboard.card.funnel" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.funnel.desc") }}</span></span></h2>
   <div style="overflow-x:auto">
-  <table class="bcd-table">
-    <thead><tr>
-      <th>verdict</th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.serve">serve</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.rl">rl</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.load">load</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.uniq">uniq IP</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.silent">silent</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.stealth">stealth</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow">pow</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha">captcha</span></th>
+  <table class="bcd-table funnel-grouped">
+    <colgroup>
+      <col style="background:#f8fafc">
+      <col span="5" style="background:#eff6ff">
+      <col span="3" style="background:#fef2f2">
+      <col span="2" style="background:#f0fdf4">
+      <col span="4" style="background:#f8fafc">
+    </colgroup>
+    <thead>
+      <tr class="funnel-sg">
+        <th></th>
+        <th colspan="5">{{ t .Lang "funnel.col_group.funnel" }}</th>
+        <th colspan="3">{{ t .Lang "funnel.col_group.anomaly" }}</th>
+        <th colspan="2">{{ t .Lang "funnel.col_group.rate" }}</th>
+        <th colspan="4">{{ t .Lang "funnel.col_group.meta" }}</th>
+      </tr>
+      <tr>
+      <th>{{ t .Lang "th.verdict" }}</th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.serve">{{ t .Lang "th.serve" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.load">{{ t .Lang "th.load" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow">{{ t .Lang "th.pow" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha">{{ t .Lang "th.captcha" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ok">verify_ok</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ng">verify_ng</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.cookie_err">cookie_err</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.js_error">JS error</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_rate">PoW率</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha_rate">CAPTCHA率</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_rate">{{ t .Lang "th.pow_rate" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha_rate">{{ t .Lang "th.captcha_rate" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.rl" style="color:#92400e;font-weight:600">rate_limit</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.uniq">{{ t .Lang "th.uniq_ip" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.silent">{{ t .Lang "th.silent" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.stealth">{{ t .Lang "th.stealth" }}</span></th>
     </tr></thead>
     <tbody>
       {{range .Funnel}}
       <tr {{if eq .Verdict "TOTAL"}}class="bcd-total"{{else if eq .Verdict "rate_limit"}}class="bcd-rl"{{end}}>
         <td>
-          {{if eq .Verdict "rate_limit"}}<span class="help-dotted" data-help-key="verdict.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:700">rate_limit</span>
-          {{else if eq .Verdict "TOTAL"}}<span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
-          {{else}}<span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>{{end}}
+          {{- if eq .Verdict "rate_limit" -}}
+            <span class="help-dotted" data-help-key="verdict.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:700">rate_limit</span>
+          {{- else if eq .Verdict "TOTAL" -}}
+            <span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
+          {{- else if eq .Verdict "ok" -}}
+            <span class="tag ok">ok</span>
+          {{- else if eq .Verdict "(none)" -}}
+            <span class="tag none">none</span>
+          {{- else -}}
+            {{- /* badge is decided by the settings-derived action enum (= source of truth).
+                  No prefix fallback (= verdicts not classified by the current spec render
+                  with the label only, no badge). */ -}}
+            {{- $act := index $.VerdictAction .Verdict -}}
+            {{- if eq $act "bot" -}}
+              <span class="tag bot">bot</span>
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- else if eq $act "suspect" -}}
+              <span class="tag suspect">suspect</span>
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- else -}}
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- end -}}
+          {{- end -}}
         </td>
         <td class="bcd-num n-muted">{{comma .Serve}}</td>
-        <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{else}} n-zero{{end}}">{{comma .ServeRL}}</td>
         <td class="bcd-num">{{comma .Load}}</td>
-        <td class="bcd-num n-muted">{{comma .LoadUniq}}</td>
-        <td class="bcd-num n-faint">{{comma .Silent}}</td>
-        <td class="bcd-num{{if gt .Stealth 0}} n-stealth{{end}}">{{comma .Stealth}}</td>
         <td class="bcd-num">{{comma .PoW}}</td>
         <td class="bcd-num">{{comma .Captcha}}</td>
         <td class="bcd-num">{{comma .VerifyOK}}</td>
@@ -176,6 +255,10 @@ dl.flow dd{margin:0;color:#334155}
         <td class="bcd-num">{{comma .JSError}}</td>
         <td class="bcd-num">{{rate .PoW .Load}}</td>
         <td class="bcd-num">{{rate .VerifyOK .Captcha}}</td>
+        <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{end}}">{{comma .ServeRL}}</td>
+        <td class="bcd-num">{{comma .LoadUniq}}</td>
+        <td class="bcd-num">{{comma .Silent}}</td>
+        <td class="bcd-num{{if gt .Stealth 0}} n-stealth{{end}}">{{comma .Stealth}}</td>
       </tr>
       {{end}}
     </tbody>
@@ -183,88 +266,31 @@ dl.flow dd{margin:0;color:#334155}
   </div>
 </div>
 
-<!-- 2) レート制限ヒット (= rl=1 経由 serve) -->
+<!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
 <div class="bcd-card">
-  <h2>レート制限ヒット (100 r/min 超過 → CAPTCHA 強制) <span class="src-badge db" title="phase=serve + payload.rl=1 を集計">🗄 DB</span></h2>
-  <p class="desc">
-    app path で 1 IP / 100 req/min を超過したリクエスト (= 専用 CAPTCHA 直行で PoW スキップ).
-    除外: 過去 3 日 CAPTCHA 通過済 / 正規検索 bot UA / Google 公式 IP.
-    {{if .RLSummary.From}}<br><b>集計対象期間</b>: {{.RLSummary.From}} 〜 {{.RLSummary.To}} JST{{end}}
-    / <b>合計ヒット数</b>: {{comma .RLSummary.Total}}
-  </p>
-  <div style="display:grid;grid-template-columns:7fr 5fr;gap:1rem">
-    <div>
-      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">IP 別 (top 30)</h6>
-      <table class="bcd-table">
-        <thead><tr>
-          <th><span class="help-dotted" data-help-key="rl.ip">IP</span></th>
-          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.count">件数</span></th>
-          <th><span class="help-dotted" data-help-key="rl.ua">UA</span></th>
-          <th><span class="help-dotted" data-help-key="rl.last_seen">last seen</span></th>
-        </tr></thead>
-        <tbody>
-          {{range .RLIPs}}
-          <tr>
-            <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-            <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
-            <td class="bcd-mono">{{.UA}}</td>
-            <td class="bcd-mono">{{.LastSeen}}</td>
-          </tr>
-          {{else}}
-          <tr><td colspan="4" class="muted">該当なし</td></tr>
-          {{end}}
-        </tbody>
-      </table>
-    </div>
-    <div>
-      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">path 別 (top 30)</h6>
-      <table class="bcd-table">
-        <thead><tr>
-          <th><span class="help-dotted" data-help-key="rl.path">path</span></th>
-          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.path_count">件数</span></th>
-        </tr></thead>
-        <tbody>
-          {{range .RLPaths}}
-          <tr>
-            <td class="bcd-mono rl-path-cell" data-path="{{.Path}}">{{.Path}}</td>
-            <td class="bcd-num">{{comma .Count}}</td>
-          </tr>
-          {{else}}
-          <tr><td colspan="2" class="muted">該当なし</td></tr>
-          {{end}}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
-<!-- 3) cookie 通過状況 (= 本家相当の 4 区分) -->
-<div class="bcd-card">
-  <h2>cookie 通過状況 <span class="src-badge db" title="unmask_event DB 由来 (load phase)">🗄 DB</span></h2>
-  <p class="desc">
-    challenge HTML 起動時 (= load phase) の <code>cookie_bv</code> / <code>cookie_br</code> 持参状況で 4 区分に分類. <code>captcha</code> format = HMAC 署名済 (3 日免除), <code>br</code> only = PoW 通過版.
-  </p>
+  <h2>{{ t .Lang "dashboard.card.cookie_status" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie.desc") }}</span></span></h2>
   <table class="bcd-table">
-    <thead><tr><th>区分</th><th class="bcd-num">件数</th><th>説明</th></tr></thead>
+    <thead><tr><th>{{ t .Lang "th.section" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.note" }}</th></tr></thead>
     <tbody>
       {{range .CookieRows}}
       <tr>
-        <td{{if .Color}} style="color:{{.Color}}"{{end}}>{{if eq .Kind "total"}}<b>{{.Label}}</b>{{else if .Color}}<b>{{.Label}}</b>{{else}}{{.Label}}{{end}}</td>
+        <td{{if .Color}} style="color:{{.Color}}"{{end}}>{{if eq .Kind "total"}}<b>{{ t $.Lang (printf "cookie.row.%s" .Kind) }}</b>{{else if .Color}}<b>{{ t $.Lang (printf "cookie.row.%s" .Kind) }}</b>{{else}}{{ t $.Lang (printf "cookie.row.%s" .Kind) }}{{end}}</td>
         <td class="bcd-num"{{if eq .Kind "pow_passed"}} style="color:#0ea5e9;font-weight:bold"{{else if eq .Kind "total"}} style="font-weight:bold"{{end}}>{{comma .Count}}</td>
-        <td style="font-size:.88rem;color:#475569">{{safeHTML .Description}}</td>
+        <td style="font-size:.88rem;color:#475569">{{ safeHTML (t $.Lang (printf "cookie.desc.%s" .Kind)) }}</td>
       </tr>
       {{end}}
     </tbody>
   </table>
 </div>
 
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.signals" }}</div>
+
 <div class="flex">
-  <!-- 3) flags 分布 -->
+  <!-- 3) flags distribution -->
   <div class="bcd-card">
-    <h2>flags 分布 (load phase) <span class="help-dotted" data-help-key="flags.flags" style="color:#94a3b8;border:none;font-size:.9rem;font-weight:normal">?</span></h2>
-    <p class="desc">bit値: 1=webdriver, 2=plugins空, 4=languages空, 8=screen=0, 16=Chrome+!window.chrome</p>
+    <h2>{{ t .Lang "dashboard.card.flags" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "help.flags.flags") }}</span></span></h2>
     <table class="bcd-table">
-      <thead><tr><th>flags (bin)</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th><th>意味</th></tr></thead>
+      <thead><tr><th>{{ t .Lang "th.flags_bin" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th><th>{{ t .Lang "th.meaning" }}</th></tr></thead>
       <tbody>
         {{range .FlagsRows}}
         <tr>
@@ -278,11 +304,11 @@ dl.flow dd{margin:0;color:#334155}
     </table>
   </div>
 
-  <!-- 4) JA4 verdict 分布 -->
+  <!-- 4) JA4 verdict distribution -->
   <div class="bcd-card">
-    <h2>JA4 verdict 分布</h2>
+    <h2>{{ t .Lang "dashboard.card.verdict_dist" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.verdict_dist.desc") }}</span></span></h2>
     <table class="bcd-table">
-      <thead><tr><th>verdict</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th></tr></thead>
+      <thead><tr><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
       <tbody>
         {{range .VerdictDist}}
         <tr>
@@ -296,274 +322,313 @@ dl.flow dd{margin:0;color:#334155}
   </div>
 </div>
 
-<!-- 5) JA4 hit 判定 -->
+<!-- 5) forced-CAPTCHA decisions (by reason) -->
 <div class="bcd-card">
-  <h2>JA4 hit 判定 (load phase)</h2>
-  <p class="desc">challenge HTML JS が <code>/*__JA4_HIT__*/0</code> placeholder を見て nginx の JA4 verdict を判別. 1=PoW スキップ → captcha 直行, 0=通常 PoW.</p>
+  <h2>{{ t .Lang "dashboard.card.captcha_force" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_force.desc") }}</span></span></h2>
   <table class="bcd-table">
-    <thead><tr><th>kind</th><th class="bcd-num">件数</th><th class="bcd-num">uniq IP</th></tr></thead>
+    <thead><tr><th>{{ t .Lang "th.kind" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th><th>{{ t .Lang "th.meaning" }}</th></tr></thead>
     <tbody>
       {{range .HitRows}}
       <tr>
         <td>
-          {{if eq .Kind "ja4_hit"}}<span class="help-dotted" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
-          {{else if eq .Kind "normal"}}<span class="help-dotted" style="color:#16a34a;border-bottom-color:#16a34a">{{.Kind}}</span>
+          {{if eq .Kind "none"}}<span class="help-dotted" style="color:#16a34a;border-bottom-color:#16a34a">{{.Kind}}</span>
+          {{else if eq .Kind "ja4_bot"}}<span class="help-dotted" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "honeypot"}}<span class="help-dotted" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "banned"}}<span class="help-dotted" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "protected"}}<span class="help-dotted" style="color:#1d4ed8;border-bottom-color:#1d4ed8">{{.Kind}}</span>
+          {{else if eq .Kind "rate_limit"}}<span class="help-dotted" style="color:#92400e;border-bottom-color:#92400e;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "test"}}<span class="help-dotted" style="color:#7c3aed;border-bottom-color:#7c3aed">{{.Kind}}</span>
           {{else}}<span class="help-dotted" style="color:#94a3b8">{{.Kind}}</span>{{end}}
         </td>
         <td class="bcd-num">{{comma .Count}}</td>
         <td class="bcd-num">{{comma .UniqIP}}</td>
+        <td class="muted" style="font-size:.85rem">{{ t $.Lang (printf "captcha_force.kind.%s" .Kind) }}</td>
       </tr>
       {{end}}
     </tbody>
   </table>
 </div>
 
-<!-- 6) reload ループ検出 -->
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.watchlist" }}</div>
+
+<!-- 2) rate-limit hits (= serves arriving via rl=1) -->
 <div class="bcd-card">
-  <h2>reload ループ検出 (同 IP で load phase の reload_count ≥2)</h2>
-  <table class="bcd-table">
-    <thead><tr><th>IP</th><th class="bcd-num">件数</th><th class="bcd-num">max reload</th><th class="bcd-num">max flags</th><th>UA</th><th>last seen</th></tr></thead>
-    <tbody>
-      {{range .LoopRows}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-num">{{comma .MaxReload}}</td>
-        <td class="bcd-num">{{.MaxFlags}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
-        <td class="bcd-mono">{{.LastSeen}}</td>
-      </tr>
-      {{else}}
-      <tr><td colspan="6" class="muted">該当なし</td></tr>
-      {{end}}
-    </tbody>
-  </table>
+  <h2>{{ t .Lang "dashboard.card.rate_limit" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.rate_limit.desc") }}</span></span></h2>
+  <p class="desc">
+    {{if .RLSummary.From}}{{ safeHTML (tf .Lang "dashboard.rl.summary_period" .RLSummary.From .RLSummary.To) }} / {{end}}{{ safeHTML (tf .Lang "dashboard.rl.summary_total" (comma .RLSummary.Total)) }}
+  </p>
+  <div style="display:grid;grid-template-columns:7fr 5fr;gap:1rem">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.ip_top" }}</h6>
+      <table class="bcd-table">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.ip">{{ t .Lang "th.ip" }}</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.count">{{ t .Lang "th.count" }}</span></th>
+          <th><span class="help-dotted" data-help-key="rl.ua">{{ t .Lang "th.ua" }}</span></th>
+          <th><span class="help-dotted" data-help-key="rl.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
+        </tr></thead>
+        <tbody>
+          {{range .RLIPs}}
+          <tr>
+            <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+            <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
+            <td class="bcd-mono">{{.UA}}</td>
+            <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.path_top" }}</h6>
+      <table class="bcd-table">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.path">{{ t .Lang "th.path" }}</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.path_count">{{ t .Lang "th.count" }}</span></th>
+        </tr></thead>
+        <tbody>
+          {{range .RLPaths}}
+          <tr>
+            <td class="bcd-mono rl-path-cell" data-path="{{.Path}}">{{.Path}}</td>
+            <td class="bcd-num">{{comma .Count}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="2" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
-<!-- 7) CAPTCHA 失敗 IP ランキング -->
+<!-- 7) CAPTCHA failure IP ranking -->
 <div class="bcd-card">
-  <h2>CAPTCHA 失敗 IP ランキング <span class="src-badge db" title="unmask_event DB 由来">🗄 DB</span></h2>
+  <h2>{{ t .Lang "dashboard.card.captcha_fail" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
   <table class="bcd-table">
     <thead><tr>
-      <th><span class="help-dotted" data-help-key="vng.ip">IP</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">total</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.behavioral">behavioral</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.math">math</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.avg_score">avg score</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ip">{{ t .Lang "th.ip" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">{{ t .Lang "th.total" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.behavioral">{{ t .Lang "th.behavioral" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.math">{{ t .Lang "th.math" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.avg_score">{{ t .Lang "th.avg_score" }}</span></th>
       <th><span class="help-dotted" data-help-key="vng.ja4">JA4</span></th>
-      <th><span class="help-dotted" data-help-key="vng.ua">UA</span></th>
-      <th><span class="help-dotted" data-help-key="vng.last_seen">last seen</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ua">{{ t .Lang "th.ua" }}</span></th>
+      <th><span class="help-dotted" data-help-key="vng.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
     </tr></thead>
     <tbody>
       {{range .VerifyNG}}
       <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td class="bcd-num{{if ge .Total 5}} n-stealth{{end}}">{{comma .Total}}</td>
         <td class="bcd-num">{{comma .Behavioral}}</td>
         <td class="bcd-num{{if gt .Math 0}} n-stealth{{end}}">{{comma .Math}}</td>
         <td class="bcd-num n-muted">{{score .AvgScore}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.JA4}}">{{.JA4}}</span></td>
         <td class="bcd-mono">{{.UA}}</td>
-        <td class="bcd-mono">{{.LastSeen}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
-      <tr><td colspan="8" class="muted">該当なし</td></tr>
+      <tr><td colspan="8" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
 </div>
 
-<!-- 8) Cookie error -->
+<!-- 10) stealth bypass -->
 <div class="bcd-card">
-  <h2>Cookie error (PoW で cookie_set_ok=false / cookie が即読み戻し失敗)</h2>
+  <h2>{{ t .Lang "dashboard.card.stealth" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.stealth.desc") }}</span></span></h2>
   <table class="bcd-table">
-    <thead><tr><th>IP</th><th class="bcd-num">件数</th><th>UA</th><th>last seen</th></tr></thead>
-    <tbody>
-      {{range .CookieFails}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
-        <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
-        <td class="bcd-mono">{{.LastSeen}}</td>
-      </tr>
-      {{else}}
-      <tr><td colspan="4" class="muted">該当なし</td></tr>
-      {{end}}
-    </tbody>
-  </table>
-</div>
-
-<!-- 9) stealth 突破 -->
-<div class="bcd-card">
-  <h2>完全 stealth 突破 IP (verify_ok かつ ja4_verdict=bot_*)</h2>
-  <table class="bcd-table">
-    <thead><tr><th>IP</th><th>verdict</th><th class="bcd-num">件数</th><th>UA</th><th>last seen</th></tr></thead>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
       {{range .Stealth}}
       <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span></td>
         <td class="bcd-num n-stealth">{{comma .Count}}</td>
         <td class="bcd-mono">{{.UA}}</td>
-        <td class="bcd-mono">{{.LastSeen}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
-      <tr><td colspan="5" class="muted">該当なし (= stealth 突破はゼロ)</td></tr>
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_stealth" }}</td></tr>
       {{end}}
     </tbody>
   </table>
 </div>
 
-<!-- 10) 30 日推移 (= 本家相当: phase=serve を is_bot kind 別 stacked bar) -->
-<div class="bcd-card">
-  <h2>bot-challenge 30 日推移 <span class="src-badge db">🗄 DB</span> <span style="font-size:.7rem;color:#94a3b8;font-weight:normal">(phase=serve を classify.IsBot で分類)</span></h2>
-  <div style="display:grid;grid-template-columns:{{if .GeoIPLoaded}}2fr 1fr{{else}}1fr{{end}};gap:1rem">
-    <div>
-      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">日別 (is_bot 別 stacked)</h6>
-      <canvas id="chart" height="280"></canvas>
-      <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
-    </div>
-    {{if .GeoIPLoaded}}
-    <div>
-      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">国別 (上位 15) 期間合計</h6>
-      <canvas id="country-chart" height="280"></canvas>
-      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">GeoIP: {{len .Countries}} 国観測 / phase=serve 集計</p>
-    </div>
-    {{else}}
-    <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
-      国別 chart を出すには<br>
-      <code style="background:#fff;padding:.05rem .3rem;border-radius:.15rem">geoip.mmdb_path</code><br>
-      を config.yml に設定して<br>
-      MaxMind GeoLite2-Country.mmdb を指定
-    </div>
-    {{end}}
-  </div>
-  {{if .DailyTotal}}
-  <table class="bcd-table" style="margin-top:.8rem">
-    <thead><tr><th>日付</th><th class="bcd-num">request</th><th class="bcd-num">uniq IP</th></tr></thead>
-    <tbody>
-      {{range .DailyTotal}}
-      <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
-      {{end}}
-    </tbody>
-  </table>
-  {{else}}
-  <p class="muted" style="font-size:.9rem;margin-top:.6rem">データなし (= 直近 30 日で phase=serve なし)</p>
-  {{end}}
-</div>
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.failures" }}</div>
 
-<!-- 11) JS error -->
+<!-- 8) JS error -->
 <div class="bcd-card">
-  <h2>JS エラー (window.onerror で捕捉)</h2>
+  <h2>{{ t .Lang "dashboard.card.js_error" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.js_error.desc") }}</span></span></h2>
   <table class="bcd-table">
-    <thead><tr><th>IP</th><th>UA</th><th class="bcd-num">flags</th><th>error</th><th>date</th></tr></thead>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ua" }}</th><th class="bcd-num">{{ t .Lang "th.flags" }}</th><th>{{ t .Lang "th.error" }}</th><th>{{ t .Lang "th.date" }}</th></tr></thead>
     <tbody>
       {{range .JSErrors}}
       <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}">{{.IP}}</td>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td class="bcd-mono">{{.UA}}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono">{{.Error}}</td>
-        <td class="bcd-mono">{{.Date}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
       </tr>
       {{else}}
-      <tr><td colspan="5" class="muted">該当なし</td></tr>
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
 </div>
 
-<!-- 12) challenge 発動フロー (= 本家相当: bcd-flow text + bcd-legend dl) -->
+<!-- 9) Cookie error -->
 <div class="bcd-card">
-  <h2>challenge 発動フロー</h2>
-  <style>
-    .bcd-flow{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem;line-height:1.55;color:#334155;background:#f8fafc;padding:.9rem 1.1rem;border-radius:.4rem;white-space:pre;overflow-x:auto}
-    .bcd-flow .pass{color:#059669;font-weight:bold}
-    .bcd-flow .block{color:#dc2626;font-weight:bold}
-    .bcd-flow .branch{color:#6366f1}
-    .bcd-flow b{color:#0f172a}
-    .bcd-legend{font-size:.85rem;line-height:1.7}
-    .bcd-legend dt{color:#0f172a;margin-top:.5rem;font-weight:600}
-    .bcd-legend dd{margin-left:1.5em;color:#475569}
-    .bcd-legend code{background:#f1f5f9;padding:.05rem .25rem;border-radius:.15rem;font-size:.78rem;color:#0f172a;font-family:ui-monospace,Menlo,monospace}
-  </style>
-  <div class="bcd-flow">リクエスト到着
-│
-▼ <span class="branch">①</span> _bv cookie 有 + HMAC 検証 OK ?    ──── YES ──▶ <span class="pass">通過</span> (CAPTCHA 通過済 → 3 日免除)
-│ NO
-▼ <span class="branch">②</span> UA = 正規検索 bot ?              ──── YES ──▶ <span class="pass">通過</span> (Googlebot / Bingbot / GPTBot / ClaudeBot 等)
-│ NO
-▼ <span class="branch">③</span> リモート IP = Google 公式 IP ?    ──── YES ──▶ <span class="pass">通過</span> (Google IP 約 2,000 範囲)
-│ NO
-▼ <span class="branch">④</span> UA = 既知ブラウザ ?               ──── NO  ──▶ <span class="pass">通過</span> (curl/wget/独自 bot は素通し)
-│ YES
-▼ <span class="branch">⑤</span> JA4 verdict が bot_* ?           ──── YES ──▶ <span class="block">challenge 発動 → CAPTCHA 強制</span> (PoW スキップ)
-│ NO
-▼ <span class="branch">⑥</span> Honeypot path 踏み (wp-login 等)?  ──── YES ──▶ <span class="block">challenge 発動 → PoW 自動</span> (透明通過, 1〜2 秒スピナー)
-│ NO
-▼ <span class="pass">通過</span> (静的ファイル / /api/* / 既知ブラウザの ja4=ok / 等)
-</div>
-  <h6 style="margin-top:.9rem;font-size:1rem;color:#0f172a;font-weight:600">補足</h6>
-  <dl class="bcd-legend">
-    <dt>① 設計方針</dt>
-    <dd>
-      <b>方針</b>: <b>「ブラウザを偽装している bot」 だけを狙い撃ちする.</b> 素直な UA の bot (<code>python-requests</code> / <code>curl</code> / <code>wget</code> / ClaudeBot / GPTBot 等のクローラ系 UA) は基本 challenge を通さず素通しさせる.
-      <br><br>
-      <b>背景</b>: 過去に Googlebot 等の正規検索 bot が誤って challenge にハマり検索順位を落とす事故があった. ログ解析の結果、<b>「既知ブラウザ (Chrome/Safari/Firefox/Edge) を名乗りつつ JA4 TLS fingerprint が bot 由来」</b>のアクセスが多かったため、 偽装 bot に絞って check し検索 bot や素直な bot は素通しさせる方針に切替.
-    </dd>
-    <dt>② クライアント分類</dt>
-    <dd>
-      <b>素通し</b> (challenge を経由しない):
-      <ul style="margin:.1rem 0 .4rem;padding-left:1.5em">
-        <li>正規検索 bot UA (Googlebot / Bingbot / Yeti / YandexBot / GPTBot / ChatGPT-User / OAI-SearchBot 等)</li>
-        <li>Google 公式 IP 範囲 (約 2,000 範囲. UA に Googlebot を含まない Search Console 経由のリクエスト救済)</li>
-        <li>既知ブラウザを名乗らない素直な UA (curl / python-requests / wget / 独自 bot UA)</li>
-        <li>過去 3 日に CAPTCHA 通過済 (= HMAC 署名済 <code>_bv</code> cookie 保持)</li>
-      </ul>
-      <b>challenge 対象</b>:
-      <ul style="margin:.1rem 0 0;padding-left:1.5em">
-        <li>UA が既知ブラウザ (Chrome/Safari/Firefox/Edge/Opera) を名乗っている AND</li>
-        <li>(JA4 TLS fingerprint が bot 分類 OR honeypot path 踏み)</li>
-      </ul>
-    </dd>
-    <dt>③ challenge の中身: PoW vs CAPTCHA</dt>
-    <dd>
-      <b>PoW (Proof-of-Work)</b>: JA4 = ok (= TLS 正常) の正規ブラウザ向け. JS で djb2 ハッシュ計算 → cookie set → reload. ユーザー操作不要、 透明通過.
-      <br>
-      <b>CAPTCHA</b>: JA4 = bot_* (= TLS で偽装露呈) のクライアント向け. PoW では止められない/突破された前提なので強制. behavioral checkbox (= mouseTrail / clickAt / windowSize 等を score 化) または数字加算 fallback. 通過時にサーバーが HMAC 署名済 <code>_bv</code> cookie を発行 → 以降 3 日間免除.
-    </dd>
-    <dt>④ 副作用: cookie jar を持たない bot は永久ループ</dt>
-    <dd>
-      scraping bot は PoW で書いた <code>_bv</code> を再送しないため、 reload 後にまた challenge → 永久ループ → 実質ブロック.
-      cookie を保存・再送する正規ブラウザだけが脱出できる設計.
-    </dd>
-    <dt>⑤ <code>_bv</code> cookie の検証</dt>
-    <dd>
-      <b>bv = bot verification</b>. challenge 通過の証拠として client が持つ cookie. format: <code>day.hmac_sig.kind</code>.
-      <br><br>
-      <b>nginx <code>$unmask_bv_valid</code> 変数</b>: <code>ngx_http_ja4_module</code> が cookie を読み HMAC-SHA1 検証する. 値は:
-      <ul style="margin:.1rem 0 0;padding-left:1.5em">
-        <li><code>1</code> = (day, remote_ip, ja4, kind) で HMAC OK + 3 日以内 = 正当な通過済</li>
-        <li><code>0</code> = cookie 無 / 期限切れ / IP 変更 / HMAC 不一致 / 改ざん</li>
-      </ul>
-      <code>final_challenge</code> map の最優先条件 (<code>"~^1:" → 0</code>) で参照され、 <b>bv_valid=1 なら challenge 完全免除</b>.
-    </dd>
-    <dt>⑥ challenge 配信方式 (= placeholder 書き換え)</dt>
-    <dd>
-      nginx で JA4 が bot_* と判定 → internal rewrite で <code>/unmask/challenge/</code> 配信. admin が HTML 内の placeholder <code>/*__JA4_HIT__*/0</code> を <code>/*__JA4_HIT__*/1</code> に書き換えて返す. JS は placeholder 値を見て即判定 (= bot_* なら PoW skip → 即 CAPTCHA).
-      <br><br>
-      旧方式の <code>?c=1</code> URL クエリは internal rewrite で URL バーに反映されず JS の <code>location.search</code> で判定不能 → 永久ループの原因になったため廃止.
-      <br><br>
-      status code は Cloudflare 互換で <b>403</b> (= 5xx はサイト健全性メトリクスを汚染するため避ける).
-    </dd>
-  </dl>
+  <h2>{{ t .Lang "dashboard.card.cookie_err" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie_err.desc") }}</span></span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{range .CookieFails}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+        <td class="bcd-num">{{comma .Count}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
 </div>
 
+<!-- 6) reload-loop detection -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.reload_loops" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.reload_loops.desc") }}</span></span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.max_reload" }}</th><th class="bcd-num">{{ t .Lang "th.max_flags" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{range .LoopRows}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+        <td class="bcd-num">{{comma .Count}}</td>
+        <td class="bcd-num">{{comma .MaxReload}}</td>
+        <td class="bcd-num">{{.MaxFlags}}</td>
+        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.trend" }}</div>
+
+<!-- 11a) 30-day trend (= aggregate all incoming reqs from access_log -> stacked bar across 4 buckets: white / captcha / pow / not_pass) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.trend_all" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_all.desc") }}</span></span></h2>
+
+  <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:.6rem;margin:0 0 .9rem">
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#64748b;font-weight:600">{{ t .Lang "kpi.total" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">{{ comma .PassSumTotal }}</div>
+    </div>
+    <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#475569;font-weight:600">{{ t .Lang "kpi.white" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums">{{ comma .PassSumWhite }} <span style="font-size:.75rem;color:#64748b;font-weight:600;margin-left:.2rem">{{ rate .PassSumWhite .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#15803d;font-weight:600">{{ t .Lang "kpi.captcha" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#166534;font-variant-numeric:tabular-nums">{{ comma .PassSumCaptcha }} <span style="font-size:.75rem;color:#65a30d;font-weight:600;margin-left:.2rem">{{ rate .PassSumCaptcha .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#0369a1;font-weight:600">{{ t .Lang "kpi.pow" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#075985;font-variant-numeric:tabular-nums">{{ comma .PassSumPoW }} <span style="font-size:.75rem;color:#0284c7;font-weight:600;margin-left:.2rem">{{ rate .PassSumPoW .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#b91c1c;font-weight:600">{{ t .Lang "kpi.reject" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#991b1b;font-variant-numeric:tabular-nums">{{ comma .PassSumNot }} <span style="font-size:.75rem;color:#dc2626;font-weight:600;margin-left:.2rem">{{ rate .PassSumNot .PassSumTotal }}</span></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:start">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_white_pow_not" }}</h6>
+      <canvas id="chart" height="280"></canvas>
+      <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    <div>
+      {{if .DailyTotal}}
+      <div style="border:1px solid #e2e8f0;border-radius:.4rem">
+        <table class="bcd-table" style="margin:0;white-space:nowrap">
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th></tr></thead>
+          <tbody>
+            {{range reverse .DailyTotal}}
+            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="muted" style="font-size:.9rem">{{ safeHTML (t .Lang "chart.no_access_log") }}</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<!-- 11b) 30-day trend (= phase=serve grouped by classify.IsBot kind as a stacked bar.  Breakdown of challenge displays) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.trend_serve" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_serve.desc") }}</span></span></h2>
+  <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:1rem;align-items:start">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_isbot" }}</h6>
+      <canvas id="chart-serve" height="280"></canvas>
+      <div id="chart-serve-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    {{if .GeoIPLoaded}}
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_heading" }}</h6>
+      <div id="country-chart" class="country-chart"></div>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .Countries) }}</p>
+    </div>
+    {{else}}
+    <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
+      {{ safeHTML (t .Lang "chart.country_setup") }}
+    </div>
+    {{end}}
+    <div>
+      {{if .DailyServeTotal}}
+      <div style="border:1px solid #e2e8f0;border-radius:.4rem">
+        <table class="bcd-table" style="margin:0;white-space:nowrap">
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
+          <tbody>
+            {{range reverse .DailyServeTotal}}
+            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="muted" style="font-size:.9rem">{{ t .Lang "chart.no_data_30d_serve" }}</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<!-- persistent BAN list section removed on 2026-05-08 because it duplicated the dedicated tab (= /admin/bans/).
+     Detail browsing + manual operations live there. -->
+
+
 <script>
-// 0 件 row 折りたたみ — 設計原則:
-//   default = 隠す (= ノイズ抑制).
-//   user が toggle で「表示 ⇄ 隠す」 切替, 状態は localStorage に保存.
-//   key: "unmask:zero:" + (h2 テキスト or table の data-table 属性).
+/* popoverPin / installInfoTipPinning live in /static/popover-pin.js
+   (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution). */
+</script>
+
+<script>
+// zero-row collapse — design rules:
+//   default = hidden (= reduce noise).
+//   user toggles "show / hide" via the control, state is persisted to localStorage.
+//   key: "unmask:zero:" + (h2 text or the table's data-table attribute).
 document.addEventListener('DOMContentLoaded', function(){
   function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
   function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
@@ -571,18 +636,18 @@ document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
-      // rate_limit / TOTAL 行は常時表示 (= 0 件 collapse 対象から除外)
+      // rate_limit / TOTAL rows are always visible (= excluded from zero-row collapse)
       if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-total')) return false;
       var nums = tr.querySelectorAll('.bcd-num');
       if (!nums.length) return false;
       return Array.from(nums).every(function(td){
         var s = td.textContent.trim().replace(/[,%\s]/g,'');
-        // "-" も「データなし」 とみなす (= rate が load=0 のとき表示).
+        // treat "-" as "no data" too (= shown when rate has load=0).
         return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
-    // 0 件 row が 0 個のとき (= toggle で操作する対象が無い) は toggle 不要.
-    // 全行が 0 件のときも toggle は出す (= user が「0 件を隠す」 と言ったら全行隠れる).
+    // skip the toggle when there are no zero rows (= nothing to act on).
+    // Still show the toggle when every row is zero (= so the user's "hide zeros" hides them all).
     if (zeroRows.length === 0) {
       tbl.classList.add('bcd-ready');
       return;
@@ -590,17 +655,22 @@ document.addEventListener('DOMContentLoaded', function(){
     zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
 
     var card = tbl.closest('.bcd-card') || tbl.parentNode;
-    // table 識別 key = card の h2 テキスト. なければ DOM 順 index.
+    // table identification key = card's h2 text. Falls back to DOM-order index.
     var h2 = card.querySelector('h2');
     var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
     var key = 'unmask:zero:' + keySrc;
 
     function applyState(shown){
       card.classList.toggle('bcd-zero-shown', shown);
-      toggle.textContent = (shown ? '▲ 0 件 ' : '▼ 0 件 ') + zeroRows.length + ' 行を' + (shown ? '隠す' : '表示');
+      // i18n: receive "hide N zero rows" / "show N zero rows" pre-formatted from the server.
+      // tf returns the full string with %d in it, so substitute zeroRows.length on the JS side.
+      const SHOW_TPL = {{ t .Lang "toggle.show_zero_n" }};
+      const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n" }};
+      const tpl = shown ? HIDE_TPL : SHOW_TPL;
+      toggle.textContent = tpl.replace('%d', zeroRows.length);
     }
 
-    // 初期状態: localStorage に "shown" があれば表示, それ以外は default = 隠す.
+    // initial state: if localStorage has "shown", display; otherwise default = hidden.
     var saved = lsGet(key);
     var initShown = (saved === 'shown');
 
@@ -617,36 +687,41 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 });
 
-// 30 日 stacked bar chart (= 本家 _build_serve_30d 相当, 純 canvas で実装).
-// data: [{date, kind, req}, ...].  kind = classify.Category 値 (0/1/2/4/5/6) + 99(rate_limit).
-// hover で popover を出して 当日の全 kind 件数 + 合計 を表示 (= 本家の chart.js
-// tooltip mode='index' 相当).
+// 30-day stacked bar chart (= aggregate all reqs from nginx access_log).
+// data: [{date, kind, req}, ...].  kind = 1(white_pass) / 2(pow_pass) / 3(not_pass).
+// Hover shows a popover with each kind's count for the day plus the total.
 const dailyKind = {{.DailyKindJSON}};
-(function(){
-  const c = document.getElementById('chart');
+const dailyServeKind = {{.DailyServeKindJSON}};
+
+// shared function that draws the stacked bar + hover popover.  Takes the canvas / legend
+// elements by ID and renders data of the same shape ([{date, kind, req}, ...]).  KIND_LABEL /
+// KIND_COLOR map the kind integer -> label / color.
+function renderStackedBarChart(opts){
+  const c = document.getElementById(opts.canvasId);
   if (!c) return;
   const ctx = c.getContext('2d');
-  const KIND_LABEL = {0:'human', 1:'search/AI/ads', 2:'ja4_bot', 4:'old_ua', 5:'service', 6:'user_dev', 99:'rate_limit'};
-  const KIND_COLOR = {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'};
+  const KIND_LABEL = opts.KIND_LABEL;
+  const KIND_COLOR = opts.KIND_COLOR;
+  const dailyData = opts.data;
 
-  // pixel ratio 対応: device pixel に合わせて draw.
+  // pixel-ratio handling: draw at the device pixel.
   const dpr = window.devicePixelRatio || 1;
   const W = c.clientWidth, H = 280;
   c.width = W * dpr; c.height = H * dpr;
   c.style.height = H + 'px';
   ctx.scale(dpr, dpr);
 
-  if (!dailyKind || !dailyKind.length){
+  if (!dailyData || !dailyData.length){
     ctx.fillStyle='#94a3b8'; ctx.font='13px sans-serif';
-    ctx.fillText('no data (= phase=serve が直近 30 日でゼロ)', 20, 40);
+    ctx.fillText(opts.noDataMsg || 'no data', 20, 40);
     return;
   }
 
-  // 集計: date 軸 + kind 軸でマップ化
+  // aggregate: build a map keyed by date and kind
   const dateSet = new Set();
   const kindSet = new Set();
   const data = {}; // data[kind][date] = req
-  dailyKind.forEach(r => {
+  dailyData.forEach(r => {
     dateSet.add(r.date);
     kindSet.add(r.kind);
     if (!data[r.kind]) data[r.kind] = {};
@@ -655,20 +730,33 @@ const dailyKind = {{.DailyKindJSON}};
   const dates = Array.from(dateSet).sort();
   const kinds = Array.from(kindSet).sort((a,b) => a-b);
 
-  // 各 date の合計でスケール決定
-  const dateTotals = dates.map(d => kinds.reduce((s,k) => s + ((data[k]&&data[k][d])||0), 0));
+  // persist hidden kinds in localStorage (= legend click toggles them).
+  // Key is per canvas id.  Stores an int array as JSON.
+  const hideKey = 'unmask:chart-hidden:' + opts.canvasId;
+  const hidden = new Set();
+  try {
+    const raw = localStorage.getItem(hideKey);
+    if (raw) JSON.parse(raw).forEach(k => hidden.add(k));
+  } catch(e) {}
+  function persistHidden(){
+    try { localStorage.setItem(hideKey, JSON.stringify(Array.from(hidden))); } catch(e) {}
+  }
+  function isVisible(k){ return !hidden.has(k); }
+
+  // scale is decided by the per-date total (= excludes hidden kinds)
+  const dateTotals = dates.map(d => kinds.reduce((s,k) => s + (isVisible(k) ? ((data[k]&&data[k][d])||0) : 0), 0));
   let max = Math.max(1, ...dateTotals);
 
   const padL = 56, padR = 16, padT = 16, padB = 44;
   const w = W - padL - padR, h = H - padT - padB;
-  // 30 日固定幅にして、 観測のない日は空の column として表示する形にしたいが、
-  // 少データの可読性優先で「観測日のみ」 軸. 1 日しかなければ bar を太くしすぎないよう max を設ける.
+  // axis covers observed days only.  bar width is 70% of colW (= 30% used as gap).
+  // hard cap removed, so for 1-few days the bars stretch across the screen (= 2 days -> 35% * 2 of chart width).
   const colW = w / dates.length;
-  const barW = Math.min(60, Math.max(2, Math.floor(colW) - 2));
-  // bar 開始位置: colW の中央に barW を置く.
+  const barW = Math.max(2, Math.floor(colW * 0.7));
+  // bar start position: centers barW inside colW.
   const barOffset = Math.max(0, (colW - barW) / 2);
 
-  // y 軸 grid + ラベル
+  // y-axis grid + labels
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
   ctx.font='11px sans-serif'; ctx.fillStyle='#94a3b8';
   for (let i=0;i<=4;i++){
@@ -677,7 +765,7 @@ const dailyKind = {{.DailyKindJSON}};
     ctx.fillText(Math.round(max*(1-i/4)).toLocaleString(), 8, y+3);
   }
 
-  // x 軸ラベル (= 約 8 本おき)
+  // x-axis labels (= approx. every 8th)
   const labelEvery = Math.max(1, Math.floor(dates.length/10));
   ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif';
   dates.forEach((d,i) => {
@@ -690,11 +778,12 @@ const dailyKind = {{.DailyKindJSON}};
     ctx.restore();
   });
 
-  // stacked bar (= colW 中央に barW で描画)
+  // stacked bar (= draw barW centered in colW.  hidden kinds are skipped)
   dates.forEach((d, i) => {
     const x = padL + (i * colW) + barOffset;
-    let yCursor = padT + h; // 下端から積み上げ
+    let yCursor = padT + h; // stack up from the bottom
     kinds.forEach(k => {
+      if (!isVisible(k)) return;
       const v = (data[k]&&data[k][d]) || 0;
       if (v <= 0) return;
       const segH = (v / max) * h;
@@ -704,27 +793,90 @@ const dailyKind = {{.DailyKindJSON}};
     });
   });
 
-  // legend (= chart.js デフォルト凡例と同等の "is_bot=N (label)" 表記)
-  const legendEl = document.getElementById('chart-legend');
-  if (legendEl) {
-    legendEl.innerHTML = kinds.map(k =>
-      '<span style="display:inline-flex;align-items:center;gap:.35rem;margin-right:1rem">' +
-        '<span style="display:inline-block;width:.85rem;height:.85rem;background:' +
-        (KIND_COLOR[k]||'#94a3b8') + ';border-radius:.15rem"></span>' +
-        'is_bot=' + k + ' (' + (KIND_LABEL[k] || '?') + ')' +
-      '</span>'
-    ).join('');
+  // legend (= row of color + label chips.  click toggles kind hide / show).
+  const legendEl = document.getElementById(opts.legendId);
+  function renderLegend(){
+    if (!legendEl) return;
+    legendEl.innerHTML = kinds.map(k => {
+      const off = !isVisible(k);
+      const txtColor = off ? '#94a3b8' : '#475569';
+      const decor = off ? 'line-through' : 'none';
+      const swatch = off ? '#cbd5e1' : (KIND_COLOR[k]||'#94a3b8');
+      return '<span data-kind="' + k + '" style="display:inline-flex;align-items:center;gap:.35rem;margin-right:1rem;cursor:pointer;user-select:none;color:' + txtColor + ';text-decoration:' + decor + '" title="click to show / hide">' +
+        '<span style="display:inline-block;width:.85rem;height:.85rem;background:' + swatch + ';border-radius:.15rem"></span>' +
+        (KIND_LABEL[k] || '?') +
+      '</span>';
+    }).join('');
+    // click handler: kind toggle -> redraw everything.
+    legendEl.querySelectorAll('[data-kind]').forEach(el => {
+      el.addEventListener('click', function(){
+        const k = parseInt(el.dataset.kind, 10);
+        if (hidden.has(k)) hidden.delete(k); else hidden.add(k);
+        persistHidden();
+        // clear the canvas and redraw.  Re-invoking the whole function is the safer option.
+        ctx.clearRect(0, 0, W, H);
+        // fire redraw recursively to reflect the hidden state.
+        redraw();
+      });
+    });
   }
 
-  // hover popover (= chart.js の tooltip mode='index' 相当).
-  // mousemove で x 座標から date index を逆算し、 全 kind 件数を popover で出す.
+  function redraw(){
+    // clear
+    ctx.clearRect(0, 0, W, H);
+    // recompute: max
+    const dateTotals2 = dates.map(d => kinds.reduce((s,k) => s + (isVisible(k) ? ((data[k]&&data[k][d])||0) : 0), 0));
+    const max2 = Math.max(1, ...dateTotals2);
+    // y grid (= same positions as the initial draw)
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+    ctx.font='11px sans-serif'; ctx.fillStyle='#94a3b8';
+    ctx.textAlign = 'start';
+    for (let i=0;i<=4;i++){
+      const y = padT + h*i/4;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+      ctx.fillText(Math.round(max2*(1-i/4)).toLocaleString(), 8, y+3);
+    }
+    // x labels
+    const labelEvery2 = Math.max(1, Math.floor(dates.length/10));
+    ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif'; ctx.textAlign='start';
+    dates.forEach((d,i) => {
+      if (i % labelEvery2 !== 0 && i !== dates.length-1) return;
+      const x = padL + (i + 0.5) * colW;
+      ctx.save();
+      ctx.translate(x, H - padB + 4);
+      ctx.rotate(-Math.PI/4);
+      ctx.fillText(d.slice(5), 0, 0);
+      ctx.restore();
+    });
+    // bars
+    dates.forEach((d, i) => {
+      const x = padL + (i * colW) + barOffset;
+      let yCursor = padT + h;
+      kinds.forEach(k => {
+        if (!isVisible(k)) return;
+        const v = (data[k]&&data[k][d]) || 0;
+        if (v <= 0) return;
+        const segH = (v / max2) * h;
+        ctx.fillStyle = KIND_COLOR[k] || '#94a3b8';
+        ctx.fillRect(x, yCursor - segH, barW, segH);
+        yCursor -= segH;
+      });
+    });
+    // sync max for popover (= keeps things consistent on expansion)
+    max = max2;
+    renderLegend();
+  }
+  renderLegend();
+
+  // hover popover (= equivalent to chart.js tooltip mode='index').
+  // mousemove resolves x -> date index, then the popover lists every kind's count.
   const pop = document.createElement('div');
   pop.style.cssText = 'position:absolute;background:rgba(15,23,42,.95);color:#f1f5f9;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;line-height:1.45;pointer-events:none;display:none;z-index:50;box-shadow:0 .375rem 1rem rgba(0,0,0,.18);min-width:11rem;backdrop-filter:blur(2px)';
-  // canvas の親に対して absolute 位置取り
+  // absolute positioning relative to the canvas's parent
   c.parentNode.style.position = 'relative';
   c.parentNode.appendChild(pop);
 
-  // 直前のホイル位置の bar の x 範囲をハイライトする要素.
+  // element that highlights the x range of the bar under the cursor.
   const hi = document.createElement('div');
   hi.style.cssText = 'position:absolute;background:rgba(148,163,184,.15);border-radius:.15rem;pointer-events:none;display:none;z-index:1';
   c.parentNode.appendChild(hi);
@@ -733,28 +885,28 @@ const dailyKind = {{.DailyKindJSON}};
 
   c.addEventListener('mousemove', function(e){
     const rect = c.getBoundingClientRect();
-    // canvas は responsive で resize し得るので毎回 clientWidth を読む.
+    // canvas can be resized responsively, so read clientWidth each time.
     const curW = c.clientWidth || W;
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    // chart 描画領域外なら hide
+    // hide outside the chart drawing area
     if (mx < padL || mx > curW - padR || my < padT || my > padT + h) { hide(); return; }
     const idx = Math.floor((mx - padL) / colW);
     if (idx < 0 || idx >= dates.length) { hide(); return; }
-    // 実 bar の x 範囲: padL + idx*colW + barOffset .. + barW
-    // この範囲外 (= 列の余白) では popover を出さない (= 1 day data のとき
-    // 全幅 colW で常時 idx=0 になり「グラフ外でも popover が出る」 を防ぐ).
+    // actual bar x range: padL + idx*colW + barOffset .. + barW
+    // don't show the popover outside this range (= column gap) (= prevents 1-day data
+    // from spanning the full colW with idx=0 and triggering "popover even off-chart").
     const barLeft  = padL + idx * colW + barOffset;
     const barRight = barLeft + barW;
-    // 列スパンに対してある程度の許容幅 (= 16px) 内なら表示してよい
-    // (= chart.js の interaction='nearest' 風. ただし列をまたいで広がりすぎない).
+    // display is fine within a small tolerance (= 16px) over the column span
+    // (= akin to chart.js interaction='nearest', without bleeding across columns).
     const tol = 16;
     if (mx < barLeft - tol || mx > barRight + tol) { hide(); return; }
     const date = dates[idx];
 
-    // popover content
+    // popover content (= hidden kinds are excluded from the popover too)
     const rows = kinds.map(k => ({ k:k, v:(data[k]&&data[k][date])||0 }))
-                      .filter(r => r.v > 0)
+                      .filter(r => r.v > 0 && isVisible(r.k))
                       .sort((a,b) => b.v - a.v);
     if (!rows.length) { hide(); return; }
     const total = rows.reduce((s,r) => s + r.v, 0);
@@ -763,15 +915,15 @@ const dailyKind = {{.DailyKindJSON}};
     html += rows.map(r =>
       '<div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0">' +
         '<span style="width:.6rem;height:.6rem;background:' + (KIND_COLOR[r.k]||'#94a3b8') + ';border-radius:50%;display:inline-block;flex-shrink:0"></span>' +
-        '<span style="flex:1">is_bot=' + r.k + ' (' + (KIND_LABEL[r.k]||'?') + ')</span>' +
+        '<span style="flex:1">' + (KIND_LABEL[r.k]||'?') + '</span>' +
         '<span style="font-variant-numeric:tabular-nums;font-weight:600;margin-left:.6rem">' + r.v.toLocaleString() + '</span>' +
       '</div>'
     ).join('');
-    html += '<div style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid rgba(241,245,249,.2);display:flex;justify-content:space-between"><span style="font-weight:700">合計</span><span style="font-variant-numeric:tabular-nums;font-weight:700">' + total.toLocaleString() + '</span></div>';
+    html += '<div style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid rgba(241,245,249,.2);display:flex;justify-content:space-between"><span style="font-weight:700">' + {{ t .Lang "chart.popover.total" }} + '</span><span style="font-variant-numeric:tabular-nums;font-weight:700">' + total.toLocaleString() + '</span></div>';
     pop.innerHTML = html;
 
     pop.style.display = 'block';
-    // 位置: mouse の右上に表示, 画面右端でオーバーするときだけ左へ flip.
+    // position: shown to the upper right of the mouse, flip left only when it would overflow the right edge.
     const barX = padL + (idx * colW);
     const parentW = c.parentNode.clientWidth;
     let leftPx = mx + 16;
@@ -783,7 +935,7 @@ const dailyKind = {{.DailyKindJSON}};
     pop.style.left = leftPx + 'px';
     pop.style.top  = topPx + 'px';
 
-    // ハイライト bar (= 実 bar 幅 + 余白少しで)
+    // highlight bar (= actual bar width + a small margin)
     hi.style.display = 'block';
     hi.style.left = (barLeft - 4) + 'px';
     hi.style.top  = padT + 'px';
@@ -791,226 +943,297 @@ const dailyKind = {{.DailyKindJSON}};
     hi.style.height = h + 'px';
   });
   c.addEventListener('mouseleave', hide);
-})();
+}
 
-// 国別 horizontal bar (= 本家相当, geoip 有効時のみ)
+// chart 1: all reqs split 3 ways (white / pow / not pass) — sourced from unmask_cookie_minute.
+// html/template auto-escapes inside <script> (= renders as a JS string literal),
+// so {{ t .Lang "key" }} is sufficient.  Manual quoting with printf "%q" etc. would double-escape.
+renderStackedBarChart({
+  canvasId: 'chart',
+  legendId: 'chart-legend',
+  data: dailyKind,
+  KIND_LABEL: {1:{{ t .Lang "chart.legend.white" }}, 2:{{ t .Lang "chart.legend.captcha" }}, 3:{{ t .Lang "chart.legend.pow" }}, 4:{{ t .Lang "chart.legend.not_pass" }}},
+  KIND_COLOR: {1:'#94a3b8', 2:'#16a34a', 3:'#0ea5e9', 4:'#dc2626'},
+  noDataMsg: {{ t .Lang "chart.no_data_access_log" }},
+});
+
+// chart 2: phase=serve grouped by bot kind (legacy spec) — sourced from unmask_event
+renderStackedBarChart({
+  canvasId: 'chart-serve',
+  legendId: 'chart-serve-legend',
+  data: dailyServeKind,
+  KIND_LABEL: {0:{{ t .Lang "chart.kind.human" }}, 1:{{ t .Lang "chart.kind.search" }}, 2:{{ t .Lang "chart.kind.ja4_bot" }}, 4:{{ t .Lang "chart.kind.old_ua" }}, 5:{{ t .Lang "chart.kind.service" }}, 6:{{ t .Lang "chart.kind.user_dev" }}, 99:{{ t .Lang "chart.kind.rate_limit" }}},
+  KIND_COLOR: {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'},
+  noDataMsg: {{ t .Lang "chart.no_data_serve" }},
+});
+
+// per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag)
 {{if .GeoIPLoaded}}
 const countries = {{.CountriesJSON}};
 {{end}}
 (function(){
-  const c = document.getElementById('country-chart');
-  if (!c) return;
-  const ctx = c.getContext('2d');
-  const dpr = window.devicePixelRatio || 1;
-  const W = c.clientWidth, H = 280;
-  c.width = W * dpr; c.height = H * dpr;
-  c.style.height = H + 'px';
-  ctx.scale(dpr, dpr);
-  if (typeof countries === 'undefined' || !countries || !countries.length) {
-    ctx.fillStyle='#94a3b8'; ctx.font='13px sans-serif';
-    ctx.fillText('no data', 20, 40); return;
+  const wrap = document.getElementById('country-chart');
+  if (!wrap) return;
+  if (typeof countries === 'undefined' || !countries || !countries.length){
+    wrap.innerHTML = '<div style="color:#94a3b8;font-size:.85rem;padding:.6rem 0">no data</div>';
+    return;
   }
   const max = Math.max(1, ...countries.map(c => c.Req));
-  const padL = 50, padR = 50, padT = 4, padB = 4;
-  const w = W - padL - padR, h = H - padT - padB;
-  const rowH = Math.max(12, h / countries.length);
-  ctx.font='11px ui-monospace,Menlo,monospace';
-  countries.forEach((row, i) => {
-    const y = padT + i * rowH;
-    // 国コード ラベル (左)
-    ctx.fillStyle = '#475569';
-    ctx.textAlign = 'right';
-    ctx.fillText(row.CountryCode, padL - 6, y + rowH/2 + 3);
-    // bar
-    const bw = (row.Req / max) * w;
-    ctx.fillStyle = '#3b82f6';
-    ctx.fillRect(padL, y + 2, bw, rowH - 4);
-    // count ラベル (右)
-    ctx.fillStyle = '#0f172a';
-    ctx.textAlign = 'left';
-    ctx.fillText(row.Req.toLocaleString(), padL + bw + 4, y + rowH/2 + 3);
-  });
+  const flagBase = '{{.BasePath}}/static/flags/';
+  function flagSrc(cc){
+    if (!cc) return flagBase + 'unknown.png';
+    const lc = String(cc).toLowerCase();
+    if (!/^[a-z]{2}$/.test(lc)) return flagBase + 'unknown.png';
+    return flagBase + lc + '.png';
+  }
+  // country code -> full country name (= Intl.DisplayNames picks locale automatically).  Unsupported browsers fall back to cc.
+  const countryNameOf = (function(){
+    try {
+      const lang = (document.documentElement.lang || 'ja').split('-')[0];
+      const dn = new Intl.DisplayNames([lang, 'en'], { type: 'region' });
+      return cc => {
+        if (!cc) return '';
+        try { return dn.of(String(cc).toUpperCase()) || cc; } catch(e) { return cc; }
+      };
+    } catch(e){ return cc => cc || ''; }
+  })();
+  const rows = countries.map(row => {
+    const safeCC = String(row.CountryCode || '').replace(/[^A-Za-z0-9-]/g, '');
+    const pct = (row.Req / max) * 100;
+    return '<div class="country-row" data-cc="' + safeCC + '">' +
+             '<div class="cc-label">' +
+               '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy" onerror="this.src=\'' + flagBase + 'unknown.png\';this.onerror=null">' +
+               '<span>' + (safeCC || '??') + '</span>' +
+             '</div>' +
+             '<div class="cc-bar-wrap"><div class="cc-bar" style="width:' + pct.toFixed(2) + '%"></div></div>' +
+             '<div class="cc-count">' + row.Req.toLocaleString() + '</div>' +
+           '</div>';
+  }).join('');
+  wrap.innerHTML = rows;
+
+  // hover shows the country-name popover, click pins it.  Reuses the shared help-popover.
+  // popover element + popoverPin helper live further down in the document, so bind after parse completes.
+  function bindCountryPopovers(){
+    const popEl = document.getElementById('help-popover');
+    if (!popEl || !window.popoverPin) return;
+    const pin = window.popoverPin.install(popEl);
+    function popHTML(cc){
+      const name = countryNameOf(cc);
+      const safeName = String(name).replace(/[<&>"']/g, c => ({'<':'&lt;','&':'&amp;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const safeCC = cc.replace(/[^A-Za-z0-9-]/g, '');
+      return '<div style="font-weight:700;color:#0f172a">' + safeName + '</div>' +
+             '<div style="font-size:.78rem;color:#64748b;margin-top:.2rem;font-family:ui-monospace,Menlo,monospace">' + safeCC + '</div>';
+    }
+    wrap.querySelectorAll('.country-row').forEach(row => {
+      const cc = row.dataset.cc;
+      if (!cc) return;
+      const label = row.querySelector('.cc-label');
+      label.style.cursor = 'help';
+      label.addEventListener('mouseenter', e => {
+        if (pin.hasPinFor(label)) return;
+        pin.showHover(popHTML(cc), e.pageX, e.pageY);
+      });
+      label.addEventListener('mouseleave', () => pin.hideHover());
+      label.addEventListener('click', e => {
+        e.preventDefault();
+        pin.handleClick(popHTML(cc), e.pageX, e.pageY, label);
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindCountryPopovers);
+  } else {
+    bindCountryPopovers();
+  }
 })();
 </script>
 
-<div id="help-popover"></div>
-<div id="ip-popover"></div>
+<div id="help-popover" data-popover="help"></div>
+<div id="ip-popover" data-popover="ip"></div>
 
-<script id="help-data" type="application/json">
-{
-  "verdict.bot_chrome_fake_h1": "<b>bot_chrome_fake_h1</b>: Chrome 風 cipher (8daaf6152771) + <b>ALPN=h1</b> (HTTP/1.1). 正規 Chrome は HTTP/2 (h2) を使う. = headless Chrome / 古い Puppeteer / stealth 化されていない自動化ツールの典型. 真の bot 偽装ブラウザの最頻シグネチャ.",
-  "verdict.bot_chrome_fake_noalpn": "<b>bot_chrome_fake_noalpn</b>: Chrome 風 cipher + <b>ALPN なし</b>. 古い HTTP クライアントや TLS スタックを自前実装した bot.",
-  "verdict.bot_h1_18_12": "<b>bot_h1_18_12</b>: 18 cipher + 12 extension + ALPN=h1. residential proxy 群で観測される高頻度シグネチャ (~129 UA rotation).",
-  "verdict.bot_h1_44_12": "<b>bot_h1_44_12</b>: 44 cipher + 12 extension + ALPN=h1. 別の residential proxy 群 (~74 UA rotation).",
-  "verdict.bot_noalpn_311": "<b>bot_noalpn_311</b>: 31 cipher + 1 extension + ALPN なし. 多 UA rotation 型 bot. Sogou web spider もここに含まれる (UA で is_search_bot=1 救済).",
-  "verdict.bot_noalpn_521": "<b>bot_noalpn_521</b>: 52 cipher + 1 extension + ALPN なし. UA rotation 型 bot.",
-  "verdict.bot_tls12_a": "<b>bot_tls12_a</b>: <b>TLS 1.2</b> 使用. 現代ブラウザは TLS 1.3 標準のため 1.2 は古いツール / curl 系の典型.",
-  "verdict.bot_tls12_b": "<b>bot_tls12_b</b>: TLS 1.2 + 別シグネチャ. 7 UA rotation.",
-  "verdict.bot_tls12_c": "<b>bot_tls12_c</b>: TLS 1.2 + 別シグネチャ.",
-  "verdict.suspect_h1": "<b>suspect_h1</b>: Chrome 風 cipher + ALPN=h1 全般 (緩い判定). bot_chrome_fake_h1 に該当しない補完ルール. 誤検知の可能性あり.",
-  "verdict.ok": "<b>ok</b>: 正規 TLS fingerprint. Chrome / Safari / Firefox / Edge 等の主流ブラウザの典型. nginx <code>$ja4_verdict</code> map のどの bot regex にも match しなかった = default 値.",
-  "verdict.(none)": "<b>(none)</b>: <code>ja4_verdict</code> カラムが NULL. nginx の <code>proxy_set_header X-JA4-Verdict</code> 設定追加前のレコード. 設定後は記録される.",
-  "verdict.rate_limit": "<b>rate_limit</b>: ja4_verdict 横断の疑似 verdict. nginx で 100 r/min 超え (= unmask_rate zone) → <code>?_rl=1</code> で /unmask/challenge/ に rewrite された IP の各 phase 遷移を <b>IP-join</b> で集計.<br><br>注意点: IP は NAT / mobile carrier / proxy で複数クライアント共有される可能性あり. <b>厳密な 1 IP = 1 client ではない</b>ため大体の傾向把握用. 真の rate limit hit 数は <code>serve</code> 列 (= 直接 INSERT 数) を信じる.",
-  "verdict.TOTAL": "<b>TOTAL</b>: ja4_verdict 横断の合算 (= bot_* / suspect_* / ok / (none) を加算). rate_limit 行は IP-join で他 verdict と重複するため除外.<br><br>silent = serve - load.",
-
-  "phase.serve": "<b>serve</b>: challenge ページが配信された数. admin が controller 到達時に <code>unmask_event.phase='serve'</code> で INSERT したもの. JS 起動しない bot でも確実にカウントできる. silent = serve - load = JS 起動しなかった bot.",
-  "phase.silent": "<b>silent = serve - load</b>: challenge 配信されたが JS が起動しなかった数 (実質 stealth bot 確定). 発生要因:<br>・ JS 無効環境 (lynx/w3m, JS off browser)<br>・ HEAD method (curl -I 等, response body 取得せず script 評価されない)<br>・ HTML 取得のみの bot (scraper / archiver)<br>・ 即離脱 (<code>_bcDebug('load')</code> 送信前にページ閉じる)<br>・ CSP / network エラー (<code>/unmask/api/debug</code> POST がブロック)",
-  "phase.rl": "<b>↑rl</b>: 同 IP 100 r/min 超過 (= nginx の unmask_rate zone) で <code>?_rl=1</code> 付きで rewrite された serve 数 (内訳). PoW スキップ → CAPTCHA 直行.",
-  "phase.load": "<b>load</b>: challenge ページの JS が起動した瞬間 = ブラウザが script を eval 出来た. 原始的 bot は load にすら来ない (= JS 動かないから). <code>_bcDebug('load')</code> 送信時点.",
-  "phase.uniq": "<b>uniq IP</b>: load phase の unique IP 数. load 件数 / uniq IP = 1 IP あたりの平均 load 回数. 1 に近いほど人間的 (= 1 回見て離脱), 大きいほど reload 連打 / scraper 系.",
-  "phase.stealth": "<b>stealth</b>: load 時 flags=0 (= webdriver/plugins/languages/screen 全クリア) + JA4 verdict が bot_* = ヘッドレス痕跡なし + TLS で偽装露呈 = 完全偽装 bot 候補. Puppeteer/Playwright 等の最新 stealth ツール使用者.",
-  "phase.pow": "<b>pow</b>: Proof-of-Work 計算完了 + _bv cookie set 直後. 直後に reload して元ページに戻る (= 透明通過). 正規ブラウザの大半はここで完結.",
-  "phase.captcha": "<b>captcha</b>: CAPTCHA 画面表示 (= behavioral checkbox / 数字加算 fallback). JA4=bot_* で PoW スキップした人 or PoW 失敗で fallback した人.",
-  "phase.verify_ok": "<b>verify_ok</b>: CAPTCHA 通過 (behavioral score>=0.5 or 数字加算正解). HMAC 署名 _bv cookie 発行で 3 日免除. payload_json の method=math 値で内訳判別可.",
-  "phase.verify_ng": "<b>verify_ng</b>: CAPTCHA 失敗 (behavioral score 不足 / 数字加算不正解 / token 改ざん 等). 多回失敗の IP は人間救済対象 or solver 攻撃中の bot. payload_json の method=math/score 値で内訳判別可.",
-  "phase.cookie_err": "<b>cookie_err</b>: Cookie 書き込み不能 (Safari ITP / プライベート browse / Cookie 拒否). _bv 保存できないので challenge 永遠ループしてしまう環境向けに早期諦めさせる.",
-  "phase.js_error": "<b>JS error</b>: challenge JS が例外を投げた (構文エラー / CSP 違反 / global 関数衝突等). window.onerror で捕捉. payload_json の error_msg / error_filename / error_lineno に詳細.",
-  "phase.pow_rate": "<b>PoW率 = pow / load</b>: 正規ブラウザが challenge スピナーを透明通過した率. ja4=ok の場合 99%+ 期待. 低いとブラウザ互換性問題の疑い.",
-  "phase.captcha_rate": "<b>CAPTCHA率 = verify_ok / captcha</b>: CAPTCHA 画面に進んだ中で実際に通過した率 = bot solver 連携 / 人手介入の指標. 通常はかなり低いが、 突破あれば偽装 bot が成功してる証拠.",
-
-  "flags.flags": "<b>flags</b>: challenge ページ JS が <code>load</code> 時に <code>navigator</code> / <code>screen</code> / <code>window</code> を覗いて bot 痕跡を検出する 5 bit のシグナル.<br><br><b>各 bit</b>:<br><code>1</code> = webdriver (= <code>navigator.webdriver === true</code>. headless Chrome 等)<br><code>2</code> = plugins 空 (= <code>navigator.plugins.length === 0</code>)<br><code>4</code> = screen=0 (= <code>screen.width === 0 || screen.height === 0</code>)<br><code>8</code> = languages 空 (= <code>navigator.languages.length === 0</code>)<br><code>16</code> = Chrome 名乗り + <code>window.chrome</code> 不在 (= UA 偽装疑い)<br><br><b>注意</b>: challenge フローには影響しない. PoW / CAPTCHA 判定は JA4 verdict のみで決まる. flags は監視シグナル.<br><br><b>解釈</b>:<br>・<code>flags=2</code> 単体: 正規 Chrome の大半が該当 → ノイズ<br>・<code>flags=0</code> + JA4=<code>ok</code>: 正規ブラウザ.<br>・<code>flags=0</code> + JA4=<code>bot_*</code>: <span style=\"color:#dc2626\"><b>stealth bot</b></span>. 痕跡を全部隠ぺい + TLS で偽装露呈 → ファネルの stealth 列に該当.<br>・<code>flags=1</code> (webdriver): WebDriver / Selenium. 隠蔽されていないシンプル bot.",
-
-  "vng.ip": "CAPTCHA 検証 (verify_ng) に失敗したクライアント IP",
-  "vng.total": "この IP の verify_ng 件数合計 (= behavioral + math). 5 件以上は赤強調 (= 困った人間 or solver bot 攻撃中)",
-  "vng.behavioral": "チェックボックス behavioral 検査で score < 0.5 と判定された回数. 古いブラウザ・アクセシビリティ device で起こりやすい (= 救済対象)",
-  "vng.math": "数字加算 fallback でも不正解だった回数. behavioral 失敗後の再検査. > 0 は赤強調 (= 数字も解けない = bot 疑い強)",
-  "vng.avg_score": "behavioral 検査で計算された score の平均 (0.0〜1.0). 低いほど bot 度高い. 0.5 未満で fail",
-  "vng.ja4": "TLS fingerprint verdict (ok / bot_* / suspect_* / (none))",
-  "vng.ua": "User-Agent (最後に観測された 50 文字)",
-  "vng.last_seen": "最後に verify_ng が起きた時刻"
-}
-</script>
+<script id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
 <script>
-// 説明 popover (= 本家 example.invalid の bootstrap popover 相当).
-// data-help-key="..." の element は HELP[key] を表示.
-// .tag の verdict 名は textContent から HELP["verdict.<text>"] を auto lookup.
+// (popoverPin is already defined earlier.  The old definition (= duplicate made a no-op by `||`)
+// has been removed.  drag handle / collapse toggle / close button + multi-pin via clone are
+// consolidated into the single definition above.)
+
+// help popover (= bootstrap-popover-style explainer).
+// Elements with data-help-key="..." display HELP[key].
+// .tag verdict names auto-look up HELP["verdict.<text>"] from textContent.
 (function(){
   var helpEl = document.getElementById('help-data');
   var HELP = {};
   try { HELP = JSON.parse(helpEl.textContent); } catch(e) { console.warn('help-data parse:', e); }
   var pop = document.getElementById('help-popover');
+  var pin = window.popoverPin.install(pop);
   var timer = null;
-  function show(html, x, y){
-    pop.innerHTML = html;
-    var maxL = window.innerWidth - 500;
-    pop.style.left = Math.min(x + 12, maxL) + 'px';
-    pop.style.top  = (y + 12) + 'px';
-    pop.style.display = 'block';
-  }
-  function hide(){ pop.style.display = 'none'; }
   function attach(el, key){
     var html = HELP[key];
     if (!html) return;
-    el.setAttribute('data-help', '1'); // CSS の cursor:help / underline 用
+    el.setAttribute('data-help', '1'); // for CSS cursor:help / underline
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
+      // if this trigger is already pinned, skip the hover primary (= avoid duplicate display).
+      if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ show(html, x, y); }, 150);
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
     });
-    el.addEventListener('mouseleave', function(){ clearTimeout(timer); hide(); });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      clearTimeout(timer);
+      pin.handleClick(html, e.pageX, e.pageY, el);
+    });
   }
-  // 1) data-help-key 明示の element
+  // 1) elements with an explicit data-help-key
   document.querySelectorAll('[data-help-key]').forEach(function(el){
     attach(el, el.getAttribute('data-help-key'));
   });
-  // 2) verdict tag (= .tag.bot / .tag.suspect / .tag.ok / .tag.none) は textContent から
+  // 2) verdict tags (= .tag.bot / .tag.suspect / .tag.ok / .tag.none) sourced from textContent
   document.querySelectorAll('.tag').forEach(function(el){
     var t = el.textContent.trim();
     attach(el, 'verdict.' + t);
   });
-  // 3) total / rate_limit 行 (= タグじゃなく <b> で囲ってある) も対応
+  // 3) total / rate_limit rows (= wrapped in <b> rather than tags) also covered
   document.querySelectorAll('tr.total td:first-child b, tr.rl-row td:first-child b').forEach(function(el){
     var t = el.textContent.trim();
     attach(el, 'verdict.' + t);
   });
 })();
 
-// レート制限ヒット path popover (= 各 path の頻出 query top 5)
+// rate-limit hit path popover (= top 5 frequent queries per path)
 (function(){
   const data = {{.RLPathQueriesJSON}};
   if (!data) return;
   const cells = document.querySelectorAll('.rl-path-cell');
   if (!cells.length) return;
-  // 専用 popover 要素を生成 (= help-popover を流用)
   const pop = document.getElementById('help-popover');
   if (!pop) return;
+  // each install carries its own pins Map, so even when two installs share the same pop element,
+  // each block's triggers stay managed by separate instances.  No state needed on primary itself
+  // (= in the clone-on-pin scheme primary handles hover only; pinned info lives on the clone DOM).
+  const pin = window.popoverPin.install(pop);
   let timer = null;
-  function show(html, x, y){
-    pop.innerHTML = html;
-    pop.style.left = (x + 12) + 'px';
-    pop.style.top  = (y + 12) + 'px';
-    pop.style.display = 'block';
+  function buildHtml(path, list){
+    let html = '<div style="font-weight:700;margin-bottom:.3rem;font-family:ui-monospace,Menlo,monospace">' + path + '</div>';
+    html += '<div style="font-size:.78rem;color:#64748b;margin-bottom:.3rem">top ' + list.length + ' frequent queries</div>';
+    html += list.map(function(r){
+      return '<div style="display:flex;gap:.6rem;margin:.15rem 0;font-size:.82rem">' +
+        '<code style="flex:1;background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;word-break:break-all">?' + r.Query + '</code>' +
+        '<span style="font-variant-numeric:tabular-nums;font-weight:600">' + r.Count.toLocaleString() + '</span>' +
+        '</div>';
+    }).join('');
+    return html;
   }
-  function hide(){ pop.style.display = 'none'; }
   cells.forEach(function(cell){
     const path = cell.dataset.path;
     const list = data[path] || [];
-    if (!list.length) return; // query 全部空 → popover なし
+    if (!list.length) return;
     cell.style.cursor = 'help';
     cell.style.textDecoration = 'underline dotted #94a3b8';
     cell.addEventListener('mouseenter', function(e){
-      // pageX/pageY はブラウザによって dispatched event で正しく計算されないことがある.
-      // clientX/Y + scrollX/Y で document 座標を強制的に得る (= 実 user / 自動 dispatch 両対応).
+      clearTimeout(timer);
+      if (pin.hasPinFor(cell)) return;
+      const x = e.clientX + window.scrollX;
+      const y = e.clientY + window.scrollY;
+      timer = setTimeout(function(){ pin.showHover(buildHtml(path, list), x, y); }, 150);
+    });
+    cell.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    cell.addEventListener('click', function(e){
+      e.preventDefault();
       const x = e.clientX + window.scrollX;
       const y = e.clientY + window.scrollY;
       clearTimeout(timer);
-      timer = setTimeout(function(){
-        let html = '<div style="font-weight:700;margin-bottom:.3rem;font-family:ui-monospace,Menlo,monospace">' + path + '</div>';
-        html += '<div style="font-size:.78rem;color:#64748b;margin-bottom:.3rem">頻出 query top ' + list.length + '</div>';
-        html += list.map(function(r){
-          return '<div style="display:flex;gap:.6rem;margin:.15rem 0;font-size:.82rem">' +
-            '<code style="flex:1;background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;word-break:break-all">?' + r.Query + '</code>' +
-            '<span style="font-variant-numeric:tabular-nums;font-weight:600">' + r.Count.toLocaleString() + '</span>' +
-            '</div>';
-        }).join('');
-        show(html, x, y);
-      }, 150);
+      pin.handleClick(buildHtml(path, list), x, y, cell);
     });
-    cell.addEventListener('mouseleave', function(){ clearTimeout(timer); hide(); });
   });
 })();
+
+// live tail has been folded into the bot hunt tab (= /admin/hunt/).  Not handled here.
 
 // IP popover (rDNS + family).
 (function(){
   const pop = document.getElementById('ip-popover');
+  const pin = window.popoverPin.install(pop);
   const cache = new Map();
   let timer = null;
-  function show(html, x, y){
-    pop.innerHTML = html;
-    pop.style.left = (x + 12) + 'px';
-    pop.style.top  = (y + 12) + 'px';
-    pop.style.display = 'block';
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
   }
-  function hide(){ pop.style.display = 'none'; }
   function fmt(d){
-    if (d.error) return '<span style="color:#dc2626">' + d.error + '</span>';
-    let h = '<h3>' + d.ip + '</h3><dl>';
-    h += '<dt>family</dt><dd>' + d.family + '</dd>';
-    if (d.is_private) h += '<dt></dt><dd>private</dd>';
-    if (d.is_loopback) h += '<dt></dt><dd>loopback</dd>';
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    const na = '<span class="muted">(unavailable)</span>';
+    const ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    const ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    const flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                    '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    const types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
     if (d.reverse_dns && d.reverse_dns.length){
-      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.join('<br>') + '</dd>';
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
     } else {
-      h += '<dt>rDNS</dt><dd class="muted">(none)</dd>';
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      const cn = d.country_name ? esc(d.country_name) : '';
+      const cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
     }
     h += '</dl>';
     return h;
   }
+  // fetch the lookup result for each IP and return formatted html via the callback.
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + ip + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(r => r.json())
+      .then(d => { cache.set(ip, d); cb(fmt(d)); })
+      .catch(() => cb('lookup failed'));
+  }
   document.querySelectorAll('.ipclick').forEach(td => {
     td.addEventListener('mouseenter', e => {
       clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
       const ip = td.dataset.ip;
       const x = e.pageX, y = e.pageY;
-      if (cache.has(ip)){ show(fmt(cache.get(ip)), x, y); return; }
       timer = setTimeout(() => {
-        show('looking up ' + ip + '…', x, y);
-        fetch('../api/myip?ip=' + encodeURIComponent(ip))
-          .then(r => r.json())
-          .then(d => { cache.set(ip, d); show(fmt(d), x, y); })
-          .catch(() => show('lookup failed', x, y));
+        fetchAndFmt(ip, html => pin.showHover(html, x, y));
       }, 200);
     });
-    td.addEventListener('mouseleave', () => { clearTimeout(timer); hide(); });
+    td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', e => {
+      e.preventDefault();
+      clearTimeout(timer);
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      // pass html so the unpin path can also re-display primary as a hover popover
+      // (= immediate on cache hit.  UX: "click again = unpin + return to hover state").
+      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td));
+    });
   });
 })();
 </script>

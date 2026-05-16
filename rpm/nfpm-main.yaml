@@ -1,0 +1,157 @@
+# unmask main package — admin binary + all distribution payloads (= challenge HTML / snippets / etc).
+#
+# The nginx-module .so is **not** included.  Defaults to auth_request mode,
+# which can sit in front of any HTTP server (= nginx / Apache / Caddy /
+# Traefik / Envoy / HAProxy).
+#
+# For nginx native mode (= JA4 fingerprint capture / maximum performance),
+# additionally install `unmask-plugin-nginx-<unmask_ver>-nginx_<X.Y.Z>.<arch>.rpm`.
+#
+# multi-arch support:
+#   UNMASK_ARCH=amd64 UNMASK_VERSION=0.1.0 nfpm pkg --packager rpm --target dist/
+#   UNMASK_ARCH=arm64 UNMASK_VERSION=0.1.0 nfpm pkg --packager rpm --target dist/
+
+name: unmask
+arch: ${UNMASK_ARCH}
+platform: linux
+version: ${UNMASK_VERSION}
+section: net
+priority: optional
+maintainer: unmask maintainers <oss@example.com>
+description: |
+  unmask — JA4 TLS-fingerprint based bot challenge.
+  Admin server (Go static binary), challenge HTML/JS, configuration UI,
+  and integration snippets for nginx / Apache / Caddy / Traefik / HAProxy.
+  By default operates in auth_request mode (= HTTP-server-agnostic).
+  Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
+vendor: unmask
+homepage: https://github.com/unmask-sh/unmask
+license: Apache-2.0
+
+rpm:
+  group: System Environment/Daemons
+  signature:
+    key_file: ${NFPM_RPM_KEY_FILE:-}
+
+deb:
+  fields:
+    Vcs-Browser: https://github.com/unmask-sh/unmask
+
+# apk signing: signed only when NFPM_APK_KEY_FILE is set (= release build path).
+# If unset, envsubst expands to empty → nfpm skips signing (= dev build is fine).
+# nfpm's apk packager is SHA-1 only (= filenames are .SIGN.RSA.*).  apk-tools v3
+# is expected to accept SHA-1 for backward compat.  Consider rotating to SHA-256
+# before v0.1 GA (= pending upstream nfpm issue).
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}
+
+contents:
+  # admin server
+  - src: ../dist/unmask-admin-linux-${UNMASK_ARCH}
+    dst: /usr/sbin/unmask-admin
+    file_info:
+      mode: 0755
+
+  # auth_request mode snippets (= one per HTTP server).
+  # Intended to be manually included from /etc/<server>/conf.d/ etc.
+  - src: ../snippets/nginx-auth-request.conf
+    dst: /usr/share/unmask/snippets/nginx-auth-request.conf
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /usr/share/unmask/snippets/apache-forward-auth.conf
+  - src: ../snippets/apache-unmask.lua
+    dst: /usr/share/unmask/snippets/apache-unmask.lua
+  - src: ../snippets/apache-unmask-auth.sh
+    dst: /usr/share/unmask/snippets/apache-unmask-auth.sh
+    file_info:
+      mode: 0755
+  - src: ../snippets/Caddyfile-forward-auth
+    dst: /usr/share/unmask/snippets/Caddyfile-forward-auth
+  - src: ../snippets/traefik-forward-auth.yml
+    dst: /usr/share/unmask/snippets/traefik-forward-auth.yml
+
+  # vts integration example (= needs a separate module, so we don't include by default — manual copy)
+  - src: ../nginx/vts.conf.example
+    dst: /etc/unmask/vts.conf.example
+
+  # challenge HTML + JS (admin has an embedded copy, but also drop an external copy that ops can edit)
+  - src: ../admin/assets/static/challenge.html
+    dst: /usr/share/unmask/challenge/challenge.html
+  - src: ../admin/assets/static/challenge.js
+    dst: /usr/share/unmask/challenge/challenge.js
+
+  # Grafana dashboard JSON
+  - src: ../dashboards/grafana-unmask.json
+    dst: /usr/share/unmask/grafana/grafana-unmask.json
+
+  # systemd unit (= RHEL 7+ / Debian 8+ / Alpine 3.7+)
+  - src: ./unmask-admin.service
+    dst: /usr/lib/systemd/system/unmask-admin.service
+  - src: ./unmask-aggregate.service
+    dst: /usr/lib/systemd/system/unmask-aggregate.service
+  - src: ./unmask-aggregate.timer
+    dst: /usr/lib/systemd/system/unmask-aggregate.timer
+
+  # init script: bundle both formats under /usr/share/unmask/init/.
+  # postinstall picks the OS and symlinks the right one to /etc/init.d/unmask-admin.
+  # systemd hosts do not need init.d (= they use unmask-admin.service).
+  - src: ./init.d/unmask-admin
+    dst: /usr/share/unmask/init/unmask-admin.sysv
+    file_info:
+      mode: 0755
+  - src: ./init.d/unmask-admin.openrc
+    dst: /usr/share/unmask/init/unmask-admin.openrc
+    file_info:
+      mode: 0755
+
+  # logrotate
+  - src: ./unmask-admin.logrotate
+    dst: /etc/logrotate.d/unmask-admin
+
+  # state directories
+  - dst: /var/lib/unmask
+    type: dir
+    file_info:
+      mode: 0750
+      owner: unmask
+      group: unmask
+  - dst: /var/log/unmask
+    type: dir
+    file_info:
+      mode: 0750
+      owner: unmask
+      group: unmask
+  - dst: /etc/unmask
+    type: dir
+    file_info:
+      mode: 0755
+      owner: unmask
+      group: unmask
+
+scripts:
+  preinstall: ./scripts/preinstall-main.sh
+  postinstall: ./scripts/postinstall.sh
+  preremove: ./scripts/preremove.sh
+  postremove: ./scripts/postremove.sh
+
+# Per-format preinstall (= adduser/groupadd dialect differences).
+# - rpm: top-level scripts (= shadow-utils useradd/groupadd, RHEL/Fedora family)
+# - deb: adduser --system / addgroup --system
+# - apk: busybox addgroup/adduser.  shadow-utils is absent on alpine, so the
+#        top-level useradd/groupadd would fail.  That would skip post-install
+#        and leave /etc/init.d/unmask-admin without a symlink.
+overrides:
+  deb:
+    scripts:
+      preinstall: ./scripts/preinstall-main-deb.sh
+  apk:
+    scripts:
+      preinstall: ./scripts/preinstall-main-apk.sh
+    # OpenRC is the alpine default, but minimal cloud / docker images
+    # sometimes ship without it.  In that case, the postinstall OpenRC branch
+    # fails to find `rc-service` and falls back to `init: manual`, which
+    # never installs the `/etc/init.d/unmask-admin` symlink.  Require openrc
+    # via apk depends so it auto-installs.
+    depends:
+      - openrc

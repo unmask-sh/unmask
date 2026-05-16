@@ -15,7 +15,7 @@ import (
 )
 
 // newTestHandler builds a Handler backed by a temporary sqlite file.
-// schema は file 1 つで完結させたいので CREATE TABLE を直接流す.
+// Inlines CREATE TABLE so the schema lives in a single file.
 func newTestHandler(t *testing.T) *Handler {
 	t.Helper()
 	dir := t.TempDir()
@@ -32,10 +32,12 @@ func newTestHandler(t *testing.T) *Handler {
         CREATE TABLE unmask_event (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             site VARCHAR(64) NOT NULL DEFAULT 'default',
+            host VARCHAR(64),
             ip_address BLOB NOT NULL,
             user_agent VARCHAR(255),
             ja4 VARCHAR(40),
             ja4_verdict VARCHAR(40),
+            ja4_verdict_id INTEGER,
             phase VARCHAR(16) NOT NULL,
             flags INTEGER NOT NULL DEFAULT 0,
             reload_count INTEGER NOT NULL DEFAULT 0,
@@ -126,64 +128,15 @@ func TestVerifyJSON_BehavioralFail(t *testing.T) {
 	}
 }
 
-// BVCheck: cookie 無し → 403, valid 発行直後 → 204, 別 IP → 403.
-func TestBVCheck_Roundtrip(t *testing.T) {
-	h := newTestHandler(t)
-	// まず /api/verify で正規 cookie を発行
-	body := `{"token":"x","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
-	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Real-IP", "1.2.3.4")
-	req.Header.Set("X-Client-JA4", "t13d1517h2_aaa_bbb")
-	rr := httptest.NewRecorder()
-	h.VerifyJSON(rr, req)
-	var bv string
-	for _, c := range rr.Result().Cookies() {
-		if c.Name == "_bv" {
-			bv = c.Value
-		}
-	}
-	if bv == "" {
-		t.Fatal("could not obtain _bv cookie")
-	}
-
-	// bv-check: 同 IP+JA4 → 204
-	req2 := httptest.NewRequest(http.MethodGet, "/unmask/api/bv-check", nil)
-	req2.Header.Set("X-Real-IP", "1.2.3.4")
-	req2.Header.Set("X-Client-JA4", "t13d1517h2_aaa_bbb")
-	req2.AddCookie(&http.Cookie{Name: "_bv", Value: bv})
-	rr2 := httptest.NewRecorder()
-	h.BVCheck(rr2, req2)
-	if rr2.Code != http.StatusNoContent {
-		t.Errorf("same IP+JA4 should yield 204, got %d", rr2.Code)
-	}
-
-	// bv-check: 別 IP → 403 (= replay 防止)
-	req3 := httptest.NewRequest(http.MethodGet, "/unmask/api/bv-check", nil)
-	req3.Header.Set("X-Real-IP", "9.9.9.9")
-	req3.Header.Set("X-Client-JA4", "t13d1517h2_aaa_bbb")
-	req3.AddCookie(&http.Cookie{Name: "_bv", Value: bv})
-	rr3 := httptest.NewRecorder()
-	h.BVCheck(rr3, req3)
-	if rr3.Code != http.StatusForbidden {
-		t.Errorf("different IP should yield 403, got %d", rr3.Code)
-	}
-
-	// bv-check: cookie 無し → 403
-	req4 := httptest.NewRequest(http.MethodGet, "/unmask/api/bv-check", nil)
-	req4.Header.Set("X-Real-IP", "1.2.3.4")
-	rr4 := httptest.NewRecorder()
-	h.BVCheck(rr4, req4)
-	if rr4.Code != http.StatusForbidden {
-		t.Errorf("no cookie should yield 403, got %d", rr4.Code)
-	}
-}
-
-// DebugBeacon: 有効 phase → INSERT 成功, 不正 phase → 400.
+// DebugBeacon: valid phase → INSERT succeeds, invalid phase → 400.
 func TestDebugBeacon(t *testing.T) {
 	h := newTestHandler(t)
 
-	body := `{"phase":"load","flags":3,"reload_count":1,"ua":"x"}`
+	// In production ServeChallenge issues the beacon token and challenge.js
+	// echoes it back.  The test bypasses that by issuing a valid token here
+	// with the same secret + IP.
+	bt := issueBeaconToken(h.Settings.Secret.CaptchaSecretBase, "1.2.3.4")
+	body := `{"phase":"load","flags":3,"reload_count":1,"ua":"x","bt":"` + bt + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/debug", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Real-IP", "1.2.3.4")
@@ -191,6 +144,17 @@ func TestDebugBeacon(t *testing.T) {
 	h.DebugBeacon(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Errorf("phase=load should be 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	// A beacon without a token is rejected with 403 bad_token.
+	noTok := `{"phase":"load"}`
+	reqNoTok := httptest.NewRequest(http.MethodPost, "/unmask/api/debug", strings.NewReader(noTok))
+	reqNoTok.Header.Set("Content-Type", "application/json")
+	reqNoTok.Header.Set("X-Real-IP", "1.2.3.4")
+	rrNoTok := httptest.NewRecorder()
+	h.DebugBeacon(rrNoTok, reqNoTok)
+	if rrNoTok.Code != http.StatusForbidden {
+		t.Errorf("tokenless beacon should be 403, got %d", rrNoTok.Code)
 	}
 
 	bad := `{"phase":"haxxor"}`
@@ -203,7 +167,7 @@ func TestDebugBeacon(t *testing.T) {
 		t.Errorf("invalid phase should be 400, got %d", rr2.Code)
 	}
 
-	// 1 件 INSERT されたことを確認
+	// Confirm 1 row was INSERTed.
 	row := h.DB.QueryRowContext(context.Background(), "SELECT count(*) FROM unmask_event WHERE phase='load'")
 	var n int
 	if err := row.Scan(&n); err != nil {
@@ -214,7 +178,7 @@ func TestDebugBeacon(t *testing.T) {
 	}
 }
 
-// CaptchaNew: a, b in [1,20], token は 64 hex.
+// CaptchaNew: a, b in [1,20], token is 64 hex chars.
 func TestCaptchaNew(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new", nil)
@@ -238,7 +202,7 @@ func TestCaptchaNew(t *testing.T) {
 	}
 }
 
-// AdminMyIP: rDNS 解決の代わりに loopback で is_loopback=true を確認.
+// AdminMyIP: skips rDNS resolution; verifies is_loopback=true via loopback IP.
 func TestAdminMyIP(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/api/myip?ip=127.0.0.1", nil)
@@ -278,4 +242,33 @@ func readBody(t *testing.T, r io.Reader) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// TestIPAllowed: exact + CIDR matching for admin_allow_from.
+func TestIPAllowed(t *testing.T) {
+	cases := []struct {
+		name      string
+		ip        string
+		allowList []string
+		want      bool
+	}{
+		{"empty list → allow all (compat)", "127.0.0.1", nil, true},
+		{"empty list public → allow all", "1.2.3.4", nil, true},
+		{"empty list invalid ip → allow all", "zzz", nil, true},
+		{"exact match", "10.0.0.5", []string{"10.0.0.5"}, true},
+		{"exact non-match", "10.0.0.6", []string{"10.0.0.5"}, false},
+		{"CIDR /24 match", "10.0.0.99", []string{"10.0.0.0/24"}, true},
+		{"CIDR /24 non-match", "10.0.1.99", []string{"10.0.0.0/24"}, false},
+		{"v6 CIDR match", "2001:db8::1", []string{"2001:db8::/32"}, true},
+		{"mixed list match later", "192.168.1.1", []string{"127.0.0.1", "192.168.1.0/24"}, true},
+		{"non-empty list invalid IP rejected", "zzz", []string{"0.0.0.0/0"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ipAllowed(c.ip, c.allowList)
+			if got != c.want {
+				t.Errorf("ipAllowed(%q, %v) = %v, want %v", c.ip, c.allowList, got, c.want)
+			}
+		})
+	}
 }

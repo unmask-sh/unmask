@@ -1,7 +1,7 @@
 # CI: lint + test + admin binary build (multi-arch) + nginx module build (matrix)
 #
-# release: tag を push したら自動で nfpm で rpm/deb/apk をビルドして release に貼る
-# (= release.yml は別 file).
+# release: pushing a tag triggers nfpm to build rpm/deb/apk and attach them to
+# the release (= release.yml is a separate file).
 name: ci
 
 on:
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   # --------------------------------------------------------------------
-  # Go の lint / vet / test
+  # Go lint / vet / test
   # --------------------------------------------------------------------
   go-test:
     runs-on: ubuntu-latest
@@ -76,10 +76,10 @@ jobs:
           retention-days: 14
 
   # --------------------------------------------------------------------
-  # ja4 module (matrix: nginx version × arch).  arm64 は qemu-user で代用しても
-  # OK だが、 module はソースから native build する必要があるので native runner
-  # に揃える方が確実.  GitHub Actions の linux/arm64 runner は ubuntu-22.04-arm
-  # (= 2024 後半 GA) で利用可能.
+  # ja4 module (matrix: nginx version x arch).  arm64 could be done with
+  # qemu-user, but the module has to be built natively from source, so using a
+  # native runner is more reliable.  GitHub Actions' linux/arm64 runner
+  # ubuntu-22.04-arm (= GA in late 2024) is available.
   # --------------------------------------------------------------------
   build-module:
     needs: go-test
@@ -106,9 +106,9 @@ jobs:
         run: |
           cd nginx-${{ matrix.nginx }}
           ./configure --with-compat --with-http_ssl_module \
-                      --add-dynamic-module=$GITHUB_WORKSPACE/ja4-module
+                      --add-dynamic-module=$GITHUB_WORKSPACE/nginx-module
           make modules
-          ls -la objs/ngx_http_ja4_module.so
+          ls -la objs/ngx_http_unmask_module.so
       - name: rename + arch suffix
         id: arch
         run: |
@@ -119,11 +119,26 @@ jobs:
             *)       goarch=$arch ;;
           esac
           mkdir -p dist
-          cp nginx-${{ matrix.nginx }}/objs/ngx_http_ja4_module.so \
-             dist/ngx_http_ja4_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
+          cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
+             dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
           echo "goarch=${goarch}" >> $GITHUB_OUTPUT
       - uses: actions/upload-artifact@v4
         with:
           name: ngx-ja4-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
           path: dist/*.so
           retention-days: 14
+
+  # --------------------------------------------------------------------
+  # e2e: spin up nginx + admin via docker-compose and run 4 scenarios
+  # --------------------------------------------------------------------
+  e2e-docker:
+    runs-on: ubuntu-latest
+    needs: [go-test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: docker compose up + run e2e
+        run: make e2e-docker
+      - name: dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f e2e/docker/docker-compose.yml logs --no-color || true

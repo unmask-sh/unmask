@@ -1,0 +1,63 @@
+# unmask-plugin-nginx — optional plugin that ships only the nginx native
+# module (.so).
+#
+# Targets environments running nginx 1.9.11+ that support dynamic module
+# loading.  Installing it enables JA4 fingerprint extraction.  To prevent ABI
+# mismatch, the rpm name embeds the build-time nginx version
+# (= __NGINX_VERSION__), and preinstall.sh aborts if the host nginx differs.
+#
+# Depends:
+#   - unmask >= 0.1.0 (= main package)
+#
+# Build:
+#   make package-plugin-nginx UNMASK_VERSION=0.1.0 NGINX_VERSION=1.18.0
+
+name: unmask-plugin-nginx
+arch: ${UNMASK_ARCH}
+platform: linux
+# Version: unmask version + nginx version baked into the release suffix.
+# nfpm rpm has no separate release field, so the Makefile renames the
+# produced file to include the nginx version.
+version: ${UNMASK_VERSION}
+section: net
+priority: optional
+maintainer: unmask maintainers <oss@example.com>
+description: |
+  unmask nginx native module (= ngx_http_unmask_module.so).
+  Provides JA4 TLS fingerprint extraction and full native-mode features.
+  Requires the unmask main package and matching nginx version.
+vendor: unmask
+homepage: https://github.com/unmask-sh/unmask
+license: Apache-2.0
+
+rpm:
+  group: System Environment/Daemons
+  signature:
+    key_file: ${NFPM_RPM_KEY_FILE:-}
+
+deb:
+  fields:
+    Vcs-Browser: https://github.com/unmask-sh/unmask
+
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}
+
+depends:
+  - unmask
+
+contents:
+  # Place the nginx dynamic module (.so) at a **staging path**.  The real
+  # module path (= /usr/lib/nginx/modules/ or /usr/lib64/nginx/modules/)
+  # varies by distro / nginx build option, so postinstall extracts
+  # `--modules-path=` from `nginx -V` and copies it there.
+  - src: ../dist/ngx_http_unmask_module-linux-${UNMASK_ARCH}.so
+    dst: /usr/share/unmask/plugin/ngx_http_unmask_module.so
+    file_info:
+      mode: 0644
+
+scripts:
+  preinstall: ./scripts/preinstall-plugin-nginx.sh
+  postinstall: ./scripts/postinstall-plugin-nginx.sh
+  preremove: ./scripts/preremove-plugin-nginx.sh

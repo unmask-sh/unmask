@@ -1,0 +1,32 @@
+# /etc/unmask/native/server.inc — auto-rendered by admin.  DO NOT EDIT.
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# Placement: include this in the user's vhost (= server block) as a one-liner:
+#   server {
+#       listen 443 ssl;
+#       server_name example.com;
+#       access_log /var/log/nginx/example-access.log;        # leave existing as-is
+#       include /etc/unmask/native/server.inc;               # ← add this
+#       ...
+#       location / {
+#           include /etc/unmask/native/protect.inc;          # scope to protect
+#       }
+#   }
+#
+# Current contents: access_log for dashboard aggregation of cookie-passed
+# requests (unmask_minimal).  Any future server-scope directives consolidate here.
+#
+# Why access_log is required here: redefining access_log at the server level
+# stops nginx from inheriting the http-scope `access_log syslog:... unmask_minimal;`,
+# so on installs with pre-existing vhosts the same directive must also be
+# emitted at server scope.  nginx allows multiple access_log directives per
+# block, so this coexists with the user's existing access_log.
+#
+# The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
+# are declared by admin at /etc/unmask/native/http.inc (= http scope).
+{{- if .NginxLogEnabled }}
+access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
+{{- else }}
+# nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
+{{- end }}

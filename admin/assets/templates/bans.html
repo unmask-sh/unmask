@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<title>unmask · {{ t .Lang "bans.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.banner{padding:.6rem .9rem;border-radius:.3rem;margin-bottom:1rem;font-weight:600}
+.banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+table.bans{width:100%;border-collapse:collapse;font-size:.88rem}
+table.bans thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.8rem}
+table.bans tbody td{padding:.45rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+table.bans tbody tr:hover{background:#f8fafc}
+table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
+/* Country flag PNG (left side of the IP cell). 16x12 png, subtle. Same as hunt.html.
+ * Popover base is shared from /static/popover-pin.css. */
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+.source-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.src-honeypot{background:#fee2e2;color:#991b1b}
+.src-manual{background:#dbeafe;color:#1e40af}
+.src-protected_failed,.src-rate_limit_abuse,.src-ja4_loop{background:#fef3c7;color:#92400e}
+.muted{color:#94a3b8}
+.btn{padding:.45rem 1rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-weight:600;cursor:pointer;font-size:.85rem}
+.btn:hover{background:#1e293b}
+.btn.danger{background:#fff;color:#b91c1c;border:1px solid #fca5a5;font-size:.78rem;padding:.3rem .7rem}
+.btn.danger:hover{background:#fee2e2;color:#7f1d1d}
+.add-grid{display:grid;grid-template-columns:1fr 1.5fr 1fr 1fr auto;gap:.6rem;align-items:end}
+.add-grid label{display:block;font-size:.78rem;color:#64748b;margin-bottom:.2rem}
+.add-grid input{width:100%;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.92rem;background:#fff}
+.card-h-row{display:flex;align-items:center;gap:.6rem;margin:0 0 .75rem}
+.card-h-row h2{flex:1;margin:0}
+.toggle-switch{position:relative;display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:.85rem;color:#475569}
+.toggle-switch input[type=checkbox]{position:absolute;opacity:0;width:0;height:0}
+.toggle-switch .slider{position:relative;display:inline-block;width:2.5rem;height:1.4rem;background:#cbd5e1;border-radius:.7rem;transition:background .15s}
+.toggle-switch .slider::before{content:"";position:absolute;top:.15rem;left:.15rem;width:1.1rem;height:1.1rem;background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle-switch input:checked + .slider{background:#16a34a}
+.toggle-switch input:checked + .slider::before{transform:translateX(1.1rem)}
+.toggle-switch .lbl{font-weight:600;color:#0f172a}
+.counts{display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem;margin-bottom:.6rem}
+.counts .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f8fafc}
+.counts .pill strong{font-weight:700;color:#0f172a}
+.filter-bar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem;font-size:.85rem}
+.filter-bar input[type=text]{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;min-width:14rem;font-size:.85rem}
+.filter-bar select{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;font-size:.85rem}
+.filter-bar button{padding:.3rem .8rem;border:1px solid #0f172a;border-radius:.2rem;background:#0f172a;color:#fff;cursor:pointer;font-size:.85rem}
+.filter-bar a.reset{padding:.3rem .5rem;color:#475569;text-decoration:none;font-size:.85rem}
+table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
+table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
+table.feed tbody tr:hover{background:#f8fafc}
+.match-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
+.match-ip_ja4{background:#fee2e2;color:#991b1b}
+.match-ja4_only{background:#fef3c7;color:#92400e}
+.match-ip_only{background:#dbeafe;color:#1e3a8a}
+.confidence{display:inline-block;width:3.5rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.cmt{display:block;padding:.15rem .35rem;margin:.15rem 0;background:#f1f5f9;border-radius:.2rem;font-size:.78rem;word-break:break-word}
+.cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
+.note{color:#64748b;font-size:.85rem;line-height:1.6}
+.note code{background:#f1f5f9;padding:.1em .4em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace}
+.file-meta{font-size:.78rem;color:#94a3b8;margin:1rem 0 0;padding:.4rem .25rem}
+.file-meta summary{cursor:pointer;list-style:none;color:#94a3b8}
+.file-meta summary::-webkit-details-marker{display:none}
+.file-meta summary::before{content:"▸ ";color:#cbd5e1}
+.file-meta[open] summary::before{content:"▾ "}
+.file-meta summary code{background:#f1f5f9;color:#64748b;padding:.05em .35em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;margin-left:.3rem}
+.row-actions form{display:inline-block;margin:0}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/" class="active">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+</header>
+<main class="unmask-main">
+<h1>{{ t .Lang "bans.title" }}</h1>
+<p class="meta">{{ safeHTML (t .Lang "bans.subtitle") }}</p>
+
+{{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
+{{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "bans.list_h" }} <span style="color:#64748b;font-weight:normal;font-size:.85rem">({{ len .Entries }})</span></h2>
+  <table class="bans">
+    <thead>
+      <tr>
+        <th>{{ t .Lang "bans.col.ip" }}</th>
+        <th>{{ t .Lang "bans.col.ja4" }}</th>
+        <th>{{ t .Lang "bans.col.source" }}</th>
+        <th>{{ t .Lang "bans.col.reason" }}</th>
+        <th>{{ t .Lang "bans.col.banned_at" }}</th>
+        <th>{{ t .Lang "bans.col.expires" }}</th>
+        <th>{{ t .Lang "bans.col.banned_by" }}</th>
+        <th>{{ t .Lang "bans.col.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Entries }}
+      <tr>
+        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">(any)</span>{{ end }}</td>
+        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
+        <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td><time class="js-datetime" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
+        <td>
+          {{ if .ExpiresAt.IsZero }}
+            <span style="color:#b91c1c;font-weight:600">{{ t $.Lang "bans.forever" }}</span>
+          {{ else }}
+            <time class="js-datetime" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "2006-01-02 15:04" }}</time>
+          {{ end }}
+        </td>
+        <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
+        <td class="row-actions">
+          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" onsubmit="return confirm('Unban {{ .IP }}|{{ .JA4 }}?')">
+            <input type="hidden" name="op" value="delete">
+            <input type="hidden" name="id" value="{{ .ID }}">
+            <button type="submit" class="btn danger">{{ t $.Lang "bans.btn.unban" }}</button>
+          </form>
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="8" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "bans.add_h" }}</h2>
+  <form method="POST" action="{{ .BasePath }}/admin/bans/save">
+    <input type="hidden" name="op" value="add">
+    <div class="add-grid">
+      <div>
+        <label>{{ t .Lang "bans.col.ip" }}</label>
+        <input type="text" name="ip" required placeholder="1.2.3.4">
+      </div>
+      <div>
+        <label>{{ t .Lang "bans.col.ja4" }} ({{ t .Lang "bans.ja4_optional" }})</label>
+        <input type="text" name="ja4" placeholder="t13d... ({{ t .Lang "bans.ja4_optional_hint" }})">
+      </div>
+      <div>
+        <label>{{ t .Lang "bans.col.reason" }}</label>
+        <input type="text" name="reason" placeholder="DDoS / scraper / etc.">
+      </div>
+      <div>
+        <label>{{ t .Lang "bans.duration_sec" }}</label>
+        <input type="number" name="duration_sec" value="0" min="0" max="2592000">
+      </div>
+      <div>
+        <button type="submit" class="btn">{{ t .Lang "bans.btn.add" }}</button>
+      </div>
+    </div>
+    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "bans.add_note") }}</div>
+  </form>
+</div>
+
+<div class="bcd-card">
+  <div class="card-h-row">
+    <h2>{{ t .Lang "shared_feed.title" }}</h2>
+    <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-toggle-form" style="margin:0">
+      <input type="hidden" name="op" value="subscribe-toggle">
+      <label class="toggle-switch" title="{{ t .Lang "bans.subscribe_toggle_tooltip" }}">
+        <span class="lbl">{{ t .Lang "bans.subscribe_toggle_label" }}</span>
+        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .SubscribeEnabled }}checked{{ end }} onchange="this.form.submit()">
+        <span class="slider"></span>
+      </label>
+    </form>
+  </div>
+  <p class="note" style="margin:0 0 .75rem">{{ safeHTML (t .Lang "shared_feed.subtitle") }}</p>
+
+  <div class="counts">
+    <span class="pill"><strong>{{ .SharedFeedTotalEntries }}</strong> {{ t .Lang "shared_feed.total" }}</span>
+    <span class="pill">match=<span class="match-pill match-ip_ja4">ip_ja4</span> <strong>{{ .SharedFeedCountIPJA4 }}</strong></span>
+    <span class="pill">match=<span class="match-pill match-ja4_only">ja4_only</span> <strong>{{ .SharedFeedCountJA4 }}</strong></span>
+    <span class="pill">match=<span class="match-pill match-ip_only">ip_only</span> <strong>{{ .SharedFeedCountIP }}</strong></span>
+    {{ if gt .SharedFeedLastPulledAt 0 }}
+    <span class="pill">{{ t .Lang "shared_feed.last_pulled" }}: <time class="js-datetime" data-ts="{{ .SharedFeedLastPulledAt }}">{{ .SharedFeedLastPulledAt }}</time></span>
+    {{ else }}
+    <span class="pill muted">({{ t .Lang "shared_feed.never_pulled" }})</span>
+    {{ end }}
+  </div>
+
+  <form method="GET" class="filter-bar">
+    <input type="text" name="q" value="{{ .SharedFeedQuery }}" placeholder="{{ t .Lang "shared_feed.filter.q_placeholder" }}">
+    <select name="match">
+      <option value="" {{ if eq .SharedFeedMatch "" }}selected{{ end }}>{{ t .Lang "shared_feed.filter.all_matches" }}</option>
+      <option value="ip_ja4"   {{ if eq .SharedFeedMatch "ip_ja4"   }}selected{{ end }}>ip_ja4</option>
+      <option value="ja4_only" {{ if eq .SharedFeedMatch "ja4_only" }}selected{{ end }}>ja4_only</option>
+      <option value="ip_only"  {{ if eq .SharedFeedMatch "ip_only"  }}selected{{ end }}>ip_only</option>
+    </select>
+    <button type="submit">{{ t .Lang "shared_feed.filter.apply" }}</button>
+    {{ if or .SharedFeedMatch .SharedFeedQuery }}
+    <a href="?" class="reset">{{ t .Lang "shared_feed.filter.reset" }}</a>
+    {{ end }}
+  </form>
+
+  <table class="feed">
+    <thead>
+      <tr>
+        <th>{{ t .Lang "shared_feed.col.match" }}</th>
+        <th>IP</th>
+        <th>JA4</th>
+        <th>conf.</th>
+        <th>{{ t .Lang "shared_feed.col.reason" }}</th>
+        <th>{{ t .Lang "shared_feed.col.comments" }}</th>
+        <th>{{ t .Lang "shared_feed.col.expires" }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .SharedFeedEntries }}
+      <tr>
+        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span></td>
+        <td class="mono{{ if .IP }} ipclick{{ end }}"{{ if .IP }} data-ip="{{ .IP }}"{{ end }}>{{ if .IP }}<img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="confidence">{{ printf "%.2f" .Confidence }}</td>
+        <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>
+          {{ range .Comments }}
+          <span class="cmt">{{ .Text }}<time class="js-datetime" data-ts="{{ .SubmittedAt }}">{{ .SubmittedAt }}</time></span>
+          {{ else }}
+          <span class="muted">-</span>
+          {{ end }}
+        </td>
+        <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "shared_feed.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+  <div class="note" style="margin-top:.6rem;font-size:.78rem">
+    {{ safeHTML (tf .Lang "shared_feed.foot" .SharedFeedMapDir) }}
+    {{ if gt .SharedFeedGeneratedAt 0 }}<br>{{ t .Lang "shared_feed.feed_generated_at" }}: <time class="js-datetime" data-ts="{{ .SharedFeedGeneratedAt }}">{{ .SharedFeedGeneratedAt }}</time> (feed schema v{{ .SharedFeedVersion }}){{ end }}
+  </div>
+</div>
+
+<details class="file-meta">
+  <summary>{{ t .Lang "bans.file_h" }} <code>{{ .BanFilePath }}</code></summary>
+  <div class="note" style="margin-top:.5rem">
+    {{ safeHTML (t .Lang "bans.file_desc") }}
+  </div>
+</details>
+
+</main>
+<div id="ip-popover" data-popover="ip"></div>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('time.js-datetime').forEach(function(el){
+    var ts = parseInt(el.getAttribute('data-ts'), 10);
+    if (!ts) return;
+    el.textContent = new Date(ts * 1000).toLocaleString();
+  });
+});
+
+// IP popover (rDNS + GeoIP + ASN). Same pattern as hunt.html / dashboard.html.
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var cache = new Map();
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    var na = '<span class="muted">(unavailable)</span>';
+    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                  '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    var types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      var cn = d.country_name ? esc(d.country_name) : '';
+      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + esc(ip) + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
+      .catch(function(){ cb('lookup failed'); });
+  }
+  document.querySelectorAll('.ipclick').forEach(function(td){
+    td.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){
+        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); });
+      }, 200);
+    });
+    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      e.preventDefault();
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+    });
+  });
+})();
+</script>
+</body>
+</html>
