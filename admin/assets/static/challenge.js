@@ -444,11 +444,11 @@
   // Yields with setTimeout(0) every 5000 iterations to keep the UI thread responsive.
   var d=new Date();
   var day=Math.floor(d.getTime()/86400000);
-  // seed matches the server (= cookies.go) exactly.  The "uic" prefix is inherited from legacy djb2.
+  // seed matches the server (= cookies.go) exactly.
   // Difficulty comes from settings.Challenge.PowDifficulty (= default 18 bits)
   // via window.UNMASK.pow_difficulty.
   var powDiff=(window.UNMASK && window.UNMASK.pow_difficulty) || 18;
-  var seed=String(day)+'_uic';
+  var seed=String(day)+'_unmask';
 
   // ---- pure JS SHA-256 (= RFC 6234). 32-byte output. ~150 lines. ----
   var SHA256_K = new Uint32Array([

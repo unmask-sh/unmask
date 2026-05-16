@@ -1,14 +1,17 @@
 /*
  * ja4_parser.h — pure-C TLS ClientHello parser for JA4 fingerprint.
  *
- * 役割: SSL_CTX_set_msg_callback (= OpenSSL 0.9.7+ 全 ABI 共通の安定 API) 経由で
- *       渡される raw handshake message bytes を JA4 計算に必要な要素に分解.
+ * Purpose: decompose raw handshake message bytes delivered via
+ *          SSL_CTX_set_msg_callback (= the stable API common to OpenSSL
+ *          0.9.7+ across all ABIs) into the elements needed for JA4
+ *          computation.
  *
- * OpenSSL バージョン依存 API (= SSL_client_hello_get0_*) を排除し、 OpenSSL 1.0 /
- * 1.1 / 3.x / LibreSSL / BoringSSL いずれでも同 source から build 可能にする
- * ためのレイヤー.  spec は RFC 5246 (TLS 1.2) / RFC 8446 (TLS 1.3) +
+ * This layer avoids OpenSSL-version-specific APIs (= SSL_client_hello_get0_*)
+ * so the same source builds against OpenSSL 1.0 / 1.1 / 3.x / LibreSSL /
+ * BoringSSL. Spec: RFC 5246 (TLS 1.2) / RFC 8446 (TLS 1.3) plus
  * https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md.
- * FoxIO の BSL ライセンス実装ソースは参照しない (= clean-room).
+ * The BSL-licensed FoxIO reference implementation is not consulted
+ * (= clean-room).
  */
 
 #ifndef NGX_JA4_PARSER_H_INCLUDED_
@@ -21,31 +24,38 @@
 #define JA4_MAX_SIG_ALGS   64
 
 typedef struct {
-    /* legacy_version 欄 (= ClientHello.legacy_version).
-     * TLS 1.3 では 0x0303 固定で、 実際の version は supported_versions ext へ. */
+    /* legacy_version field (= ClientHello.legacy_version).
+     * Fixed at 0x0303 for TLS 1.3; the real version lives in the
+     * supported_versions extension. */
     unsigned int  legacy_version;
 
-    /* supported_versions (= ext 43) の最大値 (GREASE 除外).
-     * extension 不在なら 0.  JA4 spec: 値があれば legacy より優先. */
+    /* Maximum value (GREASE excluded) from supported_versions (= ext 43).
+     * 0 if the extension is absent. JA4 spec: prefer this over legacy
+     * when present. */
     unsigned int  supported_versions_max;
 
-    /* cipher_suites を GREASE 除外し提示順で保持.  256 を超える場合は切捨て. */
+    /* cipher_suites in presentation order with GREASE excluded.
+     * Truncated past 256 entries. */
     unsigned int  ciphers[JA4_MAX_CIPHERS];
     int           ncipher;
 
-    /* extensions を GREASE 除外し提示順で保持 (= ID のみ, body は別解析). */
+    /* extensions in presentation order with GREASE excluded
+     * (= IDs only; bodies parsed separately). */
     unsigned int  extensions[JA4_MAX_EXTENSIONS];
     int           nexts;
 
-    /* signature_algorithms (= ext 13) を GREASE 除外し提示順で保持. */
+    /* signature_algorithms (= ext 13) in presentation order with GREASE
+     * excluded. */
     unsigned int  sig_algs[JA4_MAX_SIG_ALGS];
     int           nsig_algs;
-    int           has_sig_algs;       /* ext 13 自体が存在したか */
+    int           has_sig_algs;       /* set if ext 13 itself was present */
 
-    /* SNI (= ext 0): host_name エントリ (name_type=0) が 1 つでもあれば 1. */
+    /* SNI (= ext 0): 1 if at least one host_name entry (name_type=0)
+     * is present. */
     int           sni_present_domain;
 
-    /* ALPN (= ext 16) の最初の proto の先頭文字 / 末尾文字.  不在なら '0'. */
+    /* ALPN (= ext 16) first and last character of the first proto.
+     * Both '0' if absent. */
     int           alpn_first;
     int           alpn_last;
 } ja4_parsed_t;
@@ -53,13 +63,14 @@ typedef struct {
 /*
  * Parse a TLS handshake message that begins at the msg_type byte.
  *
- * 入力: SSL_CTX_set_msg_callback が content_type=SSL3_RT_HANDSHAKE (= 22) +
- *       write_p=0 (= 受信) で呼ばれた際の (buf, len).
- *       msg[0] = SSL3_MT_CLIENT_HELLO (= 1) を期待.
+ * Input: (buf, len) as delivered by SSL_CTX_set_msg_callback when
+ *        content_type=SSL3_RT_HANDSHAKE (= 22) and write_p=0 (= receive).
+ *        Expects msg[0] = SSL3_MT_CLIENT_HELLO (= 1).
  *
- * 返り値:
- *   0  = ClientHello を正常 parse できた (out 有効)
- *  -1  = malformed / 非 ClientHello / 容量不足.  out の中身は未定義.
+ * Return:
+ *    0  = ClientHello parsed successfully (out is valid)
+ *   -1  = malformed / not a ClientHello / insufficient buffer.
+ *         The contents of `out` are undefined in this case.
  */
 int ja4_parse_client_hello(const unsigned char *msg, size_t len,
                            ja4_parsed_t *out);

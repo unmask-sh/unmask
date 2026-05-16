@@ -20,7 +20,7 @@
 // two variants:
 //   legacy djb2 : "<day>.<djb2-hex>.<target_b36>.<flags_b36>"   (= v0.0, deprecated)
 //   SHA-256     : "<day>.pow2.<nonce_b36>.<flags_b36>"          (= v0.1+, parts[1]="pow2" marker)
-// For SHA-256 we compute SHA-256 of seed = "<day>_uic" + ":" + nonce and
+// For SHA-256 we compute SHA-256 of seed = "<day>_unmask" + ":" + nonce and
 // verify that leading-zero-bits >= difficulty.  difficulty is
 // settings.Challenge.ResolvedPowDifficulty().
 package cookies
@@ -64,7 +64,7 @@ func issueValueAt(bvSecret, remoteIP, kind string, day int64) string {
 //
 // In the PoW path the client computes the hash in JS and issues the cookie
 // itself, so bv_secret is not passed to the server (= the seed
-// challenge.js computes is the fixed value dayNum + "_uic").  This must
+// challenge.js computes is the fixed value dayNum + "_unmask").  This must
 // match challenge.js's hash logic exactly.
 //
 // powDifficulty is the SHA-256 PoW target leading-zero-bits
@@ -105,7 +105,7 @@ func Verify(value, bvSecret, remoteIP string, validDays, powDifficulty int) bool
 // challenge.js generation logic:
 //
 //	day  = Math.floor(Date.now() / 86400000)
-//	seed = day + "_uic"
+//	seed = day + "_unmask"
 //	Search for nonce in 0..N where djb2(seed + "_" + nonce) & 0xFFF === 0.
 //	Call that nonce `target`.
 //	proof = djb2(seed + "_" + target)
@@ -128,7 +128,7 @@ func verifyPoW(parts []string, validDays int) bool {
 	if err != nil {
 		return false
 	}
-	seed := strconv.FormatInt(day, 10) + "_uic"
+	seed := strconv.FormatInt(day, 10) + "_unmask"
 	proof := djb2(seed + "_" + strconv.FormatInt(target, 10))
 	// JS Math.abs(int32) turns a negative into a positive.  Absorb that
 	// via Go int32 -> uint32 -> big int.
@@ -158,7 +158,7 @@ func djb2(s string) int64 {
 // challenge.js generation logic (= matches sha256() + the solve loop in challenge.js):
 //
 //	day    = Math.floor(Date.now() / 86400000)
-//	seed   = day + "_uic"
+//	seed   = day + "_unmask"
 //	Iterate nonce 0..N and pick the first nonce where the leading zero bits
 //	of SHA-256(seed + ":" + nonce) >= pow_difficulty.
 //	cookie = day + ".pow2." + nonce.toString(36) + "." + flags.toString(36)
@@ -184,7 +184,7 @@ func verifyPowSHA256(parts []string, validDays, powDifficulty int) bool {
 	if err != nil || nonce < 0 {
 		return false
 	}
-	seed := strconv.FormatInt(day, 10) + "_uic"
+	seed := strconv.FormatInt(day, 10) + "_unmask"
 	input := seed + ":" + strconv.FormatInt(nonce, 10)
 	sum := sha256.Sum256([]byte(input))
 	return leadingZeroBits(sum[:]) >= powDifficulty

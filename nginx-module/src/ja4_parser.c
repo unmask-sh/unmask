@@ -1,27 +1,32 @@
 /*
  * ja4_parser.c — TLS ClientHello parser (no OpenSSL dependency).
  *
- * RFC 5246 §7.4.1.2 (TLS 1.2 ClientHello) + RFC 8446 §4.1.2 (TLS 1.3) +
- * JA4 spec の要件のみ実装.  decryption や handshake completion などは触らない.
+ * Implements only what is required by RFC 5246 §7.4.1.2 (TLS 1.2
+ * ClientHello), RFC 8446 §4.1.2 (TLS 1.3), and the JA4 spec. Does not
+ * touch decryption or handshake completion.
  *
- * 設計上の不変条件:
- *   - 入力 buffer 外を 1 byte たりとも触らない (= 全 advance に bound check).
- *   - allocation は一切しない (= 全部 caller-provided struct に格納).
- *   - 失敗時は途中状態の out を caller に渡し得るが、 caller は返り値 0 のみ
- *     信用する規約とする (= ja4_parser.h の doc comment 参照).
+ * Design invariants:
+ *   - Never touches a byte outside the input buffer (= every advance is
+ *     bounds-checked).
+ *   - Performs no allocation (= everything is written into a
+ *     caller-provided struct).
+ *   - On failure the caller may receive a half-filled `out`; the contract
+ *     is that the caller trusts only a 0 return value (see ja4_parser.h
+ *     for the documented contract).
  */
 
 #include "ja4_parser.h"
 
 #include <string.h>
 
-/* GREASE pattern (RFC 8701): 0x?A?A で 上 nibble == 下 nibble の hex 1 字. */
+/* GREASE pattern (RFC 8701): 0x?A?A with the upper nibble equal to the
+ * lower nibble in a hex digit. */
 static int ja4_is_grease(unsigned int v) {
     return ((v & 0x0F0F) == 0x0A0A)
         && (((v >> 4) & 0x0F) == ((v >> 12) & 0x0F));
 }
 
-/* 2 byte big-endian read.  bound check は呼出側. */
+/* 2-byte big-endian read. Caller is responsible for bounds checking. */
 static unsigned int rd_u16(const unsigned char *p) {
     return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
 }
@@ -97,7 +102,7 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
     if ((size_t)(end - p) < comp_len) return -1;
     p += comp_len;
 
-    /* extensions block (= TLS 1.0 では optional).  終端なら正常終了. */
+    /* extensions block (= optional in TLS 1.0). End-of-buffer is OK. */
     if (p == end) {
         return 0;
     }
@@ -105,7 +110,7 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
     ext_total_len = rd_u16(p);
     p += 2;
     if ((size_t)(end - p) < ext_total_len) return -1;
-    /* extensions ブロックに end を絞り込む (= 余剰 bytes は無視). */
+    /* Constrain end to the extensions block (= ignore trailing bytes). */
     end = p + ext_total_len;
 
     while ((size_t)(end - p) >= 4) {
@@ -124,8 +129,9 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
         switch (etype) {
 
         case 0: /* server_name (= SNI).
-                 * 構造: u16 list_total_len, [u8 name_type, u16 host_len, bytes]*.
-                 * host_name (= name_type 0) が 1 つでもあれば domain あり. */
+                 * Layout: u16 list_total_len, [u8 name_type, u16 host_len, bytes]*.
+                 * At least one host_name (= name_type 0) means a domain
+                 * is present. */
             if (elen >= 5) {
                 unsigned int list_len = rd_u16(eptr);
                 if (list_len + 2 <= elen && list_len >= 3) {
@@ -137,7 +143,7 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
             break;
 
         case 13: /* signature_algorithms.
-                  * 構造: u16 list_len_bytes, u16 sigscheme*. */
+                  * Layout: u16 list_len_bytes, u16 sigscheme*. */
             out->has_sig_algs = 1;
             if (elen >= 2) {
                 unsigned int sa_len = rd_u16(eptr);
@@ -157,8 +163,8 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
             break;
 
         case 16: /* application_layer_protocol_negotiation (= ALPN).
-                  * 構造: u16 list_len_bytes, [u8 proto_len, bytes]*.
-                  * 最初の proto の先頭 / 末尾文字を JA4 に使う. */
+                  * Layout: u16 list_len_bytes, [u8 proto_len, bytes]*.
+                  * Use the first/last character of the first proto in JA4. */
             if (elen >= 3) {
                 unsigned int list_len = rd_u16(eptr);
                 if (list_len + 2 <= elen && list_len >= 1) {
@@ -172,9 +178,9 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
             }
             break;
 
-        case 43: /* supported_versions (ClientHello 形式).
-                  * 構造: u8 list_len_bytes, u16 version*.
-                  * GREASE 除外し最大値を採用. */
+        case 43: /* supported_versions (ClientHello form).
+                  * Layout: u8 list_len_bytes, u16 version*.
+                  * Take the maximum after GREASE exclusion. */
             if (elen >= 1) {
                 unsigned int sv_len = eptr[0];
                 if ((size_t)sv_len + 1 <= (size_t)elen

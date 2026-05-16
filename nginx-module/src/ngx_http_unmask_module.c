@@ -22,10 +22,10 @@
  *
  * Site binding: if the nginx variable $unmask_site is set on the request,
  * the cookie kind must match.  Mapping:
- *   $unmask_site = "" (= unset)         → no binding check (legacy)
- *   $unmask_site = "" or "default"      → kind must be "captcha"
- *   $unmask_site = "<X>"                → kind must be "captcha-<X>"
- * Mismatch → $unmask_bv_valid = "0" even if HMAC otherwise verifies.
+ *   $unmask_site = "" (= unset)         -> no binding check (legacy)
+ *   $unmask_site = "" or "default"      -> kind must be "captcha"
+ *   $unmask_site = "<X>"                -> kind must be "captcha-<X>"
+ * Mismatch -> $unmask_bv_valid = "0" even if HMAC otherwise verifies.
  * This blocks cross-site cookie replay on multi-site nginx servers.
  *
  * Configuration:
@@ -50,13 +50,14 @@
 
 /* Per-connection JA4 storage.
  *
- * ja4 文字列は ctx 内 fixed buffer に持たせる (= OPENSSL_malloc を 1 回 = ctx だけに集約).
- * free_cb 内で `ja4.data` を独立 free しない構造にすることで、 TLS handshake が alert で
- * 早期 abort する path (= 自己署名 cert / cert untrusted 等) の cleanup race で起きる
- * 二重 free / heap corruption の機会を構造的に消滅させる. */
+ * The JA4 string lives in a fixed buffer inside the ctx (= a single
+ * OPENSSL_malloc covers everything, just for the ctx).  Because the
+ * free_cb never frees `ja4.data` independently, the cleanup race that
+ * occurs on early-abort handshake paths (= self-signed cert / cert
+ * untrusted etc.) cannot produce double-free / heap corruption. */
 typedef struct {
-    u_char     ja4_buf[NGX_JA4_MAX]; /* full string. ngx_str_t.data はここを指す */
-    ngx_str_t  ja4;                  /* {data: ja4_buf, len: 計測値}.  data は free しない */
+    u_char     ja4_buf[NGX_JA4_MAX]; /* full string; ngx_str_t.data points here */
+    ngx_str_t  ja4;                  /* {data: ja4_buf, len: measured value}.  data is never freed */
 } ngx_http_ja4_ctx_t;
 
 /* ex_data index for storing JA4 string on SSL object */
@@ -66,8 +67,9 @@ static int ngx_http_ja4_ssl_ex_data_idx = -1;
 typedef struct {
     ngx_str_t   bv_secret;
     ngx_int_t   bv_valid_days;
-    /* SHA-256 PoW の target leading-zero-bits. challenge.js / Go cookies と一致.
-     * default 18.  unmask_bv_pow_difficulty directive で override 可. */
+    /* Target leading-zero bits for SHA-256 PoW. Must match challenge.js
+     * and the Go cookies package.  Default 18.  Override via the
+     * unmask_bv_pow_difficulty directive. */
     ngx_int_t   bv_pow_difficulty;
     ngx_str_t   ban_file_path;
 } ngx_http_ja4_main_conf_t;
@@ -82,8 +84,9 @@ typedef struct {
 } ngx_unmask_banlist_t;
 
 /* per-worker ban list. Reloaded lazily on every variable evaluation if mtime changed. */
-/* gcc 4.4 (= CentOS 6) は `= {0}` で missing initializer warning を出す.
-   static storage は C standard で zero-initialized なので明示 init は不要. */
+/* gcc 4.4 (= CentOS 6) warns on `= {0}` with a missing-initializer.
+   The C standard zero-initializes static storage, so no explicit init
+   is needed. */
 static ngx_unmask_banlist_t ngx_unmask_banlist;
 
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf);
@@ -145,8 +148,8 @@ ngx_module_t ngx_http_unmask_module = {
     NGX_MODULE_V1_PADDING
 };
 
-/* nginx 1.11.5 未満互換 (= RHEL 6 EPEL の nginx 1.10 系では ngx_http_null_variable
- * macro が未定義). 自前で sentinel を定義. */
+/* Compatibility with nginx < 1.11.5 (= ngx_http_null_variable is undefined
+ * on RHEL 6 EPEL's nginx 1.10 series).  Provide our own sentinel. */
 #ifndef ngx_http_null_variable
 #define ngx_http_null_variable  { ngx_null_string, NULL, NULL, 0, 0, 0 }
 #endif
@@ -154,13 +157,16 @@ ngx_module_t ngx_http_unmask_module = {
 static ngx_http_variable_t ngx_http_ja4_vars[] = {
     { ngx_string("client_ja4"), NULL, ngx_http_ja4_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
-    /* unmask_bv_kind: "captcha" (3-seg HMAC OK) / "pow" (4-seg djb2 OK) / "" (= 無効/未持参).
-     * 拡張: 将来 別 cookie path (= "signature" / "webauthn" / "passkey" 等) を追加するときは
-     * ここに分岐を足すだけで dashboard 集計が増えた kind を自動で 1 row として扱える. */
+    /* unmask_bv_kind: "captcha" (3-seg HMAC OK) / "pow" (4-seg djb2 OK) /
+     * "" (= invalid / not presented).
+     * Extending: when a future cookie path (= "signature" / "webauthn" /
+     * "passkey" etc.) is added, just add a branch here and the dashboard
+     * aggregation will automatically treat the new kind as one row. */
     { ngx_string("unmask_bv_kind"), NULL, ngx_http_unmask_bv_kind_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
-    /* unmask_bv_captcha_valid: 1 if $bv_kind == "captcha". 既存 nginx-rendered.conf
-     * の $final_challenge / $rate_limit_key map が「リピーターは免除」 を判定するために使う. */
+    /* unmask_bv_captcha_valid: 1 if $bv_kind == "captcha". Used by the
+     * $final_challenge / $rate_limit_key maps in nginx-rendered.conf to
+     * decide "repeat visitors are exempt". */
     { ngx_string("unmask_bv_captcha_valid"), NULL, ngx_http_unmask_bv_captcha_valid_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     /* unmask_bv_pow_valid: 1 if $bv_kind == "pow". */
@@ -171,7 +177,8 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
     ngx_http_null_variable
 };
 
-/* GREASE 判定は ja4_parser.c 側に移動 (= 旧 cb 廃止に伴い module.c から削除). */
+/* GREASE detection moved into ja4_parser.c (= removed from module.c
+ * when the old callback was retired). */
 
 static void ngx_ja4_hex4(char *out, unsigned int v) {
     static const char hex[] = "0123456789abcdef";
@@ -188,7 +195,7 @@ static int u16_cmp(const void *a, const void *b) {
     return (x < y) ? -1 : (x > y) ? 1 : 0;
 }
 
-/* SHA256(hex) → first 12 hex chars */
+/* SHA256(hex) -> first 12 hex chars */
 static void ngx_ja4_sha12(const char *in, size_t inlen, char *out12) {
     static const char hex[] = "0123456789abcdef";
     unsigned char h[SHA256_DIGEST_LENGTH];
@@ -201,12 +208,13 @@ static void ngx_ja4_sha12(const char *in, size_t inlen, char *out12) {
 }
 
 /*
- * ngx_ja4_compute_and_store: ja4_parsed_t (= 独自 parser 出力) から JA4 string を
- * 構築し、 SSL ex_data に格納する.
+ * ngx_ja4_compute_and_store: build the JA4 string from ja4_parsed_t
+ * (= our own parser output) and store it in SSL ex_data.
  *
- * 旧実装は SSL_client_hello_get0_* (= OpenSSL 1.1.1+ 限定 API) に依存していた.
- * 現実装は ja4_parser.c で TLS 1.2 / 1.3 ClientHello を独自 parse しているため
- * OpenSSL 1.0 / 1.1 / 3.x / LibreSSL / BoringSSL 全 ABI で同 source build 可能.
+ * The previous implementation relied on SSL_client_hello_get0_*
+ * (= OpenSSL 1.1.1+ only). The current implementation parses the
+ * TLS 1.2 / 1.3 ClientHello on its own in ja4_parser.c, so the same
+ * source builds on OpenSSL 1.0 / 1.1 / 3.x / LibreSSL / BoringSSL.
  */
 static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ngx_http_ja4_ctx_t *ctx;
@@ -227,8 +235,9 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
 
     if (ngx_http_ja4_ssl_ex_data_idx < 0) return;
 
-    /* 既に計算済 (= 同 SSL connection で 2 度目以降の ClientHello, e.g. HRR 経路)
-     * の場合は何もしない.  二重 allocation / 二重 SSL_set_ex_data を防ぐ. */
+    /* If already computed (= 2nd or later ClientHello on the same SSL
+     * connection, e.g. an HRR path), do nothing.  Prevents double
+     * allocation / double SSL_set_ex_data. */
     if (SSL_get_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx) != NULL) {
         return;
     }
@@ -237,7 +246,8 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     if (!ctx) return;
     ngx_memzero(ctx, sizeof(*ctx));
 
-    /* JA4 spec: supported_versions ext 値 (= 提示中の最大) を優先, 不在なら legacy. */
+    /* JA4 spec: prefer the supported_versions ext value (= the maximum
+     * presented); fall back to legacy_version if absent. */
     tlsver = (parsed->supported_versions_max != 0)
            ? (int)parsed->supported_versions_max
            : (int)parsed->legacy_version;
@@ -268,7 +278,8 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     if (n_a < (int)sizeof(ja4_a)) ja4_a[n_a] = '\0';
     else ja4_a[sizeof(ja4_a) - 1] = '\0';
 
-    /* === JA4_b: sorted ciphers hex, comma-joined → SHA-256 先頭 12 hex chars === */
+    /* === JA4_b: sorted ciphers in hex, comma-joined -> first 12 hex chars
+     * of SHA-256 === */
     bp = buf;
     if (parsed->ncipher > 0) {
         ngx_memcpy(sorted, parsed->ciphers,
@@ -283,7 +294,8 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ngx_ja4_sha12(buf, bp - buf, ja4_b);
     ja4_b[12] = '\0';
 
-    /* === JA4_c: sorted exts (excl SNI=0, ALPN=16), then "_" + sig_algs (= 提示順) === */
+    /* === JA4_c: sorted extensions (excluding SNI=0, ALPN=16), then "_"
+     * + sig_algs (= presentation order) === */
     bp = buf;
     nexts_c = 0;
     for (i = 0; i < parsed->nexts; i++) {
@@ -297,8 +309,9 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
         bp += 4;
     }
     if (parsed->has_sig_algs) {
-        /* JA4 spec: ext list 13 が ClientHello 内に存在した場合のみ "_" + sig_algs を付加.
-         * sig_algs 内容自体は空でも "_" だけは出る (= 既存実装と互換). */
+        /* JA4 spec: append "_" + sig_algs only if ext 13 was present in
+         * the ClientHello. The "_" itself is emitted even when sig_algs
+         * is empty (= matches the prior implementation). */
         *bp++ = '_';
         for (i = 0; i < parsed->nsig_algs; i++) {
             if (i) *bp++ = ',';
@@ -310,7 +323,8 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ja4_c[12] = '\0';
 
     /* === Final JA4 ===
-     * ctx 内 ja4_buf に直接書き込む (= 別 OPENSSL_malloc を廃止. 二重 free 機会消滅). */
+     * Write directly into ctx's ja4_buf (= no separate OPENSSL_malloc;
+     * eliminates the double-free window). */
     outlen = ngx_snprintf(ctx->ja4_buf, NGX_JA4_MAX, "%s_%s_%s",
                           ja4_a, ja4_b, ja4_c) - ctx->ja4_buf;
     if (outlen >= NGX_JA4_MAX) outlen = NGX_JA4_MAX - 1;
@@ -323,13 +337,15 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
 /*
  * SSL_CTX_set_msg_callback handler.
  *
- * OpenSSL 0.9.7+ 全 ABI 共通の安定 API.  TLS handshake 中の全 record /
- * application data でも callback が呼ばれるが、 hot path は早期 return で受け流す.
+ * The stable API common to OpenSSL 0.9.7+ across all ABIs. The callback
+ * also fires for every record / application data during the handshake,
+ * but the hot path early-returns those cases.
  *
- * 引数 buf には handshake message が assemble 済 (= record header 除去).
- * 先頭 byte = HandshakeType (1 = client_hello), 続く 3 byte = uint24 length.
+ * `buf` arrives as a fully assembled handshake message (= record header
+ * stripped). The first byte is HandshakeType (1 = client_hello); the
+ * next 3 bytes are uint24 length.
  *
- * 注: write_p == 1 は server→client 送信なので無視 (= ServerHello 等).
+ * Note: write_p == 1 is server->client (= ServerHello etc.), so ignored.
  */
 static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
                            const void *buf, size_t len,
@@ -341,12 +357,12 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
 
     if (write_p != 0) return;
     if (content_type != 22 /* SSL3_RT_HANDSHAKE */) return;
-    if (buf == NULL || len < 5) return; /* type(1) + len(3) + 最小 body */
+    if (buf == NULL || len < 5) return; /* type(1) + len(3) + minimum body */
 
     m = (const unsigned char *)buf;
     if (m[0] != 1 /* client_hello */) return;
 
-    /* 既に計算済なら parse 自体を省略. */
+    /* If already computed, skip the parse entirely. */
     if (ngx_http_ja4_ssl_ex_data_idx >= 0
         && SSL_get_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx) != NULL) {
         return;
@@ -358,8 +374,9 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
 
 /* Free callback for ex_data.
  *
- * ctx は単一 OPENSSL_malloc 由来の単一 allocation.  ja4 string は ctx 内
- * fixed buffer なので独立 free しない (= 二重 free 機会消滅). */
+ * ctx is a single OPENSSL_malloc, single allocation. The JA4 string lives
+ * in the ctx's fixed buffer, so it is never freed independently
+ * (= eliminates the double-free window). */
 static void ngx_ja4_ssl_free_cb(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
                                 int idx, long argl, void *argp) {
     (void)parent; (void)ad; (void)idx; (void)argl; (void)argp;
@@ -413,11 +430,13 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
         if (ngx_http_ja4_ssl_ex_data_idx < 0) return NGX_ERROR;
     }
 
-    /* 各 server block で http_ssl_module が確保した SSL_CTX に msg_callback を
-     * 取り付ける.  SSL_CTX_set_msg_callback は OpenSSL 0.9.7+ 全 ABI 共通の安定 API.
+    /* Attach the msg_callback to each server block's SSL_CTX (= what
+     * http_ssl_module allocated). SSL_CTX_set_msg_callback is the stable
+     * API common to OpenSSL 0.9.7+ across all ABIs.
      *
-     * 旧: SSL_CTX_set_client_hello_cb (= OpenSSL 1.1.1+ 限定. CentOS 7 / LibreSSL
-     *     等で未提供) → ja4_parser.c で自前 parse に切替済. */
+     * Previously: SSL_CTX_set_client_hello_cb (= OpenSSL 1.1.1+ only;
+     * unavailable on CentOS 7 / LibreSSL etc.) -> replaced with our own
+     * parse in ja4_parser.c. */
     ngx_http_core_main_conf_t *cmcf;
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
     if (!cmcf) return NGX_OK;
@@ -524,13 +543,13 @@ ngx_unmask_ct_memcmp(const void *a, const void *b, size_t n)
     return CRYPTO_memcmp(a, b, n);
 }
 
-/* djb2 hash: challenge.js / Go cookies.djb2 と bit 同一.
+/* djb2 hash: bit-identical to challenge.js / Go cookies.djb2.
  * JS: h=5381; for c in str: h = ((h<<5)+h) + c; h |= 0;  (= int32 wrap)
  *
- * UB 完全回避: 32-bit unsigned arithmetic で computation, 最終的に bit pattern
- * を int32_t として再解釈する.  signed overflow を一切起こさない.
- * seed は ASCII のみ (digits + '_' + 'uic') なので s[i] は 0..127 → zero-extend
- * で OK (= JS char.codeAt と一致).
+ * Fully UB-safe: compute in 32-bit unsigned, then reinterpret the bit
+ * pattern as int32_t.  Never triggers signed overflow.
+ * The seed is ASCII-only (digits + '_' + 'unmask'), so s[i] is 0..127,
+ * matching JS char.codeAt under zero-extension.
  */
 static int32_t
 ngx_unmask_djb2(const u_char *s, size_t n)
@@ -539,15 +558,17 @@ ngx_unmask_djb2(const u_char *s, size_t n)
     for (size_t i = 0; i < n; i++) {
         h = h * 33u + (uint32_t)s[i];
     }
-    /* unsigned → signed 再解釈.  C99 6.3.1.3 で impl-defined だが
-     * gcc/clang/x86_64 で 2's complement 解釈 (= JS の h|=0 と同じ). */
+    /* unsigned -> signed reinterpretation.  Implementation-defined per
+     * C99 6.3.1.3, but on gcc/clang/x86_64 this is two's complement
+     * (= matches JS's h|=0). */
     union { uint32_t u; int32_t s; } cv;
     cv.u = h;
     return cv.s;
 }
 
-/* base36 parse: [0-9a-zA-Z] のみ受付. n>13 / 空文字 / 不正 char / overflow で -1.
- * 13 文字は int64 表現可能な base36 の安全上限 (= log36(2^63) ≈ 12.27). */
+/* base36 parse: accepts only [0-9a-zA-Z]. Returns -1 for n>13, empty,
+ * invalid char, or overflow.  13 chars is the safe upper bound for an
+ * int64 base36 value (= log36(2^63) ~ 12.27). */
 static int64_t
 ngx_unmask_base36(const u_char *s, size_t n)
 {
@@ -560,15 +581,15 @@ ngx_unmask_base36(const u_char *s, size_t n)
         else if (c >= 'a' && c <= 'z') d = c - 'a' + 10;
         else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
         else return -1;
-        /* overflow guard: 36 * v + d <= INT64_MAX か事前判定. */
+        /* overflow guard: pre-check that 36 * v + d <= INT64_MAX. */
         if (v > (INT64_MAX - d) / 36) return -1;
         v = v * 36 + d;
     }
     return v;
 }
 
-/* base36 format: 非負 int64 を [0-9a-z] 文字列に. buf >= 16 bytes.
- * 13 char までしか書かない (= int64 max).  戻り値 = 書いた byte 数. */
+/* base36 format: non-negative int64 -> [0-9a-z] string.  buf >= 16 bytes.
+ * Writes at most 13 chars (= int64 max).  Returns number of bytes written. */
 static size_t
 ngx_unmask_base36_fmt(int64_t v, char *buf)
 {
@@ -584,12 +605,12 @@ ngx_unmask_base36_fmt(int64_t v, char *buf)
     return n;
 }
 
-/* verify_pow_cookie: 4 セグ "day.sig.target.flags" を djb2 で検証.
- *   seed = "<day_dec>_uic_<target_dec>"
+/* verify_pow_cookie: validate a 4-segment "day.sig.target.flags" via djb2.
+ *   seed = "<day_dec>_unmask_<target_dec>"
  *   proof = abs(djb2(seed))
  *   expected_sig = base36(proof)
- * challenge.js (= client) と Go cookies.verifyPoW で完全同一 logic.
- * Returns 1 if valid, 0 otherwise.  bv_valid_days は今日からの遡り上限. */
+ * Bit-identical logic to challenge.js (= client) and Go cookies.verifyPoW.
+ * Returns 1 if valid, 0 otherwise.  bv_valid_days bounds the look-back. */
 static int
 ngx_unmask_verify_pow_cookie(const u_char *day_s, size_t day_n,
                              const u_char *sig_s, size_t sig_n,
@@ -608,27 +629,30 @@ ngx_unmask_verify_pow_cookie(const u_char *day_s, size_t day_n,
     int64_t target = ngx_unmask_base36(tgt_s, tgt_n);
     if (target < 0) return 0;
 
-    /* seed = "<day>_uic_<target>".  最大長 = 19 + 5 + 13 + 1 = 38.
-     * 80 byte buffer で十分余裕. */
+    /* seed = "<day>_unmask_<target>".  Max length = 19 + 8 + 13 + 1 = 41.
+     * 80-byte buffer leaves comfortable margin. */
     char seed[80];
-    int slen = snprintf(seed, sizeof(seed), "%lld_uic_%lld",
+    int slen = snprintf(seed, sizeof(seed), "%lld_unmask_%lld",
                         (long long)cookie_day, (long long)target);
     if (slen <= 0 || slen >= (int)sizeof(seed)) return 0;
 
     int32_t h = ngx_unmask_djb2((const u_char *)seed, (size_t)slen);
-    /* abs(int32) を int64 で計算.  INT32_MIN でも安全 (= int64 範囲). */
+    /* Compute abs(int32) in int64.  Safe even for INT32_MIN (= within
+     * int64 range). */
     int64_t proof = (h < 0) ? -(int64_t)h : (int64_t)h;
 
     char expected[16];
     size_t exp_len = ngx_unmask_base36_fmt(proof, expected);
 
     if (exp_len != sig_n) return 0;
-    /* sig_n は呼出側で 0 < sig_n <= 13 確定. expected も 1..13 bytes. */
+    /* sig_n is constrained 0 < sig_n <= 13 by the caller; expected is
+     * also 1..13 bytes. */
     return ngx_unmask_ct_memcmp(expected, sig_s, exp_len) == 0;
 }
 
-/* leading_zero_bits: byte 列の MSB 側から連続する 0 bit を返す.
- * challenge.js leadingZeroBits() + Go cookies.leadingZeroBits() と一致. */
+/* leading_zero_bits: count consecutive 0 bits starting from the MSB of
+ * a byte sequence.  Matches challenge.js leadingZeroBits() and Go
+ * cookies.leadingZeroBits(). */
 static int
 ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
 {
@@ -645,12 +669,12 @@ ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
     return bits;
 }
 
-/* verify_pow_sha256_cookie: v0.1+ SHA-256 hashcash 形式.
- *   format: "<day>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker 検出済)
- *   seed   = "<day_dec>_uic"
+/* verify_pow_sha256_cookie: v0.1+ SHA-256 hashcash format.
+ *   format: "<day>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker already detected)
+ *   seed   = "<day_dec>_unmask"
  *   input  = seed + ":" + nonce_dec
- *   valid  = SHA-256(input) の leading-zero-bits >= difficulty
- * challenge.js / Go cookies.verifyPowSHA256 と完全同一 logic.
+ *   valid  = leading-zero-bits of SHA-256(input) >= difficulty
+ * Bit-identical logic to challenge.js and Go cookies.verifyPowSHA256.
  * Returns 1 if valid, 0 otherwise. */
 static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
@@ -669,9 +693,10 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     int64_t nonce = ngx_unmask_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
 
-    /* input = "<day>_uic:<nonce>".  max = 19 + 5 + 1 + 19 + 1 = 45.  80 byte 余裕. */
+    /* input = "<day>_unmask:<nonce>".  Max = 19 + 8 + 1 + 19 + 1 = 48.
+     * 80-byte buffer is generous. */
     char input[80];
-    int ilen = snprintf(input, sizeof(input), "%lld_uic:%lld",
+    int ilen = snprintf(input, sizeof(input), "%lld_unmask:%lld",
                         (long long)cookie_day, (long long)nonce);
     if (ilen <= 0 || ilen >= (int)sizeof(input)) return 0;
 
@@ -681,14 +706,15 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     return ngx_unmask_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty;
 }
 
-/* bv_kind: cookie 形式判定 + 検証結果.
- *   UNMASK_BV_KIND_NONE    : 未持参 / 形式不正 / 検証 NG
- *   UNMASK_BV_KIND_CAPTCHA : 3 セグ HMAC 検証 OK (= CAPTCHA 通過リピーター)
- *   UNMASK_BV_KIND_POW     : 4 セグ djb2 検証 OK (= PoW 通過リピーター)
+/* bv_kind: cookie-form determination plus verification result.
+ *   UNMASK_BV_KIND_NONE    : not presented / malformed / verification failed
+ *   UNMASK_BV_KIND_CAPTCHA : 3-segment HMAC verification OK (= CAPTCHA-passed repeat visitor)
+ *   UNMASK_BV_KIND_POW     : 4-segment djb2 verification OK (= PoW-passed repeat visitor)
  *
- * 拡張: 将来 別 cookie path (= signature / webauthn / passkey 等) を追加するときは
- * enum + 判定 branch + variable expose を増やすだけで dashboard 集計が新 kind を
- * 自動で 1 row として扱える (= unmask_cookie_minute table が kind/cnt 正規化済). */
+ * Extending: when a future cookie path (= signature / webauthn / passkey
+ * etc.) is added, just add an enum + decision branch + variable expose
+ * and the dashboard aggregation will automatically treat the new kind
+ * as one row (= unmask_cookie_minute is normalized on kind/cnt). */
 typedef enum {
     UNMASK_BV_KIND_NONE    = 0,
     UNMASK_BV_KIND_CAPTCHA = 1,
@@ -713,20 +739,21 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
         return UNMASK_BV_KIND_NONE;
     }
 
-    /* Split: CAPTCHA path = "day.sig.kind" (3 セグ), PoW path = "day.sig.target.flags" (4 セグ). */
+    /* Split: CAPTCHA path = "day.sig.kind" (3 seg); PoW path = "day.sig.target.flags" (4 seg). */
     u_char *dot1 = ngx_strlchr(cookie.data, cookie.data + cookie.len, '.');
     if (dot1 == NULL) return UNMASK_BV_KIND_NONE;
     u_char *dot2 = ngx_strlchr(dot1 + 1, cookie.data + cookie.len, '.');
     if (dot2 == NULL) return UNMASK_BV_KIND_NONE;
     u_char *dot3 = ngx_strlchr(dot2 + 1, cookie.data + cookie.len, '.');
 
-    /* PoW path (4 セグ): "day.sig.target.flags".  challenge.js が PoW 通過後に
-     * client side で発行する形式.  HMAC secret 不要 (= 公開 hash + 検証).
+    /* PoW path (4 seg): "day.sig.target.flags".  Issued client-side by
+     * challenge.js after PoW passes.  No HMAC secret needed (= public
+     * hash + verify).
      *
-     * 2 種類の format 対応:
-     *   parts[1]="pow2"  : SHA-256 hashcash (= v0.1+. challenge.js v0.1 以降)
-     *   parts[1]=base36  : legacy djb2 (= v0.0 deprecated. 1 cycle で expire)
-     * server 側で同 logic 再現して match 判定. */
+     * Supports two formats:
+     *   parts[1]="pow2"  : SHA-256 hashcash (= v0.1+; challenge.js v0.1+)
+     *   parts[1]=base36  : legacy djb2 (= v0.0 deprecated; expires in 1 cycle)
+     * The server re-runs the same logic to decide. */
     if (dot3 != NULL) {
         size_t day_n = (size_t)(dot1 - cookie.data);
         size_t sig_n = (size_t)(dot2 - (dot1 + 1));
@@ -810,15 +837,18 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
     if (cookie_day > today) return UNMASK_BV_KIND_NONE;
     if (today - cookie_day > mcf->bv_valid_days) return UNMASK_BV_KIND_NONE;
 
-    /* Read remote_addr.  realip module 適用後なら前段 LB / proxy 配下でも
-     * これは実 client IP になる (= admin 側 clientIP() と一致). */
+    /* Read remote_addr.  After realip module application this is the
+     * actual client IP even behind an upstream LB / proxy (= matches
+     * admin-side clientIP()). */
     ngx_str_t remote = r->connection->addr_text;
 
-    /* Build "<day>:<remote>:<kind>" in a pool buffer.  JA4 は HMAC 入力に
-     * 含めない: 前段 LB / proxy 配下では cookie 発行側 (admin) が見る JA4
-     * (= 転送ヘッダ由来の実 client JA4) と検証側 (plugin) が見る JA4
-     * (= LB ↔ nginx handshake の JA4) が食い違い検証が必ず失敗するため.
-     * replay 対策は remote_ip binding で担保する. */
+    /* Build "<day>:<remote>:<kind>" in a pool buffer.  JA4 is deliberately
+     * NOT included in the HMAC input: behind an upstream LB / proxy, the
+     * JA4 seen by the cookie issuer (admin), derived from the forwarded
+     * header (= the real client JA4), would diverge from the JA4 seen by
+     * the verifier (plugin), derived from the LB<->nginx handshake, and
+     * verification would always fail.  Replay defense is provided by the
+     * remote_ip binding instead. */
     size_t msg_len = day_len + 1 + remote.len + 1 + kind_len;
     u_char *msg = ngx_pnalloc(r->pool, msg_len);
     if (msg == NULL) return UNMASK_BV_KIND_NONE;
@@ -846,7 +876,7 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
     return UNMASK_BV_KIND_NONE;
 }
 
-/* $unmask_bv_kind: kind を string で expose.  log_format / map で直接使う. */
+/* $unmask_bv_kind: expose kind as a string.  Use directly from log_format / map. */
 static ngx_int_t
 ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
                                  ngx_http_variable_value_t *v,
@@ -1015,7 +1045,7 @@ static int ngx_unmask_banlist_has(const char *key) {
 static void ngx_unmask_maybe_reload_banlist(const char *path) {
     struct stat st;
     if (stat(path, &st) != 0) {
-        /* file gone → empty list */
+        /* file gone -> empty list */
         if (ngx_unmask_banlist.nkeys != 0) {
             free(ngx_unmask_banlist.buf);
             free(ngx_unmask_banlist.keys);
@@ -1051,7 +1081,7 @@ static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
         return NGX_OK;
     }
 
-    /* Make NUL-terminated path (= ngx_str_t は non-NUL terminated) */
+    /* Make a NUL-terminated path (= ngx_str_t is not NUL-terminated). */
     char path[1024];
     if (mcf->ban_file_path.len >= sizeof(path)) return NGX_OK;
     ngx_memcpy(path, mcf->ban_file_path.data, mcf->ban_file_path.len);

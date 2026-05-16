@@ -1,17 +1,19 @@
 /*
  * ja4_parser_test.c — stand-alone unit test for ja4_parser.
  *
- * 目的: ja4_parse_client_hello() の境界条件を golden vector で固定する.
+ * Goal: pin down the edge-case behavior of ja4_parse_client_hello() with
+ * golden vectors.
  *   - GREASE filter (= cipher_suites / extensions / sig_algs / supported_versions)
- *   - SNI presence (= host_name エントリ検出)
+ *   - SNI presence (= host_name entry detection)
  *   - ALPN first/last char extraction
- *   - supported_versions の最大値抽出 (= TLS 1.3 と GREASE 混在)
- *   - signature_algorithms の順序保持
- *   - extensions 列の提示順保持
- *   - malformed input の reject
+ *   - supported_versions maximum extraction (= TLS 1.3 mixed with GREASE)
+ *   - signature_algorithms ordering preserved
+ *   - extensions list ordering preserved
+ *   - Reject malformed input
  *
- * 制限: parser layer のみ.  module.c 内の JA4 string 構築は対象外
- *       (= production deploy で旧 cb との byte-level 一致を実証済).
+ * Scope: parser layer only. JA4 string construction inside module.c is
+ *        out of scope (= production deployment has already verified
+ *        byte-level identity against the previous callback).
  *
  * Build + run:
  *   gcc -std=gnu99 -Wall -Wextra \
@@ -35,8 +37,9 @@ static int g_fail = 0;
 
 /*
  * helper: build a minimal TLS 1.3 ClientHello in a caller-provided buffer.
- * caller picks cipher_suites / extensions sets.  random は固定値 0xCC で埋める.
- * 返り値 = body 長 (= handshake header の uint24 length と一致).
+ * The caller picks the cipher_suites / extensions sets. random is filled
+ * with the fixed byte 0xCC. Returns body length (= matches the uint24
+ * length in the handshake header).
  */
 
 /* extensions builder: TLV (type + length + body bytes). */
@@ -46,7 +49,8 @@ typedef struct {
     size_t        body_len;
 } ext_def_t;
 
-/* build_ch: 構造体的に組み立て.  out に書き込み, 全体長を返す (= header 含む). */
+/* build_ch: assemble structurally, write into `out`, return total length
+ * including header. */
 static size_t build_ch(unsigned char *out, size_t cap,
                        unsigned int legacy_ver,
                        const unsigned int *ciphers, size_t ncipher,
@@ -59,7 +63,7 @@ static size_t build_ch(unsigned char *out, size_t cap,
 
     /* handshake header placeholder (1 + 3 bytes) */
     *p++ = 1; /* client_hello */
-    *p++ = 0; *p++ = 0; *p++ = 0; /* length, fill in later */
+    *p++ = 0; *p++ = 0; *p++ = 0; /* length, filled in later */
     body_start = p;
 
     /* legacy_version */
@@ -121,18 +125,20 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
     ja4_parsed_t out;
     size_t total;
 
-    /* cipher_suites: GREASE(0x0A0A) を 1 つ混ぜる → 除外されて 3 個残ることを期待 */
+    /* cipher_suites: include one GREASE (0x0A0A); expect it filtered out
+     * and 3 to remain. */
     unsigned int ciphers[] = {0x0A0A /*GREASE*/, 0x1301, 0x1302, 0x1303};
 
-    /* SNI (= ext 0): list_len 2 + name_type 1 + host_len 2 + "example.invalid" = 11 bytes total body.
-     *   server_name_list_len = 9 (= u8 type + u16 len + 6 bytes host)
-     *   body: [00 09 | 00 | 00 06 | 'u' 'i' 'c' '.' 'j' 'p']
+    /* SNI (= ext 0): list_len 2 + name_type 1 + host_len 2 + "example.com"
+     * = 16 bytes total body.
+     *   server_name_list_len = 14 (= u8 type + u16 len + 11 host bytes)
+     *   body: [00 0E | 00 | 00 0B | 'e' 'x' 'a' 'm' 'p' 'l' 'e' '.' 'c' 'o' 'm']
      */
     static const unsigned char sni_body[] = {
-        0x00, 0x09,           /* server_name_list length */
+        0x00, 0x0E,           /* server_name_list length */
         0x00,                 /* name_type: host_name */
-        0x00, 0x06,           /* host_name length */
-        'u','i','c','.','j','p'
+        0x00, 0x0B,           /* host_name length */
+        'e','x','a','m','p','l','e','.','c','o','m'
     };
 
     /* ALPN (= ext 16): list_len 2 + proto_len 1 + "h2" = 5 bytes total
@@ -144,8 +150,8 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
         'h', '2'
     };
 
-    /* signature_algorithms (= ext 13): u16 list_len + GREASE(0x0A0A) + 0x0403 + 0x0804
-     *   GREASE 1 つを混ぜて除外されること確認
+    /* signature_algorithms (= ext 13): u16 list_len + GREASE(0x0A0A) +
+     * 0x0403 + 0x0804. Include one GREASE and verify it is filtered out.
      *   body: [00 06 | 0A 0A | 04 03 | 08 04]
      */
     static const unsigned char sig_algs_body[] = {
@@ -155,8 +161,8 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
         0x08, 0x04            /* rsa_pss_rsae_sha256 */
     };
 
-    /* supported_versions (= ext 43): u8 list_len + GREASE + 0x0304 + 0x0303
-     *   GREASE 除外し max = 0x0304 を期待
+    /* supported_versions (= ext 43): u8 list_len + GREASE + 0x0304 + 0x0303.
+     * Expect GREASE filtered and the max to be 0x0304.
      *   body: [06 | 0A 0A | 03 04 | 03 03]
      */
     static const unsigned char sup_ver_body[] = {
@@ -167,7 +173,7 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
     };
 
     ext_def_t exts[] = {
-        {0x0A0A, NULL, 0},                       /* GREASE ext → 除外期待 */
+        {0x0A0A, NULL, 0},                       /* GREASE ext -> expect filtered */
         {0,    sni_body,     sizeof(sni_body)},
         {16,   alpn_body,    sizeof(alpn_body)},
         {13,   sig_algs_body, sizeof(sig_algs_body)},
@@ -177,27 +183,28 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
     total = build_ch(buf, sizeof(buf), 0x0303, ciphers, 4, exts, 5);
     CHECK(ja4_parse_client_hello(buf, total, &out) == 0, "parse should succeed");
 
-    /* GREASE が除外されていることを確認 */
+    /* Verify GREASE filtering. */
     CHECK(out.ncipher == 3, "cipher count after GREASE filter");
     CHECK(out.ciphers[0] == 0x1301 && out.ciphers[1] == 0x1302 && out.ciphers[2] == 0x1303,
           "cipher order preserved (presentation order)");
 
-    /* extensions: GREASE 除外し 4 個 (= SNI, ALPN, sig_algs, sup_ver). 提示順. */
+    /* extensions: 4 after GREASE filter (= SNI, ALPN, sig_algs, sup_ver),
+     * in presentation order. */
     CHECK(out.nexts == 4, "extension count after GREASE filter");
     CHECK(out.extensions[0] == 0 &&  out.extensions[1] == 16 &&
           out.extensions[2] == 13 && out.extensions[3] == 43,
           "extension order preserved");
 
-    /* SNI host_name 検出 */
+    /* SNI host_name detected */
     CHECK(out.sni_present_domain == 1, "SNI host_name detected");
 
     /* ALPN: first/last char of "h2" */
     CHECK(out.alpn_first == 'h' && out.alpn_last == '2', "ALPN first/last char");
 
-    /* supported_versions max (GREASE 除外, TLS 1.3 が最大) */
+    /* supported_versions max (GREASE excluded, TLS 1.3 is the maximum) */
     CHECK(out.supported_versions_max == 0x0304, "supported_versions max");
 
-    /* sig_algs: GREASE 除外, 提示順 (= 0x0403, 0x0804) */
+    /* sig_algs: GREASE excluded, presentation order (= 0x0403, 0x0804) */
     CHECK(out.has_sig_algs == 1, "sig_algs ext present flag");
     CHECK(out.nsig_algs == 2, "sig_algs count after GREASE filter");
     CHECK(out.sig_algs[0] == 0x0403 && out.sig_algs[1] == 0x0804, "sig_algs order preserved");
@@ -207,7 +214,7 @@ static void test_basic_tls13_with_sni_and_alpn(void) {
 }
 
 /* ====================================================================
- * Test case 2: SNI 不在 (= no extension 0) → sni_present_domain=0
+ * Test case 2: no SNI (= no extension 0) -> sni_present_domain=0
  * ==================================================================== */
 static void test_no_sni(void) {
     unsigned char buf[1024];
@@ -221,13 +228,13 @@ static void test_no_sni(void) {
 
     total = build_ch(buf, sizeof(buf), 0x0303, ciphers, 1, exts, 1);
     CHECK(ja4_parse_client_hello(buf, total, &out) == 0, "parse should succeed");
-    CHECK(out.sni_present_domain == 0, "SNI absent → flag=0");
-    CHECK(out.alpn_first == '0' && out.alpn_last == '0', "ALPN absent → default '0'");
+    CHECK(out.sni_present_domain == 0, "SNI absent -> flag=0");
+    CHECK(out.alpn_first == '0' && out.alpn_last == '0', "ALPN absent -> default '0'");
 }
 
 /* ====================================================================
- * Test case 3: TLS 1.2 ClientHello (= supported_versions ext 無し)
- *              → legacy_version をそのまま使う
+ * Test case 3: TLS 1.2 ClientHello (= no supported_versions ext)
+ *              -> legacy_version is used as-is
  * ==================================================================== */
 static void test_tls12_no_supported_versions(void) {
     unsigned char buf[1024];
@@ -242,33 +249,33 @@ static void test_tls12_no_supported_versions(void) {
     total = build_ch(buf, sizeof(buf), 0x0303, ciphers, 2, exts, 1);
     CHECK(ja4_parse_client_hello(buf, total, &out) == 0, "parse should succeed");
     CHECK(out.legacy_version == 0x0303, "legacy_version = TLS 1.2");
-    CHECK(out.supported_versions_max == 0, "supported_versions absent → 0");
+    CHECK(out.supported_versions_max == 0, "supported_versions absent -> 0");
 }
 
 /* ====================================================================
- * Test case 4: 不正入力 reject
+ * Test case 4: reject malformed input
  *   - msg_type != 1
- *   - body length が buffer 不足
- *   - cipher_suites_length 奇数
+ *   - body length exceeds buffer
+ *   - odd cipher_suites_length
  * ==================================================================== */
 static void test_malformed_rejected(void) {
     ja4_parsed_t out;
 
-    /* (a) msg_type=2 (ServerHello) は -1 を返すべき */
+    /* (a) msg_type=2 (ServerHello) should return -1 */
     {
         unsigned char fake[] = {0x02, 0x00, 0x00, 0x00};
         CHECK(ja4_parse_client_hello(fake, sizeof(fake), &out) == -1,
               "non-client_hello message type rejected");
     }
 
-    /* (b) body length が buffer 不足 (= header だけ. body_len > remaining) */
+    /* (b) body length exceeds buffer (= header only; body_len > remaining) */
     {
         unsigned char fake[] = {0x01, 0x00, 0x10, 0x00}; /* claim 4096 bytes body, only 0 follow */
         CHECK(ja4_parse_client_hello(fake, sizeof(fake), &out) == -1,
               "truncated body rejected");
     }
 
-    /* (c) cipher_suites_length が奇数 → reject */
+    /* (c) cipher_suites_length is odd -> reject */
     {
         unsigned char buf[256];
         size_t i, total;
@@ -293,7 +300,7 @@ static void test_malformed_rejected(void) {
 }
 
 /* ====================================================================
- * Test case 5: extensions 不在 (= TLS 1.0 風) でも parser は成功する
+ * Test case 5: no extensions block (= TLS 1.0 style) — parser still succeeds
  * ==================================================================== */
 static void test_no_extensions_block(void) {
     unsigned char buf[256];
@@ -308,9 +315,9 @@ static void test_no_extensions_block(void) {
     for (i = 0; i < 32; i++) *p++ = 0;        /* random */
     *p++ = 0;                                 /* session_id len = 0 */
     *p++ = 0; *p++ = 2;                       /* cipher_suites_len = 2 */
-    *p++ = 0x00; *p++ = 0x05;                 /* SSL_RSA_WITH_RC4_128_SHA 風 */
+    *p++ = 0x00; *p++ = 0x05;                 /* SSL_RSA_WITH_RC4_128_SHA style */
     *p++ = 1; *p++ = 0;                       /* comp_methods */
-    /* extensions ブロックを省略 (= TLS 1.0 では optional) */
+    /* extensions block omitted (= optional in TLS 1.0) */
 
     body_len = (size_t)(p - body);
     buf[1] = (body_len >> 16) & 0xFF;
