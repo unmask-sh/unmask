@@ -1,5 +1,16 @@
-# release: on a tag (v*) push, attach the admin binary, ja4 module, and rpm/deb/apk
-# artifacts for each arch to the GitHub release.
+# release: on a v* tag push, build the admin binary on GH Actions and create a
+# draft release.  The rpm/deb/apk and signed checksums must be built locally
+# (= Makefile: package-all / sign-rpm — needs Docker for multi-OpenSSL plugin)
+# and uploaded with `gh release upload` before flipping the draft to published.
+#
+# Local release procedure (= after the tag is pushed):
+#
+#   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache,caddy}
+#   make sign-rpm
+#   (cd dist && sha256sum *.rpm *.deb *.apk *-linux-* > checksums.txt \
+#                && gpg --detach-sign --armor -o checksums.txt.sig checksums.txt)
+#   gh release upload v0.X.Y dist/*.{rpm,deb,apk} dist/checksums.txt dist/checksums.txt.sig
+#   gh release edit v0.X.Y --draft=false
 name: release
 
 on:
@@ -7,10 +18,9 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write   # needed to create the release
+  contents: write
 
 jobs:
-  # admin binary (linux/amd64, linux/arm64)
   build-admin:
     runs-on: ubuntu-latest
     strategy:
@@ -20,7 +30,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version: "1.25"
           cache-dependency-path: admin/go.sum
       - name: build
         env:
@@ -28,107 +38,55 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          cd admin && CGO_ENABLED=0 \
-            go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" \
-                     -o ../dist/unmask-admin-linux-${GOARCH} ./cmd/unmask-admin
+          cd admin
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" \
+            -o "../dist/unmask-admin-linux-${GOARCH}" ./cmd/unmask-admin
       - uses: actions/upload-artifact@v4
         with:
-          name: admin-linux-${{ matrix.goarch }}
+          name: admin-${{ matrix.goarch }}
           path: dist/
 
-  # ja4 module (linux/amd64, linux/arm64) for stable nginx
-  build-module:
-    strategy:
-      fail-fast: false
-      matrix:
-        nginx: ["1.24.0", "1.26.2", "1.28.0"]
-        runner: [ubuntu-latest]
-        include:
-          - nginx: "1.26.2"
-            runner: ubuntu-22.04-arm
-          - nginx: "1.28.0"
-            runner: ubuntu-22.04-arm
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev libpcre2-dev zlib1g-dev
-      - run: |
-          curl -sSL "https://nginx.org/download/nginx-${{ matrix.nginx }}.tar.gz" -o nginx.tgz
-          tar -xzf nginx.tgz
-          cd nginx-${{ matrix.nginx }}
-          ./configure --with-compat --with-http_ssl_module \
-                      --add-dynamic-module=$GITHUB_WORKSPACE/nginx-module
-          make modules
-      - id: arch
-        run: |
-          arch=$(uname -m)
-          case "$arch" in x86_64) goarch=amd64 ;; aarch64) goarch=arm64 ;; *) goarch=$arch ;; esac
-          mkdir -p dist
-          cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
-             dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
-          echo "goarch=${goarch}" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v4
-        with:
-          name: module-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
-          path: dist/
-
-  # nfpm rpm / deb / apk
-  package:
-    needs: [build-admin, build-module]
+  release:
+    needs: build-admin
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
-        format: [rpm, deb, apk]
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: stage release tree
+      - name: flatten + checksums for admin binaries
         run: |
           mkdir -p dist
-          # admin
-          cp artifacts/admin-linux-${{ matrix.arch }}/unmask-admin-linux-${{ matrix.arch }} dist/
-          # module: rename the nginx 1.26.2 build as the default and bundle it
-          cp artifacts/module-nginx1.26.2-${{ matrix.arch }}/ngx_http_unmask_module-nginx1.26.2-linux-${{ matrix.arch }}.so \
-             dist/ngx_http_unmask_module-linux-${{ matrix.arch }}.so
+          find artifacts -type f -exec cp {} dist/ \;
+          ( cd dist && sha256sum unmask-admin-linux-* > checksums.txt )
           ls -la dist/
-      - name: install nfpm
-        run: |
-          curl -sSL https://github.com/goreleaser/nfpm/releases/download/v2.41.3/nfpm_2.41.3_Linux_x86_64.tar.gz \
-            | tar -xz -C /usr/local/bin nfpm
-      - name: build package
-        env:
-          UNMASK_VERSION: ${{ github.ref_name }}
-        run: |
-          # override the arch field in nfpm.yaml
-          version=${UNMASK_VERSION#v}
-          cd rpm
-          UNMASK_VERSION=$version nfpm pkg --packager ${{ matrix.format }} \
-            --target ../dist \
-            -f <(sed "s/^arch: .*/arch: ${{ matrix.arch }}/" nfpm.yaml)
-      - uses: actions/upload-artifact@v4
-        with:
-          name: pkg-${{ matrix.format }}-${{ matrix.arch }}
-          path: dist/*.${{ matrix.format }}
-
-  # attach everything to the GitHub Release
-  publish:
-    needs: package
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-      - name: flatten
-        run: |
-          mkdir -p dist
-          find artifacts -type f \( -name "unmask-admin-*" -o -name "*.so" -o -name "*.rpm" -o -name "*.deb" -o -name "*.apk" \) -exec cp {} dist/ \;
-          ls -la dist
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
           generate_release_notes: true
+          draft: true
+          body: |
+            ## Distribution
+
+            Primary install path: **https://unmask.sh/install/** (= rpm / deb / apk
+            repository with auto-update via dnf / apt / apk).
+
+            This Release page is an alternative for direct download / air-gapped
+            install / reference.
+
+            ## Artifacts
+
+            - `unmask-X.Y.Z.{rpm,deb,apk}` — main package (= admin binary + systemd unit + config skeleton)
+            - `unmask-plugin-nginx-fat-X.Y.Z.{rpm,deb,apk}` — nginx dynamic module bundle (14 nginx versions × OpenSSL 1.0 / 1.1+ / 3.x)
+            - `unmask-web-{nginx,apache,caddy}-X.Y.Z.{rpm,deb,apk}` — per-web-server config snippets (= auth_request mode)
+            - `unmask-admin-linux-{amd64,arm64}` — raw Go binary (= no system integration)
+            - `checksums.txt` — SHA-256 hashes for all artifacts above
+            - `checksums.txt.sig` — GPG detached signature (= verify with the unmask GPG public key)
+
+            ## Verify
+
+            ```sh
+            curl -O https://github.com/unmask-sh/unmask/releases/download/vX.Y.Z/checksums.txt{,.sig}
+            gpg --verify checksums.txt.sig checksums.txt
+            sha256sum --check checksums.txt
+            ```
