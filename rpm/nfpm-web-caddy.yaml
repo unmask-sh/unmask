@@ -9,7 +9,7 @@ platform: linux
 version: ${UNMASK_VERSION}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@example.com>
+maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   Caddy v2 web integration for unmask.
   Drops a Caddyfile fragment in /etc/caddy/conf.d/ so /unmask/admin/,

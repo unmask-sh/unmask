@@ -21,7 +21,7 @@ platform: linux
 version: ${UNMASK_VERSION}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@example.com>
+maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   unmask nginx native module (= ngx_http_unmask_module.so).
   Provides JA4 TLS fingerprint extraction and full native-mode features.

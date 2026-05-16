@@ -17,7 +17,7 @@ platform: linux
 version: ${UNMASK_VERSION}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@example.com>
+maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   unmask — JA4 TLS-fingerprint based bot challenge.
   Admin server (Go static binary), challenge HTML/JS, configuration UI,

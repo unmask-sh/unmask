@@ -11,7 +11,7 @@ platform: linux
 version: ${UNMASK_VERSION}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@example.com>
+maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   Apache HTTP Server web integration for unmask.
   Drops a config in /etc/httpd/conf.d/ so /unmask/admin/, /unmask/challenge/

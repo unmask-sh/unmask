@@ -19,7 +19,7 @@ platform: linux
 version: ${UNMASK_VERSION}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@example.com>
+maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   nginx web integration for unmask (= conf.d snippet).
   Drops a config in /etc/nginx/conf.d/ so /unmask/admin/, /unmask/challenge/
