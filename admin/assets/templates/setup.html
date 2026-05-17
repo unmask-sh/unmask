@@ -77,11 +77,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     </h1>
     <div class="wizard-steps">
       <div class="s {{ if eq .Step "token" }}active{{ else }}done{{ end }}">1. {{ t .Lang "setup.step.token" }}</div>
-      <div class="s {{ if eq .Step "db" }}active{{ else if or (eq .Step "user") (eq .Step "mode") (eq .Step "review") (eq .Step "done") }}done{{ end }}">2. {{ t .Lang "setup.step.db" }}</div>
-      <div class="s {{ if eq .Step "user" }}active{{ else if or (eq .Step "mode") (eq .Step "review") (eq .Step "done") }}done{{ end }}">3. {{ t .Lang "setup.step.user" }}</div>
-      <div class="s {{ if eq .Step "mode" }}active{{ else if or (eq .Step "review") (eq .Step "done") }}done{{ end }}">4. {{ t .Lang "setup.step.mode" }}</div>
-      <div class="s {{ if eq .Step "review" }}active{{ else if eq .Step "done" }}done{{ end }}">5. {{ t .Lang "setup.step.review" }}</div>
-      <div class="s {{ if eq .Step "done" }}active{{ end }}">6. {{ t .Lang "setup.step.done" }}</div>
+      <div class="s {{ if eq .Step "db" }}active{{ else if or (eq .Step "user") (eq .Step "review") (eq .Step "done") }}done{{ end }}">2. {{ t .Lang "setup.step.db" }}</div>
+      <div class="s {{ if eq .Step "user" }}active{{ else if or (eq .Step "review") (eq .Step "done") }}done{{ end }}">3. {{ t .Lang "setup.step.user" }}</div>
+      <div class="s {{ if eq .Step "review" }}active{{ else if eq .Step "done" }}done{{ end }}">4. {{ t .Lang "setup.step.review" }}</div>
+      <div class="s {{ if eq .Step "done" }}active{{ end }}">5. {{ t .Lang "setup.step.done" }}</div>
     </div>
   </div>
   <div class="wizard-body">
@@ -197,44 +196,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     </form>
     {{ end }}
 
-    {{ if eq .Step "mode" }}
-    <h2>{{ t .Lang "setup.mode.h" }}</h2>
-    <p class="lead">{{ safeHTML (t .Lang "setup.mode.lead") }}</p>
-    <div class="alert" style="background:#ecfeff;border:.0625rem solid #a5f3fc;color:#155e75;margin-bottom:1.2rem">{{ safeHTML (t .Lang "setup.mode.safe_note") }}</div>
-    <form method="post" action="{{ .BasePath }}/admin/setup/mode">
-      <div class="mode-row">
-        <label class="mode-card {{ if eq .CurrentMode "strict" }}selected{{ end }}" data-mode="strict">
-          <input type="radio" name="mode" value="strict" {{ if eq .CurrentMode "strict" }}checked{{ end }}>
-          <strong>{{ t .Lang "setup.mode.strict.name" }} <span class="badge recommend">{{ t .Lang "setup.mode.recommend" }}</span></strong>
-          <div class="desc">{{ t .Lang "setup.mode.strict.desc" }}</div>
-        </label>
-        <label class="mode-card {{ if eq .CurrentMode "balanced" }}selected{{ end }}" data-mode="balanced">
-          <input type="radio" name="mode" value="balanced" {{ if eq .CurrentMode "balanced" }}checked{{ end }}>
-          <strong>{{ t .Lang "setup.mode.balanced.name" }}</strong>
-          <div class="desc">{{ t .Lang "setup.mode.balanced.desc" }}</div>
-        </label>
-        <label class="mode-card {{ if eq .CurrentMode "monitor" }}selected{{ end }}" data-mode="monitor">
-          <input type="radio" name="mode" value="monitor" {{ if eq .CurrentMode "monitor" }}checked{{ end }}>
-          <strong>{{ t .Lang "setup.mode.monitor.name" }}</strong>
-          <div class="desc">{{ t .Lang "setup.mode.monitor.desc" }}</div>
-        </label>
-      </div>
-      <div class="actions">
-        <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
-        <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
-      </div>
-    </form>
-    <script>
-    document.querySelectorAll('.mode-card').forEach(card => {
-      card.addEventListener('click', () => {
-        document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        card.querySelector('input').checked = true;
-      });
-    });
-    </script>
-    {{ end }}
-
     {{ if eq .Step "review" }}
     <h2>{{ t .Lang "setup.review.h" }}</h2>
     <p class="lead">{{ safeHTML (t .Lang "setup.review.lead") }}</p>
@@ -243,12 +204,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
           <td>{{ if eq .ReviewDriver "sqlite" }}SQLite — <code>{{ .ReviewSQLitePath }}</code>{{ else }}MariaDB / MySQL — {{ .ReviewMariaDBUser }}@{{ .ReviewMariaDBHost }}:{{ .ReviewMariaDBPort }}/{{ .ReviewMariaDBDB }}{{ end }}</td></tr>
       <tr><th>{{ t .Lang "setup.review.admin" }}</th>
           <td><code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }})</td></tr>
-      <tr><th>{{ t .Lang "setup.review.mode" }}</th>
-          <td><code>{{ .ReviewMode }}</code></td></tr>
     </table>
     <form method="post" action="{{ .BasePath }}/admin/setup/install">
       <div class="actions">
-        <a href="?step=mode" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_mode" }}</a>
+        <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
         <button type="submit" class="btn">{{ t .Lang "setup.btn.install" }}</button>
       </div>
     </form>

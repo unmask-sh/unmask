@@ -61,16 +61,18 @@ func (c Category) String() string {
 var tagCategory = map[string]string{
 	"search-engine":      "search_ai",
 	"ai-crawler":         "search_ai",
+	"ai-training":        "search_ai",
+	"ai-user":            "search_ai",
 	"advertising":        "search_ai",
-	"seo":                "service",
-	"monitoring":         "service",
-	"social-preview":     "service",
-	"scanner":            "service",
-	"feed-reader":        "service",
-	"archiver":           "service",
-	"academic":           "service",
-	"http-library":       "user_dev",
-	"browser-automation": "user_dev",
+	"seo":                "search_ai",
+	"monitoring":         "search_ai",
+	"social-preview":     "search_ai",
+	"feed-reader":        "search_ai",
+	"archiver":           "search_ai",
+	"academic":           "search_ai",
+	"scanner":            "search_ai",
+	"http-library":       "search_ai",
+	"browser-automation": "search_ai",
 }
 
 // Generic patterns not included in the JSON.
@@ -259,6 +261,237 @@ func IsOldBrowser(ua string) bool {
 	return false
 }
 
+// UpstreamRescueEntry is one UA pattern auto-rescued via crawler-user-agents.json
+// (= tagged search-engine / ai-crawler / advertising → SearchAI → pass).
+// Exposed for the settings UI ua-filter tab so the maintainer can see exactly
+// which patterns are pass-listed beyond the explicit SearchBotGroups presets.
+type UpstreamRescueEntry struct {
+	Pattern      string   `json:"pattern"`
+	Tags         []string `json:"tags"`
+	URL          string   `json:"url,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Category     string   `json:"category"`                // primary rescue tag (= search-engine / ai-crawler / advertising)
+	AdditionDate string   `json:"addition_date,omitempty"` // upstream "YYYY/MM/DD" string, optional
+}
+
+// UpstreamRescueList returns the entries that get auto-rescued via the upstream
+// crawler-user-agents.json.  Grouped by primary rescue category for UI display.
+// Loads the same data source as classify (= embedded JSON, or the file pointed
+// to by UNMASK_CRAWLER_UA_JSON if set).
+func UpstreamRescueList() map[string][]UpstreamRescueEntry {
+	raw := assets.CrawlerUserAgentsJSON
+	if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
+		if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
+			raw = b
+		}
+	}
+	return parseUpstreamRescue(raw)
+}
+
+func parseUpstreamRescue(jsonRaw []byte) map[string][]UpstreamRescueEntry {
+	out := map[string][]UpstreamRescueEntry{}
+	if len(jsonRaw) == 0 {
+		return out
+	}
+	var data []struct {
+		Pattern      string   `json:"pattern"`
+		Tags         []string `json:"tags"`
+		URL          string   `json:"url"`
+		Description  string   `json:"description"`
+		AdditionDate string   `json:"addition_date"`
+	}
+	clean := sanitizeUTF8(jsonRaw)
+	if err := json.Unmarshal(clean, &data); err != nil {
+		log.Printf("classify: UpstreamRescueList decode failed: %v", err)
+		return out
+	}
+	for _, ent := range data {
+		if ent.Pattern == "" {
+			continue
+		}
+		// Explicit priority: the upstream JSON sometimes carries the finer
+		// ai-user / ai-training tags directly; honour those before the
+		// generic ai-crawler / search-engine / etc.  Any entry tagged with
+		// none of these is skipped (= not part of the auto-pass surface).
+		var primary string
+		for _, p := range []string{"ai-user", "ai-training", "search-engine", "advertising", "seo", "social-preview", "feed-reader", "archiver", "academic", "monitoring", "scanner", "http-library", "browser-automation", "ai-crawler"} {
+			for _, t := range ent.Tags {
+				if t == p {
+					primary = p
+					break
+				}
+			}
+			if primary != "" {
+				break
+			}
+		}
+		if primary == "" {
+			continue
+		}
+		// ai-crawler is a fallback bucket — entries tagged only "ai-crawler"
+		// without the finer ai-training / ai-user subdivision get split by a
+		// pattern-name heuristic.
+		if primary == "ai-crawler" {
+			primary = aiSubcategory(ent.Pattern)
+		}
+		out[primary] = append(out[primary], UpstreamRescueEntry{
+			Pattern:      ent.Pattern,
+			Tags:         ent.Tags,
+			URL:          ent.URL,
+			Description:  ent.Description,
+			Category:     primary,
+			AdditionDate: ent.AdditionDate,
+		})
+	}
+	return out
+}
+
+// aiUserHintRE flags patterns that represent a user-initiated fetch through
+// an AI tool's UI (ChatGPT / Claude / Perplexity / Mistral / DuckAssist /
+// Gemini deep-research), as opposed to a background training crawler.  The
+// upstream JSON tags both kinds as "ai-crawler", so the distinction is
+// derived heuristically from the pattern name.
+var aiUserHintRE = regexp.MustCompile(`(?i)(?:[-_]user\b|[-_]web\b|\bchatgpt[-_]|\bclaude[-_]web\b|\bdeep[-_]research\b|\bassist(?:bot)?\b)`)
+
+// aiSubcategory splits an "ai-crawler" pattern into "ai-user" (= user-driven
+// fetch from an AI assistant UI) or "ai-training" (= autonomous crawler that
+// gathers training data).
+func aiSubcategory(pattern string) string {
+	if aiUserHintRE.MatchString(pattern) {
+		return "ai-user"
+	}
+	return "ai-training"
+}
+
+// upstreamDisabledRE holds the compiled regex of UA patterns that should
+// NOT be auto-rescued via the upstream list, even if they match the
+// search_ai category.  Set via SetUpstreamDisabled by the settings handler
+// whenever settings change.  nil means "no patterns disabled" (= default
+// behavior: all upstream matches pass).
+var (
+	upstreamDisabledMu sync.RWMutex
+	upstreamDisabledRE *regexp.Regexp
+)
+
+// GroupModeWhite / Black / None: roles a upstream-rescue group can play.
+//
+//	white -> the group's patterns are auto-passed (= "is_search_bot=1").
+//	black -> the group's patterns are challenge-targets (= "is_challenge_target=1").
+//	none  -> the group is inert (= patterns get no special handling).
+const (
+	GroupModeWhite = "white"
+	GroupModeBlack = "black"
+	GroupModeNone  = "none"
+)
+
+// DefaultGroupMode returns the built-in default role for an upstream
+// category.  Benign categories default to white (auto-pass).  Categories
+// that typically attack or scrape default to black (challenge-target).
+func DefaultGroupMode(cat string) string {
+	switch cat {
+	case "scanner", "http-library", "browser-automation":
+		return GroupModeBlack
+	}
+	// search-engine / ai-training / ai-user / advertising / seo / monitoring
+	// / social-preview / feed-reader / archiver / academic (and the
+	// ai-crawler fallback) all default to white.
+	return GroupModeWhite
+}
+
+// ResolveGroupMode returns the effective mode for cat: the override entry
+// if present, otherwise DefaultGroupMode(cat).  An override value outside
+// {white, black, none} is treated as "no override" and falls back to the
+// default.
+func ResolveGroupMode(cat string, overrides map[string]string) string {
+	if overrides != nil {
+		if v, ok := overrides[cat]; ok {
+			switch v {
+			case GroupModeWhite, GroupModeBlack, GroupModeNone:
+				return v
+			}
+		}
+	}
+	return DefaultGroupMode(cat)
+}
+
+// PresetGroupSpec is a minimal {ID, Patterns} pair used by callers that
+// want to feed ChallengeTargetGroups (or any similarly shaped preset list)
+// into ResolvePresetActionForUA without dragging the nginxconf package into
+// classify (= avoids an import cycle).
+type PresetGroupSpec struct {
+	ID       string
+	Patterns []string
+}
+
+// ResolvePresetActionForUA matches the UA against the given preset list and
+// returns the per-preset action override if any.  Presets whose ID appears
+// in disabled are skipped (= matches the nginx render's "disabled preset"
+// semantics).  Empty string = no override applies.
+func ResolvePresetActionForUA(ua string, groups []PresetGroupSpec, overrides map[string]string, disabled map[string]bool) string {
+	if ua == "" || len(overrides) == 0 {
+		return ""
+	}
+	for _, g := range groups {
+		if disabled != nil && disabled[g.ID] {
+			continue
+		}
+		act, ok := overrides[g.ID]
+		if !ok || act == "" {
+			continue
+		}
+		re := joinAlt(g.Patterns)
+		if re != nil && re.MatchString(ua) {
+			return act
+		}
+	}
+	return ""
+}
+
+// ResolveActionForUA matches the UA string against the upstream rescue
+// groups currently resolved to "black" mode and returns the per-group
+// action override if any.  Empty string = no per-group override (caller
+// should fall back to the global default).
+//
+// modeOverrides + actionOverrides come from settings.SearchBots.
+func ResolveActionForUA(ua string, modeOverrides, actionOverrides map[string]string) string {
+	if ua == "" || len(actionOverrides) == 0 {
+		return ""
+	}
+	groups := UpstreamRescueList()
+	for cat, entries := range groups {
+		if ResolveGroupMode(cat, modeOverrides) != GroupModeBlack {
+			continue
+		}
+		act, ok := actionOverrides[cat]
+		if !ok || act == "" {
+			continue
+		}
+		pats := make([]string, 0, len(entries))
+		for _, e := range entries {
+			pats = append(pats, e.Pattern)
+		}
+		re := joinAlt(pats)
+		if re != nil && re.MatchString(ua) {
+			return act
+		}
+	}
+	return ""
+}
+
+// SetUpstreamDisabled rebuilds the per-pattern disable filter from the
+// settings UI.  Patterns listed here are removed from the search_ai pass
+// path: they will fall through to ja4 / old-ua / user_dev / service /
+// human classification instead.
+func SetUpstreamDisabled(patterns []string) {
+	upstreamDisabledMu.Lock()
+	defer upstreamDisabledMu.Unlock()
+	if len(patterns) == 0 {
+		upstreamDisabledRE = nil
+		return
+	}
+	upstreamDisabledRE = joinAlt(patterns)
+}
+
 // IsBot classifies (ua, ja4Action) into one of the Category values.
 // ja4Action is one of "bot" / "suspect" / "ok" / "" (= the action enum
 // resolved by settings-side matchJA4.  Verdict-name prefix detection has
@@ -266,7 +499,16 @@ func IsOldBrowser(ua string) bool {
 func IsBot(ua, ja4Action string) Category {
 	res := getCategoryREs()
 	if ua != "" && res.searchAI.MatchString(ua) {
-		return SearchAI
+		// Honor the per-pattern disable list (= settings UI). A search_ai
+		// hit that matches a disabled pattern falls through to the other
+		// classification branches instead of pass.
+		upstreamDisabledMu.RLock()
+		disabled := upstreamDisabledRE
+		upstreamDisabledMu.RUnlock()
+		if disabled == nil || !disabled.MatchString(ua) {
+			return SearchAI
+		}
+		// fallthrough
 	}
 	if ja4Action == "bot" || ja4Action == "suspect" {
 		return JA4Bot

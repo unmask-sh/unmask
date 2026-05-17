@@ -289,6 +289,39 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 	return n > 0
 }
 
+// IsBannedSource: same as IsBanned but also returns the source string
+// of the matching entry (= "honeypot" | "manual" | "sharedfeed" etc.).
+// When the IP has multiple live entries the first row wins; that's good
+// enough for the auth_request gate which just needs to know "is this a
+// honeypot-derived ban or something else."  Empty source on no match.
+func (m *Manager) IsBannedSource(ctx context.Context, ip, ja4 string) (string, bool) {
+	if m == nil || ip == "" {
+		return "", false
+	}
+	now := time.Now().Unix()
+	var src string
+	if ja4 != "" {
+		err := m.DB.QueryRowContext(ctx,
+			`SELECT source FROM unmask_ban
+			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)
+			 LIMIT 1`,
+			ip, ja4, now).Scan(&src)
+		if err != nil {
+			return "", false
+		}
+		return src, true
+	}
+	err := m.DB.QueryRowContext(ctx,
+		`SELECT source FROM unmask_ban
+		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)
+		 LIMIT 1`,
+		ip, now).Scan(&src)
+	if err != nil {
+		return "", false
+	}
+	return src, true
+}
+
 // Snapshot: return the current ban list (= excluding expired) sorted.
 // For UI list display.
 func (m *Manager) Snapshot() []Entry {

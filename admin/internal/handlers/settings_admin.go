@@ -29,10 +29,10 @@ import (
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
-	"github.com/unmask-sh/unmask/admin/internal/presets"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -69,7 +69,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "theme", "notifications", "smtp", "retention", "shared-feed", "protection-mode":
+	case "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "theme", "notifications", "smtp", "retention", "shared-feed":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -90,6 +90,28 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab string) map[string]any {
 	cur := h.snapshotSettings().Nginx
 	seenVer := cur.SeenVersion
+
+	// upstream rescue summary: aggregate pattern counts for the UI banner.
+	upstreamRescue := classify.UpstreamRescueList()
+	upstreamDisabledSet := toSet(cur.SearchBots.UpstreamDisabled)
+	upstreamTotal := 0
+	upstreamEnabled := 0
+	for _, entries := range upstreamRescue {
+		for _, e := range entries {
+			upstreamTotal++
+			if !upstreamDisabledSet[e.Pattern] {
+				upstreamEnabled++
+			}
+		}
+	}
+	upstreamGroupMode := map[string]string{}
+	upstreamGroupAction := map[string]string{}
+	for cat := range upstreamRescue {
+		upstreamGroupMode[cat] = classify.ResolveGroupMode(cat, cur.SearchBots.UpstreamGroupMode)
+		if cur.SearchBots.UpstreamGroupAction != nil {
+			upstreamGroupAction[cat] = cur.SearchBots.UpstreamGroupAction[cat]
+		}
+	}
 
 	// search bots: per-preset-group enable state + detailed patterns.
 	// IsNew = AddedIn > SeenVersion → force unchecked + show NEW badge in UI.
@@ -269,9 +291,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"EventsDropped":         events.GlobalFlusherDropped(),
 		"NginxLogEnabled":       h.Settings.NginxLog.Enabled,
 		"Tab":                tab,
+		"TabHelpKey":         tabHelpKey(tab),
 		"Saved":              r.URL.Query().Get("saved") != "",
 		"Error":              readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":                cur,
+		"Global":             h.snapshotSettings().Global,
 		"GeoIPMMDBPath":      geoipCur.MMDBPath,
 		"GeoIPMMDBASNPath":   geoipCur.MMDBASNPath,
 		"GeoIPLoaded":        h.GeoIP != nil && h.GeoIP.Loaded(),
@@ -282,14 +306,28 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"LBExtras":           buildLBExtraView(cur),
 		"SearchBotGroups":    searchBotGroups,
 		"SearchBotsRules":    pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
+		"UpstreamRescue":        upstreamRescue,
+		"UpstreamDisabled":      upstreamDisabledSet,
+		"UpstreamRescueTotal":   upstreamTotal,
+		"UpstreamRescueEnabled": upstreamEnabled,
+		"UpstreamGroupMode":     upstreamGroupMode,
+		"UpstreamGroupAction":   upstreamGroupAction,
 		"JA4Groups":          ja4Groups,
 		"JA4Rules":           ja4ExtraRules,
+		"JA4Verdicts":        cur.JA4Verdicts,
+		"JA4PresetAction":    cur.JA4Verdicts.PresetAction,
+		"JA4ExtraAction":     cur.JA4Verdicts.ExtraAction,
 		"ChallengeAll":       cur.ChallengeTargets.All,
 		"ChallengeGroups":    tgtGroups,
 		"ChallengeRules":     pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
+		"ChallengeTargets":   cur.ChallengeTargets,
+		"ChallengePresetAction": cur.ChallengeTargets.PresetAction,
 		"HoneypotGroups":      honeypotGroups,
 		"HoneypotRules":       pairRules(cur.Honeypot.Extra, cur.Honeypot.ExtraTitle, cur.Honeypot.ExtraDisabled, cur.Honeypot.ExtraUpdatedAt),
 		"HoneypotBanDuration": cur.Honeypot.BanDuration,
+		"Honeypot":            cur.Honeypot,
+		"HoneypotPresetAction": cur.Honeypot.PresetAction,
+		"HoneypotExtraAction":  cur.Honeypot.ExtraAction,
 		"BypassIPsRules":      pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":  bypassPresetGroups,
 		"ProtectedRules": pairProtectedRules(
@@ -301,6 +339,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		),
 		"BypassPathGroups": bypassPathGroups,
 		"ProtectedPresetGroups": protectedPresetGroups,
+		"ProtectedPaths":        cur.ProtectedPaths,
+		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
+		"ProtectedExtraAction":  cur.ProtectedPaths.ExtraAction,
 		"BypassPathsRules": pairBypassPathRules(
 			cur.BypassPaths.Extra,
 			cur.BypassPaths.ExtraTitle,
@@ -337,13 +378,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// shared-feed tab. Mask the token (= not shown in UI; the admin issues
 		// the submit token via auto-register).
 		"SharedFeed": maskedSharedFeed(h.snapshotSettings().SharedFeed),
-		// protection-mode tab. Detect() returns "" for hand-tuned configs (= no radio
-		// pre-selected then). The template prints a notice in that case.
-		"CurrentMode": string(presets.Detect(h.snapshotSettings())),
-		// Raw values of the 2 preset-managed fields so the tab's diff view can
-		// show "current vs new" for whichever mode the user is hovering.
-		"CurrentTargetsAll": cur.ChallengeTargets.All,
-		"CurrentObserveOnly": h.snapshotSettings().Challenge.ObserveOnly,
 	}
 }
 
@@ -497,7 +531,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.URL.Query().Get("section")
 	switch section {
-	case "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "protection-mode":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -525,6 +559,24 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 	lang := i18n.Resolve(r)
 	switch section {
+	case "global":
+		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
+		validBucket := func(v string) string {
+			v = strings.TrimSpace(v)
+			if v == "" || v == "pass" {
+				return "pass"
+			}
+			if settings.IsValidRateChallengeMode(v) {
+				return v
+			}
+			return "pass"
+		}
+		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
+		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
+		// Drop the legacy field once the new buckets are in use (= avoid
+		// double sources of truth).  Existing yamls keep it until first
+		// save through the new UI.
+		cur.Global.DefaultAction = ""
 	case "network":
 		if err := applyNetworkForm(&cur.Nginx, r, lang); err != nil {
 			redirBack(err.Error())
@@ -541,6 +593,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applyTrustedLBForm(&cur.Nginx, r)
 	case "ua-filter":
 		applyUAFilterForm(&cur.Nginx, r)
+		// Black-list default action (= independent of rate-limit chain).
+		if v := strings.TrimSpace(r.FormValue("ua_black_action")); v != "" {
+			if settings.IsValidRateChallengeMode(v) {
+				cur.Nginx.ChallengeTargets.DefaultAction = v
+			}
+		}
 	case "ja4-verdicts":
 		if err := applyJA4VerdictsForm(&cur.Nginx, r, lang); err != nil {
 			redirBack(err.Error())
@@ -596,16 +654,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "shared-feed":
 		applySharedFeedForm(&cur.SharedFeed, r)
-	case "protection-mode":
-		mode := presets.Mode(strings.TrimSpace(r.FormValue("mode")))
-		if !mode.IsValid() {
-			redirBack("invalid protection mode")
-			return
-		}
-		if err := presets.Apply(&cur, mode); err != nil {
-			redirBack("apply mode: " + err.Error())
-			return
-		}
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= s.EventsRetentionDays is
@@ -670,6 +718,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// geoip hot-swap (= picks up mmdb path changes immediately, no restart)
 	if h.GeoIP != nil {
 		h.GeoIP.Reload(cur.GeoIP.MMDBPath, cur.GeoIP.MMDBASNPath)
+	}
+
+	// classify hot-swap: rebuild the upstream per-pattern disable filter so
+	// the next IsBot call reflects the saved settings.
+	if section == "ua-filter" {
+		classify.SetUpstreamDisabled(cur.Nginx.SearchBots.UpstreamDisabled)
 	}
 
 	// notifier hot-swap (= picks up URL / format / threshold changes immediately)
@@ -1110,6 +1164,78 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraUpdatedAt = pairExtras(
 		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_updated_at"])
 
+	// upstream auto-rescue per-pattern disable list (= modal popup form).
+	// Dedup + strip empty so the YAML stays tidy.
+	seen := map[string]bool{}
+	upDisabled := []string{}
+	for _, p := range r.Form["upstream_disabled"] {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		upDisabled = append(upDisabled, p)
+	}
+	n.SearchBots.UpstreamDisabled = upDisabled
+
+	// upstream group mode: each category is white / black / none.
+	// Only store entries that differ from the built-in default (= keeps
+	// the YAML tidy and lets future default changes propagate to silent
+	// installs).
+	overrides := map[string]string{}
+	for cat, vals := range r.Form {
+		if !strings.HasPrefix(cat, "upstream_group_mode__") {
+			continue
+		}
+		key := strings.TrimPrefix(cat, "upstream_group_mode__")
+		if key == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		switch v {
+		case classify.GroupModeWhite, classify.GroupModeBlack, classify.GroupModeNone:
+		default:
+			continue
+		}
+		if v == classify.DefaultGroupMode(key) {
+			continue
+		}
+		overrides[key] = v
+	}
+	if len(overrides) == 0 {
+		n.SearchBots.UpstreamGroupMode = nil
+	} else {
+		n.SearchBots.UpstreamGroupMode = overrides
+	}
+
+	// per-group challenge action override (= only meaningful for groups
+	// resolved to black, so we keep entries even if the group is currently
+	// white — the user may flip the mode later and expect the override to
+	// be remembered).
+	actOverrides := map[string]string{}
+	for cat, vals := range r.Form {
+		if !strings.HasPrefix(cat, "upstream_group_action__") {
+			continue
+		}
+		key := strings.TrimPrefix(cat, "upstream_group_action__")
+		if key == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		if v == "" || v == "inherit" {
+			continue
+		}
+		if !settings.IsValidRateChallengeMode(v) {
+			continue
+		}
+		actOverrides[key] = v
+	}
+	if len(actOverrides) == 0 {
+		n.SearchBots.UpstreamGroupAction = nil
+	} else {
+		n.SearchBots.UpstreamGroupAction = actOverrides
+	}
+
 	// ── blocklist (= legacy challenge-targets) ──────────
 	n.ChallengeTargets.All = r.FormValue("black_all") != ""
 	blackEnabled := map[string]bool{}
@@ -1123,6 +1249,30 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 		}
 	}
 	n.ChallengeTargets.DisabledPresets = blackDisabled
+	// per-preset action override (= keys preset ID, value action string).
+	presetActOverrides := map[string]string{}
+	for k, vals := range r.Form {
+		if !strings.HasPrefix(k, "black_preset_action__") {
+			continue
+		}
+		id := strings.TrimPrefix(k, "black_preset_action__")
+		if id == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		if v == "" || v == "inherit" {
+			continue
+		}
+		if !settings.IsValidRateChallengeMode(v) {
+			continue
+		}
+		presetActOverrides[id] = v
+	}
+	if len(presetActOverrides) == 0 {
+		n.ChallengeTargets.PresetAction = nil
+	} else {
+		n.ChallengeTargets.PresetAction = presetActOverrides
+	}
 	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraUpdatedAt = pairExtras(
 		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_updated_at"])
 }
@@ -1277,6 +1427,55 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 	n.Honeypot.ExtraTitle = outTitle
 	n.Honeypot.ExtraDisabled = outDisabled
 	n.Honeypot.ExtraUpdatedAt = outUpd
+
+	// honeypot default action
+	if v := strings.TrimSpace(r.FormValue("honeypot_default_action")); v != "" {
+		if settings.IsValidRateChallengeMode(v) {
+			n.Honeypot.DefaultAction = v
+		}
+	}
+	// per-preset action override
+	presetActions := map[string]string{}
+	for k, vals := range r.Form {
+		if !strings.HasPrefix(k, "honeypot_preset_action__") {
+			continue
+		}
+		id := strings.TrimPrefix(k, "honeypot_preset_action__")
+		if id == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
+			continue
+		}
+		presetActions[id] = v
+	}
+	if len(presetActions) == 0 {
+		n.Honeypot.PresetAction = nil
+	} else {
+		n.Honeypot.PresetAction = presetActions
+	}
+	// per-extra action (index-aligned with Extra)
+	chains := r.Form["honeypot_extra_action"]
+	outChains := make([]string, len(outPat))
+	for i := range outChains {
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
+				outChains[i] = ""
+			} else {
+				outChains[i] = v
+			}
+		}
+	}
+	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
+		outChains = outChains[:len(outChains)-1]
+	}
+	if len(outChains) == 0 {
+		n.Honeypot.ExtraAction = nil
+	} else {
+		n.Honeypot.ExtraAction = outChains
+	}
 	return nil
 }
 
@@ -1465,6 +1664,60 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	n.JA4Verdicts.ExtraTitle = outTitles
 	n.JA4Verdicts.ExtraDisabled = outDisabled
 	n.JA4Verdicts.ExtraUpdatedAt = outUpdated
+
+	// JA4 default action (= challenge chain when ja4 hits action=bot).
+	if v := strings.TrimSpace(r.FormValue("ja4_default_action")); v != "" {
+		if settings.IsValidRateChallengeMode(v) {
+			n.JA4Verdicts.DefaultAction = v
+		}
+	}
+	// JA4 per-preset action override.
+	presetActions := map[string]string{}
+	for k, vals := range r.Form {
+		if !strings.HasPrefix(k, "ja4_preset_action__") {
+			continue
+		}
+		id := strings.TrimPrefix(k, "ja4_preset_action__")
+		if id == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		if v == "" || v == "inherit" {
+			continue
+		}
+		if !settings.IsValidRateChallengeMode(v) {
+			continue
+		}
+		presetActions[id] = v
+	}
+	if len(presetActions) == 0 {
+		n.JA4Verdicts.PresetAction = nil
+	} else {
+		n.JA4Verdicts.PresetAction = presetActions
+	}
+	// JA4 per-extra action override (parallel slice aligned with Extra).
+	chains := r.Form["ja4_extra_action_chain"]
+	outChains := make([]string, len(extras))
+	for i := range outChains {
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
+				outChains[i] = ""
+			} else {
+				outChains[i] = v
+			}
+		}
+	}
+	// Compact: drop a trailing run of empties so the YAML stays small.
+	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
+		outChains = outChains[:len(outChains)-1]
+	}
+	if len(outChains) == 0 {
+		n.JA4Verdicts.ExtraAction = nil
+	} else {
+		n.JA4Verdicts.ExtraAction = outChains
+	}
+
 	// Assign IDs to new entries (= ID=0). Preserve IDs of existing entries.
 	tmp := settings.Settings{Nginx: *n}
 	settings.BackfillExtraVerdictIDs(&tmp)
@@ -1501,17 +1754,19 @@ func toSet(xs []string) map[string]bool {
 	return m
 }
 
-// applyProtectedForm: receive the protected-paths tab form. Zip 5 parallel
-// arrays (= path / title / disabled / updated_at / mode) and save them to
-// the 5 slices.
+// applyProtectedForm: receive the protected-paths tab form. Zip 4 parallel
+// arrays (= path / title / disabled / updated_at) and save them. The old
+// `mode` column (= captcha/pow/strict) was retired in favor of the
+// per-axis chain action (= pow_only / pow_then_captcha / captcha_only /
+// deny) wired through protected_default_action + protected_extra_action;
+// ExtraMode is kept full of "captcha" for yaml back-compat.
 func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	pats := r.Form["protected_pat"]
 	titles := r.Form["protected_title"]
 	enabledArr := r.Form["protected_enabled"]
 	upds := r.Form["protected_updated_at"]
-	modes := r.Form["protected_mode"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(modes)} {
+	for _, l := range []int{len(titles), len(enabledArr), len(upds)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -1523,7 +1778,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	outMode := make([]string, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t, mode string
+		var p, t string
 		isEnabled := true
 		var ts int64
 		if i < len(pats) {
@@ -1539,17 +1794,11 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
 		}
-		if i < len(modes) {
-			mode = strings.TrimSpace(modes[i])
-		}
 		if p == "" {
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.protected_regex", p, err))
-		}
-		if !nginxconf.IsValidProtectedMode(mode) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.protected_mode", p, mode))
 		}
 		if ts <= 0 {
 			ts = now
@@ -1558,7 +1807,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		outTitle = append(outTitle, t)
 		outDisabled = append(outDisabled, !isEnabled)
 		outUpd = append(outUpd, ts)
-		outMode = append(outMode, mode)
+		outMode = append(outMode, nginxconf.ProtectedModeCaptcha)
 	}
 	n.ProtectedPaths.Extra = outPat
 	n.ProtectedPaths.ExtraTitle = outTitle
@@ -1580,6 +1829,55 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		}
 	}
 	n.ProtectedPaths.DisabledPresets = disabled
+
+	// Protected default action
+	if v := strings.TrimSpace(r.FormValue("protected_default_action")); v != "" {
+		if settings.IsValidRateChallengeMode(v) {
+			n.ProtectedPaths.DefaultAction = v
+		}
+	}
+	// per-preset action override
+	presetActions := map[string]string{}
+	for k, vals := range r.Form {
+		if !strings.HasPrefix(k, "protected_preset_action__") {
+			continue
+		}
+		id := strings.TrimPrefix(k, "protected_preset_action__")
+		if id == "" || len(vals) == 0 {
+			continue
+		}
+		v := strings.TrimSpace(vals[0])
+		if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
+			continue
+		}
+		presetActions[id] = v
+	}
+	if len(presetActions) == 0 {
+		n.ProtectedPaths.PresetAction = nil
+	} else {
+		n.ProtectedPaths.PresetAction = presetActions
+	}
+	// per-extra action (index-aligned with Extra)
+	chains := r.Form["protected_extra_action"]
+	outChains := make([]string, len(n.ProtectedPaths.Extra))
+	for i := range outChains {
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
+				outChains[i] = ""
+			} else {
+				outChains[i] = v
+			}
+		}
+	}
+	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
+		outChains = outChains[:len(outChains)-1]
+	}
+	if len(outChains) == 0 {
+		n.ProtectedPaths.ExtraAction = nil
+	} else {
+		n.ProtectedPaths.ExtraAction = outChains
+	}
 	return nil
 }
 
@@ -2085,4 +2383,48 @@ func (h *Handler) AdminSMTPTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
+}
+
+
+// tabHelpKey returns the i18n key whose value is the popover content for
+// the given settings tab.  Empty result means "no help text → omit the
+// ?-button entirely."  Stays as a single lookup table so the template
+// does not have to know the per-tab convention (= some keys are "intro",
+// some "desc", some "tab_help").
+func tabHelpKey(tab string) string {
+	switch tab {
+	case "network":
+		return "settings.network.intro"
+	case "smtp":
+		return "settings.smtp.intro"
+	case "notifications":
+		return "settings.notify.desc"
+	case "retention":
+		return "settings.retention.intro"
+	case "bypass-ips":
+		return "settings.bypass_ips.intro"
+	case "bypass-paths":
+		return "settings.bypass_paths.intro"
+	case "global":
+		return "settings.global.tab_help"
+	case "ua-filter":
+		return "settings.ua.intro"
+	case "ja4-verdicts":
+		return "settings.ja4.desc"
+	case "honeypot":
+		return "settings.honeypot.desc"
+	case "protected":
+		return "settings.protected.desc"
+	case "rate-limit":
+		return "settings.rate_limit.intro"
+	case "captcha":
+		return "settings.captcha.desc"
+	case "challenge":
+		return "settings.challenge.intro"
+	case "theme":
+		return "settings.theme.intro"
+	case "shared-feed":
+		return "settings.shared_feed.intro"
+	}
+	return ""
 }

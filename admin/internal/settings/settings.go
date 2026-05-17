@@ -310,6 +310,16 @@ type ProtectedPathsConfig struct {
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
 	ExtraMode       []string `yaml:"extra_mode,omitempty"` // "captcha" | "pow" | "strict"
+	// DefaultAction: chain to run when a request hits a protected path and
+	// challenge fires (= chMode used by challenge.html JS).  Empty =
+	// inherit ChallengeTargets.DefaultAction → RateLimit.Default.
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// PresetAction: per-preset chMode override (preset ID → chain).  Stored
+	// now; path-based dispatch wiring is a follow-up.
+	PresetAction map[string]string `yaml:"preset_action,omitempty"`
+	// ExtraAction: per-custom-row chMode override, aligned by index with
+	// Extra.  Same "stored now, wired later" caveat.
+	ExtraAction []string `yaml:"extra_action,omitempty"`
 }
 
 // HoneypotConfig: honeypot path configuration + persistent BAN list management.
@@ -336,6 +346,17 @@ type HoneypotConfig struct {
 	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"`
 	BanDuration    int      `yaml:"ban_duration"`  // seconds. 0 = permanent. default 86400 (= 24h)
 	BanFilePath    string   `yaml:"ban_file_path"` // output path for the ban list (= honeypot / manual / all sources). default /etc/unmask/banned.txt
+	// DefaultAction: chain to run when a honeypot trip results in a
+	// challenge (= chMode used by challenge.html JS).  Empty = inherit
+	// ChallengeTargets.DefaultAction → RateLimit.Default.
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// PresetAction: per-preset action override (preset ID → mode).
+	// Path-level resolution (= which preset was tripped) is wired up in a
+	// follow-up; the field is stored now so the UI is round-trippable.
+	PresetAction map[string]string `yaml:"preset_action,omitempty"`
+	// ExtraAction: per-custom-row action override, aligned by index with
+	// Extra.  Same "stored now, wired later" caveat.
+	ExtraAction []string `yaml:"extra_action,omitempty"`
 }
 
 // ChallengeTargetsConfig: which UAs receive a challenge when bot signals fire.
@@ -350,6 +371,17 @@ type ChallengeTargetsConfig struct {
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
+	// DefaultAction: chain to run when a black-list UA also triggers a JA4
+	// bot signal (= "pow_only" / "pow_then_captcha" / "captcha_only" /
+	// "deny").  Empty = fall back to rate_limit.default.challenge_mode so
+	// existing installs keep their previous behaviour.  Editable from the
+	// ua-filter tab.
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// PresetAction: per-preset action override.  Keys are preset IDs
+	// (= nginxconf.ChallengeTargetGroups[i].ID).  An entry overrides
+	// DefaultAction when the UA matches that preset's patterns.  Empty
+	// value or absent key = inherit DefaultAction.
+	PresetAction map[string]string `yaml:"preset_action,omitempty"`
 }
 
 // SearchBotsConfig: search-bot UA preset enable/disable + extras.
@@ -370,6 +402,23 @@ type SearchBotsConfig struct {
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"` // unix sec. analogous to preset's AddedIn
+	// UpstreamDisabled: per-pattern disable list applied to the upstream
+	// crawler-user-agents.json auto-rescue.  Patterns listed here will not
+	// be auto-passed via the search_ai branch, even if they match a
+	// search-engine / ai-crawler / advertising tag.  Edited via the
+	// "詳細" modal on the settings UI.
+	UpstreamDisabled []string `yaml:"upstream_disabled,omitempty"`
+	// UpstreamGroupMode: per-group override mapping that places a category
+	// into "white" (auto-pass), "black" (challenge-target), or "none"
+	// (ignore).  Only entries that differ from the built-in default are
+	// stored.  See classify.DefaultGroupMode for the defaults.
+	UpstreamGroupMode map[string]string `yaml:"upstream_group_mode,omitempty"`
+	// UpstreamGroupAction: when a group resolves to "black", optionally
+	// override the challenge chain for that specific group (= "pow_only" /
+	// "pow_then_captcha" / "captcha_only" / "deny").  Empty / absent =
+	// inherit ChallengeTargets.DefaultAction.  Stored as a flat map so the
+	// YAML stays small and inspectable.
+	UpstreamGroupAction map[string]string `yaml:"upstream_group_action,omitempty"`
 }
 
 // JA4VerdictsConfig: JA4 verdict preset enable/disable + extras.
@@ -387,6 +436,16 @@ type JA4VerdictsConfig struct {
 	ExtraTitle      []string              `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool                `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64               `yaml:"extra_updated_at,omitempty"`
+	// DefaultAction: chain to run when a request hits a JA4 verdict that
+	// resolves to action="bot".  Empty = inherit from
+	// ChallengeTargets.DefaultAction → RateLimit.Default.ChallengeMode.
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// PresetAction: per-preset (= JA4VerdictGroups[i].ID) action override.
+	// Empty / absent = inherit DefaultAction.
+	PresetAction map[string]string `yaml:"preset_action,omitempty"`
+	// ExtraAction: per-custom-row action override, aligned by index with
+	// Extra.  Empty string in slot i = inherit DefaultAction.
+	ExtraAction []string `yaml:"extra_action,omitempty"`
 }
 
 // JA4VerdictExtraRule: a custom pattern added via the web UI.
@@ -431,6 +490,34 @@ type SiteConfig struct {
 	HoneypotExtra       []string `yaml:"honeypot_extra"`
 }
 
+// GlobalConfig: settings-wide knobs that cross axis boundaries (= UA /
+// JA4 / honeypot / protected paths).  Lives at the root of settings so the
+// "動作モード" tab can drive them without dragging other tabs into shared
+// state.
+type GlobalConfig struct {
+	// Passthrough = monitoring mode.  When true, the admin's serveBotChallenge
+	// short-circuits and bounces the user straight back to the original URL
+	// without issuing PoW / CAPTCHA.  Useful for staged rollouts: signals
+	// are still recorded in events / dashboard, but visitors are never
+	// inconvenienced.
+	Passthrough bool `yaml:"passthrough,omitempty"`
+	// KnownBrowserAction: chain for no-match requests whose UA looks like a
+	// real browser (= classify.IsKnownBrowser).  Default "pass" = ordinary
+	// operation (no challenge).  Picking pow_* / captcha_only / deny turns
+	// this into a Cloudflare-style human gate for genuine visitors too.
+	KnownBrowserAction string `yaml:"known_browser_action,omitempty"`
+	// UnknownUAAction: chain for no-match requests whose UA is NOT a known
+	// browser (= curl / library / empty / oddball).  Default "pass".
+	// Picking pow_* / captcha_only / deny gates anything that isn't a real
+	// browser without affecting actual visitors.
+	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
+	// DefaultAction: legacy field (= used to mean "no-match action" for
+	// every UA).  Kept for one-release backward compat; new installs use
+	// KnownBrowserAction / UnknownUAAction.  Removed once existing configs
+	// migrate.
+	DefaultAction string `yaml:"default_action,omitempty"`
+}
+
 type Settings struct {
 	DB            DB              `yaml:"db"`
 	Secret        Secret          `yaml:"secret"`
@@ -444,6 +531,7 @@ type Settings struct {
 	FeedServer    FeedServer      `yaml:"feed_server,omitempty"`
 	Notifications Notifications   `yaml:"notifications,omitempty"`
 	SMTP          SMTP            `yaml:"smtp,omitempty"`
+	Global        GlobalConfig    `yaml:"global,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a

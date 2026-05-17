@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/feedserver"
@@ -82,8 +83,6 @@ func main() {
 		err = cmdDoctor(args)
 	case "feed-build":
 		err = cmdFeedBuild(args)
-	case "apply-preset":
-		err = cmdApplyPreset(args)
 	case "version", "-v", "--version":
 		fmt.Println("unmask-admin", Version)
 	case "help", "-h", "--help":
@@ -118,7 +117,6 @@ usage:
   unmask-admin user delete <username>
   unmask-admin doctor [-config PATH]
   unmask-admin feed-build [-config PATH] [-dry-run]
-  unmask-admin apply-preset <strict|balanced|monitor> [-config PATH]
   unmask-admin version
 
 env:
@@ -315,6 +313,10 @@ func cmdServe(args []string) error {
 	if conn != nil {
 		events.StartFlusher(conn, s.EventsBatchSize, s.EventsBatchIntervalMs)
 	}
+
+	// classify init: apply the persisted per-pattern upstream disable filter
+	// once at startup so the first request already sees the saved settings.
+	classify.SetUpstreamDisabled(s.Nginx.SearchBots.UpstreamDisabled)
 
 	h := &handlers.Handler{
 		DB:          conn,
@@ -620,7 +622,6 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	mux.HandleFunc("POST "+base+"/admin/setup/token", h.SetupGate(h.AdminSetupSaveToken))
 	mux.HandleFunc("POST "+base+"/admin/setup/db", h.SetupGate(h.AdminSetupSaveDB))
 	mux.HandleFunc("POST "+base+"/admin/setup/user", h.SetupGate(h.AdminSetupSaveUser))
-	mux.HandleFunc("POST "+base+"/admin/setup/mode", h.SetupGate(h.AdminSetupSaveMode))
 	mux.HandleFunc("POST "+base+"/admin/setup/install", h.SetupGate(h.AdminSetupInstall))
 	mux.HandleFunc("GET "+base+"/admin/setup/done", h.AdminSetupDone)
 	// admin: /admin/ renders the top dashboard (summary).

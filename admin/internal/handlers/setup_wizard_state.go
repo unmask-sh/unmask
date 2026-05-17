@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/unmask-sh/unmask/admin/internal/presets"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -25,23 +24,19 @@ type wizardState struct {
 	UserSet  bool
 	Username string
 	Password string
-	ModeSet  bool
-	Mode     presets.Mode
 	expires  time.Time
 }
 
 // step returns the next-step name based on what's been collected so far.
-// Order: db -> user -> mode -> review.  Each step is "missing" until its
-// Set flag flips true.
+// Order: db -> user -> review.  Each step is "missing" until its Set flag
+// flips true.  The bot-detection posture is configured later in the 動作モード
+// tab so the wizard stays narrowly focused on "make admin reachable".
 func (w *wizardState) step() string {
 	if !w.DBSet {
 		return "db"
 	}
 	if !w.UserSet {
 		return "user"
-	}
-	if !w.ModeSet {
-		return "mode"
 	}
 	return "review"
 }

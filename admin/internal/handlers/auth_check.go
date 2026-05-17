@@ -24,11 +24,13 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"regexp"
 	"strings"
 	"sync"
 
+	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -96,7 +98,15 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	reason := "ok"
 	status := http.StatusOK
 
-	// 2. Decision chain.  Order matters (= bypass > ban > protected path > UA classify).
+	// 2. Decision chain.  Order matters.
+	//   bypass (= ip/path) → _bv cookie pass → honeypot → ban → protected → ja4 bot → UA classify
+	// _bv runs before honeypot/ban so an operator who already cleared a
+	// CAPTCHA can pass even if the IP is later flagged.
+	bvOK := bvCookie != "" && cookies.Verify(bvCookie, cfg.Secret.BVSecret, ip, cfg.Challenge.CookieValidDaysCeil(), cfg.Challenge.ResolvedPowDifficulty())
+	// honeypotChMode: chain to surface to the challenge JS when the
+	// honeypot case takes the challenge branch (= not deny).  Pulled out
+	// here so the response-header block below can read it after the switch.
+	honeypotChMode := ""
 	switch {
 	case isBypassIP(ip, cfg.Nginx.BypassIPs):
 		action, reason, status = "pass", "bypass:ip", http.StatusOK
@@ -104,18 +114,43 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	case matchPath(uri, site, matchers.bypass):
 		action, reason, status = "pass", "bypass:path", http.StatusOK
 
+	case bvOK:
+		// 3-seg = CAPTCHA pass, 4-seg = PoW pass.
+		if strings.Count(bvCookie, ".") == 3 {
+			action, reason, status = "pass", "bv-pow", http.StatusOK
+		} else {
+			action, reason, status = "pass", "bv-captcha", http.StatusOK
+		}
+
 	case matchPathSimple(uri, matchers.honeypot):
-		// honeypot trip -> immediately add to BAN + reject with 403.
+		// honeypot trip -> always record a BAN entry.  Response branch
+		// depends on Honeypot.DefaultAction:
+		//   "deny"                   : 403 block (= "trap = instant block, no recovery").
+		//   pow_only / pow_then_captcha / captcha_only / empty
+		//                            : 401 challenge.  Solve → _bv cookie
+		//                              → bypasses the BAN on later requests
+		//                              because _bv verify runs first.
 		if h.BanMgr != nil {
 			h.BanMgr.AddWithSource(r.Context(), ip, "", "honeypot",
 				"auth_request: hit "+truncateAt(uri, 80), "")
 		}
-		action, reason, status = "block", "honeypot", http.StatusForbidden
+		act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
+		if act == settings.RateChallengeDeny {
+			action, reason, status = "block", "honeypot:deny", http.StatusForbidden
+		} else {
+			if !settings.IsValidRateChallengeMode(act) {
+				act = settings.RateChallengePoWThenCaptcha
+			}
+			honeypotChMode = act
+			action, reason, status = "challenge", "honeypot:"+act, http.StatusUnauthorized
+		}
 
-	case h.BanMgr != nil && h.BanMgr.IsBanned(r.Context(), ip, ""):
-		action, reason, status = "block", "ban", http.StatusForbidden
+	case h.BanMgr != nil && banSrcCheck(r.Context(), h.BanMgr, ip, cfg.Nginx.Honeypot.DefaultAction, &honeypotChMode, &action, &reason, &status):
+		// (decision was filled in by banSrcCheck — honeypot-derived bans
+		// route to challenge unless DefaultAction=deny; other sources stay 403)
 
-	case bvCookie != "" && cookies.Verify(bvCookie, cfg.Secret.BVSecret, ip, cfg.Challenge.CookieValidDaysCeil(), cfg.Challenge.ResolvedPowDifficulty()):
+	case false: // (placeholder so the next branch keeps its case form)
+		_ = bvCookie
 		// Branch reason by cookie format:
 		//   3 segments "<day>.<HMAC>.<kind>"               -> CAPTCHA path (= bv column)
 		//        2 dots
@@ -136,35 +171,52 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	default:
 		// Final decision via UA classification.  Search bots / AI bots
-		// are let through.  user_dev / service get challenged.
-		// JA4 verdict (= suspect / ok / etc.) is also passed to classify
-		// for better bot precision.
+		// are let through.  Other categories defer to the 動作モード
+		// (Global) axis so the no-match path matches what the serveBot-
+		// Challenge handler does (= Known/UnknownUAAction with strict
+		// "pow_only" fallback).
 		switch classify.IsBot(ua, ja4Action).String() {
 		case "search_ai":
 			action, reason, status = "pass", "ua:search_ai", http.StatusOK
-		case "user_dev":
-			action, reason, status = "challenge", "ua:user_dev", http.StatusUnauthorized
-		case "service":
-			action, reason, status = "challenge", "ua:service", http.StatusUnauthorized
-		case "old_ua":
-			action, reason, status = "challenge", "ua:old_browser", http.StatusUnauthorized
-		default: // human
-			// Finally, check whether the UA hits ChallengeTargetGroups
-			// (= the UA categories to challenge so JS smokes out spoofed
-			// browsers).  In typical operation, users keep known_browser
-			// ON (= every Chrome / Safari / Firefox / Edge / Opera is
-			// inspected via challenge).  Users who pass solve the PoW in
-			// JS, obtain the _bv cookie, and get a 3-day pass.
-			// Switchable via the settings UI.
-			//
-			// Because lookupUAListed evaluates search_bots first, UAs
-			// rescued via search_ai don't reach here.  Here, if listed
-			// != "" + category="challenge", challenge the request.
+		default:
+			// Look up UA against ChallengeTargetGroups first; a target
+			// hit always challenges regardless of Global (= explicit
+			// black-list beats the no-match default).
 			listed, category := lookupUAListed(ua, cfg.Nginx)
 			if listed != "" && category == "challenge" {
 				action, reason, status = "challenge", "ua:target:"+listed, http.StatusUnauthorized
+				break
+			}
+			// Pick the Global axis based on whether the UA looks like a
+			// real browser.  Empty = "pow_only" (= strict default,
+			// matches serveBotChallenge fallback).
+			var pick string
+			if classify.IsKnownBrowser(ua) {
+				pick = cfg.Global.KnownBrowserAction
 			} else {
-				action, reason, status = "pass", "human", http.StatusOK
+				pick = cfg.Global.UnknownUAAction
+			}
+			if pick == "" {
+				pick = cfg.Global.DefaultAction
+			}
+			if pick == "" {
+				pick = "pow_only"
+			}
+			if pick == "pass" {
+				if classify.IsKnownBrowser(ua) {
+					action, reason, status = "pass", "human", http.StatusOK
+				} else {
+					action, reason, status = "pass", "ua:unknown", http.StatusOK
+				}
+			} else {
+				// pow_only / pow_then_captcha / captcha_only / deny — all
+				// surface as challenge here; the chMode value flows
+				// through serveBotChallenge via the same Global axis.
+				tag := "ua:unknown"
+				if classify.IsKnownBrowser(ua) {
+					tag = "ua:browser"
+				}
+				action, reason, status = "challenge", tag+":"+pick, http.StatusUnauthorized
 			}
 		}
 	}
@@ -305,10 +357,43 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	if rlHit {
 		w.Header().Set("X-Unmask-Zone", zone.Name)
 		w.Header().Set("X-Unmask-Chmode", chMode)
+	} else if honeypotChMode != "" && action == "challenge" {
+		// honeypot took the challenge branch — propagate the chosen
+		// chain to /unmask/challenge/ via the same header flow that
+		// rate-limit uses (= auth_request_set + ?chm= query).
+		w.Header().Set("X-Unmask-Chmode", honeypotChMode)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_, _ = w.Write([]byte(action + "\n"))
+}
+
+// banSrcCheck: probe BAN list, branch on source, fill in action/reason/status.
+// Returns true when a live ban entry covers ip (= caller's switch should
+// treat that case as matched).  Honeypot-derived bans honor
+// Honeypot.DefaultAction (= deny → 403, anything else → challenge so the
+// visitor can recover via CAPTCHA → _bv).  Other sources stay 403.
+func banSrcCheck(ctx context.Context, mgr *ban.Manager, ip, honeypotAct string,
+	chModeOut, actionOut, reasonOut *string, statusOut *int) bool {
+	src, banned := mgr.IsBannedSource(ctx, ip, "")
+	if !banned {
+		return false
+	}
+	if src == "honeypot" {
+		act := strings.TrimSpace(honeypotAct)
+		if act == settings.RateChallengeDeny {
+			*actionOut, *reasonOut, *statusOut = "block", "ban:honeypot:deny", http.StatusForbidden
+		} else {
+			if !settings.IsValidRateChallengeMode(act) {
+				act = settings.RateChallengePoWThenCaptcha
+			}
+			*chModeOut = act
+			*actionOut, *reasonOut, *statusOut = "challenge", "ban:honeypot:"+act, http.StatusUnauthorized
+		}
+	} else {
+		*actionOut, *reasonOut, *statusOut = "block", "ban:"+src, http.StatusForbidden
+	}
+	return true
 }
 
 // --- helpers ---

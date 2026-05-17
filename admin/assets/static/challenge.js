@@ -392,29 +392,25 @@
   // (the old ?c=1 URL query couldn't be detected via location.search because internal rewrite
   //  doesn't reflect it in the URL bar, so we moved to a placeholder approach; URL stays clean)
   var forceReason = (window.UNMASK && window.UNMASK.force_reason) || 'none';
-  var isCaptchaForced = forceReason !== 'none';
-  // Action for rate-limit hits / honeypot / true bot decisions (= the rate-limit zone value in settings).
-  //   "captcha_only"       : straight to CAPTCHA (= legacy behavior)
-  //   "pow_only"           : PoW only.  Lightweight, but resilient bots can pass
-  //   "pow_then_captcha"   : default / recommended chain.  After PoW, don't issue _bv; proceed to CAPTCHA
-  //   "deny"               : skip the challenge; the subrequest returns 403 (= we never reach here)
+  // chMode is the single source of truth for the challenge chain.  The admin
+  // picks it per axis (UA filter / JA4 / honeypot / protected / rate-limit /
+  // no-match) so what the operator configured is what actually runs — bot
+  // signal presence no longer silently downgrades the chain.
+  //   "captcha_only"       : straight to CAPTCHA (PoW skipped)
+  //   "pow_only"           : PoW only (lightweight; issues _bv on success)
+  //   "pow_then_captcha"   : PoW then CAPTCHA chain (no _bv until CAPTCHA passes)
+  //   "deny"               : we never reach here (the subrequest returned 403)
   var chMode = (window.UNMASK && window.UNMASK.challenge_mode) || 'pow_then_captcha';
-  // chain mode flag: when PoW completes, don't issue _bv; branch into showCaptcha() instead.
-  var chainPoWThenCaptcha = false;
 
   _bcDebug('load', { force_reason: forceReason, chmode: chMode });
 
-  if (isCaptchaForced) {
-    if (chMode === 'pow_only') {
-      // PoW only: send through the normal PoW path (= ignore force_reason and issue _bv).
-    } else if (chMode === 'pow_then_captcha') {
-      chainPoWThenCaptcha = true;
-    } else {
-      // captcha_only (= legacy behavior).
-      showCaptcha();
-      return;
-    }
+  if (chMode === 'captcha_only') {
+    showCaptcha();
+    return;
   }
+  // chainPoWThenCaptcha: when true, the PoW success path branches into
+  // showCaptcha() instead of issuing _bv.
+  var chainPoWThenCaptcha = (chMode === 'pow_then_captcha');
 
   // flags >= 3 -> bot decision -> show CAPTCHA
   if(flags>=3){

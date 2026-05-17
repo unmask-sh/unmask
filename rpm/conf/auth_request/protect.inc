@@ -21,4 +21,7 @@
 # self-check loop.
 
 auth_request /_unmask/check;
-error_page 401 = /unmask/challenge/;
+# Pull X-Unmask-Chmode set by AuthCheck into a variable so the named
+# location below can forward it to /unmask/challenge/ as ?chm=.
+auth_request_set $unmask_chmode $upstream_http_x_unmask_chmode;
+error_page 401 = @unmask_to_challenge;

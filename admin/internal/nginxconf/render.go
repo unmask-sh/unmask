@@ -29,6 +29,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -265,6 +266,15 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 	}
 
+	// Upstream rescue groups (= crawler-user-agents.json categories).  Each
+	// group resolves to "white" / "black" / "none" via classify; collect
+	// patterns into the corresponding nginx map.  Per-pattern disable
+	// (= SearchBots.UpstreamDisabled) wins over both directions.
+	upstreamDisabled := toSet(s.Nginx.SearchBots.UpstreamDisabled)
+	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns := collectUpstreamPatternsByMode(
+		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled)
+	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
+
 	// challenge target UA: all=true is UA-agnostic.  Otherwise enabled presets + extras.
 	d.ChallengeAll = s.Nginx.ChallengeTargets.All
 	if !d.ChallengeAll {
@@ -289,6 +299,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				continue
 			}
 			if p = trimSpaceAndQuotes(p); p != "" && !seen[p] {
+				seen[p] = true
+				d.ChallengeTargetPatterns = append(d.ChallengeTargetPatterns, p)
+			}
+		}
+		// upstream rescue groups resolved to "black" mode.
+		for _, p := range upstreamGroupBlackPatterns {
+			if !seen[p] {
 				seen[p] = true
 				d.ChallengeTargetPatterns = append(d.ChallengeTargetPatterns, p)
 			}
@@ -515,6 +532,39 @@ func toSet(xs []string) map[string]bool {
 		m[x] = true
 	}
 	return m
+}
+
+// collectUpstreamPatternsByMode walks the upstream rescue groups and returns
+// the patterns that should land in the white map and the black map
+// respectively.  Mode is resolved per-category via classify.ResolveGroupMode.
+// Patterns listed in disabledSet are skipped regardless of mode (= explicit
+// per-pattern OFF wins over the group default).
+func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet map[string]bool) (white, black []string) {
+	groups := classify.UpstreamRescueList()
+	whiteSeen := map[string]bool{}
+	blackSeen := map[string]bool{}
+	for cat, entries := range groups {
+		mode := classify.ResolveGroupMode(cat, overrides)
+		switch mode {
+		case classify.GroupModeWhite:
+			for _, e := range entries {
+				if e.Pattern == "" || disabledSet[e.Pattern] || whiteSeen[e.Pattern] {
+					continue
+				}
+				whiteSeen[e.Pattern] = true
+				white = append(white, e.Pattern)
+			}
+		case classify.GroupModeBlack:
+			for _, e := range entries {
+				if e.Pattern == "" || disabledSet[e.Pattern] || blackSeen[e.Pattern] {
+					continue
+				}
+				blackSeen[e.Pattern] = true
+				black = append(black, e.Pattern)
+			}
+		}
+	}
+	return white, black
 }
 
 func defStr(v, fallback string) string {

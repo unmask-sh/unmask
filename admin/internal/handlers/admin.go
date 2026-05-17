@@ -62,6 +62,7 @@ func loadDashboardTemplate() (*template.Template, error) {
 	dashboardTmplOnce.Do(func() {
 		funcs := template.FuncMap{
 			"hasPrefix": strings.HasPrefix,
+			"replace":   strings.ReplaceAll,
 			"percent": func(x float64) string {
 				return fmt.Sprintf("%.1f%%", x*100)
 			},

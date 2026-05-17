@@ -318,13 +318,16 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 // the challenge HTML when a bot signal trips.
 //
 // Philosophy:
-//   - The default is `known_browser` only ON (= don't let spoofed
-//     browsers through).
-//   - To "target every access," flip the config-side `all=true`.
-//   - Turning on CLI / lib categories returns 403 + HTML for curl /
-//     requests / etc. too (= most can't run JS, so they get blocked
-//     in practice.  However it also affects legitimate API clients,
-//     so enable carefully).
+//   - The 動作モード tab covers the "known browser / unknown UA" split for
+//     the no-match path, so a `known_browser` preset here is gone — it
+//     would double-dip with the Global axis and confuse the resolution
+//     order.
+//   - cli / python_libs / node_libs / go_libs / java_libs / headless were
+//     also removed in favour of the upstream rescue groups (= http-library
+//     + browser-automation, default black).  Same UA coverage, single
+//     source of truth.
+//   - What remains here are presets that don't fit any upstream category
+//     (= empty / very short UA) and are still worth flagging.
 type ChallengeTargetGroup struct {
 	ID       string
 	Label    string
@@ -333,80 +336,6 @@ type ChallengeTargetGroup struct {
 }
 
 var ChallengeTargetGroups = []ChallengeTargetGroup{
-	{
-		ID:    "known_browser",
-		Label: "Normal browsers (= Chrome / Safari / Firefox / Edge / Opera)",
-		Patterns: []string{
-			`^Mozilla/5\.0\s.*\sChrome/[0-9]`,
-			`^Mozilla/5\.0\s.*\sSafari/[0-9]`,
-			`^Mozilla/5\.0\s.*\sFirefox/[0-9]`,
-			`^Mozilla/5\.0\s.*\sEdg(e)?/[0-9]`,
-			`Mozilla/5\.0\s.*\sOPR/[0-9]`,
-			`^Opera/[0-9]`,
-		},
-	},
-	{
-		ID:    "cli",
-		Label: "CLI tools (= curl / wget / libwww)",
-		Patterns: []string{
-			`^curl/`,
-			`^Wget/`,
-			`libwww-perl`,
-			`lwp-trivial`,
-		},
-	},
-	{
-		ID:    "python_libs",
-		Label: "Python HTTP libs (= requests / urllib / aiohttp / httpx)",
-		Patterns: []string{
-			`^python-requests/`,
-			`^Python-urllib/`,
-			`^aiohttp/`,
-			`^httpx/`,
-			`^scrapy/`,
-		},
-	},
-	{
-		ID:    "node_libs",
-		Label: "Node.js HTTP libs (= axios / node-fetch / undici / got)",
-		Patterns: []string{
-			`^axios/`,
-			`^node-fetch`,
-			`^undici`,
-			`^got/`,
-			`^superagent/`,
-		},
-	},
-	{
-		ID:    "go_libs",
-		Label: "Go HTTP libs (= net/http / fasthttp / resty)",
-		Patterns: []string{
-			`^Go-http-client/`,
-			`^fasthttp`,
-			`^resty/`,
-		},
-	},
-	{
-		ID:    "java_libs",
-		Label: "JVM family (= okhttp / Apache-HttpClient / Java)",
-		Patterns: []string{
-			`^okhttp/`,
-			`^Apache-HttpClient/`,
-			`^Jakarta`,
-			`^Java/`,
-		},
-	},
-	{
-		ID:    "headless",
-		Label: "Headless browser (= HeadlessChrome / Selenium / Playwright / Puppeteer / Phantom)",
-		Patterns: []string{
-			`HeadlessChrome`,
-			`PhantomJS`,
-			`Selenium`,
-			`Playwright`,
-			`Puppeteer`,
-		},
-	},
 	{
 		ID:    "empty",
 		Label: "Empty UA / extremely short UA (= 5 chars or fewer)",

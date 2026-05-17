@@ -17,6 +17,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -316,11 +317,112 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 
 	// challenge_mode resolution:
-	//   1) via auth_request: nginx forwards ?chm=<mode> (read by challenge.html JS)
-	//   2) native mode (/unmask/_rl/...): default zone setting
-	//   3) normal challenge (bot impersonation / honeypot / etc.): default zone setting
-	//   4) _force= debug override (via /unmask/force-pow / /unmask/force-captcha)
+	//   1) rate-limit path (= "/_rl/" / forceReason="rate_limit") uses
+	//      rate_limit.default.challenge_mode.
+	//   2) every other path (= ja4_bot / honeypot / banned / protected /
+	//      UA-blacklist match) uses challenge_targets.default_action, with a
+	//      fall-back to the rate-limit default so existing installs that
+	//      don't yet have default_action set continue to behave as before.
+	//   3) ?chm= explicit override from the auth_request wrapper.
+	//   4) ?_force= debug override (via /unmask/force-pow / -captcha).
+	// Monitoring mode (= 全アクセスを通す).  When ON we short-circuit the
+	// challenge: log the signal in events, then bounce the visitor to the
+	// original URL without showing PoW / CAPTCHA.
+	if h.Settings.Global.Passthrough {
+		// Issue _bv so the visitor doesn't loop back through nginx's
+		// challenge redirect on the next request.  Cookie shape mirrors
+		// the post-PoW success path.
+		h.setBVCookie(w, "passthrough.0.c")
+		target := "/"
+		if rlOrigURI != "" {
+			target = rlOrigURI
+		} else if orig := strings.TrimSpace(r.URL.Query().Get("orig")); orig != "" && strings.HasPrefix(orig, "/") {
+			target = orig
+		}
+		http.Redirect(w, r, target, http.StatusFound)
+		return
+	}
+
 	chMode := h.Settings.RateLimit.Default.ResolvedChallengeMode()
+	if forceReason == "none" {
+		// "no-match" path: split the chain by whether the UA looks like
+		// a real browser.  Falls back to the legacy DefaultAction field
+		// when the new per-bucket fields are unset (= existing yamls).
+		// Empty (= fresh install, never touched the 動作モード tab) means
+		// "strict" — the historical default protection posture.
+		ua := r.Header.Get("User-Agent")
+		var pick string
+		if classify.IsKnownBrowser(ua) {
+			pick = h.Settings.Global.KnownBrowserAction
+		} else {
+			pick = h.Settings.Global.UnknownUAAction
+		}
+		if pick == "" {
+			pick = h.Settings.Global.DefaultAction
+		}
+		if pick == "" {
+			pick = "pow_only" // strict default
+		}
+		if pick != "pass" && settings.IsValidRateChallengeMode(pick) {
+			chMode = pick
+		}
+	}
+	if forceReason == "protected" {
+		// Protected-path default (= per-path preset/extra dispatch wired
+		// up later).  Falls through to ChallengeTargets if not set.
+		if act := strings.TrimSpace(h.Settings.Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		} else if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+	} else if forceReason == "honeypot" {
+		// Honeypot trip default (= preset/custom path-based override
+		// wiring is a follow-up).
+		if act := strings.TrimSpace(h.Settings.Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+	} else if forceReason == "ja4_bot" {
+		// JA4 default → preset / custom override (per verdict name).
+		if act := strings.TrimSpace(h.Settings.Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+		if pAct := resolveJA4PresetAction(verdict, h.Settings.Nginx.JA4Verdicts); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
+			chMode = pAct
+		}
+		if eAct := resolveJA4ExtraAction(verdict, h.Settings.Nginx.JA4Verdicts); eAct != "" && settings.IsValidRateChallengeMode(eAct) {
+			chMode = eAct
+		}
+	} else if forceReason != "rate_limit" {
+		if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+		// Per-group override: scan the UA against any upstream-rescue
+		// group resolved to "black" that carries an action override.
+		if ua := r.Header.Get("User-Agent"); ua != "" {
+			if grpAct := classify.ResolveActionForUA(ua,
+				h.Settings.Nginx.SearchBots.UpstreamGroupMode,
+				h.Settings.Nginx.SearchBots.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
+				chMode = grpAct
+			}
+			// Per-preset override (= ChallengeTargetGroups).  Same
+			// inheritance rule: an override on a preset wins over the
+			// black-list default.  Skipped presets (= DisabledPresets)
+			// take no action, mirroring the nginx render.
+			specs := make([]classify.PresetGroupSpec, 0, len(nginxconf.ChallengeTargetGroups))
+			for _, g := range nginxconf.ChallengeTargetGroups {
+				specs = append(specs, classify.PresetGroupSpec{ID: g.ID, Patterns: g.Patterns})
+			}
+			disabledTgt := map[string]bool{}
+			for _, id := range h.Settings.Nginx.ChallengeTargets.DisabledPresets {
+				disabledTgt[id] = true
+			}
+			if preAct := classify.ResolvePresetActionForUA(ua, specs,
+				h.Settings.Nginx.ChallengeTargets.PresetAction,
+				disabledTgt); preAct != "" && settings.IsValidRateChallengeMode(preAct) {
+				chMode = preAct
+			}
+		}
+	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm
 	}
@@ -1085,4 +1187,50 @@ func MethodOnly(method string, h http.HandlerFunc) http.HandlerFunc {
 		}
 		h(w, r)
 	}
+}
+
+// resolveJA4PresetAction returns the per-preset chMode override for the
+// preset that owns the given verdict name.  Empty = no override (caller
+// should keep the previous chMode value).  Disabled presets are skipped to
+// mirror the nginx render's exclusion.
+func resolveJA4PresetAction(verdict string, c settings.JA4VerdictsConfig) string {
+	if verdict == "" || len(c.PresetAction) == 0 {
+		return ""
+	}
+	disabled := map[string]bool{}
+	for _, id := range c.DisabledPresets {
+		disabled[id] = true
+	}
+	for _, g := range nginxconf.JA4VerdictGroups {
+		if disabled[g.ID] {
+			continue
+		}
+		for _, r := range g.Rules {
+			if r.Verdict == verdict {
+				return c.PresetAction[g.ID]
+			}
+		}
+	}
+	return ""
+}
+
+// resolveJA4ExtraAction walks the user-defined Extra rules and returns the
+// per-row chMode override aligned by index with the matching verdict name.
+// Disabled rows are ignored.  Empty = no override.
+func resolveJA4ExtraAction(verdict string, c settings.JA4VerdictsConfig) string {
+	if verdict == "" || len(c.Extra) == 0 || len(c.ExtraAction) == 0 {
+		return ""
+	}
+	for i, e := range c.Extra {
+		if e.Verdict != verdict {
+			continue
+		}
+		if i < len(c.ExtraDisabled) && c.ExtraDisabled[i] {
+			continue
+		}
+		if i < len(c.ExtraAction) {
+			return strings.TrimSpace(c.ExtraAction[i])
+		}
+	}
+	return ""
 }

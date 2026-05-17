@@ -21,8 +21,13 @@
 #
 # Each /unmask/* location carries `auth_request off;` to avoid a self-loop if
 # the server scope enables auth_request /_unmask/check; (= unmask itself does
-# not self-check).  When protect.inc is restricted to specific locations, the
-# off is a harmless no-op.
+# not self-check).  Exception: /unmask/admin/ is **not** opted out — the
+# admin login page is itself a sensitive target, so when protect.inc is on
+# the server and the protected-paths preset "unmask itself" is enabled,
+# operators clear a CAPTCHA before reaching the login form.  Other /unmask/*
+# (= challenge / api / static / _rl / test / healthz / metrics) and
+# /_unmask/check keep auth_request off; to break the verify loop.
+# When protect.inc is restricted to specific locations, the off is a harmless no-op.
 #
 # The variables referenced in native mode (= when ngx_http_unmask_module is
 # used) — $effective_ja4 / $ja4_verdict / $ja4_action / $serve_bot_challenge
@@ -34,11 +39,15 @@
 # /unmask/admin/  — admin UI / dashboard.  The allow list is rendered from
 #                   config.yml's admin_allow_from; here we default to
 #                   `allow all` (= login auth protects access).
-# auth_request off: even if the parent server enables auth_request /_unmask/check;,
-# exclude unmask's own paths so they don't self-check.  Same idea for
-# /unmask/* / /_unmask/* below.
+# Self-protect ENABLED: unlike other /unmask/* paths, this carries its own
+# auth_request (= same as protect.inc, baked in here) so that the protected-
+# paths preset "unmask itself" works regardless of whether protect.inc is
+# included at server scope.  Other /unmask/* below stay auth_request off; so
+# the verify loop never reaches itself (= challenge / api / static / _check
+# are exempt).
 location ^~ /unmask/admin/ {
-    auth_request off;
+    auth_request /_unmask/check;
+    error_page 401 = /unmask/challenge/;
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
@@ -169,6 +178,16 @@ location = /_unmask/check {
     # fail-open when the admin is down.  For strict operation, delete the error_page line.
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_fail_open;
+}
+
+# Internal target for auth_request 401 redirects (= used by protect.inc).
+# Honeypot / future per-axis branches surface chMode via X-Unmask-Chmode →
+# auth_request_set $unmask_chmode → here we forward as ?chm=<mode> so the
+# challenge HTML JS skips PoW / goes straight to CAPTCHA / etc.  An empty
+# $unmask_chmode adds ?chm= (= empty) which the serve handler ignores, so
+# the default per-axis chain takes over.
+location @unmask_to_challenge {
+    rewrite ^ /unmask/challenge/?chm=$unmask_chmode? last;
 }
 
 # named locations.

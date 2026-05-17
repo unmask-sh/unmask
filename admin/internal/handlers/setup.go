@@ -29,7 +29,6 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
-	"github.com/unmask-sh/unmask/admin/internal/presets"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -174,7 +173,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	// reaching the mode step etc.). Only honored when the requested step
 	// is strictly earlier than the natural one (= can't skip forward).
 	if req := r.URL.Query().Get("step"); req != "" {
-		order := map[string]int{"token": 0, "db": 1, "user": 2, "mode": 3, "review": 4, "done": 5}
+		order := map[string]int{"token": 0, "db": 1, "user": 2, "review": 3, "done": 4}
 		if order[req] < order[step] && hasValidSetupToken(r) {
 			step = req
 		}
@@ -237,24 +236,10 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		// still the previously-entered value until they submit again.
 		data["PrefillUsername"] = wstate.Username
 	}
-	if step == "mode" {
-		// Pre-select the radio: wizard state takes priority, otherwise
-		// detect from current settings, otherwise default to strict (= the
-		// recommended posture).
-		var cm presets.Mode
-		if wstate != nil && wstate.ModeSet {
-			cm = wstate.Mode
-		}
-		if cm == "" {
-			cm = presets.Detect(h.snapshotSettings())
-		}
-		if cm == "" {
-			cm = presets.ModeStrict
-		}
-		data["CurrentMode"] = string(cm)
-	}
 	if step == "review" && wstate != nil {
-		// Final summary screen renders driver + admin + mode for confirmation.
+		// Final summary screen renders driver + admin for confirmation.
+		// Bot-detection posture is configured later in the 動作モード tab so
+		// the wizard stays narrowly focused on "make admin reachable".
 		data["ReviewDriver"] = wstate.DB.Driver
 		data["ReviewSQLitePath"] = wstate.DB.SQLitePath
 		data["ReviewMariaDBHost"] = wstate.DB.MariaDB.Host
@@ -262,7 +247,6 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		data["ReviewMariaDBDB"] = wstate.DB.MariaDB.Database
 		data["ReviewMariaDBUser"] = wstate.DB.MariaDB.User
 		data["ReviewUsername"] = wstate.Username
-		data["ReviewMode"] = string(wstate.Mode)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "setup.html", data); err != nil {
@@ -439,44 +423,6 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
 }
 
-// AdminSetupSaveMode: POST {base}/admin/setup/mode — validate the picked
-// protection mode and store it in wizard state.  Actual settings rewrite
-// happens in AdminSetupInstall.
-func (h *Handler) AdminSetupSaveMode(w http.ResponseWriter, r *http.Request) {
-	if !hasValidSetupToken(r) {
-		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
-		return
-	}
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
-		return
-	}
-	base := h.Settings.Server.BasePath
-	redirErr := func(msg string) {
-		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
-	}
-	mode := presets.Mode(strings.TrimSpace(r.FormValue("mode")))
-	if !mode.IsValid() {
-		redirErr("invalid protection mode")
-		return
-	}
-	s := getWizardState(r)
-	if s == nil {
-		redirErr("setup session expired; reload and re-enter the token")
-		return
-	}
-	// Same restart-recovery guard as the user step (= require all earlier
-	// steps to still be in state before accepting a later one).
-	if !s.DBSet || !s.UserSet {
-		redirErr("setup session was reset (likely an admin restart); please complete the earlier steps again")
-		return
-	}
-	s.Mode = mode
-	s.ModeSet = true
-	touchWizardState(s)
-	http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
-}
-
 // AdminSetupInstall: POST {base}/admin/setup/install — atomic commit of
 // everything the wizard collected.  Steps in order: migrate DB, create
 // admin user, apply protection-mode preset, persist config.yml, hot-swap
@@ -493,7 +439,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
 	}
 	s := getWizardState(r)
-	if s == nil || !s.DBSet || !s.UserSet || !s.ModeSet {
+	if s == nil || !s.DBSet || !s.UserSet {
 		redirErr("setup session incomplete; complete every step before installing")
 		return
 	}
@@ -526,11 +472,6 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		cur = settings.Settings{}
 	}
 	cur.DB = s.DB
-	if err := presets.Apply(&cur, s.Mode); err != nil {
-		_ = conn.Close()
-		redirErr("apply mode: " + err.Error())
-		return
-	}
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		_ = conn.Close()
 		redirErr("save admin.yml: " + err.Error())
