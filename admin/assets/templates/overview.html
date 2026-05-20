@@ -58,17 +58,19 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
 /* Phase pill: states grouped into 3 colors (green=pass / red=block / yellow=evaluating / gray=meta).
  * Same palette as hunt.html. See hunt.html comments for details. */
-.ph-serve{background:#fef3c7;color:#92400e}      /* yellow: evaluating (challenge issued) */
-.ph-load{background:#fef3c7;color:#92400e}       /* yellow: evaluating */
-.ph-captcha{background:#fef3c7;color:#92400e}    /* yellow: evaluating */
-.ph-pow{background:#dcfce7;color:#166534}        /* green: pass */
-.ph-verify_ok{background:#dcfce7;color:#166534}  /* green: pass */
-.ph-verify_ng{background:#fee2e2;color:#991b1b}  /* red: block */
-.ph-cookie_err{background:#fee2e2;color:#991b1b} /* red: block */
-.ph-error{background:#e2e8f0;color:#475569}      /* gray: meta */
-.ph-check{background:#e2e8f0;color:#475569}      /* gray: meta */
-.ph-check-pass{background:#dcfce7;color:#166534} /* green: pass */
-.ph-check-block{background:#fee2e2;color:#991b1b}/* red: block */
+.ph-serve{background:#fef3c7;color:#92400e}              /* yellow: evaluating (challenge issued) */
+.ph-load{background:#fef3c7;color:#92400e}               /* yellow: evaluating */
+.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow: evaluating */
+.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow: midway (PoW solved, handing off to next stage) */
+.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green: pass (terminal, challenge_mode=pow_only) */
+.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green: pass (terminal, challenge_mode=captcha_only) */
+.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green: pass (terminal, challenge_mode=pow_then_captcha) */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red: block */
+.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red: block */
+.ph-error{background:#e2e8f0;color:#475569}              /* gray: meta */
+.ph-check{background:#e2e8f0;color:#475569}              /* gray: meta */
+.ph-check-pass{background:#dcfce7;color:#166534}         /* green: pass */
+.ph-check-block{background:#fee2e2;color:#991b1b}        /* red: block */
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -149,6 +151,46 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </div>
 
 <div class="bcd-card">
+  <h2>{{ t .Lang "overview.ai_traffic_h" }}
+    <span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.ai_traffic_desc") }}</span></span>
+  </h2>
+  <table class="ai-traffic">
+    <thead>
+      <tr>
+        <th>{{ t .Lang "overview.ai_traffic.category" }}</th>
+        <th class="num">{{ t .Lang "overview.ai_traffic.total" }}</th>
+        <th class="num">{{ t .Lang "overview.ai_traffic.served" }}</th>
+        <th class="num">{{ t .Lang "overview.ai_traffic.passed" }}</th>
+        <th class="num">{{ t .Lang "overview.ai_traffic.pass_rate" }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .AITraffic }}
+      <tr>
+        <td><span class="ai-cat ai-cat-{{ .Category }}">{{ .Category }}</span></td>
+        <td class="num">{{ if .Total }}{{ comma .Total }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+        <td class="num">{{ if .Served }}{{ comma .Served }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+        <td class="num">{{ if .Passed }}{{ comma .Passed }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+        <td class="num">{{ rate .Passed .Total }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+<style>
+table.ai-traffic{width:100%;border-collapse:collapse;font-size:.85rem}
+table.ai-traffic th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
+table.ai-traffic th.num,table.ai-traffic td.num{text-align:right;font-variant-numeric:tabular-nums}
+table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
+.ai-cat{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .45rem;border-radius:.25rem;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.ai-cat-search   {background:#dbeafe;color:#1e3a8a}
+.ai-cat-training {background:#fde68a;color:#854d0e}
+.ai-cat-agent    {background:#bbf7d0;color:#14532d}
+.ai-cat-scraper  {background:#fecaca;color:#7f1d1d}
+.ai-cat-collector{background:#e9d5ff;color:#5b21b6}
+</style>
+
+<div class="bcd-card">
   <h2>{{ t .Lang "overview.recent_h" }}</h2>
   <table class="recent">
     <thead>
@@ -214,7 +256,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 
 <div id="ip-popover" data-popover="ip"></div>
 <script>
-// IP popover (rDNS + GeoIP + ASN). Same form as dashboard / hunt / bans
+// IP popover (rDNS + IP-geo + ASN). Same form as dashboard / hunt / bans
 // (every IP display unified as "flag + IP + popover").
 (function(){
   const pop = document.getElementById('ip-popover');

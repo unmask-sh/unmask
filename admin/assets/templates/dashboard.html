@@ -141,6 +141,21 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .funnel-grouped tr > *:nth-child(7),
 .funnel-grouped tr > *:nth-child(10),
 .funnel-grouped tr > *:nth-child(12){border-left:1px solid #cbd5e1}
+/* funnel first column: cap long verdict labels.  Auto-generated hunt_<ja4>
+   verdicts run ~38 chars and would otherwise stretch the (already wide) table
+   into a horizontal scroll.  Clipped labels get a full-text popover via JS. */
+/* keep the bot/suspect badge and the verdict label on one line (no wrap). */
+.funnel-grouped tbody td:first-child{white-space:nowrap}
+.funnel-grouped tbody td:first-child .help-dotted{
+  display:inline-block;max-width:7rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+/* the 3 long bv_* headers wrap by width and are hard-clamped to 2 lines
+   (-webkit-line-clamp); a 3rd+ line is ellipsised away.  word-break:break-all
+   wraps regardless of the underscores; max-width 5rem fits the longest
+   (bv_pow_then_captcha) in exactly 2 lines.  Full name is in the hover help. */
+.funnel-grouped thead [data-help-key^="phase.bv_"]{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;max-width:5rem;word-break:break-all}
 
 </style>
 {{ template "popover_pin_assets" . }}
@@ -187,7 +202,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <table class="bcd-table funnel-grouped">
     <colgroup>
       <col style="background:#f8fafc">
-      <col span="5" style="background:#eff6ff">
+      <col span="7" style="background:#eff6ff">
       <col span="3" style="background:#fef2f2">
       <col span="2" style="background:#f0fdf4">
       <col span="4" style="background:#f8fafc">
@@ -195,7 +210,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <thead>
       <tr class="funnel-sg">
         <th></th>
-        <th colspan="5">{{ t .Lang "funnel.col_group.funnel" }}</th>
+        <th colspan="7">{{ t .Lang "funnel.col_group.funnel" }}</th>
         <th colspan="3">{{ t .Lang "funnel.col_group.anomaly" }}</th>
         <th colspan="2">{{ t .Lang "funnel.col_group.rate" }}</th>
         <th colspan="4">{{ t .Lang "funnel.col_group.meta" }}</th>
@@ -204,9 +219,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <th>{{ t .Lang "th.verdict" }}</th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.serve">{{ t .Lang "th.serve" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.load">{{ t .Lang "th.load" }}</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow">{{ t .Lang "th.pow" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_pass">pow_pass</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_pow_only">bv_pow_only</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha">{{ t .Lang "th.captcha" }}</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ok">verify_ok</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_captcha_only">bv_captcha_only</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_pow_then_captcha">bv_pow_then_captcha</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ng">verify_ng</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.cookie_err">cookie_err</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.js_error">JS error</span></th>
@@ -247,14 +264,16 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         </td>
         <td class="bcd-num n-muted">{{comma .Serve}}</td>
         <td class="bcd-num">{{comma .Load}}</td>
-        <td class="bcd-num">{{comma .PoW}}</td>
+        <td class="bcd-num">{{comma .PowPass}}</td>
+        <td class="bcd-num">{{comma .BVPowOnly}}</td>
         <td class="bcd-num">{{comma .Captcha}}</td>
-        <td class="bcd-num">{{comma .VerifyOK}}</td>
+        <td class="bcd-num">{{comma .BVCaptchaOnly}}</td>
+        <td class="bcd-num">{{comma .BVPowThenCaptcha}}</td>
         <td class="bcd-num">{{comma .VerifyNG}}</td>
         <td class="bcd-num">{{comma .CookieErr}}</td>
         <td class="bcd-num">{{comma .JSError}}</td>
-        <td class="bcd-num">{{rate .PoW .Load}}</td>
-        <td class="bcd-num">{{rate .VerifyOK .Captcha}}</td>
+        <td class="bcd-num">{{rate .PowSolved .Load}}</td>
+        <td class="bcd-num">{{rate .BVTotal .Captcha}}</td>
         <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{end}}">{{comma .ServeRL}}</td>
         <td class="bcd-num">{{comma .LoadUniq}}</td>
         <td class="bcd-num">{{comma .Silent}}</td>
@@ -585,7 +604,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <canvas id="chart-serve" height="280"></canvas>
       <div id="chart-serve-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
     </div>
-    {{if .GeoIPLoaded}}
+    {{if .IPGeoLoaded}}
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_heading" }}</h6>
       <div id="country-chart" class="country-chart"></div>
@@ -968,7 +987,7 @@ renderStackedBarChart({
 });
 
 // per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag)
-{{if .GeoIPLoaded}}
+{{if .IPGeoLoaded}}
 const countries = {{.CountriesJSON}};
 {{end}}
 (function(){
@@ -1098,6 +1117,41 @@ const countries = {{.CountriesJSON}};
   document.querySelectorAll('tr.total td:first-child b, tr.rl-row td:first-child b').forEach(function(el){
     var t = el.textContent.trim();
     attach(el, 'verdict.' + t);
+  });
+})();
+
+// funnel verdict full-text popover: hunt_<ja4> auto-verdict names are long and
+// CSS-clipped in the first column (see .funnel-grouped td:first-child rule).
+// When a label is actually truncated, hovering shows the full string.  Skips
+// labels the data-help popover already owns, and labels that fit untruncated.
+(function(){
+  var pop = document.getElementById('help-popover');
+  if (!pop) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  document.querySelectorAll('.funnel-grouped tbody td:first-child .help-dotted').forEach(function(el){
+    var html = '<code style="font-family:ui-monospace,Menlo,monospace;word-break:break-all">' +
+      esc(el.textContent.trim()) + '</code>';
+    // truncated only when the rendered text overflows the capped box.
+    function truncated(){ return el.scrollWidth > el.clientWidth; }
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (el.getAttribute('data-help') === '1' || !truncated() || pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      if (el.getAttribute('data-help') === '1' || !truncated()) return;
+      e.preventDefault();
+      clearTimeout(timer);
+      pin.handleClick(html, e.pageX, e.pageY, el);
+    });
   });
 })();
 

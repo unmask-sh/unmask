@@ -23,15 +23,30 @@ services:
       - unmask-conf:/etc/unmask
     # admin runs in order: migrate → render-nginx → serve.
     # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
+    # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
+    # /usr/local/bin/unmask-admin, which would otherwise eat "sh" as a subcommand).
+    entrypoint: []
     command: >
       sh -c "/usr/local/bin/unmask-admin migrate     -config /etc/unmask/admin.yml &&
              /usr/local/bin/unmask-admin render-nginx -config /etc/unmask/admin.yml &&
              /usr/local/bin/unmask-admin serve       -config /etc/unmask/admin.yml"
+    environment:
+      # Test-only mmdb stand-in: seed the country lookup with fixture pairs
+      # so scenario 12 can exercise the geo axis without bundling a real
+      # GeoLite2 mmdb (= licence + size cost not worth it for one test).
+      # 192.0.2.x is RFC 5737 documentation space, free for fixture use.
+      UNMASK_TEST_GEO_OVERRIDE: "192.0.2.81:JP,192.0.2.82:CN,192.0.2.83:US"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
       interval: 2s
       timeout: 1s
       retries: 30
+    # Expose admin's port to the host so the e2e suite can hit it directly,
+    # bypassing nginx's X-Real-IP rewrite (= scenario 10 needs the same IP
+    # source for /verify and /api/check so the _bv HMAC matches).
+    # Host-side 19477 to avoid colliding with a dev unmask-admin on 9477.
+    ports:
+      - "19477:9477"
 
   nginx:
     build:

@@ -14,6 +14,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"time"
 )
 
 // AuditEntry: one record (= for the viewer UI).
@@ -86,13 +87,36 @@ func (r *Repository) ListAudit(ctx context.Context, limit, offset int, userIDFil
 	return out, rows.Err()
 }
 
+// GetAuditByID fetches a single audit row.  Returns (nil, nil) if not found.
+// Used by the audit restore handler to retrieve the `before` snapshot.
+func (r *Repository) GetAuditByID(ctx context.Context, id int64) (*AuditEntry, error) {
+	row := r.DB.QueryRowContext(ctx,
+		`SELECT id, user_id, username, action, target, detail, at
+		 FROM unmask_user_audit WHERE id = ?`, id)
+	var e AuditEntry
+	var atRaw any
+	if err := row.Scan(&e.ID, &e.UserID, &e.Username, &e.Action, &e.Target, &e.Detail, &atRaw); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	e.At = formatAt(atRaw)
+	return &e, nil
+}
+
 // formatAt: drivers return the timestamp as time.Time / string / []byte; absorb.
+// modernc.org/sqlite (= pure-Go) returns DATETIME columns as time.Time, so we
+// stringify with a stable ISO-ish layout that matches what the MariaDB driver
+// would hand back as a string (= "2026-05-19 10:53:09").
 func formatAt(v any) string {
 	switch x := v.(type) {
 	case string:
 		return x
 	case []byte:
 		return string(x)
+	case time.Time:
+		return x.Format("2006-01-02 15:04:05")
 	default:
 		return ""
 	}

@@ -20,6 +20,7 @@ COPY nginx-module/ /src/nginx-module/
 
 RUN cd nginx-${NGINX_VERSION} \
     && ./configure --with-compat --with-http_ssl_module \
+                   --with-http_realip_module \
                    --add-dynamic-module=/src/nginx-module \
     && make -j"$(nproc)"
 
@@ -30,8 +31,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home --shell /usr/sbin/nologin nginx \
     && mkdir -p /usr/sbin /usr/lib/nginx/modules /etc/nginx \
-                /var/log/nginx /var/lib/nginx/body /run/unmask \
-                /etc/unmask/nginx /usr/share/unmask/challenge
+                /var/log/nginx /var/lib/nginx/body /var/lib/nginx/proxy \
+                /var/lib/nginx/fastcgi /var/lib/nginx/uwsgi /var/lib/nginx/scgi \
+                /run/unmask /etc/unmask/nginx /usr/share/unmask/challenge
 
 ARG NGINX_VERSION
 COPY --from=build /src/nginx-${NGINX_VERSION}/objs/nginx /usr/sbin/nginx
@@ -50,4 +52,7 @@ RUN openssl req -x509 -nodes -newkey rsa:2048 -days 365 \
     -subj "/CN=unmask-e2e/O=unmask"
 
 EXPOSE 8443
-CMD ["/usr/sbin/nginx", "-g", "daemon off;"]
+# -c is required because we didn't pass --prefix at ./configure; the binary's
+# compiled-in default conf path is /usr/local/nginx/conf/nginx.conf which is
+# not where COPY landed it.
+CMD ["/usr/sbin/nginx", "-c", "/etc/nginx/nginx.conf", "-g", "daemon off;"]

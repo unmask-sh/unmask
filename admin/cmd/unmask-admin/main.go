@@ -31,10 +31,11 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/feedserver"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/logwriter"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -81,6 +82,8 @@ func main() {
 		err = cmdUser(args)
 	case "doctor":
 		err = cmdDoctor(args)
+	case "install-ipgeo":
+		err = cmdInstallIPGeo(args)
 	case "feed-build":
 		err = cmdFeedBuild(args)
 	case "version", "-v", "--version":
@@ -116,6 +119,7 @@ usage:
   unmask-admin user set-role <username> <role>
   unmask-admin user delete <username>
   unmask-admin doctor [-config PATH]
+  unmask-admin install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
   unmask-admin feed-build [-config PATH] [-dry-run]
   unmask-admin version
 
@@ -218,20 +222,20 @@ func cmdServe(args []string) error {
 		userRepo = user.New(conn)
 	}
 
-	gip := geoip.Open(s.GeoIP.MMDBPath, s.GeoIP.MMDBASNPath)
+	gip := ipgeo.Open(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath)
 	defer gip.Close()
-	if s.GeoIP.MMDBPath != "" {
+	if s.IPGeo.MMDBPath != "" {
 		if gip.Loaded() {
-			log.Printf("geoip: loaded %s", s.GeoIP.MMDBPath)
+			log.Printf("ipgeo: loaded %s", s.IPGeo.MMDBPath)
 		} else {
-			log.Printf("geoip: failed to load %s (country chart will not render)", s.GeoIP.MMDBPath)
+			log.Printf("ipgeo: failed to load %s (country chart will not render)", s.IPGeo.MMDBPath)
 		}
 	}
-	if s.GeoIP.MMDBASNPath != "" {
+	if s.IPGeo.MMDBASNPath != "" {
 		if gip.ASNLoaded() {
-			log.Printf("geoip-asn: loaded %s", s.GeoIP.MMDBASNPath)
+			log.Printf("ipgeo-asn: loaded %s", s.IPGeo.MMDBASNPath)
 		} else {
-			log.Printf("geoip-asn: failed to load %s (popover will not show ASN)", s.GeoIP.MMDBASNPath)
+			log.Printf("ipgeo-asn: failed to load %s (popover will not show ASN)", s.IPGeo.MMDBASNPath)
 		}
 	}
 
@@ -324,7 +328,7 @@ func cmdServe(args []string) error {
 		ConfigPath:  settings.ResolvePath(*configPath),
 		Version:     Version,
 		HostID:      hostID,
-		GeoIP:       gip,
+		IPGeo:       gip,
 		NginxLog:    nlog,
 		BanMgr:      banMgr,
 		UserRepo:    userRepo,
@@ -649,6 +653,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))
 	mux.HandleFunc("POST "+base+"/admin/api/smtp/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSMTPTest)))
+	// 1-click DB-IP Lite install / refresh.  Calls the same library as
+	// `unmask-admin install-ipgeo` and reloads the in-process ipgeo Reader.
+	// Accepts ?kind=country (default) or ?kind=asn.
+	mux.HandleFunc("POST "+base+"/admin/api/ipgeo/install",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminIPGeoInstall)))
 
 	// JA4 playground (visualize "what would happen if I entered this JA4 + UA?")
 	mux.HandleFunc("GET "+base+"/admin/playground/{$}",
@@ -689,6 +698,16 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// audit log viewer tab (admin or above)
 	mux.HandleFunc("GET "+base+"/admin/audit/{$}",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAuditIndex)))
+	// audit rollback: re-applies a captured `before` snapshot.  Restricted
+	// to superadmin since it overwrites the live config.
+	mux.HandleFunc("POST "+base+"/admin/audit/restore",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminAuditRestore)))
+	// Explicit snapshot capture (no mutation).  admin or above.
+	mux.HandleFunc("POST "+base+"/admin/settings/snapshot",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSnapshot)))
+	// Export current settings as yaml file.  admin or above.
+	mux.HandleFunc("GET "+base+"/admin/settings/export",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsExport)))
 
 	// Change own password (available to every role; current password required).
 	mux.HandleFunc("GET "+base+"/admin/profile/{$}",
@@ -852,7 +871,15 @@ func cmdAggregate(args []string) error {
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	fmt.Printf("aggregate: wrote %d rows (last %d days)\n", n, *days)
+	fmt.Printf("aggregate: wrote %d phase rows (last %d days)\n", n, *days)
+
+	// serve-by-kind + per-day totals: feeds the dashboard 30-day chart 2.
+	// Pre-aggregating here keeps that chart off the slow live event-table
+	// scan it used to run on every dashboard page load.
+	if err := dashboard.AggregateServeKind(context.Background(), conn, s.Nginx, *days); err != nil {
+		return fmt.Errorf("aggregate serve-kind: %w", err)
+	}
+	fmt.Printf("aggregate: wrote serve-kind rows (last %d days)\n", *days)
 	return nil
 }
 

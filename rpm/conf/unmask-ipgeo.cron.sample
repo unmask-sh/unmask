@@ -1,0 +1,19 @@
+# /etc/cron.d/unmask-ipgeo — monthly refresh of the DB-IP Country Lite mmdb.
+#
+# DB-IP publishes a new snapshot on the first of each month; the new file
+# usually goes live within a few days.  This entry runs install-ipgeo on the
+# 3rd at 03:17 (= avoids the first-of-month hot window + spread load).
+#
+# To enable:
+#   sudo cp /usr/share/doc/unmask/unmask-ipgeo.cron.sample /etc/cron.d/unmask-ipgeo
+#
+# To customize:
+#   - change the schedule
+#   - add  -path /alt/location  to override the default mmdb path
+#   - pipe stderr to a log file if your cron MTA is not configured
+
+MAILTO=root
+SHELL=/bin/sh
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+17 3 3 * * unmask /usr/sbin/unmask-admin install-ipgeo -quiet

@@ -116,6 +116,23 @@ contents:
       mode: 0750
       owner: unmask
       group: unmask
+  # mmdb dir (= where `unmask-admin install-ipgeo` writes DB-IP Country Lite)
+  - dst: /var/lib/unmask/ipgeo
+    type: dir
+    file_info:
+      mode: 0750
+      owner: unmask
+      group: unmask
+
+  # DB-IP Lite attribution + cron sample (= installed but not enabled)
+  - src: ./conf/unmask-ipgeo-attribution.txt
+    dst: /usr/share/doc/unmask/unmask-ipgeo-attribution.txt
+    file_info:
+      mode: 0644
+  - src: ./conf/unmask-ipgeo.cron.sample
+    dst: /usr/share/doc/unmask/unmask-ipgeo.cron.sample
+    file_info:
+      mode: 0644
   - dst: /var/log/unmask
     type: dir
     file_info:

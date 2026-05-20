@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/ban"
@@ -21,7 +22,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
@@ -41,6 +42,7 @@ const (
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	origPathPlaceholder  = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
+	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
 	defaultSite          = "default"
 )
 
@@ -75,7 +77,7 @@ type Handler struct {
 	ConfigPath  string              // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
 	Version     string              // unmask-admin version (for display)
 	HostID      string              // host identifier of this unmask-admin instance.  Embedded in events for per-host aggregation on a shared DB.
-	GeoIP       *geoip.Reader       // optional, may be nil/empty (mmdb unset)
+	IPGeo       *ipgeo.Reader       // optional, may be nil/empty (mmdb unset)
 	NginxLog    *nginxlog.Reader    // optional, may be nil/empty (access_log_path unset)
 	BanMgr      *ban.Manager        // optional, may be nil (ban_file_path unset)
 	UserRepo    *user.Repository    // internal user management (login / users tab / audit hook)
@@ -473,6 +475,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(beaconTokenPlaceholder),
 		append([]byte(`/*__BEACON_TOKEN__*/`), btJSON...))
 
+	// issued_at: server unix seconds embedded into window.UNMASK so challenge.js
+	// does not rely on the visitor's Date.now() (= eliminates client clock skew
+	// for both the PoW seed and the cookie's first segment).  The server
+	// enforces a small future-skew tolerance on /verify, but for cookies
+	// minted via this exact value the relationship is always "now or earlier".
+	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
+		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", time.Now().Unix())))
+
 	// "protected by unmask" credit: when OFF in settings (default), strip the
 	// marker region from the HTML.  When ON, drop only the markers and keep
 	// the aside body.
@@ -807,7 +817,13 @@ func (h *Handler) ServeChallengeJS(w http.ResponseWriter, r *http.Request) {
 
 func writeJS(w http.ResponseWriter, body []byte) {
 	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=3600")
+	// 10 minutes: challenge.js / popover-pin.js etc. are tightly coupled to
+	// admin behaviour, and a settings change (= phase rename, cookie kind
+	// split, etc.) needs to propagate to in-flight browsers quickly without
+	// waiting for the longer 1-hour cache to bleed out.  10 min keeps the
+	// per-client request count modest while shrinking the worst-case
+	// staleness window by 6x.
+	w.Header().Set("Cache-Control", "public, max-age=600")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(body)
 }

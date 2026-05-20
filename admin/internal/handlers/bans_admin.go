@@ -43,21 +43,21 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	entries := h.BanMgr.Snapshot()
 
 	// Look up the country code so we can render the flag to the left of the
-	// IP popover (= rDNS + GeoIP).  Cache per-IP in a map to avoid duplicate
-	// lookups.  Leave empty if GeoIP is not loaded.
+	// IP popover (= rDNS + IP-geo).  Cache per-IP in a map to avoid duplicate
+	// lookups.  Leave empty if IP-geo is not loaded.
 	type banRow struct {
 		ban.Entry
 		CountryCode string
 	}
 	ipCC := map[string]string{}
 	lookupCC := func(ip string) string {
-		if ip == "" || h.GeoIP == nil || !h.GeoIP.Loaded() {
+		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
 			return ""
 		}
 		if cc, ok := ipCC[ip]; ok {
 			return cc
 		}
-		cc := h.GeoIP.LookupInfo(ip).Country
+		cc := h.IPGeo.LookupInfo(ip).Country
 		ipCC[ip] = cc
 		return cc
 	}

@@ -21,9 +21,10 @@
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
 # -----------------------------------------------------------------------------
-unmask_bv_secret           "{{ .BVSecret }}";
-unmask_bv_valid_days       {{ .BVValidDays }};
-unmask_bv_pow_difficulty   {{ .PowDifficulty }};
+unmask_bv_secret                "{{ .BVSecret }}";
+unmask_bv_pow_valid_seconds     {{ .BVPowValidSeconds }};
+unmask_bv_captcha_valid_seconds {{ .BVCaptchaValidSeconds }};
+unmask_bv_pow_difficulty        {{ .PowDifficulty }};
 {{- if .BanFilePath }}
 unmask_ban_file "{{ .BanFilePath }}";
 {{- end }}
@@ -181,6 +182,35 @@ map $http_user_agent $is_challenge_target {
 {{- end }}
 
 # -----------------------------------------------------------------------------
+# Global axis: no-match action ($is_known_browser → action → should-challenge)
+# -----------------------------------------------------------------------------
+# When none of the upstream axes (search bot rescue / bypass / protected /
+# challenge-target UA blacklist) match, the request falls into the "no-match"
+# bucket.  unmask's 動作モード tab splits that bucket by UA shape:
+#
+#   $is_known_browser=1  → Chrome / Safari / Firefox / Edge / Opera UA prefix
+#   $is_known_browser=0  → everything else (= curl / library / unknown SaaS)
+#
+# A per-bucket action (pow_only / pow_then_captcha / captcha_only / pass /
+# deny) is rendered into $unmatched_chain_action below.  Whether to actually
+# fire the challenge is just "action != pass".  The chain itself is picked
+# admin-side from window.UNMASK.challenge_mode.
+map $http_user_agent $is_known_browser {
+    default 0;
+    "~^Mozilla/5\.0\s.*\s(?:Chrome|Safari|Firefox|Edge?)/[0-9]" 1;
+    "~^Mozilla/5\.0\s.*\sOPR/[0-9]"                              1;
+    "~^Opera/[0-9]"                                              1;
+}
+map $is_known_browser $unmatched_chain_action {
+    default "{{ .UnknownUAAction }}";
+    1       "{{ .KnownBrowserAction }}";
+}
+map $unmatched_chain_action $unmatched_should_challenge {
+    default 1;
+    "pass"  0;
+}
+
+# -----------------------------------------------------------------------------
 # bv (bot-verified) cookie classification aliases
 # -----------------------------------------------------------------------------
 # Provide short aliases for the 3 variables the plugin exposes.
@@ -243,6 +273,41 @@ map $protected_mode $protected_mode_eff {
 }
 {{- end }}
 
+# -----------------------------------------------------------------------------
+# Country-based decision ($unmask_country / $unmask_geo_action)
+# -----------------------------------------------------------------------------
+# Materialised at render time from the operator-configured mmdb (DB-IP /
+# GeoLite2 / etc.).  Only CIDRs whose ISO country code appears in
+# Geo.Rules.Enabled are emitted, so the geo block stays small even with
+# a 6 MB mmdb.  Native plugin mode reads $unmask_country / $unmask_geo_action
+# from these maps without needing libmaxminddb at runtime.
+# auth_request mode keeps doing live mmdb lookups via admin /authcheck.
+#
+# Actions: skip / pow_only / captcha_only / pow_then_captcha / deny.
+# "skip" (= the no-op default) is named skip rather than pass so operators
+# don't read it as "allow"; the request continues through the remaining
+# decision axes unchanged.
+geo $remote_addr $unmask_country {
+    default "";
+{{ .GeoCIDRs }}
+}
+
+map $unmask_country $unmask_geo_action {
+    default "{{ .GeoDefaultAction }}";
+{{- range .GeoRules }}
+    "{{ .Country }}" "{{ .Action }}";
+{{- end }}
+}
+
+# Binary form used by $final_challenge.  skip / empty -> 0, everything else
+# (= challenge actions + deny) -> 1.  chMode resolution (= which screen) is
+# handled admin-side based on the original $unmask_geo_action value.
+map $unmask_geo_action $is_geo_challenge {
+    default 1;
+    ""      0;
+    "skip"  0;
+}
+
 {{- if .SharedFeedSubscribe }}
 
 # -----------------------------------------------------------------------------
@@ -299,16 +364,17 @@ map "$unmask_site:$request_uri" $is_bypass_path {
 # -----------------------------------------------------------------------------
 # $final_challenge — final decision on whether to trigger challenge
 # -----------------------------------------------------------------------------
-# 8 input signals:
-#   bv_any_valid : is_search_bot : is_bypass_ip : is_bypass_path : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
+# 9 input signals:
+#   bv_any_valid : is_search_bot : is_bypass_ip : is_bypass_path : is_geo_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
 #
 # Decision priority:
 #   1. bv_any_valid=1                 -> exempt (already carries CAPTCHA / PoW pass cookie)
 #   2. is_search_bot / is_bypass_ip   -> exempt (Googlebot accident prevention / trusted IP)
 #   3. is_bypass_path=1               -> exempt (bypass path)
-#   4. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
-#   5. is_challenge_target=0          -> exempt (CLI / library; matches ua-filter whitelist)
-#   6. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
+#   4. is_geo_challenge=1             -> challenge (country list veto; chMode picked by admin)
+#   5. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
+#   6. is_challenge_target=0          -> exempt (CLI / library; matches ua-filter whitelist)
+#   7. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
 #                                         fires regardless of ja4_action (ok /
 #                                         unknown / bot) and honeypot presence.
 #                                         "matches blacklist = must clear PoW"
@@ -316,17 +382,19 @@ map "$unmask_site:$request_uri" $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" $final_challenge {
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" $final_challenge {
     default 0;
-    "~^1:"                    0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
-    "~^0:1:"                  0;  # search bot UA -> exempt
-    "~^0:0:1:"                0;  # bypass IP -> exempt
-    "~^0:0:0:1:"              0;  # bypass path -> exempt
-    "~^0:0:0:0:captcha:"      1;  # protected path (UA-agnostic)
-    "~^0:0:0:0:pow:"          1;
-    "~^0:0:0:0:strict:"       1;
-    "~^0:0:0:0::0:"           0;  # no protected path + not a challenge-target UA -> exempt
-    "~^0:0:0:0::1:"           1;  # target UA -> always challenge (regardless of ja4 / honeypot)
+    "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
+    "~^0:1:"                    0;  # search bot UA -> exempt
+    "~^0:0:1:"                  0;  # bypass IP -> exempt
+    "~^0:0:0:1:"                0;  # bypass path -> exempt
+    "~^0:0:0:0:1:"              1;  # country rule (deny / chain) -> challenge
+    "~^0:0:0:0:0:captcha:"      1;  # protected path (UA-agnostic)
+    "~^0:0:0:0:0:pow:"          1;
+    "~^0:0:0:0:0:strict:"       1;
+    "~^0:0:0:0:0::1:"           1;  # target UA -> always challenge (regardless of ja4 / honeypot)
+    "~^0:0:0:0:0::0:[^:]*:1$"   1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
+    "~^0:0:0:0:0::0:"           $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
 }
 
 # -----------------------------------------------------------------------------
@@ -343,7 +411,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$protected_mode_
 #   - is_bypass_ip=1   bypass IP (trusted crawler official IP range / internal LB)
 #   - is_bypass_path=1 bypass path (e.g. /static/)
 map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
-    default       $binary_remote_addr;
+    default       {{ .RateLimitKeyExpr }};
     "~^1:"        "";
     "~^.:1:"      "";
     "~^.:.:1:"    "";

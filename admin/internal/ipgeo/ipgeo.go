@@ -1,5 +1,5 @@
-// Package geoip: optionally read MaxMind .mmdb files (GeoLite2-Country /
-// -City / -ASN) to resolve IP → country / city / ASN.
+// Package ipgeo: optionally read MaxMind-format .mmdb files (DB-IP Lite /
+// GeoLite2-Country / -City / -ASN) to resolve IP → country / city / ASN.
 //
 // Design:
 //   - When the DB is absent (= path unset / open failed), Lookup() /
@@ -8,10 +8,12 @@
 //   - thread-safe (= sync.Mutex guards both the reader and the cache).
 //   - Country DB / City DB are interchangeable: with a City DB you get both
 //     country + city.  Read the record's `country.iso_code` and `city.names.en`.
-package geoip
+package ipgeo
 
 import (
 	"net"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -28,18 +30,24 @@ type Info struct {
 }
 
 type Reader struct {
-	mu       sync.Mutex
-	geoDB    *maxminddb.Reader // Country or City DB
-	asnDB    *maxminddb.Reader // ASN DB
-	cache    map[string]Info
-	geoPath  string
-	asnPath  string
-	loaded   bool // whether geoDB opened
-	asnReady bool // whether asnDB opened
+	mu        sync.Mutex
+	geoDB     *maxminddb.Reader // Country or City DB
+	asnDB     *maxminddb.Reader // ASN DB
+	cache     map[string]Info
+	overrides map[string]Info // test-only IP -> Info override.  populated by Open() from env.
+	geoPath   string
+	asnPath   string
+	loaded    bool // whether geoDB opened OR overrides populated
+	asnReady  bool // whether asnDB opened
 }
 
-// Open opens the GeoIP DBs at the given paths.  Both are optional;
+// Open opens the IP-geo DBs at the given paths.  Both are optional;
 // passing "" for either disables that lookup.
+//
+// Reads the env var `UNMASK_TEST_GEO_OVERRIDE` (= comma-separated
+// `<ip>:<country>` pairs) to seed the override table.  Used by the e2e
+// harness so country-dependent axes (= geo rules) can be tested without
+// bundling a real GeoLite2 mmdb in the test container.  Unset in production.
 func Open(geoPath, asnPath string) *Reader {
 	r := &Reader{
 		cache:   map[string]Info{},
@@ -56,6 +64,24 @@ func Open(geoPath, asnPath string) *Reader {
 		if db, err := maxminddb.Open(asnPath); err == nil {
 			r.asnDB = db
 			r.asnReady = true
+		}
+	}
+	if env := strings.TrimSpace(os.Getenv("UNMASK_TEST_GEO_OVERRIDE")); env != "" {
+		r.overrides = map[string]Info{}
+		for _, pair := range strings.Split(env, ",") {
+			parts := strings.SplitN(strings.TrimSpace(pair), ":", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			ip := strings.TrimSpace(parts[0])
+			cc := strings.ToUpper(strings.TrimSpace(parts[1]))
+			if ip == "" || len(cc) != 2 {
+				continue
+			}
+			r.overrides[ip] = Info{Country: cc, CountryName: cc}
+		}
+		if len(r.overrides) > 0 {
+			r.loaded = true
 		}
 	}
 	return r
@@ -146,7 +172,17 @@ func (r *Reader) Lookup(ip string) string {
 // LookupInfo returns full info for the given IP string.  Empty Info{} if
 // no DB is loaded or the IP isn't found.
 func (r *Reader) LookupInfo(ip string) Info {
-	if r == nil || (r.geoDB == nil && r.asnDB == nil) {
+	if r == nil {
+		return Info{}
+	}
+	// test-only override table wins over mmdb (= seeded from
+	// UNMASK_TEST_GEO_OVERRIDE in Open).
+	if r.overrides != nil {
+		if info, ok := r.overrides[ip]; ok {
+			return info
+		}
+	}
+	if r.geoDB == nil && r.asnDB == nil {
 		return Info{}
 	}
 	r.mu.Lock()

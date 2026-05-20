@@ -13,12 +13,13 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -178,11 +179,14 @@ type SiteSummary struct {
 // Sites returns one row per distinct site observed in the last `hours` hours,
 // plus 'default' even if no events.
 func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
+	// "passed" = any terminal _bv issuance phase (= sum of all challenge_mode
+	// success paths).  Matches the meaning of the old verify_ok counter but
+	// covers PoW-only completions too.
 	stmt := fmt.Sprintf(`
         SELECT site,
                COUNT(*) AS n,
                SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS n_serve,
-               SUM(CASE WHEN phase='verify_ok' THEN 1 ELSE 0 END) AS n_verify,
+               SUM(CASE WHEN phase IN ('bv_pow_only','bv_captcha_only','bv_pow_then_captcha') THEN 1 ELSE 0 END) AS n_passed,
                COUNT(DISTINCT ip_address) AS uniq,
                MAX(date_created) AS last_seen
         FROM unmask_event
@@ -261,22 +265,39 @@ func fixedVerdicts() []string {
 var keyFlags = []int{0, 1, 2, 4, 8, 16, 3, 5, 9, 17, 31}
 
 // FunnelRow: one row = one verdict (= JA4 verdict + aggregated categories).
+//
+// Authentication outcome is broken out per challenge_mode so the row answers
+// "what path issued _bv?" directly.  Each BV* field name mirrors a
+// challenge_mode value, which means adding a new mode in the future maps
+// 1:1 to a new column (= no overloaded "chain" bucket).
+//
+//	BVPowOnly         : _bv issued via challenge_mode=pow_only
+//	BVCaptchaOnly     : _bv issued via challenge_mode=captcha_only
+//	BVPowThenCaptcha  : _bv issued via challenge_mode=pow_then_captcha
+//
+// PowPass counts the multi-step midpoint (= PoW solved, still unauthenticated;
+// the follow-up stage is in payload.next).  PowSolved / BVTotal are derived
+// summaries for chart rendering.
 type FunnelRow struct {
-	Verdict     string  // free label. "ok" / "rate_limit" / "TOTAL" / preset / extra
-	Serve       int     // count of challenge HTML deliveries
-	ServeRL     int     // serves that came via ?_rl=1 (= rate-limit path)
-	Load        int
-	LoadUniq    int     // unique IPs in the load phase
-	Silent      int     // = max(0, Serve - Load). Challenge served but JS never started
-	Stealth     int     // load phase rows with flags=0 + verdict configured as bot/suspect
-	PoW         int
-	Captcha     int
-	VerifyOK    int
-	VerifyNG    int
-	CookieErr   int
-	JSError     int
-	PowRate     float64 // PoW / Load
-	CaptchaRate float64 // Captcha / Load
+	Verdict          string  // free label. "ok" / "rate_limit" / "TOTAL" / preset / extra
+	Serve            int     // count of challenge HTML deliveries
+	ServeRL          int     // serves that came via ?_rl=1 (= rate-limit path)
+	Load             int
+	LoadUniq         int     // unique IPs in the load phase
+	Silent           int     // = max(0, Serve - Load). Challenge served but JS never started
+	Stealth          int     // load phase rows with flags=0 + verdict configured as bot/suspect
+	PowPass          int     // midpoint: PoW solved, handing off to next stage
+	Captcha          int     // CAPTCHA UI displayed (= still unauthenticated)
+	BVPowOnly        int     // terminal: _bv issued via challenge_mode=pow_only
+	BVCaptchaOnly    int     // terminal: _bv issued via challenge_mode=captcha_only
+	BVPowThenCaptcha int     // terminal: _bv issued via challenge_mode=pow_then_captcha
+	VerifyNG         int
+	CookieErr        int
+	JSError          int
+	PowSolved        int     // = BVPowOnly + PowPass (= total PoW pass-through; chart-facing)
+	BVTotal          int     // = BVPowOnly + BVCaptchaOnly + BVPowThenCaptcha (= total auth completions; chart-facing)
+	PowRate          float64 // = PowSolved / Load
+	CaptchaRate      float64 // = Captcha / Load
 }
 
 // Funnel returns one row per verdict in the fixed list plus a rate_limit row
@@ -420,24 +441,28 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 	total := FunnelRow{Verdict: "TOTAL"}
 	for _, v := range order {
 		row := FunnelRow{
-			Verdict:   v,
-			Serve:     byVP[vp{v, "serve"}],
-			ServeRL:   rlByV[v],
-			Load:      byVP[vp{v, "load"}],
-			LoadUniq:  loadByV[v].uniq,
-			Stealth:   loadByV[v].stealth,
-			PoW:       byVP[vp{v, "pow"}],
-			Captcha:   byVP[vp{v, "captcha"}],
-			VerifyOK:  byVP[vp{v, "verify_ok"}],
-			VerifyNG:  byVP[vp{v, "verify_ng"}],
-			CookieErr: byVP[vp{v, "cookie_err"}],
-			JSError:   byVP[vp{v, "error"}],
+			Verdict:          v,
+			Serve:            byVP[vp{v, "serve"}],
+			ServeRL:          rlByV[v],
+			Load:             byVP[vp{v, "load"}],
+			LoadUniq:         loadByV[v].uniq,
+			Stealth:          loadByV[v].stealth,
+			PowPass:          byVP[vp{v, "pow_pass"}],
+			Captcha:          byVP[vp{v, "captcha"}],
+			BVPowOnly:        byVP[vp{v, "bv_pow_only"}],
+			BVCaptchaOnly:    byVP[vp{v, "bv_captcha_only"}],
+			BVPowThenCaptcha: byVP[vp{v, "bv_pow_then_captcha"}],
+			VerifyNG:         byVP[vp{v, "verify_ng"}],
+			CookieErr:        byVP[vp{v, "cookie_err"}],
+			JSError:          byVP[vp{v, "error"}],
 		}
 		if row.Serve > row.Load {
 			row.Silent = row.Serve - row.Load
 		}
+		row.PowSolved = row.BVPowOnly + row.PowPass
+		row.BVTotal = row.BVPowOnly + row.BVCaptchaOnly + row.BVPowThenCaptcha
 		if row.Load > 0 {
-			row.PowRate = float64(row.PoW) / float64(row.Load)
+			row.PowRate = float64(row.PowSolved) / float64(row.Load)
 			row.CaptchaRate = float64(row.Captcha) / float64(row.Load)
 		}
 		total.Serve += row.Serve
@@ -445,14 +470,18 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 		total.Load += row.Load
 		total.Silent += row.Silent
 		total.Stealth += row.Stealth
-		total.PoW += row.PoW
+		total.PowPass += row.PowPass
 		total.Captcha += row.Captcha
-		total.VerifyOK += row.VerifyOK
+		total.BVPowOnly += row.BVPowOnly
+		total.BVCaptchaOnly += row.BVCaptchaOnly
+		total.BVPowThenCaptcha += row.BVPowThenCaptcha
 		total.VerifyNG += row.VerifyNG
 		total.CookieErr += row.CookieErr
 		total.JSError += row.JSError
 		out = append(out, row)
 	}
+	total.PowSolved = total.BVPowOnly + total.PowPass
+	total.BVTotal = total.BVPowOnly + total.BVCaptchaOnly + total.BVPowThenCaptcha
 
 	// rate_limit row: aggregate all-phase transitions of IPs with rl=1 serves via IP join
 	rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
@@ -466,7 +495,7 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 		since, siteCond(site)+hostCond(hosts)))
 	_ = row.Scan(&total.LoadUniq)
 	if total.Load > 0 {
-		total.PowRate = float64(total.PoW) / float64(total.Load)
+		total.PowRate = float64(total.PowSolved) / float64(total.Load)
 		total.CaptchaRate = float64(total.Captcha) / float64(total.Load)
 	}
 	out = append(out, total)
@@ -479,15 +508,17 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []stri
 	botIn, botArgs := inClause(botVerdicts)
 	stmt := fmt.Sprintf(`
         SELECT
-          SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END)     AS n_serve,
-          SUM(CASE WHEN phase='load' THEN 1 ELSE 0 END)      AS n_load,
+          SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END)                AS n_serve,
+          SUM(CASE WHEN phase='load' THEN 1 ELSE 0 END)                 AS n_load,
           SUM(CASE WHEN phase='load' AND flags=0 AND ja4_verdict `+botIn+` THEN 1 ELSE 0 END) AS n_stealth,
-          SUM(CASE WHEN phase='pow' THEN 1 ELSE 0 END)       AS n_pow,
-          SUM(CASE WHEN phase='captcha' THEN 1 ELSE 0 END)   AS n_captcha,
-          SUM(CASE WHEN phase='verify_ok' THEN 1 ELSE 0 END) AS n_verify_ok,
-          SUM(CASE WHEN phase='verify_ng' THEN 1 ELSE 0 END) AS n_verify_ng,
-          SUM(CASE WHEN phase='cookie_err' THEN 1 ELSE 0 END) AS n_cookie_err,
-          SUM(CASE WHEN phase='error' THEN 1 ELSE 0 END)     AS n_error
+          SUM(CASE WHEN phase='pow_pass' THEN 1 ELSE 0 END)             AS n_pow_pass,
+          SUM(CASE WHEN phase='captcha' THEN 1 ELSE 0 END)              AS n_captcha,
+          SUM(CASE WHEN phase='bv_pow_only' THEN 1 ELSE 0 END)          AS n_bv_pow_only,
+          SUM(CASE WHEN phase='bv_captcha_only' THEN 1 ELSE 0 END)      AS n_bv_captcha_only,
+          SUM(CASE WHEN phase='bv_pow_then_captcha' THEN 1 ELSE 0 END)  AS n_bv_pow_then_captcha,
+          SUM(CASE WHEN phase='verify_ng' THEN 1 ELSE 0 END)            AS n_verify_ng,
+          SUM(CASE WHEN phase='cookie_err' THEN 1 ELSE 0 END)            AS n_cookie_err,
+          SUM(CASE WHEN phase='error' THEN 1 ELSE 0 END)                AS n_error
         FROM unmask_event
         WHERE date_created > %s%s
           AND ip_address IN (
@@ -498,25 +529,29 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []stri
 	row := d.QueryRowContext(ctx, stmt, botArgs...)
 	var r FunnelRow
 	r.Verdict = "rate_limit"
-	var serve, load, stealth, pow, capt, vok, vng, ce, jse sql.NullInt64
-	if err := row.Scan(&serve, &load, &stealth, &pow, &capt, &vok, &vng, &ce, &jse); err != nil {
+	var serve, load, stealth, powPass, capt, bvPowOnly, bvCaptOnly, bvPowThenCapt, vng, ce, jse sql.NullInt64
+	if err := row.Scan(&serve, &load, &stealth, &powPass, &capt, &bvPowOnly, &bvCaptOnly, &bvPowThenCapt, &vng, &ce, &jse); err != nil {
 		return r, err
 	}
 	r.Serve = int(serve.Int64)
 	r.ServeRL = r.Serve
 	r.Load = int(load.Int64)
 	r.Stealth = int(stealth.Int64)
-	r.PoW = int(pow.Int64)
+	r.PowPass = int(powPass.Int64)
 	r.Captcha = int(capt.Int64)
-	r.VerifyOK = int(vok.Int64)
+	r.BVPowOnly = int(bvPowOnly.Int64)
+	r.BVCaptchaOnly = int(bvCaptOnly.Int64)
+	r.BVPowThenCaptcha = int(bvPowThenCapt.Int64)
 	r.VerifyNG = int(vng.Int64)
 	r.CookieErr = int(ce.Int64)
 	r.JSError = int(jse.Int64)
 	if r.Serve > r.Load {
 		r.Silent = r.Serve - r.Load
 	}
+	r.PowSolved = r.BVPowOnly + r.PowPass
+	r.BVTotal = r.BVPowOnly + r.BVCaptchaOnly + r.BVPowThenCaptcha
 	if r.Load > 0 {
-		r.PowRate = float64(r.PoW) / float64(r.Load)
+		r.PowRate = float64(r.PowSolved) / float64(r.Load)
 		r.CaptchaRate = float64(r.Captcha) / float64(r.Load)
 	}
 	return r, nil
@@ -1060,7 +1095,9 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
 	return out, rows.Err()
 }
 
-// CookieFailRow: pow phase rows that contain cookie_set_ok=false.
+// CookieFailRow: bv_pow_only rows where challenge.js reported cookie_set_ok=false
+// (= _bv write was blocked client-side; only the PoW-only terminal carries this
+// flag because that's the only branch that writes the cookie from JS).
 type CookieFailRow struct {
 	IP          string
 	Count       int
@@ -1076,7 +1113,7 @@ func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, 
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(user_agent) AS ua, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='pow' AND %s IN ('false', 0)
+        WHERE date_created > %s%s AND phase='bv_pow_only' AND %s IN ('false', 0)
         GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, siteCond(site)+hostCond(hosts), cookieOK)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
@@ -1096,8 +1133,11 @@ func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, 
 	return out, rows.Err()
 }
 
-// StealthRow: passed verify_ok but ja4_verdict is configured as bot/suspect.
-// Full stealth-bot suspect.
+// StealthRow: clients with a bot/suspect ja4_verdict that nonetheless passed
+// the CAPTCHA and obtained an _bv cookie (= phase bv_captcha_only or
+// bv_pow_then_captcha).  PoW-only passes (bv_pow_only) are deliberately
+// excluded — PoW is automatable by design, so only a CAPTCHA pass is a
+// meaningful "stealth bot got through" signal.
 type StealthRow struct {
 	IP          string
 	Verdict     string
@@ -1120,7 +1160,9 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, h
         SELECT ip_address, COALESCE(ja4_verdict,'(none)') AS v,
                MAX(user_agent) AS ua, COUNT(*) AS n, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='verify_ok' AND ja4_verdict %s
+        WHERE date_created > %s%s
+          AND phase IN ('bv_captcha_only','bv_pow_then_captcha')
+          AND ja4_verdict %s
         GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), botIn)
 	rows, err := d.QueryContext(ctx, stmt, botArgs...)
 	if err != nil {
@@ -1187,12 +1229,14 @@ func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours 
 
 // DailyBucket: daily trend series.
 type DailyBucket struct {
-	Date     string
-	Serve    int
-	Load     int
-	PoW      int
-	Captcha  int
-	VerifyOK int
+	Date             string
+	Serve            int
+	Load             int
+	PowPass          int // chain midpoint: PoW solved, handing off to next stage
+	Captcha          int
+	BVPowOnly        int // _bv issued via challenge_mode=pow_only
+	BVCaptchaOnly    int // _bv issued via challenge_mode=captcha_only
+	BVPowThenCaptcha int // _bv issued via challenge_mode=pow_then_captcha
 }
 
 // is_bot kind: same as classify.Category (= 0/1/2/4/5/6) + 99 = rate_limit (= >100r/min).
@@ -1234,20 +1278,19 @@ type CountryRow struct {
 	UniqIPs     int
 }
 
-// DailyServeByKind: aggregate phase='serve' by date × ip × verdict × ua × rl,
-// classify each row with classify.IsBot, and return per-(date × kind) request
-// counts. Also returns per-day totals + uniq IP.
+// DailyServeByKind: per-(date × kind) request counts for the 30-day chart 2,
+// plus per-day req + uniq IP totals.
 //
 // Return:
 //   - daily: list of (date, kind, req) for the stacked bar
 //   - total: list of per-day req + uniq IP
 //
-// On high-traffic sites the event cardinality is high
-// (= tens of thousands of ip × verdict × ua combinations) and the Go classify
-// loop hits the 8s timeout. Mitigation: aggregate UA on the SQL side using
-// verdict + truncated UA prefix, which compresses the distinct-combination
-// count. UA prefix is enough for classification (= same UA pattern always lands
-// in the same category).
+// Fast path reads pre-aggregated rows from unmask_aggregate (written hourly by
+// `unmask-admin aggregate` → AggregateServeKind).  Scanning the large, growing
+// unmask_event table on every dashboard load was the page's dominant latency;
+// the pre-aggregation moves that cost to the hourly cron.  Falls back to a
+// live scan when a host filter is active (unmask_aggregate has no host
+// dimension) or when the aggregate table has not been populated yet.
 func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string) ([]DailyKindBucket, []DailyTotal, error) {
 	t0 := time.Now()
 	defer func() {
@@ -1255,25 +1298,37 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 			log.Printf("DailyServeByKind: %v elapsed (slow)", elapsed)
 		}
 	}()
-	since := d.NowMinusMinutes(days * 24 * 60)
-	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	// Truncate UA to 80 chars before grouping (= compresses cardinality.
-	// Grouping by full UA can yield tens of thousands of distinct rows; the
-	// 80-char prefix collapses same-UA families into one row).
+	if len(hosts) == 0 {
+		daily, totals, err := dailyServeByKindAgg(ctx, d, site, days)
+		if err != nil {
+			log.Printf("DailyServeByKind: aggregate read failed, falling back to scan: %v", err)
+		} else if len(daily) > 0 || len(totals) > 0 {
+			return daily, totals, nil
+		}
+	}
+	return dailyServeByKindScan(ctx, d, site, hosts, days, botVerdicts)
+}
+
+// dailyServeByKindAgg reads the pre-aggregated rows AggregateServeKind wrote
+// into unmask_aggregate for this site.  Returns empty slices (no error) when
+// the aggregate job has not populated serve_* rows yet, so the caller can fall
+// back to a live scan.
+func dailyServeByKindAgg(ctx context.Context, d *db.DB, site string, days int) ([]DailyKindBucket, []DailyTotal, error) {
+	if site == "" {
+		site = "default"
+	}
+	sinceDate := d.NowMinusMinutes(days * 24 * 60)
+	// bucket_key is "<site>|<suffix>"; match this site's rows only.
+	// DATE() wraps bucket_date so the driver returns a plain "YYYY-MM-DD"
+	// string — a bare DATE column comes back as a time.Time and would render
+	// as "2026-05-20 00:00:00 +0000 UTC" in the per-day table.
 	stmt := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d,
-               ip_address,
-               COALESCE(ja4_verdict, '') AS verdict,
-               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
-               CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END AS is_rl,
-               COUNT(*) AS n
-        FROM unmask_event
-        WHERE phase='serve' AND date_created > %s%s
-        GROUP BY DATE(date_created), ip_address, ja4_verdict, SUBSTR(user_agent, 1, 80), is_rl`,
-		jsonRL, since, siteCond(site)+hostCond(hosts))
-	// No ORDER BY (= Go side re-sorts by date/kind, so SQLite's
-	// "USE TEMP B-TREE FOR ORDER BY" would be wasted work).
-	rows, err := d.QueryContext(ctx, stmt)
+        SELECT DATE(bucket_date), bucket_kind, bucket_key, cnt
+        FROM unmask_aggregate
+        WHERE bucket_kind IN ('serve_kind', 'serve_total')
+          AND bucket_date > DATE(%s)
+          AND bucket_key LIKE ?`, sinceDate)
+	rows, err := d.QueryContext(ctx, stmt, site+"|%")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1284,17 +1339,94 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 		kind int
 	}
 	byDateKind := map[dkKey]int{}
-	type totalAcc struct {
-		req      int
-		uniqIPs  map[string]bool
+	type totAcc struct{ req, uniq int }
+	byTotal := map[string]*totAcc{}
+	for rows.Next() {
+		var dRaw any
+		var kind, key string
+		var cnt int
+		if err := rows.Scan(&dRaw, &kind, &key, &cnt); err != nil {
+			return nil, nil, err
+		}
+		date := scalarString(dRaw)
+		// key = "<site>|<suffix>"; take the suffix after the last '|'.
+		suffix := key
+		if i := strings.LastIndexByte(key, '|'); i >= 0 {
+			suffix = key[i+1:]
+		}
+		switch kind {
+		case "serve_kind":
+			k, err := strconv.Atoi(suffix)
+			if err != nil {
+				continue
+			}
+			byDateKind[dkKey{date, k}] += cnt
+		case "serve_total":
+			t := byTotal[date]
+			if t == nil {
+				t = &totAcc{}
+				byTotal[date] = t
+			}
+			if suffix == "uniqip" {
+				t.uniq += cnt
+			} else {
+				t.req += cnt
+			}
+		}
 	}
-	byTotal := map[string]*totalAcc{}
-	dateSeen := map[string]bool{}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	dailyKeys := make([]dkKey, 0, len(byDateKind))
+	for k := range byDateKind {
+		dailyKeys = append(dailyKeys, k)
+	}
+	sort.Slice(dailyKeys, func(i, j int) bool {
+		if dailyKeys[i].date != dailyKeys[j].date {
+			return dailyKeys[i].date < dailyKeys[j].date
+		}
+		return dailyKeys[i].kind < dailyKeys[j].kind
+	})
+	daily := make([]DailyKindBucket, 0, len(dailyKeys))
+	for _, k := range dailyKeys {
+		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
+	}
+	totalKeys := make([]string, 0, len(byTotal))
+	for k := range byTotal {
+		totalKeys = append(totalKeys, k)
+	}
+	sort.Strings(totalKeys)
+	totals := make([]DailyTotal, 0, len(totalKeys))
+	for _, date := range totalKeys {
+		t := byTotal[date]
+		totals = append(totals, DailyTotal{Date: date, Req: t.req, UniqIPs: t.uniq})
+	}
+	return daily, totals, nil
+}
+
+// dailyServeByKindScan is the live-scan fallback.  Two scans, each producing a
+// small result set: query A groups by (date, verdict, ua-prefix) — deliberately
+// NOT by ip_address (including ip yields ~200k rows on a busy 30-day window) —
+// and query B groups by date only for COUNT(*) + COUNT(DISTINCT ip_address).
+func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string) ([]DailyKindBucket, []DailyTotal, error) {
+	since := d.NowMinusMinutes(days * 24 * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	cond := siteCond(site) + hostCond(hosts)
+	// rate_limit serve hits are orthogonal to the bot-type breakdown and are
+	// excluded (they have a dedicated rate_limit card).  Filtering them in
+	// WHERE keeps is_rl out of the GROUP BY.  COALESCE guards a NULL
+	// payload_json (no rl key) → '' → kept.
+	notRL := fmt.Sprintf("COALESCE(%s, '') NOT IN ('1', 1)", jsonRL)
+
+	type dkKey struct {
+		date string
+		kind int
+	}
+	byDateKind := map[dkKey]int{}
 
 	// classify cache (= same (ua, isJA4Bot) tuple always maps to the same kind).
-	// Memoize because calling IsBot per row across tens of thousands of rows
-	// runs a regex with 600 alternations each time, which is heavy.
-	// Verdict name → action lookup is a single-pass through botSet.
+	// Memoize because IsBot runs a regex with 600 alternations per call.
 	botSet := map[string]bool{}
 	for _, v := range botVerdicts {
 		botSet[v] = true
@@ -1305,29 +1437,34 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 	}
 	classifyCache := make(map[classifyKey]int, 256)
 
-	for rows.Next() {
+	// Query A — kind buckets.  Grouped by (date, verdict, ua-prefix), NOT by
+	// ip_address (see the function doc): a few thousand rows instead of ~200k.
+	stmtA := fmt.Sprintf(`
+        SELECT DATE(date_created) AS d,
+               COALESCE(ja4_verdict, '') AS verdict,
+               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
+               COUNT(*) AS n
+        FROM unmask_event
+        WHERE phase='serve' AND date_created > %s AND %s%s
+        GROUP BY DATE(date_created), ja4_verdict, SUBSTR(user_agent, 1, 80)`,
+		since, notRL, cond)
+	rowsA, err := d.QueryContext(ctx, stmtA)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rowsA.Close()
+	for rowsA.Next() {
 		var dRaw any
-		var ipPacked []byte
 		var verdict, ua string
-		var isRL int
 		var n int
-		if err := rows.Scan(&dRaw, &ipPacked, &verdict, &ua, &isRL, &n); err != nil {
+		if err := rowsA.Scan(&dRaw, &verdict, &ua, &n); err != nil {
 			return nil, nil, err
 		}
 		date := scalarString(dRaw)
-		dateSeen[date] = true
-
-		// rate_limit hits are a signal orthogonal to the bot-type breakdown,
-		// so they are excluded here and shown in a dedicated rate_limit card.
-		if isRL == 1 {
-			continue
-		}
 		isBot := botSet[verdict]
 		ck := classifyKey{ua, isBot}
-		var kind int
-		if v, ok := classifyCache[ck]; ok {
-			kind = v
-		} else {
+		kind, ok := classifyCache[ck]
+		if !ok {
 			action := ""
 			if isBot {
 				action = "bot"
@@ -1336,17 +1473,37 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 			classifyCache[ck] = kind
 		}
 		byDateKind[dkKey{date, kind}] += n
-
-		ipKey := string(ipPacked)
-		t, ok := byTotal[date]
-		if !ok {
-			t = &totalAcc{uniqIPs: map[string]bool{}}
-			byTotal[date] = t
-		}
-		t.req += n
-		t.uniqIPs[ipKey] = true
 	}
-	if err := rows.Err(); err != nil {
+	if err := rowsA.Err(); err != nil {
+		return nil, nil, err
+	}
+	rowsA.Close()
+
+	// Query B — per-day totals.  Grouped by date only (~30 rows), so
+	// COUNT(DISTINCT ip_address) is cheap to deliver despite a second scan.
+	stmtB := fmt.Sprintf(`
+        SELECT DATE(date_created) AS d,
+               COUNT(*) AS req,
+               COUNT(DISTINCT ip_address) AS uniq_ips
+        FROM unmask_event
+        WHERE phase='serve' AND date_created > %s AND %s%s
+        GROUP BY DATE(date_created)`,
+		since, notRL, cond)
+	rowsB, err := d.QueryContext(ctx, stmtB)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rowsB.Close()
+	totals := []DailyTotal{}
+	for rowsB.Next() {
+		var dRaw any
+		var req, uniq int
+		if err := rowsB.Scan(&dRaw, &req, &uniq); err != nil {
+			return nil, nil, err
+		}
+		totals = append(totals, DailyTotal{Date: scalarString(dRaw), Req: req, UniqIPs: uniq})
+	}
+	if err := rowsB.Err(); err != nil {
 		return nil, nil, err
 	}
 
@@ -1367,18 +1524,136 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 	}
 
 	// total: sort by date asc
-	totalKeys := make([]string, 0, len(byTotal))
-	for k := range byTotal {
-		totalKeys = append(totalKeys, k)
-	}
-	sort.Strings(totalKeys)
-	totals := make([]DailyTotal, 0, len(totalKeys))
-	for _, date := range totalKeys {
-		t := byTotal[date]
-		totals = append(totals, DailyTotal{Date: date, Req: t.req, UniqIPs: len(t.uniqIPs)})
-	}
+	sort.Slice(totals, func(i, j int) bool { return totals[i].Date < totals[j].Date })
 
 	return daily, totals, nil
+}
+
+// AggregateServeKind scans phase='serve' events and writes per-day kind buckets
+// and per-day totals into unmask_aggregate, so DailyServeByKind can read a few
+// hundred pre-computed rows instead of scanning the whole event table on every
+// dashboard load.  Called by `unmask-admin aggregate` (hourly cron).
+//
+// Rows written (UPSERT, so re-runs refresh the current day in place):
+//   - bucket_kind='serve_kind',  bucket_key='<site>|<kind>'     cnt=request count
+//   - bucket_kind='serve_total', bucket_key='<site>|req'        cnt=request count
+//   - bucket_kind='serve_total', bucket_key='<site>|uniqip'     cnt=distinct IPs
+func AggregateServeKind(ctx context.Context, d *db.DB, ngx settings.Nginx, days int) error {
+	since := d.NowMinusMinutes(days * 24 * 60)
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	// exclude rate_limit serve hits (same rule as the live scan path).
+	notRL := fmt.Sprintf("COALESCE(%s, '') NOT IN ('1', 1)", jsonRL)
+
+	botSet := map[string]bool{}
+	for _, v := range BotVerdictNames(ngx) {
+		botSet[v] = true
+	}
+	type classifyKey struct {
+		ua    string
+		isBot bool
+	}
+	classifyCache := make(map[classifyKey]int, 256)
+
+	// scan A — kind buckets per (date, site).
+	stmtA := fmt.Sprintf(`
+        SELECT DATE(date_created) AS d, site,
+               COALESCE(ja4_verdict, '') AS verdict,
+               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
+               COUNT(*) AS n
+        FROM unmask_event
+        WHERE phase='serve' AND date_created > %s AND %s
+        GROUP BY DATE(date_created), site, ja4_verdict, SUBSTR(user_agent, 1, 80)`,
+		since, notRL)
+	rowsA, err := d.QueryContext(ctx, stmtA)
+	if err != nil {
+		return err
+	}
+	type kindKey struct {
+		date string
+		site string
+		kind int
+	}
+	kindAgg := map[kindKey]int{}
+	for rowsA.Next() {
+		var dRaw any
+		var site, verdict, ua string
+		var n int
+		if err := rowsA.Scan(&dRaw, &site, &verdict, &ua, &n); err != nil {
+			rowsA.Close()
+			return err
+		}
+		isBot := botSet[verdict]
+		ck := classifyKey{ua, isBot}
+		kind, ok := classifyCache[ck]
+		if !ok {
+			action := ""
+			if isBot {
+				action = "bot"
+			}
+			kind = int(classify.IsBot(ua, action))
+			classifyCache[ck] = kind
+		}
+		kindAgg[kindKey{scalarString(dRaw), site, kind}] += n
+	}
+	if err := rowsA.Err(); err != nil {
+		rowsA.Close()
+		return err
+	}
+	rowsA.Close()
+
+	// scan B — per (date, site) totals.
+	stmtB := fmt.Sprintf(`
+        SELECT DATE(date_created) AS d, site,
+               COUNT(*) AS req,
+               COUNT(DISTINCT ip_address) AS uniq_ips
+        FROM unmask_event
+        WHERE phase='serve' AND date_created > %s AND %s
+        GROUP BY DATE(date_created), site`,
+		since, notRL)
+	rowsB, err := d.QueryContext(ctx, stmtB)
+	if err != nil {
+		return err
+	}
+	type totKey struct{ date, site string }
+	type totVal struct{ req, uniq int }
+	totAgg := map[totKey]totVal{}
+	for rowsB.Next() {
+		var dRaw any
+		var site string
+		var req, uniq int
+		if err := rowsB.Scan(&dRaw, &site, &req, &uniq); err != nil {
+			rowsB.Close()
+			return err
+		}
+		totAgg[totKey{scalarString(dRaw), site}] = totVal{req, uniq}
+	}
+	if err := rowsB.Err(); err != nil {
+		rowsB.Close()
+		return err
+	}
+	rowsB.Close()
+
+	upsert := `INSERT INTO unmask_aggregate (bucket_date, bucket_kind, bucket_key, cnt) VALUES (?, ?, ?, ?)`
+	if d.Driver == db.DriverSQLite {
+		upsert += ` ON CONFLICT(bucket_date, bucket_kind, bucket_key) DO UPDATE SET cnt = excluded.cnt`
+	} else {
+		upsert += ` ON DUPLICATE KEY UPDATE cnt = VALUES(cnt)`
+	}
+	for k, n := range kindAgg {
+		key := k.site + "|" + strconv.Itoa(k.kind)
+		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_kind", key, n); err != nil {
+			return err
+		}
+	}
+	for k, v := range totAgg {
+		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_total", k.site+"|req", v.req); err != nil {
+			return err
+		}
+		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_total", k.site+"|uniqip", v.uniq); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // DailyPassByDay: aggregate all nginx requests from unmask_cookie_minute by
@@ -1462,11 +1737,11 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	return daily, totals, nil
 }
 
-// CountriesByServe: aggregate phase='serve' per IP → geoip lookup → return
-// per-country req / uniq IP aggregates. Returns an empty list when geoip.Reader
+// CountriesByServe: aggregate phase='serve' per IP → ipgeo lookup → return
+// per-country req / uniq IP aggregates. Returns an empty list when ipgeo.Reader
 // is empty (= mmdb not configured / failed to load), so callers know not to
 // show the country chart.
-func CountriesByServe(ctx context.Context, d *db.DB, gip *geoip.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
+func CountriesByServe(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
 	if gip == nil || !gip.Loaded() {
 		return nil, nil
 	}
@@ -1554,12 +1829,16 @@ func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error)
 			b.Serve = cnt
 		case "load":
 			b.Load = cnt
-		case "pow":
-			b.PoW = cnt
+		case "pow_pass":
+			b.PowPass = cnt
 		case "captcha":
 			b.Captcha = cnt
-		case "verify_ok":
-			b.VerifyOK = cnt
+		case "bv_pow_only":
+			b.BVPowOnly = cnt
+		case "bv_captcha_only":
+			b.BVCaptchaOnly = cnt
+		case "bv_pow_then_captcha":
+			b.BVPowThenCaptcha = cnt
 		}
 	}
 	if err := rows.Err(); err != nil {

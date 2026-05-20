@@ -70,6 +70,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .field input:focus,.field textarea:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
 .note{font-size:.8rem;color:#475569;line-height:1.5}
 .field .note{font-size:.75rem;color:#64748b;margin-top:.25rem;line-height:1.45}
+/* settings overview (= the "top" tab landing page) */
+.settings-top-grp{margin-bottom:1.4rem}
+.settings-top-grp > h3{font-size:.82rem;color:#475569;font-weight:600;margin:0 0 .5rem;padding-bottom:.25rem;border-bottom:1px solid #e2e8f0}
+.sti{display:block;padding:.6rem .75rem;border:1px solid #e2e8f0;border-radius:.35rem;margin-bottom:.4rem;text-decoration:none;transition:background .1s,border-color .1s}
+.sti:hover{background:#f8fafc;border-color:#94a3b8}
+.sti b{display:block;color:#0f172a;font-size:.95rem;font-weight:600}
+.sti span{display:block;color:#64748b;font-size:.82rem;margin-top:.15rem;line-height:1.45}
 
 .btn{background:#0f172a;color:#fff;border:0;padding:.5rem 1.25rem;border-radius:.25rem;cursor:pointer;font-size:.875rem;font-weight:600}
 .btn:hover{background:#1e293b}
@@ -182,10 +189,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 /* padding-right always reserves space for the close button (= so the text wrap point doesn't shift on pin toggle).
    z-index defaults to 600 (= hover transient).  pinned drops to 400 via a separate rule so later hovers
    surface in front of pinned. */
-.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,90vw);background:#1e293b;color:#f1f5f9;padding:.7rem 2rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
+/* Edge-aware anchor handled by popover-pin.js + popover-pin.css; the rules below
+ * keep settings-specific padding (= 2rem right for the close button) but inherit
+ * the flip + scrollbar-safe width from the shared sheet. */
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#1e293b;color:#f1f5f9;padding:.7rem 2rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
 .info-popup a{color:#93c5fd;text-decoration:underline}
 .info-popup code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
 .info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
+.info-popup.info-popup-flip-x{left:auto;right:0}
+.info-popup.info-popup-flip-y{top:auto;bottom:130%}
 /* === pinned mode (= click to pin. Blue outline + close button top-right. doesn't dismiss on mouse leave) ===
    uses outline (not border) to avoid affecting layout (= preserves wrap point).
    z-index 400 keeps it behind hover (= 600). */
@@ -211,7 +223,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .picker select option{color:#0f172a;background:#fff}
 
 /* 動作モード tab numbered badges + preset recipe card */
-.global-num{display:inline-block;min-width:1.4rem;text-align:center;background:#1e293b;color:#fff;border-radius:50%;font-size:.78rem;line-height:1.4rem;font-weight:700;margin-right:.4rem;font-family:ui-monospace,monospace}
 .preset-mode{margin:.9rem 0;padding:.7rem .9rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.35rem}
 .preset-mode h3{margin:0 0 .35rem;font-size:1rem;color:#0f172a}
 .preset-mode h3 .muted{font-weight:400;color:#64748b;font-size:.82rem}
@@ -304,6 +315,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      left-nav first <h3> entry). */}}
 <div class="settings-shell">
 <aside class="settings-nav">
+  <ul>
+    <li><a href="?tab=top" {{ if eq .Tab "top" }}class="active"{{ end }}>{{ t .Lang "settings.tab.top" }}</a></li>
+  </ul>
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
   <ul>
     <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
@@ -318,11 +332,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
   <ul>
     <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
-    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
     <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
-    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
-    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
+    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
     <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
+    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
+    <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
+    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
@@ -356,6 +371,45 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 {{ if .Error }}
 <div class="banner bad">{{ t .Lang "settings.error_prefix" }}{{ .Error }}</div>
+{{ end }}
+
+{{ if eq .Tab "top" }}
+<p class="note" style="margin:0 0 1.2rem">{{ safeHTML (t .Lang "settings.top.intro") }}</p>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.basic" }}</h3>
+  <a class="sti" href="?tab=network"><b>{{ t .Lang "settings.tab.network" }}</b><span>{{ t .Lang "settings.top.desc.network" }}</span></a>
+  <a class="sti" href="?tab=retention"><b>{{ t .Lang "settings.tab.retention" }}</b><span>{{ t .Lang "settings.top.desc.retention" }}</span></a>
+</div>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.bypass" }}</h3>
+  <a class="sti" href="?tab=bypass-ips"><b>{{ t .Lang "settings.tab.bypass_ips" }}</b><span>{{ t .Lang "settings.top.desc.bypass_ips" }}</span></a>
+  <a class="sti" href="?tab=bypass-paths"><b>{{ t .Lang "settings.tab.bypass_paths" }}</b><span>{{ t .Lang "settings.top.desc.bypass_paths" }}</span></a>
+</div>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
+  <a class="sti" href="?tab=global"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
+  <a class="sti" href="?tab=ja4-verdicts"><b>{{ t .Lang "settings.tab.ja4_verdicts" }}</b><span>{{ t .Lang "settings.top.desc.ja4_verdicts" }}</span></a>
+  <a class="sti" href="?tab=ua-filter"><b>{{ t .Lang "settings.tab.ua_filter" }}</b><span>{{ t .Lang "settings.top.desc.ua_filter" }}</span></a>
+  <a class="sti" href="?tab=rate-limit"><b>{{ t .Lang "settings.tab.rate_limit" }}</b><span>{{ t .Lang "settings.top.desc.rate_limit" }}</span></a>
+  <a class="sti" href="?tab=protected"><b>{{ t .Lang "settings.tab.protected" }}</b><span>{{ t .Lang "settings.top.desc.protected" }}</span></a>
+  <a class="sti" href="?tab=geo"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
+  <a class="sti" href="?tab=honeypot"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
+</div>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.challenge" }}</h3>
+  <a class="sti" href="?tab=captcha"><b>{{ t .Lang "settings.tab.captcha" }}</b><span>{{ t .Lang "settings.top.desc.captcha" }}</span></a>
+  <a class="sti" href="?tab=challenge"><b>{{ t .Lang "settings.tab.challenge" }}</b><span>{{ t .Lang "settings.top.desc.challenge" }}</span></a>
+  <a class="sti" href="?tab=theme"><b>{{ t .Lang "settings.tab.theme" }}</b><span>{{ t .Lang "settings.top.desc.theme" }}</span></a>
+</div>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.community" }}</h3>
+  <a class="sti" href="?tab=shared-feed"><b>{{ t .Lang "settings.tab.shared_feed" }}</b><span>{{ t .Lang "settings.top.desc.shared_feed" }}</span></a>
+</div>
 {{ end }}
 
 {{ if eq .Tab "network" }}
@@ -460,71 +514,254 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.geoip" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.geoip_desc") }}</span></span></h2>
-    <div class="field">
-      <label>{{ t .Lang "settings.network.geoip_path_label" }}</label>
-      <input type="text" name="geoip_mmdb_path" id="geoip_mmdb_path" value="{{ .GeoIPMMDBPath }}" placeholder="e.g. /usr/share/GeoIP/GeoLite2-City.mmdb">
-      {{ if .GeoIPCommonGeo }}
-      <div class="geoip-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
-      <ul class="geoip-found">
-        {{ range .GeoIPCommonGeo }}
-        {{ if .Exists }}
-        <li class="found{{ if eq .Path $.GeoIPMMDBPath }} active{{ end }}">
-          <button type="button" class="geoip-pick" data-target="geoip_mmdb_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
-          <code>{{ .Path }}</code>
-          {{ if eq .Path $.GeoIPMMDBPath }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
-          <span class="meta">{{ .Size }} · {{ .MTime }}</span>
-        </li>
-        {{ end }}
-        {{ end }}
-      </ul>
-      {{ end }}
+    {{ $mode := .IPGeoMode }}{{ if eq $mode "" }}{{ $mode = "dbip" }}{{ end }}
+
+    <div class="ipgeo-section">
+      <h3 class="ipgeo-section-title">
+        🌐 {{ t .Lang "settings.network.ipgeo_country_section" }}
+      </h3>
+      <p class="ipgeo-section-desc">{{ safeHTML (t .Lang "settings.network.ipgeo_country_section_desc") }}</p>
+
+    {{/* Mode A: DB-IP Lite (managed) — fixed path + 1-click install. */}}
+    <div class="field ipgeo-mode-row">
+      <label class="ipgeo-mode-label">
+        <input type="radio" name="ipgeo_mode" value="dbip" {{ if eq $mode "dbip" }}checked{{ end }} data-target="ipgeo-mode-dbip">
+        <strong>{{ t .Lang "settings.network.ipgeo_mode_dbip" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_mode_dbip_sub") }}</span>
+      </label>
+      <div class="ipgeo-mode-body" id="ipgeo-mode-dbip" {{ if ne $mode "dbip" }}style="display:none"{{ end }}>
+        <div class="ipgeo-fixed-path">
+          <span class="muted">path:</span>
+          <code>{{ .IPGeoDefault }}</code>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.3rem">
+          <button type="button" id="ipgeo-install-btn"
+                  style="font-size:.78rem;padding:.25rem .7rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
+            📥 {{ t .Lang "settings.network.ipgeo_install_btn" }}
+          </button>
+          {{ if and (eq $mode "dbip") .IPGeoActiveInfo.Exists }}
+            <span class="vendor-badge vendor-{{ .IPGeoActiveInfo.Vendor | lower }}">{{ .IPGeoActiveInfo.Vendor }}{{ if .IPGeoActiveInfo.DatabaseType }} · {{ .IPGeoActiveInfo.DatabaseType }}{{ end }}</span>
+            <span class="meta">{{ .IPGeoActiveInfo.Size }}{{ if .IPGeoActiveInfo.BuildTime }} · build {{ .IPGeoActiveInfo.BuildTime }}{{ end }}</span>
+          {{ else if eq $mode "dbip" }}
+            <span class="muted" style="font-size:.72rem">{{ t .Lang "settings.network.geoip_not_loaded" }} — {{ t .Lang "settings.network.ipgeo_install_hint_short" }}</span>
+          {{ end }}
+        </div>
+        <div id="ipgeo-install-status" style="display:none;margin-top:.3rem;font-size:.72rem"></div>
+      </div>
     </div>
-    <div class="field">
-      <label>{{ t .Lang "settings.network.geoip_asn_label" }}</label>
-      <input type="text" name="geoip_mmdb_asn_path" id="geoip_mmdb_asn_path" value="{{ .GeoIPMMDBASNPath }}" placeholder="e.g. /usr/share/GeoIP/GeoLite2-ASN.mmdb">
-      {{ if .GeoIPCommonASN }}
-      <div class="geoip-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
-      <ul class="geoip-found">
-        {{ range .GeoIPCommonASN }}
-        {{ if .Exists }}
-        <li class="found{{ if eq .Path $.GeoIPMMDBASNPath }} active{{ end }}">
-          <button type="button" class="geoip-pick" data-target="geoip_mmdb_asn_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
-          <code>{{ .Path }}</code>
-          {{ if eq .Path $.GeoIPMMDBASNPath }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
-          <span class="meta">{{ .Size }} · {{ .MTime }}</span>
-        </li>
+
+    {{/* Mode B: custom path — for operators bringing their own GeoLite2 / IP2Location etc. */}}
+    <div class="field ipgeo-mode-row">
+      <label class="ipgeo-mode-label">
+        <input type="radio" name="ipgeo_mode" value="custom" {{ if eq $mode "custom" }}checked{{ end }} data-target="ipgeo-mode-custom">
+        <strong>{{ t .Lang "settings.network.ipgeo_mode_custom" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_mode_custom_sub") }}</span>
+      </label>
+      <div class="ipgeo-mode-body" id="ipgeo-mode-custom" {{ if ne $mode "custom" }}style="display:none"{{ end }}>
+        <input type="text" name="ipgeo_mmdb_path" id="ipgeo_mmdb_path"
+               value="{{ if eq $mode "custom" }}{{ .IPGeoMMDBPath }}{{ end }}"
+               placeholder="e.g. /usr/share/GeoIP/GeoLite2-City.mmdb">
+        {{ if .IPGeoCommonGeo }}
+        <div class="ipgeo-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
+        <ul class="ipgeo-found">
+          {{ range .IPGeoCommonGeo }}
+          {{ if .Exists }}
+          <li class="found{{ if and (eq $mode "custom") (eq .Path $.IPGeoMMDBPath) }} active{{ end }}">
+            <button type="button" class="ipgeo-pick" data-target="ipgeo_mmdb_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
+            <code>{{ .Path }}</code>
+            {{ if .Vendor }}<span class="vendor-badge vendor-{{ .Vendor | lower }}">{{ .Vendor }}{{ if .DatabaseType }} · {{ .DatabaseType }}{{ end }}</span>{{ end }}
+            {{ if and (eq $mode "custom") (eq .Path $.IPGeoMMDBPath) }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
+            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime {{ .MTime }}</span>
+          </li>
+          {{ end }}
+          {{ end }}
+        </ul>
         {{ end }}
-        {{ end }}
-      </ul>
-      {{ end }}
+      </div>
     </div>
-    <p class="desc" style="font-size:.7rem;color:#64748b;margin-top:.4rem">
-      {{ t .Lang "settings.network.geoip_status" }}:
-      {{ if .GeoIPLoaded }}<span style="color:#16a34a">✓ {{ t .Lang "settings.network.geoip_loaded" }}</span>{{ else }}<span style="color:#94a3b8">{{ t .Lang "settings.network.geoip_not_loaded" }}</span>{{ end }}
-      / ASN:
-      {{ if .GeoIPASNLoaded }}<span style="color:#16a34a">✓ {{ t .Lang "settings.network.geoip_loaded" }}</span>{{ else }}<span style="color:#94a3b8">{{ t .Lang "settings.network.geoip_not_loaded" }}</span>{{ end }}
-    </p>
+    </div>{{/* /ipgeo-section country */}}
+
+    <div class="ipgeo-section">
+      <h3 class="ipgeo-section-title">
+        🏢 {{ t .Lang "settings.network.ipgeo_asn_section" }}
+      </h3>
+      <p class="ipgeo-section-desc">{{ safeHTML (t .Lang "settings.network.ipgeo_asn_section_desc") }}</p>
+    {{ $asnMode := .IPGeoASNMode }}{{ if eq $asnMode "" }}{{ $asnMode = "dbip" }}{{ end }}
+
+    {{/* ASN Mode A: DB-IP Lite ASN (managed) */}}
+    <div class="field ipgeo-mode-row">
+      <label class="ipgeo-mode-label">
+        <input type="radio" name="ipgeo_asn_mode" value="dbip" {{ if eq $asnMode "dbip" }}checked{{ end }} data-target="ipgeo-asn-mode-dbip">
+        <strong>{{ t .Lang "settings.network.ipgeo_asn_mode_dbip" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_asn_mode_dbip_sub") }}</span>
+      </label>
+      <div class="ipgeo-mode-body" id="ipgeo-asn-mode-dbip" {{ if ne $asnMode "dbip" }}style="display:none"{{ end }}>
+        <div class="ipgeo-fixed-path">
+          <span class="muted">path:</span>
+          <code>{{ .IPGeoASNDefault }}</code>
+        </div>
+        <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.3rem">
+          <button type="button" id="ipgeo-asn-install-btn"
+                  style="font-size:.78rem;padding:.25rem .7rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
+            📥 {{ t .Lang "settings.network.ipgeo_asn_install_btn" }}
+          </button>
+          {{ if and (eq $asnMode "dbip") .IPGeoASNActiveInfo.Exists }}
+            <span class="vendor-badge vendor-{{ .IPGeoASNActiveInfo.Vendor | lower }}">{{ .IPGeoASNActiveInfo.Vendor }}{{ if .IPGeoASNActiveInfo.DatabaseType }} · {{ .IPGeoASNActiveInfo.DatabaseType }}{{ end }}</span>
+            <span class="meta">{{ .IPGeoASNActiveInfo.Size }}{{ if .IPGeoASNActiveInfo.BuildTime }} · build {{ .IPGeoASNActiveInfo.BuildTime }}{{ end }}</span>
+          {{ else if eq $asnMode "dbip" }}
+            <span class="muted" style="font-size:.72rem">{{ t .Lang "settings.network.geoip_not_loaded" }} — {{ t .Lang "settings.network.ipgeo_install_hint_short" }}</span>
+          {{ end }}
+        </div>
+        <div id="ipgeo-asn-install-status" style="display:none;margin-top:.3rem;font-size:.72rem"></div>
+      </div>
+    </div>
+
+    {{/* ASN Mode B: custom path */}}
+    <div class="field ipgeo-mode-row">
+      <label class="ipgeo-mode-label">
+        <input type="radio" name="ipgeo_asn_mode" value="custom" {{ if eq $asnMode "custom" }}checked{{ end }} data-target="ipgeo-asn-mode-custom">
+        <strong>{{ t .Lang "settings.network.ipgeo_asn_mode_custom" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_asn_mode_custom_sub") }}</span>
+      </label>
+      <div class="ipgeo-mode-body" id="ipgeo-asn-mode-custom" {{ if ne $asnMode "custom" }}style="display:none"{{ end }}>
+        <input type="text" name="ipgeo_mmdb_asn_path" id="ipgeo_mmdb_asn_path"
+               value="{{ if eq $asnMode "custom" }}{{ .IPGeoMMDBASNPath }}{{ end }}"
+               placeholder="e.g. /usr/share/GeoIP/GeoLite2-ASN.mmdb">
+        {{ if .IPGeoCommonASN }}
+        <div class="ipgeo-hint">{{ t .Lang "settings.network.geoip_candidates" }} <span class="muted">{{ t .Lang "settings.network.geoip_candidates_hint" }}</span></div>
+        <ul class="ipgeo-found">
+          {{ range .IPGeoCommonASN }}
+          {{ if .Exists }}
+          <li class="found{{ if and (eq $asnMode "custom") (eq .Path $.IPGeoMMDBASNPath) }} active{{ end }}">
+            <button type="button" class="ipgeo-pick" data-target="ipgeo_mmdb_asn_path" data-path="{{ .Path }}" title="{{ t $.Lang "settings.network.geoip_click_copy" }}">📁</button>
+            <code>{{ .Path }}</code>
+            {{ if .Vendor }}<span class="vendor-badge vendor-{{ .Vendor | lower }}">{{ .Vendor }}{{ if .DatabaseType }} · {{ .DatabaseType }}{{ end }}</span>{{ end }}
+            {{ if and (eq $asnMode "custom") (eq .Path $.IPGeoMMDBASNPath) }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
+            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime {{ .MTime }}</span>
+          </li>
+          {{ end }}
+          {{ end }}
+        </ul>
+        {{ end }}
+      </div>
+    </div>
+
+    {{/* ASN Mode C: none (= 任意なので無効化を選べる) */}}
+    <div class="field ipgeo-mode-row">
+      <label class="ipgeo-mode-label">
+        <input type="radio" name="ipgeo_asn_mode" value="none" {{ if eq $asnMode "none" }}checked{{ end }} data-target="ipgeo-asn-mode-none">
+        <strong>{{ t .Lang "settings.network.ipgeo_asn_mode_none" }}</strong>
+        <span class="ipgeo-mode-sub">{{ t .Lang "settings.network.ipgeo_asn_mode_none_sub" }}</span>
+      </label>
+      <div class="ipgeo-mode-body" id="ipgeo-asn-mode-none" {{ if ne $asnMode "none" }}style="display:none"{{ end }}>
+        <p class="muted" style="font-size:.72rem;margin:.2rem 0">{{ t .Lang "settings.network.ipgeo_asn_mode_none_body" }}</p>
+      </div>
+    </div>
+    </div>{{/* /ipgeo-section asn */}}
   </div>
   <style>
-  .geoip-hint{font-size:.7rem;color:#475569;margin:.4rem 0 .15rem 1.2rem;font-weight:600}
-  .geoip-hint .muted{color:#94a3b8;font-weight:400;margin-left:.4em}
-  .geoip-found{list-style:none;margin:.1rem 0 0 1.2rem;padding:.3rem .4rem;font-size:.72rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.25rem}
-  .geoip-found li{padding:.15rem .25rem;display:flex;align-items:center;gap:.4rem;line-height:1.5}
-  .geoip-found li.found{color:#0f172a}
-  .geoip-found li.missing{color:#94a3b8}
-  .geoip-found li.active{background:#eff6ff;border-radius:.2rem}
-  .geoip-found code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:inherit;background:transparent}
-  .geoip-found .meta{margin-left:auto;color:#64748b;font-size:.68rem}
-  .geoip-found .active-pill{background:#3b82f6;color:#fff;font-size:.62rem;padding:.05rem .35rem;border-radius:.6rem;font-weight:600;letter-spacing:.02em}
-  .geoip-found .dot{display:inline-block;width:1.1rem;text-align:center;color:#cbd5e1}
-  .geoip-pick{font-size:.78rem;padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;line-height:1.3}
-  .geoip-pick:hover{background:#e0e7ff;border-color:#a5b4fc}
+  .ipgeo-hint{font-size:.7rem;color:#475569;margin:.4rem 0 .15rem 1.2rem;font-weight:600}
+  .ipgeo-hint .muted{color:#94a3b8;font-weight:400;margin-left:.4em}
+  .ipgeo-found{list-style:none;margin:.1rem 0 0 1.2rem;padding:.3rem .4rem;font-size:.72rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.25rem}
+  .ipgeo-found li{padding:.15rem .25rem;display:flex;align-items:center;gap:.4rem;line-height:1.5;flex-wrap:wrap}
+  .ipgeo-found li.found{color:#0f172a}
+  .ipgeo-found li.missing{color:#94a3b8}
+  .vendor-badge{display:inline-block;font-size:.65rem;font-weight:600;padding:.05rem .35rem;border-radius:.2rem;text-transform:uppercase;letter-spacing:.02em;font-family:ui-monospace,Menlo,monospace}
+  .vendor-db-ip{background:#dbeafe;color:#1e3a8a;border:1px solid #93c5fd}
+  .vendor-maxmind{background:#fef3c7;color:#854d0e;border:1px solid #fcd34d}
+  .vendor-ip2location{background:#e9d5ff;color:#5b21b6;border:1px solid #c4b5fd}
+  .vendor-unknown{background:#e5e7eb;color:#475569;border:1px solid #d1d5db}
+  .ipgeo-section{margin:.7rem 0 1rem;padding:.7rem .9rem;border:1px solid #cbd5e1;border-radius:.4rem;background:#f8fafc}
+  .ipgeo-section + .ipgeo-section{margin-top:1rem}
+  .ipgeo-section-title{font-size:.92rem;margin:0 0 .15rem;color:#1e293b;font-weight:600;display:flex;align-items:center;gap:.4rem}
+  .ipgeo-section-desc{font-size:.74rem;color:#64748b;margin:0 0 .6rem;line-height:1.5}
+  .ipgeo-mode-row{margin:0 0 .6rem;padding:.4rem .55rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#fff}
+  .ipgeo-mode-row:has(input[type=radio]:checked){border-color:#93c5fd;background:#f5faff}
+  .ipgeo-mode-label{display:flex;align-items:baseline;gap:.4rem;cursor:pointer;font-size:.85rem}
+  .ipgeo-mode-label input[type=radio]{margin-top:.15rem}
+  .ipgeo-mode-sub{color:#64748b;font-size:.72rem;font-weight:400;margin-left:.3rem}
+  .ipgeo-mode-body{margin:.4rem 0 0 1.6rem}
+  .ipgeo-fixed-path{font-size:.78rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
+  .ipgeo-fixed-path code{font-family:ui-monospace,Menlo,monospace;background:#f1f5f9;padding:.05rem .35rem;border-radius:.2rem;font-size:.78rem}
+  </style>
+  <script>
+  (function(){
+    // Show only the body matching the selected radio.  Country and ASN
+    // radio groups are managed identically (= same data-target -> body id
+    // convention).  Earlier this selector only matched `ipgeo_mode` and
+    // ASN radios were inert; CSS keeps them visually grouped but JS has to
+    // be aware of both groups separately so clicking inside one doesn't
+    // affect the other.
+    var groups = ['ipgeo_mode', 'ipgeo_asn_mode'];
+    groups.forEach(function(name){
+      var radios = document.querySelectorAll('input[name="' + name + '"]');
+      function refresh(){
+        radios.forEach(function(r){
+          var body = document.getElementById(r.dataset.target);
+          if (body) body.style.display = r.checked ? '' : 'none';
+        });
+      }
+      radios.forEach(function(r){ r.addEventListener('change', refresh); });
+      refresh();
+    });
+  })();
+  </script>
+  <script>
+  (function(){
+    var basePath  = {{ .BasePath }};
+    var running   = '{{ t .Lang "settings.network.ipgeo_install_running" }}';
+    function wire(btnId, boxId, kind){
+      var btn = document.getElementById(btnId);
+      var box = document.getElementById(boxId);
+      if (!btn) return;
+      btn.addEventListener('click', function(){
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '… downloading';
+        box.style.display = 'block';
+        box.style.color = '#475569';
+        box.textContent = running;
+        fetch(basePath + '/admin/api/ipgeo/install?kind=' + kind,
+              {method:'POST', headers:{'Accept':'application/json'}})
+          .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+          .then(function(r){
+            if (r.ok && r.body.ok === 1) {
+              box.style.color = '#166534';
+              box.textContent = '✓ ' + (r.body.path || '') + ' · ' + (r.body.month || '') + ' · ' + (r.body.bytes || '?') + ' B';
+              setTimeout(function(){ location.reload(); }, 1200);
+            } else {
+              box.style.color = '#991b1b';
+              box.textContent = '✗ ' + (r.body && r.body.error ? r.body.error : 'install failed');
+              btn.disabled = false;
+              btn.textContent = orig;
+            }
+          })
+          .catch(function(e){
+            box.style.color = '#991b1b';
+            box.textContent = '✗ ' + e;
+            btn.disabled = false;
+            btn.textContent = orig;
+          });
+      });
+    }
+    wire('ipgeo-install-btn',     'ipgeo-install-status',     'country');
+    wire('ipgeo-asn-install-btn', 'ipgeo-asn-install-status', 'asn');
+  })();
+  </script>
+  <style>
+  .ipgeo-found li.active{background:#eff6ff;border-radius:.2rem}
+  .ipgeo-found code{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:inherit;background:transparent}
+  .ipgeo-found .meta{margin-left:auto;color:#64748b;font-size:.68rem}
+  .ipgeo-found .active-pill{background:#3b82f6;color:#fff;font-size:.62rem;padding:.05rem .35rem;border-radius:.6rem;font-weight:600;letter-spacing:.02em}
+  .ipgeo-found .dot{display:inline-block;width:1.1rem;text-align:center;color:#cbd5e1}
+  .ipgeo-pick{font-size:.78rem;padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;line-height:1.3}
+  .ipgeo-pick:hover{background:#e0e7ff;border-color:#a5b4fc}
   </style>
   <script>
   (function(){
     // single shared toast displayed sequentially. don't recreate on each click — just rewrite textContent.
     var toast = document.createElement('div');
-    toast.className = 'geoip-toast';
+    toast.className = 'ipgeo-toast';
     toast.style.display = 'none';
     document.body.appendChild(toast);
     var hideTimer = 0;
@@ -543,14 +780,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       }, 1800);
     }
 
-    document.querySelectorAll('.geoip-pick').forEach(function(btn){
+    document.querySelectorAll('.ipgeo-pick').forEach(function(btn){
       btn.addEventListener('click', function(){
         var t = document.getElementById(btn.dataset.target);
         if (!t) return;
         t.value = btn.dataset.path;
         // visual feedback: briefly highlight the input + show a "filled in" toast.
-        t.classList.add('geoip-flash');
-        setTimeout(function(){ t.classList.remove('geoip-flash'); }, 400);
+        t.classList.add('ipgeo-flash');
+        setTimeout(function(){ t.classList.remove('ipgeo-flash'); }, 400);
         showToast('✓ filled in: ' + btn.dataset.path);
       });
     });
@@ -558,8 +795,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </script>
   <style>
   /* input flash: briefly turns the background green to make "got filled in" feel tangible. */
-  .geoip-flash{animation:geoip-flash .4s ease}
-  @keyframes geoip-flash{0%{background:#dcfce7}100%{background:transparent}}
+  .ipgeo-flash{animation:ipgeo-flash .4s ease}
+  @keyframes ipgeo-flash{0%{background:#dcfce7}100%{background:transparent}}
   /* expand the LB preset's CIDR list with <details>. summary stays inline
      so the existing row layout is preserved. */
   .lb-cidrs{display:inline}
@@ -791,13 +1028,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "global" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=global">
   <div class="bcd-card">
-    <h2><span class="global-num">①</span> {{ t .Lang "settings.global.passthrough_h" }}</h2>
-    <div class="field" style="padding:.6rem .75rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
+    <h2>{{ t .Lang "settings.global.passthrough_h" }}</h2>
+    <div class="field" style="padding:.75rem .9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
       <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#9a3412;margin:0">
         <input type="checkbox" name="global_passthrough" value="1" {{ if .Global.Passthrough }}checked{{ end }}>
         {{ t .Lang "settings.global.passthrough_label" }}
       </label>
-      <div class="note" style="margin-top:.3rem;color:#9a3412">{{ safeHTML (t .Lang "settings.global.passthrough_help") }}</div>
+      <div class="note" style="margin-top:.55rem;color:#9a3412;line-height:1.65">{{ safeHTML (t .Lang "settings.global.passthrough_help") }}</div>
     </div>
   </div>
 
@@ -806,7 +1043,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       {{ t .Lang "settings.global.no_match_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="global-default-help" aria-label="?">?</button>
     </h2>
-    <p class="desc" style="margin-bottom:.8rem">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
+    <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
 
     {{ $kba := .Global.KnownBrowserAction }}
     {{ if eq $kba "" }}{{ $kba = .Global.DefaultAction }}{{ end }}
@@ -815,10 +1052,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     {{ if eq $uua "" }}{{ $uua = .Global.DefaultAction }}{{ end }}
     {{ if eq $uua "" }}{{ $uua = "pow_only" }}{{ end }}
 
-    <div class="field" style="margin:.6rem 0">
-      <label class="field-label" style="font-weight:600;color:#475569"><span class="global-num">②</span> {{ t .Lang "settings.global.known_browser_h" }}</label>
-      <div class="note" style="margin-bottom:.3rem">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
-      <select name="global_known_browser_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+    <div class="field" style="margin:1.4rem 0 1.8rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.known_browser_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
+      <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= 何もしない)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $kba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -827,10 +1064,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </select>
     </div>
 
-    <div class="field" style="margin:.6rem 0">
-      <label class="field-label" style="font-weight:600;color:#475569"><span class="global-num">③</span> {{ t .Lang "settings.global.unknown_ua_h" }}</label>
-      <div class="note" style="margin-bottom:.3rem">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
-      <select name="global_unknown_ua_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+    <div class="field" style="margin:1.4rem 0 1.2rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.unknown_ua_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
+      <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= 何もしない)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $uua "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -852,40 +1089,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.global.preset_h" }}</h2>
-    <p class="desc">{{ safeHTML (t .Lang "settings.global.preset_intro") }}</p>
-
-    <div class="preset-mode">
-      <h3>strict <span class="muted">— {{ t .Lang "settings.global.preset.strict_title" }}</span></h3>
-      <p>{{ safeHTML (t .Lang "settings.global.preset.strict_desc") }}</p>
-      <ul class="preset-recipe">
-        <li><span class="global-num">①</span> 監視モード <strong>OFF</strong></li>
-        <li><span class="global-num">②</span> 既知ブラウザ <strong>pow_only</strong> (= pow_then_captcha / captcha_only / deny でも可だが UX 影響大)</li>
-        <li><span class="global-num">③</span> それ以外 <strong>pow_only</strong> (= pow_then_captcha / captcha_only / deny でも可だが UX 影響大)</li>
-      </ul>
-    </div>
-
-    <div class="preset-mode">
-      <h3>balanced <span class="muted">— {{ t .Lang "settings.global.preset.balanced_title" }}</span></h3>
-      <p>{{ safeHTML (t .Lang "settings.global.preset.balanced_desc") }}</p>
-      <ul class="preset-recipe">
-        <li><span class="global-num">①</span> 監視モード <strong>OFF</strong></li>
-        <li><span class="global-num">②</span> 既知ブラウザ <strong>pow_only</strong> (= 化けた bot を軽く gate. pow_then_captcha 等にすれば強化)</li>
-        <li><span class="global-num">③</span> それ以外 <strong>pass</strong> (= preset 未掲載の未把握 UA だけ素通り. curl 等は preset で引き続き black)</li>
-      </ul>
-    </div>
-
-    <div class="preset-mode">
-      <h3>monitor <span class="muted">— {{ t .Lang "settings.global.preset.monitor_title" }}</span></h3>
-      <p>{{ safeHTML (t .Lang "settings.global.preset.monitor_desc") }}</p>
-      <ul class="preset-recipe">
-        <li><span class="global-num">①</span> 監視モード <strong>ON</strong> (= challenge を全部 suppress)</li>
-        <li><span class="global-num">②</span> 既知ブラウザ — <span class="muted">何でも可 (① が overriding)</span></li>
-        <li><span class="global-num">③</span> それ以外 — <span class="muted">何でも可 (① が overriding)</span></li>
-      </ul>
-    </div>
-  </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -1920,15 +2123,30 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <div class="field">
       <div class="field-label field-label-row">
-        <label for="ch-cookie-sec">{{ t .Lang "settings.challenge.cookie_seconds" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="ch-cookie-help" aria-label="?">?</button>
+        <label for="ch-pow-cookie-sec">{{ t .Lang "settings.challenge.pow_cookie_valid_seconds" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="ch-pow-cookie-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-cookie-help">{{ safeHTML (t .Lang "settings.challenge.cookie_seconds_help") }}</script>
-      <input type="number" id="ch-cookie-sec" name="cookie_seconds" min="60" max="31536000" step="60"
-             value="{{ if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}259200{{ end }}"
+      <script type="text/html" id="ch-pow-cookie-help">{{ safeHTML (t .Lang "settings.challenge.pow_cookie_valid_seconds_help") }}</script>
+      <input type="number" id="ch-pow-cookie-sec" name="pow_cookie_valid_seconds" min="60" max="31536000" step="60"
+             value="{{ if gt .Challenge.PowCookieValidSeconds 0 }}{{ .Challenge.PowCookieValidSeconds }}{{ else if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}259200{{ end }}"
+             {{/* default: 259200 (= 3 days). PoW is automatic / lightweight proof; refresh more often than CAPTCHA. */}}
              style="width:8rem"
-             oninput="document.getElementById('ch-cookie-hint').textContent=secToHuman(this.value)">
-      <span class="ch-hint" id="ch-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
+             oninput="document.getElementById('ch-pow-cookie-hint').textContent=secToHuman(this.value)">
+      <span class="ch-hint" id="ch-pow-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
+    </div>
+
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label for="ch-captcha-cookie-sec">{{ t .Lang "settings.challenge.captcha_cookie_valid_seconds" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="ch-captcha-cookie-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="ch-captcha-cookie-help">{{ safeHTML (t .Lang "settings.challenge.captcha_cookie_valid_seconds_help") }}</script>
+      <input type="number" id="ch-captcha-cookie-sec" name="captcha_cookie_valid_seconds" min="60" max="31536000" step="60"
+             value="{{ if gt .Challenge.CaptchaCookieValidSeconds 0 }}{{ .Challenge.CaptchaCookieValidSeconds }}{{ else if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}604800{{ end }}"
+             {{/* default: 604800 (= 7 days). CAPTCHA is human-effort proof; longer than PoW reduces re-CAPTCHA friction. */}}
+             style="width:8rem"
+             oninput="document.getElementById('ch-captcha-cookie-hint').textContent=secToHuman(this.value)">
+      <span class="ch-hint" id="ch-captcha-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
     </div>
 
     <div class="field">
@@ -2022,6 +2240,20 @@ document.addEventListener("DOMContentLoaded", function(){
 
     <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
+
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label for="rl-key">{{ t .Lang "settings.rate_limit.key" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="rl-key-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="rl-key-help">{{ safeHTML (t .Lang "settings.rate_limit.key_help") }}</script>
+      {{ $rlk := .RateLimit.Key }}{{ if eq $rlk "" }}{{ $rlk = "ip" }}{{ end }}
+      <select id="rl-key" name="rate_limit_key" style="width:14rem">
+        <option value="ip"     {{ if eq $rlk "ip"     }}selected{{ end }}>IP only ({{ t .Lang "settings.rate_limit.key_ip_short" }})</option>
+        <option value="ja4"    {{ if eq $rlk "ja4"    }}selected{{ end }}>JA4 only ({{ t .Lang "settings.rate_limit.key_ja4_short" }})</option>
+        <option value="ip+ja4" {{ if eq $rlk "ip+ja4" }}selected{{ end }}>IP + JA4 ({{ t .Lang "settings.rate_limit.key_ip_ja4_short" }})</option>
+      </select>
+    </div>
 
     <div class="field">
       <div class="field-label field-label-row">
@@ -2148,6 +2380,303 @@ document.addEventListener("DOMContentLoaded", function(){
       });
     });
   };
+})();
+</script>
+{{ end }}
+
+{{ if eq .Tab "geo" }}
+<style>
+  .geo-tools{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:.5rem}
+  .geo-tools .grow{flex:1}
+  .geo-tools button,.geo-tools select,.geo-tools input{font-size:.82rem;padding:.3rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
+  .geo-tools button{cursor:pointer}
+  .geo-tools button.primary{background:#1e40af;color:#fff;border-color:#1e40af}
+  table.geo{width:100%;border-collapse:collapse;font-size:.85rem}
+  table.geo thead th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
+  table.geo tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+  table.geo tbody tr.row-disabled{opacity:.45}
+  table.geo .col-check{width:1.8rem}
+  table.geo .col-country{width:18rem}
+  table.geo .col-action{width:11rem}
+  table.geo .col-enabled{width:5rem;text-align:center}
+  table.geo .cc-cell{display:flex;align-items:baseline;gap:.4rem}
+  table.geo .cc-code{font-family:ui-monospace,Menlo,monospace;font-weight:700;color:#0f172a}
+  table.geo .cc-name{font-size:.78rem;color:#64748b}
+  table.geo .col-del{width:3rem;text-align:center}
+  table.geo input[type="text"],table.geo select{width:100%;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.2rem}
+  table.geo .country-input{font-family:ui-monospace,Menlo,monospace;text-transform:uppercase}
+  table.geo .del-btn{background:none;border:none;cursor:pointer;color:#dc2626;font-size:1.1rem;padding:0}
+  .geo-empty{padding:1rem;text-align:center;color:#94a3b8;font-size:.82rem}
+</style>
+
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=geo">
+  <div class="bcd-card">
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.geo.intro") }}</div>
+
+    <div class="bcd-card" style="margin:0 0 1rem;padding:.7rem 1rem;background:{{ if .IPGeoLoaded }}#f0fdf4;border:1px solid #86efac{{ else }}#fff5e6;border:1px solid #f0c270{{ end }}">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem">
+        <strong style="font-size:.85rem">{{ if .IPGeoLoaded }}✓{{ else }}⚠{{ end }} mmdb</strong>
+        {{ if .IPGeoLoaded }}
+          <span class="muted" style="font-size:.78rem">{{ safeHTML (t .Lang "settings.geo.mmdb_loaded_hint") }}</span>
+        {{ else }}
+          <span class="muted" style="font-size:.78rem">{{ safeHTML (t .Lang "settings.geo.mmdb_missing") }}</span>
+        {{ end }}
+        <span style="flex:1"></span>
+        <button type="button" id="mmdb-install-btn"
+                style="font-size:.82rem;padding:.3rem .85rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
+          📥 {{ t .Lang "settings.geo.mmdb_install_btn" }}
+        </button>
+      </div>
+      <div id="mmdb-install-status" style="display:none;margin-top:.5rem;font-size:.78rem"></div>
+    </div>
+    <script>
+    (function(){
+      var btn = document.getElementById('mmdb-install-btn');
+      var box = document.getElementById('mmdb-install-status');
+      if (!btn) return;
+      btn.addEventListener('click', function(){
+        btn.disabled = true;
+        var orig = btn.textContent;
+        btn.textContent = '… downloading';
+        box.style.display = 'block';
+        box.style.color = '#475569';
+        box.textContent = '{{ t .Lang "settings.geo.mmdb_install_running" }}';
+        fetch('{{ .BasePath }}/admin/api/mmdb/install', {method:'POST', headers:{'Accept':'application/json'}})
+          .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+          .then(function(r){
+            if (r.ok && r.body.ok === 1) {
+              box.style.color = '#166534';
+              box.textContent = '✓ ' + (r.body.path || '') + ' · ' + (r.body.month || '') + ' · ' + (r.body.bytes || '?') + ' B';
+              setTimeout(function(){ location.reload(); }, 1200);
+            } else {
+              box.style.color = '#991b1b';
+              box.textContent = '✗ ' + (r.body && r.body.error ? r.body.error : 'install failed');
+              btn.disabled = false;
+              btn.textContent = orig;
+            }
+          })
+          .catch(function(e){
+            box.style.color = '#991b1b';
+            box.textContent = '✗ ' + e;
+            btn.disabled = false;
+            btn.textContent = orig;
+          });
+      });
+    })();
+    </script>
+
+    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.default_help") }}</div>
+
+    {{ $gda := .Nginx.Geo.DefaultAction }}{{ if eq $gda "" }}{{ $gda = "skip" }}{{ end }}
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
+      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+        <select name="geo_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $gda "skip"             }}selected{{ end }}>skip (= 国別判定なし)</option>
+          <option value="pow_only"         {{ if eq $gda "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $gda "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $gda "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $gda "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+    </div>
+
+    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rules_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rules_help") }}</div>
+
+    <div class="geo-tools">
+      <input type="text" id="geo-add-input" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" style="width:18rem">
+      <button type="button" id="geo-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
+      <span class="grow"></span>
+      <span id="geo-sel-counter" style="font-size:.78rem;color:#64748b">selected: 0</span>
+      <select id="geo-bulk-action" style="font-size:.82rem">
+        <option value="">{{ t .Lang "settings.geo.bulk_pick" }}…</option>
+        <option value="skip">action: skip</option>
+        <option value="pow_only">action: pow_only</option>
+        <option value="captcha_only">action: captcha_only</option>
+        <option value="pow_then_captcha">action: pow_then_captcha</option>
+        <option value="deny">action: deny</option>
+        <option value="enable">enable rules</option>
+        <option value="disable">disable rules</option>
+        <option value="delete">delete</option>
+      </select>
+      <button type="button" id="geo-bulk-apply">{{ t .Lang "settings.geo.bulk_apply" }}</button>
+    </div>
+
+    <datalist id="geo-country-datalist">
+      {{ range .GeoCountriesAll }}
+      <option value="{{ .Code }}">{{ .Code }} — {{ .NameEN }} ({{ .NameJP }})</option>
+      {{ end }}
+    </datalist>
+
+    <table class="geo">
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" id="geo-check-all" title="{{ t .Lang "settings.geo.col_check" }}"></th>
+          <th class="col-country">{{ t .Lang "settings.geo.col_country" }}</th>
+          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
+          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="geo-rows">
+        {{ range $i, $r := .Nginx.Geo.Rules }}
+        {{ $c := index $.GeoCountryMap $r.Country }}
+        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
+          <td class="col-check"><input type="checkbox" class="geo-sel"></td>
+          <td class="col-country">
+            <input type="hidden" name="geo_country" value="{{ $r.Country }}">
+            <span class="cc-cell">
+              <span class="cc-code">{{ $r.Country }}</span>
+              <span class="cc-name">{{ if $c.NameEN }}{{ $c.NameEN }} ({{ $c.NameJP }}){{ end }}</span>
+            </span>
+          </td>
+          <td class="col-action">
+            <select name="geo_action">
+              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+            </select>
+          </td>
+          <td class="col-enabled">
+            <input type="checkbox" name="geo_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
+          </td>
+          <td class="col-del">
+            <button type="button" class="del-btn" title="delete">✖</button>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <div id="geo-empty" class="geo-empty"{{ if .Nginx.Geo.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.geo.empty" }}</div>
+
+    <div style="margin-top:1rem">
+      <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
+    </div>
+  </div>
+</form>
+
+<script>
+(function(){
+  var tbody     = document.getElementById('geo-rows');
+  var empty     = document.getElementById('geo-empty');
+  var addInput  = document.getElementById('geo-add-input');
+  var addBtn    = document.getElementById('geo-add-btn');
+  var checkAll  = document.getElementById('geo-check-all');
+  var selCount  = document.getElementById('geo-sel-counter');
+  var bulkPick  = document.getElementById('geo-bulk-action');
+  var bulkBtn   = document.getElementById('geo-bulk-apply');
+
+  // Country master for client-side validation + name display.  Datalist
+  // option text format: "JP — Japan (日本)", so we slice off the code prefix.
+  var COUNTRIES = {};
+  document.querySelectorAll('#geo-country-datalist option').forEach(function(o){
+    var label = o.textContent || '';
+    var dash = label.indexOf(' — ');
+    COUNTRIES[o.value] = dash >= 0 ? label.slice(dash + 3) : '';
+  });
+
+  function refreshSelCount(){
+    var n = tbody.querySelectorAll('input.geo-sel:checked').length;
+    selCount.textContent = 'selected: ' + n;
+  }
+  function reindexCheckboxNames(){
+    // After add / delete, re-number the per-row checkbox name suffixes so
+    // applyGeoForm's positional zip lines up with the country/action arrays.
+    Array.from(tbody.children).forEach(function(tr, i){
+      tr.dataset.i = i;
+      var en = tr.querySelector('input[name^="geo_enabled_"]');
+      if (en) en.name = 'geo_enabled_' + i;
+    });
+    empty.style.display = tbody.children.length ? 'none' : '';
+  }
+  function addRow(code){
+    var tr = document.createElement('tr');
+    var idx = tbody.children.length;
+    tr.dataset.i = idx;
+    var name = COUNTRIES[code] || '';
+    // textContent assignment dodges innerHTML escaping for the name.
+    var ccCode = document.createElement('span'); ccCode.className = 'cc-code'; ccCode.textContent = code;
+    var ccName = document.createElement('span'); ccName.className = 'cc-name'; ccName.textContent = name;
+    var ccCell = document.createElement('span'); ccCell.className = 'cc-cell'; ccCell.appendChild(ccCode); ccCell.appendChild(ccName);
+    tr.innerHTML =
+      '<td class="col-check"><input type="checkbox" class="geo-sel"></td>' +
+      '<td class="col-country"><input type="hidden" name="geo_country" value="' + code + '"></td>' +
+      '<td class="col-action"><select name="geo_action">' +
+        '<option value="">(inherit)</option>' +
+        '<option value="skip">skip</option>' +
+        '<option value="pow_only">pow_only</option>' +
+        '<option value="captcha_only">captcha_only</option>' +
+        '<option value="pow_then_captcha">pow_then_captcha</option>' +
+        '<option value="deny">deny</option>' +
+      '</select></td>' +
+      '<td class="col-enabled"><input type="checkbox" name="geo_enabled_' + idx + '" value="1" checked></td>' +
+      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
+    tr.querySelector('td.col-country').appendChild(ccCell);
+    tbody.appendChild(tr);
+    reindexCheckboxNames();
+  }
+  addBtn.addEventListener('click', function(){
+    var raw = (addInput.value || '').trim().toUpperCase();
+    if (!raw) return;
+    if (!COUNTRIES[raw]) { alert('Unknown country code: ' + raw); return; }
+    // Skip if already present.
+    var exists = Array.from(tbody.querySelectorAll('input[name="geo_country"]'))
+      .some(function(i){ return i.value.trim().toUpperCase() === raw; });
+    if (exists) { addInput.value = ''; return; }
+    addRow(raw);
+    addInput.value = '';
+  });
+  addInput.addEventListener('keydown', function(e){
+    if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
+  });
+
+  checkAll.addEventListener('change', function(){
+    tbody.querySelectorAll('input.geo-sel').forEach(function(i){ i.checked = checkAll.checked; });
+    refreshSelCount();
+  });
+  tbody.addEventListener('change', function(e){
+    if (e.target.classList.contains('geo-sel')) refreshSelCount();
+    if (e.target.name && e.target.name.indexOf('geo_enabled_') === 0) {
+      var tr = e.target.closest('tr');
+      if (tr) tr.classList.toggle('row-disabled', !e.target.checked);
+    }
+  });
+  tbody.addEventListener('click', function(e){
+    if (e.target.classList.contains('del-btn')) {
+      e.target.closest('tr').remove();
+      reindexCheckboxNames();
+      refreshSelCount();
+    }
+  });
+
+  bulkBtn.addEventListener('click', function(){
+    var op = bulkPick.value;
+    if (!op) return;
+    var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(tr){
+      var c = tr.querySelector('input.geo-sel');
+      return c && c.checked;
+    });
+    if (rows.length === 0) { alert('select rows first'); return; }
+    rows.forEach(function(tr){
+      if (op === 'skip' || op === 'pow_only' || op === 'captcha_only' || op === 'pow_then_captcha' || op === 'deny') {
+        var sel = tr.querySelector('select[name="geo_action"]'); if (sel) sel.value = op;
+      } else if (op === 'enable' || op === 'disable') {
+        var en = tr.querySelector('input[name^="geo_enabled_"]');
+        if (en) { en.checked = op === 'enable'; tr.classList.toggle('row-disabled', op === 'disable'); }
+      } else if (op === 'delete') {
+        tr.remove();
+      }
+    });
+    if (op === 'delete') reindexCheckboxNames();
+    refreshSelCount();
+  });
+
+  // Initial empty-state visibility.
+  empty.style.display = tbody.children.length ? 'none' : '';
 })();
 </script>
 {{ end }}

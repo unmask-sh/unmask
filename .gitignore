@@ -25,6 +25,10 @@ BUILD/
 SOURCES/
 SRPMS/
 RPMS/
+# nfpm generated configs (envsubst output; the sources are rpm/nfpm-*.yaml)
+nfpm-*.tmp.yaml
+nfpm-*.amd64.yaml
+nfpm-*.arm64.yaml
 
 # editor
 .vscode/

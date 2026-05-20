@@ -24,6 +24,29 @@
 // position so the content's visual location stays put while it "grows upward".
 window.POPOVER_PIN_TOP_SHIFT_PX = 20;
 
+// clampToViewport: shared helper.  Given a desired anchor (x, y) in page coords
+// and the popover's measured (w, h), return adjusted (x, y) so the popover
+// stays inside the viewport with an 8 px margin.  Bottom-overflow first tries
+// flipping above the anchor; falls back to clamping when flipping also overflows.
+window.popoverClampToViewport = window.popoverClampToViewport || function(x, y, w, h){
+  var vw = document.documentElement.clientWidth;
+  var vh = document.documentElement.clientHeight;
+  var sx = window.scrollX, sy = window.scrollY;
+  var ax = x + 12, ay = y + 12;
+  if (ax + w > sx + vw - 8) {
+    ax = Math.max(sx + 8, sx + vw - w - 8);
+  }
+  if (ay + h > sy + vh - 8) {
+    var flipped = y - h - 12;
+    if (flipped >= sy + 8) {
+      ay = flipped;
+    } else {
+      ay = Math.max(sy + 8, sy + vh - h - 8);
+    }
+  }
+  return { x: ax, y: ay };
+};
+
 window.popoverPin = window.popoverPin || (function(){
   // helper that builds the tools (= top-right action buttons).
   // [drag handle] [collapse toggle] [close].  drag uses mousedown to move the popover.
@@ -81,13 +104,21 @@ window.popoverPin = window.popoverPin || (function(){
     tools.appendChild(btn);
     return tools;
   }
+  var clampToViewport = window.popoverClampToViewport;
   function install(primary){
     var pins = new Map();
     function showAt(p, html, x, y){
       p.innerHTML = html;
-      p.style.left = (x + 12) + 'px';
-      p.style.top  = (y + 12) + 'px';
+      // measure off-screen with visibility:hidden so we can pre-clamp before paint
+      p.style.visibility = 'hidden';
+      p.style.left = '0px';
+      p.style.top  = '0px';
       p.style.display = 'block';
+      var rect = p.getBoundingClientRect();
+      var pos = clampToViewport(x, y, rect.width, rect.height);
+      p.style.left = pos.x + 'px';
+      p.style.top  = pos.y + 'px';
+      p.style.visibility = '';
     }
     function makeClone(html, x, y, trigger){
       var clone = document.createElement('div');
@@ -95,11 +126,12 @@ window.popoverPin = window.popoverPin || (function(){
       if (dp) clone.setAttribute('data-popover', dp);
       clone.classList.add('is-pinned', 'popover-clone');
       clone.style.position = 'absolute';
-      clone.style.left = (x + 12) + 'px';
-      // the hover popover (= primary) was shown at (x+12, y+12).  Pinning adds padding-top for the
-      // tools, but we don't want the content's visual position to shift, so offset the clone's top
-      // upward by the tools size (= POPOVER_PIN_TOP_SHIFT_PX).
-      clone.style.top  = (y + 12 - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
+      clone.style.visibility = 'hidden';
+      // Render at (0,0) to measure, then clamp to viewport.  Pinning adds padding-top
+      // for the tools, but we don't want the content's visual position to shift, so
+      // we shift up by POPOVER_PIN_TOP_SHIFT_PX after clamping.
+      clone.style.left = '0px';
+      clone.style.top  = '0px';
       clone.style.display = 'block';
       // body wrapper — CSS target for collapse mode.  Wraps flat text + <br> in a single element.
       var body = document.createElement('div');
@@ -111,6 +143,13 @@ window.popoverPin = window.popoverPin || (function(){
       });
       clone.appendChild(tools);
       document.body.appendChild(clone);
+      // Now that the clone is in the DOM with content + tools, measure + clamp.
+      var rect = clone.getBoundingClientRect();
+      var pos = clampToViewport(x, y, rect.width, rect.height);
+      // Shift up by tools padding so the content lands where the hover popover was.
+      clone.style.left = pos.x + 'px';
+      clone.style.top  = (pos.y - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
+      clone.style.visibility = '';
       return clone;
     }
     return {
@@ -250,13 +289,78 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
       })();
       clone.appendChild(tools);
       document.body.appendChild(clone);
+      // Edge-aware reposition: measure now that the clone is in the DOM, then
+      // clamp so it doesn't overflow.  We pass the trigger's rect (= original
+      // anchor) so the clamp can flip above if there's no room below.
+      if (window.popoverClampToViewport) {
+        var clrect = clone.getBoundingClientRect();
+        var pos = window.popoverClampToViewport(
+          rect.left + window.scrollX - 12,   // popoverClampToViewport adds +12 internally
+          rect.bottom + window.scrollY + 4 - 12,
+          clrect.width, clrect.height);
+        clone.style.left = pos.x + 'px';
+        clone.style.top  = (pos.y - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
+      }
       tip._pinClone = clone;
       tip.classList.add('pinned');
     });
   });
 };
 
+// Edge-aware positioning for the inline hover .info-popup.  Without this,
+// tips near the right or bottom of the viewport show their popups clipped
+// (= cut off) or pushed off-screen.  We listen on the capture phase so the
+// flip classes land before the :hover style transition is painted.
+//
+//   .info-popup-flip-x : popup would overflow right → anchor on the right edge instead
+//   .info-popup-flip-y : popup would overflow bottom → anchor above the tip instead
+//
+// Measurement happens with visibility:hidden + display:block to avoid a flash;
+// classes are reset on mouseleave / focusout so the same tip can re-evaluate
+// on the next interaction (= viewport / page scroll may have moved it).
+window.installInfoPopupEdgeFlip = window.installInfoPopupEdgeFlip || function(){
+  function position(tip){
+    var popup = tip.querySelector(':scope > .info-popup');
+    if (!popup) return;
+    popup.classList.remove('info-popup-flip-x', 'info-popup-flip-y');
+    // measure without showing
+    var prevVis = popup.style.visibility;
+    var prevDis = popup.style.display;
+    popup.style.visibility = 'hidden';
+    popup.style.display = 'block';
+    var tipR = tip.getBoundingClientRect();
+    var popR = popup.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
+    // horizontal: popup anchored at tip.left.  Overflow if right edge spills past vw.
+    if (tipR.left + popR.width > vw - 8) {
+      popup.classList.add('info-popup-flip-x');
+    }
+    // vertical: popup anchored at tip.bottom + 30% of tip height.  Overflow if popup
+    // bottom spills past vh.
+    var popTop = tipR.bottom + tipR.height * 0.3;
+    if (popTop + popR.height > vh - 8) {
+      popup.classList.add('info-popup-flip-y');
+    }
+    popup.style.visibility = prevVis;
+    popup.style.display = prevDis;
+  }
+  // capture so the class lands before :hover paint
+  document.addEventListener('mouseenter', function(e){
+    var t = e.target;
+    if (t && t.nodeType === 1 && t.classList && t.classList.contains('info-tip')) position(t);
+  }, true);
+  document.addEventListener('focusin', function(e){
+    var t = e.target;
+    if (t && t.closest) {
+      var tip = t.closest('.info-tip');
+      if (tip) position(tip);
+    }
+  });
+};
+
 // auto-wire on DOMContentLoaded (= any page with an info-tip becomes pinnable automatically).
 document.addEventListener('DOMContentLoaded', function(){
   if (window.installInfoTipPinning) window.installInfoTipPinning();
+  if (window.installInfoPopupEdgeFlip) window.installInfoPopupEdgeFlip();
 });

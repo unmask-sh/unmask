@@ -8,7 +8,7 @@
 //   1. config.yml is readable / parses
 //   2. nginxconf.Render() dry-run succeeds
 //   3. DB pings + the major tables exist
-//   4. If the GeoIP mmdb path is set, the file is readable
+//   4. If the IP-geo mmdb path is set, the file is readable
 //   5. The dir of ban_file_path is writable
 //   6. If challenge_html_path is set, the file is readable
 //   7. honeypot ban_duration / cookie_days are sensible
@@ -20,13 +20,16 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -114,29 +117,26 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	// 4. GeoIP mmdb (= optional)
-	if s.GeoIP.MMDBPath == "" && s.GeoIP.MMDBASNPath == "" {
-		addWarn("GeoIP mmdb", "not set (= no per-country chart / ASN popover)")
+	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
+	// (WARN at 35+ day age — DB-IP publishes monthly so anything older
+	// indicates a missed cron run) and surface vendor / build date.
+	if s.IPGeo.MMDBPath == "" && s.IPGeo.MMDBASNPath == "" {
+		addWarn("IP-geo mmdb", "not set (= no per-country chart / ASN popover); run `unmask-admin install-ipgeo` to fetch DB-IP Lite (CC BY 4.0)")
 	} else {
-		r := geoip.Open(s.GeoIP.MMDBPath, s.GeoIP.MMDBASNPath)
-		if s.GeoIP.MMDBPath != "" {
-			if _, err := os.Stat(s.GeoIP.MMDBPath); err != nil {
-				addErr("GeoIP city mmdb", err.Error())
-			} else {
-				addOK("GeoIP city mmdb", s.GeoIP.MMDBPath)
-			}
-		}
-		if s.GeoIP.MMDBASNPath != "" {
-			if _, err := os.Stat(s.GeoIP.MMDBASNPath); err != nil {
-				addErr("GeoIP ASN mmdb", err.Error())
-			} else {
-				addOK("GeoIP ASN mmdb", s.GeoIP.MMDBASNPath)
-			}
+		r := ipgeo.Open(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath)
+		checkMMDBPath("IP-geo city mmdb", s.IPGeo.MMDBPath, addOK, addWarn, addErr)
+		if s.IPGeo.MMDBASNPath != "" {
+			checkMMDBPath("IP-geo ASN mmdb", s.IPGeo.MMDBASNPath, addOK, addWarn, addErr)
 		}
 		if r != nil {
 			r.Close()
 		}
 	}
+
+	// 4.5. Geo rule sanity: every rule's country must be a known ISO code
+	// (= ipgeo master).  Catches typos like "JA" instead of "JP" silently
+	// neutralizing a rule.
+	checkGeoRules(s, addOK, addWarn)
 
 	// 5. ban file directory writable
 	if p := s.Nginx.Honeypot.BanFilePath; p != "" {
@@ -200,7 +200,125 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
+	// 11. runtime SLO self-curl (= measure /unmask/healthz round-trip latency
+	// + error rate on the configured admin bind).  When admin is not running,
+	// produces a single WARN and skips.  When running, fires 30 sequential
+	// curls and reports p50 / p95 / max latency.
+	runSLOCheck(s, addOK, addWarn, addErr)
+
 	return printSummary(checks)
+}
+
+// runSLOCheck probes the locally-configured admin bind with N HTTP GETs to
+// /unmask/healthz and classifies the result:
+//   - admin not running (= connect refused on first probe)  -> WARN, skip
+//   - some probes fail                                       -> ERR (flaky)
+//   - all probes succeed but p95 > 100ms                     -> WARN
+//   - all probes succeed and p95 <= 100ms                    -> OK
+//
+// The dialer auto-detects TCP (= host:port) vs unix socket (= unix:/path or
+// the "/" prefix on socket-style binds).
+func runSLOCheck(s settings.Settings,
+	addOK, addWarn, addErr func(string, string)) {
+	const samples = 30
+	const slowP95 = 100 * time.Millisecond
+
+	url, dialer := sloTarget(s.Server)
+	if url == "" {
+		addWarn("SLO self-curl", "could not derive target URL from server.bind")
+		return
+	}
+	client := &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: &http.Transport{DialContext: dialer},
+	}
+
+	// Quick probe: classify "admin not running" cleanly.
+	if _, err := client.Get(url); err != nil {
+		var ne *net.OpError
+		if errors.As(err, &ne) && (strings.Contains(err.Error(), "refused") ||
+			strings.Contains(err.Error(), "no such file") ||
+			strings.Contains(err.Error(), "permission denied")) {
+			addWarn("SLO self-curl", "admin not running (or unreachable on "+url+") — skipped")
+			return
+		}
+		// other error -> still try the full run; one transient failure is
+		// expected to be visible in the percentile output.
+	}
+
+	latencies := make([]time.Duration, 0, samples)
+	failures := 0
+	for i := 0; i < samples; i++ {
+		t0 := time.Now()
+		resp, err := client.Get(url)
+		dur := time.Since(t0)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			failures++
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+		resp.Body.Close()
+		latencies = append(latencies, dur)
+	}
+	if failures > 0 {
+		addErr("SLO self-curl",
+			fmt.Sprintf("%d/%d failures hitting %s/unmask/healthz", failures, samples, url))
+		if len(latencies) == 0 {
+			return
+		}
+	}
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	p50 := latencies[len(latencies)/2]
+	p95 := latencies[len(latencies)*95/100]
+	maxLat := latencies[len(latencies)-1]
+	fmtMs := func(d time.Duration) string { return fmt.Sprintf("%.1fms", float64(d.Microseconds())/1000.0) }
+
+	if p95 > slowP95 {
+		addWarn("SLO self-curl",
+			fmt.Sprintf("p50=%s p95=%s max=%s (= p95 > %s; check admin load / I/O wait)",
+				fmtMs(p50), fmtMs(p95), fmtMs(maxLat), fmtMs(slowP95)))
+		return
+	}
+	addOK("SLO self-curl",
+		fmt.Sprintf("/unmask/healthz × %d samples: p50=%s p95=%s max=%s",
+			len(latencies), fmtMs(p50), fmtMs(p95), fmtMs(maxLat)))
+}
+
+// sloTarget returns (urlForGet, customDialer) for the admin's configured
+// bind.  TCP binds produce a normal http://host:port URL with default dialer;
+// unix-socket binds produce a placeholder http://unmask.local URL plus a
+// dialer that always connects to the socket.
+func sloTarget(server settings.Server) (string, func(ctx context.Context, network, addr string) (net.Conn, error)) {
+	bind := strings.TrimSpace(server.Bind)
+	port := server.Port
+	base := strings.TrimSpace(server.BasePath)
+	if base == "" {
+		base = "/unmask"
+	}
+	// Unix-socket bind formats accepted: "unix:/path" or "/path".
+	socket := ""
+	if strings.HasPrefix(bind, "unix:") {
+		socket = strings.TrimPrefix(bind, "unix:")
+	} else if strings.HasPrefix(bind, "/") {
+		socket = bind
+	}
+	if socket != "" {
+		dialer := func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", socket)
+		}
+		return "http://unmask.local" + base + "/healthz", dialer
+	}
+	// TCP form.  Empty bind means "0.0.0.0"; for the self-curl we hit 127.0.0.1.
+	host := bind
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	if port <= 0 {
+		port = 9477
+	}
+	return fmt.Sprintf("http://%s:%d%s/healthz", host, port, base), nil
 }
 
 func writableDir(p string) error {
@@ -263,4 +381,70 @@ func printSummary(checks []doctorCheck) error {
 		return fmt.Errorf("doctor: %d errors", errCount)
 	}
 	return nil
+}
+
+// checkMMDBPath inspects one mmdb file and reports vendor / build / age.
+// Empty path is a no-op (= caller has filtered already).
+func checkMMDBPath(title, path string,
+	addOK, addWarn, addErr func(t, m string)) {
+	if path == "" {
+		return
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			addWarn(title, path+" missing — run `unmask-admin install-ipgeo` to fetch DB-IP Lite")
+		} else {
+			addErr(title, err.Error())
+		}
+		return
+	}
+	_ = st
+	info, ierr := ipgeo.InspectMMDB(path)
+	if ierr != nil {
+		// File exists but not valid mmdb (= corrupt or wrong format).
+		addErr(title, path+" exists but is not a valid mmdb: "+ierr.Error())
+		return
+	}
+	msg := path
+	if info.Vendor != "" {
+		msg += " (" + info.Vendor
+		if info.DatabaseType != "" {
+			msg += " · " + info.DatabaseType
+		}
+		msg += ")"
+	}
+	if !info.BuildTime.IsZero() {
+		ageDays := int(time.Since(info.BuildTime).Hours() / 24)
+		msg += fmt.Sprintf(" · build %s (%d days old)", info.BuildTime.Format("2006-01-02"), ageDays)
+		if ageDays > 35 {
+			// DB-IP publishes monthly; > 35 days = missed refresh.
+			addWarn(title, msg+" — stale; run `unmask-admin install-ipgeo` (cron)")
+			return
+		}
+	}
+	addOK(title, msg)
+}
+
+// checkGeoRules validates that every Nginx.Geo.Rules entry uses an ISO
+// 3166-1 alpha-2 code from the master list.  Unknown codes silently
+// neutralize the rule (LookupRule never matches), so we surface them as
+// WARN with a fix hint.
+func checkGeoRules(s settings.Settings,
+	addOK, addWarn func(t, m string)) {
+	rules := s.Nginx.Geo.Rules
+	if len(rules) == 0 {
+		return
+	}
+	var unknown []string
+	for _, r := range rules {
+		if !ipgeo.IsValidCountry(r.Country) {
+			unknown = append(unknown, r.Country)
+		}
+	}
+	if len(unknown) > 0 {
+		addWarn("Geo rules", fmt.Sprintf("unknown country code(s): %s — these rules are silently inactive", strings.Join(unknown, ", ")))
+		return
+	}
+	addOK("Geo rules", fmt.Sprintf("%d rule(s), all country codes valid", len(rules)))
 }

@@ -15,9 +15,10 @@
  *   b (12 chars): SHA256(sorted hex cipher list)[:12]
  *   c (12 chars): SHA256(sorted hex extensions, then signature_algorithms appended)[:12]
  *
- * BV cookie format: "<day>.<sig>.<kind>"
- *   day  = floor(unix / 86400) as decimal string
- *   sig  = HMAC-SHA1("<day>:<remote_addr>:<kind>", BV_SECRET) hex[:16]
+ * BV cookie format: "<issued_unix>.<sig>.<kind>"
+ *   issued_unix = decimal unix seconds, supplied by the admin at issuance
+ *                 (= server clock; clients never compute it themselves)
+ *   sig         = HMAC-SHA1("<issued_unix>:<remote_addr>:<kind>", BV_SECRET) hex[:16]
  *   kind = "captcha" (default site) or "captcha-<site>" (multi-site)
  *
  * Site binding: if the nginx variable $unmask_site is set on the request,
@@ -30,7 +31,8 @@
  *
  * Configuration:
  *   unmask_bv_secret <secret>;        # HTTP main scope. shared with admin app.
- *   unmask_bv_valid_days <int>;       # default 3
+ *   unmask_bv_pow_valid_seconds <int>;      # PoW-issued cookies (default 259200 = 3d)
+ *   unmask_bv_captcha_valid_seconds <int>;  # CAPTCHA-issued cookies (default 259200 = 3d)
  *   unmask_ban_file <path>;           # honeypot ban list (= "<ip>|<ja4>" per line)
  */
 
@@ -66,7 +68,14 @@ static int ngx_http_ja4_ssl_ex_data_idx = -1;
 /* Per-http main config: shared BV secret for $unmask_bv_valid */
 typedef struct {
     ngx_str_t   bv_secret;
-    ngx_int_t   bv_valid_days;
+    /* Validity window in SECONDS applied to PoW-issued cookies (= 4-segment
+     * "pow2" format).  Default 259200 (= 3 days).  Set via
+     * unmask_bv_pow_valid_seconds. */
+    ngx_int_t   bv_pow_valid_seconds;
+    /* Validity window in SECONDS applied to CAPTCHA-issued cookies
+     * (= 3-segment HMAC format).  Default 259200 (= 3 days).  Set via
+     * unmask_bv_captcha_valid_seconds. */
+    ngx_int_t   bv_captcha_valid_seconds;
     /* Target leading-zero bits for SHA-256 PoW. Must match challenge.js
      * and the Go cookies package.  Default 18.  Override via the
      * unmask_bv_pow_difficulty directive. */
@@ -110,11 +119,17 @@ static ngx_command_t ngx_http_ja4_commands[] = {
       NGX_HTTP_MAIN_CONF_OFFSET,
       offsetof(ngx_http_ja4_main_conf_t, bv_secret),
       NULL },
-    { ngx_string("unmask_bv_valid_days"),
+    { ngx_string("unmask_bv_pow_valid_seconds"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, bv_valid_days),
+      offsetof(ngx_http_ja4_main_conf_t, bv_pow_valid_seconds),
+      NULL },
+    { ngx_string("unmask_bv_captcha_valid_seconds"),
+      NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
+      ngx_conf_set_num_slot,
+      NGX_HTTP_MAIN_CONF_OFFSET,
+      offsetof(ngx_http_ja4_main_conf_t, bv_captcha_valid_seconds),
       NULL },
     { ngx_string("unmask_bv_pow_difficulty"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
@@ -464,7 +479,8 @@ ngx_http_ja4_create_main_conf(ngx_conf_t *cf)
     ngx_http_ja4_main_conf_t *cnf =
         ngx_pcalloc(cf->pool, sizeof(ngx_http_ja4_main_conf_t));
     if (cnf == NULL) return NULL;
-    cnf->bv_valid_days = NGX_CONF_UNSET;
+    cnf->bv_pow_valid_seconds = NGX_CONF_UNSET;
+    cnf->bv_captcha_valid_seconds = NGX_CONF_UNSET;
     cnf->bv_pow_difficulty = NGX_CONF_UNSET;
     /* bv_secret left zero-init: empty ngx_str_t */
     return cnf;
@@ -474,8 +490,11 @@ static char *
 ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
 {
     ngx_http_ja4_main_conf_t *cnf = conf;
-    if (cnf->bv_valid_days == NGX_CONF_UNSET) {
-        cnf->bv_valid_days = 3;
+    if (cnf->bv_pow_valid_seconds == NGX_CONF_UNSET) {
+        cnf->bv_pow_valid_seconds = 86400 * 3;
+    }
+    if (cnf->bv_captcha_valid_seconds == NGX_CONF_UNSET) {
+        cnf->bv_captcha_valid_seconds = 86400 * 3;
     }
     if (cnf->bv_pow_difficulty == NGX_CONF_UNSET
         || cnf->bv_pow_difficulty < 8 || cnf->bv_pow_difficulty > 24) {
@@ -483,6 +502,11 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
     }
     return NGX_CONF_OK;
 }
+
+/* Forward skew tolerance: a cookie whose issued_unix is up to this many
+ * seconds ahead of ngx_time() is still accepted (= small clock drift between
+ * the admin host that minted the cookie and the nginx host verifying it). */
+#define UNMASK_BV_FUTURE_SKEW_SECONDS 60
 
 /* ----------------------------------------------------------------------
  * $unmask_bv_valid: parse _bv cookie and verify HMAC-SHA1 signature.
@@ -506,23 +530,6 @@ ngx_unmask_atoll(const u_char *s, size_t n)
         v = v * 10 + (s[i] - '0');
     }
     return v;
-}
-
-/* Find _bv cookie value. Sets `out` to the value bytes (within r pool space)
- * and returns NGX_OK; returns NGX_DECLINED if not present. */
-static ngx_int_t
-ngx_unmask_get_bv_cookie(ngx_http_request_t *r, ngx_str_t *out)
-{
-    static ngx_str_t name = ngx_string("_bv");
-#if (nginx_version >= 1023000)
-    ngx_table_elt_t *elt = ngx_http_parse_multi_header_lines(r, r->headers_in.cookie, &name, out);
-    if (elt == NULL) return NGX_DECLINED;
-#else
-    if (ngx_http_parse_multi_header_lines(&r->headers_in.cookies, &name, out) == NGX_DECLINED) {
-        return NGX_DECLINED;
-    }
-#endif
-    return NGX_OK;
 }
 
 /* hex-encode a byte buffer into `dst` (must be 2*n bytes). */
@@ -605,35 +612,36 @@ ngx_unmask_base36_fmt(int64_t v, char *buf)
     return n;
 }
 
-/* verify_pow_cookie: validate a 4-segment "day.sig.target.flags" via djb2.
- *   seed = "<day_dec>_unmask_<target_dec>"
+/* verify_pow_cookie: validate a 4-segment "<issued_unix>.sig.target.flags"
+ * via djb2.
+ *   seed = "<issued_unix>_unmask_<target_dec>"
  *   proof = abs(djb2(seed))
  *   expected_sig = base36(proof)
  * Bit-identical logic to challenge.js (= client) and Go cookies.verifyPoW.
- * Returns 1 if valid, 0 otherwise.  bv_valid_days bounds the look-back. */
+ * Returns 1 if valid, 0 otherwise.  valid_seconds bounds the look-back. */
 static int
 ngx_unmask_verify_pow_cookie(const u_char *day_s, size_t day_n,
                              const u_char *sig_s, size_t sig_n,
                              const u_char *tgt_s, size_t tgt_n,
-                             int valid_days)
+                             int valid_seconds)
 {
     if (sig_n == 0 || sig_n > 13) return 0;
     if (tgt_n == 0 || tgt_n > 8)  return 0;
 
-    int64_t cookie_day = ngx_unmask_atoll(day_s, day_n);
-    if (cookie_day < 0) return 0;
-    int64_t today = (int64_t)(ngx_time() / 86400);
-    if (cookie_day > today) return 0;
-    if (today - cookie_day > (int64_t)valid_days) return 0;
+    int64_t cookie_unix = ngx_unmask_atoll(day_s, day_n);
+    if (cookie_unix < 0) return 0;
+    int64_t now = (int64_t)ngx_time();
+    if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
+    if (now - cookie_unix > (int64_t)valid_seconds) return 0;
 
     int64_t target = ngx_unmask_base36(tgt_s, tgt_n);
     if (target < 0) return 0;
 
-    /* seed = "<day>_unmask_<target>".  Max length = 19 + 8 + 13 + 1 = 41.
+    /* seed = "<issued_unix>_unmask_<target>".  Max length = 19 + 8 + 13 + 1 = 41.
      * 80-byte buffer leaves comfortable margin. */
     char seed[80];
     int slen = snprintf(seed, sizeof(seed), "%lld_unmask_%lld",
-                        (long long)cookie_day, (long long)target);
+                        (long long)cookie_unix, (long long)target);
     if (slen <= 0 || slen >= (int)sizeof(seed)) return 0;
 
     int32_t h = ngx_unmask_djb2((const u_char *)seed, (size_t)slen);
@@ -670,8 +678,8 @@ ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
 }
 
 /* verify_pow_sha256_cookie: v0.1+ SHA-256 hashcash format.
- *   format: "<day>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker already detected)
- *   seed   = "<day_dec>_unmask"
+ *   format: "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker already detected)
+ *   seed   = "<issued_unix>_unmask"
  *   input  = seed + ":" + nonce_dec
  *   valid  = leading-zero-bits of SHA-256(input) >= difficulty
  * Bit-identical logic to challenge.js and Go cookies.verifyPowSHA256.
@@ -679,25 +687,25 @@ ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
 static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                                     const u_char *nonce_s, size_t nonce_n,
-                                    int valid_days, int difficulty)
+                                    int valid_seconds, int difficulty)
 {
     if (nonce_n == 0 || nonce_n > 13) return 0;
     if (difficulty < 8 || difficulty > 32) difficulty = 18;
 
-    int64_t cookie_day = ngx_unmask_atoll(day_s, day_n);
-    if (cookie_day < 0) return 0;
-    int64_t today = (int64_t)(ngx_time() / 86400);
-    if (cookie_day > today) return 0;
-    if (today - cookie_day > (int64_t)valid_days) return 0;
+    int64_t cookie_unix = ngx_unmask_atoll(day_s, day_n);
+    if (cookie_unix < 0) return 0;
+    int64_t now = (int64_t)ngx_time();
+    if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
+    if (now - cookie_unix > (int64_t)valid_seconds) return 0;
 
     int64_t nonce = ngx_unmask_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
 
-    /* input = "<day>_unmask:<nonce>".  Max = 19 + 8 + 1 + 19 + 1 = 48.
+    /* input = "<issued_unix>_unmask:<nonce>".  Max = 19 + 8 + 1 + 19 + 1 = 48.
      * 80-byte buffer is generous. */
     char input[80];
     int ilen = snprintf(input, sizeof(input), "%lld_unmask:%lld",
-                        (long long)cookie_day, (long long)nonce);
+                        (long long)cookie_unix, (long long)nonce);
     if (ilen <= 0 || ilen >= (int)sizeof(input)) return 0;
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -721,20 +729,59 @@ typedef enum {
     UNMASK_BV_KIND_POW     = 2,
 } ngx_unmask_bv_kind_t;
 
-static ngx_unmask_bv_kind_t
-ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
+/* Yield the next `_bv=value` pair in `header` starting at `*off`.  Used by
+ * bv_kind_compute to iterate duplicate cookies — `ngx_http_parse_multi_header_lines`
+ * only returns the first match, so a stale invalid `_bv` (= old cookie at a
+ * different path shadowing the freshly-set one) would otherwise wedge the
+ * caller into an endless challenge loop. */
+static int
+ngx_unmask_next_bv_value(ngx_str_t header, size_t *off, ngx_str_t *value)
 {
-    ngx_http_ja4_main_conf_t *mcf =
-        ngx_http_get_module_main_conf(r, ngx_http_unmask_module);
-    if (mcf == NULL || mcf->bv_secret.len == 0) {
-        return UNMASK_BV_KIND_NONE;
-    }
+    static const char NAME[] = "_bv";
+    const size_t name_len = sizeof(NAME) - 1;
 
-    /* Read cookie. */
-    ngx_str_t cookie;
-    if (ngx_unmask_get_bv_cookie(r, &cookie) != NGX_OK) {
-        return UNMASK_BV_KIND_NONE;
+    while (*off < header.len) {
+        /* Skip ' ', '\t', ';' separators between cookie pairs. */
+        while (*off < header.len &&
+               (header.data[*off] == ' ' || header.data[*off] == '\t' ||
+                header.data[*off] == ';')) {
+            (*off)++;
+        }
+        if (*off >= header.len) return 0;
+
+        size_t name_start = *off;
+        while (*off < header.len &&
+               header.data[*off] != '=' && header.data[*off] != ';') {
+            (*off)++;
+        }
+        size_t name_end = *off;
+        int matched = (name_end - name_start == name_len) &&
+            (ngx_strncmp(header.data + name_start, NAME, name_len) == 0);
+
+        if (*off < header.len && header.data[*off] == '=') {
+            (*off)++;
+            size_t val_start = *off;
+            while (*off < header.len && header.data[*off] != ';') (*off)++;
+            size_t val_end = *off;
+            if (matched) {
+                value->data = header.data + val_start;
+                value->len = val_end - val_start;
+                return 1;
+            }
+        }
+        /* No '=' (= bare name) or non-match: continue past ';'. */
     }
+    return 0;
+}
+
+/* Verify a single `_bv` cookie value.  Returns the cookie kind on success
+ * (POW / CAPTCHA) or NONE on parse / verify failure.  Called once per
+ * candidate cookie by bv_kind_compute. */
+static ngx_unmask_bv_kind_t
+ngx_unmask_bv_verify_one(ngx_http_request_t *r,
+                         ngx_http_ja4_main_conf_t *mcf,
+                         ngx_str_t cookie)
+{
     if (cookie.len < 4 || cookie.len > 80) {
         return UNMASK_BV_KIND_NONE;
     }
@@ -762,8 +809,8 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
         if (sig_n == 0 || sig_n > 13) return UNMASK_BV_KIND_NONE;
         if (tgt_n == 0 || tgt_n > 13) return UNMASK_BV_KIND_NONE;
 
-        int valid_days = (mcf->bv_valid_days > 0)
-            ? (int)mcf->bv_valid_days : 3;
+        int valid_seconds = (mcf->bv_pow_valid_seconds > 0)
+            ? (int)mcf->bv_pow_valid_seconds : 86400 * 3;
 
         /* SHA-256 path detection: parts[1] == "pow2" (= 4 bytes) */
         if (sig_n == 4
@@ -773,7 +820,7 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
             if (ngx_unmask_verify_pow_sha256_cookie(
                     cookie.data, day_n,
                     dot2 + 1, tgt_n,
-                    valid_days, difficulty) == 1) {
+                    valid_seconds, difficulty) == 1) {
                 return UNMASK_BV_KIND_POW;
             }
             return UNMASK_BV_KIND_NONE;
@@ -784,7 +831,7 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
                 cookie.data, day_n,
                 dot1 + 1, sig_n,
                 dot2 + 1, tgt_n,
-                valid_days) == 1) {
+                valid_seconds) == 1) {
             return UNMASK_BV_KIND_POW;
         }
         return UNMASK_BV_KIND_NONE;
@@ -798,8 +845,8 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
     if (sig_len != 16) return UNMASK_BV_KIND_NONE;
     if (kind_len == 0 || kind_len > 32) return UNMASK_BV_KIND_NONE;
 
-    int64_t cookie_day = ngx_unmask_atoll(cookie.data, day_len);
-    if (cookie_day < 0) return NGX_OK;
+    int64_t cookie_unix = ngx_unmask_atoll(cookie.data, day_len);
+    if (cookie_unix < 0) return NGX_OK;
 
     /* Site binding check: if nginx exposes $unmask_site for this request,
      * the cookie kind must match the expected form.  This blocks
@@ -832,10 +879,12 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
         }
     }
 
-    /* Validity window. */
-    int64_t today = (int64_t)(ngx_time() / 86400);
-    if (cookie_day > today) return UNMASK_BV_KIND_NONE;
-    if (today - cookie_day > mcf->bv_valid_days) return UNMASK_BV_KIND_NONE;
+    /* Validity window in seconds.  Small forward tolerance absorbs clock
+     * drift between the admin host that issued the cookie and this nginx
+     * host. */
+    int64_t now = (int64_t)ngx_time();
+    if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return UNMASK_BV_KIND_NONE;
+    if (now - cookie_unix > mcf->bv_captcha_valid_seconds) return UNMASK_BV_KIND_NONE;
 
     /* Read remote_addr.  After realip module application this is the
      * actual client IP even behind an upstream LB / proxy (= matches
@@ -872,6 +921,52 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
     /* Compare first 16 hex chars (= 8 bytes of mac, but we compare hex). */
     if (ngx_unmask_ct_memcmp(expected, dot1 + 1, 16) == 0) {
         return UNMASK_BV_KIND_CAPTCHA;
+    }
+    return UNMASK_BV_KIND_NONE;
+}
+
+/* Iterate every `_bv=...` pair the client sent (= across all Cookie header
+ * lines).  Returns the first kind that verifies; NONE if none do.  The
+ * iteration matters because browsers can carry multiple `_bv` cookies at
+ * once (= stale entry at a different path / domain alongside the
+ * freshly-set one), and stopping at the first match would lock such
+ * visitors into a permanent challenge loop. */
+static ngx_unmask_bv_kind_t
+ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
+{
+    ngx_http_ja4_main_conf_t *mcf =
+        ngx_http_get_module_main_conf(r, ngx_http_unmask_module);
+    if (mcf == NULL || mcf->bv_secret.len == 0) {
+        return UNMASK_BV_KIND_NONE;
+    }
+
+#if (nginx_version >= 1023000)
+    ngx_table_elt_t *elt = r->headers_in.cookie;
+#else
+    ngx_table_elt_t **cookie_elts = r->headers_in.cookies.elts;
+    ngx_uint_t cookie_nelts = r->headers_in.cookies.nelts;
+    ngx_uint_t cookie_idx = 0;
+#endif
+
+    for (;;) {
+        ngx_str_t header;
+#if (nginx_version >= 1023000)
+        if (elt == NULL) break;
+        header = elt->value;
+        elt = elt->next;
+#else
+        if (cookie_idx >= cookie_nelts) break;
+        header = cookie_elts[cookie_idx]->value;
+        cookie_idx++;
+#endif
+        size_t off = 0;
+        ngx_str_t cookie;
+        while (ngx_unmask_next_bv_value(header, &off, &cookie)) {
+            ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, cookie);
+            if (k != UNMASK_BV_KIND_NONE) {
+                return k;
+            }
+        }
     }
     return UNMASK_BV_KIND_NONE;
 }

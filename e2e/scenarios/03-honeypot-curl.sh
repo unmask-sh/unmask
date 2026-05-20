@@ -1,10 +1,11 @@
 #!/bin/bash
-# 03: a curl UA hitting /wp-login.php passes through (= no challenge).
+# 03: a curl UA hitting /wp-login.php is challenged the same as a browser UA.
 #
-# By design, UAs that don't claim to be a known browser (= curl/python-requests/etc)
-# never receive a challenge.  Even honeypot paths return 200 (= rate-limit is the
-# blocking mechanism for those flows).  This achieves "let honest bots through silently,
-# only challenge fake-browser UAs".
+# Honeypot paths fire for every UA (= $serve_bot_challenge=1 in the
+# final_challenge map regardless of $is_known_browser).  curl in particular
+# is also in the UA-filter blacklist (= upstream rescue "http-library"
+# preset → $is_challenge_target=1), so we'd reach the same 403 even without
+# the honeypot trip.
 
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -12,4 +13,4 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/assert.sh"
 
 code=$(http_get /wp-login.php -A "$UA_CURL")
-assert_eq 200 "$code" "GET /wp-login.php (= curl UA, honeypot but unknown-browser) returns 200"
+assert_eq 403 "$code" "GET /wp-login.php (= curl UA + honeypot) returns 403"

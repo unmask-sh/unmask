@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -171,8 +172,18 @@ type renderData struct {
 	Version        string
 	OutputDir      string
 	BVSecret       string
-	BVValidDays    int
-	PowDifficulty  int
+	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
+	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
+	PowDifficulty         int
+	// Resolved Global-axis actions for the no-match fallback in the
+	// final_challenge nginx map.  fall-back ladder is KnownBrowserAction →
+	// DefaultAction → "pow_only" (= the same chain handlers.go uses when
+	// rendering chMode for the challenge HTML).  Values are exactly the
+	// settings enum ("pass" / "pow_only" / "pow_then_captcha" /
+	// "captcha_only" / "deny").  nginx side only cares whether they are
+	// "pass" or not; the actual chain choice happens admin-side.
+	KnownBrowserAction string
+	UnknownUAAction    string
 	UpstreamAddr   string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
@@ -206,6 +217,30 @@ type renderData struct {
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
+	// RateLimitKeyExpr: nginx variable expression for the limit_req zone key.
+	//   "ip"     -> "$binary_remote_addr"
+	//   "ja4"    -> "$effective_ja4"
+	//   "ip+ja4" -> "$binary_remote_addr$effective_ja4"
+	// Empty Key falls back to "ip" (= back-compat with pre-existing installs).
+	RateLimitKeyExpr string
+
+	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
+	// resolving to one of the operator-registered Geo rule countries.
+	// Embedded into a `geo $remote_addr $unmask_country { ... }` block in
+	// http.inc so the native nginx plugin path picks up country without
+	// needing libmaxminddb.  $remote_addr (not $binary_remote_addr) is used
+	// so real_ip rewrites (= set_real_ip_from + X-Forwarded-For) apply.
+	// Empty when no Geo rules exist or the mmdb is missing — the geo block
+	// then degrades to default "" and the action map's default "skip"
+	// carries the request through unchanged.
+	GeoCIDRs string
+	// GeoRules: pre-resolved per-country actions for the $unmask_geo_action
+	// map.  One entry per rule.Enabled.  Action falls back to ResolvedDefault
+	// when the rule's own Action is empty.
+	GeoRules []GeoRuleRender
+	// GeoDefaultAction: action applied to countries NOT in GeoRules (= the
+	// long-tail of unlisted countries).  Mirrors settings.Geo.DefaultAction.
+	GeoDefaultAction string
 
 	// SharedFeed: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
@@ -222,14 +257,23 @@ type RateZoneRender struct {
 	Burst          int
 }
 
+// GeoRuleRender: one entry of the $unmask_geo_action map.
+type GeoRuleRender struct {
+	Country string // ISO 3166-1 alpha-2 uppercase
+	Action  string // resolved action (= rule.Action || geo.DefaultAction)
+}
+
 func buildRenderData(s settings.Settings, outDir, version string) (renderData, error) {
 	d := renderData{
 		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
 		Version:         version,
 		OutputDir:       outDir,
 		BVSecret:        s.Secret.BVSecret,
-		BVValidDays:     s.Challenge.CookieValidDaysCeil(),
-		PowDifficulty:   s.Challenge.ResolvedPowDifficulty(),
+		BVPowValidSeconds:     s.Challenge.PowCookieValidSecondsResolved(),
+		BVCaptchaValidSeconds: s.Challenge.CaptchaCookieValidSecondsResolved(),
+		PowDifficulty:         s.Challenge.ResolvedPowDifficulty(),
+		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction, s.Global.DefaultAction),
+		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction, s.Global.DefaultAction),
 		UpstreamAddr:    defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
 		UpstreamServer:  buildUpstreamServer(s),
 		BypassIPs:       mergeBypassIPs(s),
@@ -487,6 +531,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	})
 	d.DefaultRateZoneName = defaultName
 	d.DefaultRateZoneBurst = defaultBurst
+	switch s.RateLimit.ResolvedKey() {
+	case settings.RateLimitKeyJA4:
+		d.RateLimitKeyExpr = "$effective_ja4"
+	case settings.RateLimitKeyIPAndJA4:
+		d.RateLimitKeyExpr = "$binary_remote_addr$effective_ja4"
+	default:
+		d.RateLimitKeyExpr = "$binary_remote_addr"
+	}
 	zoneNamesSeen := map[string]bool{defaultName: true}
 	for _, z := range s.RateLimit.Zones {
 		name := strings.TrimSpace(z.Name)
@@ -507,6 +559,46 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			RequestsPerMin: rpm,
 			Burst:          burst,
 		})
+	}
+
+	// Geo (native mode): walk the mmdb once at render time to materialise a
+	// `geo $binary_remote_addr $unmask_country { ... }` block listing only
+	// the CIDRs of countries the operator has rules for.  The plugin can
+	// then route on $unmask_country without needing libmaxminddb.
+	// auth_request mode keeps doing live lookups via the admin /authcheck
+	// handler so behavior matches across the two modes.
+	d.GeoDefaultAction = s.Nginx.Geo.ResolvedDefaultAction()
+	geoCountrySet := map[string]bool{}
+	for _, r := range s.Nginx.Geo.Rules {
+		if !r.Enabled {
+			continue
+		}
+		cc := strings.ToUpper(strings.TrimSpace(r.Country))
+		if cc == "" || geoCountrySet[cc] {
+			continue
+		}
+		geoCountrySet[cc] = true
+		action := strings.TrimSpace(r.Action)
+		if action == "" {
+			action = d.GeoDefaultAction
+		}
+		if !settings.IsValidGeoAction(action) {
+			action = settings.GeoActionSkip
+		}
+		d.GeoRules = append(d.GeoRules, GeoRuleRender{Country: cc, Action: action})
+	}
+	sort.Slice(d.GeoRules, func(i, j int) bool { return d.GeoRules[i].Country < d.GeoRules[j].Country })
+	if len(d.GeoRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
+		codes := make([]string, 0, len(d.GeoRules))
+		for _, g := range d.GeoRules {
+			codes = append(codes, g.Country)
+		}
+		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, codes); err == nil {
+			d.GeoCIDRs = cidrs
+		}
+		// On error: silently leave GeoCIDRs empty.  The geo block then
+		// degrades to default "" → action map default action.  Operators
+		// see the WARN in `unmask-admin doctor` (= mmdb path check).
 	}
 
 	// SharedFeed: render the 3 maps only when subscribe is ON.
@@ -655,6 +747,21 @@ func sanitizeIPs(xs []string) []string {
 // directive.  Regex metacharacters (= including backslashes) are
 // allowed so that legitimate regexes like /wp-login\.php /
 // ^/admin\.php aren't rejected.
+// resolveGlobalAction: same fallback ladder handlers.go uses when picking
+// the chain for the "no-match" path: per-axis setting → DefaultAction →
+// "pow_only" as the strict default.  Returned verbatim into http.inc so
+// nginx can decide whether to challenge ($action != "pass") without
+// duplicating the resolution table.
+func resolveGlobalAction(axis, fallback string) string {
+	if axis != "" {
+		return axis
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return "pow_only"
+}
+
 var controlChars = regexp.MustCompile(`[\x00-\x1f"]`)
 
 func trimSpaceAndQuotes(s string) string {

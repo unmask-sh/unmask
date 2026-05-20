@@ -57,7 +57,13 @@ func (c Category) String() string {
 	return "unknown"
 }
 
-// JSON tag → internal category
+// JSON tag → internal category.  Tags that DefaultGroupMode treats as
+// `black` (= scanner / http-library / browser-automation) deliberately do
+// NOT map into "search_ai" — otherwise IsBot would short-circuit to
+// SearchAI ("pass") for curl / Selenium / nmap, while the nginx render
+// puts the same UAs into $is_challenge_target.  Keeping them in
+// `service` lets AuthCheck fall through to lookupUAListed where the
+// per-axis ResolveGroupMode decides "challenge" symmetrically with nginx.
 var tagCategory = map[string]string{
 	"search-engine":      "search_ai",
 	"ai-crawler":         "search_ai",
@@ -70,9 +76,11 @@ var tagCategory = map[string]string{
 	"feed-reader":        "search_ai",
 	"archiver":           "search_ai",
 	"academic":           "search_ai",
-	"scanner":            "search_ai",
-	"http-library":       "search_ai",
-	"browser-automation": "search_ai",
+	// Below default to GroupModeBlack via DefaultGroupMode.  Keep them out of
+	// search_ai so the challenge path can reach them via lookupUAListed.
+	"scanner":            "service",
+	"http-library":       "service",
+	"browser-automation": "service",
 }
 
 // Generic patterns not included in the JSON.
@@ -523,4 +531,83 @@ func IsBot(ua, ja4Action string) Category {
 		return Service
 	}
 	return Human
+}
+
+// AICategory: 5-bucket consolidation of upstream crawler-user-agents.json
+// tags used by the dashboard's AI-traffic funnel.  Returns "" when the UA
+// is not an AI / search-bot match.
+//
+// Bucket mapping:
+//
+//	"search"    : search-engine                       (Googlebot, Bingbot)
+//	"training"  : ai-training                         (GPTBot, CCBot, ClaudeBot)
+//	"agent"     : ai-user                             (ChatGPT-User, Claude-Web, DeepResearch)
+//	"scraper"   : ai-crawler                          (generic AI crawlers w/o subdivision)
+//	"collector" : advertising / seo / social-preview /
+//	              feed-reader / archiver / academic / monitoring
+//
+// Built once at init from UpstreamRescueList so subsequent calls are O(1)
+// per pattern check.
+var (
+	aiCategoryPatterns map[string]string // category -> raw regex pattern (= compiled per call... small N)
+	aiCategoryRE       map[string]*regexp.Regexp
+	aiCategoryOnce     sync.Once
+)
+
+func buildAICategoryIndex() {
+	aiCategoryRE = map[string]*regexp.Regexp{}
+	by := UpstreamRescueList()
+	// upstream tag → our bucket
+	tagToBucket := map[string]string{
+		"search-engine":  "search",
+		"ai-training":    "training",
+		"ai-user":        "agent",
+		"ai-crawler":     "scraper",
+		"advertising":    "collector",
+		"seo":            "collector",
+		"social-preview": "collector",
+		"feed-reader":    "collector",
+		"archiver":       "collector",
+		"academic":       "collector",
+		"monitoring":     "collector",
+	}
+	groupedPatterns := map[string][]string{}
+	for cat, list := range by {
+		bucket := tagToBucket[cat]
+		if bucket == "" {
+			continue
+		}
+		for _, ent := range list {
+			groupedPatterns[bucket] = append(groupedPatterns[bucket], ent.Pattern)
+		}
+	}
+	for bucket, pats := range groupedPatterns {
+		if len(pats) == 0 {
+			continue
+		}
+		// Union the patterns with | so a single Regexp does the bucket check
+		// in one pass.  Each pattern is already a regex from the upstream JSON.
+		joined := "(?i)(?:" + strings.Join(pats, ")|(?:") + ")"
+		if re, err := regexp.Compile(joined); err == nil {
+			aiCategoryRE[bucket] = re
+		}
+	}
+}
+
+// AICategory returns one of "search" / "training" / "agent" / "scraper" /
+// "collector" for AI / bot user-agents, or "" for human / unknown / other.
+func AICategory(ua string) string {
+	if ua == "" {
+		return ""
+	}
+	aiCategoryOnce.Do(buildAICategoryIndex)
+	// Order matters when a UA matches multiple buckets (= e.g. ChatGPT-User
+	// could match both "agent" via ai-user and "scraper" via ai-crawler).
+	// Resolve in increasing-generality order: most specific first.
+	for _, bucket := range []string{"agent", "training", "search", "collector", "scraper"} {
+		if re, ok := aiCategoryRE[bucket]; ok && re.MatchString(ua) {
+			return bucket
+		}
+	}
+	return ""
 }

@@ -19,21 +19,35 @@ import (
 type Phase string
 
 const (
-	PhaseServe     Phase = "serve"
-	PhaseLoad      Phase = "load"
-	PhasePoW       Phase = "pow"
-	PhaseCaptcha   Phase = "captcha"
-	PhaseVerifyOK  Phase = "verify_ok"
-	PhaseVerifyNG  Phase = "verify_ng"
-	PhaseError     Phase = "error"
-	PhaseCookieErr Phase = "cookie_err"
-	PhaseCheck     Phase = "check" // single auth_request /api/check hit
+	PhaseServe              Phase = "serve"
+	PhaseLoad               Phase = "load"
+	PhasePoWPass            Phase = "pow_pass"             // multi-step mode: PoW solved, handing off to the next stage (= _bv NOT yet issued; payload.next records the follow-up)
+	PhaseCaptcha            Phase = "captcha"              // CAPTCHA UI displayed (= still unauthenticated)
+	PhaseBVPowOnly          Phase = "bv_pow_only"          // _bv issued via challenge_mode=pow_only
+	PhaseBVCaptchaOnly      Phase = "bv_captcha_only"      // _bv issued via challenge_mode=captcha_only
+	PhaseBVPowThenCaptcha   Phase = "bv_pow_then_captcha"  // _bv issued via challenge_mode=pow_then_captcha
+	PhaseVerifyNG           Phase = "verify_ng"            // /verify rejected (= CAPTCHA failed)
+	PhaseError              Phase = "error"                // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
+	PhaseCookieErr          Phase = "cookie_err"
+	PhaseCheck              Phase = "check" // single auth_request /api/check hit
 )
 
+// allowedPhases gates which beacon phase strings the server accepts on
+// /api/debug.  Authentication-completion phases follow the "bv_" + chMode
+// pattern so adding a new challenge_mode in the future means adding the
+// matching entry here only — no JSON_EXTRACT, no schema churn.
 var allowedPhases = map[string]bool{
-	"serve": true, "load": true, "pow": true, "captcha": true,
-	"verify_ok": true, "verify_ng": true, "error": true, "cookie_err": true,
-	"check": true,
+	"serve":                true,
+	"load":                 true,
+	"pow_pass":             true,
+	"captcha":              true,
+	"bv_pow_only":          true,
+	"bv_captcha_only":      true,
+	"bv_pow_then_captcha":  true,
+	"verify_ng":            true,
+	"error":                true,
+	"cookie_err":           true,
+	"check":                true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }

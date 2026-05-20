@@ -1,6 +1,6 @@
 // /admin/api/myip — returns information about a single IP.
 //
-// rDNS / private-IP classification / IP family / GeoIP (Country/City/ASN, optional).
+// rDNS / private-IP classification / IP family / IP-geo (Country/City/ASN, optional).
 // rDNS is cached in-memory for 10 minutes (= dashboards hit the same IP repeatedly).
 package handlers
 
@@ -110,9 +110,9 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 		resp.Family = "v4"
 	}
 
-	// Skip GeoIP / ASN lookups for loopback / private ranges.
-	if !resp.IsLoopback && !resp.IsPrivate && h.GeoIP != nil {
-		info := h.GeoIP.LookupInfo(ip.String())
+	// Skip IP-geo / ASN lookups for loopback / private ranges.
+	if !resp.IsLoopback && !resp.IsPrivate && h.IPGeo != nil {
+		info := h.IPGeo.LookupInfo(ip.String())
 		resp.Country = info.Country
 		resp.CountryName = info.CountryName
 		resp.City = info.City
@@ -127,7 +127,7 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 	resp.ReverseDNS = names
 	if errs != "" {
 		// An rDNS lookup failure is not a reason to drop the other fields
-		// (= GeoIP / family).  Carry the error in its own field so the JS
+		// (= IP-geo / family).  Carry the error in its own field so the JS
 		// side can render "rDNS: (unavailable)".
 		resp.ReverseDNSError = errs
 	}

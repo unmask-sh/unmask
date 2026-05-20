@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
@@ -49,12 +50,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		log.Printf("overview recent: %v", err)
 	}
 	// IP rendering is unified as "flag + IP + popover" (= same as bans / hunt / dashboard).
-	// Tag each row with the GeoIP-looked-up country code.  Leave empty if GeoIP is not loaded.
+	// Tag each row with the IP-geo-looked-up country code.  Leave empty if IP-geo is not loaded.
 	type recentRow struct {
 		events.Row
 		CountryCode string
 	}
-	geoOK := h.GeoIP != nil && h.GeoIP.Loaded()
+	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
 	ccCache := map[string]string{}
 	recent := make([]recentRow, 0, len(recentRaw))
 	for _, r0 := range recentRaw {
@@ -63,12 +64,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 			if v, ok := ccCache[r0.IP]; ok {
 				cc = v
 			} else {
-				cc = h.GeoIP.LookupInfo(r0.IP).Country
+				cc = h.IPGeo.LookupInfo(r0.IP).Country
 				ccCache[r0.IP] = cc
 			}
 		}
 		recent = append(recent, recentRow{Row: r0, CountryCode: cc})
 	}
+
+	// AI traffic funnel (= last 24h, top of overview).  Five-bucket
+	// consolidation of upstream crawler-user-agents.json tags.  Cheap query
+	// (= one COUNT/UA scan over the past day) so we can run it on every
+	// overview render.
+	aiRows := aiTrafficSummary(ctx, h, 1440, hosts)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
@@ -80,12 +87,83 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIVerify":      kpiVerify,
 		"KPICurrentBans": currentBans,
 		"Recent":         recent,
+		"AITraffic":      aiRows,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
 	if err := tmpl.ExecuteTemplate(w, "overview.html", data); err != nil {
 		log.Printf("overview render: %v", err)
 	}
+}
+
+// AITrafficRow: per-category aggregation for the overview's AI funnel.
+// `Served` counts the challenge-served step, `Passed` counts the terminal
+// `bv_*` (= visitor cleared PoW / CAPTCHA).  `Total` is all phases combined.
+type AITrafficRow struct {
+	Category string // "search" / "training" / "agent" / "scraper" / "collector"
+	Total    int
+	Served   int
+	Passed   int
+}
+
+// aiTrafficSummary groups unmask_event rows of the last `minutes` window into
+// the 5 AI categories defined by classify.AICategory.  Implementation is a
+// single SQL scan that returns (user_agent, phase, count) and the Go side
+// aggregates — keeps the dashboard schema-stable (= no new ai_category
+// column required).  Best-effort on error.
+func aiTrafficSummary(ctx context.Context, h *Handler, minutes int, hosts []string) []AITrafficRow {
+	stmt := `SELECT user_agent, phase, COUNT(*) AS c
+	         FROM unmask_event
+	         WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
+	args := []any{}
+	if len(hosts) > 0 {
+		placeholders := strings.Repeat("?,", len(hosts))
+		placeholders = placeholders[:len(placeholders)-1]
+		stmt += " AND host IN (" + placeholders + ")"
+		for _, hh := range hosts {
+			args = append(args, hh)
+		}
+	}
+	stmt += ` GROUP BY user_agent, phase`
+	rows, err := h.DB.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		log.Printf("aiTrafficSummary: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	// Order matters for stable rendering even with zero rows.
+	order := []string{"search", "training", "agent", "scraper", "collector"}
+	byCat := map[string]*AITrafficRow{}
+	for _, k := range order {
+		byCat[k] = &AITrafficRow{Category: k}
+	}
+	for rows.Next() {
+		var ua, phase string
+		var c int
+		if err := rows.Scan(&ua, &phase, &c); err != nil {
+			continue
+		}
+		cat := classify.AICategory(ua)
+		if cat == "" {
+			continue
+		}
+		r := byCat[cat]
+		if r == nil {
+			continue
+		}
+		r.Total += c
+		switch phase {
+		case "serve":
+			r.Served += c
+		case "bv_pow_only", "bv_captcha_only", "bv_pow_then_captcha":
+			r.Passed += c
+		}
+	}
+	out := make([]AITrafficRow, 0, len(order))
+	for _, k := range order {
+		out = append(out, *byCat[k])
+	}
+	return out
 }
 
 // countEvents: count of unmask_event rows in the last `minutes`.  Empty phase

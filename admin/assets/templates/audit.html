@@ -42,6 +42,16 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
 .act-login_failed{background:#fee2e2;color:#991b1b}
 .act-logout{background:#e2e8f0;color:#334155}
 .act-settings_save,.act-user_create,.act-user_set_role,.act-user_reset_password,.act-user_delete{background:#dbeafe;color:#1e40af}
+.act-settings_snapshot{background:#fef3c7;color:#92400e}
+.diff-toggle{font-size:.75rem;color:#1e40af;text-decoration:underline;cursor:pointer;background:none;border:none;padding:0;font-family:inherit}
+.diff-box{margin-top:.4rem;padding:.5rem .6rem;background:#0f172a;color:#e2e8f0;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;white-space:pre-wrap;max-height:24rem;overflow:auto}
+.diff-box .add{color:#86efac;display:block}
+.diff-box .rem{color:#fca5a5;display:block}
+.restore-form{display:inline;margin-left:.5rem}
+.restore-btn{font-size:.7rem;padding:.15rem .55rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.2rem;cursor:pointer}
+.restore-btn:hover{background:#fde68a}
+.banner-ok{background:#dcfce7;color:#166534;padding:.5rem .8rem;border-radius:.3rem;margin-bottom:.8rem;font-size:.85rem}
+.banner-err{background:#fee2e2;color:#991b1b;padding:.5rem .8rem;border-radius:.3rem;margin-bottom:.8rem;font-size:.85rem}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -80,7 +90,41 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
 <h1>{{ t .Lang "audit.title" }}</h1>
 <p class="meta">{{ t .Lang "audit.subtitle" }}</p>
 
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem">
+
+  <div class="bcd-card" style="margin:0;padding:.8rem 1rem">
+    <div style="display:flex;align-items:baseline;gap:.5rem;margin-bottom:.4rem">
+      <strong style="font-size:.9rem;color:#92400e">📌 {{ t .Lang "audit.snapshot_h" }}</strong>
+      <span class="muted" style="font-size:.72rem">{{ t .Lang "audit.snapshot_sub" }}</span>
+    </div>
+    <p class="muted" style="font-size:.78rem;margin:.2rem 0 .55rem;line-height:1.5">{{ safeHTML (t .Lang "audit.snapshot_desc") }}</p>
+    <form method="post" action="{{ .BasePath }}/admin/settings/snapshot" style="display:flex;gap:.4rem;align-items:center;margin:0"
+          onsubmit="return confirm('{{ t .Lang "settings.snapshot_confirm" }}');">
+      <input type="text" name="name" placeholder="{{ t .Lang "settings.snapshot_name_ph" }}" maxlength="80"
+             style="font-size:.82rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;flex:1">
+      <button type="submit" style="font-size:.82rem;padding:.3rem .9rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem;cursor:pointer;white-space:nowrap">
+        {{ t .Lang "settings.snapshot_take" }}
+      </button>
+    </form>
+  </div>
+
+  <div class="bcd-card" style="margin:0;padding:.8rem 1rem">
+    <div style="display:flex;align-items:baseline;gap:.5rem;margin-bottom:.4rem">
+      <strong style="font-size:.9rem;color:#3730a3">⬇ {{ t .Lang "audit.export_h" }}</strong>
+      <span class="muted" style="font-size:.72rem">{{ t .Lang "audit.export_sub" }}</span>
+    </div>
+    <p class="muted" style="font-size:.78rem;margin:.2rem 0 .55rem;line-height:1.5">{{ safeHTML (t .Lang "audit.export_desc") }}</p>
+    <a href="{{ .BasePath }}/admin/settings/export" download
+       style="display:inline-block;font-size:.82rem;padding:.3rem .9rem;background:#e0e7ff;color:#3730a3;border:1px solid #c7d2fe;border-radius:.25rem;text-decoration:none">
+      {{ t .Lang "settings.export" }} <span class="muted">(unmask-config.yml)</span>
+    </a>
+  </div>
+
+</div>
+
 <div class="bcd-card">
+  {{ if .Saved }}<div class="banner-ok">{{ t .Lang "audit.restored" }}</div>{{ end }}
+  {{ if .Error }}<div class="banner-err">{{ .Error }}</div>{{ end }}
   <table class="audit">
     <thead>
       <tr>
@@ -95,16 +139,59 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
       {{ range .Entries }}
       <tr>
         <td class="at">{{ .At }}</td>
-        <td class="username">{{ .Username }}{{ if not .UserID.Valid }}<span class="muted"> (anon)</span>{{ end }}</td>
+        <td class="username">{{ .Username }}{{ if not .UserIDValid }}<span class="muted"> (anon)</span>{{ end }}</td>
         <td class="action"><span class="action-pill act-{{ .Action }}">{{ .Action }}</span></td>
-        <td class="target">{{ if .Target.Valid }}{{ .Target.String }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="detail">{{ if .Detail.Valid }}{{ .Detail.String }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="target">{{ if .Target }}{{ .Target }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="detail">
+          {{ if or (eq .Action "settings_save") (eq .Action "settings_snapshot") }}
+            {{ if .Diff }}
+              <button type="button" class="diff-toggle" data-target="diff-{{ .ID }}">{{ t $.Lang "audit.show_diff" }}</button>
+              {{ if .HasBefore }}
+                <form method="post" action="{{ $.BasePath }}/admin/audit/restore?id={{ .ID }}" class="restore-form"
+                      onsubmit="return confirm('{{ t $.Lang "audit.restore_confirm" }}');">
+                  <button type="submit" class="restore-btn">{{ t $.Lang "audit.restore" }}</button>
+                </form>
+              {{ end }}
+              <div id="diff-{{ .ID }}" class="diff-box" style="display:none">{{ .Diff }}</div>
+            {{ else }}
+              <span class="muted">{{ t $.Lang "audit.no_diff" }}</span>
+            {{ end }}
+          {{ else }}
+            <span class="muted">-</span>
+          {{ end }}
+        </td>
       </tr>
       {{ else }}
       <tr><td colspan="5" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "audit.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
+  <script>
+  document.addEventListener('click', function(e){
+    if (e.target.classList.contains('diff-toggle')) {
+      var box = document.getElementById(e.target.getAttribute('data-target'));
+      if (!box) return;
+      if (box.style.display === 'none') {
+        // Colorize + / - lines client-side (= keep server-side payload plain text).
+        if (!box.dataset.colored) {
+          var lines = box.textContent.split('\n');
+          box.innerHTML = '';
+          lines.forEach(function(L){
+            var span = document.createElement('span');
+            if (L.startsWith('+ ')) span.className = 'add';
+            else if (L.startsWith('- ')) span.className = 'rem';
+            span.textContent = L;
+            box.appendChild(span);
+          });
+          box.dataset.colored = '1';
+        }
+        box.style.display = 'block';
+      } else {
+        box.style.display = 'none';
+      }
+    }
+  });
+  </script>
   <div class="pager">
     {{ if .HasPrev }}<a href="?offset={{ .PrevOffset }}">← {{ t .Lang "audit.prev" }}</a>{{ else }}<span class="disabled">← {{ t .Lang "audit.prev" }}</span>{{ end }}
     {{ if .HasMore }}<a href="?offset={{ .NextOffset }}">{{ t .Lang "audit.next" }} →</a>{{ else }}<span class="disabled">{{ t .Lang "audit.next" }} →</span>{{ end }}

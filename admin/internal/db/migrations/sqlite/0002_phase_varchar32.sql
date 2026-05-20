@@ -1,0 +1,6 @@
+-- 0002 phase column: VARCHAR(16) → VARCHAR(32).
+--
+-- SQLite does not enforce VARCHAR length, so no ALTER is needed for existing
+-- DBs (= longer phase strings already insert successfully).  This marker file
+-- keeps the version history in lockstep with the MariaDB side; the splitter
+-- ignores the comment-only body and records version=2 with zero Exec calls.

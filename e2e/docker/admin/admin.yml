@@ -14,6 +14,22 @@ challenge:
   captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 200
 
+# Scenario 09 sends 120 requests sequentially.  Production default is 100 r/min
+# + burst 50 = 150 allowed, which doesn't trip in 120.  Drop the rate to make
+# the zone fire reliably under the e2e harness.
+rate_limit:
+  default:
+    requests_per_min: 30
+    burst: 10
+
+# Match the e2e scenarios' "regular UA passes through by default" assumption.
+# The per-axis triggers (honeypot trap / JA4 verdict / UA blacklist / rate-limit)
+# still fire challenges independently; this only opts the no-match fallback out
+# of the "challenge everyone" strict default.
+global:
+  known_browser_action: pass
+  unknown_ua_action:    pass
+
 server:
   bind: 0.0.0.0
   port: 9477
@@ -29,12 +45,58 @@ nginx:
   # docker compose resolves the service name "admin".  This value is overridden on the
   # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
   upstream_addr: admin:9477
-  rate_limit_per_min: 100
   admin_allow_from:
     - 0.0.0.0/0
   metrics_allow_from:
     - 0.0.0.0/0
+  # seen_version: marks "this config has been reviewed up to v0.1.0".  Without
+  # it preset groups added in v0.1+ are silently skipped on render to avoid
+  # surprising activation in pre-existing installs.  The e2e suite is a fresh
+  # config, so opt in explicitly.
+  seen_version: v0.1.0
   sites:
     - id: default
       hosts: ["*"]
       honeypot_use_defaults: true
+  # The strict default (= challenge every UA via the UA-filter axis) hides the
+  # Global axis fallback that scenarios 01 / 05 / 10 want to exercise.  Turn
+  # the blanket challenge off so is_challenge_target matches only UAs
+  # explicitly in the blacklist (= curl / library / scrapers).
+  challenge_targets:
+    all: false
+  # Scenario 12 (= max-severity composition) needs both axes wired:
+  #   - geo: JP rule action=pow_only / CN rule action=deny
+  #   - ja4: a known fingerprint classified as bot
+  # The test sends X-Original-IP=192.0.2.81 (= JP via UNMASK_TEST_GEO_OVERRIDE)
+  # and X-Client-JA4=t13e2e0bot01_xxx_yyy (= matches the extra rule below).
+  geo:
+    default_action: skip
+    rules:
+      - country: JP
+        action: pow_only
+        enabled: true
+      - country: CN
+        action: deny
+        enabled: true
+  ja4_verdicts:
+    extra:
+      - pattern: "t13e2e0bot01_xxx_yyy"
+        verdict: "e2e-fixture-bot"
+        action: "bot"
+    extra_title:
+      - "e2e fixture bot"
+    extra_disabled:
+      - false
+  # Trust the admin's own /api/check caller as an LB so X-Client-JA4 is
+  # honored on scenario 12 direct hits to admin:9477 (= bypasses nginx /
+  # plugin's JA4 extraction).
+  trusted_lb_extra:
+    - id: "e2e-host"
+      cidrs: ["0.0.0.0/0"]
+      header: "$http_x_client_ja4"
+
+  # Enable the wordpress honeypot preset (= /wp-login.php etc).  Default is
+  # all-off (= "would CAPTCHA legitimate users").  Scenarios 02 / 03 hit
+  # /wp-login.php expecting it to be a honeypot.
+  honeypot:
+    disabled_presets: []

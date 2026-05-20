@@ -63,6 +63,7 @@ func loadDashboardTemplate() (*template.Template, error) {
 		funcs := template.FuncMap{
 			"hasPrefix": strings.HasPrefix,
 			"replace":   strings.ReplaceAll,
+			"lower":     strings.ToLower,
 			"percent": func(x float64) string {
 				return fmt.Sprintf("%.1f%%", x*100)
 			},
@@ -101,7 +102,7 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
 			// ccImg converts ISO 3166-1 alpha-2 into the <x> portion of /static/flags/<x>.png.
 			//   "JP"    -> "jp" (lowercase)
-			//   ""      -> "unknown" (GeoIP miss; falls back to unknown.png)
+			//   ""      -> "unknown" (IP-geo miss; falls back to unknown.png)
 			//   non-2ch -> "unknown"
 			"ccImg": func(cc string) string {
 				if len(cc) != 2 {
@@ -675,7 +676,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			log.Printf("daily serve by kind: %v", derr)
 		}
 	})
-	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.GeoIP, site, hosts, 30, 15) })
+	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
 	wg.Wait()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("dashboard queries: %v elapsed (site=%s range=%s)", qElapsed, site, rng)
@@ -693,18 +694,18 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	countriesJSON, _ := json.Marshal(countries)
 
 	// All IP-display cards use a unified "flag + IP + popover" layout (same as
-	// bans / hunt).  Attach the GeoIP-looked-up country code to each row.
-	// Duplicate lookups for the same IP are avoided via cache.  If GeoIP is not
+	// bans / hunt).  Attach the IP-geo-looked-up country code to each row.
+	// Duplicate lookups for the same IP are avoided via cache.  If IP-geo is not
 	// loaded, leave it empty (template falls back to the "??" flag).
 	ccCache := map[string]string{}
 	lookupCC := func(ip string) string {
-		if ip == "" || h.GeoIP == nil || !h.GeoIP.Loaded() {
+		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
 			return ""
 		}
 		if cc, ok := ccCache[ip]; ok {
 			return cc
 		}
-		cc := h.GeoIP.LookupInfo(ip).Country
+		cc := h.IPGeo.LookupInfo(ip).Country
 		ccCache[ip] = cc
 		return cc
 	}
@@ -792,7 +793,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"DailyServeTotal":    dailyServeTotal,
 		"Countries":          countries,
 		"CountriesJSON":      template.JS(countriesJSON),
-		"GeoIPLoaded":        h.GeoIP != nil && h.GeoIP.Loaded(),
+		"IPGeoLoaded":        h.IPGeo != nil && h.IPGeo.Loaded(),
 		// The persistent BAN list section was removed from the dashboard (the
 		// /admin/bans/ tab retains all that functionality).
 		// Reverse map: verdict name -> action ("bot"/"suspect"/"ok").  Used by funnel etc. for badge judgment.
@@ -851,11 +852,13 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Keep-alive comment ping (heartbeat) every 20 seconds.  Prevents proxy
-	// buffering.  GCP HTTPS LB defaults backend response timeout to 30 seconds,
-	// so going idle for >30s drops the connection -> browser shows "(SSE
-	// connection error)" frequently.  20 seconds leaves plenty of margin.
-	heartbeat := time.NewTicker(20 * time.Second)
+	// Keep-alive comment ping (heartbeat).  Sent at 5 s for two reasons:
+	//   1. Intermediaries (= corporate proxies / GCP HTTPS LB) cut idle SSE
+	//      sessions; 5 s is well below the typical 30–60 s idle window.
+	//   2. nginx HTTP/2 (= front-of-Go in many installs) can stall a
+	//      proxy_buffering=off stream until the first wire write occurs;
+	//      pinging frequently keeps the wire moving.
+	heartbeat := time.NewTicker(5 * time.Second)
 	defer heartbeat.Stop()
 	// Poll interval: tradeoff between client load and "liveness".  At 2 seconds
 	// the client's JSON.parse + DOM update halves and feels noticeably lighter
@@ -864,8 +867,14 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 	poll := time.NewTicker(2 * time.Second)
 	defer poll.Stop()
 
-	// initial retry hint
+	// initial retry hint + 2 KiB comment padding.  Some HTTP/2 proxies
+	// (= nginx with proxy_buffering off + gzip default + chunked upstream)
+	// hold back the response until ~2 KiB has been buffered, leaving the
+	// browser in CONNECTING for tens of seconds before the first event.
+	// SSE allows comment lines (lines starting with ":") so a one-shot
+	// padded comment is a no-op to clients and forces the proxy to flush.
 	_, _ = w.Write([]byte("retry: 5000\n\n"))
+	_, _ = w.Write([]byte(":" + strings.Repeat(" ", 2048) + "\n\n"))
 	flusher.Flush()
 
 	for {

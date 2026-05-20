@@ -62,9 +62,13 @@
       }
     } catch(e) {}
   }
-  // window.onerror: record exceptions thrown by challenge JS
+  // window.onerror: record exceptions thrown by challenge JS.  Routed through
+  // the unified 'error' phase with kind='js_exception'.  Other failure paths
+  // (ext_render_err / ext_exec_err / ext_unknown_provider) also funnel into
+  // 'error' with a kind discriminator so the server-side allowedPhases set
+  // stays small and the funnel SQL doesn't need to enumerate variants.
   window.addEventListener('error', function(e){
-    try { _bcDebug('error', { error_msg:String(e && e.message), error_filename:e && e.filename, error_lineno:e && e.lineno }); } catch(_){}
+    try { _bcDebug('error', { kind:'js_exception', error_msg:String(e && e.message), error_filename:e && e.filename, error_lineno:e && e.lineno }); } catch(_){}
   });
 
   // --- i18n ---
@@ -185,13 +189,13 @@
     if (provider === 'turnstile') {
       window._unmaskTurnstileCb = function(){
         try { window.turnstile.render(mount, { sitekey: siteKey, callback: done }); }
-        catch(e){ showError(t.error); _bcDebug('ext_render_err', { provider: provider, error: String(e) }); }
+        catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=_unmaskTurnstileCb&render=explicit');
     } else if (provider === 'hcaptcha') {
       window._unmaskHcaptchaCb = function(){
         try { window.hcaptcha.render(mount, { sitekey: siteKey, callback: done }); }
-        catch(e){ showError(t.error); _bcDebug('ext_render_err', { provider: provider, error: String(e) }); }
+        catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://js.hcaptcha.com/1/api.js?onload=_unmaskHcaptchaCb&render=explicit');
     } else if (provider === 'recaptcha') {
@@ -201,15 +205,15 @@
         try {
           window.grecaptcha.ready(function(){
             window.grecaptcha.execute(siteKey, { action: 'unmask' }).then(done).catch(function(e){
-              showError(t.error); _bcDebug('ext_exec_err', { provider: provider, error: String(e) });
+              showError(t.error); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
             });
           });
-        } catch(e){ showError(t.error); _bcDebug('ext_render_err', { provider: provider, error: String(e) }); }
+        } catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://www.google.com/recaptcha/api.js?render=' + encodeURIComponent(siteKey) + '&onload=_unmaskRecaptchaCb');
     } else {
       showError(t.error);
-      _bcDebug('ext_unknown_provider', { provider: provider });
+      _bcDebug('error', { kind:'ext_unknown_provider', provider: provider });
     }
   }
 
@@ -227,7 +231,7 @@
     }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug('verify_ok', { method:'provider', score: res.data.score });
+        _bcDebug(bvPhaseForCaptchaPass(), { method:'provider', score: res.data.score });
         passAndRedirect();
       } else {
         _bcDebug('verify_ng', { method:'provider', http_status: res.status, score: res.data.score, detail: res.data.detail });
@@ -258,7 +262,7 @@
     }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug('verify_ok', { score: res.data.score });
+        _bcDebug(bvPhaseForCaptchaPass(), { score: res.data.score });
         passAndRedirect();
       } else {
         _bcDebug('verify_ng', { http_status: res.status, score: res.data.score });
@@ -325,7 +329,7 @@
     }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug('verify_ok', { method:'math' });
+        _bcDebug(bvPhaseForCaptchaPass(), { method:'math' });
         passAndRedirect();
       } else {
         _bcDebug('verify_ng', { method:'math', http_status: res.status });
@@ -402,6 +406,16 @@
   //   "deny"               : we never reach here (the subrequest returned 403)
   var chMode = (window.UNMASK && window.UNMASK.challenge_mode) || 'pow_then_captcha';
 
+  // bvPhaseForCaptchaPass: phase name to report when /verify returns ok=1.
+  // Format: 'bv_' + chMode value (= bv_pow_then_captcha / bv_captcha_only / ...).
+  // chMode-aligned naming means adding a new challenge_mode in the future
+  // (e.g. pow_then_behavioral) automatically yields a distinct phase without
+  // touching this code — the server-side allowedPhases list is the only place
+  // that needs to learn about the new value.
+  function bvPhaseForCaptchaPass(){
+    return 'bv_' + chMode;
+  }
+
   _bcDebug('load', { force_reason: forceReason, chmode: chMode });
 
   if (chMode === 'captcha_only') {
@@ -420,7 +434,10 @@
       showCaptcha();
       return;
     }
-    var exp=new Date(Date.now()+86400000*3);
+    // _br retry counter: independent of _bv server-validity windows.  365 days
+    // is "practically permanent"; the server only ever reads this to count
+    // recent JS-side challenge attempts, never to authenticate.
+    var exp=new Date(Date.now()+86400000*365);
     document.cookie='_br='+(rc+1)+';path=/;expires='+exp.toUTCString()+';SameSite=Lax';
     // _br set check: if we can't write, the page reloads forever, so show an error and give up
     var _br_set_ok = /(?:^|;\s*)_br=/.test(document.cookie);
@@ -432,19 +449,20 @@
     return;
   }
 
-  // --- Proof-of-Work (= SHA-256 hashcash style. Migrated from djb2 in 2026-05) ---
-  //   seed   = "<day>_<secret>"  (= synced with the server, passed via window.UNMASK.pow_seed)
+  // --- Proof-of-Work (= SHA-256 hashcash style.  unix-second granularity since 2026-05) ---
+  //   issued = window.UNMASK.issued_at  (= server unix seconds; falls back to
+  //            client clock only when the server forgot to inject the field)
+  //   seed   = "<issued>_unmask"        (= bit-identical to cookies.go server side)
   //   target = leading-zero-bits >= window.UNMASK.pow_difficulty (default 18)
   //   nonce  = incremented until SHA-256(seed + ":" + nonce) meets the target
-  // Computation uses a pure-JS SHA-256 (= inline implementation below; no WASM bundle needed).
-  // Yields with setTimeout(0) every 5000 iterations to keep the UI thread responsive.
-  var d=new Date();
-  var day=Math.floor(d.getTime()/86400000);
-  // seed matches the server (= cookies.go) exactly.
+  // Using server-supplied issued_at keeps the visitor's wall clock out of the
+  // loop, so a wildly wrong client time can't poison the seed or the cookie's
+  // first segment.
+  var issuedAt = (window.UNMASK && window.UNMASK.issued_at) || Math.floor(Date.now()/1000);
   // Difficulty comes from settings.Challenge.PowDifficulty (= default 18 bits)
   // via window.UNMASK.pow_difficulty.
   var powDiff=(window.UNMASK && window.UNMASK.pow_difficulty) || 18;
-  var seed=String(day)+'_unmask';
+  var seed=String(issuedAt)+'_unmask';
 
   // ---- pure JS SHA-256 (= RFC 6234). 32-byte output. ~150 lines. ----
   var SHA256_K = new Uint32Array([
@@ -525,28 +543,60 @@
     await new Promise(function(r){setTimeout(r,0);});
   }
 
-  // cookie token: day.pow2.nonce.flags (= 4 segments).
-  //   parts[1] = "pow2" marker (= distinguishes from the legacy djb2 cookie's base36 hash.
+  // cookie token: <issued_unix>.pow2.<nonce>.<flags> (= 4 segments).
+  //   parts[0] = issuance unix seconds (= server-injected via window.UNMASK.issued_at).
+  //   parts[1] = "pow2" marker (= distinguishes from the legacy djb2 cookie's base36 hash;
   //              server / C plugin uses this to branch into the SHA-256 verify path).
   //   parts[2] = nonce in base36 (= server verifies by recomputing SHA-256(seed+":"+nonce)).
   //   parts[3] = flags base36.
-  var tok=day+'.pow2.'+target.toString(36)+'.'+flags.toString(36);
+  var tok=issuedAt+'.pow2.'+target.toString(36)+'.'+flags.toString(36);
 
   var elapsed=Date.now()-start;
 
-  // chain mode: on PoW completion, don't issue _bv; proceed to the CAPTCHA path.  The server
-  // issues _bv on CAPTCHA pass (= same as the normal CAPTCHA path).  PoW buys time, CAPTCHA confirms human.
+  // Branch by chain mode.  Two distinct phases because they mean different things:
+  //   - 'pow_pass'    : PoW solved + handing off to next stage (= midpoint; still unauthenticated.
+  //                     _bv is NOT issued here; the server issues it on the next stage pass)
+  //   - 'bv_pow_only' : PoW solved + _bv issued client-side (= terminal; authentication complete
+  //                     via the challenge_mode=pow_only route)
+  // "Total PoW solved" is SUM(phase IN ('bv_pow_only','pow_pass')); _bv issuance attribution is
+  // phase-level (bv_<chMode>) so the funnel doesn't need JSON_EXTRACT.
   if (chainPoWThenCaptcha) {
-    _bcDebug('pow_chain', { pow_iterations: target, pow_elapsed_ms: elapsed, next: 'captcha' });
+    _bcDebug('pow_pass', { pow_iterations: target, pow_elapsed_ms: elapsed, token_flags: flags });
     showCaptcha();
     return;
   }
 
-  var exp2=new Date(d.getTime()+86400000*3);
+  // Evict stale `_bv` at every ancestor directory of orig_path before setting
+  // the fresh one.  Browsers send cookies in path-specificity order (longest
+  // path first), so an old `_bv=...` at /foo/bar/ would sort ahead of our new
+  // entry at / on every request to /foo/bar/* and a stale value would wedge
+  // verification (= the server-side iteration fix accepts ANY valid cookie,
+  // but cleaning up the shadow leaves a single canonical `_bv` in the jar).
+  try {
+    var op = (window.UNMASK && window.UNMASK.orig_path) || '/';
+    var qm = op.indexOf('?'); if (qm >= 0) op = op.slice(0, qm);
+    var segs = op.split('/').filter(function(s){ return s.length > 0; });
+    var paths = ['/'];
+    for (var i = 0; i < segs.length; i++) {
+      paths.push('/' + segs.slice(0, i + 1).join('/') + '/');
+    }
+    for (var j = 0; j < paths.length; j++) {
+      document.cookie = '_bv=;path=' + paths[j] +
+        ';expires=Thu, 01 Jan 1970 00:00:00 GMT;SameSite=Lax';
+    }
+  } catch (_) { /* best effort */ }
+
+  // _bv browser lifetime: fixed 365 days (= practically permanent).  The real
+  // expiration gate is the server's PowCookieValidSeconds window evaluated at
+  // each request against the embedded `issued_at` field, so a settings change
+  // takes effect on the very next request rather than waiting for in-flight
+  // cookies to expire client-side.  Date.now() here only controls the browser
+  // Max-Age cap (= unrelated to authentication / signature validation).
+  var exp2=new Date(Date.now()+86400000*365);
   document.cookie='_bv='+tok+';path=/;expires='+exp2.toUTCString()+';SameSite=Lax';
   // After PoW completion + cookie set (read back immediately to verify the set succeeded)
   var _bv_set_ok = /(?:^|;\s*)_bv=/.test(document.cookie);
-  _bcDebug('pow', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });
+  _bcDebug('bv_pow_only', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });
 
   // If the cookie can't be written, reloading won't help, so show an error and give up
   if (!_bv_set_ok) {

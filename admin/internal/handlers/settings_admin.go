@@ -28,6 +28,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -69,12 +70,13 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "theme", "notifications", "smtp", "retention", "shared-feed":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
 	default:
-		tab = "network"
+		// no / unknown tab -> the overview landing page.
+		tab = "top"
 	}
 
 	data := h.settingsViewData(w, r, tab)
@@ -266,7 +268,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		})
 	}
 
-	geoipCur := h.snapshotSettings().GeoIP
+	ipgeoCur := h.snapshotSettings().IPGeo
 	return map[string]any{
 		"Lang":               i18n.Resolve(r),
 		"TZ":                 resolveTZ(r),
@@ -296,12 +298,32 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Error":              readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":                cur,
 		"Global":             h.snapshotSettings().Global,
-		"GeoIPMMDBPath":      geoipCur.MMDBPath,
-		"GeoIPMMDBASNPath":   geoipCur.MMDBASNPath,
-		"GeoIPLoaded":        h.GeoIP != nil && h.GeoIP.Loaded(),
-		"GeoIPASNLoaded":     h.GeoIP != nil && h.GeoIP.ASNLoaded(),
-		"GeoIPCommonGeo":     scanGeoIPPaths(geoipCommonGeoPaths, h.Settings.GeoIP.MMDBPath),
-		"GeoIPCommonASN":     scanGeoIPPaths(geoipCommonASNPaths, h.Settings.GeoIP.MMDBASNPath),
+		"IPGeoMMDBPath":      ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath":   ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":        h.IPGeo != nil && h.IPGeo.Loaded(),
+		"IPGeoASNLoaded":     h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
+		// (= that directory belongs to the dbip radio; surfacing the same
+		// file under "custom" would confuse the operator).
+		"IPGeoCommonGeo":  scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/"),
+		"IPGeoCommonASN":  scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/"),
+		// IPGeoMode / IPGeoASNMode: which radio is currently active.
+		//   "dbip"   -> saved path matches DefaultMMDBPath / DefaultASNPath
+		//   "custom" -> a non-default path
+		//   "none"   -> empty (ASN only; country always has a value)
+		"IPGeoMode":       ipgeoMode(h.Settings.IPGeo.MMDBPath, ipgeo.DefaultMMDBPath, false),
+		"IPGeoASNMode":    ipgeoMode(h.Settings.IPGeo.MMDBASNPath, ipgeo.DefaultASNPath, true),
+		"IPGeoDefault":    ipgeo.DefaultMMDBPath,
+		"IPGeoASNDefault": ipgeo.DefaultASNPath,
+		// Active-row metadata for the in-line vendor / build / size badges.
+		"IPGeoActiveInfo": func() IPGeoPathInfo {
+			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBPath)
+			return info
+		}(),
+		"IPGeoASNActiveInfo": func() IPGeoPathInfo {
+			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath)
+			return info
+		}(),
 		"LBPresets":          buildLBPresetView(cur),
 		"LBExtras":           buildLBExtraView(cur),
 		"SearchBotGroups":    searchBotGroups,
@@ -316,7 +338,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"JA4Rules":           ja4ExtraRules,
 		"JA4Verdicts":        cur.JA4Verdicts,
 		"JA4PresetAction":    cur.JA4Verdicts.PresetAction,
-		"JA4ExtraAction":     cur.JA4Verdicts.ExtraAction,
+		"JA4ExtraAction":     padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
 		"ChallengeAll":       cur.ChallengeTargets.All,
 		"ChallengeGroups":    tgtGroups,
 		"ChallengeRules":     pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
@@ -327,7 +349,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotBanDuration": cur.Honeypot.BanDuration,
 		"Honeypot":            cur.Honeypot,
 		"HoneypotPresetAction": cur.Honeypot.PresetAction,
-		"HoneypotExtraAction":  cur.Honeypot.ExtraAction,
+		"HoneypotExtraAction":  padToLen(cur.Honeypot.ExtraAction, len(cur.Honeypot.Extra)),
 		"BypassIPsRules":      pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":  bypassPresetGroups,
 		"ProtectedRules": pairProtectedRules(
@@ -341,7 +363,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ProtectedPresetGroups": protectedPresetGroups,
 		"ProtectedPaths":        cur.ProtectedPaths,
 		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
-		"ProtectedExtraAction":  cur.ProtectedPaths.ExtraAction,
+		"ProtectedExtraAction":  padToLen(cur.ProtectedPaths.ExtraAction, len(cur.ProtectedPaths.Extra)),
 		"BypassPathsRules": pairBypassPathRules(
 			cur.BypassPaths.Extra,
 			cur.BypassPaths.ExtraTitle,
@@ -359,6 +381,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Challenge": h.snapshotSettings().Challenge,
 		// Settings used by the rate-limit tab (= default zone + named zones list).
 		"RateLimit": h.snapshotSettings().RateLimit,
+		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
+		// Nginx struct so the geo template can reference .Nginx.Geo.* directly.
+		"Nginx": h.snapshotSettings().Nginx,
+		// Country master for the geo tab.  Sorted slice powers the datalist
+		// + JS validator; the map gives per-row name lookup without scanning
+		// the slice each row.
+		"GeoCountriesAll": ipgeo.CountriesSorted(),
+		"GeoCountryMap":   ipgeo.Countries,
 		// Challenge-page theme (= used by the theme tab; empty/invalid → "default").
 		"ChallengeTheme": func() string {
 			t := h.snapshotSettings().Challenge.Theme
@@ -556,6 +586,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		redirBack("load: " + err.Error())
 		return
 	}
+	// Snapshot the pre-mutation yaml for the audit log.  Captured here, not
+	// after Save, so a partial / failing apply does not leave a misleading
+	// diff in the audit.  MarshalYAML failures fall through to an empty
+	// snapshot (= the audit row is still written, just without rollback data).
+	beforeYAML, _ := settings.MarshalYAML(cur)
 
 	lang := i18n.Resolve(r)
 	switch section {
@@ -586,7 +621,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
-		if err := applyGeoIPForm(&cur.GeoIP, r, lang); err != nil {
+		if err := applyIPGeoForm(&cur.IPGeo, r, lang); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -636,6 +671,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "rate_limit":
 		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+	case "geo":
+		if err := applyGeoForm(&cur.Nginx.Geo, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -715,9 +755,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	h.Settings = cur
 	settingsMu.Unlock()
 
-	// geoip hot-swap (= picks up mmdb path changes immediately, no restart)
-	if h.GeoIP != nil {
-		h.GeoIP.Reload(cur.GeoIP.MMDBPath, cur.GeoIP.MMDBASNPath)
+	// ipgeo hot-swap (= picks up mmdb path changes immediately, no restart)
+	if h.IPGeo != nil {
+		h.IPGeo.Reload(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath)
 	}
 
 	// classify hot-swap: rebuild the upstream per-pattern disable filter so
@@ -770,14 +810,18 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	// audit log: who saved which section. Detail keeps only the section name
-	// (= form payload may contain secrets and is not stored).
+	// audit log: who / what / before-after diff.  detail is a JSON blob with
+	// both yaml snapshots so the audit UI can show a unified diff and offer
+	// 1-click rollback to the captured `before`.  Marshal failure (= huge
+	// yaml etc.) downgrades silently to an empty detail; the audit row is
+	// still written.
 	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
 		username := ""
 		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
 			username = u.Username
 		}
-		h.UserRepo.Record(r.Context(), pay.UserID, username, "settings_save", section, "")
+		afterYAML, _ := settings.MarshalYAML(cur)
+		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, section, beforeYAML, afterYAML)
 	}
 
 	redirBack("")
@@ -945,63 +989,115 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error 
 }
 
 // Common mmdb locations. Searched in priority order by the UI.
-var geoipCommonGeoPaths = []string{
+var ipgeoCommonGeoPaths = []string{
 	"/usr/share/GeoIP/GeoLite2-City.mmdb",
 	"/usr/share/GeoIP/GeoLite2-Country.mmdb",
 	"/var/lib/GeoIP/GeoLite2-City.mmdb",
 	"/var/lib/GeoIP/GeoLite2-Country.mmdb",
-	"/etc/unmask/geoip/GeoLite2-City.mmdb",
-	"/etc/unmask/geoip/GeoLite2-Country.mmdb",
+	"/etc/unmask/ipgeo/GeoLite2-City.mmdb",
+	"/etc/unmask/ipgeo/GeoLite2-Country.mmdb",
 }
-var geoipCommonASNPaths = []string{
+var ipgeoCommonASNPaths = []string{
 	"/usr/share/GeoIP/GeoLite2-ASN.mmdb",
 	"/var/lib/GeoIP/GeoLite2-ASN.mmdb",
-	"/etc/unmask/geoip/GeoLite2-ASN.mmdb",
+	"/etc/unmask/ipgeo/GeoLite2-ASN.mmdb",
 }
 
-// GeoIPPathInfo: existence status of one known path.
-type GeoIPPathInfo struct {
-	Path   string
-	Exists bool
-	MTime  string // RFC-like ("2006-01-02 15:04 UTC")
-	Size   string // human-readable ("4.0 MB")
+// IPGeoPathInfo: existence status + vendor detection for one known mmdb path.
+// Vendor / DatabaseType come from ipgeo.InspectMMDB so the UI can show
+// "MaxMind GeoLite2-Country" vs "DB-IP Country Lite" badges on each row.
+type IPGeoPathInfo struct {
+	Path         string
+	Exists       bool
+	MTime        string // RFC-like ("2006-01-02 15:04 UTC")
+	Size         string // human-readable ("4.0 MB")
+	Vendor       string // "MaxMind" / "DB-IP" / "IP2Location" / "Unknown" / "" (= unreadable)
+	DatabaseType string // raw mmdb DatabaseType (e.g. "DBIP-Country-Lite")
+	BuildTime    string // YYYY-MM-DD UTC from mmdb metadata (= snapshot date, not file mtime)
 }
 
-// scanGeoIPPaths: stats the candidate list and returns **only existing files**.
+// ipgeoMode: which network-tab radio applies given the configured path.
+//
+// allowNone=false (= country DB; never optional):
+//   - empty / DefaultMMDBPath -> "dbip"
+//   - anything else           -> "custom"
+//
+// allowNone=true (= ASN DB; the operator may turn it off entirely):
+//   - empty                   -> "none"
+//   - DefaultASNPath          -> "dbip"
+//   - anything else           -> "custom"
+func ipgeoMode(path, defaultPath string, allowNone bool) string {
+	if path == "" {
+		if allowNone {
+			return "none"
+		}
+		return "dbip"
+	}
+	if path == defaultPath {
+		return "dbip"
+	}
+	return "custom"
+}
+
+// scanIPGeoPaths: stats the candidate list and returns **only existing files**.
 // Drop non-existent paths since the UI has nothing useful to show.
 //
-// If currentPath is non-empty, not in the common candidates, and the file
-// exists, append it at the tail (= ensures a file placed in an unexpected
-// directory still shows up as "current setting"). If currentPath does not
-// exist, do not append (= candidates are real files only; the UI shows
-// "not loaded" separately as a status).
-func scanGeoIPPaths(paths []string, currentPath string) []GeoIPPathInfo {
-	out := make([]GeoIPPathInfo, 0, len(paths)+1)
+// excludePrefix: file paths starting with this string are skipped, even if
+// they exist.  Used to keep the dbip-managed directory
+// (= /var/lib/unmask/ipgeo/) out of the "custom path" candidates — that
+// directory belongs to the radio's DB-IP mode, surfacing it under custom
+// would confuse the operator.
+//
+// If currentPath is non-empty, not in the common candidates, not under the
+// excluded prefix, and the file exists, append it at the tail (= ensures a
+// file placed in an unexpected directory still shows up).  If currentPath
+// does not exist, do not append.
+func scanIPGeoPaths(paths []string, currentPath, excludePrefix string) []IPGeoPathInfo {
+	out := make([]IPGeoPathInfo, 0, len(paths)+1)
 	seen := map[string]bool{}
+	excluded := func(p string) bool {
+		return excludePrefix != "" && strings.HasPrefix(p, excludePrefix)
+	}
 	for _, p := range paths {
-		st, err := osStat(p)
-		if err != nil {
+		if excluded(p) {
 			continue
 		}
-		out = append(out, GeoIPPathInfo{
-			Path:   p,
-			Exists: true,
-			MTime:  st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
-			Size:   humanSize(st.Size()),
-		})
-		seen[p] = true
+		if info, ok := buildIPGeoPathInfo(p); ok {
+			out = append(out, info)
+			seen[p] = true
+		}
 	}
-	if currentPath != "" && !seen[currentPath] {
-		if st, err := osStat(currentPath); err == nil {
-			out = append(out, GeoIPPathInfo{
-				Path:   currentPath,
-				Exists: true,
-				MTime:  st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
-				Size:   humanSize(st.Size()),
-			})
+	if currentPath != "" && !seen[currentPath] && !excluded(currentPath) {
+		if info, ok := buildIPGeoPathInfo(currentPath); ok {
+			out = append(out, info)
 		}
 	}
 	return out
+}
+
+// buildIPGeoPathInfo: stat + mmdb metadata into a single IPGeoPathInfo.
+// Returns (zero, false) when the file is missing.  Metadata-parse failures
+// (= a non-mmdb file at the path) still return the row with empty Vendor
+// / DatabaseType so the UI can flag "unreadable".
+func buildIPGeoPathInfo(p string) (IPGeoPathInfo, bool) {
+	st, err := osStat(p)
+	if err != nil {
+		return IPGeoPathInfo{}, false
+	}
+	row := IPGeoPathInfo{
+		Path:   p,
+		Exists: true,
+		MTime:  st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
+		Size:   humanSize(st.Size()),
+	}
+	if info, err := ipgeo.InspectMMDB(p); err == nil {
+		row.Vendor = info.Vendor
+		row.DatabaseType = info.DatabaseType
+		if !info.BuildTime.IsZero() {
+			row.BuildTime = info.BuildTime.Format("2006-01-02")
+		}
+	}
+	return row, true
 }
 
 // LBPresetView: display struct for a built-in LB preset passed to the settings template.
@@ -1118,26 +1214,65 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 	n.TrustedLBExtra = extras
 }
 
-// applyGeoIPForm: persist mmdb paths. Non-empty paths are Open-tested up front
-// to block invalid paths (= avoids the "wait, country chart is empty" moment
-// after save).
-func applyGeoIPForm(g *settings.GeoIP, r *http.Request, lang i18n.Lang) error {
-	geoPath := strings.TrimSpace(r.FormValue("geoip_mmdb_path"))
-	asnPath := strings.TrimSpace(r.FormValue("geoip_mmdb_asn_path"))
-	if geoPath != "" {
-		db, err := maxminddb.Open(geoPath)
-		if err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.geoip_invalid", geoPath, err.Error()))
-		}
-		_ = db.Close()
+// applyIPGeoForm: persist mmdb paths.
+//
+// The UI exposes the country-DB path as a radio:
+//   - mode=dbip   -> path is forced to ipgeo.DefaultMMDBPath; the custom
+//                    input is ignored.  The file might not exist yet (= user
+//                    clicks the dl button afterwards), so we skip the
+//                    Open-test in this mode.
+//   - mode=custom -> path is whatever the user typed.  Open-test it so
+//                    invalid paths fail loudly at save time rather than
+//                    silently producing an empty country chart later.
+//
+// ASN DB stays a free input (= no radio); typical operator either has no
+// ASN file or already knows where it lives.
+func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
+	mode := strings.TrimSpace(r.FormValue("ipgeo_mode"))
+	if mode == "" {
+		mode = "dbip"
 	}
-	if asnPath != "" {
-		db, err := maxminddb.Open(asnPath)
-		if err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.geoip_invalid", asnPath, err.Error()))
+	var geoPath string
+	switch mode {
+	case "dbip":
+		geoPath = ipgeo.DefaultMMDBPath
+		// Skip Open-test: the user may save before clicking dl.
+	case "custom":
+		geoPath = strings.TrimSpace(r.FormValue("ipgeo_mmdb_path"))
+		if geoPath != "" {
+			db, err := maxminddb.Open(geoPath)
+			if err != nil {
+				return fmt.Errorf("%s", i18n.Tf(lang, "err.geoip_invalid", geoPath, err.Error()))
+			}
+			_ = db.Close()
 		}
-		_ = db.Close()
+	default:
+		return fmt.Errorf("ipgeo_mode must be 'dbip' or 'custom' (got %q)", mode)
 	}
+
+	asnMode := strings.TrimSpace(r.FormValue("ipgeo_asn_mode"))
+	if asnMode == "" {
+		asnMode = "dbip"
+	}
+	var asnPath string
+	switch asnMode {
+	case "dbip":
+		asnPath = ipgeo.DefaultASNPath
+	case "custom":
+		asnPath = strings.TrimSpace(r.FormValue("ipgeo_mmdb_asn_path"))
+		if asnPath != "" {
+			db, err := maxminddb.Open(asnPath)
+			if err != nil {
+				return fmt.Errorf("%s", i18n.Tf(lang, "err.geoip_invalid", asnPath, err.Error()))
+			}
+			_ = db.Close()
+		}
+	case "none":
+		asnPath = ""
+	default:
+		return fmt.Errorf("ipgeo_asn_mode must be 'dbip', 'custom', or 'none' (got %q)", asnMode)
+	}
+
 	g.MMDBPath = geoPath
 	g.MMDBASNPath = asnPath
 	return nil
@@ -1890,6 +2025,23 @@ type protectedExtraRule struct {
 	UpdatedAt int64
 }
 
+// padToLen pads (or truncates) `s` to exactly `n` entries, filling missing
+// slots with the empty string.  Used to keep per-row override slices aligned
+// with the canonical row count for template rendering — the save handlers
+// trim trailing-empty overrides to keep yaml compact, which would otherwise
+// cause `index <slice> $i` to panic when the override is shorter than the
+// canonical list.
+func padToLen(s []string, n int) []string {
+	if len(s) == n {
+		return s
+	}
+	out := make([]string, n)
+	for i := 0; i < n && i < len(s); i++ {
+		out[i] = s[i]
+	}
+	return out
+}
+
 // pairProtectedRules: zip 5 parallel slices.
 func pairProtectedRules(extras, titles []string, disabled []bool, updatedAt []int64, modes []string) []protectedExtraRule {
 	out := make([]protectedExtraRule, len(extras))
@@ -2076,16 +2228,32 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 // cookie TTL issued after PoW/CAPTCHA passes + behavioral CAPTCHA score
 // threshold + DB events insertion rate-limit.
 //
-//	cookie_seconds            : 60..31_536_000 (= 1 min .. 1 year). default 259200 (= 3 days).
-//	                            cookie Max-Age is honored at second granularity, but the
-//	                            nginx HMAC verifier uses 1-day granularity, so small values
-//	                            (= 60s etc.) effectively round up to 1 day.
-//	captcha_score_threshold   : 0.0-1.0 (= behavioral CAPTCHA human-pass threshold.
-//	                                       Smaller = more permissive. default 0.5).
-//	debug_rate_limit_per_5min : 1-10000 (= rate limit for inserting challenge debug
-//	                                        payloads from the same IP into unmask_event.
-//	                                        default 20).
+//	pow_cookie_valid_seconds      : 60..31_536_000 (= 1 minute .. 1 year). server-side check window for
+//	                                _bv issued via the PoW path.  HMAC payload now carries an
+//	                                exact unix-second issuance timestamp, so any value in this
+//	                                range is honored at second precision.
+//	captcha_cookie_valid_seconds  : same range for the CAPTCHA path.
+//	cookie_seconds                : legacy single-knob fallback when the kind-specific values are unset.
+//	captcha_score_threshold       : 0.0-1.0 (= behavioral CAPTCHA human-pass threshold.
+//	                                          Smaller = more permissive. default 0.5).
+//	debug_rate_limit_per_5min     : 1-10000 (= rate limit for inserting challenge debug
+//	                                           payloads from the same IP into unmask_event.
+//	                                           default 20).
 func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
+	if v := strings.TrimSpace(r.FormValue("pow_cookie_valid_seconds")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 60 || n > 31_536_000 {
+			return fmt.Errorf("pow_cookie_valid_seconds must be an integer in 60-31536000 (= 1 minute .. 1 year, got %q)", v)
+		}
+		c.PowCookieValidSeconds = n
+	}
+	if v := strings.TrimSpace(r.FormValue("captcha_cookie_valid_seconds")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 60 || n > 31_536_000 {
+			return fmt.Errorf("captcha_cookie_valid_seconds must be an integer in 60-31536000 (= 1 minute .. 1 year, got %q)", v)
+		}
+		c.CaptchaCookieValidSeconds = n
+	}
 	if v := strings.TrimSpace(r.FormValue("cookie_seconds")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 60 || n > 31_536_000 {
@@ -2131,6 +2299,12 @@ func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
 // is editable here (= named zones are edited directly in yaml; UI for them
 // is planned for v0.2).
 func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
+	if v := strings.TrimSpace(r.FormValue("rate_limit_key")); v != "" {
+		if !settings.IsValidRateLimitKey(v) {
+			return fmt.Errorf("rate_limit_key must be one of ip / ja4 / ip+ja4 (got %q)", v)
+		}
+		c.Key = v
+	}
 	if v := strings.TrimSpace(r.FormValue("default_requests_per_min")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 100000 {
@@ -2233,6 +2407,88 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 
 // rateZoneNameRE: nginx `limit_req_zone` name syntax (= alnum + underscore, 1..32 chars).
 var rateZoneNameRE = regexp.MustCompile(`^[a-zA-Z0-9_]{1,32}$`)
+
+// applyGeoForm: per-country rule axis (= settings.Nginx.Geo).
+//
+// Form fields:
+//   geo_default_action : "" / "skip" / "pow_only" / "captcha_only" /
+//                          "pow_then_captcha" / "deny"  (= unmatched countries)
+//   geo_country[]      : parallel array of ISO codes
+//   geo_action[]       : parallel action per row (empty = inherit default)
+//   geo_enabled_<i>    : per-row "1" when ticked (= rule active)
+//   geo_updated_at[]   : preserved timestamp per row
+//
+// Rows are zipped by position.  Trailing empty Country slots are dropped.
+// Duplicate Country codes return an error so the LookupRule linear scan
+// doesn't silently pick the wrong row.
+func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
+	if v := strings.TrimSpace(r.FormValue("geo_default_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("geo_default_action invalid (got %q)", v)
+		}
+		c.DefaultAction = v
+	} else {
+		c.DefaultAction = ""
+	}
+
+	countries := r.Form["geo_country"]
+	actions := r.Form["geo_action"]
+	enabledArr := r.Form["geo_enabled"]
+	updatedAt := r.Form["geo_updated_at"]
+
+	rules := make([]settings.GeoRule, 0, len(countries))
+	seen := map[string]bool{}
+	now := time.Now().Unix()
+	for i, raw := range countries {
+		code := strings.ToUpper(strings.TrimSpace(raw))
+		if code == "" {
+			continue
+		}
+		if len(code) != 2 {
+			return fmt.Errorf("country code %q: must be ISO 3166-1 alpha-2 (2 letters)", code)
+		}
+		if !ipgeo.IsValidCountry(code) {
+			return fmt.Errorf("unknown country code %q", code)
+		}
+		if seen[code] {
+			return fmt.Errorf("duplicate country code %q", code)
+		}
+		seen[code] = true
+
+		var action string
+		if i < len(actions) {
+			action = strings.TrimSpace(actions[i])
+		}
+		if action != "" && !settings.IsValidGeoAction(action) {
+			return fmt.Errorf("country %s: action invalid (got %q)", code, action)
+		}
+
+		enVal := r.FormValue(fmt.Sprintf("geo_enabled_%d", i))
+		if enVal == "" && i < len(enabledArr) {
+			enVal = enabledArr[i]
+		}
+		enOn := enVal == "1"
+
+		var ts int64
+		if i < len(updatedAt) {
+			if n, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
+				ts = n
+			}
+		}
+		if ts == 0 {
+			ts = now
+		}
+
+		rules = append(rules, settings.GeoRule{
+			Country:   code,
+			Action:    action,
+			Enabled:   enOn,
+			UpdatedAt: ts,
+		})
+	}
+	c.Rules = rules
+	return nil
+}
 
 // applyNotificationsForm: receive the webhook notifications tab form.
 func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
@@ -2417,6 +2673,8 @@ func tabHelpKey(tab string) string {
 		return "settings.protected.desc"
 	case "rate-limit":
 		return "settings.rate_limit.intro"
+	case "geo":
+		return "settings.geo.intro"
 	case "captcha":
 		return "settings.captcha.desc"
 	case "challenge":

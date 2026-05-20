@@ -49,16 +49,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
 .actions{display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1.2rem;border-top:.0625rem solid #e2e8f0}
 .row-2{display:grid;grid-template-columns:2fr 1fr;gap:.6rem}
 /* mode picker: 3 cards stacked on narrow, side-by-side on wide */
-.mode-row{display:grid;grid-template-columns:1fr;gap:.7rem;margin-bottom:1.2rem}
-@media (min-width:36rem){.mode-row{grid-template-columns:1fr 1fr 1fr}}
-.mode-card{padding:.95rem 1rem;border:.125rem solid #e2e8f0;border-radius:.4rem;cursor:pointer;text-align:left;transition:all .15s;display:flex;flex-direction:column}
-.mode-card:hover{border-color:#94a3b8;background:#f8fafc}
-.mode-card.selected{border-color:#3b82f6;background:#dbeafe;box-shadow:0 0 0 .1875rem rgba(59,130,246,.1)}
-.mode-card input{display:none}
-.mode-card strong{display:block;font-size:1rem;margin-bottom:.3rem;color:#0f172a;display:flex;align-items:center;gap:.4rem}
-.mode-card .desc{font-size:.78rem;color:#475569;line-height:1.55}
-.mode-card .badge{font-size:.65rem;padding:.1rem .45rem;border-radius:.25rem;background:#3b82f6;color:#fff;font-weight:600;letter-spacing:.02em}
-.mode-card .badge.recommend{background:#10b981}
 </style>
 </head>
 <body>

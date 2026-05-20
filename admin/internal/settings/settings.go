@@ -68,13 +68,20 @@ type Secret struct {
 }
 
 type Challenge struct {
-	// CookieSeconds: lifetime of the _bv cookie in seconds. Default 259200 (= 3 days).
-	// Canonical for both admin UI and yaml. The cookie's MaxAge is honored at
-	// second granularity, but HMAC verification (= nginx module) is at 1-day
-	// granularity, so the effective granularity is ceil(seconds/86400) days.
-	// Fine-grained settings (= 1 hour etc.) would require switching the HMAC
-	// payload day → unix; not implemented yet (= planned for v0.2).
+	// CookieSeconds: legacy single-knob _bv lifetime.  Now serves as the
+	// fall-back default for {Pow,Captcha}CookieValidSeconds when those are
+	// unset.  Browser-side cookie Max-Age is no longer driven by this value
+	// (= cookies are written with a fixed 365-day Max-Age so that a server-
+	// side window change takes effect immediately on the next request).
 	CookieSeconds         int `yaml:"cookie_seconds"`
+	// PowCookieValidSeconds: server-side validity window for _bv issued via
+	// the PoW path (= 4-segment "pow2" cookie).  0 = inherit CookieSeconds.
+	// Granularity is 1 day (= ceil(seconds/86400) used by the nginx HMAC
+	// check), so 86400-multiples are practical values.
+	PowCookieValidSeconds int `yaml:"pow_cookie_valid_seconds,omitempty"`
+	// CaptchaCookieValidSeconds: same but for _bv issued via the CAPTCHA path
+	// (= 3-segment HMAC cookie).  0 = inherit CookieSeconds.
+	CaptchaCookieValidSeconds int `yaml:"captcha_cookie_valid_seconds,omitempty"`
 	// CookieDays: legacy / backward compat. If yaml lacks cookie_seconds but
 	// has cookie_days, load-time migrates with CookieSeconds = CookieDays * 86400.
 	// Save always writes cookie_seconds only (= cookie_days is not emitted).
@@ -184,14 +191,16 @@ type Server struct {
 	LogPath string `yaml:"log_path,omitempty"`
 }
 
-// GeoIP: optional MaxMind GeoLite2 / GeoIP2 mmdb integration.
+// IPGeo: optional IP-geolocation mmdb integration (DB-IP Lite / MaxMind
+// GeoLite2 / etc., all consumable via the maxminddb-format reader).
 //   mmdb_path     : Country or City DB. Pointing at the City DB also enables
 //                   city-level lookup. (e.g., /usr/share/GeoIP/GeoLite2-Country.mmdb).
 //                   Unset → no country chart and no country row in popovers.
 //   mmdb_asn_path : ASN DB (GeoLite2-ASN.mmdb etc.). Unset → no ASN row.
-//   The license prohibits bundling the binary, so the user must download it
-//   themselves and point this at the path.
-type GeoIP struct {
+//   For GeoLite2 the MaxMind license prohibits bundling the binary, so the
+//   user downloads it themselves; DB-IP Lite (CC BY 4.0) can be auto-fetched
+//   via `unmask-admin install-ipgeo`.
+type IPGeo struct {
 	MMDBPath    string `yaml:"mmdb_path"`
 	MMDBASNPath string `yaml:"mmdb_asn_path"`
 }
@@ -262,6 +271,103 @@ type Nginx struct {
 	Honeypot         HoneypotConfig         `yaml:"honeypot"`
 	ProtectedPaths   ProtectedPathsConfig   `yaml:"protected_paths"`
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
+	Geo              GeoConfig              `yaml:"geo,omitempty"`
+}
+
+// GeoConfig: country-based decision axis, applied in both auth_request mode
+// (= admin /authcheck does the lookup live) and native nginx-plugin mode
+// (= render-time mmdb walk emits a `geo $remote_addr $unmask_country` block
+// into http.inc).  Either way the plugin / module itself does not link
+// libmaxminddb — admin is the only consumer of the mmdb file.
+//
+// Requires IPGeo.MMDBPath to be configured (= mmdb loaded at startup for
+// auth_request mode, walked at render time for native mode).  Rule / mmdb
+// changes take effect after `unmask-admin render-nginx && nginx -s reload`
+// in native mode; auth_request mode reloads the mmdb on settings save.
+//
+// Model: one rule per country.  Default action for unmatched countries (= the
+// long-tail of the world) is `DefaultAction`.  Each rule may also opt the
+// country IN or OUT of rate-limit counting independently of its access action.
+//
+// Action values (= rule-level AND DefaultAction):
+//   - ""               : pass-through, no geo intervention (default)
+//   - "pass"           : same as "" (explicit allowlist marker for clarity)
+//   - "pow_only"
+//   - "captcha_only"
+//   - "pow_then_captcha"
+//   - "deny"           : 403 immediately, no challenge offered
+//
+// Evaluation order: country runs AFTER `_bv` cookie pass so a visitor who
+// already cleared CAPTCHA is not re-blocked by a country list change.
+type GeoConfig struct {
+	// DefaultAction: applied to countries that do not match any rule.
+	// Empty -> "pass" (= blocklist semantics, the common case).
+	// Set to a challenge action or "deny" for allowlist semantics
+	// (= the matching rules carry "pass" for the few allowed countries).
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// Rules: per-country overrides.  Index is meaningless for behavior
+	// but stable for UI display.  Disabled rules are persisted but skipped
+	// at evaluation time.
+	Rules []GeoRule `yaml:"rules,omitempty"`
+}
+
+// GeoRule: one country override.
+type GeoRule struct {
+	Country   string `yaml:"country"`              // ISO 3166-1 alpha-2 (upper-case after save)
+	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultAction
+	Enabled   bool   `yaml:"enabled"`              // false -> rule kept in yaml but skipped at evaluation
+	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed" timestamps
+}
+
+// Geo action constants.  Reuses RateChallenge* values for the challenge
+// branches so the surrounding chMode plumbing (= challenge.js / dashboard
+// pills) needs no special-case for country triggers.
+//
+// "skip" (= the no-op action) is named "skip" rather than "pass" because
+// "pass" suggested an explicit full whitelist to operators.  In reality this
+// action just means "this geo rule does not act; the decision chain continues
+// to honeypot / BAN / JA4 / UA as usual."  Visitors from a `skip` country
+// can still be challenged by downstream axes.
+const (
+	GeoActionSkip            = "skip"
+	GeoActionPoWOnly         = RateChallengePoWOnly
+	GeoActionCaptchaOnly     = RateChallengeCaptchaOnly
+	GeoActionPoWThenCaptcha  = RateChallengePoWThenCaptcha
+	GeoActionDeny            = RateChallengeDeny
+)
+
+// IsValidGeoAction validates an action submitted via form / yaml.  Empty
+// is allowed (= inherit DefaultAction at evaluation time).
+func IsValidGeoAction(a string) bool {
+	switch a {
+	case "", GeoActionSkip,
+		GeoActionPoWOnly, GeoActionCaptchaOnly,
+		GeoActionPoWThenCaptcha, GeoActionDeny:
+		return true
+	}
+	return false
+}
+
+// ResolvedDefaultAction: empty -> "skip" (= no country-based intervention
+// for the long tail of unmatched countries).
+func (g GeoConfig) ResolvedDefaultAction() string {
+	if g.DefaultAction == "" {
+		return GeoActionSkip
+	}
+	return g.DefaultAction
+}
+
+// LookupRule returns the enabled rule for the given uppercase country code,
+// or nil if none / disabled.  Linear scan — rule count is expected to be
+// small (= dozens), so building a map is not worth the alloc.
+func (g GeoConfig) LookupRule(country string) *GeoRule {
+	for i := range g.Rules {
+		r := &g.Rules[i]
+		if r.Enabled && r.Country == country {
+			return r
+		}
+	}
+	return nil
 }
 
 // BypassPathsConfig: allowlisted paths (= bypass all unmask checks per path).
@@ -523,7 +629,7 @@ type Settings struct {
 	Secret        Secret          `yaml:"secret"`
 	Challenge     Challenge       `yaml:"challenge"`
 	Server        Server          `yaml:"server"`
-	GeoIP         GeoIP           `yaml:"geoip"`
+	IPGeo         IPGeo           `yaml:"ipgeo"`
 	NginxLog      NginxLog        `yaml:"nginx_log"`
 	Nginx         Nginx           `yaml:"nginx"`
 	RateLimit     RateLimitConfig `yaml:"rate_limit"`
@@ -764,6 +870,38 @@ type Notifications struct {
 type RateLimitConfig struct {
 	Default RateZone   `yaml:"default"`
 	Zones   []RateZone `yaml:"zones,omitempty"`
+	// Key: which fingerprint to count requests against.
+	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
+	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
+	//              botnets that rotate through many IPs but share a JA4)
+	//   "ip+ja4" : "ip|ja4" compound (= narrowest. Two distinct browsers behind
+	//              one NAT IP are counted separately)
+	// Empty -> "ip" (= back-compat with installs that pre-date this field).
+	Key string `yaml:"key,omitempty"`
+}
+
+// Rate-limit key kinds.
+const (
+	RateLimitKeyIP      = "ip"
+	RateLimitKeyJA4     = "ja4"
+	RateLimitKeyIPAndJA4 = "ip+ja4"
+)
+
+// IsValidRateLimitKey: validate the key kind submitted via form / yaml.
+func IsValidRateLimitKey(k string) bool {
+	switch k {
+	case RateLimitKeyIP, RateLimitKeyJA4, RateLimitKeyIPAndJA4:
+		return true
+	}
+	return false
+}
+
+// ResolvedKey: returns the configured Key, defaulting to "ip" when empty.
+func (rl RateLimitConfig) ResolvedKey() string {
+	if rl.Key == "" {
+		return RateLimitKeyIP
+	}
+	return rl.Key
 }
 
 // RateZone: definition of a single rate-limit zone.
@@ -860,10 +998,15 @@ func defaults() Settings {
 			},
 		},
 		Challenge: Challenge{
-			CookieSeconds:         86400 * 3,
-			CaptchaScoreThreshold: 0.5,
-			DebugRateLimitPer5Min: 20,
-			Theme:                 "default",
+			// Legacy umbrella; kept so config files that only set cookie_seconds
+			// still control both kinds.  New installs prefer the per-kind values
+			// below (= PoW shorter than CAPTCHA, since PoW is auto-only proof).
+			CookieSeconds:             86400 * 3,
+			PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
+			CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
+			CaptchaScoreThreshold:     0.5,
+			DebugRateLimitPer5Min:     20,
+			Theme:                     "default",
 			CaptchaProvider: Captcha{
 				Provider:          "builtin",
 				RecaptchaMinScore: 0.5,
@@ -891,6 +1034,18 @@ func defaults() Settings {
 		NginxLog: NginxLog{
 			Enabled:    true,
 			SocketPath: "/run/unmask/log.sock",
+		},
+		// IPGeo default points at the unmask-scoped install path that
+		// `unmask-admin install-ipgeo` writes to.  The file is NOT bundled
+		// (= DB-IP Lite is dl on demand); if it doesn't exist, ipgeo.Reader
+		// quietly stays in "no DB" mode and the geo axis short-circuits to
+		// silent.  Once install-ipgeo runs, admin's next reload picks it up.
+		IPGeo: IPGeo{
+			MMDBPath: "/var/lib/unmask/ipgeo/dbip-country.mmdb",
+			// ASN DB is optional but defaults to the DB-IP managed path so
+			// the network tab's ASN radio pre-selects "DB-IP".  Users who
+			// pick "none" get this cleared on save.
+			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
 		},
 		SharedFeed: SharedFeed{
 			SubmitEnabled:    false,
@@ -997,23 +1152,40 @@ func Load(path string) (Settings, error) {
 	return s, nil
 }
 
-// CookieMaxAgeSeconds: seconds passed to the cookie's Max-Age. CookieSeconds directly.
-func (c Challenge) CookieMaxAgeSeconds() int { return c.CookieSeconds }
+// BrowserCookieMaxAgeSeconds is the fixed Max-Age set on _bv cookies sent
+// to browsers.  Decoupled from the server-side validity window so that
+// changes to PowCookieValidSeconds / CaptchaCookieValidSeconds take effect on
+// the very next request without waiting for in-flight cookies to expire.
+// 365 days = "practically permanent"; server-side `today - day` check is the
+// real gate.
+const BrowserCookieMaxAgeSeconds = 365 * 86400
 
-// CookieValidDaysCeil: day count (= integer / round-up) for the nginx HMAC
-// verifier's `unmask_bv_valid_days` directive. Returns 1 if CookieSeconds < 86400.
-func (c Challenge) CookieValidDaysCeil() int {
-	if c.CookieSeconds <= 0 {
-		return 3
+// CookieMaxAgeSeconds: seconds passed to the cookie's Max-Age.  Fixed at
+// BrowserCookieMaxAgeSeconds (= server validity window decides effective TTL).
+func (c Challenge) CookieMaxAgeSeconds() int { return BrowserCookieMaxAgeSeconds }
+
+// PowCookieValidSecondsResolved: PowCookieValidSeconds if set, else
+// CookieSeconds (= legacy single knob), else 3 days.
+func (c Challenge) PowCookieValidSecondsResolved() int {
+	if c.PowCookieValidSeconds > 0 {
+		return c.PowCookieValidSeconds
 	}
-	d := c.CookieSeconds / 86400
-	if c.CookieSeconds%86400 != 0 {
-		d++
+	if c.CookieSeconds > 0 {
+		return c.CookieSeconds
 	}
-	if d < 1 {
-		d = 1
+	return 86400 * 3
+}
+
+// CaptchaCookieValidSecondsResolved: CaptchaCookieValidSeconds if set, else
+// CookieSeconds, else 3 days.
+func (c Challenge) CaptchaCookieValidSecondsResolved() int {
+	if c.CaptchaCookieValidSeconds > 0 {
+		return c.CaptchaCookieValidSeconds
 	}
-	return d
+	if c.CookieSeconds > 0 {
+		return c.CookieSeconds
+	}
+	return 86400 * 3
 }
 
 // BackfillExtraVerdictIDs: auto-numbering for ID-based linking. For existing
@@ -1049,6 +1221,28 @@ func BackfillExtraVerdictIDs(s *Settings) {
 //
 // atomic write: write to a temp file in the same dir → fsync → rename
 // (= POSIX atomic). Permission is 0600 (= secrets are included).
+// MarshalYAML serializes a Settings as the canonical yaml form (= the same
+// representation Save writes to disk minus the header comment).  Used by the
+// audit / diff path to capture before/after snapshots.
+func MarshalYAML(s Settings) (string, error) {
+	body, err := yaml.Marshal(&s)
+	if err != nil {
+		return "", err
+	}
+	return string(body), nil
+}
+
+// LoadFromYAML parses a yaml string into Settings.  Counterpart of MarshalYAML
+// for the audit-rollback path.  Starts from defaults() so missing fields stay
+// at sane defaults (matches the Load() contract).
+func LoadFromYAML(body string) (Settings, error) {
+	s := defaults()
+	if err := yaml.Unmarshal([]byte(body), &s); err != nil {
+		return Settings{}, err
+	}
+	return s, nil
+}
+
 func Save(s Settings, path string) error {
 	if path == "" {
 		return fmt.Errorf("save: path is empty")

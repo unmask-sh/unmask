@@ -30,3 +30,14 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
 {{- else }}
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}
+
+# @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
+# in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
+# admin serves as a challenge page (= "you're going too fast, prove you're
+# human").  Native mode previously left this undefined → 429 fell through to
+# nginx's default 500 page.  /unmask/_rl is also handled by admin in the
+# auth_request mode (server.inc) under the same name, so the path stays
+# consistent across modes.
+location @unmask_rate_challenge {
+    rewrite ^ /unmask/_rl$request_uri last;
+}

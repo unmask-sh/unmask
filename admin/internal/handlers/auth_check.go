@@ -39,6 +39,87 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
+// axisSeverity: how restrictive an axis vote is.  Higher = stronger.
+// Used by the max-severity decision pipeline so multiple axes (geo /
+// honeypot / ban / protected / ja4 / UA) can each contribute a vote and
+// the harshest one wins.  The values map directly to the rate-challenge
+// modes plus an explicit "pass" floor.
+type axisSeverity int
+
+const (
+	sevPass            axisSeverity = 0
+	sevPoWOnly         axisSeverity = 1
+	sevCaptchaOnly     axisSeverity = 2
+	sevPoWThenCaptcha  axisSeverity = 3
+	sevDeny            axisSeverity = 4
+)
+
+// axisDecision: one axis' vote.  Empty (= sevPass with no reason) means the
+// axis chose not to contribute.  reason is a short label for analytics /
+// audit; chMode is the chain-mode string for challenge votes (= empty for
+// pass / deny).
+type axisDecision struct {
+	sev    axisSeverity
+	reason string
+	chMode string
+}
+
+// severityFromAction maps an action / chMode string into the severity scale.
+// Empty / "pass" / "skip" all map to sevPass (= floor).
+func severityFromAction(s string) axisSeverity {
+	switch s {
+	case "", "pass", settings.GeoActionSkip:
+		return sevPass
+	case settings.RateChallengePoWOnly:
+		return sevPoWOnly
+	case settings.RateChallengeCaptchaOnly:
+		return sevCaptchaOnly
+	case settings.RateChallengePoWThenCaptcha:
+		return sevPoWThenCaptcha
+	case settings.RateChallengeDeny:
+		return sevDeny
+	}
+	return sevPass
+}
+
+// chModeFromSeverity returns the canonical chMode string for a severity
+// (= used to surface chMode to the challenge HTML when an axis wins).
+// sevPass and sevDeny intentionally return "" (= no chain needed).
+func chModeFromSeverity(s axisSeverity) string {
+	switch s {
+	case sevPoWOnly:
+		return settings.RateChallengePoWOnly
+	case sevCaptchaOnly:
+		return settings.RateChallengeCaptchaOnly
+	case sevPoWThenCaptcha:
+		return settings.RateChallengePoWThenCaptcha
+	}
+	return ""
+}
+
+// pickStrongest returns the highest-severity decision and a list of
+// suppressed reasons from the runners-up (= for "geo:JP:pow_only suppressed
+// by ja4:captcha_only" transparency).  Empty input -> implicit pass.
+func pickStrongest(decisions []axisDecision) (axisDecision, []string) {
+	winner := axisDecision{sev: sevPass}
+	for _, d := range decisions {
+		if d.sev > winner.sev {
+			winner = d
+		}
+	}
+	if winner.sev == sevPass {
+		return winner, nil
+	}
+	suppressed := make([]string, 0, len(decisions))
+	for _, d := range decisions {
+		if d.sev == sevPass || d.reason == winner.reason {
+			continue
+		}
+		suppressed = append(suppressed, d.reason)
+	}
+	return winner, suppressed
+}
+
 // AuthCheck: GET / POST /unmask/api/check (= auth_request endpoint).
 //
 // nginx's auth_request is GET, Caddy's forward_auth is GET, Apache's
@@ -68,7 +149,6 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	if site == "" {
 		site = defaultSite
 	}
-	bvCookie := readCookieMax(r, "_bv", 256)
 	// The old _br cookie (= the previous transient PoW marker) is gone.
 	// In the current design, the PoW-passed cookie is the 4-seg _bv
 	// ("day.sig.target.flags").  It surfaces in reason as "bv-pow".
@@ -98,126 +178,87 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	reason := "ok"
 	status := http.StatusOK
 
-	// 2. Decision chain.  Order matters.
-	//   bypass (= ip/path) → _bv cookie pass → honeypot → ban → protected → ja4 bot → UA classify
-	// _bv runs before honeypot/ban so an operator who already cleared a
-	// CAPTCHA can pass even if the IP is later flagged.
-	bvOK := bvCookie != "" && cookies.Verify(bvCookie, cfg.Secret.BVSecret, ip, cfg.Challenge.CookieValidDaysCeil(), cfg.Challenge.ResolvedPowDifficulty())
+	// 2. Decision pipeline.
+	//
+	// Phase A: veto-pass axes.  bypass_ips / bypass_paths / _bv cookie pass
+	// are explicit allowlists — they short-circuit before any score axis
+	// fires so an operator-trusted client is never re-challenged.
+	//
+	// Phase B: score axes.  geo / honeypot / ban / protected / ja4 / UA each
+	// produces a decision; the strongest severity wins (= "defense in
+	// depth": if both geo says pow_only and ja4 says captcha_only, the
+	// visitor gets captcha_only).  Side-effects (= honeypot's BAN add) fire
+	// inside each axis regardless of whether it wins the max.
+	bvCookie := pickValidBV(r, cfg, ip)
+	bvOK := bvCookie != ""
 	// honeypotChMode: chain to surface to the challenge JS when the
-	// honeypot case takes the challenge branch (= not deny).  Pulled out
-	// here so the response-header block below can read it after the switch.
+	// honeypot case takes the challenge branch.  Set by honeypotDecide
+	// for the response-header block below.
 	honeypotChMode := ""
+
 	switch {
 	case isBypassIP(ip, cfg.Nginx.BypassIPs):
 		action, reason, status = "pass", "bypass:ip", http.StatusOK
-
 	case matchPath(uri, site, matchers.bypass):
 		action, reason, status = "pass", "bypass:path", http.StatusOK
-
 	case bvOK:
-		// 3-seg = CAPTCHA pass, 4-seg = PoW pass.
+		// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
 		if strings.Count(bvCookie, ".") == 3 {
 			action, reason, status = "pass", "bv-pow", http.StatusOK
 		} else {
 			action, reason, status = "pass", "bv-captcha", http.StatusOK
 		}
-
-	case matchPathSimple(uri, matchers.honeypot):
-		// honeypot trip -> always record a BAN entry.  Response branch
-		// depends on Honeypot.DefaultAction:
-		//   "deny"                   : 403 block (= "trap = instant block, no recovery").
-		//   pow_only / pow_then_captcha / captcha_only / empty
-		//                            : 401 challenge.  Solve → _bv cookie
-		//                              → bypasses the BAN on later requests
-		//                              because _bv verify runs first.
-		if h.BanMgr != nil {
-			h.BanMgr.AddWithSource(r.Context(), ip, "", "honeypot",
-				"auth_request: hit "+truncateAt(uri, 80), "")
-		}
-		act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
-		if act == settings.RateChallengeDeny {
-			action, reason, status = "block", "honeypot:deny", http.StatusForbidden
-		} else {
-			if !settings.IsValidRateChallengeMode(act) {
-				act = settings.RateChallengePoWThenCaptcha
-			}
-			honeypotChMode = act
-			action, reason, status = "challenge", "honeypot:"+act, http.StatusUnauthorized
-		}
-
-	case h.BanMgr != nil && banSrcCheck(r.Context(), h.BanMgr, ip, cfg.Nginx.Honeypot.DefaultAction, &honeypotChMode, &action, &reason, &status):
-		// (decision was filled in by banSrcCheck — honeypot-derived bans
-		// route to challenge unless DefaultAction=deny; other sources stay 403)
-
-	case false: // (placeholder so the next branch keeps its case form)
-		_ = bvCookie
-		// Branch reason by cookie format:
-		//   3 segments "<day>.<HMAC>.<kind>"               -> CAPTCHA path (= bv column)
-		//        2 dots
-		//   4 segments "<day>.<djb2>.<target>.<flags>"     -> PoW path     (= bp column)
-		//        3 dots
-		if strings.Count(bvCookie, ".") == 3 {
-			action, reason, status = "pass", "bv-pow", http.StatusOK
-		} else {
-			action, reason, status = "pass", "bv-captcha", http.StatusOK
-		}
-
-	case matchPathSimple(uri, matchers.protected):
-		action, reason, status = "challenge", "protected-path", http.StatusUnauthorized
-
-	case ja4Action == "bot":
-		// JA4 verdict bot = real spoofed bot.  Skip PoW -> straight to CAPTCHA.
-		action, reason, status = "challenge", "ja4:"+ja4Verdict, http.StatusUnauthorized
-
 	default:
-		// Final decision via UA classification.  Search bots / AI bots
-		// are let through.  Other categories defer to the 動作モード
-		// (Global) axis so the no-match path matches what the serveBot-
-		// Challenge handler does (= Known/UnknownUAAction with strict
-		// "pow_only" fallback).
-		switch classify.IsBot(ua, ja4Action).String() {
-		case "search_ai":
-			action, reason, status = "pass", "ua:search_ai", http.StatusOK
+		// Score axes: collect, take max severity.
+		decisions := make([]axisDecision, 0, 6)
+		if d, ok := h.geoDecide(ip, cfg); ok {
+			decisions = append(decisions, d)
+		}
+		if d, ok := honeypotDecide(uri, matchers, cfg, h.BanMgr, r.Context(), ip); ok {
+			decisions = append(decisions, d)
+		}
+		if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
+			decisions = append(decisions, d)
+		}
+		if d, ok := protectedDecide(uri, matchers, cfg); ok {
+			decisions = append(decisions, d)
+		}
+		if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
+			decisions = append(decisions, d)
+		}
+		if d, ok := uaDecide(ua, ja4Action, cfg); ok {
+			decisions = append(decisions, d)
+		}
+		winner, suppressed := pickStrongest(decisions)
+		switch winner.sev {
+		case sevPass:
+			// No axis voted to challenge — let through.  Reason picks the
+			// most-informative passive label (= UA classify if it ran).
+			action, reason, status = "pass", "ok", http.StatusOK
+			for _, d := range decisions {
+				// A pass-decision from UA classify gives a richer reason
+				// (= "human" / "ua:search_ai" / "ua:unknown") than the
+				// generic "ok".  Adopt the first non-empty one.
+				if d.reason != "" && d.sev == sevPass {
+					reason = d.reason
+					break
+				}
+			}
+		case sevDeny:
+			action, reason, status = "block", winner.reason, http.StatusForbidden
 		default:
-			// Look up UA against ChallengeTargetGroups first; a target
-			// hit always challenges regardless of Global (= explicit
-			// black-list beats the no-match default).
-			listed, category := lookupUAListed(ua, cfg.Nginx)
-			if listed != "" && category == "challenge" {
-				action, reason, status = "challenge", "ua:target:"+listed, http.StatusUnauthorized
-				break
-			}
-			// Pick the Global axis based on whether the UA looks like a
-			// real browser.  Empty = "pow_only" (= strict default,
-			// matches serveBotChallenge fallback).
-			var pick string
-			if classify.IsKnownBrowser(ua) {
-				pick = cfg.Global.KnownBrowserAction
-			} else {
-				pick = cfg.Global.UnknownUAAction
-			}
-			if pick == "" {
-				pick = cfg.Global.DefaultAction
-			}
-			if pick == "" {
-				pick = "pow_only"
-			}
-			if pick == "pass" {
-				if classify.IsKnownBrowser(ua) {
-					action, reason, status = "pass", "human", http.StatusOK
-				} else {
-					action, reason, status = "pass", "ua:unknown", http.StatusOK
-				}
-			} else {
-				// pow_only / pow_then_captcha / captcha_only / deny — all
-				// surface as challenge here; the chMode value flows
-				// through serveBotChallenge via the same Global axis.
-				tag := "ua:unknown"
-				if classify.IsKnownBrowser(ua) {
-					tag = "ua:browser"
-				}
-				action, reason, status = "challenge", tag+":"+pick, http.StatusUnauthorized
-			}
+			action, reason, status = "challenge", winner.reason, http.StatusUnauthorized
+		}
+		// honeypot's chMode flows through the X-Unmask-Chmode response
+		// header so the challenge HTML knows which chain to run.  We
+		// surface whatever chMode the winner carries (= honeypot, geo,
+		// protected, etc. all set it identically).
+		if winner.chMode != "" {
+			honeypotChMode = winner.chMode
+		}
+		// Attach suppressed-reason trail for transparency (audit / hunt).
+		if len(suppressed) > 0 {
+			reason = reason + " (suppressed: " + strings.Join(suppressed, ", ") + ")"
 		}
 	}
 
@@ -237,7 +278,19 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		reason != "bypass:path" &&
 		action != "block"
 	if shouldCount {
-		key := ip + "|" + ja4 + "|" + zone.Name
+		// Compose the rate-limit counter key from the configured Key kind.
+		// Mirrors the nginx side's $rate_limit_key map so a request is
+		// counted the same way regardless of native vs auth_request mode.
+		var keyBase string
+		switch cfg.RateLimit.ResolvedKey() {
+		case settings.RateLimitKeyJA4:
+			keyBase = ja4
+		case settings.RateLimitKeyIPAndJA4:
+			keyBase = ip + "|" + ja4
+		default:
+			keyBase = ip
+		}
+		key := keyBase + "|" + zone.Name
 		res := h.RateLimiter.Hit(key, ratelimit.Spec{
 			RequestsPerMin: zone.RequestsPerMin,
 			Burst:          zone.Burst,
@@ -368,32 +421,180 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(action + "\n"))
 }
 
-// banSrcCheck: probe BAN list, branch on source, fill in action/reason/status.
-// Returns true when a live ban entry covers ip (= caller's switch should
-// treat that case as matched).  Honeypot-derived bans honor
-// Honeypot.DefaultAction (= deny → 403, anything else → challenge so the
-// visitor can recover via CAPTCHA → _bv).  Other sources stay 403.
-func banSrcCheck(ctx context.Context, mgr *ban.Manager, ip, honeypotAct string,
-	chModeOut, actionOut, reasonOut *string, statusOut *int) bool {
+// --- axis decide helpers (= one per scoring axis) ---
+//
+// Each returns (decision, true) when it has an opinion, or (zero, false)
+// when silent.  The AuthCheck pipeline collects them into a slice and
+// pickStrongest picks the harshest severity.  Side-effects (= honeypot's
+// BAN add) run inside the helper so they fire regardless of who wins.
+
+// geoDecide consults settings.Nginx.Geo for the visitor's country.  Country
+// resolution (= mmdb lookup) and the per-country policy decision are split
+// so the latter can be table-tested.
+func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
+	if h.IPGeo == nil || !h.IPGeo.Loaded() {
+		return axisDecision{}, false
+	}
+	country := strings.ToUpper(strings.TrimSpace(h.IPGeo.LookupInfo(ip).Country))
+	return geoDecideForCountry(country, cfg.Nginx.Geo)
+}
+
+// geoDecideForCountry: pure decision given a resolved country string.
+//   - empty country -> silent (= mmdb miss / private IP, fail-open)
+//   - resolved action "skip" or empty -> silent (= geo intentionally
+//     declines to act for this country; lets other axes decide)
+//   - "deny" -> sevDeny
+//   - challenge-mode action -> matching severity, chMode set
+func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, bool) {
+	if country == "" {
+		return axisDecision{}, false
+	}
+	act := geo.ResolvedDefaultAction()
+	rule := geo.LookupRule(country)
+	if rule != nil && strings.TrimSpace(rule.Action) != "" {
+		act = rule.Action
+	}
+	switch act {
+	case "", settings.GeoActionSkip:
+		return axisDecision{}, false
+	case settings.GeoActionDeny:
+		return axisDecision{sev: sevDeny, reason: "geo:" + country + ":deny"}, true
+	default:
+		s := severityFromAction(act)
+		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, true
+	}
+}
+
+// honeypotDecide returns a decision when the URI matches a honeypot path.
+// Side effect: adds an entry to the persistent BAN list (= regardless of
+// whether honeypot wins the max — the trap counts even if a stronger axis
+// is the visible verdict).
+func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
+	banMgr *ban.Manager, ctx context.Context, ip string) (axisDecision, bool) {
+	if !matchPathSimple(uri, matchers.honeypot) {
+		return axisDecision{}, false
+	}
+	if banMgr != nil {
+		banMgr.AddWithSource(ctx, ip, "", "honeypot",
+			"auth_request: hit "+truncateAt(uri, 80), "")
+	}
+	act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
+	if act == settings.RateChallengeDeny {
+		return axisDecision{sev: sevDeny, reason: "honeypot:deny"}, true
+	}
+	if !settings.IsValidRateChallengeMode(act) {
+		act = settings.RateChallengePoWThenCaptcha
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: "honeypot:" + act, chMode: chModeFromSeverity(s)}, true
+}
+
+// banDecide consults the persistent BAN list.  Resolution (= mgr lookup) is
+// split from the per-source policy so the policy half is table-testable.
+func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Settings) (axisDecision, bool) {
+	if mgr == nil {
+		return axisDecision{}, false
+	}
 	src, banned := mgr.IsBannedSource(ctx, ip, "")
 	if !banned {
-		return false
+		return axisDecision{}, false
 	}
+	return banDecideFromSource(src, cfg)
+}
+
+// banDecideFromSource: pure decision given a ban source string.  Honeypot-
+// derived bans honor Honeypot.DefaultAction (= the operator chose challenge-
+// or-deny semantics on that tab); other ban sources are hard 403.
+func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool) {
 	if src == "honeypot" {
-		act := strings.TrimSpace(honeypotAct)
+		act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
 		if act == settings.RateChallengeDeny {
-			*actionOut, *reasonOut, *statusOut = "block", "ban:honeypot:deny", http.StatusForbidden
-		} else {
-			if !settings.IsValidRateChallengeMode(act) {
-				act = settings.RateChallengePoWThenCaptcha
-			}
-			*chModeOut = act
-			*actionOut, *reasonOut, *statusOut = "challenge", "ban:honeypot:"+act, http.StatusUnauthorized
+			return axisDecision{sev: sevDeny, reason: "ban:honeypot:deny"}, true
 		}
-	} else {
-		*actionOut, *reasonOut, *statusOut = "block", "ban:"+src, http.StatusForbidden
+		if !settings.IsValidRateChallengeMode(act) {
+			act = settings.RateChallengePoWThenCaptcha
+		}
+		s := severityFromAction(act)
+		return axisDecision{sev: s, reason: "ban:honeypot:" + act, chMode: chModeFromSeverity(s)}, true
 	}
-	return true
+	return axisDecision{sev: sevDeny, reason: "ban:" + src}, true
+}
+
+// protectedDecide fires when the URI matches a protected-paths regex.
+// The chain is the rate-limit challenge mode default (= "pow_then_captcha"
+// fallback when unset).
+func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings) (axisDecision, bool) {
+	if !matchPathSimple(uri, matchers.protected) {
+		return axisDecision{}, false
+	}
+	// Reuse the rate-limit chain mode as the protected-path default since
+	// the protected tab does not yet expose its own chMode picker.
+	act := strings.TrimSpace(cfg.RateLimit.Default.ChallengeMode)
+	if !settings.IsValidRateChallengeMode(act) {
+		act = settings.RateChallengePoWThenCaptcha
+	}
+	if act == settings.RateChallengeDeny {
+		return axisDecision{sev: sevDeny, reason: "protected-path:deny"}, true
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: "protected-path", chMode: chModeFromSeverity(s)}, true
+}
+
+// ja4Decide returns a challenge decision when the JA4 verdict says "bot".
+// Severity is captcha_only (= JA4 bot is a strong signal so the chain
+// skips PoW and goes straight to CAPTCHA, matching the legacy semantics).
+func ja4Decide(ja4Action, ja4Verdict string) (axisDecision, bool) {
+	if ja4Action != "bot" {
+		return axisDecision{}, false
+	}
+	return axisDecision{
+		sev:    sevCaptchaOnly,
+		reason: "ja4:" + ja4Verdict,
+		chMode: settings.RateChallengeCaptchaOnly,
+	}, true
+}
+
+// uaDecide runs the UA classification chain.  search_ai UAs contribute a
+// pass (= sevPass) so other axes can still escalate; explicit challenge-
+// target hits contribute a captcha challenge; otherwise the Global axis
+// (Known/Unknown action) sets severity.
+func uaDecide(ua, ja4Action string, cfg settings.Settings) (axisDecision, bool) {
+	switch classify.IsBot(ua, ja4Action).String() {
+	case "search_ai":
+		return axisDecision{sev: sevPass, reason: "ua:search_ai"}, true
+	}
+	if listed, category := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
+		return axisDecision{
+			sev:    sevCaptchaOnly,
+			reason: "ua:target:" + listed,
+			chMode: settings.RateChallengeCaptchaOnly,
+		}, true
+	}
+	var pick string
+	if classify.IsKnownBrowser(ua) {
+		pick = cfg.Global.KnownBrowserAction
+	} else {
+		pick = cfg.Global.UnknownUAAction
+	}
+	if pick == "" {
+		pick = cfg.Global.DefaultAction
+	}
+	if pick == "" {
+		pick = settings.RateChallengePoWOnly
+	}
+	if pick == "pass" {
+		label := "ua:unknown"
+		if classify.IsKnownBrowser(ua) {
+			label = "human"
+		}
+		return axisDecision{sev: sevPass, reason: label}, true
+	}
+	tag := "ua:unknown"
+	if classify.IsKnownBrowser(ua) {
+		tag = "ua:browser"
+	}
+	s := severityFromAction(pick)
+	return axisDecision{sev: s, reason: tag + ":" + pick, chMode: chModeFromSeverity(s)}, true
 }
 
 // --- helpers ---
@@ -642,5 +843,56 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 			return "extra", "challenge"
 		}
 	}
+	// Upstream rescue groups (= crawler-user-agents.json categories) resolved
+	// to mode=black contribute additional challenge-target UAs.  The nginx
+	// render side already pushes these into the $is_challenge_target map; this
+	// branch keeps the admin's auth_request decision symmetric (otherwise
+	// curl / python-requests / Headless variants would 401 in native mode but
+	// 200 in auth_request mode).
+	upstreamDisabled := map[string]bool{}
+	for _, p := range n.SearchBots.UpstreamDisabled {
+		upstreamDisabled[strings.TrimSpace(p)] = true
+	}
+	for cat, entries := range classify.UpstreamRescueList() {
+		if classify.ResolveGroupMode(cat, n.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
+			continue
+		}
+		for _, e := range entries {
+			if upstreamDisabled[e.Pattern] {
+				continue
+			}
+			if matchedRegex(e.Pattern, ua) {
+				return cat, "challenge"
+			}
+		}
+	}
 	return "", ""
+}
+
+// pickValidBV returns the first `_bv` cookie value on the request that
+// verifies against the configured secret / validity windows; "" if none do.
+//
+// Why iterate: r.Cookie("_bv") only returns the first match, and browsers
+// can carry duplicate `_bv` entries (= stale cookie at a different path /
+// domain shadowing the freshly-set one).  Stopping at the first match
+// would lock a legitimate visitor into a permanent challenge loop after
+// the stale cookie sorts ahead of the new one in the Cookie header.  The
+// matching nginx C plugin does the same iteration in
+// ngx_unmask_bv_kind_compute.
+func pickValidBV(r *http.Request, cfg settings.Settings, ip string) string {
+	for _, c := range r.Cookies() {
+		if c.Name != "_bv" {
+			continue
+		}
+		if c.Value == "" || len(c.Value) > 256 {
+			continue
+		}
+		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip,
+			cfg.Challenge.PowCookieValidSecondsResolved(),
+			cfg.Challenge.CaptchaCookieValidSecondsResolved(),
+			cfg.Challenge.ResolvedPowDifficulty()) {
+			return c.Value
+		}
+	}
+	return ""
 }

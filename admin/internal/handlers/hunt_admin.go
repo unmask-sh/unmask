@@ -93,7 +93,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		Count       int
 		Banned      bool   // true if an existing entry in unmask_ban
 		BypassIP    bool   // true if in the bypass_ips list (= rescued, BAN unnecessary)
-		CountryCode string // ISO 3166-1 alpha-2 (= GeoIP lookup. empty if mmdb is not loaded)
+		CountryCode string // ISO 3166-1 alpha-2 (= IP-geo lookup. empty if mmdb is not loaded)
 	}
 	ipRank := make([]ipRankRow, 0, len(ipRankRaw))
 	bypassSet := map[string]bool{}
@@ -108,8 +108,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		if bypassSet[r0.Key] {
 			row.BypassIP = true
 		}
-		if h.GeoIP != nil && h.GeoIP.Loaded() && r0.Key != "" {
-			row.CountryCode = h.GeoIP.LookupInfo(r0.Key).Country
+		if h.IPGeo != nil && h.IPGeo.Loaded() && r0.Key != "" {
+			row.CountryCode = h.IPGeo.LookupInfo(r0.Key).Country
 		}
 		ipRank = append(ipRank, row)
 	}
@@ -154,7 +154,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Attach country code + ban status to event rows.  The same IP appears
 	// on multiple rows, so cache per IP (= avoid duplicate lookups).
-	//   - CountryCode: empty when GeoIP is not loaded
+	//   - CountryCode: empty when IP-geo is not loaded
 	//   - Banned     : an active ban exists for this IP (= including full
 	//                  wildcard).  Same semantics as IPRank
 	//                  (= ja4 empty when calling IsBanned -> per-IP count).
@@ -164,7 +164,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		Banned      bool
 	}
 	enriched := make([]huntEventRow, 0, len(rows))
-	geoOK := h.GeoIP != nil && h.GeoIP.Loaded()
+	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
 	banOK := h.BanMgr != nil
 	ipCC := map[string]string{}
 	ipBan := map[string]bool{}
@@ -174,7 +174,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		if geoOK {
 			if _, ok := ipCC[e.IP]; !ok {
-				ipCC[e.IP] = h.GeoIP.LookupInfo(e.IP).Country
+				ipCC[e.IP] = h.IPGeo.LookupInfo(e.IP).Country
 			}
 		}
 		if banOK {

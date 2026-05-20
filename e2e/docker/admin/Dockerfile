@@ -4,7 +4,7 @@
 # If you want to reuse `make build-admin` output from CI, switching to a
 # host-build → COPY pattern is faster (= skips the in-image go install).
 
-FROM golang:1.22-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache git
 # admin is a standalone module.  Bundles embed assets like crawler-user-agents.json.

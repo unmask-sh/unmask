@@ -150,6 +150,24 @@ else
     INIT_KIND=manual
 fi
 
+# Optional one-shot mmdb fetch.  Off by default to keep package install
+# 100% offline-friendly.  When the operator sets UNMASK_AUTO_INSTALL_MMDB=1
+# (= "I am online and want geo features to work immediately") fire a quick
+# install-ipgeo as the unmask user.  Failure is non-fatal (= bad
+# connectivity should never abort an rpm install).
+if [ "${UNMASK_AUTO_INSTALL_MMDB:-0}" = "1" ]; then
+    echo "unmask: UNMASK_AUTO_INSTALL_MMDB=1 detected — fetching DB-IP Country Lite ..."
+    install -d -o unmask -g unmask -m 0750 /var/lib/unmask/ipgeo 2>/dev/null || true
+    if command -v runuser >/dev/null 2>&1; then
+        runuser -u unmask -- /usr/sbin/unmask-admin install-ipgeo -quiet 2>&1 \
+            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask-admin install-ipgeo\` later)"
+    else
+        # Alpine / minimal systems may lack runuser; fall back to su.
+        su unmask -c "/usr/sbin/unmask-admin install-ipgeo -quiet" 2>&1 \
+            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask-admin install-ipgeo\` later)"
+    fi
+fi
+
 echo "unmask: install complete (init: ${INIT_KIND:-unknown})."
 echo "  next steps (= on the nginx side):"
 echo "    1. add 'load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;' to nginx.conf"

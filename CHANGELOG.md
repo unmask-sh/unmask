@@ -12,7 +12,84 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-05-19) **IP-geo (ipgeo) UX overhaul**: per-country geo rule axis,
+  one-click DB-IP Lite install, network-tab radio (DB-IP / custom / none),
+  Country/City vs ASN section split, mmdb vendor detection badges
+  (MaxMind / DB-IP / IP2Location / Unknown).<br>
+  - New CLI: `unmask-admin install-ipgeo [-kind country|asn] [-path PATH]`.<br>
+  - New endpoint: `POST /admin/api/ipgeo/install?kind=country|asn` (= 1-click
+    web button, reuses the same library).<br>
+  - Default path: `/var/lib/unmask/ipgeo/{dbip-country,dbip-asn}.mmdb`.<br>
+  - Postinstall opt-in: set `UNMASK_AUTO_INSTALL_MMDB=1` to fetch on first
+    install.  Off by default (= offline-friendly).<br>
+  - Attribution + cron sample shipped under `/usr/share/doc/unmask/`.<br>
+  - Trademark distance: package + path naming renamed from `geoip` to
+    `ipgeo` (MaxMind owns the GEOIP trademark; lowercase usage is common in
+    OSS but we keep brand neutrality).<br>
+  - DB-IP Lite is CC BY 4.0, redistribution allowed with attribution; we
+    download on demand rather than bundling (= file size + freshness).
+
+- (2026-05-19) **Per-country Geo rule axis** (`settings.geo`): rule list
+  with autocomplete (250 countries × JP/EN names), per-row action
+  (skip / pow_only / captcha_only / pow_then_captcha / deny), bulk
+  toolbar (= multi-select + apply).  Decision lives in `auth_check.go`
+  as a score-axis (= max severity).
+
+- (2026-05-19) **max(severity) decision pipeline**: refactored auth_check
+  to evaluate every score axis (geo / honeypot / ban / protected / ja4 /
+  UA) and pick the harshest action.  Veto axes (bypass_ips, bypass_paths,
+  `_bv` cookie pass) remain hard short-circuits.  Side-effects (= honeypot
+  BAN add) fire regardless of who wins the max.  Reason carries
+  suppressed runner-up axes for hunt-page transparency.
+
+- (2026-05-19) **JA4-keyed rate-limit**: new `rate_limit.key` enum
+  (`ip` / `ja4` / `ip+ja4`).  Composite keys reuse the same zones; nginx
+  and admin-side accounting stay in sync.
+
+- (2026-05-19) **Settings audit + 1-click rollback**: every settings_save
+  captures full before/after yaml in `unmask_user_audit.detail`,
+  computes a unified-diff text, and the audit page exposes a "Restore"
+  button (superadmin only).  Manual snapshot via "Take snapshot" button
+  uses the same storage.  Yaml export downloads the live config.
+
+- (2026-05-19) **doctor SLO self-curl**: probes `/unmask/healthz` × 30
+  samples and reports p50 / p95 / max latency.  Warns at p95 > 100 ms.
+
+- (2026-05-19) **doctor mmdb age / vendor / geo-rule sanity**: each
+  installed mmdb shows vendor + DatabaseType + build date + age (WARN at
+  35+ days).  Geo rules with unknown ISO codes surface a WARN
+  (= silently inactive otherwise).
+
+- (2026-05-19) **AI traffic overview**: new card on `/admin/` aggregating
+  upstream crawler-user-agents.json tags into 5 buckets (search /
+  training / agent / scraper / collector).  Shows total / served /
+  passed / pass-rate per category over the last 24h.
+
+- (2026-05-19) **e2e scenarios 12 + 13** covering max-severity
+  composition (= JP + JA4 bot, CN deny override etc.) and isolated
+  geo-deny path.  `e2e/scenarios/11-bv-cookie-shadow.sh` guards against
+  the duplicate `_bv` cookie regression.
+
 ### Fixed
+- (2026-05-19) **`_bv` cookie iteration bug**: nginx C plugin and Go
+  admin both returned the first `_bv` cookie only.  A stale invalid
+  cookie shadowing the freshly-set one would loop visitors through
+  challenge forever.  Both sides now iterate every `_bv` and accept
+  the first that verifies.  challenge.js additionally evicts stale
+  copies at every ancestor path before setting the new one.
+
+- (2026-05-19) **Native-mode `@unmask_rate_challenge` undefined** in
+  server.inc.tmpl: rate-limit 429 fell through to nginx's default 500
+  page.  Added the named location matching the auth_request mode.
+
+- (2026-05-19) **Audit page rendered only 1 row** due to template loop
+  referencing `.Lang` instead of `$.Lang` (template-context shadowing).
+
+- (2026-05-19) **`index out of range` panic** in protected / honeypot /
+  ja4-verdicts settings tabs when `Extra*Action` parallel arrays were
+  shorter than the canonical rule list.  Pad in handler before render.
+
 - (2026-05-07 19:50) **Eliminated all `bot_*` / `suspect_*` prefix hardcoding from
   JA4 bot judgement**. Verdict names are user-defined (= the action enum is the
   source of truth), but the dashboard SQL and `classify.IsBot` still used

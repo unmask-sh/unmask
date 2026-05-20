@@ -48,7 +48,7 @@ MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
 GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down vet fmt clean help
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down distro-check vet fmt clean help
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -568,6 +568,37 @@ release: clean
 	@echo ">>> release artifacts in $(DIST)/:"
 	@ls -la $(DIST)/
 
+## release-github - create a DRAFT GitHub Release for v$(UNMASK_VERSION) and
+##                  attach the dist/ rpm/deb/apk + checksums.txt.
+##                  Release pipeline: `make release` (build) -> publish to the
+##                  test /dl/ -> `make distro-check` (e2e + 8-distro install
+##                  matrix) -> `make release-github`.  This target REFUSES to
+##                  run unless distro-check passed for the current build.
+##                  The release is left as a draft — review the assets, then
+##                  publish it on GitHub.  Primary distribution stays the
+##                  unmask.sh apt/dnf/apk repo; these assets are an immutable
+##                  per-version archive / mirror.
+.PHONY: release-github
+release-github:
+	@command -v gh >/dev/null 2>&1 || { echo "!!! gh CLI not found — see https://cli.github.com/"; exit 1; }
+	@ls $(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk >/dev/null 2>&1 || { \
+		echo "!!! no packages in $(DIST)/ — run 'make release' first"; exit 1; }
+	@test -f $(DIST)/.release-gate-ok || { \
+		echo "!!! release gate not passed — run 'make distro-check' (e2e + 8-distro install matrix) first"; exit 1; }
+	@if find $(DIST) \( -name 'unmask*.rpm' -o -name 'unmask*.deb' -o -name 'unmask*.apk' \) \
+		-newer $(DIST)/.release-gate-ok -print -quit | grep -q .; then \
+		echo "!!! packages were rebuilt after 'make distro-check' — re-run 'make distro-check'"; exit 1; fi
+	@echo ">>> release gate OK (distro-check passed for this build)"
+	@echo ">>> creating draft GitHub release v$(UNMASK_VERSION) with $(DIST)/ artifacts"
+	gh release create v$(UNMASK_VERSION) \
+		--repo unmask-sh/unmask \
+		--draft \
+		--title "unmask v$(UNMASK_VERSION)" \
+		--notes 'rpm / deb / apk packages for this release. Recommended install is the unmask.sh apt/dnf/apk repository (https://unmask.sh/install/) — it configures GPG-verified automatic updates. The packages attached here are an immutable per-version archive; a directly-installed package does not configure the repository and will not auto-update. Verify downloads against checksums.txt.' \
+		$(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk $(DIST)/checksums.txt
+	@echo ">>> draft release created — review the assets, then publish at:"
+	@echo "    https://github.com/unmask-sh/unmask/releases"
+
 ## test          - go test (admin app) + plugin parser unit test
 test: test-plugin-parser
 	cd admin && go test ./...
@@ -597,6 +628,19 @@ e2e-docker:
 
 e2e-docker-down:
 	docker compose -f e2e/docker/docker-compose.yml down -v
+
+## distro-check  - release-gate: e2e (docker) must pass, then run install matrix on hv1 VMs.
+# e2e covers admin / plugin behavior in isolation; install-test-official.sh exercises the
+# distribution path on real distros.  Both must pass before publishing.
+.PHONY: distro-check
+distro-check:
+	@echo '=== gate 1/2: e2e (docker compose) ==='
+	$(MAKE) e2e-docker
+	@echo '=== gate 2/2: install matrix (hv1 8 distros) ==='
+	cd ../distro-verify/e2e && ./install-test-official.sh
+	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
+	@echo '=== release gate PASSED — e2e + 8-distro install matrix green ==='
+	@echo '    (recorded in $(DIST)/.release-gate-ok — consumed by release-github)'
 
 ## vet           - go vet
 vet:

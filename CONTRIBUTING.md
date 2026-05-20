@@ -1,7 +1,7 @@
 # Contributing
 
-Thanks for your interest in unmask. This is a small project — bug reports,
-documentation fixes, and small focused PRs are all welcome.
+Thanks for your interest in unmask. Bug reports, documentation fixes, and
+small focused PRs are all welcome.
 
 ## Reporting bugs
 
@@ -12,8 +12,8 @@ Open an issue with:
 - relevant log lines (`/var/log/unmask/` and your web server's error log)
 - reproduction steps
 
-For suspected security issues, **please do not open a public issue.**
-Email the maintainer instead (address listed in commit metadata).
+For suspected security issues, **please do not open a public issue** —
+follow [SECURITY.md](SECURITY.md) (report privately to oss@unmask.sh).
 
 ## Development setup
 
@@ -30,7 +30,7 @@ unmask is three components in one repo:
 cd admin && go build -o unmask-admin ./cmd/unmask-admin
 
 # rpm/deb/apk packages (= nfpm)
-make packages
+make package
 ```
 
 End-to-end tests live in `e2e/` and run against the dockerized stack.

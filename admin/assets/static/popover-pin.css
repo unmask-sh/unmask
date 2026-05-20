@@ -97,11 +97,23 @@
 .info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
 .info-tip:hover,.info-tip:focus{background:#0f172a}
 .info-tip.pinned{background:#3b82f6;cursor:default}
-/* hover popup (= dark theme).  Plain compact padding while hovering. */
-.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,90vw);background:#1e293b;color:#f1f5f9;padding:.7rem .9rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
+/* hover popup (= dark theme).  Plain compact padding while hovering.
+ * Default anchor: top:130% / left:0 (= below the tip, flush left).
+ * Edge-flip classes are added by popover-pin.js on mouseenter / focusin:
+ *   .info-popup-flip-x : anchor right (= right edge would overflow viewport)
+ *   .info-popup-flip-y : anchor above (= bottom edge would overflow viewport)
+ * max-width = viewport - 1rem keeps the popup from forcing a horizontal scrollbar
+ * even on narrow screens, which is the other source of "ガクガク" layout jitter. */
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#1e293b;color:#f1f5f9;padding:.7rem .9rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
 .info-popup a{color:#93c5fd;text-decoration:underline}
 .info-popup code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
 .info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
+/* Edge flip: anchor the popup on the side that has room.  The popup keeps its
+ * width (= min(28rem,...)); only the anchor side changes. */
+.info-popup.info-popup-flip-x{left:auto;right:0}
+.info-popup.info-popup-flip-y{top:auto;bottom:130%}
+/* When flipping vertically, the "click to pin" footer normally sits at the bottom;
+ * keep it readable by holding the same internal order — no extra rule needed. */
 /* while pinned, display lives on the body-level clone (= .info-popup-pinned), so hide the inline popup.
    The .pinned rule is placed after to override the :hover / :focus rules. */
 .info-tip.pinned .info-popup{display:none}
