@@ -2,26 +2,36 @@
 --
 -- Flow:
 --   client → Apache → handle_request(r)
---                   ├→ subrequest to unmask-admin /api/check
---                   ├→ branch on the X-Unmask-Action header
---                   │   pass     → r:return DECLINED   (= forward as usual)
---                   │   challenge→ redirect to /unmask/challenge/
---                   │   block    → 403
+--                   ├→ HTTP GET to unmask-admin /api/check (via luasocket)
+--                   └→ branch on status / X-Unmask-Action:
+--                       pass      → apache2.DECLINED  (= forward as usual)
+--                       challenge → 302 to /unmask/challenge/
+--                       block     → 403
+--
+-- Requires the `lua-socket` package (RHEL: EPEL `lua-socket` /
+-- Debian: `lua-socket`).  mod_lua itself has no HTTP client and no subrequest
+-- API, so the outbound call to unmask-admin goes through luasocket.
 --
 -- Installation:
 --   Put `LuaHookAccessChecker /etc/httpd/unmask.lua handle_request` in
 --   /etc/httpd/conf.d/unmask.conf, and drop this file at /etc/httpd/unmask.lua.
 
--- Listen URL for unmask-admin.  Rewrite if needed.
+local http  = require("socket.http")
+local ltn12 = require("ltn12")
+
+-- unmask-admin /api/check URL.  Rewrite the host:port if admin does not run
+-- on the same host (= server.port in admin.yml).
 local UNMASK_API = "http://127.0.0.1:9477/unmask/api/check"
 
--- /unmask/* and /_unmask/* are passed through to prevent self-loop.
--- Run auth check for every other URI.
+-- Hard cap the admin round-trip so a stalled admin cannot pile up Apache
+-- workers.  On timeout the handler fails open (= forwards as usual).
+http.TIMEOUT = 2
+
+-- /unmask/* is proxied straight to unmask-admin (challenge page / static
+-- assets / verify API).  Never run the auth check on it, or the challenge
+-- page itself would be challenged.
 local function should_skip(uri)
-    if uri:match("^/unmask/") or uri:match("^/_unmask/") then
-        return true
-    end
-    return false
+    return uri:match("^/unmask/") ~= nil
 end
 
 function handle_request(r)
@@ -29,55 +39,46 @@ function handle_request(r)
         return apache2.DECLINED
     end
 
-    -- External HTTP calls via mod_lua r:request_get / wsapi are inherently
-    -- heavy.  Assuming mod_proxy_http (= dynamic forward) is configured for
-    -- same-host loopback, Apache's own subrequest is lighter.  Subrequests
-    -- are limited to the same vhost, so the unmask call uses HTTP over loopback.
-    --
-    -- requires: lua-socket (= unnecessary if we used apr_socket_t, but
-    -- luaSocket is not standard across distros, so we use Apache's built-in
-    -- `r:make_subrequest` instead).
+    -- Forward the original request context to unmask-admin as headers.
+    -- Apache mode cannot supply a JA4 (no TLS handshake access); every other
+    -- axis (UA filter / honeypot / BAN / CAPTCHA / protected paths / search
+    -- rescue / rate_limit) works from these.
+    local ok, code, headers = http.request{
+        url    = UNMASK_API,
+        method = "GET",
+        headers = {
+            ["X-Original-URI"]  = r.unparsed_uri or r.uri,
+            ["X-Original-IP"]   = r.useragent_ip or "",
+            ["X-Original-UA"]   = r.headers_in["User-Agent"] or "",
+            ["X-Original-Host"] = r.headers_in["Host"] or r.hostname or "",
+            ["Cookie"]          = r.headers_in["Cookie"] or "",
+        },
+        -- The verdict is carried by the status code + headers; the response
+        -- body is not needed, so it is discarded.
+        sink = ltn12.sink.null(),
+    }
 
-    -- Use Apache's internal subrequest for the call to unmask.
-    -- Assumes the location that proxy_passes /unmask/api/check (in
-    -- unmask-proxy.conf) is exposed under the internal alias /_unmask/check.
-    local sub = r:lookup_uri("/_unmask/check")
-    if not sub then
-        -- subrequest impossible = unmask config is broken; fail-open (= forward as usual).
+    -- ok is nil when admin is unreachable or times out → fail open.
+    if not ok then
+        r:info("[unmask] admin unreachable, failing open: " .. tostring(code))
         return apache2.DECLINED
     end
 
-    -- Pass the original request context to the subrequest via headers.
-    -- Apache's r:lookup_uri is for GET subrequests and does not carry a body,
-    -- so use headers.
-    local original_uri = r.unparsed_uri or r.uri
-    local original_ip  = r.useragent_ip or r.connection.client_ip or ""
-    local original_ua  = r.headers_in["User-Agent"] or ""
-    local original_host = r.headers_in["Host"] or r.hostname or ""
-    local cookie_hdr   = r.headers_in["Cookie"] or ""
+    -- luasocket lowercases response header keys.
+    local action = string.lower(headers and headers["x-unmask-action"] or "")
 
-    sub.headers_in["X-Original-URI"]  = original_uri
-    sub.headers_in["X-Original-IP"]   = original_ip
-    sub.headers_in["X-Original-UA"]   = original_ua
-    sub.headers_in["X-Original-Host"] = original_host
-    sub.headers_in["Cookie"]          = cookie_hdr
-
-    sub:run()
-    local status = sub.status
-    local action = (sub.headers_out["X-Unmask-Action"] or "pass"):lower()
-
-    if status == 200 or action == "pass" then
+    if code == 200 or action == "pass" then
         return apache2.DECLINED -- forward as usual
     end
-    if status == 403 or action == "block" then
-        r:err("[unmask] block: " .. (sub.headers_out["X-Unmask-Reason"] or ""))
+    if code == 403 or action == "block" then
+        r:err("[unmask] block: " .. (headers["x-unmask-reason"] or ""))
         return 403
     end
-    if status == 401 or action == "challenge" then
-        -- Redirect to the challenge HTML.
+    if code == 401 or action == "challenge" then
+        -- Redirect to the challenge HTML served by unmask-admin.
         r.headers_out["Location"] = "/unmask/challenge/"
         return 302
     end
-    -- unknown → fail-open.
+    -- unknown → fail open.
     return apache2.DECLINED
 end

@@ -8,7 +8,7 @@ Lets GitHub Actions or any other host run the full check with a single
 
 ```
 e2e/docker/
-├── docker-compose.yml      # admin + nginx + tmpfs socket volume
+├── docker-compose.yml      # admin + nginx + apache + tmpfs socket volume
 ├── admin/
 │   ├── Dockerfile          # golang build → alpine
 │   └── admin.yml           # fixed e2e secret
@@ -16,8 +16,14 @@ e2e/docker/
 │   ├── Dockerfile          # nginx 1.26 + unmask.so build
 │   ├── nginx.conf          # minimal config (demo-equivalent)
 │   └── secret.conf         # bv_secret synced with admin
+├── apache/
+│   └── Dockerfile          # httpd + mod_lua running the forward-auth snippet
 └── README.md               # this file
 ```
+
+The `apache` service runs the real shipped snippet (`snippets/apache-forward-auth.conf`
++ `apache-unmask.lua`) and is exercised by scenario 14. It talks HTTP to the
+admin container, so it needs no shared volume. Published on `localhost:8081`.
 
 ## Running
 
@@ -30,7 +36,7 @@ What happens internally:
 
 1. `docker compose build` builds the admin + nginx images.
 2. `docker compose up -d` starts them and waits on healthcheck.
-3. `BASE_URL=https://localhost:8443 ./e2e/run.sh` runs the 4 scenarios.
+3. `BASE_URL=https://localhost:8443 ./e2e/run.sh` runs all scenarios.
 4. `docker compose down` tears it all down.
 
 ## tmpfs socket volume

@@ -5,6 +5,10 @@
 
 : "${BASE_URL:=https://localhost:8443}"
 
+# Apache forward-auth container (= scenario 14).  Plain HTTP: the Apache mode
+# cannot read TLS handshakes, so there is no JA4 and no need for TLS here.
+: "${APACHE_URL:=http://localhost:8081}"
+
 # Known UA strings
 UA_BROWSER='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 UA_CURL='curl/8.0'

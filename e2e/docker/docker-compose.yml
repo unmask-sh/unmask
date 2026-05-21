@@ -66,6 +66,25 @@ services:
       timeout: 2s
       retries: 30
 
+  # Apache httpd running the forward-auth snippet (= auth_request mode for
+  # environments where the nginx module is not an option).  Independent of
+  # the nginx container; talks HTTP to admin, so no shared volume is needed.
+  # Exercised by scenario 14.
+  apache:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/apache/Dockerfile
+    depends_on:
+      admin:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/unmask/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
 volumes:
   unmask-run:
     driver_opts:
