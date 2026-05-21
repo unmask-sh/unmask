@@ -254,6 +254,49 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	return out, nil
 }
 
+// HostInfo: one observed unmask instance (= host) for the host inventory.
+type HostInfo struct {
+	HostID     string
+	Events     int
+	LastSeen   string
+	LastSeenTS int64 // unix sec UTC; template renders via <time class="js-datetime">
+}
+
+// HostInventory returns one row per distinct host that has ever written to
+// unmask_event, most-recently-active first.  Unlike Sites it has no time
+// window: a retired instance should still appear (with an old last-seen) so
+// the operator can spot stale entries in a shared DB.  Capped at 200.
+func HostInventory(ctx context.Context, d *db.DB) ([]HostInfo, error) {
+	rows, err := d.QueryContext(ctx, `
+        SELECT host, COUNT(*) AS n, MAX(date_created) AS last_seen
+        FROM unmask_event
+        WHERE host IS NOT NULL AND host != ''
+        GROUP BY host
+        LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []HostInfo{}
+	for rows.Next() {
+		var hi HostInfo
+		var ls sql.NullString
+		if err := rows.Scan(&hi.HostID, &hi.Events, &ls); err != nil {
+			return nil, err
+		}
+		hi.LastSeen = ls.String
+		hi.LastSeenTS = parseDateTimeToUnix(ls.String)
+		out = append(out, hi)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].LastSeenTS > out[j].LastSeenTS
+	})
+	return out, nil
+}
+
 // fixedVerdicts: verdicts always shown even at 0 (= all presets + ok + (none)).
 // Preset verdict names are collected dynamically from nginxconf.JA4VerdictGroups
 // (= no hardcode). User-added extra-rule verdicts appear on first observed

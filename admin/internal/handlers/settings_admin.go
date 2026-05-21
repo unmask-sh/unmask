@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -275,9 +276,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// tab so other settings pages don't pay for the query.
 	sitesConfig := h.snapshotSettings().Sites
 	var siteGhosts []GhostSite
+	var hostInventory []dashboard.HostInfo
 	if tab == "sites" {
 		gctx, gcancel := context.WithTimeout(r.Context(), 3*time.Second)
 		siteGhosts = h.ghostSites(gctx, 24*30)
+		if h.DB != nil {
+			hostInventory, _ = dashboard.HostInventory(gctx, h.DB)
+		}
 		gcancel()
 	}
 
@@ -391,6 +396,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"SitesConfig":     sitesConfig,
 		"SiteModeDefined": sitesConfig.ResolvedMode() == settings.SiteModeDefined,
 		"SiteGhosts":      siteGhosts,
+		// Host inventory: every unmask instance that has written to the shared
+		// DB (read-only — a host id is per-instance config, not client-supplied).
+		"HostInventory": hostInventory,
 		// CAPTCHA provider settings (= used by the captcha tab).
 		"Captcha": h.snapshotSettings().Challenge.CaptchaProvider,
 		// Settings used by the challenge tab (= cookie_days / score_threshold / debug rate).

@@ -65,8 +65,8 @@ func TestSettingsSitesTabRender(t *testing.T) {
 	ip := []byte{1, 2, 3, 4}
 	for _, s := range []string{"shop.example.com", "blog.example.com"} {
 		if _, err := h.DB.Exec(
-			`INSERT INTO unmask_event (site, ip_address, phase) VALUES (?, ?, 'serve')`,
-			s, ip); err != nil {
+			`INSERT INTO unmask_event (site, host, ip_address, phase) VALUES (?, ?, ?, 'serve')`,
+			s, "edge-tokyo-1", ip); err != nil {
 			t.Fatalf("insert %s: %v", s, err)
 		}
 	}
@@ -87,6 +87,10 @@ func TestSettingsSitesTabRender(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("rendered sites tab missing %q", want)
 		}
+	}
+	// the host inventory section lists every observed unmask instance.
+	if !strings.Contains(body, "edge-tokyo-1") {
+		t.Errorf("host inventory missing the observed host")
 	}
 	// The shared header_tools partial must put the host + site pickers on the
 	// settings page too (regression: they used to be dashboard-only).

@@ -3071,6 +3071,29 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_auto_hint" }}</p>
   {{ end }}
 </div>
+<div class="bcd-card">
+  <h2>{{ t .Lang "settings.sites.host_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.host_desc") }}</span></span></h2>
+  {{ if .HostInventory }}
+  <table class="sites-ghost-table">
+    <thead><tr>
+      <th>{{ t .Lang "settings.sites.host_col_id" }}</th>
+      <th style="text-align:right">{{ t .Lang "settings.sites.ghost_col_events" }}</th>
+      <th>{{ t .Lang "th.last_seen" }}</th>
+    </tr></thead>
+    <tbody>
+      {{ range .HostInventory }}
+      <tr>
+        <td style="font-family:ui-monospace,Menlo,monospace">{{ .HostID }}{{ if eq .HostID $.SelfHostID }} <span class="sites-host-self">({{ t $.Lang "settings.sites.host_self" }})</span>{{ end }}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
+        <td><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ else }}
+  <p class="note" style="margin:0">{{ t .Lang "settings.sites.host_empty" }}</p>
+  {{ end }}
+</div>
 <style>
 .sites-mode{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem .2rem;cursor:pointer}
 .sites-mode + .sites-mode{border-top:1px dashed #e2e8f0}
@@ -3078,6 +3101,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .sites-ghost-table{width:100%;border-collapse:collapse;font-size:.85rem}
 .sites-ghost-table th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0}
 .sites-ghost-table td{padding:.45rem .5rem;border-bottom:1px solid #f1f5f9;color:#334155}
+.sites-host-self{color:#0ea5e9;font-size:.7rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 </style>
 {{ end }}
 
