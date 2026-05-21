@@ -322,6 +322,10 @@ func cmdServe(args []string) error {
 	// once at startup so the first request already sees the saved settings.
 	classify.SetUpstreamDisabled(s.Nginx.SearchBots.UpstreamDisabled)
 
+	// host inventory: apply the persisted disabled-host list so retired /
+	// mis-configured instances are excluded from aggregation from the start.
+	dashboard.SetDisabledHosts(s.Hosts.Disabled)
+
 	h := &handlers.Handler{
 		DB:          conn,
 		Settings:    s,
@@ -645,6 +649,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// one-click promotion of a ghost site into settings.Sites.Defined (admin or above)
 	mux.HandleFunc("POST "+base+"/admin/api/sites/promote",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSitePromote)))
+	// disable / enable a host in the inventory (admin or above)
+	mux.HandleFunc("POST "+base+"/admin/api/hosts/toggle",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHostToggle)))
 
 	// settings (web editing UI).  GET: viewer or above; POST: admin or above.
 	mux.HandleFunc("GET "+base+"/admin/settings/{$}",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -88,9 +89,13 @@ func TestSettingsSitesTabRender(t *testing.T) {
 			t.Errorf("rendered sites tab missing %q", want)
 		}
 	}
-	// the host inventory section lists every observed unmask instance.
+	// the host inventory section lists every observed unmask instance, with a
+	// disable toggle per row.
 	if !strings.Contains(body, "edge-tokyo-1") {
 		t.Errorf("host inventory missing the observed host")
+	}
+	if !strings.Contains(body, "/admin/api/hosts/toggle") {
+		t.Errorf("host inventory missing the disable/enable toggle")
 	}
 	// The shared header_tools partial must put the host + site pickers on the
 	// settings page too (regression: they used to be dashboard-only).
@@ -135,5 +140,50 @@ func TestApplySitesForm(t *testing.T) {
 	applySitesForm(c, form("garbage", ""))
 	if c.Mode != settings.SiteModeAuto {
 		t.Errorf("mode = %q, want auto", c.Mode)
+	}
+}
+
+// TestAdminHostToggle disables then re-enables a host and checks the disabled
+// list round-trips through the config file.
+func TestAdminHostToggle(t *testing.T) {
+	h := newTestHandler(t)
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := settings.Save(settings.Settings{}, cfgPath); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	h.ConfigPath = cfgPath
+
+	post := func(host, op string) {
+		r := httptest.NewRequest(http.MethodPost, "/x",
+			strings.NewReader("host="+host+"&op="+op))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		h.AdminHostToggle(httptest.NewRecorder(), r)
+	}
+
+	post("retired-1", "disable")
+	if !h.Settings.Hosts.IsDisabled("retired-1") {
+		t.Fatalf("disable: retired-1 not in disabled list: %v", h.Settings.Hosts.Disabled)
+	}
+	// idempotent: disabling twice keeps a single entry.
+	post("retired-1", "disable")
+	if n := len(h.Settings.Hosts.Disabled); n != 1 {
+		t.Errorf("disable twice: want 1 entry, got %d", n)
+	}
+	// persisted to disk.
+	if reloaded, err := settings.Load(cfgPath); err != nil {
+		t.Fatalf("reload: %v", err)
+	} else if !reloaded.Hosts.IsDisabled("retired-1") {
+		t.Errorf("disabled host not persisted to config")
+	}
+
+	post("retired-1", "enable")
+	if h.Settings.Hosts.IsDisabled("retired-1") {
+		t.Errorf("enable: retired-1 still disabled")
+	}
+
+	// a junk host id is rejected (charset guard).
+	post("bad host!", "disable")
+	if len(h.Settings.Hosts.Disabled) != 0 {
+		t.Errorf("junk host id should be rejected, got %v", h.Settings.Hosts.Disabled)
 	}
 }

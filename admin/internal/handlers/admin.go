@@ -408,7 +408,25 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 				hostList = append([]string{h.HostID}, hostList...)
 			}
 		}
+		// Disabled hosts (= retired / mis-configured instances) drop out of the
+		// picker; they remain in the DB and in the host inventory table.
+		if dis := h.Settings.Hosts.Disabled; len(dis) > 0 {
+			disSet := make(map[string]bool, len(dis))
+			for _, d := range dis {
+				disSet[d] = true
+			}
+			kept := make([]string, 0, len(hostList))
+			for _, x := range hostList {
+				if !disSet[x] {
+					kept = append(kept, x)
+				}
+			}
+			hostList = kept
+		}
 		data["Hosts"] = hostList
+	}
+	if _, ok := data["HostsExcluded"]; !ok {
+		data["HostsExcluded"] = len(h.Settings.Hosts.Disabled)
 	}
 	if _, ok := data["HostSelected"]; !ok {
 		sel := map[string]bool{}

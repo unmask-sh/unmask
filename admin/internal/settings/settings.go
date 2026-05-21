@@ -665,6 +665,25 @@ func (c SiteAcceptanceConfig) IsGhost(site string) bool {
 	return true
 }
 
+// HostInventoryConfig governs the host inventory (= multi-host).  A host id is
+// the unmask instance's own config, not a client-supplied header, so there is
+// no acceptance mode — only a Disabled list of retired / mis-configured
+// instances.  Disabled hosts are hidden from the host picker and excluded
+// from dashboard aggregation (their events stay in the DB).
+type HostInventoryConfig struct {
+	Disabled []string `yaml:"disabled,omitempty"`
+}
+
+// IsDisabled reports whether host is in the disabled list.
+func (c HostInventoryConfig) IsDisabled(host string) bool {
+	for _, d := range c.Disabled {
+		if d == host {
+			return true
+		}
+	}
+	return false
+}
+
 type Settings struct {
 	DB            DB              `yaml:"db"`
 	Secret        Secret          `yaml:"secret"`
@@ -680,6 +699,7 @@ type Settings struct {
 	SMTP          SMTP            `yaml:"smtp,omitempty"`
 	Global        GlobalConfig    `yaml:"global,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
+	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a

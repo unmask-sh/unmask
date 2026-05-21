@@ -13,11 +13,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
+
+// hostIDRE: charset guard for a host id submitted to AdminHostToggle.  Matches
+// the dashboard.hostValRE charset so a junk id never reaches settings / SQL.
+var hostIDRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // GhostSite: one observed-but-undefined site row for the ghost report.
 type GhostSite struct {
@@ -138,6 +143,71 @@ func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 		}
 		h.UserRepo.Record(r.Context(), pay.UserID, username, "site_promote",
 			site, fmt.Sprintf(`{"mode":%q}`, h.Settings.Sites.ResolvedMode()))
+	}
+
+	redir("")
+}
+
+// AdminHostToggle: POST {base}/admin/api/hosts/toggle — disable / enable a host
+// in the inventory.  Admin role.  Form: host, op (disable | enable).
+//
+// A disabled host drops out of the host picker and out of every dashboard
+// aggregation (hostCond excludes it); its events stay in the DB.  Reversible.
+func (h *Handler) AdminHostToggle(w http.ResponseWriter, r *http.Request) {
+	base := h.Settings.Server.BasePath
+	redir := func(msg string) {
+		dst := base + "/admin/settings/?tab=sites"
+		if msg == "" {
+			dst += "&saved=1"
+		} else {
+			setFlash(w, base, "err", msg)
+		}
+		http.Redirect(w, r, dst, http.StatusSeeOther)
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	host := strings.TrimSpace(r.FormValue("host"))
+	if host == "" || !hostIDRE.MatchString(host) {
+		redir("invalid host")
+		return
+	}
+	disable := r.FormValue("op") != "enable"
+
+	if err := h.UpdateSettings(func(s *settings.Settings) {
+		// Rebuild the list without the target, then append it iff disabling.
+		// Idempotent for both ops (disabling an already-disabled host is a
+		// no-op; the op field is authoritative, not a toggle).
+		out := []string{}
+		for _, d := range s.Hosts.Disabled {
+			if d != host {
+				out = append(out, d)
+			}
+		}
+		if disable {
+			out = append(out, host)
+		}
+		s.Hosts.Disabled = out
+	}); err != nil {
+		redir("save: " + err.Error())
+		return
+	}
+
+	// hot-swap the aggregation exclusion (= applied from the next query).
+	dashboard.SetDisabledHosts(h.Settings.Hosts.Disabled)
+
+	// audit trail: who disabled / enabled which host.
+	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
+		username := ""
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+			username = u.Username
+		}
+		op := "host_enable"
+		if disable {
+			op = "host_disable"
+		}
+		h.UserRepo.Record(r.Context(), pay.UserID, username, op, host, "")
 	}
 
 	redir("")

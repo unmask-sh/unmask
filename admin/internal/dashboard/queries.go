@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -161,11 +162,38 @@ func siteCond(site string) string {
 // Values containing anything else are ignored in hostCond (= SQL injection guard).
 var hostValRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
+// disabledHosts holds the SQL-quoted, charset-validated host ids excluded from
+// every aggregation query (= retired / mis-configured instances, from
+// settings.Hosts.Disabled).  Set via SetDisabledHosts; read by hostCond.
+var (
+	disabledHostsMu sync.RWMutex
+	disabledHosts   []string
+)
+
+// SetDisabledHosts hot-swaps the list of host ids excluded from aggregation.
+// Called on startup and after the host inventory toggle saves; applied by
+// hostCond on the next query.  Ids failing the charset guard are dropped.
+func SetDisabledHosts(hosts []string) {
+	q := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		if hostValRE.MatchString(h) {
+			q = append(q, "'"+h+"'")
+		}
+	}
+	disabledHostsMu.Lock()
+	disabledHosts = q
+	disabledHostsMu.Unlock()
+}
+
 // hostCond: SQL fragment for the host multi-select filter. Returns "" if empty
 // or all-invalid (= all hosts). unmask_event has a host column (= identifies
 // machine of origin in shared DB). Note: unmask_cookie_minute lacks a host
 // column, so the host filter has no effect on CookieStatus / DailyPassByDay
 // (= they remain aggregated across all hosts).
+//
+// Disabled hosts (= SetDisabledHosts) are always excluded with an extra
+// "host NOT IN (...)" so a retired / mis-configured instance drops out of
+// every aggregation regardless of the picker selection.
 func hostCond(hosts []string) string {
 	valid := make([]string, 0, len(hosts))
 	for _, h := range hosts {
@@ -173,10 +201,17 @@ func hostCond(hosts []string) string {
 			valid = append(valid, "'"+h+"'")
 		}
 	}
-	if len(valid) == 0 {
-		return ""
+	cond := ""
+	if len(valid) > 0 {
+		cond = " AND host IN (" + strings.Join(valid, ",") + ")"
 	}
-	return " AND host IN (" + strings.Join(valid, ",") + ")"
+	disabledHostsMu.RLock()
+	dh := disabledHosts
+	disabledHostsMu.RUnlock()
+	if len(dh) > 0 {
+		cond += " AND host NOT IN (" + strings.Join(dh, ",") + ")"
+	}
+	return cond
 }
 
 // SiteSummary: per-site summary for the /admin/ index.

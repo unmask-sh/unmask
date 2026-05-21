@@ -275,6 +275,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// the last 30 days that are not in Sites.Defined).  Computed only for that
 	// tab so other settings pages don't pay for the query.
 	sitesConfig := h.snapshotSettings().Sites
+	hostsConfig := h.snapshotSettings().Hosts
+	hostDisabled := map[string]bool{}
+	for _, d := range hostsConfig.Disabled {
+		hostDisabled[d] = true
+	}
 	var siteGhosts []GhostSite
 	var hostInventory []dashboard.HostInfo
 	if tab == "sites" {
@@ -284,6 +289,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			hostInventory, _ = dashboard.HostInventory(gctx, h.DB)
 		}
 		gcancel()
+		// Ensure every disabled host is listed (= re-enablable) even if it has
+		// no events left — otherwise it would be unreachable from the UI.
+		present := map[string]bool{}
+		for _, hi := range hostInventory {
+			present[hi.HostID] = true
+		}
+		for _, d := range hostsConfig.Disabled {
+			if !present[d] {
+				hostInventory = append(hostInventory, dashboard.HostInfo{HostID: d})
+			}
+		}
 	}
 
 	return map[string]any{
@@ -397,8 +413,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"SiteModeDefined": sitesConfig.ResolvedMode() == settings.SiteModeDefined,
 		"SiteGhosts":      siteGhosts,
 		// Host inventory: every unmask instance that has written to the shared
-		// DB (read-only — a host id is per-instance config, not client-supplied).
+		// DB.  HostDisabled marks the ids that are disabled (= hidden from the
+		// picker + excluded from aggregation, toggled per row).
 		"HostInventory": hostInventory,
+		"HostDisabled":  hostDisabled,
 		// CAPTCHA provider settings (= used by the captcha tab).
 		"Captcha": h.snapshotSettings().Challenge.CaptchaProvider,
 		// Settings used by the challenge tab (= cookie_days / score_threshold / debug rate).
