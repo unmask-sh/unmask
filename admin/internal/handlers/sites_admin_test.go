@@ -88,6 +88,13 @@ func TestSettingsSitesTabRender(t *testing.T) {
 			t.Errorf("rendered sites tab missing %q", want)
 		}
 	}
+	// The shared header_tools partial must put the host + site pickers on the
+	// settings page too (regression: they used to be dashboard-only).
+	for _, want := range []string{"host-picker", "site-picker"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("settings header missing the %q", want)
+		}
+	}
 	// shop is defined, so only blog should carry a promote form.
 	if n := strings.Count(body, `name="site" value=`); n != 1 {
 		t.Errorf("want exactly 1 ghost promote form, got %d", n)
