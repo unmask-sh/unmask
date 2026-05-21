@@ -67,6 +67,14 @@
     setCookie('');
     location.reload();
   });
+  // A native <details> only closes on a summary click; close it on an
+  // outside click / Escape too, like a normal dropdown menu.
+  document.addEventListener('click', function(e){
+    if (dd.open && !dd.contains(e.target)) dd.removeAttribute('open');
+  });
+  document.addEventListener('keydown', function(e){
+    if (e.key === 'Escape' && dd.open) dd.removeAttribute('open');
+  });
 })();
 </script>
 {{ end }}
