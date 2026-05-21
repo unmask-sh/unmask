@@ -21,6 +21,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -438,12 +439,32 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["SelfHostID"]; !ok {
 		data["SelfHostID"] = h.HostID
 	}
-	if _, ok := data["Sites"]; !ok {
-		siteList, _ := events.DistinctSites(r.Context(), h.DB)
-		data["Sites"] = siteList
-	}
-	if _, ok := data["SiteSelected"]; !ok {
-		data["SiteSelected"] = resolveSiteFilter(r)
+	// site picker options.  In "defined" acceptance mode the picker lists only
+	// the defined sites — a ghost (= an undefined Host, possibly spoofed) must
+	// not pollute the dropdown.  In "auto" mode every observed site is listed.
+	// A site currently selected via cookie but absent from the list is still
+	// shown as an extra option (so the dropdown matches the active filter),
+	// flagged as a ghost when in defined mode.
+	{
+		definedMode := h.Settings.Sites.ResolvedMode() == settings.SiteModeDefined
+		var opts []string
+		if definedMode {
+			opts = append(opts, h.Settings.Sites.Defined...)
+		} else {
+			opts, _ = events.DistinctSites(r.Context(), h.DB)
+		}
+		sel := resolveSiteFilter(r)
+		inList := false
+		for _, s := range opts {
+			if s == sel {
+				inList = true
+				break
+			}
+		}
+		data["SitePickerOptions"] = opts
+		data["SiteSelected"] = sel
+		data["SiteSelectedExtra"] = sel != "" && !inList
+		data["SiteSelectedGhost"] = sel != "" && !inList && definedMode
 	}
 }
 

@@ -7,15 +7,22 @@
   Selection persists in the unmask_site cookie at global scope (same pattern
   as the host / TZ / language picker).  Empty value = all sites.
 
-  Data (.Sites / .SiteSelected) is injected by addMeToData on every admin
-  page render.
+  Data (.SitePickerOptions / .SiteSelected / .SiteSelectedExtra /
+  .SiteSelectedGhost) is injected by addMeToData on every admin page render.
+  In "defined" acceptance mode the options are the defined sites only; a
+  ghost (= undefined Host) is kept out of the dropdown.  A site selected via
+  cookie but not in the list is shown as a trailing extra option so the
+  dropdown still reflects the active filter — labelled (ghost) when undefined.
 */ -}}
 {{ define "site_picker" }}
 <span class="site-picker">
   <select class="sp-sel" aria-label="{{ t .Lang "hunt.filter.site" }}">
     <option value="">{{ t .Lang "hunt.filter.site_all" }}</option>
-    {{ range .Sites }}
+    {{ range .SitePickerOptions }}
     <option value="{{ . }}" {{ if eq . $.SiteSelected }}selected{{ end }}>{{ . }}</option>
+    {{ end }}
+    {{ if .SiteSelectedExtra }}
+    <option value="{{ .SiteSelected }}" selected>{{ .SiteSelected }}{{ if .SiteSelectedGhost }} ({{ t .Lang "hunt.filter.site_ghost" }}){{ end }}</option>
     {{ end }}
   </select>
 </span>

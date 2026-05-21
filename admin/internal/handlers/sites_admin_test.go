@@ -187,3 +187,47 @@ func TestAdminHostToggle(t *testing.T) {
 		t.Errorf("junk host id should be rejected, got %v", h.Settings.Hosts.Disabled)
 	}
 }
+
+// TestSitePickerExcludesGhosts: in "defined" mode the site picker lists only
+// the defined sites — a ghost (undefined Host) must not pollute the dropdown.
+// A ghost selected via cookie is still shown as a flagged extra option.
+func TestSitePickerExcludesGhosts(t *testing.T) {
+	h := newTestHandler(t)
+	ip := []byte{1, 2, 3, 4}
+	for _, s := range []string{"shop.example.com", "blog.example.com"} {
+		if _, err := h.DB.Exec(
+			`INSERT INTO unmask_event (site, ip_address, phase) VALUES (?, ?, 'serve')`,
+			s, ip); err != nil {
+			t.Fatalf("insert %s: %v", s, err)
+		}
+	}
+
+	// auto mode: every observed site is listed.
+	h.Settings.Sites = settings.SiteAcceptanceConfig{Mode: settings.SiteModeAuto}
+	d := map[string]any{}
+	h.addMeToData(httptest.NewRequest(http.MethodGet, "/x", nil), d)
+	if opts, _ := d["SitePickerOptions"].([]string); len(opts) != 2 {
+		t.Errorf("auto mode: want 2 picker options, got %v", opts)
+	}
+
+	// defined mode: only the defined site; the ghost (blog) is excluded.
+	h.Settings.Sites = settings.SiteAcceptanceConfig{
+		Mode: settings.SiteModeDefined, Defined: []string{"shop.example.com"},
+	}
+	d = map[string]any{}
+	h.addMeToData(httptest.NewRequest(http.MethodGet, "/x", nil), d)
+	opts, _ := d["SitePickerOptions"].([]string)
+	if len(opts) != 1 || opts[0] != "shop.example.com" {
+		t.Errorf("defined mode: want [shop.example.com], got %v", opts)
+	}
+
+	// a ghost selected via cookie stays visible as a flagged extra option.
+	r := httptest.NewRequest(http.MethodGet, "/x", nil)
+	r.AddCookie(&http.Cookie{Name: "unmask_site", Value: "blog.example.com"})
+	d = map[string]any{}
+	h.addMeToData(r, d)
+	if d["SiteSelectedExtra"] != true || d["SiteSelectedGhost"] != true {
+		t.Errorf("ghost cookie: SiteSelectedExtra=%v SiteSelectedGhost=%v, want both true",
+			d["SiteSelectedExtra"], d["SiteSelectedGhost"])
+	}
+}
