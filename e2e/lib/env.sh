@@ -12,7 +12,11 @@
 # Known UA strings
 UA_BROWSER='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 UA_CURL='curl/8.0'
+# Search / AI crawler UAs — all four match the embedded crawler-user-agents.json.
 UA_GOOGLEBOT='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+UA_BINGBOT='Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'
+UA_GPTBOT='Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot'
+UA_CLAUDEBOT='Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)'
 
 # Short curl wrapper.  $1 = path, remainder = extra curl args.
 # Echoes only the status code.  Options are written inline to avoid quote-leakage bugs.
