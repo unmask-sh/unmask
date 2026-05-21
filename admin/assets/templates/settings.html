@@ -321,6 +321,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
   <ul>
     <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
+    <li><a href="?tab=sites"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
     {{/* SMTP / notifications tabs hidden until post-v0.1 (= 機能自体は残るが UI 入口は閉じる). */}}
     <li><a href="?tab=retention"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
   </ul>
@@ -3008,6 +3009,76 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+{{ end }}
+
+{{ if eq .Tab "sites" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.mode_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.mode_desc") }}</span></span></h2>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="auto" {{ if not .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_auto" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_auto_desc" }}</span></span>
+    </label>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="defined" {{ if .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_defined" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_defined_desc" }}</span></span>
+    </label>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
+    <textarea name="site_defined" rows="8" spellcheck="false"
+      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
+      placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
+{{ end }}</textarea>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "settings.sites.ghost_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.ghost_desc") }}</span></span></h2>
+  {{ if .SiteModeDefined }}
+    {{ if .SiteGhosts }}
+    <table class="sites-ghost-table">
+      <thead><tr>
+        <th>{{ t .Lang "settings.sites.ghost_col_site" }}</th>
+        <th style="text-align:right">{{ t .Lang "settings.sites.ghost_col_events" }}</th>
+        <th>{{ t .Lang "th.last_seen" }}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {{ range .SiteGhosts }}
+        <tr>
+          <td style="font-family:ui-monospace,Menlo,monospace">{{ .Site }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
+          <td><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+          <td style="text-align:right">
+            <form method="post" action="{{ $.BasePath }}/admin/api/sites/promote" style="margin:0">
+              <input type="hidden" name="site" value="{{ .Site }}">
+              <button type="submit" class="btn" style="padding:.3rem .7rem;font-size:.78rem">{{ t $.Lang "settings.sites.ghost_add" }}</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_empty" }}</p>
+    {{ end }}
+  {{ else }}
+  <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_auto_hint" }}</p>
+  {{ end }}
+</div>
+<style>
+.sites-mode{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem .2rem;cursor:pointer}
+.sites-mode + .sites-mode{border-top:1px dashed #e2e8f0}
+.sites-mode input{margin-top:.2rem}
+.sites-ghost-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.sites-ghost-table th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:#94a3b8;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0}
+.sites-ghost-table td{padding:.45rem .5rem;border-bottom:1px solid #f1f5f9;color:#334155}
+</style>
 {{ end }}
 
 {{ if eq .Tab "shared-feed" }}

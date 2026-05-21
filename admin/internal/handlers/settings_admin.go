@@ -70,7 +70,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -269,6 +269,18 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	ipgeoCur := h.snapshotSettings().IPGeo
+
+	// Sites tab: the acceptance config + the ghost report (= sites observed in
+	// the last 30 days that are not in Sites.Defined).  Computed only for that
+	// tab so other settings pages don't pay for the query.
+	sitesConfig := h.snapshotSettings().Sites
+	var siteGhosts []GhostSite
+	if tab == "sites" {
+		gctx, gcancel := context.WithTimeout(r.Context(), 3*time.Second)
+		siteGhosts = h.ghostSites(gctx, 24*30)
+		gcancel()
+	}
+
 	return map[string]any{
 		"Lang":               i18n.Resolve(r),
 		"TZ":                 resolveTZ(r),
@@ -375,6 +387,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// (= auto-complete). On failure, continue with an empty list (= datalist
 		// works even when empty, the field still accepts free input).
 		"Sites": h.observedSites(r),
+		// Sites tab: acceptance config (mode + defined list) + ghost report.
+		"SitesConfig":     sitesConfig,
+		"SiteModeDefined": sitesConfig.ResolvedMode() == settings.SiteModeDefined,
+		"SiteGhosts":      siteGhosts,
 		// CAPTCHA provider settings (= used by the captcha tab).
 		"Captcha": h.snapshotSettings().Challenge.CaptchaProvider,
 		// Settings used by the challenge tab (= cookie_days / score_threshold / debug rate).
@@ -561,7 +577,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.URL.Query().Get("section")
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -694,6 +710,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "shared-feed":
 		applySharedFeedForm(&cur.SharedFeed, r)
+	case "sites":
+		applySitesForm(&cur.Sites, r)
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= s.EventsRetentionDays is
@@ -2683,6 +2701,8 @@ func tabHelpKey(tab string) string {
 		return "settings.theme.intro"
 	case "shared-feed":
 		return "settings.shared_feed.intro"
+	case "sites":
+		return "settings.sites.intro"
 	}
 	return ""
 }
