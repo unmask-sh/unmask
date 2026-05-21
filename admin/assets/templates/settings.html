@@ -3012,30 +3012,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ end }}
 
 {{ if eq .Tab "sites" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.sites.mode_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.mode_desc") }}</span></span></h2>
-    <label class="sites-mode">
-      <input type="radio" name="site_mode" value="auto" {{ if not .SiteModeDefined }}checked{{ end }}>
-      <span><strong>{{ t .Lang "settings.sites.mode_auto" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_auto_desc" }}</span></span>
-    </label>
-    <label class="sites-mode">
-      <input type="radio" name="site_mode" value="defined" {{ if .SiteModeDefined }}checked{{ end }}>
-      <span><strong>{{ t .Lang "settings.sites.mode_defined" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_defined_desc" }}</span></span>
-    </label>
-  </div>
 
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
-    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
-    <textarea name="site_defined" rows="8" spellcheck="false"
-      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
-      placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
-{{ end }}</textarea>
-  </div>
-
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
+<div class="sites-group-hd">{{ t .Lang "settings.sites.section_site" }}</div>
 
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.ghost_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.ghost_desc") }}</span></span></h2>
@@ -3071,6 +3049,34 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_auto_hint" }}</p>
   {{ end }}
 </div>
+
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.mode_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.mode_desc") }}</span></span></h2>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="auto" {{ if not .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_auto" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_auto_desc" }}</span></span>
+    </label>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="defined" {{ if .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_defined" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_defined_desc" }}</span></span>
+    </label>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
+    <textarea name="site_defined" rows="8" spellcheck="false"
+      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
+      placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
+{{ end }}</textarea>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.sites.save_site" }}</button>
+</form>
+
+<div class="sites-group-hd">{{ t .Lang "settings.sites.section_host" }}</div>
+
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.host_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.host_desc") }}</span></span></h2>
   {{ if .HostInventory }}
@@ -3095,6 +3101,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   {{ end }}
 </div>
 <style>
+.sites-group-hd{margin:1.8rem 0 .9rem;padding:.3rem 0 .4rem;border-bottom:2px solid #0f172a;font-size:1rem;font-weight:700;color:#0f172a}
+.sites-group-hd:first-child{margin-top:.3rem}
 .sites-mode{display:flex;gap:.6rem;align-items:flex-start;padding:.6rem .2rem;cursor:pointer}
 .sites-mode + .sites-mode{border-top:1px dashed #e2e8f0}
 .sites-mode input{margin-top:.2rem}
