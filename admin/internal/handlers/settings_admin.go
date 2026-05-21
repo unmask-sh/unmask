@@ -313,6 +313,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// ConfiguredHostID: raw value from config.yml. Empty means the hostname fallback was used.
 		"SelfHostID":         h.HostID,
 		"ConfiguredHostID":   h.Settings.Server.HostID,
+		// OSHostname: the raw os.Hostname() — shown next to the "use the OS
+		// hostname" radio so the operator sees what that option resolves to,
+		// even while a custom id is configured.
+		"OSHostname": func() string {
+			n, _ := os.Hostname()
+			if n == "" {
+				return "default"
+			}
+			return n
+		}(),
 		// listen mode (= TCP / unix socket). Distinguished by the "unix:" prefix on bind.
 		"ListenMode":     listenModeOf(h.Settings.Server),
 		"ListenBind":     h.Settings.Server.Bind,

@@ -3000,7 +3000,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     </div>
     <label class="sites-mode" style="margin-top:.6rem">
       <input type="radio" name="host_id_mode" value="hostname" {{ if not .ConfiguredHostID }}checked{{ end }}>
-      <span><strong>{{ t .Lang "settings.sites.hostid_mode_hostname" }}</strong><br><span class="note">{{ t .Lang "settings.sites.hostid_mode_hostname_desc" }}</span></span>
+      <span><strong>{{ t .Lang "settings.sites.hostid_mode_hostname" }}</strong> <code class="host-id-value">{{ .OSHostname }}</code><br><span class="note">{{ t .Lang "settings.sites.hostid_mode_hostname_desc" }}</span></span>
     </label>
     <label class="sites-mode">
       <input type="radio" name="host_id_mode" value="custom" {{ if .ConfiguredHostID }}checked{{ end }}>
