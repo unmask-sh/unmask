@@ -25,6 +25,7 @@ package handlers
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -145,10 +146,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Forwarded-Host"),
 		r.Host,
 	)
-	site := strings.TrimSpace(r.Header.Get("X-Unmask-Site"))
-	if site == "" {
-		site = defaultSite
-	}
+	site := siteFromRequest(r)
 	// The old _br cookie (= the previous transient PoW marker) is gone.
 	// In the current design, the PoW-passed cookie is the 4-seg _bv
 	// ("day.sig.target.flags").  It surfaces in reason as "bv-pow".
@@ -606,6 +604,44 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// normalizeSite turns a request Host into a stable site identifier:
+// lowercased, :port stripped, capped at 64 bytes (= the unmask_event.site
+// column width).  An empty / unusable host falls back to defaultSite.
+func normalizeSite(host string) string {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return defaultSite
+	}
+	// Strip a :port suffix — handles "host:8080" and "[::1]:8080".
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.ToLower(strings.Trim(host, "[]"))
+	if len(host) > 64 {
+		host = host[:64]
+	}
+	if host == "" {
+		return defaultSite
+	}
+	return host
+}
+
+// siteFromRequest derives the site identifier for an event.  The site is the
+// visitor's request Host (= the vhost they reached), so a host serving many
+// vhosts splits cleanly in the dashboard with no per-site config.  The
+// X-Unmask-Site header is an explicit override for proxies that map vhosts to
+// a custom site id.
+func siteFromRequest(r *http.Request) string {
+	if s := strings.TrimSpace(r.Header.Get("X-Unmask-Site")); s != "" {
+		return normalizeSite(s)
+	}
+	return normalizeSite(firstNonEmpty(
+		r.Header.Get("X-Original-Host"),
+		r.Header.Get("X-Forwarded-Host"),
+		r.Host,
+	))
 }
 
 func isBypassIP(ip string, list []string) bool {

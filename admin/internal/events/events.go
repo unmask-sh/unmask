@@ -226,6 +226,9 @@ func prepareInsertArgs(e *Event) []any {
 	if site == "" {
 		site = "default"
 	}
+	// Safety net: site is the visitor Host (handler-normalized), but cap it at
+	// the unmask_event.site column width in case an unnormalized value slips in.
+	site = truncate(site, 64)
 	host := e.Host
 	if host == "" {
 		host = "default"

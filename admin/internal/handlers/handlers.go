@@ -211,11 +211,7 @@ func stripOrKeepCredit(body []byte, show bool) []byte {
 // Rate-limit path (nginx rewrites to /unmask/challenge/rl1<orig URI>): detect
 // the "/rl1/" prefix, restore the original URI, and treat as rl=1.
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
-	site, ok := pickSite(r)
-	if !ok {
-		http.Error(w, "invalid site id", http.StatusBadRequest)
-		return
-	}
+	site := siteFromRequest(r)
 	// monitor mode: don't serve a challenge, redirect immediately.  Keep the
 	// event with phase=serve (preserves dashboard aggregation continuity).
 	// In auth_request mode AuthCheck has already returned pass, so this path
@@ -909,11 +905,6 @@ func (h *Handler) ServeFlag(w http.ResponseWriter, r *http.Request) {
 //   - New scheme (behavioral):  { token, sig: { mouseTrail, ... } }
 //   - Old scheme (math sum):    { token, answer }
 func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
-	site, ok := pickSite(r)
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
-		return
-	}
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 64*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "read"})
@@ -931,12 +922,11 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	// Embed site into the cookie HMAC input via kind (defends against cross-site replay).
-	// For "default", keep "captcha" only for backward compatibility.
+	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
+	// kind is kept site-agnostic: a per-site _bv binding needs a dot-safe site
+	// encoding plus a site-aware native verifier — tracked as a later phase in
+	// multi-site-handoff.md.
 	kind := "captcha"
-	if site != defaultSite {
-		kind = "captcha-" + site
-	}
 
 	// If a 3rd-party CAPTCHA provider is configured, verify with highest
 	// priority (behavioral signal becomes supplementary).  For builtin,
@@ -1022,11 +1012,7 @@ func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 
 // DebugBeacon: POST {base}/api/debug — JS inside the challenge HTML sends phase beacons here.
 func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
-	site, ok := pickSite(r)
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
-		return
-	}
+	site := siteFromRequest(r)
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0})
