@@ -3013,68 +3013,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
 {{ if eq .Tab "sites" }}
 
-<div class="sites-group-hd">{{ t .Lang "settings.sites.section_site" }}</div>
-
-<div class="bcd-card">
-  <h2>{{ t .Lang "settings.sites.ghost_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.ghost_desc") }}</span></span></h2>
-  {{ if .SiteModeDefined }}
-    {{ if .SiteGhosts }}
-    <table class="sites-ghost-table">
-      <thead><tr>
-        <th>{{ t .Lang "settings.sites.ghost_col_site" }}</th>
-        <th style="text-align:right">{{ t .Lang "settings.sites.ghost_col_events" }}</th>
-        <th>{{ t .Lang "th.last_seen" }}</th>
-        <th></th>
-      </tr></thead>
-      <tbody>
-        {{ range .SiteGhosts }}
-        <tr>
-          <td style="font-family:ui-monospace,Menlo,monospace">{{ .Site }}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
-          <td><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
-          <td style="text-align:right">
-            <form method="post" action="{{ $.BasePath }}/admin/api/sites/promote" style="margin:0">
-              <input type="hidden" name="site" value="{{ .Site }}">
-              <button type="submit" class="btn" style="padding:.3rem .7rem;font-size:.78rem">{{ t $.Lang "settings.sites.ghost_add" }}</button>
-            </form>
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    {{ else }}
-    <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_empty" }}</p>
-    {{ end }}
-  {{ else }}
-  <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_auto_hint" }}</p>
-  {{ end }}
-</div>
-
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.sites.mode_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.mode_desc") }}</span></span></h2>
-    <label class="sites-mode">
-      <input type="radio" name="site_mode" value="auto" {{ if not .SiteModeDefined }}checked{{ end }}>
-      <span><strong>{{ t .Lang "settings.sites.mode_auto" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_auto_desc" }}</span></span>
-    </label>
-    <label class="sites-mode">
-      <input type="radio" name="site_mode" value="defined" {{ if .SiteModeDefined }}checked{{ end }}>
-      <span><strong>{{ t .Lang "settings.sites.mode_defined" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_defined_desc" }}</span></span>
-    </label>
-  </div>
-
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
-    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
-    <textarea name="site_defined" rows="8" spellcheck="false"
-      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
-      placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
-{{ end }}</textarea>
-  </div>
-
-  <button type="submit" class="btn">{{ t .Lang "settings.sites.save_site" }}</button>
-</form>
-
 <div class="sites-group-hd">{{ t .Lang "settings.sites.section_host" }}</div>
 
 <div class="bcd-card">
@@ -3118,6 +3056,68 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   <p class="note" style="margin:0">{{ t .Lang "settings.sites.host_empty" }}</p>
   {{ end }}
 </div>
+<div class="sites-group-hd">{{ t .Lang "settings.sites.section_site" }}</div>
+
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=sites">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.mode_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.mode_desc") }}</span></span></h2>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="auto" {{ if not .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_auto" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_auto_desc" }}</span></span>
+    </label>
+    <label class="sites-mode">
+      <input type="radio" name="site_mode" value="defined" {{ if .SiteModeDefined }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.mode_defined" }}</strong><br><span class="note">{{ t .Lang "settings.sites.mode_defined_desc" }}</span></span>
+    </label>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
+    <textarea name="site_defined" rows="8" spellcheck="false"
+      style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
+      placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
+{{ end }}</textarea>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.sites.save_site" }}</button>
+</form>
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "settings.sites.ghost_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.ghost_desc") }}</span></span></h2>
+  {{ if .SiteModeDefined }}
+    {{ if .SiteGhosts }}
+    <table class="sites-ghost-table">
+      <thead><tr>
+        <th>{{ t .Lang "settings.sites.ghost_col_site" }}</th>
+        <th style="text-align:right">{{ t .Lang "settings.sites.ghost_col_events" }}</th>
+        <th>{{ t .Lang "th.last_seen" }}</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        {{ range .SiteGhosts }}
+        <tr>
+          <td style="font-family:ui-monospace,Menlo,monospace">{{ .Site }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
+          <td><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+          <td style="text-align:right">
+            <form method="post" action="{{ $.BasePath }}/admin/api/sites/promote" style="margin:0">
+              <input type="hidden" name="site" value="{{ .Site }}">
+              <button type="submit" class="btn" style="padding:.3rem .7rem;font-size:.78rem">{{ t $.Lang "settings.sites.ghost_add" }}</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_empty" }}</p>
+    {{ end }}
+  {{ else }}
+  <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_auto_hint" }}</p>
+  {{ end }}
+</div>
+
 <style>
 .sites-group-hd{margin:1.8rem 0 .9rem;padding:.3rem 0 .4rem;border-bottom:2px solid #0f172a;font-size:1rem;font-weight:700;color:#0f172a}
 .sites-group-hd:first-child{margin-top:.3rem}
