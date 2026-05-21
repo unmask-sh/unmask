@@ -614,7 +614,7 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     cookie_bv       VARCHAR(80),
     cookie_br       VARCHAR(8),
     payload_json    LONGTEXT,
-    date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    date_created    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     KEY idx_date         (date_created),
     KEY idx_ip_date      (ip_address, date_created),

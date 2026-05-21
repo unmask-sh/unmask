@@ -103,10 +103,12 @@ func parseDateTimeToUnix(s string) int64 {
 	if s == "" {
 		return 0
 	}
-	// Accept SQLite default format ("2006-01-02 15:04:05") and RFC3339
-	// ("2006-01-02T15:04:05Z"). Treat as UTC when no TZ info is present
-	// (= schema uses CURRENT_TIMESTAMP which is UTC).
+	// Accept the millisecond ingest format ("2006-01-02 15:04:05.000"), the
+	// legacy second-precision format and RFC3339.  Treat as UTC when no TZ
+	// info is present (= timestamps are stamped in UTC).
 	for _, layout := range []string{
+		"2006-01-02 15:04:05.000",
+		"2006-01-02T15:04:05.000Z",
 		"2006-01-02 15:04:05",
 		"2006-01-02T15:04:05Z",
 		time.RFC3339,

@@ -1,0 +1,9 @@
+-- 0004 date_created: second precision -> millisecond precision.
+--
+-- unmask now stamps unmask_event.date_created in Go at ingest time with the
+-- layout "2006-01-02 15:04:05.000" (UTC).  SQLite does not enforce column
+-- width or datetime precision, so existing DBs accept the millisecond strings
+-- with no ALTER -- new rows carry ".fff", legacy rows keep second precision,
+-- and the fixed-width zero-padded format keeps lexical order == time order.
+-- This marker file keeps the version history in lockstep with the MariaDB
+-- side; the splitter ignores the comment-only body and records version=4.

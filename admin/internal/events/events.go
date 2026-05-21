@@ -86,7 +86,18 @@ type Event struct {
 	CookieBV     string
 	CookieBR     string
 	Payload      map[string]any
+	// OccurredAt is the server ingest time, captured the moment the event
+	// enters the persistence layer (InsertAsync / Insert).  Stored with
+	// millisecond precision so same-second events keep their true order in
+	// the hunt log.  A zero value is filled with time.Now().UTC() at insert.
+	OccurredAt time.Time
 }
+
+// eventTimeFormat is the canonical millisecond-precision, UTC layout written
+// into unmask_event.date_created.  Fixed-width and zero-padded, so lexical
+// order equals chronological order (works for both the SQLite TEXT column and
+// MariaDB DATETIME(3)).
+const eventTimeFormat = "2006-01-02 15:04:05.000"
 
 // globalFlusher is set at process startup via StartFlusher.  nil is safe
 // (falls back to a direct synchronous INSERT).  Singleton because passing a
@@ -141,6 +152,12 @@ func InsertAsync(d *db.DB, e *Event) {
 	if d == nil || e == nil {
 		return
 	}
+	// Stamp the ingest time here, before the event is buffered by the
+	// flusher.  Doing it at flush time would record the flush instant
+	// (up to flushInterval late) instead of when the event arrived.
+	if e.OccurredAt.IsZero() {
+		e.OccurredAt = time.Now().UTC()
+	}
 	if f := globalFlusher.Load(); f != nil {
 		f.Submit(e)
 		return
@@ -177,8 +194,8 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 // insertStmt is shared between batch and single-row inserts.
 const insertStmt = `INSERT INTO unmask_event
         (site, host, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id, phase, flags, reload_count,
-         cookie_bv, cookie_br, payload_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         cookie_bv, cookie_br, payload_json, date_created)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // prepareInsertArgs expands an Event into a SQL bind args slice.  Shared
 // between batch and single-row paths.  Returns nil for an invalid phase
@@ -218,14 +235,22 @@ func prepareInsertArgs(e *Event) []any {
 	if e.JA4VerdictID > 0 {
 		verdictID = sql.NullInt64{Int64: int64(e.JA4VerdictID), Valid: true}
 	}
+	occurred := e.OccurredAt
+	if occurred.IsZero() {
+		occurred = time.Now()
+	}
 	return []any{
 		site, host, e.IPPacked, sqlStr(ua), ja4, verdict, verdictID, e.Phase,
 		e.Flags, e.ReloadCount, cookieBV, cookieBR, payloadText,
+		occurred.UTC().Format(eventTimeFormat),
 	}
 }
 
 // Insert writes one row into unmask_event.  Best-effort: failures only log.
 func Insert(ctx context.Context, d *db.DB, e *Event) error {
+	if e != nil && e.OccurredAt.IsZero() {
+		e.OccurredAt = time.Now().UTC()
+	}
 	args := prepareInsertArgs(e)
 	if args == nil {
 		return errors.New("invalid event")
@@ -240,12 +265,14 @@ func Insert(ctx context.Context, d *db.DB, e *Event) error {
 // Row is one row produced by tail / SSE.  Distinct from Event used for Insert
 // (this is the output-side struct).
 //
-// Date is a server-local string (UTC on most hosts).  Clients that want to
-// reformat in the picker's TZ should use Ts (unix sec) with Intl.DateTimeFormat.
+// Date is a UTC string ("2006-01-02 15:04:05.000").  Clients that want to
+// reformat in the picker's TZ should use TsMs (unix millis) with the JS Date
+// API; Ts (unix sec) is kept for callers that do not need sub-second precision.
 type Row struct {
 	ID          int64  `json:"id"`
 	Date        string `json:"date"`
-	Ts          int64  `json:"ts"` // unix sec (0 if parse failed / not retrieved)
+	Ts          int64  `json:"ts"`    // unix sec (0 if parse failed / not retrieved)
+	TsMs        int64  `json:"ts_ms"` // unix millis; sub-second precision for the hunt log
 	Site        string `json:"site"`
 	Host        string `json:"host,omitempty"` // identifies "which machine produced this row" on a shared DB.  Omitted on single-host installs.
 	IP          string `json:"ip"`
@@ -353,6 +380,42 @@ func extractStringField(payload, key string, maxLen int) string {
 	return rest[:end]
 }
 
+// eventTimeLayouts lists every layout unmask has written into date_created:
+// the current millisecond format first, then legacy second-precision rows
+// (the old DEFAULT CURRENT_TIMESTAMP) and the ISO-8601 variant modernc/sqlite
+// returns for those.
+var eventTimeLayouts = []string{
+	"2006-01-02 15:04:05.000",
+	"2006-01-02T15:04:05.000Z",
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05Z",
+}
+
+// normalizeEventTime unifies a driver-returned date_created (SQLite hands back
+// TEXT, MariaDB a time.Time) into a UTC display string, unix seconds and unix
+// millis.  An unparseable value surfaces as the cleaned raw string with ts 0.
+func normalizeEventTime(date sql.NullTime, dateStr sql.NullString) (display string, tsSec, tsMs int64) {
+	var t time.Time
+	switch {
+	case date.Valid:
+		t = date.Time.UTC()
+	case dateStr.Valid:
+		for _, layout := range eventTimeLayouts {
+			if parsed, err := time.Parse(layout, dateStr.String); err == nil {
+				t = parsed.UTC()
+				break
+			}
+		}
+		if t.IsZero() {
+			s := strings.TrimSuffix(strings.ReplaceAll(dateStr.String, "T", " "), "Z")
+			return s, 0, 0
+		}
+	default:
+		return "", 0, 0
+	}
+	return t.Format(eventTimeFormat), t.Unix(), t.UnixMilli()
+}
+
 // FetchSince returns rows with id > sinceID, optionally filtered by site / phase / hosts.
 // Ordered by id ASC.  Limit is capped to 1..500.  Called by both CLI tail and SSE.
 //
@@ -413,34 +476,12 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 				return nil, err
 			}
 		}
-		// Re-emit the driver value in a unified format (workaround for
-		// modernc/sqlite returning ISO 8601 "2026-05-06T19:55:14Z"; the T / Z
-		// are hard to read in the UI, so we normalize to space-separated,
-		// TZ-less "2026-05-06 19:55:14").
-		var dStr string
-		var ts int64
-		if date.Valid {
-			dStr = date.Time.Local().Format("2006-01-02 15:04:05")
-			ts = date.Time.Unix()
-		} else if dateStr.Valid {
-			s := dateStr.String
-			// SQLite text values are UTC.  Parse to get unix sec; also build a formatted string for display.
-			if t, err := time.Parse("2006-01-02T15:04:05Z", s); err == nil {
-				ts = t.Unix()
-			} else if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
-				ts = t.UTC().Unix()
-			}
-			s = strings.ReplaceAll(s, "T", " ")
-			s = strings.TrimSuffix(s, "Z")
-			if i := strings.Index(s, "."); i > 0 {
-				s = s[:i]
-			}
-			dStr = s
-		}
+		dStr, ts, tsMs := normalizeEventTime(date, dateStr)
 		r := Row{
 			ID:          id,
 			Date:        dStr,
 			Ts:          ts,
+			TsMs:        tsMs,
 			Site:        site_,
 			Host:        host_,
 			IP:          unpackIP(ipBytes),
@@ -504,7 +545,10 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase string
 	if sinceMin > 0 {
 		stmt += " AND date_created > " + d.NowMinusMinutes(sinceMin)
 	}
-	stmt += " ORDER BY id DESC LIMIT ? OFFSET ?"
+	// Order by the millisecond ingest timestamp so same-second events keep
+	// their true arrival order; id is the deterministic tie-breaker for the
+	// rare case of two events sharing an identical millisecond.
+	stmt += " ORDER BY date_created DESC, id DESC LIMIT ? OFFSET ?"
 	args = append(args, limit, offset)
 
 	rows, err := d.QueryContext(ctx, stmt, args...)
@@ -535,28 +579,9 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase string
 				return nil, err
 			}
 		}
-		// Same unified format normalization as FetchSince.
-		var dStr string
-		var ts int64
-		if date.Valid {
-			dStr = date.Time.Local().Format("2006-01-02 15:04:05")
-			ts = date.Time.Unix()
-		} else if dateStr.Valid {
-			s := dateStr.String
-			if t, err := time.Parse("2006-01-02T15:04:05Z", s); err == nil {
-				ts = t.Unix()
-			} else if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
-				ts = t.UTC().Unix()
-			}
-			s = strings.ReplaceAll(s, "T", " ")
-			s = strings.TrimSuffix(s, "Z")
-			if i := strings.Index(s, "."); i > 0 {
-				s = s[:i]
-			}
-			dStr = s
-		}
+		dStr, ts, tsMs := normalizeEventTime(date, dateStr)
 		row := Row{
-			ID: id, Date: dStr, Ts: ts, Site: site_, Host: host_, IP: unpackIP(ipBytes),
+			ID: id, Date: dStr, Ts: ts, TsMs: tsMs, Site: site_, Host: host_, IP: unpackIP(ipBytes),
 			UA: ua.String, JA4: ja4.String, Verdict: verdict.String,
 			Phase: phase_, Flags: int(flags), ReloadCount: int(rcount),
 			CookieBV: cBV.String, CookieBR: cBR.String, Payload: payload.String,
