@@ -2998,16 +2998,40 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <span class="host-id-source from-hostname">{{ t .Lang "settings.sites.hostid_from_hostname" }}</span>
       {{ end }}
     </div>
-    <div class="field" style="margin-top:.7rem">
-      <label class="field-label" for="host-id-input">{{ t .Lang "settings.sites.hostid_field" }}</label>
-      <input type="text" id="host-id-input" name="host_id" value="{{ .ConfiguredHostID }}"
-        placeholder="{{ .SelfHostID }}" pattern="[A-Za-z0-9._-]+" autocomplete="off" spellcheck="false"
-        style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.3rem;min-width:16rem">
-    </div>
-    <p class="note host-id-hint" style="margin:.5rem 0 0">{{ safeHTML (t .Lang "settings.sites.hostid_hint") }}</p>
+    <label class="sites-mode" style="margin-top:.6rem">
+      <input type="radio" name="host_id_mode" value="hostname" {{ if not .ConfiguredHostID }}checked{{ end }}>
+      <span><strong>{{ t .Lang "settings.sites.hostid_mode_hostname" }}</strong><br><span class="note">{{ t .Lang "settings.sites.hostid_mode_hostname_desc" }}</span></span>
+    </label>
+    <label class="sites-mode">
+      <input type="radio" name="host_id_mode" value="custom" {{ if .ConfiguredHostID }}checked{{ end }}>
+      <span style="flex:1">
+        <strong>{{ t .Lang "settings.sites.hostid_mode_custom" }}</strong><br>
+        <span class="note">{{ t .Lang "settings.sites.hostid_mode_custom_desc" }}</span><br>
+        <input type="text" id="host-id-input" name="host_id" value="{{ .ConfiguredHostID }}"
+          placeholder="{{ .SelfHostID }}" pattern="[A-Za-z0-9._-]+" autocomplete="off" spellcheck="false"
+          style="margin-top:.35rem;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.3rem;min-width:16rem">
+      </span>
+    </label>
+    <p class="note host-id-hint" style="margin:.6rem 0 0">{{ safeHTML (t .Lang "settings.sites.hostid_hint") }}</p>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+<script>
+// host-id editor: the text input is only relevant in "custom" mode.  Disable
+// it under "hostname" so it neither submits nor looks editable.
+(function(){
+  var radios = document.querySelectorAll('input[name="host_id_mode"]');
+  var input = document.getElementById('host-id-input');
+  if (!radios.length || !input) return;
+  function sync(){
+    var on = document.querySelector('input[name="host_id_mode"]:checked');
+    input.disabled = !(on && on.value === 'custom');
+    input.style.opacity = input.disabled ? '.5' : '1';
+  }
+  radios.forEach(function(r){ r.addEventListener('change', sync); });
+  sync();
+})();
+</script>
 
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.host_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.host_desc") }}</span></span></h2>

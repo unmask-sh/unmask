@@ -739,15 +739,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "sites":
 		applySitesForm(&cur.Sites, r)
 	case "host":
-		// This instance's host id (= the Sites / Hosts tab).  Empty clears it
-		// so the OS hostname fallback applies.  Charset-guarded; takes effect
-		// on the next admin restart (h.HostID is resolved at startup).
-		hid := strings.TrimSpace(r.FormValue("host_id"))
-		if hid != "" && !hostIDRE.MatchString(hid) {
-			redirBack("invalid host id (allowed: letters, digits, dot, underscore, hyphen)")
-			return
+		// This instance's host id (= the Sites / Hosts tab).  "hostname" mode
+		// clears it so the OS hostname fallback applies; "custom" stores the
+		// charset-guarded value.  Takes effect on the next admin restart
+		// (h.HostID is resolved at startup).
+		if r.FormValue("host_id_mode") == "custom" {
+			hid := strings.TrimSpace(r.FormValue("host_id"))
+			if hid != "" && !hostIDRE.MatchString(hid) {
+				redirBack("invalid host id (allowed: letters, digits, dot, underscore, hyphen)")
+				return
+			}
+			cur.Server.HostID = hid
+		} else {
+			cur.Server.HostID = ""
 		}
-		cur.Server.HostID = hid
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= s.EventsRetentionDays is
