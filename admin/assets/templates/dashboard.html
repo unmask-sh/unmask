@@ -136,11 +136,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .funnel-grouped tr.bcd-rl td{background:#fef3c7 !important}
 .funnel-grouped tr.bcd-total td{background:#e0e7ff !important}
 .funnel-grouped thead tr.funnel-sg th{font-size:.7rem;color:#475569;font-weight:600;padding:.3rem .5rem;text-align:center;letter-spacing:.02em;border-bottom:1px solid #cbd5e1}
-/* group boundary = vertical line on the left of columns 2 / 7 / 10 / 12 */
+/* group boundary = vertical line on the left of columns 2 / 9 / 12 / 14
+   (= verdict | funnel x7 | anomaly x3 | rate x2 | meta x4). Keep in sync with
+   the funnel-sg colspans and the <colgroup> spans above. */
 .funnel-grouped tr > *:nth-child(2),
-.funnel-grouped tr > *:nth-child(7),
-.funnel-grouped tr > *:nth-child(10),
-.funnel-grouped tr > *:nth-child(12){border-left:1px solid #cbd5e1}
+.funnel-grouped tr > *:nth-child(9),
+.funnel-grouped tr > *:nth-child(12),
+.funnel-grouped tr > *:nth-child(14){border-left:1px solid #cbd5e1}
 /* funnel first column: cap long verdict labels.  Auto-generated hunt_<ja4>
    verdicts run ~38 chars and would otherwise stretch the (already wide) table
    into a horizontal scroll.  Clipped labels get a full-text popover via JS. */
