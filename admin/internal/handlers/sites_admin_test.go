@@ -97,6 +97,13 @@ func TestSettingsSitesTabRender(t *testing.T) {
 	if !strings.Contains(body, "/admin/api/hosts/toggle") {
 		t.Errorf("host inventory missing the disable/enable toggle")
 	}
+	// the self host-id editor lives in the multi-host section.
+	if !strings.Contains(body, "section=host") || !strings.Contains(body, `name="host_id"`) {
+		t.Errorf("sites tab missing the editable host-id form")
+	}
+	if tabForSection("host") != "sites" {
+		t.Errorf(`tabForSection("host") = %q, want "sites"`, tabForSection("host"))
+	}
 	// The shared header_tools partial must put the host + site pickers on the
 	// settings page too (regression: they used to be dashboard-only).
 	for _, want := range []string{"host-picker", "site-picker"} {

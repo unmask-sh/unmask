@@ -603,7 +603,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.URL.Query().Get("section")
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites", "host":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -738,6 +738,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySharedFeedForm(&cur.SharedFeed, r)
 	case "sites":
 		applySitesForm(&cur.Sites, r)
+	case "host":
+		// This instance's host id (= the Sites / Hosts tab).  Empty clears it
+		// so the OS hostname fallback applies.  Charset-guarded; takes effect
+		// on the next admin restart (h.HostID is resolved at startup).
+		hid := strings.TrimSpace(r.FormValue("host_id"))
+		if hid != "" && !hostIDRE.MatchString(hid) {
+			redirBack("invalid host id (allowed: letters, digits, dot, underscore, hyphen)")
+			return
+		}
+		cur.Server.HostID = hid
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= s.EventsRetentionDays is
@@ -871,7 +881,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	redirBack("")
 }
 
-func tabForSection(s string) string { return s }
+func tabForSection(s string) string {
+	// The "host" section (= this host's id) is edited on the Sites / Hosts tab.
+	if s == "host" {
+		return "sites"
+	}
+	return s
+}
 
 func (h *Handler) snapshotSettings() settings.Settings {
 	settingsMu.Lock()

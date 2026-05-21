@@ -414,37 +414,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "network" }}
-<div class="bcd-card host-id-card">
-  <h2>{{ t .Lang "settings.network.host" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.host_desc") }}</span></span></h2>
-  <div class="host-id-row">
-    <span class="host-id-label">{{ t .Lang "settings.network.host_resolved" }}</span>
-    <code class="host-id-value">{{ .SelfHostID }}</code>
-    {{ if .ConfiguredHostID }}
-      <span class="host-id-source from-config">{{ t .Lang "settings.network.host_from_config" }}</span>
-    {{ else }}
-      <span class="host-id-source from-hostname">{{ t .Lang "settings.network.host_from_hostname" }}</span>
-    {{ end }}
-  </div>
-  {{ if .ConfiguredHostID }}
-  <div class="host-id-row sub">
-    <span class="host-id-label">{{ t .Lang "settings.network.host_configured" }}</span>
-    <code class="host-id-value">{{ .ConfiguredHostID }}</code>
-  </div>
-  {{ end }}
-  <p class="desc host-id-hint">{{ safeHTML (t .Lang "settings.network.host_hint") }}</p>
-</div>
-<style>
-.host-id-card{background:#f8fafc}
-.host-id-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.85rem;margin:.3rem 0}
-.host-id-row.sub{font-size:.75rem;color:#475569}
-.host-id-label{color:#64748b;font-weight:600}
-.host-id-value{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;padding:.15rem .4rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#7c3aed}
-.host-id-source{font-size:.7rem;padding:.1rem .4rem;border-radius:1rem;font-weight:600}
-.host-id-source.from-config{background:#dcfce7;color:#166534}
-.host-id-source.from-hostname{background:#fef9c3;color:#854d0e}
-.host-id-hint{font-size:.72rem;color:#64748b;margin-top:.5rem;line-height:1.5}
-</style>
-
+{{/* The "this host's id" card moved to the Sites / Hosts tab (= it belongs
+     with the multi-host section, and is now web-editable there). */}}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=network">
   <div class="bcd-card listen-card">
     <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span></h2>
@@ -3015,6 +2986,29 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
 <div class="sites-group-hd">{{ t .Lang "settings.sites.section_host" }}</div>
 
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=host">
+  <div class="bcd-card host-id-card">
+    <h2>{{ t .Lang "settings.sites.hostid_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.hostid_desc") }}</span></span></h2>
+    <div class="host-id-row">
+      <span class="host-id-label">{{ t .Lang "settings.sites.hostid_resolved" }}</span>
+      <code class="host-id-value">{{ .SelfHostID }}</code>
+      {{ if .ConfiguredHostID }}
+        <span class="host-id-source from-config">{{ t .Lang "settings.sites.hostid_from_config" }}</span>
+      {{ else }}
+        <span class="host-id-source from-hostname">{{ t .Lang "settings.sites.hostid_from_hostname" }}</span>
+      {{ end }}
+    </div>
+    <div class="field" style="margin-top:.7rem">
+      <label class="field-label" for="host-id-input">{{ t .Lang "settings.sites.hostid_field" }}</label>
+      <input type="text" id="host-id-input" name="host_id" value="{{ .ConfiguredHostID }}"
+        placeholder="{{ .SelfHostID }}" pattern="[A-Za-z0-9._-]+" autocomplete="off" spellcheck="false"
+        style="font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.3rem;min-width:16rem">
+    </div>
+    <p class="note host-id-hint" style="margin:.5rem 0 0">{{ safeHTML (t .Lang "settings.sites.hostid_hint") }}</p>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.host_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.host_desc") }}</span></span></h2>
   {{ if .HostInventory }}
@@ -3130,6 +3124,14 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .sites-host-self{color:#0ea5e9;font-size:.7rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 .host-row-off td{color:#94a3b8}
 .host-off-badge{font-size:.66rem;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:.2rem;padding:.05rem .35rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;vertical-align:middle}
+.host-id-card{background:#f8fafc}
+.host-id-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.85rem;margin:.3rem 0}
+.host-id-label{color:#64748b;font-weight:600}
+.host-id-value{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;padding:.15rem .4rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#7c3aed}
+.host-id-source{font-size:.7rem;padding:.1rem .4rem;border-radius:1rem;font-weight:600}
+.host-id-source.from-config{background:#dcfce7;color:#166534}
+.host-id-source.from-hostname{background:#fef9c3;color:#854d0e}
+.host-id-hint{font-size:.72rem;color:#64748b;line-height:1.5}
 </style>
 {{ end }}
 
