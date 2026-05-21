@@ -149,6 +149,19 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				return out.Interface()
 			},
+			// firstN returns the first n elements of slice s (= caps a table to
+			// a few rows without trimming the underlying data). Non-slice / n<0
+			// returns s unchanged; n past the end is clamped.
+			"firstN": func(n int, s any) any {
+				v := reflect.ValueOf(s)
+				if v.Kind() != reflect.Slice || n < 0 {
+					return s
+				}
+				if n > v.Len() {
+					n = v.Len()
+				}
+				return v.Slice(0, n).Interface()
+			},
 		}
 		sub, err := fs.Sub(assets.Templates, "templates")
 		if err != nil {

@@ -584,7 +584,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <table class="bcd-table" style="margin:0;white-space:nowrap">
           <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th></tr></thead>
           <tbody>
-            {{range reverse .DailyTotal}}
+            {{range firstN 10 (reverse .DailyTotal)}}
             <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td></tr>
             {{end}}
           </tbody>
@@ -623,7 +623,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <table class="bcd-table" style="margin:0;white-space:nowrap">
           <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
           <tbody>
-            {{range reverse .DailyServeTotal}}
+            {{range firstN 10 (reverse .DailyServeTotal)}}
             <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
             {{end}}
           </tbody>
