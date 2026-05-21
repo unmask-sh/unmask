@@ -624,6 +624,47 @@ type GlobalConfig struct {
 	DefaultAction string `yaml:"default_action,omitempty"`
 }
 
+// Site acceptance modes (= SiteAcceptanceConfig.Mode).
+const (
+	SiteModeAuto    = "auto"    // every observed Host is accepted as a site
+	SiteModeDefined = "defined" // only Defined sites are "known"; the rest are ghosts
+)
+
+// SiteAcceptanceConfig governs how observed sites (= normalized request Host
+// values) are treated.  In "auto" mode every Host is accepted silently.  In
+// "defined" mode only the listed sites are known; a Host outside the list is
+// still recorded as an event, but flagged as a ghost — surfaced in the
+// dashboard's ghost report for one-click promotion into Defined.  The same
+// shape is intended to extend to hosts later.
+type SiteAcceptanceConfig struct {
+	// Mode: "auto" (default) | "defined".  Empty / unrecognized -> auto.
+	Mode string `yaml:"mode,omitempty"`
+	// Defined: the known sites.  Consulted only in "defined" mode.
+	Defined []string `yaml:"defined,omitempty"`
+}
+
+// ResolvedMode returns the effective mode, defaulting to SiteModeAuto.
+func (c SiteAcceptanceConfig) ResolvedMode() string {
+	if c.Mode == SiteModeDefined {
+		return SiteModeDefined
+	}
+	return SiteModeAuto
+}
+
+// IsGhost reports whether site is a ghost: observed but not in Defined, while
+// in "defined" mode.  In "auto" mode nothing is ever a ghost.
+func (c SiteAcceptanceConfig) IsGhost(site string) bool {
+	if c.ResolvedMode() != SiteModeDefined || site == "" {
+		return false
+	}
+	for _, d := range c.Defined {
+		if d == site {
+			return false
+		}
+	}
+	return true
+}
+
 type Settings struct {
 	DB            DB              `yaml:"db"`
 	Secret        Secret          `yaml:"secret"`
@@ -638,6 +679,7 @@ type Settings struct {
 	Notifications Notifications   `yaml:"notifications,omitempty"`
 	SMTP          SMTP            `yaml:"smtp,omitempty"`
 	Global        GlobalConfig    `yaml:"global,omitempty"`
+	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a
