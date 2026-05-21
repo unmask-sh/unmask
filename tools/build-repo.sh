@@ -129,16 +129,21 @@ if [ "$HAVE_APT" = 1 ]; then
         gzip -kf "$bin/Packages"
     done
 
-    cat > "$DSTABLE/Release" <<RELEASE
-Origin: unmask
-Label: unmask
-Suite: stable
-Codename: stable
-Architectures: amd64 arm64
-Components: main
-Description: unmask package repository (single-path / distro-neutral)
-Date: $(date -Ru)
-RELEASE
+    # Release = headers + per-file hash sections.  apt-ftparchive's `release`
+    # subcommand scans $DSTABLE and appends the MD5Sum/SHA256 sections; without
+    # them apt fails with "Unable to find expected entry main/binary-*/Packages
+    # in Release file".  Write via a temp file outside $DSTABLE so the Release
+    # is not hashed into its own listing.
+    apt-ftparchive \
+        -o APT::FTPArchive::Release::Origin=unmask \
+        -o APT::FTPArchive::Release::Label=unmask \
+        -o APT::FTPArchive::Release::Suite=stable \
+        -o APT::FTPArchive::Release::Codename=stable \
+        -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
+        -o APT::FTPArchive::Release::Components=main \
+        -o APT::FTPArchive::Release::Description="unmask package repository (single-path / distro-neutral)" \
+        release "$DSTABLE" > "$OUT/deb/.Release.tmp"
+    mv "$OUT/deb/.Release.tmp" "$DSTABLE/Release"
     if [ -n "${UNMASK_GPG_KEY_ID:-}" ]; then
         gpg --batch --yes --default-key "$UNMASK_GPG_KEY_ID" \
             --clearsign -o "$DSTABLE/InRelease" "$DSTABLE/Release"
