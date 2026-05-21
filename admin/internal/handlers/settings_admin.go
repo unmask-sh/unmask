@@ -379,6 +379,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Captcha": h.snapshotSettings().Challenge.CaptchaProvider,
 		// Settings used by the challenge tab (= cookie_days / score_threshold / debug rate).
 		"Challenge": h.snapshotSettings().Challenge,
+		// Forward-auth JA4 trust knobs surfaced on the network tab
+		// (= challenge.ja4_source / trusted_forward_auth_proxies). CSV-joined
+		// here because Go templates have no string-join builtin.
+		"FwdAuthProxiesCSV": strings.Join(h.snapshotSettings().Challenge.TrustedForwardAuthProxies, ", "),
 		// Settings used by the rate-limit tab (= default zone + named zones list).
 		"RateLimit": h.snapshotSettings().RateLimit,
 		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
@@ -626,6 +630,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		applyTrustedLBForm(&cur.Nginx, r)
+		applyForwardAuthJA4Form(&cur.Challenge, r)
 	case "ua-filter":
 		applyUAFilterForm(&cur.Nginx, r)
 		// Black-list default action (= independent of rate-limit chain).
@@ -1212,6 +1217,34 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 		})
 	}
 	n.TrustedLBExtra = extras
+}
+
+// applyForwardAuthJA4Form: receives the forward-auth JA4 trust section of the
+// network tab. These are Challenge fields (not Nginx), but the UI places them
+// on the network tab next to the native-mode trusted-LB section so an operator
+// sees every JA4-trust knob in one place.
+//   - ja4_source                  : off | module | header
+//   - trusted_forward_auth_proxies : CSV / whitespace CIDR list; empty -> default
+func applyForwardAuthJA4Form(c *settings.Challenge, r *http.Request) {
+	switch strings.TrimSpace(r.FormValue("ja4_source")) {
+	case settings.JA4SourceModule:
+		c.JA4Source = settings.JA4SourceModule
+	case settings.JA4SourceHeader:
+		c.JA4Source = settings.JA4SourceHeader
+	default:
+		// "off" / empty / unknown -> off. Store "" so omitempty keeps the
+		// yaml clean unless the operator opts into module / header.
+		c.JA4Source = ""
+	}
+	var proxies []string
+	for _, s := range strings.FieldsFunc(r.FormValue("trusted_forward_auth_proxies"), func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
+	}) {
+		if s = strings.TrimSpace(s); s != "" {
+			proxies = append(proxies, s)
+		}
+	}
+	c.TrustedForwardAuthProxies = proxies
 }
 
 // applyIPGeoForm: persist mmdb paths.

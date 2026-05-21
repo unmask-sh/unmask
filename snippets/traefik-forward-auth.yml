@@ -15,6 +15,13 @@ http:
         # Pass the original request headers into the subrequest.  Traefik
         # automatically sets X-Forwarded-*, so admin can recover client IP /
         # Host from X-Forwarded-For / X-Forwarded-Host.
+        #
+        # Client JA4 (forward-auth mode): forwardAuth relays request headers
+        # as-is, so an X-Client-JA4 set by a JA4-aware front layer reaches
+        # unmask-admin automatically (honored only with
+        # challenge.ja4_source=header). If no trusted front layer sets it,
+        # strip a client-supplied X-Client-JA4 in your router / middleware so
+        # a client cannot forge it.
 
   routers:
     your-app:

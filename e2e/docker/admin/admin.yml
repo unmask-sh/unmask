@@ -13,6 +13,20 @@ challenge:
   cookie_days: 3
   captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 200
+  # Scenarios 12 / 13 hit admin:9477 directly with X-Client-JA4 set, bypassing
+  # nginx (= the plugin's native JA4 extraction). Honor that forwarded header:
+  #   - ja4_source: header           -> auth_check reads X-Client-JA4
+  #   - trusted_forward_auth_proxies -> the connection peer must be trusted.
+  #     The e2e harness reaches admin from a docker-private address, so the
+  #     RFC1918 ranges below cover whatever subnet compose assigns. e2e only —
+  #     in production this is the real proxy's address, not whole /8s.
+  ja4_source: header
+  trusted_forward_auth_proxies:
+    - 127.0.0.0/8
+    - ::1/128
+    - 10.0.0.0/8
+    - 172.16.0.0/12
+    - 192.168.0.0/16
 
 # Scenario 09 sends 120 requests sequentially.  Production default is 100 r/min
 # + burst 50 = 150 allowed, which doesn't trip in 120.  Drop the rate to make
@@ -87,16 +101,22 @@ nginx:
       - "e2e fixture bot"
     extra_disabled:
       - false
-  # Trust the admin's own /api/check caller as an LB so X-Client-JA4 is
-  # honored on scenario 12 direct hits to admin:9477 (= bypasses nginx /
-  # plugin's JA4 extraction).
-  trusted_lb_extra:
-    - id: "e2e-host"
-      cidrs: ["0.0.0.0/0"]
-      header: "$http_x_client_ja4"
-
   # Enable the wordpress honeypot preset (= /wp-login.php etc).  Default is
   # all-off (= "would CAPTCHA legitimate users").  Scenarios 02 / 03 hit
   # /wp-login.php expecting it to be a honeypot.
   honeypot:
     disabled_presets: []
+
+  # Protected paths (= scenario 16).  A custom /login/ path with a CAPTCHA
+  # gate: every visitor — browser UA included — is challenged there, while
+  # ordinary paths still pass.  disabled_presets is omitted on purpose so the
+  # built-in preset groups stay off and only this /login/ rule is active.
+  protected_paths:
+    extra:
+      - "/login/"
+    extra_title:
+      - "e2e protected login"
+    extra_disabled:
+      - false
+    extra_mode:
+      - "captcha"

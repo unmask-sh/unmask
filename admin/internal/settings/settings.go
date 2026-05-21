@@ -126,6 +126,55 @@ type Challenge struct {
 	// Toggle with `unmask-admin apply-preset monitor` (= ObserveOnly=true).
 	// Reset back to false when switching to strict / balanced.
 	ObserveOnly bool `yaml:"observe_only,omitempty"`
+	// JA4Source: where the JA4 fingerprint comes from. Controls whether
+	// auth_check (= the forward-auth path) trusts the X-Client-JA4 request
+	// header.
+	//   "off"    : never read X-Client-JA4 (default; secure-by-default).
+	//   "module" : native nginx-module mode — JA4 reaches nginx as
+	//              $client_ja4, never as an HTTP header to /api/check, so
+	//              auth_check ignores X-Client-JA4 (belt-and-suspenders).
+	//   "header" : forward-auth mode — an upstream proxy forwards the real
+	//              client's JA4 via X-Client-JA4. Honored only when the
+	//              connection peer matches TrustedForwardAuthProxies.
+	// Empty -> "off". The native-mode LB trust knobs (trusted_lb_presets /
+	// trusted_lb_extra under nginx) are a separate path and untouched.
+	JA4Source string `yaml:"ja4_source,omitempty"`
+	// TrustedForwardAuthProxies: CIDRs of the forward-auth proxy (nginx
+	// auth_request / Apache mod_lua / Caddy forward_auth) that calls
+	// /api/check. Relevant only when JA4Source == "header". The peer
+	// connection address (= r.RemoteAddr, NOT the resolved visitor IP) is
+	// matched against this list; an X-Client-JA4 from a non-listed peer is
+	// dropped (= spoof protection). Empty -> loopback only (127.0.0.0/8,
+	// ::1/128), which fits the default same-host install. Add the proxy
+	// host's IP when admin runs on a separate host.
+	TrustedForwardAuthProxies []string `yaml:"trusted_forward_auth_proxies,omitempty"`
+}
+
+// JA4 source modes for Challenge.JA4Source.
+const (
+	JA4SourceOff    = "off"
+	JA4SourceModule = "module"
+	JA4SourceHeader = "header"
+)
+
+// ResolvedJA4Source returns the effective JA4 source mode, defaulting to
+// JA4SourceOff for empty / unrecognized values (= secure-by-default).
+func (c Challenge) ResolvedJA4Source() string {
+	switch c.JA4Source {
+	case JA4SourceModule, JA4SourceHeader:
+		return c.JA4Source
+	default:
+		return JA4SourceOff
+	}
+}
+
+// ResolvedTrustedForwardAuthProxies returns the configured proxy CIDRs, or
+// the loopback default (127.0.0.0/8, ::1/128) when unset.
+func (c Challenge) ResolvedTrustedForwardAuthProxies() []string {
+	if len(c.TrustedForwardAuthProxies) == 0 {
+		return []string{"127.0.0.0/8", "::1/128"}
+	}
+	return c.TrustedForwardAuthProxies
 }
 
 // ResolvedPowDifficulty: returns default 18 when 0 / out of range.

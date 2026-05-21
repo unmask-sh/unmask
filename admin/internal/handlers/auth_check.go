@@ -25,6 +25,7 @@ package handlers
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -155,21 +156,15 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	cfg := h.snapshotSettings()
 
-	// JA4 fingerprint (= obtained from the TLS handshake.  Usable on
-	// the auth_request path even without the nginx module, as long as
-	// GCP LB etc. delivers it via X-Client-JA4).
-	// Anti-spoofing: only accept the header when the source IP matches
-	// a user-configured trusted LB.  Headers from non-trusted sources
-	// (= direct access etc.) are dropped (= treated as "").
-	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
-	if ja4 == "" {
-		ja4 = strings.TrimSpace(r.Header.Get("X-Original-JA4"))
-	}
-	if ja4 != "" {
-		if trusted, _ := nginxconf.IsTrustedLBIP(ip, cfg.Nginx); !trusted {
-			ja4 = ""
-		}
-	}
+	// JA4 fingerprint. In forward-auth mode an upstream proxy may forward
+	// the real client's JA4 via X-Client-JA4. Trust is keyed on the
+	// connection PEER (= the forward-auth proxy that called /api/check),
+	// never on the resolved visitor IP — the visitor sits behind the proxy
+	// and would never match. See challenge.ja4_source /
+	// trusted_forward_auth_proxies. Mirrors the native nginx template's
+	// `geo $realip_remote_addr $unmask_lb_vendor`, which trusts the
+	// pre-realip peer rather than the rewritten visitor IP.
+	ja4 := resolveForwardedJA4(r, cfg)
 
 	matchers := h.bypassMatchers(cfg.Nginx)
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
@@ -606,6 +601,60 @@ func firstNonEmpty(vs ...string) string {
 		}
 	}
 	return ""
+}
+
+// resolveForwardedJA4 extracts the client JA4 from the X-Client-JA4
+// (fallback X-Original-JA4) request header, but only when:
+//   - challenge.ja4_source == "header", AND
+//   - the connection peer (r.RemoteAddr) is a trusted forward-auth proxy.
+//
+// Any other case returns "" (= no JA4; the ja4 axis stays silent).
+//
+// Why peer-based: the forward-auth proxy (nginx auth_request / Apache
+// mod_lua / Caddy forward_auth) is what opens the TCP connection to
+// /api/check, so r.RemoteAddr is that proxy's address. The visitor sits
+// behind it and must never be used for this trust decision. Spoof defense
+// is two-layer: this peer check, plus the proxy snippet overwriting any
+// client-supplied X-Client-JA4 before it forwards the request.
+func resolveForwardedJA4(r *http.Request, cfg settings.Settings) string {
+	if cfg.Challenge.ResolvedJA4Source() != settings.JA4SourceHeader {
+		return ""
+	}
+	ja4 := firstNonEmpty(
+		r.Header.Get("X-Client-JA4"),
+		r.Header.Get("X-Original-JA4"),
+	)
+	if ja4 == "" {
+		return ""
+	}
+	if !peerIsTrustedProxy(r.RemoteAddr, cfg.Challenge.ResolvedTrustedForwardAuthProxies()) {
+		return ""
+	}
+	// Shape-validate before the value reaches matchJA4 / the event record.
+	return safeJA4(ja4)
+}
+
+// peerIsTrustedProxy reports whether the raw connection address (host:port
+// from r.RemoteAddr) falls inside one of the trusted-proxy CIDRs.
+func peerIsTrustedProxy(remoteAddr string, cidrs []string) bool {
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	peer := net.ParseIP(strings.Trim(host, "[]"))
+	if peer == nil {
+		return false
+	}
+	for _, c := range cidrs {
+		_, ipnet, err := net.ParseCIDR(strings.TrimSpace(c))
+		if err != nil {
+			continue
+		}
+		if ipnet.Contains(peer) {
+			return true
+		}
+	}
+	return false
 }
 
 func isBypassIP(ip string, list []string) bool {

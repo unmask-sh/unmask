@@ -863,6 +863,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
   </div>
 
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.fwdja4_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.fwdja4_desc") }}</span></span></h2>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.fwdja4_source_label" }}</label>
+      {{ $js := .Challenge.ResolvedJA4Source }}
+      <select name="ja4_source" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:16rem">
+        <option value="off"    {{ if eq $js "off"    }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_off" }}</option>
+        <option value="module" {{ if eq $js "module" }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_module" }}</option>
+        <option value="header" {{ if eq $js "header" }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_header" }}</option>
+      </select>
+      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.fwdja4_source_hint") }}</p>
+    </div>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.fwdja4_proxies_label" }}</label>
+      <input type="text" name="trusted_forward_auth_proxies" value="{{ .FwdAuthProxiesCSV }}" placeholder="127.0.0.0/8, ::1/128">
+      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.fwdja4_proxies_hint") }}</p>
+    </div>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}

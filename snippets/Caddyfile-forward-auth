@@ -8,7 +8,9 @@
 #                  ← 200 / 401 / 403
 #                  → 200 = pass / 401 = redirect to challenge / 403 = block
 #
-# Feature limit: only JA4 is unavailable.  Otherwise on par with native mode.
+# Feature limit: Caddy cannot extract JA4 itself (needs the TLS handshake) —
+# a JA4-aware layer in front can still forward it via X-Client-JA4 (see the
+# header_up line below).  Otherwise on par with native mode.
 
 example.com {
     # /unmask/* (= challenge HTML / verify API / admin UI) → proxy to admin.
@@ -27,6 +29,13 @@ example.com {
             header_up X-Original-Host {http.request.host}
             # multi-site: optionally inject a site id.
             # header_up X-Unmask-Site "blog-jp"
+            # Client JA4 (forward-auth mode). Caddy cannot extract JA4 from
+            # the handshake; this carries a value only when a JA4-aware layer
+            # in front already set the X-Client-JA4 request header.
+            # unmask-admin honors it only with challenge.ja4_source=header. If
+            # no trusted front layer sets it, drop the client value first
+            # (header_up -X-Client-JA4) so a client cannot forge it.
+            header_up X-Client-JA4    {http.request.header.X-Client-JA4}
 
             # Keep admin's X-Unmask-Action header so error_page can branch on it.
             copy_headers X-Unmask-Action X-Unmask-Reason
