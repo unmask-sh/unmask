@@ -368,28 +368,32 @@ func ipAllowed(ip string, allowList []string) bool {
 	return false
 }
 
-// addMeToData injects the common "Me" + "MeName" + "BasePath" used by every
-// template render.  Consumed by the user_menu partial in the header.  When
-// unauthenticated (e.g. login page) Me / MeName are not set; BasePath always is.
+// addMeToData injects the common header data used by every admin page render:
+// "Me" / "MeName" / "BasePath" (consumed by the user_menu partial) plus the
+// host / site picker data consumed by the header_tools partial.  When
+// unauthenticated (e.g. login page) Me / MeName are skipped; BasePath and the
+// picker data are always set (the pickers are not session-dependent).
 func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["BasePath"]; !ok {
 		data["BasePath"] = h.Settings.Server.BasePath
 	}
-	pay := SessionFromContext(r)
-	if pay == nil {
-		return
-	}
-	data["Me"] = pay
-	if h.UserRepo != nil {
-		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
-			data["MeName"] = u.Username
+	if pay := SessionFromContext(r); pay != nil {
+		data["Me"] = pay
+		if h.UserRepo != nil {
+			if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+				data["MeName"] = u.Username
+			}
 		}
 	}
 
-	// host picker (data for the host filter UI shared by every admin page).
-	// Hosts = all observed host ids; HostSelected = the current narrowing
-	// (sourced from the unmask_hosts cookie); SelfHostID = this host.  Don't
-	// override if the handler already set them.
+	// Host + site picker data for the shared header_tools partial (= the
+	// host / site filter pickers, rendered on every admin page).  Each key is
+	// guarded independently so a handler that pre-set one (e.g. the settings
+	// page sets Sites for a datalist, and SelfHostID) still gets the rest —
+	// otherwise the picker template hits an undefined .SiteSelected and the
+	// whole page render fails.  Hosts = observed host ids; HostSelected = the
+	// unmask_hosts narrowing; Sites = observed sites; SiteSelected = the
+	// single unmask_site narrowing ("" = all).
 	if _, ok := data["Hosts"]; !ok {
 		hostList, _ := events.DistinctHosts(r.Context(), h.DB)
 		if h.HostID != "" {
@@ -404,21 +408,23 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 				hostList = append([]string{h.HostID}, hostList...)
 			}
 		}
+		data["Hosts"] = hostList
+	}
+	if _, ok := data["HostSelected"]; !ok {
 		sel := map[string]bool{}
 		for _, x := range resolveHostFilter(r) {
 			sel[x] = true
 		}
-		data["Hosts"] = hostList
 		data["HostSelected"] = sel
+	}
+	if _, ok := data["SelfHostID"]; !ok {
 		data["SelfHostID"] = h.HostID
 	}
-
-	// site picker (= shared single-select site filter UI).  Sites = all
-	// observed sites (= request Host values); SiteSelected = the current
-	// single narrowing (from the unmask_site cookie).  "" = all sites.
 	if _, ok := data["Sites"]; !ok {
 		siteList, _ := events.DistinctSites(r.Context(), h.DB)
 		data["Sites"] = siteList
+	}
+	if _, ok := data["SiteSelected"]; !ok {
 		data["SiteSelected"] = resolveSiteFilter(r)
 	}
 }

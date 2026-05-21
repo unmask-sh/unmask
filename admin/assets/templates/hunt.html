@@ -173,7 +173,7 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
     <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
   </nav>
   <span class="spacer"></span>
-  {{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}
+  {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
 <h1>{{ t .Lang "hunt.title" }}</h1>

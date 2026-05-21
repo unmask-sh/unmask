@@ -1,0 +1,14 @@
+{{- /*
+  header_tools: the shared right-side cluster of the admin top bar.  Bundles
+  the host + site filter pickers and the language/TZ + user menus so every
+  admin page gets the identical set — the host / site scope selector must be
+  reachable from anywhere, not just the dashboard.
+
+  Every admin page's <header> ends with a single {{ template "header_tools" . }}
+  instead of listing the partials by hand, so a page can't accidentally omit
+  the pickers.
+
+  All picker data (Hosts / HostSelected / SelfHostID / Sites / SiteSelected)
+  is injected by addMeToData on every admin page render.
+*/ -}}
+{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}{{ end }}
