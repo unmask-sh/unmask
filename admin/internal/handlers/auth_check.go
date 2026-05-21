@@ -619,6 +619,18 @@ func normalizeSite(host string) string {
 		host = h
 	}
 	host = strings.ToLower(strings.Trim(host, "[]"))
+	// Keep only hostname-safe characters (a-z 0-9 . - _ and : for IPv6
+	// literals).  Bounds the value so it is safe to interpolate into the site
+	// SQL fragment and stops a junk Host from polluting the site column.
+	host = strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z', r >= '0' && r <= '9',
+			r == '.', r == '-', r == '_', r == ':':
+			return r
+		default:
+			return -1
+		}
+	}, host)
 	if len(host) > 64 {
 		host = host[:64]
 	}

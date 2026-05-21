@@ -137,8 +137,20 @@ func RangeHours(s string) int {
 //
 // SQL injection guard: caller must validate site (= [a-z0-9-]{1,32}) before
 // passing in. handlers.pickSite gates with a regex so this concatenates literally.
+// siteValRE: allowed chars for a site filter value (= a normalized request
+// Host).  Embedded into SQL literally, so restrict to hostname-safe chars
+// (alnum . - _ and : for IPv6 literals).  See hostValRE.
+var siteValRE = regexp.MustCompile(`^[a-z0-9.:_-]+$`)
+
+// siteCond: SQL fragment for the single-select site filter.  "" or the
+// "default" sentinel means "all sites" (= the dashboard's unfiltered view; a
+// real per-vhost site never equals "default" after normalizeSite).  A value
+// failing siteValRE is ignored (= SQL injection guard, mirrors hostCond).
 func siteCond(site string) string {
-	if site == "" {
+	if site == "" || site == "default" {
+		return ""
+	}
+	if !siteValRE.MatchString(site) {
 		return ""
 	}
 	return " AND site = '" + site + "'"
