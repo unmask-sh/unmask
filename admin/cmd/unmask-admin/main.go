@@ -642,6 +642,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 		h.AuthMiddleware(h.AdminMyIP))
 	mux.HandleFunc("GET "+base+"/admin/api/events/stream",
 		h.AuthMiddleware(h.AdminEventsStream))
+	// one-click promotion of a ghost site into settings.Sites.Defined (admin or above)
+	mux.HandleFunc("POST "+base+"/admin/api/sites/promote",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSitePromote)))
 
 	// settings (web editing UI).  GET: viewer or above; POST: admin or above.
 	mux.HandleFunc("GET "+base+"/admin/settings/{$}",

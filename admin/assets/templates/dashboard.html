@@ -304,6 +304,35 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </table>
 </div>
 
+{{ if .SiteDefinedMode }}
+<!-- 3.5) ghost-site report (= "defined" acceptance mode only) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.ghost" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.ghost.desc") }}</span></span></h2>
+  {{ if .GhostSites }}
+  <table class="bcd-table">
+    <thead><tr><th>{{ t .Lang "dashboard.ghost.col_site" }}</th><th class="bcd-num">{{ t .Lang "dashboard.ghost.col_events" }}</th><th>{{ t .Lang "th.last_seen" }}</th><th></th></tr></thead>
+    <tbody>
+      {{range .GhostSites}}
+      <tr>
+        <td style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</td>
+        <td class="bcd-num">{{comma .Events}}</td>
+        <td><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+        <td>
+          <form method="post" action="/unmask/admin/api/sites/promote" style="margin:0">
+            <input type="hidden" name="site" value="{{.Site}}">
+            <button type="submit" style="padding:.3rem .7rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-weight:600;cursor:pointer;font-size:.78rem">{{ t $.Lang "dashboard.ghost.add" }}</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{ else }}
+  <p class="desc" style="margin:0">{{ t .Lang "dashboard.ghost.empty" }}</p>
+  {{ end }}
+</div>
+{{ end }}
+
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.signals" }}</div>
 
 <div class="flex">

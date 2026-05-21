@@ -21,6 +21,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -633,6 +634,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dailyServeKind  []dashboard.DailyKindBucket
 		dailyServeTotal []dashboard.DailyTotal
 		countries       []dashboard.CountryRow
+		ghosts          []GhostSite
 	)
 	qStart := time.Now()
 	var wg sync.WaitGroup
@@ -689,6 +691,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		}
 	})
 	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
+	// Ghost-site report (multi-site phase 4b).  Cross-site by design — uses the
+	// range hours but ignores the site / host pickers.
+	run(func() { ghosts = h.ghostSites(ctx, hours) })
 	wg.Wait()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("dashboard queries: %v elapsed (site=%s range=%s)", qElapsed, site, rng)
@@ -810,6 +815,10 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		// /admin/bans/ tab retains all that functionality).
 		// Reverse map: verdict name -> action ("bot"/"suspect"/"ok").  Used by funnel etc. for badge judgment.
 		"VerdictAction": verdictAction,
+		// Ghost-site report: only meaningful in "defined" mode.  SiteDefinedMode
+		// gates the whole card; GhostSites holds the rows (empty -> empty state).
+		"GhostSites":      ghosts,
+		"SiteDefinedMode": h.Settings.Sites.ResolvedMode() == settings.SiteModeDefined,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
