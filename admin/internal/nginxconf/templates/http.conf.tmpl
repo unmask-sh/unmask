@@ -348,9 +348,10 @@ map "$shared_feed_hit_ipja4$shared_feed_hit_ja4$shared_feed_hit_ip" $shared_feed
 # paths / rate limit.  Useful for "the whole site is under unmask, but
 # static / api pass through".
 #
-# site column: empty = applies to all sites; non-empty = only when $unmask_site matches.
-# Single map evaluates "<site>:<request_uri>"; empty site uses [^:]* (any site).
-map "$unmask_site:$request_uri" $is_bypass_path {
+# site column: empty = applies to all sites; non-empty = only when the request
+# vhost ($host) matches.  Single map evaluates "<site>:<request_uri>"; an empty
+# site column uses [^:]* (any site).
+map "$host:$request_uri" $is_bypass_path {
     default "0";
 {{- range .BypassPaths }}
 {{- if .Site }}
@@ -433,10 +434,11 @@ map $args $rl_hit {
 }
 
 # -----------------------------------------------------------------------------
-# site identifier (used by log_format unmask_minimal).
-# Fixed to "default" after multi-site removal.  Operators who want to split
-# stats in logs can override by writing e.g. `set $unmask_site shop;` in the
-# server block.
+# $unmask_site: the site key the native module binds the _bv cookie to.  Kept
+# at "default" so _bv stays site-agnostic (kind "captcha"), matching the admin
+# (VerifyJSON issues a site-agnostic kind).  Per-vhost stats use $host directly
+# instead (see log_format unmask_minimal + the bypass-path map); making _bv
+# itself site-bound is a separate step (multi-site-handoff.md phase 6).
 # -----------------------------------------------------------------------------
 map "" $unmask_site {
     default "default";
@@ -467,7 +469,7 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # empty).  admin aggregates per kind (the kind column of unmask_cookie_minute),
 # so when the plugin adds new kinds (e.g. "signature") they're auto-ingested
 # without schema changes.
-log_format unmask_minimal '$msec site=$unmask_site kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4';
 {{- if .NginxLogEnabled }}
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
 {{- else }}
