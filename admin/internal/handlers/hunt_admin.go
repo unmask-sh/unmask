@@ -61,6 +61,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// host filter (= global scope of the shared host_picker.  comes from
 	// the unmask_hosts cookie / ?host=).
 	hostFilters := resolveHostFilter(r)
+	// site filter (= global scope of the shared site_picker.  single-select,
+	// from the unmask_site cookie / ?site=).
+	siteFilter := resolveSiteFilter(r)
 	offset := 0
 	if s := q.Get("offset"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
@@ -69,7 +72,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const pageSize = 100
-	rows, err := events.FetchPaged(r.Context(), h.DB, ipFilter, ja4Filter, phaseFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, err := events.FetchPaged(r.Context(), h.DB, ipFilter, ja4Filter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)

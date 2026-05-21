@@ -1,0 +1,39 @@
+{{- /*
+  site_picker: shared single-select site filter for every admin page.  Sits
+  in the top bar next to the host picker.  The site is the visitor's request
+  Host (= the vhost they reached), so a host serving many vhosts can be split
+  apart in the dashboard.
+
+  Selection persists in the unmask_site cookie at global scope (same pattern
+  as the host / TZ / language picker).  Empty value = all sites.
+
+  Data (.Sites / .SiteSelected) is injected by addMeToData on every admin
+  page render.
+*/ -}}
+{{ define "site_picker" }}
+<span class="site-picker">
+  <select class="sp-sel" aria-label="{{ t .Lang "hunt.filter.site" }}">
+    <option value="">{{ t .Lang "hunt.filter.site_all" }}</option>
+    {{ range .Sites }}
+    <option value="{{ . }}" {{ if eq . $.SiteSelected }}selected{{ end }}>{{ . }}</option>
+    {{ end }}
+  </select>
+</span>
+<style>
+.site-picker{font-size:.8rem}
+.site-picker .sp-sel{font-size:.78rem;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;color:#0f172a;max-width:13rem;cursor:pointer}
+</style>
+<script>
+(function(){
+  // Site filter persists in the unmask_site cookie at global scope.
+  // Pick an option -> cookie write -> reload.
+  var sel = document.querySelector('.site-picker .sp-sel');
+  if (!sel) return;
+  sel.addEventListener('change', function(){
+    document.cookie = 'unmask_site=' + encodeURIComponent(sel.value) +
+      '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
+    location.reload();
+  });
+})();
+</script>
+{{ end }}

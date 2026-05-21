@@ -399,6 +399,15 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		data["HostSelected"] = sel
 		data["SelfHostID"] = h.HostID
 	}
+
+	// site picker (= shared single-select site filter UI).  Sites = all
+	// observed sites (= request Host values); SiteSelected = the current
+	// single narrowing (from the unmask_site cookie).  "" = all sites.
+	if _, ok := data["Sites"]; !ok {
+		siteList, _ := events.DistinctSites(r.Context(), h.DB)
+		data["Sites"] = siteList
+		data["SiteSelected"] = resolveSiteFilter(r)
+	}
 }
 
 // AdminLoginGet: GET {base}/admin/login — render the login form.
@@ -548,6 +557,9 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 // Called by both AdminDashboard (/admin/{site}/) and AdminSiteList (/admin/
 // when site<=1).
 func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site string) {
+	// The dashboard scopes by the shared site_picker (single-select), not by
+	// the legacy /admin/{site}/ path segment.  cookie / ?site=; "" = all sites.
+	site = resolveSiteFilter(r)
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
 		log.Printf("dashboard tmpl load: %v", err)
@@ -813,11 +825,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 //   - Poll every 1 second; emit progress as `data: <json>\n\n`.
 //   - Connection ending (browser close / disconnect) terminates the goroutine immediately.
 func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
-	site := r.URL.Query().Get("site")
-	if site != "" && !siteIDRE.MatchString(site) {
-		http.Error(w, "invalid site", http.StatusBadRequest)
-		return
-	}
+	// site filter (= shared site_picker, single-select.  cookie / ?site=).
+	// No charset check needed: FetchSince binds it as a ? parameter.
+	site := resolveSiteFilter(r)
 	phase := r.URL.Query().Get("phase")
 	if phase != "" && !events.IsValidPhase(phase) {
 		http.Error(w, "invalid phase", http.StatusBadRequest)
@@ -914,14 +924,9 @@ func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 	if rng != "7d" && rng != "30d" {
 		rng = "24h"
 	}
-	site := r.URL.Query().Get("site")
-	if site != "" && !siteIDRE.MatchString(site) {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_site"})
-		return
-	}
-	if site == "" {
-		site = defaultSite
-	}
+	// site filter (= shared site_picker, single-select.  cookie / ?site=).
+	// siteCond validates the value before use; "" / "default" = all sites.
+	site := resolveSiteFilter(r)
 	hosts := resolveHostFilter(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()

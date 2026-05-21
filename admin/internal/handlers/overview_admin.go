@@ -32,11 +32,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 
 	// host filter (= global scope of the shared host_picker.  Sourced from cookie / ?host=).
 	hosts := resolveHostFilter(r)
+	// site filter (= shared site_picker, single-select.  cookie / ?site=).
+	site := resolveSiteFilter(r)
 
 	// Last-24h KPIs.  On failure, fall through with 0.
-	kpiEvents := countEvents(ctx, h, 1440, "", hosts)
-	kpiServes := countEvents(ctx, h, 1440, "serve", hosts)
-	kpiVerify := countEvents(ctx, h, 1440, "verify", hosts)
+	kpiEvents := countEvents(ctx, h, 1440, "", site, hosts)
+	kpiServes := countEvents(ctx, h, 1440, "serve", site, hosts)
+	kpiVerify := countEvents(ctx, h, 1440, "verify", site, hosts)
 
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
@@ -45,7 +47,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 5 most recent detections (= any phase / id desc).
-	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", hosts, 0, 5, 0)
+	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 5, 0)
 	if err != nil {
 		log.Printf("overview recent: %v", err)
 	}
@@ -169,12 +171,16 @@ func aiTrafficSummary(ctx context.Context, h *Handler, minutes int, hosts []stri
 // countEvents: count of unmask_event rows in the last `minutes`.  Empty phase
 // means all rows.  Non-empty hosts narrows via IN (...) for multi-host filtering.
 // Best-effort (= on error, return 0 and just log).
-func countEvents(ctx context.Context, h *Handler, minutes int, phase string, hosts []string) int {
+func countEvents(ctx context.Context, h *Handler, minutes int, phase, site string, hosts []string) int {
 	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
 	args := []any{}
 	if phase != "" {
 		stmt += " AND phase = ?"
 		args = append(args, phase)
+	}
+	if site != "" {
+		stmt += " AND site = ?"
+		args = append(args, site)
 	}
 	if len(hosts) > 0 {
 		placeholders := strings.Repeat("?,", len(hosts))
@@ -217,4 +223,16 @@ func resolveHostFilter(r *http.Request) []string {
 		return parseHostFilter([]string{c.Value})
 	}
 	return parseHostFilter(r.URL.Query()["host"])
+}
+
+// resolveSiteFilter: resolve the single-select site filter shared by every
+// admin page.  Precedence mirrors resolveHostFilter: the unmask_site cookie
+// (written by the site_picker), then the ?site= query param.  "" = all sites.
+func resolveSiteFilter(r *http.Request) string {
+	if c, err := r.Cookie("unmask_site"); err == nil {
+		if v := strings.TrimSpace(c.Value); v != "" {
+			return v
+		}
+	}
+	return strings.TrimSpace(r.URL.Query().Get("site"))
 }

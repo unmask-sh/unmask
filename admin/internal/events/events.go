@@ -511,10 +511,11 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 
 // FetchPaged fetches the most recent rows id DESC, limit per page from offset.  Used by the hunt tab UI.
 //   filter: ipSubstr (LIKE on IP), ja4Substr (LIKE on JA4), phase, sinceMin (now - sinceMin minutes; 0 for unlimited)
+//   site  : "" for all sites; non-empty narrows to that one site (single-select filter).
 //   hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
-func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
+func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 100
 	}
@@ -540,6 +541,10 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase string
 			stmt += " AND ip_address = ?"
 			args = append(args, pkt)
 		}
+	}
+	if site != "" {
+		stmt += " AND site = ?"
+		args = append(args, site)
 	}
 	if hf, hargs := buildHostFilter(hosts); hf != "" {
 		stmt += hf
