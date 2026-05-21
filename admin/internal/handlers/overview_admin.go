@@ -12,6 +12,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -19,6 +20,18 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
+
+// decodeCookieValue percent-decodes a cookie value.  The pickers write cookies
+// with the browser's encodeURIComponent (so a comma-joined host list becomes
+// "a%2Cb", an IPv6 site keeps its %3A), but net/http hands back the raw value
+// undecoded — without this the host filter would split "a%2Cb" into one junk
+// entry.  Falls back to the raw value on a malformed escape.
+func decodeCookieValue(v string) string {
+	if d, err := url.PathUnescape(v); err == nil {
+		return d
+	}
+	return v
+}
 
 // AdminTopOverview: GET /admin/  — top dashboard.
 func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
@@ -219,8 +232,10 @@ func parseHostFilter(raws []string) []string {
 // The host picker uses a cookie like the TZ / language pickers, so the
 // selection is preserved across navigation (= one view scope shared by every admin page).
 func resolveHostFilter(r *http.Request) []string {
-	if c, err := r.Cookie("unmask_hosts"); err == nil && strings.TrimSpace(c.Value) != "" {
-		return parseHostFilter([]string{c.Value})
+	if c, err := r.Cookie("unmask_hosts"); err == nil {
+		if v := decodeCookieValue(c.Value); strings.TrimSpace(v) != "" {
+			return parseHostFilter([]string{v})
+		}
 	}
 	return parseHostFilter(r.URL.Query()["host"])
 }
@@ -230,7 +245,7 @@ func resolveHostFilter(r *http.Request) []string {
 // (written by the site_picker), then the ?site= query param.  "" = all sites.
 func resolveSiteFilter(r *http.Request) string {
 	if c, err := r.Cookie("unmask_site"); err == nil {
-		if v := strings.TrimSpace(c.Value); v != "" {
+		if v := strings.TrimSpace(decodeCookieValue(c.Value)); v != "" {
 			return v
 		}
 	}

@@ -272,3 +272,32 @@ func TestIPAllowed(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveHostFilterEncodedCookie guards the multi-select host picker bug:
+// the picker JS writes the cookie with encodeURIComponent, so a comma-joined
+// host list arrives as "a%2Cb" — resolveHostFilter must percent-decode before
+// splitting, otherwise two selected hosts collapse into one junk entry.
+func TestResolveHostFilterEncodedCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req.AddCookie(&http.Cookie{Name: "unmask_hosts", Value: "edge-tokyo-1%2Cedge-osaka-2"})
+	got := resolveHostFilter(req)
+	if len(got) != 2 || got[0] != "edge-tokyo-1" || got[1] != "edge-osaka-2" {
+		t.Fatalf("resolveHostFilter = %v, want [edge-tokyo-1 edge-osaka-2]", got)
+	}
+	// a plain single value (= no encoding needed) still works.
+	req2 := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req2.AddCookie(&http.Cookie{Name: "unmask_hosts", Value: "edge-tokyo-1"})
+	if got := resolveHostFilter(req2); len(got) != 1 || got[0] != "edge-tokyo-1" {
+		t.Fatalf("single host: resolveHostFilter = %v", got)
+	}
+}
+
+// TestResolveSiteFilterEncodedCookie: an IPv6 site id keeps its colons through
+// the encodeURIComponent / decode round-trip.
+func TestResolveSiteFilterEncodedCookie(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req.AddCookie(&http.Cookie{Name: "unmask_site", Value: "2001%3Adb8%3A%3A1"})
+	if got := resolveSiteFilter(req); got != "2001:db8::1" {
+		t.Fatalf("resolveSiteFilter = %q, want 2001:db8::1", got)
+	}
+}
