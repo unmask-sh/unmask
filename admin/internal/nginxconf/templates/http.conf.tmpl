@@ -469,7 +469,13 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # empty).  admin aggregates per kind (the kind column of unmask_cookie_minute),
 # so when the plugin adds new kinds (e.g. "signature") they're auto-ingested
 # without schema changes.
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4';
+#
+# ua=$http_user_agent MUST stay last (it contains spaces).  admin classifies it
+# into crawler categories for the overview "crawler traffic" funnel — this is
+# the only way a rescued crawler (passed straight through, never in
+# unmask_event) is counted.  nginx default-escapes the value, so no log
+# injection via a crafted UA.
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
 {{- else }}

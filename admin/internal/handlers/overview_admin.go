@@ -16,7 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
@@ -103,7 +102,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// consolidation of upstream crawler-user-agents.json tags.  Cheap query
 	// (= one COUNT/UA scan over the past day) so we can run it on every
 	// overview render.
-	aiRows := aiTrafficSummary(ctx, h, 1440, hosts)
+	aiRows := aiTrafficSummary(ctx, h, 1440)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
@@ -126,9 +125,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AITrafficRow: per-category aggregation for the overview's AI funnel.
-// `Served` counts the challenge-served step, `Passed` counts the terminal
-// `bv_*` (= visitor cleared PoW / CAPTCHA).  `Total` is all phases combined.
+// AITrafficRow: per-category aggregation for the overview's crawler funnel.
+// Total = every request of that crawler category; Served = the subset that was
+// challenged (= did not pass straight through); Passed = Total - Served.
 type AITrafficRow struct {
 	Category string // "search" / "training" / "agent" / "scraper" / "collector"
 	Total    int
@@ -136,57 +135,39 @@ type AITrafficRow struct {
 	Passed   int
 }
 
-// aiTrafficSummary groups unmask_event rows of the last `minutes` window into
-// the 5 AI categories defined by classify.AICategory.  Implementation is a
-// single SQL scan that returns (user_agent, phase, count) and the Go side
-// aggregates — keeps the dashboard schema-stable (= no new ai_category
-// column required).  Best-effort on error.
-func aiTrafficSummary(ctx context.Context, h *Handler, minutes int, hosts []string) []AITrafficRow {
-	stmt := `SELECT user_agent, phase, COUNT(*) AS c
-	         FROM unmask_event
-	         WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
-	args := []any{}
-	if len(hosts) > 0 {
-		placeholders := strings.Repeat("?,", len(hosts))
-		placeholders = placeholders[:len(placeholders)-1]
-		stmt += " AND host IN (" + placeholders + ")"
-		for _, hh := range hosts {
-			args = append(args, hh)
-		}
-	}
-	stmt += ` GROUP BY user_agent, phase`
-	rows, err := h.DB.QueryContext(ctx, stmt, args...)
-	if err != nil {
-		log.Printf("aiTrafficSummary: %v", err)
-		return nil
-	}
-	defer rows.Close()
+// aiTrafficSummary reads the last `minutes` of the unmask_crawler_minute
+// aggregate (fed by the nginx access-log pipeline / auth_request BumpCrawler).
+// This is the only source that sees rescued crawlers — they are passed
+// straight through and never recorded in unmask_event.  Global (not scoped by
+// the host / site picker; the aggregate has no host dimension).  Best-effort.
+func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficRow {
 	// Order matters for stable rendering even with zero rows.
 	order := []string{"search", "training", "agent", "scraper", "collector"}
 	byCat := map[string]*AITrafficRow{}
 	for _, k := range order {
 		byCat[k] = &AITrafficRow{Category: k}
 	}
-	for rows.Next() {
-		var ua, phase string
-		var c int
-		if err := rows.Scan(&ua, &phase, &c); err != nil {
-			continue
-		}
-		cat := classify.AICategory(ua)
-		if cat == "" {
-			continue
-		}
-		r := byCat[cat]
-		if r == nil {
-			continue
-		}
-		r.Total += c
-		switch phase {
-		case "serve":
-			r.Served += c
-		case "bv_pow_only", "bv_captcha_only", "bv_pow_then_captcha":
-			r.Passed += c
+	if h.DB != nil {
+		sinceMin := time.Now().Unix()/60 - int64(minutes)
+		rows, err := h.DB.QueryContext(ctx,
+			`SELECT category, SUM(total), SUM(served) FROM unmask_crawler_minute
+			 WHERE bucket_min > ? GROUP BY category`, sinceMin)
+		if err != nil {
+			log.Printf("aiTrafficSummary: %v", err)
+		} else {
+			defer rows.Close()
+			for rows.Next() {
+				var cat string
+				var total, served int
+				if err := rows.Scan(&cat, &total, &served); err != nil {
+					continue
+				}
+				if r := byCat[cat]; r != nil {
+					r.Total = total
+					r.Served = served
+					r.Passed = total - served
+				}
+			}
 		}
 	}
 	out := make([]AITrafficRow, 0, len(order))

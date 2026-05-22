@@ -384,6 +384,10 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			kind = "challenge_served"
 		}
 		h.NginxLog.Bump(site, kind)
+		// Crawler funnel: in auth_request mode no access-log line is emitted,
+		// so feed the crawler aggregate here.  served = the request did not
+		// pass straight through.
+		h.NginxLog.BumpCrawler(ua, action != "pass")
 	}
 
 	// 2.8. monitor mode override (= switch right before responding, after

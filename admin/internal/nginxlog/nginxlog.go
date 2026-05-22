@@ -4,8 +4,13 @@
 //
 // On the nginx side (= rendered by admin at /etc/unmask/nginx-rendered.conf):
 //
-//	log_format unmask_minimal '$msec site=$unmask_site kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4';
+//	log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
 //	access_log syslog:server=unix:/run/unmask/log.sock unmask_minimal;
+//
+// The ua= field (always last — it contains spaces) is classified into crawler
+// categories and aggregated into unmask_crawler_minute, which feeds the
+// overview "crawler traffic" funnel.  This is the only place a rescued crawler
+// is counted: it is passed straight through and never lands in unmask_event.
 //
 // One req is recorded as **one row**.  total is separate.  The
 // classification goes into the kind column:
@@ -63,12 +68,18 @@ type Reader struct {
 	d          *db.DB
 	conn       *net.UnixConn
 
-	mu      sync.Mutex
-	buckets map[bucketKey]*bucket
+	mu             sync.Mutex
+	buckets        map[bucketKey]*bucket
+	crawlerBuckets map[crawlerKey]*crawlerBucket
 
 	// onHoneypot: callback for honeypot-path-trip events (= hp=1 lines).
 	// Wired up by the ban manager via SetHoneypotCallback.  nil-safe.
 	onHoneypot func(ip, ja4 string)
+
+	// classifyCrawler: UA -> crawler category ("search"/"training"/... or "").
+	// Wired by main via SetCrawlerClassifier(classify.AICategory).  Set once at
+	// startup before traffic; nil-safe (no crawler aggregation when unset).
+	classifyCrawler func(ua string) string
 
 	stop  chan struct{}
 	doneA chan struct{} // recv goroutine completion signal
@@ -84,9 +95,31 @@ func (r *Reader) SetHoneypotCallback(f func(ip, ja4 string)) {
 	r.onHoneypot = f
 }
 
+// SetCrawlerClassifier: register the UA -> crawler-category function (=
+// classify.AICategory).  Without it, crawler aggregation is skipped.
+func (r *Reader) SetCrawlerClassifier(f func(ua string) string) {
+	if r == nil {
+		return
+	}
+	r.classifyCrawler = f
+}
+
 type bucketKey struct {
 	minute int64  // unix sec / 60
 	site   string // "" is equivalent to "default"
+}
+
+// crawlerKey / crawlerBucket: per-minute, per-category aggregation for the
+// overview crawler funnel.  total = every request of that crawler category;
+// served = the subset that did not pass straight through (= challenged).
+type crawlerKey struct {
+	minute   int64
+	category string
+}
+
+type crawlerBucket struct {
+	total  int
+	served int
 }
 
 // bucket: per-minute, per-site aggregation bucket.  total counts every
@@ -113,12 +146,13 @@ type bucket struct {
 //	or raise the mode to 0666 (= within the same host the impact is small).
 func Start(socketPath string, d *db.DB) *Reader {
 	r := &Reader{
-		socketPath: socketPath,
-		d:          d,
-		buckets:    map[bucketKey]*bucket{},
-		stop:       make(chan struct{}),
-		doneA:      make(chan struct{}),
-		doneB:      make(chan struct{}),
+		socketPath:     socketPath,
+		d:              d,
+		buckets:        map[bucketKey]*bucket{},
+		crawlerBuckets: map[crawlerKey]*crawlerBucket{},
+		stop:           make(chan struct{}),
+		doneA:          make(chan struct{}),
+		doneB:          make(chan struct{}),
 	}
 	if d == nil {
 		close(r.doneA)
@@ -208,8 +242,9 @@ func (r *Reader) Loaded() bool {
 // regex is the core of log_format unmask_minimal (= what remains
 // after stripping the syslog prefix).
 //
-//	$msec site=$unmask_site kind=$bv_kind fc=$final_challenge
+//	$msec site=$host kind=$bv_kind fc=$final_challenge
 //	  hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4
+//	  ua=$http_user_agent
 //
 // nginx's syslog target puts "<priority>" + optionally timestamp +
 // host at the head of the line, so we use a simple "find the
@@ -219,11 +254,16 @@ func (r *Reader) Loaded() bool {
 // ("captcha" / "pow" / "" / future additions).  [a-z0-9_-] is enough
 // (= plugin implementations always use ASCII lowercase as a constraint).
 //
-// fc / hp / ip / ja4 are optional groups (= degrade gracefully even
-// with older config or mode mismatch).
+// fc / hp / ip / ja4 / ua are optional groups (= degrade gracefully even
+// with older config or mode mismatch).  ua is last and matched with .* —
+// it contains spaces, so it must be the final field of the log line.
+//
+// site is matched as \S* (any non-space): the field carries $host, which is a
+// real vhost name with dots / colons (an earlier [A-Za-z0-9_-] charset failed
+// to parse anything but a bare "default").
 var lineRE = regexp.MustCompile(
-	`([0-9]+\.[0-9]+) site=([A-Za-z0-9_-]*) kind=([a-z0-9_-]*)` +
-		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=([A-Za-z0-9_]+))?`)
+	`([0-9]+\.[0-9]+) site=(\S*) kind=([a-z0-9_-]*)` +
+		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=([A-Za-z0-9_]+))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -234,6 +274,7 @@ type parsed struct {
 	hp   bool
 	ip   string
 	ja4  string
+	ua   string
 }
 
 func (r *Reader) parse(line string) (parsed, bool) {
@@ -256,6 +297,7 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		hp:   m[5] == "1",
 		ip:   m[6],
 		ja4:  m[7],
+		ua:   m[8],
 	}, true
 }
 
@@ -281,6 +323,10 @@ func (r *Reader) onLine(line string) {
 		kind = "challenge_served"
 	}
 	r.Bump(p.site, kind)
+	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
+	// final action) counts as "served"; otherwise the request passed straight
+	// through (rescued / valid cookie).
+	r.bumpCrawler(p.ua, p.fc)
 }
 
 // Bump: increment the minute bucket by 1 from outside
@@ -311,8 +357,43 @@ func (r *Reader) Bump(site, kind string) {
 	r.mu.Unlock()
 }
 
+// bumpCrawler: classify ua and increment its per-minute crawler bucket.
+// served=true means the request did not pass straight through (= challenged).
+// No-op when the classifier is unset or the UA is not a crawler.
+func (r *Reader) bumpCrawler(ua string, served bool) {
+	if r == nil || r.d == nil || r.classifyCrawler == nil || ua == "" {
+		return
+	}
+	cat := r.classifyCrawler(ua)
+	if cat == "" {
+		return
+	}
+	key := crawlerKey{minute: time.Now().Unix() / 60, category: cat}
+	r.mu.Lock()
+	b := r.crawlerBuckets[key]
+	if b == nil {
+		b = &crawlerBucket{}
+		r.crawlerBuckets[key] = b
+	}
+	b.total++
+	if served {
+		b.served++
+	}
+	r.mu.Unlock()
+}
+
+// BumpCrawler: exported entry point for auth_request mode (= /api/check has
+// the UA but emits no access-log line of its own).  nil-safe.
+func (r *Reader) BumpCrawler(ua string, served bool) {
+	if r == nil {
+		return
+	}
+	r.bumpCrawler(ua, served)
+}
+
 // flushOnce: UPSERT buckets "older than the current minute" into the DB.
 // final=true flushes everything including the current minute (= for shutdown).
+// Both the cookie-minute and crawler-minute buckets flush in one transaction.
 func (r *Reader) flushOnce(final bool) {
 	if r == nil || r.d == nil {
 		return
@@ -322,6 +403,10 @@ func (r *Reader) flushOnce(final bool) {
 	type entry struct {
 		key bucketKey
 		b   bucket
+	}
+	type crawlerEntry struct {
+		key crawlerKey
+		b   crawlerBucket
 	}
 	r.mu.Lock()
 	ready := make([]entry, 0, len(r.buckets))
@@ -336,9 +421,16 @@ func (r *Reader) flushOnce(final bool) {
 			delete(r.buckets, k)
 		}
 	}
+	crawlerReady := make([]crawlerEntry, 0, len(r.crawlerBuckets))
+	for k, b := range r.crawlerBuckets {
+		if final || k.minute < nowMin {
+			crawlerReady = append(crawlerReady, crawlerEntry{k, *b})
+			delete(r.crawlerBuckets, k)
+		}
+	}
 	r.mu.Unlock()
 
-	if len(ready) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 {
 		return
 	}
 
@@ -363,6 +455,15 @@ func (r *Reader) flushOnce(final bool) {
 				for k, v := range e.b.kinds {
 					b.kinds[k] += v
 				}
+			}
+		}
+		for _, e := range crawlerReady {
+			if b, ok := r.crawlerBuckets[e.key]; ok {
+				b.total += e.b.total
+				b.served += e.b.served
+			} else {
+				bb := e.b
+				r.crawlerBuckets[e.key] = &bb
 			}
 		}
 		r.mu.Unlock()
@@ -396,6 +497,14 @@ func (r *Reader) flushOnce(final bool) {
 			}
 		}
 	}
+	stmtCrawler := crawlerUpsertStmt(r.d.Driver)
+	for _, e := range crawlerReady {
+		if _, err := tx.ExecContext(ctx, stmtCrawler,
+			e.key.minute, e.key.category, e.b.total, e.b.served); err != nil {
+			log.Printf("nginxlog: flush exec(crawler=%s): %v", e.key.category, err)
+			return
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		log.Printf("nginxlog: flush commit: %v", err)
 		return
@@ -416,6 +525,21 @@ func upsertStmt(drv db.Driver) string {
 		VALUES (?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			cnt = cnt + VALUES(cnt)`
+}
+
+// crawlerUpsertStmt: accumulate total + served with (bucket_min, category) as
+// the unique key, into unmask_crawler_minute.
+func crawlerUpsertStmt(drv db.Driver) string {
+	if drv == db.DriverSQLite {
+		return `INSERT INTO unmask_crawler_minute (bucket_min, category, total, served)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(bucket_min, category) DO UPDATE SET
+				total = total + excluded.total, served = served + excluded.served`
+	}
+	return `INSERT INTO unmask_crawler_minute (bucket_min, category, total, served)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			total = total + VALUES(total), served = served + VALUES(served)`
 }
 
 

@@ -259,6 +259,8 @@ func cmdServe(args []string) error {
 		banMgr.Start()
 		defer banMgr.Close()
 		nlog.SetHoneypotCallback(banMgr.Add)
+		// crawler funnel: classify each access-log UA into AI/crawler buckets.
+		nlog.SetCrawlerClassifier(classify.AICategory)
 	}
 
 	// External webhook notifications (optional).  Safe no-op even when URL is empty.
