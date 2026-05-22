@@ -35,10 +35,12 @@ NGINX_VERSION  ?= 1.26.2
 NGINX_SRC      ?= build/nginx-$(NGINX_VERSION)
 NFPM           ?= nfpm
 
-# apk signing key.  default is the dev key (memory project key).
-# To sign with another key, pass NFPM_APK_KEY_FILE=... as a make argument / env.
+# apk signing key.  Default points at the key store kept beside the repo
+# (../../keys/ relative to rpm/, where nfpm runs) -- private keys stay out of
+# the git tree.  To sign with another key, pass NFPM_APK_KEY_FILE=... as a
+# make argument / env.
 # Empty -> nfpm skips signing -> unsigned apk (rejected by apk-tools v3).
-NFPM_APK_KEY_FILE ?= ../unmask-keys/oss@unmask.sh-260509.rsa
+NFPM_APK_KEY_FILE ?= ../../keys/oss@unmask.sh-260509.rsa
 NFPM_APK_KEY_NAME ?= oss@unmask.sh-260509.rsa.pub
 export NFPM_APK_KEY_FILE NFPM_APK_KEY_NAME
 
