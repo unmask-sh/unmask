@@ -59,6 +59,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/hll"
 )
 
 // Reader: body of the recv goroutine + flush goroutine.  Disabled
@@ -131,6 +132,13 @@ type crawlerBucket struct {
 type bucket struct {
 	total int
 	kinds map[string]int
+	// Per-minute HyperLogLog sketches of client IPs, persisted to
+	// unmask_traffic_hll so the overview can show non-human traffic by unique
+	// client (not request volume).  ipAll = every request; ipChal = fc=1
+	// (challenged); ipPass = carried a pow/captcha _bv cookie (passed before).
+	ipAll  hll.Sketch
+	ipChal hll.Sketch
+	ipPass hll.Sketch
 }
 
 // Start: if socketPath is empty, return a disabled stub
@@ -323,6 +331,10 @@ func (r *Reader) onLine(line string) {
 		kind = "challenge_served"
 	}
 	r.Bump(p.site, kind)
+	// Fold the client IP into the per-minute HLL sketches (= unique-client
+	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
+	// alias, so ipPass only counts a genuine pow/captcha cookie.
+	r.bumpTrafficHLL(p.site, p.ip, p.fc, p.kind)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie).
@@ -353,6 +365,36 @@ func (r *Reader) Bump(site, kind string) {
 	b.total++
 	if kind != "" {
 		b.kinds[kind]++
+	}
+	r.mu.Unlock()
+}
+
+// bumpTrafficHLL: fold one request's client IP into the per-minute HLL
+// sketches.  ip="" (= the log line carried no ip= field) is a no-op.
+//
+//	ipAll  <- every request
+//	ipChal <- fc == 1 (= a challenge fired)
+//	ipPass <- bv_kind is pow / captcha (= the client holds a pass cookie)
+//
+// nil-safe (= no-op when the Reader isn't running).
+func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind string) {
+	if r == nil || r.d == nil || ip == "" {
+		return
+	}
+	ipb := []byte(ip)
+	key := bucketKey{minute: time.Now().Unix() / 60, site: site}
+	r.mu.Lock()
+	b, ok := r.buckets[key]
+	if !ok {
+		b = &bucket{kinds: map[string]int{}}
+		r.buckets[key] = b
+	}
+	b.ipAll.Add(ipb)
+	if fc {
+		b.ipChal.Add(ipb)
+	}
+	if bvKind == "pow" || bvKind == "captcha" {
+		b.ipPass.Add(ipb)
 	}
 	r.mu.Unlock()
 }
@@ -417,7 +459,10 @@ func (r *Reader) flushOnce(final bool) {
 			for kk, vv := range b.kinds {
 				copyKinds[kk] = vv
 			}
-			ready = append(ready, entry{k, bucket{total: b.total, kinds: copyKinds}})
+			ready = append(ready, entry{k, bucket{
+				total: b.total, kinds: copyKinds,
+				ipAll: b.ipAll, ipChal: b.ipChal, ipPass: b.ipPass,
+			}})
 			delete(r.buckets, k)
 		}
 	}
@@ -445,7 +490,10 @@ func (r *Reader) flushOnce(final bool) {
 		for _, e := range ready {
 			b, ok := r.buckets[e.key]
 			if !ok {
-				bb := bucket{total: e.b.total, kinds: map[string]int{}}
+				bb := bucket{
+					total: e.b.total, kinds: map[string]int{},
+					ipAll: e.b.ipAll, ipChal: e.b.ipChal, ipPass: e.b.ipPass,
+				}
 				for k, v := range e.b.kinds {
 					bb.kinds[k] = v
 				}
@@ -455,6 +503,9 @@ func (r *Reader) flushOnce(final bool) {
 				for k, v := range e.b.kinds {
 					b.kinds[k] += v
 				}
+				b.ipAll.Merge(&e.b.ipAll)
+				b.ipChal.Merge(&e.b.ipChal)
+				b.ipPass.Merge(&e.b.ipPass)
 			}
 		}
 		for _, e := range crawlerReady {
@@ -493,6 +544,29 @@ func (r *Reader) flushOnce(final bool) {
 			if _, err := tx.ExecContext(ctx, stmtKind,
 				e.key.minute, e.key.site, k, v); err != nil {
 				log.Printf("nginxlog: flush exec(kind=%s): %v", k, err)
+				return
+			}
+		}
+		// HLL sketches: read-merge-write so a restart / late datagram for an
+		// already-flushed minute unions with the stored sketch instead of
+		// overwriting it.  Empty sketches are skipped (no row).
+		for _, sk := range []struct {
+			kind string
+			s    hll.Sketch
+		}{{"ip", e.b.ipAll}, {"ipc", e.b.ipChal}, {"ipp", e.b.ipPass}} {
+			if sk.s.Empty() {
+				continue
+			}
+			var prev []byte
+			row := tx.QueryRowContext(ctx,
+				`SELECT sketch FROM unmask_traffic_hll WHERE bucket_min = ? AND site = ? AND kind = ?`,
+				e.key.minute, e.key.site, sk.kind)
+			if err := row.Scan(&prev); err == nil && len(prev) > 0 {
+				sk.s.Merge(hll.Load(prev))
+			}
+			if _, err := tx.ExecContext(ctx, trafficHLLUpsert(r.d.Driver),
+				e.key.minute, e.key.site, sk.kind, sk.s.Bytes()); err != nil {
+				log.Printf("nginxlog: flush exec(hll=%s): %v", sk.kind, err)
 				return
 			}
 		}
@@ -540,6 +614,20 @@ func crawlerUpsertStmt(drv db.Driver) string {
 		VALUES (?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			total = total + VALUES(total), served = served + VALUES(served)`
+}
+
+// trafficHLLUpsert: write an HLL sketch for (bucket_min, site, kind).  The
+// caller has already merged any previously-stored sketch in, so a conflict
+// just overwrites with the merged result.
+func trafficHLLUpsert(drv db.Driver) string {
+	if drv == db.DriverSQLite {
+		return `INSERT INTO unmask_traffic_hll (bucket_min, site, kind, sketch)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(bucket_min, site, kind) DO UPDATE SET sketch = excluded.sketch`
+	}
+	return `INSERT INTO unmask_traffic_hll (bucket_min, site, kind, sketch)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE sketch = VALUES(sketch)`
 }
 
 

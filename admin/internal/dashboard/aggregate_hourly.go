@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
@@ -148,8 +149,16 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		`DELETE FROM unmask_aggregate_hourly WHERE bucket_hour < `+dayAgoExpr(d, hourlyKeep)); err != nil {
 		return err
 	}
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_aggregate_hll WHERE bucket < `+dayAgoExpr(d, hourlyKeep)); err != nil {
+		return err
+	}
+	// unmask_traffic_hll keys on a unix-minute integer (written by the
+	// nginx-log pipeline), not a bucket-hour string, so it can't share
+	// dayAgoExpr — compute the cutoff minute directly.
+	minCutoff := time.Now().Unix()/60 - int64(hourlyKeep)*1440
 	_, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_aggregate_hll WHERE bucket < `+dayAgoExpr(d, hourlyKeep))
+		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff)
 	return err
 }
 

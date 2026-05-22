@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
@@ -63,6 +64,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
+	}
+
+	// Non-human traffic %: by *unique client*, not request volume (so one
+	// high-volume bot doesn't dominate).  Both figures come from the
+	// unmask_traffic_hll HLL sketches written by the nginx-log pipeline:
+	//   uTotal   = distinct client IPs over all traffic
+	//   uBlocked = distinct IPs challenged but never seen with a pass cookie
+	// When the access-log feed is off there is no sketch data → the card
+	// shows "—" instead of a misleading 0%.
+	uTotal, uBlocked, uKnown := trafficUnique(ctx, h, 1440, site)
+	nonHumanPct := 0.0
+	if uKnown && uTotal > 0 {
+		nonHumanPct = float64(uBlocked) / float64(uTotal) * 100
 	}
 
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
@@ -114,6 +128,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIPoWPass":     kpiPoWPass,
 		"KPICaptchaPass": kpiCaptchaPass,
 		"KPIBlocked":     kpiBlocked,
+		"KPIUniqueTotal":   uTotal,
+		"KPIUniqueBlocked": uBlocked,
+		"KPINonHumanPct":   nonHumanPct,
+		"KPINonHumanKnown": uKnown && uTotal > 0,
 		"KPICurrentBans": currentBans,
 		"Recent":         recent,
 		"AITraffic":      aiRows,
@@ -239,6 +257,72 @@ func countEventsPhases(ctx context.Context, h *Handler, minutes int, phases []st
 		return 0
 	}
 	return n
+}
+
+// trafficUnique: unique-client figures over the last <minutes>, merged from
+// the unmask_traffic_hll HLL sketches written by the nginx-log pipeline.
+//
+//	total   = distinct client IPs across all traffic
+//	blocked = distinct IPs that were challenged but never seen carrying a
+//	          pass cookie  (= est(ipc ∪ ipp) − est(ipp))
+//	known   = false when there is no sketch data at all (= the access-log
+//	          feed is off, or the feature was just deployed) → caller shows "—"
+//
+// Best-effort: on a query error returns known=false.
+func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (total, blocked int, known bool) {
+	cutoff := time.Now().Unix()/60 - int64(minutes)
+	stmt := `SELECT kind, sketch FROM unmask_traffic_hll WHERE bucket_min >= ?`
+	args := []any{cutoff}
+	if site != "" {
+		stmt += " AND site = ?"
+		args = append(args, site)
+	}
+	rows, err := h.DB.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		log.Printf("trafficUnique: %v", err)
+		return 0, 0, false
+	}
+	defer rows.Close()
+	merged := map[string]*hll.Sketch{} // kind -> window-merged sketch
+	for rows.Next() {
+		var kind string
+		var blob []byte
+		if err := rows.Scan(&kind, &blob); err != nil {
+			log.Printf("trafficUnique scan: %v", err)
+			return 0, 0, false
+		}
+		s := merged[kind]
+		if s == nil {
+			s = &hll.Sketch{}
+			merged[kind] = s
+		}
+		s.Merge(hll.Load(blob))
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("trafficUnique rows: %v", err)
+		return 0, 0, false
+	}
+	ipAll := merged["ip"]
+	if ipAll == nil {
+		return 0, 0, false // no sketch data
+	}
+	total = ipAll.Estimate()
+	if ipChal := merged["ipc"]; ipChal != nil {
+		// blocked = challenged minus those that ever passed.  HLL has no
+		// subtraction, so est(ipc \ ipp) = est(ipc ∪ ipp) − est(ipp).
+		union := &hll.Sketch{}
+		union.Merge(ipChal)
+		passEst := 0
+		if ipPass := merged["ipp"]; ipPass != nil {
+			union.Merge(ipPass)
+			passEst = ipPass.Estimate()
+		}
+		blocked = union.Estimate() - passEst
+		if blocked < 0 {
+			blocked = 0
+		}
+	}
+	return total, blocked, true
 }
 
 // parseHostFilter: normalize the URL "host" query values as a multi-select.
