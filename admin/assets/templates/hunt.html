@@ -298,7 +298,7 @@ td.cellpop-active{cursor:pointer}
       <tbody>
       {{ range .UARank }}
       <tr>
-        <td class="key" title="{{ .Key }}">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        <td class="key{{ if .Key }} cellpop{{ end }}">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ .Count }}</td>
         <td class="actions">
           {{ if .Key }}
