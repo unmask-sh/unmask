@@ -12,7 +12,7 @@
 {{ define "host_picker" }}
 <span class="host-picker">
   <details class="hp-dd">
-    <summary>{{ t .Lang "hunt.filter.host" }}: <b>{{ if .HostSelected }}{{ len .HostSelected }} {{ t .Lang "hunt.filter.host_selected" }}{{ else }}{{ t .Lang "hunt.filter.host_all" }}{{ end }}</b>{{ if .HostsExcluded }} <span class="hp-excl" title="{{ t .Lang "hunt.filter.host_excluded_title" }}">({{ .HostsExcluded }} {{ t .Lang "hunt.filter.host_excluded" }})</span>{{ end }}</summary>
+    <summary>{{ t .Lang "hunt.filter.host" }}: <b>{{ if .HostSelected }}{{ len .HostSelected }} {{ t .Lang "hunt.filter.host_selected" }}{{ else }}{{ t .Lang "hunt.filter.host_all" }}{{ end }}</b></summary>
     <div class="hp-list">
       {{ range .Hosts }}
       <label><input type="checkbox" class="hp-host" value="{{ . }}" {{ if index $.HostSelected . }}checked{{ end }}>{{ . }}{{ if eq . $.SelfHostID }} <span class="hp-self">({{ t $.Lang "hunt.filter.host_self" }})</span>{{ end }}</label>
@@ -37,7 +37,6 @@
 .host-picker .hp-list label:hover{background:#f1f5f9}
 .host-picker .hp-self{color:#0ea5e9;font-size:.68rem;font-family:inherit}
 .host-picker .hp-empty{color:#94a3b8;font-size:.78rem;padding:.18rem 0}
-.host-picker .hp-excl{color:#b91c1c;font-size:.72rem}
 .host-picker .hp-actions{display:flex;gap:.4rem;margin-top:.4rem;padding-top:.4rem;border-top:1px solid #f1f5f9}
 .host-picker .hp-actions button{flex:1;padding:.25rem 0;font-size:.75rem;border-radius:.2rem;cursor:pointer}
 .host-picker .hp-apply{border:1px solid #0f172a;background:#0f172a;color:#fff;font-weight:600}

@@ -427,9 +427,6 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		}
 		data["Hosts"] = hostList
 	}
-	if _, ok := data["HostsExcluded"]; !ok {
-		data["HostsExcluded"] = len(h.Settings.Hosts.Disabled)
-	}
 	if _, ok := data["HostSelected"]; !ok {
 		sel := map[string]bool{}
 		for _, x := range resolveHostFilter(r) {
