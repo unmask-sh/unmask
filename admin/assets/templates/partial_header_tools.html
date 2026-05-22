@@ -6,9 +6,10 @@
 
   Every admin page's <header> ends with a single {{ template "header_tools" . }}
   instead of listing the partials by hand, so a page can't accidentally omit
-  the pickers.
+  the pickers.  The TZ / language picker is not here — it is rarely changed,
+  so it lives inside the user_menu dropdown.
 
   All picker data (Hosts / HostSelected / SelfHostID / Sites / SiteSelected)
   is injected by addMeToData on every admin page render.
 */ -}}
-{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "lang_tz_picker" . }}  {{ template "user_menu" . }}{{ end }}
+{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ end }}

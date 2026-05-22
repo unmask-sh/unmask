@@ -21,6 +21,14 @@
     <option value="en">English</option>
   </select>
 </span>
+<style>
+/* The picker lives inside the user_menu dropdown (a dark popup) — stack the
+   two label/select pairs vertically, full width, with a divider below. */
+.user-menu-pop .picker{display:flex;flex-direction:column;align-items:stretch;gap:.1rem;padding:.45rem .7rem .55rem;border-bottom:1px solid #334155;margin-bottom:.25rem}
+.user-menu-pop .picker label{margin-top:.45rem;font-size:.7rem}
+.user-menu-pop .picker label:first-of-type{margin-top:0}
+.user-menu-pop .picker select{width:100%}
+</style>
 <script>
 (function(){
   // localStorage <-> cookie sync + dropdown init + reload-on-change.

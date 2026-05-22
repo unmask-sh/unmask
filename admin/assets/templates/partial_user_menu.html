@@ -20,6 +20,8 @@
     <span class="user-menu-arrow">▾</span>
   </span>
   <div class="user-menu-pop">
+    {{/* TZ / language live here — rarely changed, kept out of the top bar. */}}
+    {{ template "lang_tz_picker" . }}
     {{ if eq .Me.Role "superadmin" }}
     <a href="{{ .BasePath }}/admin/users/">{{ t .Lang "nav.users" }}</a>
     {{ end }}
