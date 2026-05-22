@@ -613,6 +613,44 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 	h.renderDashboard(w, r, site)
 }
 
+// dashboardHosts resolves the stats-dashboard host filter, collapsing a
+// non-narrowing selection to nil. The shared host_picker often holds "all
+// hosts" as the explicit full list — on a single-host install, that one host —
+// which filters nothing. The aggregate fast paths have no host dimension and
+// engage only when hosts is empty, so a non-narrowing selection must collapse
+// or the default view always falls back to the slow raw scan.
+func (h *Handler) dashboardHosts(r *http.Request) []string {
+	hosts := resolveHostFilter(r)
+	if len(hosts) == 0 {
+		return nil
+	}
+	all, err := events.DistinctHosts(r.Context(), h.DB)
+	if err != nil || len(all) == 0 {
+		return hosts
+	}
+	// A disabled host is dropped by the raw-scan path (hostCond) but not by the
+	// aggregate (no host dimension). A disabled host that still has events thus
+	// forbids the collapse — but a stale disabled entry whose host has no events
+	// is harmless (nothing for the two paths to disagree on).
+	disabled := map[string]bool{}
+	for _, d := range h.Settings.Hosts.Disabled {
+		disabled[d] = true
+	}
+	sel := make(map[string]bool, len(hosts))
+	for _, x := range hosts {
+		sel[x] = true
+	}
+	for _, x := range all {
+		if disabled[x] {
+			return hosts // a disabled host has events → agg / scan would differ
+		}
+		if !sel[x] {
+			return hosts // a known host is unselected → genuine narrowing
+		}
+	}
+	return nil // every host with events is selected and enabled → not a real filter
+}
+
 // renderDashboard renders the dashboard template for the result of pickSite.
 // Called by both AdminDashboard (/admin/{site}/) and AdminSiteList (/admin/
 // when site<=1).
@@ -637,7 +675,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// cookie / ?host=).  Passed to every dashboard query (unmask_event-based
 	// queries narrow with host IN(...); cookie traversal / 30-day trend (1)
 	// are based on cookie_minute which has no host column, so they don't apply).
-	hosts := resolveHostFilter(r)
+	// dashboardHosts collapses a non-narrowing "all hosts" selection to nil so
+	// the aggregate fast paths still engage.
+	hosts := h.dashboardHosts(r)
 
 	// Overall dashboard timeout (each query carries its own shorter ctx deadline).
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -751,7 +791,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
 	wg.Wait()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
-		log.Printf("dashboard queries: %v elapsed (site=%s range=%s)", qElapsed, site, rng)
+		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
+			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
 	}
 
 	// funnel is the centerpiece, so error returns 500.  Other cards may be
@@ -987,7 +1028,7 @@ func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 	// site filter (= shared site_picker, single-select.  cookie / ?site=).
 	// siteCond validates the value before use; "" / "default" = all sites.
 	site := resolveSiteFilter(r)
-	hosts := resolveHostFilter(r)
+	hosts := h.dashboardHosts(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	rows, err := dashboard.Funnel(ctx, h.DB, site, hosts, dashboard.RangeHours(rng), dashboard.BotVerdictNames(h.Settings.Nginx), h.VerdictRegistry())

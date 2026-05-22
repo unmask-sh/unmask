@@ -66,7 +66,7 @@ func BotVerdictSet(n settings.Nginx) map[string]bool {
 }
 
 // inClause: helper to build `IN (?, ?, ...)`. Also appends values to args slice.
-// Empty list returns "IN ('')" (= no match). Dialect-independent.
+// Empty list returns "IN (”)" (= no match). Dialect-independent.
 func inClause(values []string) (string, []any) {
 	if len(values) == 0 {
 		return "IN ('')", nil
@@ -371,18 +371,18 @@ var keyFlags = []int{0, 1, 2, 4, 8, 16, 3, 5, 9, 17, 31}
 // the follow-up stage is in payload.next).  PowSolved / BVTotal are derived
 // summaries for chart rendering.
 type FunnelRow struct {
-	Verdict          string  // free label. "ok" / "rate_limit" / "TOTAL" / preset / extra
-	Serve            int     // count of challenge HTML deliveries
-	ServeRL          int     // serves that came via ?_rl=1 (= rate-limit path)
+	Verdict          string // free label. "ok" / "rate_limit" / "TOTAL" / preset / extra
+	Serve            int    // count of challenge HTML deliveries
+	ServeRL          int    // serves that came via ?_rl=1 (= rate-limit path)
 	Load             int
-	LoadUniq         int     // unique IPs in the load phase
-	Silent           int     // = max(0, Serve - Load). Challenge served but JS never started
-	Stealth          int     // load phase rows with flags=0 + verdict configured as bot/suspect
-	PowPass          int     // midpoint: PoW solved, handing off to next stage
-	Captcha          int     // CAPTCHA UI displayed (= still unauthenticated)
-	BVPowOnly        int     // terminal: _bv issued via challenge_mode=pow_only
-	BVCaptchaOnly    int     // terminal: _bv issued via challenge_mode=captcha_only
-	BVPowThenCaptcha int     // terminal: _bv issued via challenge_mode=pow_then_captcha
+	LoadUniq         int // unique IPs in the load phase
+	Silent           int // = max(0, Serve - Load). Challenge served but JS never started
+	Stealth          int // load phase rows with flags=0 + verdict configured as bot/suspect
+	PowPass          int // midpoint: PoW solved, handing off to next stage
+	Captcha          int // CAPTCHA UI displayed (= still unauthenticated)
+	BVPowOnly        int // terminal: _bv issued via challenge_mode=pow_only
+	BVCaptchaOnly    int // terminal: _bv issued via challenge_mode=captcha_only
+	BVPowThenCaptcha int // terminal: _bv issued via challenge_mode=pow_then_captcha
 	VerifyNG         int
 	CookieErr        int
 	JSError          int
@@ -398,43 +398,60 @@ type FunnelRow struct {
 // botVerdicts is the list of verdict names configured as action=bot or suspect
 // in settings (= preset + extra merged). Used for stealth-count classification.
 // An empty list disables the stealth concept (stealth=0 is always emitted).
-func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
+// funnelVP / funnelLoad are the intermediate aggregation maps shared by
+// Funnel's scan and aggregate paths.
+type funnelVP struct{ verdict, phase string }
+type funnelLoad struct{ uniq, stealth int }
 
-	// canon: normalization for ID-based linking. If the ID is known, snap to
-	// the current preset name (= reflects renames). For unknown IDs (= NULL / 0)
-	// try a registry name lookup, then fall back to the raw name. This merges
-	// pre- and post-rename events with the same ID into one group. Unknown
-	// names (= non-preset) stay as-is.
-	canon := func(id int64, raw string) string {
-		if reg != nil {
-			if id > 0 {
-				if cur := reg.IDToVerdict(int(id)); cur != "" {
+// canonVerdict normalizes a verdict for ID-based linking: a known ID snaps to
+// the current preset name (= reflects renames); unknown IDs (= NULL / 0) fall
+// back to a registry name lookup and then the raw name. This merges pre- and
+// post-rename events sharing one ID into a single group.
+func canonVerdict(reg *nginxconf.VerdictRegistry, id int64, raw string) string {
+	if reg != nil {
+		if id > 0 {
+			if cur := reg.IDToVerdict(int(id)); cur != "" {
+				return cur
+			}
+		}
+		if raw != "" {
+			if regID := reg.NameToID(raw); regID > 0 {
+				if cur := reg.IDToVerdict(regID); cur != "" {
 					return cur
 				}
 			}
-			if raw != "" {
-				if regID := reg.NameToID(raw); regID > 0 {
-					if cur := reg.IDToVerdict(regID); cur != "" {
-						return cur
-					}
-				}
-			}
 		}
-		return raw
 	}
+	return raw
+}
+
+// Funnel returns the challenge funnel for the window. The default view (no
+// site / no host filter) reads the hourly aggregate (unmask_aggregate_hourly);
+// site/host-filtered views and the brief pre-backfill window after a restart
+// fall back to scanning raw events.
+func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
+	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+		return funnelAgg(ctx, d, hours, botVerdicts, reg)
+	}
+	return funnelScan(ctx, d, site, hosts, hours, botVerdicts, reg)
+}
+
+// funnelScan builds the funnel by scanning raw unmask_event. Used for
+// site/host-filtered views, which the hourly aggregate deliberately does not
+// dimension.
+func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	sc := siteCond(site) + hostCond(hosts)
 
 	// A) base aggregation by verdict × phase. SELECT id too so canon can use it.
-	stmt := fmt.Sprintf(`
+	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid, phase, COUNT(*) AS n
         FROM unmask_event WHERE date_created > %s%s
-        GROUP BY ja4_verdict, ja4_verdict_id, phase`, since, siteCond(site)+hostCond(hosts))
-	rows, err := d.QueryContext(ctx, stmt)
+        GROUP BY ja4_verdict, ja4_verdict_id, phase`, since, sc))
 	if err != nil {
 		return nil, err
 	}
-	type vp struct{ verdict, phase string }
-	byVP := map[vp]int{}
+	byVP := map[funnelVP]int{}
 	for rows.Next() {
 		var v, p string
 		var vid sql.NullInt64
@@ -443,7 +460,7 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 			rows.Close()
 			return nil, err
 		}
-		byVP[vp{canon(vid.Int64, v), p}] += n
+		byVP[funnelVP{canonVerdict(reg, vid.Int64, v), p}] += n
 	}
 	rows.Close()
 
@@ -460,18 +477,16 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 		botFilter = "ja4_verdict " + nameIn
 		botFilterArgs = nameArgs
 	}
-	stmt2 := fmt.Sprintf(`
+	rows2, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                COUNT(DISTINCT ip_address) AS uniq_ip,
                SUM(CASE WHEN flags = 0 AND %s THEN 1 ELSE 0 END) AS stealth
         FROM unmask_event WHERE date_created > %s%s AND phase = 'load'
-        GROUP BY ja4_verdict, ja4_verdict_id`, botFilter, since, siteCond(site)+hostCond(hosts))
-	rows2, err := d.QueryContext(ctx, stmt2, botFilterArgs...)
+        GROUP BY ja4_verdict, ja4_verdict_id`, botFilter, since, sc), botFilterArgs...)
 	if err != nil {
 		return nil, err
 	}
-	type loadAgg struct{ uniq, stealth int }
-	loadByV := map[string]loadAgg{}
+	loadByV := map[string]funnelLoad{}
 	for rows2.Next() {
 		var v string
 		var vid, u, st sql.NullInt64
@@ -479,23 +494,22 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 			rows2.Close()
 			return nil, err
 		}
-		k := canon(vid.Int64, v)
+		k := canonVerdict(reg, vid.Int64, v)
 		ex := loadByV[k]
 		// Strictly, uniq IP should be re-computed with COUNT(DISTINCT) on the DB
 		// side to avoid duplicates, but this approximation is good enough for the
 		// rename-merge case (= unlikely the same IP hits both old and new names).
-		loadByV[k] = loadAgg{ex.uniq + int(u.Int64), ex.stealth + int(st.Int64)}
+		loadByV[k] = funnelLoad{ex.uniq + int(u.Int64), ex.stealth + int(st.Int64)}
 	}
 	rows2.Close()
 
 	// C) per-verdict counts where phase=serve and payload.rl=1
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	stmt3 := fmt.Sprintf(`
+	rows3, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                SUM(CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END) AS rl
         FROM unmask_event WHERE date_created > %s%s AND phase = 'serve'
-        GROUP BY ja4_verdict, ja4_verdict_id`, jsonRL, since, siteCond(site)+hostCond(hosts))
-	rows3, err := d.QueryContext(ctx, stmt3)
+        GROUP BY ja4_verdict, ja4_verdict_id`, jsonRL, since, sc))
 	if err != nil {
 		return nil, err
 	}
@@ -507,10 +521,121 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 			rows3.Close()
 			return nil, err
 		}
-		rlByV[canon(vid.Int64, v)] += int(n.Int64)
+		rlByV[canonVerdict(reg, vid.Int64, v)] += int(n.Int64)
 	}
 	rows3.Close()
 
+	return buildFunnelRows(ctx, d, site, hosts, since, byVP, loadByV, rlByV, botVerdicts)
+}
+
+// funnelAgg builds the funnel from unmask_aggregate_hourly. The verdict×phase
+// counts and the stealth / rate-limit-serve sums are summed from the hourly
+// buckets; only the per-verdict distinct-IP figures (not summable across
+// buckets) are read raw — cheap, as they are phase=load filtered. Used for the
+// default no-filter view.
+func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
+	// bot test mirrors funnelScan's botFilter: id-based when a registry is
+	// present, else name-based.
+	botID := map[int]bool{}
+	if reg != nil {
+		for _, id := range reg.BotIDs() {
+			botID[id] = true
+		}
+	}
+	botName := map[string]bool{}
+	for _, v := range botVerdicts {
+		botName[v] = true
+	}
+	isBot := func(vid int, verdict string) bool {
+		if reg != nil {
+			return botID[vid]
+		}
+		return botName[verdict]
+	}
+
+	byVP := map[funnelVP]int{}
+	loadByV := map[string]funnelLoad{}
+	rlByV := map[string]int{}
+
+	rows, err := d.QueryContext(ctx, `
+        SELECT bucket_kind, bucket_key, cnt FROM unmask_aggregate_hourly
+        WHERE bucket_hour >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind IN ('fnl', 'lf0', 'srl')`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var kind, key string
+		var cnt int
+		if err := rows.Scan(&kind, &key, &cnt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		switch kind {
+		case hkFunnel:
+			vid, verdict, phase, ok := splitFnlKey(key)
+			if !ok {
+				continue
+			}
+			byVP[funnelVP{canonVerdict(reg, int64(vid), verdict), phase}] += cnt
+		case hkLoadF0:
+			vid, verdict, ok := splitVVKey(key)
+			if ok && isBot(vid, verdict) {
+				k := canonVerdict(reg, int64(vid), verdict)
+				e := loadByV[k]
+				e.stealth += cnt
+				loadByV[k] = e
+			}
+		case hkServeRL:
+			if vid, verdict, ok := splitVVKey(key); ok {
+				rlByV[canonVerdict(reg, int64(vid), verdict)] += cnt
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	// distinct-IP per verdict (phase=load) is not summable across buckets, so
+	// read it raw over the same hour-aligned window as the aggregate.
+	since := hourAgoTimestamp(d, hours)
+	uq, err := d.QueryContext(ctx, fmt.Sprintf(`
+        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
+               COUNT(DISTINCT ip_address) AS uniq_ip
+        FROM unmask_event WHERE date_created > %s AND phase = 'load'
+        GROUP BY ja4_verdict, ja4_verdict_id`, since))
+	if err != nil {
+		return nil, err
+	}
+	for uq.Next() {
+		var v string
+		var vid, u sql.NullInt64
+		if err := uq.Scan(&v, &vid, &u); err != nil {
+			uq.Close()
+			return nil, err
+		}
+		k := canonVerdict(reg, vid.Int64, v)
+		e := loadByV[k]
+		e.uniq += int(u.Int64)
+		loadByV[k] = e
+	}
+	if err := uq.Err(); err != nil {
+		uq.Close()
+		return nil, err
+	}
+	uq.Close()
+
+	return buildFunnelRows(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts)
+}
+
+// buildFunnelRows turns the per-verdict aggregation maps into ordered
+// FunnelRows: the rate_limit pseudo-row, the verdict rows in fixed order, then
+// the TOTAL row. The rate-limit row and the total distinct-IP count are read
+// raw from unmask_event over `since` (a SQL datetime expression); both Funnel
+// paths supply a window-consistent `since`.
+func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string) ([]FunnelRow, error) {
 	// D) verdict list = fixed-list order + unknown verdicts seen in the DB
 	// (= appended in name order). The fixed list is all presets + ok + (none).
 	// User extra-rule verdicts are added via seenInDB when first observed.
@@ -546,19 +671,19 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 	for _, v := range order {
 		row := FunnelRow{
 			Verdict:          v,
-			Serve:            byVP[vp{v, "serve"}],
+			Serve:            byVP[funnelVP{v, "serve"}],
 			ServeRL:          rlByV[v],
-			Load:             byVP[vp{v, "load"}],
+			Load:             byVP[funnelVP{v, "load"}],
 			LoadUniq:         loadByV[v].uniq,
 			Stealth:          loadByV[v].stealth,
-			PowPass:          byVP[vp{v, "pow_pass"}],
-			Captcha:          byVP[vp{v, "captcha"}],
-			BVPowOnly:        byVP[vp{v, "bv_pow_only"}],
-			BVCaptchaOnly:    byVP[vp{v, "bv_captcha_only"}],
-			BVPowThenCaptcha: byVP[vp{v, "bv_pow_then_captcha"}],
-			VerifyNG:         byVP[vp{v, "verify_ng"}],
-			CookieErr:        byVP[vp{v, "cookie_err"}],
-			JSError:          byVP[vp{v, "error"}],
+			PowPass:          byVP[funnelVP{v, "pow_pass"}],
+			Captcha:          byVP[funnelVP{v, "captcha"}],
+			BVPowOnly:        byVP[funnelVP{v, "bv_pow_only"}],
+			BVCaptchaOnly:    byVP[funnelVP{v, "bv_captcha_only"}],
+			BVPowThenCaptcha: byVP[funnelVP{v, "bv_pow_then_captcha"}],
+			VerifyNG:         byVP[funnelVP{v, "verify_ng"}],
+			CookieErr:        byVP[funnelVP{v, "cookie_err"}],
+			JSError:          byVP[funnelVP{v, "error"}],
 		}
 		if row.Serve > row.Load {
 			row.Silent = row.Serve - row.Load
@@ -608,7 +733,7 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 
 func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []string, since string, botVerdicts []string) (FunnelRow, error) {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	sc := siteCond(site)+hostCond(hosts)
+	sc := siteCond(site) + hostCond(hosts)
 	botIn, botArgs := inClause(botVerdicts)
 	stmt := fmt.Sprintf(`
         SELECT
@@ -668,7 +793,17 @@ type VerdictCount struct {
 	UniqIP  int
 }
 
+// VerdictDistribution returns per-verdict counts + distinct IPs. The default
+// view (no site / no host filter) reads the hourly aggregate; filtered views
+// and the pre-backfill window fall back to scanning raw events.
 func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
+	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+		return verdictDistAgg(ctx, d, hours)
+	}
+	return verdictDistScan(ctx, d, site, hosts, hours)
+}
+
+func verdictDistScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(*) AS cnt,
@@ -691,13 +826,87 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []str
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	return buildVerdictRows(by), nil
+}
+
+// verdictDistAgg builds the distribution from the hourly aggregate: per-verdict
+// counts summed from the 'fnl' buckets, distinct-IP estimated by merging the
+// 'vdip' HLL sketches in the window.
+func verdictDistAgg(ctx context.Context, d *db.DB, hours int) ([]VerdictCount, error) {
+	by := map[string]VerdictCount{}
+
+	// counts: sum fnl over (verdict id, phase) per raw verdict name.
+	crows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, cnt FROM unmask_aggregate_hourly
+        WHERE bucket_hour >= `+hourAgoExpr(d, hours)+` AND bucket_kind = 'fnl'`)
+	if err != nil {
+		return nil, err
+	}
+	for crows.Next() {
+		var key string
+		var cnt int
+		if err := crows.Scan(&key, &cnt); err != nil {
+			crows.Close()
+			return nil, err
+		}
+		if _, verdict, _, ok := splitFnlKey(key); ok {
+			r := by[verdict]
+			r.Verdict = verdict
+			r.Count += cnt
+			by[verdict] = r
+		}
+	}
+	if err := crows.Err(); err != nil {
+		crows.Close()
+		return nil, err
+	}
+	crows.Close()
+
+	// distinct IP: merge the per-hour vdip sketches per verdict.
+	sketches := map[string]*hll{}
+	hrows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+` AND bucket_kind = 'vdip'`)
+	if err != nil {
+		return nil, err
+	}
+	for hrows.Next() {
+		var verdict string
+		var blob []byte
+		if err := hrows.Scan(&verdict, &blob); err != nil {
+			hrows.Close()
+			return nil, err
+		}
+		s := sketches[verdict]
+		if s == nil {
+			s = &hll{}
+			sketches[verdict] = s
+		}
+		s.merge(loadHLL(blob))
+	}
+	if err := hrows.Err(); err != nil {
+		hrows.Close()
+		return nil, err
+	}
+	hrows.Close()
+	for verdict, s := range sketches {
+		r := by[verdict]
+		r.Verdict = verdict
+		r.UniqIP = s.estimate()
+		by[verdict] = r
+	}
+	return buildVerdictRows(by), nil
+}
+
+// buildVerdictRows orders the verdict map: the fixed verdict list first,
+// unknown verdicts seen in the data appended in name order, then sorted by
+// count desc (0-count rows trail, keeping the 0-row display policy).
+func buildVerdictRows(by map[string]VerdictCount) []VerdictCount {
 	all := fixedVerdicts()
 	seen := map[string]bool{}
 	for _, v := range all {
 		seen[v] = true
 	}
-	// Append unknown verdicts seen in the DB at the tail (= keeps the 0-row
-	// policy while still covering unknowns).
 	var unknown []string
 	for v := range by {
 		if !seen[v] {
@@ -722,7 +931,7 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []str
 		}
 		return false
 	})
-	return out, nil
+	return out
 }
 
 // CookieStatusRow: 4-way breakdown of cookie presence across all nginx requests.
@@ -731,10 +940,10 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []str
 // over a unix socket). If /etc/unmask/nginx-rendered.conf is not included in
 // http {}, everything returns 0 (= the access_log directive never fires).
 //
-//   total          : all nginx-received requests
-//   captcha_passed : _bv cookie HMAC verified OK (= bv=1)
-//   pow_passed     : _br cookie present (= bv=0 & bp=1)
-//   none           : neither cookie
+//	total          : all nginx-received requests
+//	captcha_passed : _bv cookie HMAC verified OK (= bv=1)
+//	pow_passed     : _br cookie present (= bv=0 & bp=1)
+//	none           : neither cookie
 type CookieStatusRow struct {
 	Kind        string // "total" / "captcha_passed" / "pow_passed" / "none"
 	Label       string // display label ("total" / "CAPTCHA passed" / "PoW passed" / "no cookie")
@@ -1144,16 +1353,16 @@ func RateLimitSummary(ctx context.Context, d *db.DB, site string, hosts []string
 
 // VerifyNGRow: verify_ng IP ranking with method (math/behavioral) breakdown.
 type VerifyNGRow struct {
-	IP           string
-	Total        int
-	Math         int
-	Behavioral   int
-	AvgScore     float64
-	UA           string
-	JA4          string
-	LastSeen     string
-	LastSeenTS   int64
-	CountryCode  string
+	IP          string
+	Total       int
+	Math        int
+	Behavioral  int
+	AvgScore    float64
+	UA          string
+	JA4         string
+	LastSeen    string
+	LastSeenTS  int64
+	CountryCode string
 }
 
 func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]VerifyNGRow, error) {
@@ -1845,10 +2054,20 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 // per-country req / uniq IP aggregates. Returns an empty list when ipgeo.Reader
 // is empty (= mmdb not configured / failed to load), so callers know not to
 // show the country chart.
+// CountriesByServe returns the top serve-traffic source countries. The default
+// view (no site / no host filter) reads the hourly aggregate; filtered views
+// and the pre-backfill window fall back to scanning raw events.
 func CountriesByServe(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
 	if gip == nil || !gip.Loaded() {
 		return nil, nil
 	}
+	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+		return countriesAgg(ctx, d, days, limit)
+	}
+	return countriesScan(ctx, d, gip, site, hosts, days, limit)
+}
+
+func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
 	since := d.NowMinusMinutes(days * 24 * 60)
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n
@@ -1890,6 +2109,81 @@ func CountriesByServe(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site str
 	out := make([]CountryRow, 0, len(byCC))
 	for cc, a := range byCC {
 		out = append(out, CountryRow{CountryCode: cc, Req: a.req, UniqIPs: a.uniqIPs})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Req > out[j].Req })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+// countriesAgg builds the country ranking from the aggregate: per-country
+// serve counts summed from the hourly 'cc' buckets, distinct-IP estimated by
+// merging the daily 'ccip' HLL sketches.
+func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow, error) {
+	type acc struct{ req, uniq int }
+	byCC := map[string]*acc{}
+
+	crows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_hour >= `+hourAgoExpr(d, days*24)+` AND bucket_kind = 'cc'
+        GROUP BY bucket_key`)
+	if err != nil {
+		return nil, err
+	}
+	for crows.Next() {
+		var cc string
+		var req int
+		if err := crows.Scan(&cc, &req); err != nil {
+			crows.Close()
+			return nil, err
+		}
+		byCC[cc] = &acc{req: req}
+	}
+	if err := crows.Err(); err != nil {
+		crows.Close()
+		return nil, err
+	}
+	crows.Close()
+
+	sketches := map[string]*hll{}
+	hrows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+dateAgoExpr(d, days)+` AND bucket_kind = 'ccip'`)
+	if err != nil {
+		return nil, err
+	}
+	for hrows.Next() {
+		var cc string
+		var blob []byte
+		if err := hrows.Scan(&cc, &blob); err != nil {
+			hrows.Close()
+			return nil, err
+		}
+		s := sketches[cc]
+		if s == nil {
+			s = &hll{}
+			sketches[cc] = s
+		}
+		s.merge(loadHLL(blob))
+	}
+	if err := hrows.Err(); err != nil {
+		hrows.Close()
+		return nil, err
+	}
+	hrows.Close()
+	for cc, s := range sketches {
+		a := byCC[cc]
+		if a == nil {
+			a = &acc{}
+			byCC[cc] = a
+		}
+		a.uniq = s.estimate()
+	}
+
+	out := make([]CountryRow, 0, len(byCC))
+	for cc, a := range byCC {
+		out = append(out, CountryRow{CountryCode: cc, Req: a.req, UniqIPs: a.uniq})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Req > out[j].Req })
 	if len(out) > limit {

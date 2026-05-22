@@ -35,12 +35,12 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/feedserver"
-	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/logwriter"
+	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
-	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -423,6 +423,39 @@ func cmdServe(args []string) error {
 		}()
 	}
 
+	// Roll new unmask_event rows into unmask_aggregate_hourly every 60s (plus a
+	// startup pass).  The stats page reads those hourly rollups instead of
+	// scanning the raw event table, which is ~10x slower under pure-Go SQLite.
+	// PruneHourly trims buckets past the 32-day window roughly hourly.  Fully
+	// in-process: no external cron required.
+	if conn != nil {
+		go func() {
+			runAgg := func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				defer cancel()
+				if err := dashboard.AggregateHourly(ctx, conn, gip); err != nil {
+					log.Printf("hourly aggregate: %v", err)
+				}
+			}
+			runPrune := func() {
+				if err := dashboard.PruneHourly(context.Background(), conn); err != nil {
+					log.Printf("hourly aggregate prune: %v", err)
+				}
+			}
+			runAgg()
+			runPrune()
+			t := time.NewTicker(60 * time.Second)
+			defer t.Stop()
+			for tick := 0; ; tick++ {
+				<-t.C
+				runAgg()
+				if tick%60 == 0 {
+					runPrune()
+				}
+			}
+		}()
+	}
+
 	listener, listenDesc, err := openListener(s.Server)
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
@@ -594,13 +627,13 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// debug / test pages (sanity checks).  Exposed via two paths:
 	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
 	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)
-	mux.HandleFunc("GET "+base+"/test/{$}",            h.PublicTestGate(h.TestIndex))
-	mux.HandleFunc("GET "+base+"/test/reset-cookie",   h.PublicTestGate(h.ResetCookie))
-	mux.HandleFunc("GET "+base+"/test/force-pow",      h.PublicTestGate(h.ForcePoW))
-	mux.HandleFunc("GET "+base+"/test/force-captcha",  h.PublicTestGate(h.ForceCaptcha))
-	mux.HandleFunc("GET "+base+"/admin/test/{$}",           h.AuthMiddleware(h.TestIndex))
-	mux.HandleFunc("GET "+base+"/admin/test/reset-cookie",  h.AuthMiddleware(h.ResetCookie))
-	mux.HandleFunc("GET "+base+"/admin/test/force-pow",     h.AuthMiddleware(h.ForcePoW))
+	mux.HandleFunc("GET "+base+"/test/{$}", h.PublicTestGate(h.TestIndex))
+	mux.HandleFunc("GET "+base+"/test/reset-cookie", h.PublicTestGate(h.ResetCookie))
+	mux.HandleFunc("GET "+base+"/test/force-pow", h.PublicTestGate(h.ForcePoW))
+	mux.HandleFunc("GET "+base+"/test/force-captcha", h.PublicTestGate(h.ForceCaptcha))
+	mux.HandleFunc("GET "+base+"/admin/test/{$}", h.AuthMiddleware(h.TestIndex))
+	mux.HandleFunc("GET "+base+"/admin/test/reset-cookie", h.AuthMiddleware(h.ResetCookie))
+	mux.HandleFunc("GET "+base+"/admin/test/force-pow", h.AuthMiddleware(h.ForcePoW))
 	mux.HandleFunc("GET "+base+"/admin/test/force-captcha", h.AuthMiddleware(h.ForceCaptcha))
 
 	// API endpoints (default + per-site)
@@ -814,7 +847,6 @@ func cmdMigrate(args []string) error {
 	}
 	return nil
 }
-
 
 // ----------------------------------------------------------------
 // aggregate (for cron; currently writes daily aggregates from the event table into unmask_aggregate)
