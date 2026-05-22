@@ -51,7 +51,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Last-24h KPIs.  On failure, fall through with 0.
 	kpiEvents := countEvents(ctx, h, 1440, "", site, hosts)
 	kpiServes := countEvents(ctx, h, 1440, "serve", site, hosts)
-	kpiVerify := countEvents(ctx, h, 1440, "verify", site, hosts)
+	// Passed counts split by how the visitor cleared the challenge.  PoW-only
+	// is transparent (mostly real browsers); the CAPTCHA paths mean a human
+	// solved one.  The old "verify" phase does not exist in native mode.
+	kpiPoWPass := countEvents(ctx, h, 1440, "bv_pow_only", site, hosts)
+	kpiCaptchaPass := countEventsPhases(ctx, h, 1440,
+		[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
 
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
@@ -99,7 +104,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"TZ":             resolveTZ(r),
 		"KPIEvents":      kpiEvents,
 		"KPIServes":      kpiServes,
-		"KPIVerify":      kpiVerify,
+		"KPIPoWPass":     kpiPoWPass,
+		"KPICaptchaPass": kpiCaptchaPass,
 		"KPICurrentBans": currentBans,
 		"Recent":         recent,
 		"AITraffic":      aiRows,
@@ -207,6 +213,39 @@ func countEvents(ctx context.Context, h *Handler, minutes int, phase, site strin
 	var n int
 	if err := row.Scan(&n); err != nil {
 		log.Printf("countEvents (phase=%q): %v", phase, err)
+		return 0
+	}
+	return n
+}
+
+// countEventsPhases: like countEvents but matches any of several phases
+// (phase IN (...)).  Used for the "passed" KPIs, which span multiple terminal
+// bv_* phases.  Best-effort (= on error, return 0 and just log).
+func countEventsPhases(ctx context.Context, h *Handler, minutes int, phases []string, site string, hosts []string) int {
+	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
+	args := []any{}
+	if len(phases) > 0 {
+		ph := strings.Repeat("?,", len(phases))
+		stmt += " AND phase IN (" + ph[:len(ph)-1] + ")"
+		for _, p := range phases {
+			args = append(args, p)
+		}
+	}
+	if site != "" {
+		stmt += " AND site = ?"
+		args = append(args, site)
+	}
+	if len(hosts) > 0 {
+		ph := strings.Repeat("?,", len(hosts))
+		stmt += " AND host IN (" + ph[:len(ph)-1] + ")"
+		for _, hh := range hosts {
+			args = append(args, hh)
+		}
+	}
+	row := h.DB.QueryRowContext(ctx, stmt, args...)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		log.Printf("countEventsPhases (%v): %v", phases, err)
 		return 0
 	}
 	return n

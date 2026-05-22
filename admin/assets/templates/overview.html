@@ -133,15 +133,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="value">{{ comma .KPIEvents }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.range_24h" }}</div>
   </div>
-  <div class="kpi warn">
+  <div class="kpi">
     <div class="label">{{ t .Lang "overview.kpi.serves" }}</div>
     <div class="value">{{ comma .KPIServes }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
   </div>
   <div class="kpi">
-    <div class="label">{{ t .Lang "overview.kpi.verify" }}</div>
-    <div class="value">{{ comma .KPIVerify }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.verify_sub" }}</div>
+    <div class="label">{{ t .Lang "overview.kpi.pow_pass" }}</div>
+    <div class="value">{{ comma .KPIPoWPass }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
+  </div>
+  <div class="kpi">
+    <div class="label">{{ t .Lang "overview.kpi.captcha_pass" }}</div>
+    <div class="value">{{ comma .KPICaptchaPass }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
   </div>
   <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
     <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
