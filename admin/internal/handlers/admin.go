@@ -72,6 +72,7 @@ func loadDashboardTemplate() (*template.Template, error) {
 				return fmt.Sprintf("%.2f", x)
 			},
 			"add": func(a, b int) int { return a + b },
+			"sub": func(a, b int) int { return a - b },
 			// Render an integer with thousands separators (1234 -> "1,234").  Same format as the parent project.
 			"comma": func(n int) string {
 				s := fmt.Sprintf("%d", n)

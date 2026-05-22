@@ -2994,18 +2994,9 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
 <div class="bcd-card host-id-card">
   <h2>{{ t .Lang "settings.sites.hostid_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.sites.hostid_desc") }}</span></span></h2>
-  <div class="host-id-row">
-    <span class="host-id-label">{{ t .Lang "settings.sites.hostid_resolved" }}</span>
-    <code class="host-id-value">{{ .SelfHostID }}</code>
-    {{ if .ConfiguredHostID }}
-      <span class="host-id-source from-config">{{ t .Lang "settings.sites.hostid_from_config" }}</span>
-    {{ else }}
-      <span class="host-id-source from-hostname">{{ t .Lang "settings.sites.hostid_from_hostname" }}</span>
-    {{ end }}
-  </div>
-  <label class="sites-mode" style="margin-top:.6rem">
+  <label class="sites-mode">
     <input type="radio" name="host_id_mode" value="hostname" {{ if not .ConfiguredHostID }}checked{{ end }}>
-    <span><strong>{{ t .Lang "settings.sites.hostid_mode_hostname" }}</strong> <code class="host-id-value">{{ .OSHostname }}</code><br><span class="note">{{ t .Lang "settings.sites.hostid_mode_hostname_desc" }}</span></span>
+    <span><strong>{{ tf .Lang "settings.sites.hostid_mode_hostname" .OSHostname }}</strong><br><span class="note">{{ t .Lang "settings.sites.hostid_mode_hostname_desc" }}</span></span>
   </label>
   <label class="sites-mode">
     <input type="radio" name="host_id_mode" value="custom" {{ if .ConfiguredHostID }}checked{{ end }}>
@@ -3090,18 +3081,24 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <th></th>
       </tr></thead>
       <tbody>
-        {{ range .SiteGhosts }}
-        <tr>
-          <td style="font-family:ui-monospace,Menlo,monospace">{{ .Site }}</td>
-          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
-          <td><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+        {{ range $i, $g := .SiteGhosts }}
+        <tr{{ if ge $i 10 }} class="ghost-extra" hidden{{ end }}>
+          <td style="font-family:ui-monospace,Menlo,monospace">{{ $g.Site }}</td>
+          <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma $g.Events }}</td>
+          <td><time class="js-datetime" data-ts="{{ $g.LastSeenTS }}">{{ $g.LastSeen }}</time></td>
           <td style="text-align:right">
-            <button type="button" class="btn js-site-promote" data-site="{{ .Site }}" style="padding:.3rem .7rem;font-size:.78rem">{{ t $.Lang "settings.sites.ghost_add" }}</button>
+            <button type="button" class="btn js-site-promote" data-site="{{ $g.Site }}" style="padding:.3rem .7rem;font-size:.78rem">{{ t $.Lang "settings.sites.ghost_add" }}</button>
           </td>
         </tr>
         {{ end }}
       </tbody>
     </table>
+    {{ if gt (len .SiteGhosts) 10 }}
+    <button type="button" class="js-ghost-more" data-shown="0"
+      data-more="{{ tf .Lang "settings.sites.ghost_more" (sub (len .SiteGhosts) 10) }}"
+      data-less="{{ t .Lang "settings.sites.ghost_less" }}"
+      style="margin-top:.5rem;padding:.3rem .8rem;font-size:.78rem;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer">{{ tf .Lang "settings.sites.ghost_more" (sub (len .SiteGhosts) 10) }}</button>
+    {{ end }}
     {{ else }}
     <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_empty" }}</p>
     {{ end }}
@@ -3149,6 +3146,16 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       instant(b, '/admin/api/sites/promote', {site: b.dataset.site});
     });
   });
+
+  // ghost report: show the top 10, the rest behind an expand toggle.
+  document.querySelectorAll('.js-ghost-more').forEach(function(b){
+    b.addEventListener('click', function(){
+      var shown = b.dataset.shown === '1';
+      document.querySelectorAll('tr.ghost-extra').forEach(function(r){ r.hidden = shown; });
+      b.dataset.shown = shown ? '0' : '1';
+      b.textContent = shown ? b.dataset.more : b.dataset.less;
+    });
+  });
 })();
 </script>
 
@@ -3165,12 +3172,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .host-row-off td{color:#94a3b8}
 .host-off-badge{font-size:.66rem;background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;border-radius:.2rem;padding:.05rem .35rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;vertical-align:middle}
 .host-id-card{background:#f8fafc}
-.host-id-row{display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;font-size:.85rem;margin:.3rem 0}
-.host-id-label{color:#64748b;font-weight:600}
-.host-id-value{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;padding:.15rem .4rem;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#7c3aed}
-.host-id-source{font-size:.7rem;padding:.1rem .4rem;border-radius:1rem;font-weight:600}
-.host-id-source.from-config{background:#dcfce7;color:#166534}
-.host-id-source.from-hostname{background:#fef9c3;color:#854d0e}
 .host-id-hint{font-size:.72rem;color:#64748b;line-height:1.5}
 </style>
 {{ end }}
