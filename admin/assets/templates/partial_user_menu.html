@@ -20,18 +20,25 @@
     <span class="user-menu-arrow">▾</span>
   </span>
   <div class="user-menu-pop">
-    {{/* TZ / language live here — rarely changed, kept out of the top bar. */}}
+    {{/* Personal: TZ / language (rarely changed, kept out of the top bar) + profile. */}}
     {{ template "lang_tz_picker" . }}
+    <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
+    {{/* Admin-only section, set off by a labelled divider. */}}
+    {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
+    <div class="um-section">{{ t .Lang "user_menu.admin_section" }}</div>
     {{ if eq .Me.Role "superadmin" }}
     <a href="{{ .BasePath }}/admin/users/">{{ t .Lang "nav.users" }}</a>
     {{ end }}
-    {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
     <a href="{{ .BasePath }}/admin/audit/">{{ t .Lang "nav.audit" }}</a>
     {{ end }}
-    <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
+    <div class="um-divider"></div>
     <a href="{{ .BasePath }}/admin/logout">{{ t .Lang "nav.logout" }}</a>
   </div>
 </div>
+<style>
+.user-menu-pop .um-section{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;padding:.5rem .7rem .2rem}
+.user-menu-pop .um-divider{border-top:1px solid #334155;margin:.3rem 0}
+</style>
 <script>
 (function(){
   var m = document.getElementById('user-menu');
