@@ -228,6 +228,20 @@ map $unmask_bv_kind $bv_pow_valid     { default 0;  "pow"     1; }
 map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 
 # -----------------------------------------------------------------------------
+# $unmask_chmode — challenge-mode hint
+# -----------------------------------------------------------------------------
+# auth_request/server.inc's @unmask_to_challenge forwards this to
+# /unmask/challenge/?chm=<mode>.  In auth_request mode the value is filled
+# per-request by `auth_request_set $unmask_chmode $upstream_http_x_unmask_chmode;`
+# (auth_request/protect.inc).  Native mode has no auth_request_set, so without
+# a definition here nginx aborts with `unknown "unmask_chmode" variable` the
+# moment auth_request/server.inc is included.  Define it (default empty) so the
+# shared server.inc parses in both modes; map + auth_request_set coexist on the
+# same CHANGEABLE variable, and an empty chm= is ignored by the serve handler
+# (= the per-axis chain is chosen instead).
+map "" $unmask_chmode { default ""; }
+
+# -----------------------------------------------------------------------------
 # Honeypot path detection ($serve_bot_challenge)
 # -----------------------------------------------------------------------------
 # Detects access to trap paths registered in unmask settings.  On match, the

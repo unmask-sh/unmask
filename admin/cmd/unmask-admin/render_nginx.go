@@ -1,5 +1,6 @@
-// render-nginx: generate nginx-rendered.conf and nginx-rendered-server.conf
-// (2 files) from config.yml + embedded preset.
+// render-nginx: generate the native-mode snippets (native/http.inc,
+// native/server.inc, native/protect.inc, upstream.conf) from config.yml +
+// embedded preset.
 //
 // Usage:
 //
@@ -14,6 +15,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
@@ -30,8 +32,16 @@ func cmdRenderNginx(args []string) error {
 		return err
 	}
 
+	// renderedFiles: the files nginxconf.Render writes, relative to outDir.
+	renderedFiles := []string{
+		"native/http.inc",
+		"native/server.inc",
+		"native/protect.inc",
+		"upstream.conf",
+	}
+
 	if *dryRun {
-		// dry-run: write to temp dir, then dump both files to stdout.
+		// dry-run: write to temp dir, then dump every file to stdout.
 		tmpDir, err := os.MkdirTemp("", "unmask-render-")
 		if err != nil {
 			return err
@@ -40,8 +50,8 @@ func cmdRenderNginx(args []string) error {
 		if err := nginxconf.Render(s, tmpDir, Version); err != nil {
 			return err
 		}
-		for _, name := range []string{"nginx-rendered.conf", "nginx-rendered-server.conf"} {
-			body, err := os.ReadFile(tmpDir + "/" + name)
+		for _, name := range renderedFiles {
+			body, err := os.ReadFile(filepath.Join(tmpDir, name))
 			if err != nil {
 				return err
 			}
@@ -57,7 +67,9 @@ func cmdRenderNginx(args []string) error {
 	if dst == "" {
 		dst = s.Nginx.OutputDir
 	}
-	fmt.Fprintf(os.Stderr, "rendered: %s/nginx-rendered.conf\n", dst)
+	for _, name := range renderedFiles {
+		fmt.Fprintf(os.Stderr, "rendered: %s\n", filepath.Join(dst, name))
+	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "To apply:  sudo nginx -s reload")
 	return nil

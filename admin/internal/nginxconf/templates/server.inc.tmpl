@@ -14,8 +14,10 @@
 #       }
 #   }
 #
-# Current contents: access_log for dashboard aggregation of cookie-passed
-# requests (unmask_minimal).  Any future server-scope directives consolidate here.
+# Contents: (1) access_log for dashboard aggregation of cookie-passed requests
+# (unmask_minimal), (2) @unmask_rate_challenge named location, (3) the
+# `location ^~ /unmask/` proxy to the admin daemon.  Any future server-scope
+# directives consolidate here.
 #
 # Why access_log is required here: redefining access_log at the server level
 # stops nginx from inheriting the http-scope `access_log syslog:... unmask_minimal;`,
@@ -40,4 +42,29 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
 # consistent across modes.
 location @unmask_rate_challenge {
     rewrite ^ /unmask/_rl$request_uri last;
+}
+
+# /unmask/* — admin daemon mount.  The ngx_http_unmask_module computes JA4 and
+# exposes variables but does NOT serve content, so every /unmask/ path
+# (challenge HTML, verify API, static assets, rate-limit challenge, dashboard,
+# healthz, metrics) is proxied to the admin upstream.  This makes native mode
+# self-contained: a vhost only needs `include native/server.inc;` here plus
+# `include native/protect.inc;` in protected locations — no hand-written
+# /unmask/ block and no auth_request/server.inc (= that richer per-path bundle
+# is for auth_request mode, and mixing it in duplicates this location).
+# The upstream `unmask_admin` is declared in /etc/unmask/upstream.conf.
+location ^~ /unmask/ {
+    proxy_pass         http://unmask_admin;
+    proxy_set_header   Host             $host;
+    proxy_set_header   X-Real-IP        $remote_addr;
+    proxy_set_header   X-Client-JA4     $effective_ja4;
+    proxy_set_header   X-JA4-Verdict    $ja4_verdict;
+    proxy_set_header   X-JA4-Action     $ja4_action;
+    proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
+    proxy_set_header   X-Protected-Mode $protected_mode;
+    proxy_set_header   X-Banned         $unmask_banned;
+    # SSE (= /unmask/admin/api/events/stream) needs unbuffered HTTP/1.1.
+    proxy_http_version 1.1;
+    proxy_set_header   Connection "";
+    proxy_buffering    off;
 }
