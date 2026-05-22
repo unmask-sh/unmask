@@ -45,7 +45,7 @@ table.rank,table.events{width:100%;border-collapse:collapse;font-size:.8rem}
    variable-length one, distributed naturally via inner table-layout (= UA card stays wide at 1fr).
    No ellipsis -> no need for a title. */
 table.rank{table-layout:auto;width:auto}
-table.rank td.key{max-width:none;white-space:nowrap;overflow:visible;text-overflow:clip}
+table.rank td.key{max-width:none;white-space:nowrap;overflow:visible;text-overflow:clip;font-family:ui-monospace,Menlo,monospace;color:#0f172a}
 table.rank td.actions{text-align:left;white-space:nowrap}
 table.rank td.num{white-space:nowrap}
 /* raw-log table: fixed-content columns use nowrap with their natural width.  UA / verdict use ellipsis. */
@@ -60,7 +60,9 @@ table.rank thead th,table.events thead th{text-align:left;padding:.35rem .5rem;b
 table.rank tbody td,table.events tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
 table.rank tbody tr:hover,table.events tbody tr:hover{background:#f8fafc}
 table.rank td.num,table.events td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569;font-family:ui-monospace,Menlo,monospace}
-table.rank td.key,table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* table.rank td.key intentionally excluded: the rank tables (IP / JA4) hold
+   fixed-length values that should never ellipsize — see the rule above. */
+table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* hunt raw log: table-layout:fixed forces it into the viewport and kills the inner events-scroll. */
 table.events{table-layout:fixed;width:100%}
 .events-scroll{overflow-x:hidden}
