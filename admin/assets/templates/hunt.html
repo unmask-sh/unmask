@@ -89,7 +89,9 @@ table.rank td.actions{text-align:left;white-space:nowrap}
 .filter-bar button.reset{background:#fff;color:#475569;border-color:#cbd5e1;font-weight:normal}
 /* host filtering is consolidated into the shared host_picker in the top bar (= old host-filter CSS removed). */
 /* small host badge inside an event row (= rendered alongside the "at" column) */
-.host-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;color:#475569;background:#f8fafc;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem}
+.host-badge,.site-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.host-badge{color:#475569;background:#f8fafc}
+.site-badge{color:#1e40af;background:#eff6ff;border-color:#bfdbfe}
 table.events td.ua{max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
 table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
 .phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
@@ -131,7 +133,9 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 .live-tail{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;background:#0f172a;color:#cbd5e1;padding:.5rem .7rem;border-radius:.3rem;max-height:18rem;overflow-y:auto;line-height:1.7}
 .live-tail .ev{padding:.1rem 0;border-bottom:1px solid #1e293b}
 .live-tail .ev .ts{color:#64748b;margin-right:.6rem}
-.live-tail .ev .host{color:#a78bfa;margin-right:.6rem;font-size:.65rem;border:1px solid #312e81;padding:0 .25rem;border-radius:.15rem;background:#1e1b4b}
+.live-tail .ev .host,.live-tail .ev .site{margin-right:.6rem;font-size:.65rem;padding:0 .25rem;border-radius:.15rem;display:inline-block;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.live-tail .ev .host{color:#a78bfa;border:1px solid #312e81;background:#1e1b4b}
+.live-tail .ev .site{color:#93c5fd;border:1px solid #1e3a8a;background:#172554}
 .live-tail .ev .ip{color:#93c5fd;margin-right:.6rem}
 .live-tail .ev .ph{color:#fbbf24;margin-right:.4rem}
 .live-tail .ev .ja4{color:#86efac}
@@ -378,7 +382,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     <tbody>
       {{ range .Rows }}
       <tr>
-        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Host }} <span class="host-badge">{{ .Host }}</span>{{ end }}</td>
+        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge" title="host: {{ .Host }}">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge" title="site: {{ .Site }}">{{ .Site }}</span>{{ end }}</td>
         <td class="mono ipclick" data-ip="{{ .IP }}" title="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="mono verdict-cell"{{ if .Verdict }} title="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -652,6 +656,11 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     }
     return ev.date || '';
   }
+  // host / site badges are shown only when there is more than one candidate
+  // (= matches the static table; a single-host / single-site deploy hides them).
+  var MULTI_HOST = {{ if gt (len .Hosts) 1 }}true{{ else }}false{{ end }};
+  var MULTI_SITE = {{ if gt (len .SitePickerOptions) 1 }}true{{ else }}false{{ end }};
+
   // one event -> DOM element.  Setting innerHTML once is cheaper than concatenating strings.
   function makeEl(ev){
     var d = document.createElement('div');
@@ -659,13 +668,14 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     // for phase=check, render the payload's action as a suffix (= "check(pass)")
     var phaseTxt = ev.phase || '-';
     if (ev.phase === 'check' && ev.action) phaseTxt += '(' + ev.action + ')';
-    // host badge: on a multi-host shared DB the tail shows "which machine this came from".
-    // On a single-host install Row.Host is "" with omitempty, so nothing renders.
+    // host / site badges: only when the deploy actually has more than one.
     var hostHtml = '';
-    if (ev.host) hostHtml = '<span class="host">' + escapeText(ev.host) + '</span> ';
+    if (MULTI_HOST && ev.host) hostHtml = '<span class="host" title="host: ' + escapeText(ev.host) + '">' + escapeText(ev.host) + '</span> ';
+    var siteHtml = '';
+    if (MULTI_SITE && ev.site) siteHtml = '<span class="site" title="site: ' + escapeText(ev.site) + '">' + escapeText(ev.site) + '</span> ';
     d.innerHTML =
       '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
-      hostHtml +
+      hostHtml + siteHtml +
       '<span class="ip">' + escapeText(ev.ip || '-') + '</span>' +
       '<span class="ph">' + escapeText(phaseTxt) + '</span>' +
       '<span class="ja4">' + escapeText(ev.ja4 || '-') + '</span> ' +
