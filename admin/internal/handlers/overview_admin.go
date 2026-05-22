@@ -57,6 +57,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	kpiPoWPass := countEvents(ctx, h, 1440, "bv_pow_only", site, hosts)
 	kpiCaptchaPass := countEventsPhases(ctx, h, 1440,
 		[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
+	// "Blocked" estimate for the hero: challenges fired that produced no pass
+	// (neither PoW nor CAPTCHA) — the visitor hit the wall and never cleared.
+	// Not exact (a real user who navigated away counts too, and a serve in the
+	// last seconds hasn't had time to pass), but a well-founded figure.
+	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass
+	if kpiBlocked < 0 {
+		kpiBlocked = 0
+	}
 
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
@@ -106,6 +114,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIServes":      kpiServes,
 		"KPIPoWPass":     kpiPoWPass,
 		"KPICaptchaPass": kpiCaptchaPass,
+		"KPIBlocked":     kpiBlocked,
 		"KPICurrentBans": currentBans,
 		"Recent":         recent,
 		"AITraffic":      aiRows,

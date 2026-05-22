@@ -112,18 +112,18 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
 
 <div class="hero">
-  <div class="icon">{{ if gt .KPIServes 0 }}🛡️{{ else }}😴{{ end }}</div>
+  <div class="icon">{{ if gt .KPIBlocked 0 }}🛡️{{ else }}😴{{ end }}</div>
   <div class="body">
     <div class="label">{{ t .Lang "overview.hero.label" }}</div>
-    <div class="value">{{ comma .KPIServes }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span></div>
+    <div class="value">{{ comma .KPIBlocked }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span></div>
     <div class="desc">
-      {{ if gt .KPIServes 0 }}
+      {{ if gt .KPIBlocked 0 }}
         {{ safeHTML (t .Lang "overview.hero.desc") }}
       {{ else }}
         {{ t .Lang "overview.hero.zero" }}
       {{ end }}
     </div>
-    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }} · phase=serve</div>
+    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }} · {{ t .Lang "overview.hero.basis" }}</div>
   </div>
 </div>
 
