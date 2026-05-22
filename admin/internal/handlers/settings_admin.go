@@ -1548,6 +1548,16 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		}
 	}
 	n.BypassIPDisabledPresets = disabledOut
+
+	// stats_exclude_ips: textarea (one IP / CIDR per line) -- IPs dropped
+	// entirely from statistics.  Validate each entry as IP or CIDR.
+	statsEx := splitLines(r.FormValue("stats_exclude_ips"))
+	for _, ip := range statsEx {
+		if !ipOrCIDRRE.MatchString(ip) {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_invalid", ip))
+		}
+	}
+	n.StatsExcludeIPs = statsEx
 	return nil
 }
 

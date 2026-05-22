@@ -920,6 +920,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <button type="button" class="rule-add-bottom" data-target-list="bypass_ip">{{ t .Lang "settings.ua.add_new" }}</button>
     <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.bypass.note") }}</div>
   </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.stats_exclude.title" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.stats_exclude.desc") }}</span></span></h2>
+    <div class="field">
+      <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
+      <textarea name="stats_exclude_ips">{{ range .Cur.StatsExcludeIPs }}{{ . }}
+{{ end }}</textarea>
+    </div>
+  </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
