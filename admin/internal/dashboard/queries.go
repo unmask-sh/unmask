@@ -529,6 +529,18 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 	sort.Strings(unknown)
 	order = append(order, unknown...)
 
+	// "ok" (= normal traffic, no bot/suspect rule matched) always reads last
+	// among the verdict rows, below every bot / suspect / unknown verdict.
+	{
+		reordered := make([]string, 0, len(order))
+		for _, v := range order {
+			if v != "ok" {
+				reordered = append(reordered, v)
+			}
+		}
+		order = append(reordered, "ok")
+	}
+
 	var out []FunnelRow
 	total := FunnelRow{Verdict: "TOTAL"}
 	for _, v := range order {
