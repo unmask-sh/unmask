@@ -201,6 +201,11 @@ type renderData struct {
 	ChallengeTargetPatterns []string // OR list of UA patterns evaluated when false
 
 	BypassIPs   []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
+	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
+	// monitoring tools etc.).  Rendered into the $is_bypass_ip geo (so they
+	// skip the challenge) and into a dedicated $unmask_stats_excluded geo that
+	// gates the unmask_minimal access_log via `if=`.
+	StatsExcludeIPs []string
 	BanFilePath string   // ban list file watched by the unmask module (= "" disables it)
 
 	NginxLogEnabled bool
@@ -277,6 +282,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		UpstreamAddr:    defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
 		UpstreamServer:  buildUpstreamServer(s),
 		BypassIPs:       mergeBypassIPs(s),
+		StatsExcludeIPs: sanitizeIPs(s.Nginx.StatsExcludeIPs),
 		BanFilePath:     trimSpaceAndQuotes(s.Nginx.Honeypot.BanFilePath),
 		NginxLogSocket:  s.NginxLog.SocketPath,
 		NginxLogEnabled: s.NginxLog.Enabled && s.NginxLog.SocketPath != "",

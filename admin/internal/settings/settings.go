@@ -248,6 +248,11 @@ type Nginx struct {
 	// to keep OFF. Empty → all presets enabled (= default safety net). Group
 	// definitions live in nginxconf/iprange.go.
 	BypassIPDisabledPresets []string `yaml:"bypass_ip_disabled_presets,omitempty"`
+	// IP / CIDR list excluded entirely from statistics (= own monitoring tools,
+	// internal probes etc. that would otherwise be dashboard noise).  These IPs
+	// skip the challenge AND are dropped from the unmask_minimal access_log, so
+	// they never reach the funnel / cookie / crawler aggregation.
+	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
 	AdminAllowFrom   []string `yaml:"admin_allow_from"`
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
 

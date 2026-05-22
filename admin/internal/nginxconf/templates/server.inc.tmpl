@@ -28,7 +28,9 @@
 # The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
 # are declared by admin at /etc/unmask/native/http.inc (= http scope).
 {{- if .NginxLogEnabled }}
-access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
+# if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed
+# ($unmask_log_keep is defined in native/http.inc, http scope).
+access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;
 {{- else }}
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}

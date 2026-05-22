@@ -49,6 +49,28 @@ geo $is_bypass_ip {
 {{- range .BypassIPs }}
     {{ . }} 1;
 {{- end }}
+{{- range .StatsExcludeIPs }}
+    {{ . }} 1;
+{{- end }}
+}
+
+# -----------------------------------------------------------------------------
+# Statistics exclusion ($unmask_stats_excluded / $unmask_log_keep)
+# -----------------------------------------------------------------------------
+# IPs in nginx.stats_exclude_ips (own monitoring tools / internal probes that
+# would otherwise be dashboard noise) are dropped entirely from statistics:
+# $unmask_log_keep gates the unmask_minimal access_log via `if=`, so these
+# requests never reach the funnel / cookie / crawler aggregation.  The same IPs
+# are folded into $is_bypass_ip above, so no challenge fires for them either.
+geo $unmask_stats_excluded {
+    default 0;
+{{- range .StatsExcludeIPs }}
+    {{ . }} 1;
+{{- end }}
+}
+map $unmask_stats_excluded $unmask_log_keep {
+    default 1;
+    "1"     0;
 }
 
 # -----------------------------------------------------------------------------
@@ -491,7 +513,8 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # injection via a crafted UA.
 log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
-access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal;
+# if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
+access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;
 {{- else }}
 # nginx_log.socket_path is empty in config.yml, so access_log is not emitted.
 {{- end }}
