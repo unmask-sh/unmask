@@ -509,7 +509,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.3rem">
           <button type="button" id="ipgeo-install-btn"
                   style="font-size:.78rem;padding:.25rem .7rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
-            📥 {{ t .Lang "settings.network.ipgeo_install_btn" }}
+            📥 {{ if .IPGeoActiveInfo.Exists }}{{ t .Lang "settings.network.ipgeo_update_btn" }}{{ else }}{{ t .Lang "settings.network.ipgeo_download_btn" }}{{ end }}
           </button>
           {{ if and (eq $mode "dbip") .IPGeoActiveInfo.Exists }}
             <span class="vendor-badge vendor-{{ .IPGeoActiveInfo.Vendor | lower }}">{{ .IPGeoActiveInfo.Vendor }}{{ if .IPGeoActiveInfo.DatabaseType }} · {{ .IPGeoActiveInfo.DatabaseType }}{{ end }}</span>
@@ -575,7 +575,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.3rem">
           <button type="button" id="ipgeo-asn-install-btn"
                   style="font-size:.78rem;padding:.25rem .7rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
-            📥 {{ t .Lang "settings.network.ipgeo_asn_install_btn" }}
+            📥 {{ if .IPGeoASNActiveInfo.Exists }}{{ t .Lang "settings.network.ipgeo_asn_update_btn" }}{{ else }}{{ t .Lang "settings.network.ipgeo_asn_download_btn" }}{{ end }}
           </button>
           {{ if and (eq $asnMode "dbip") .IPGeoASNActiveInfo.Exists }}
             <span class="vendor-badge vendor-{{ .IPGeoASNActiveInfo.Vendor | lower }}">{{ .IPGeoASNActiveInfo.Vendor }}{{ if .IPGeoASNActiveInfo.DatabaseType }} · {{ .IPGeoASNActiveInfo.DatabaseType }}{{ end }}</span>
