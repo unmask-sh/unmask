@@ -162,7 +162,7 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 .ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
 /* JA4 / UA cells: a truncated value opens a pinnable popover so the full
    string can be selected + copied (the native title tooltip cannot). */
-td.cellpop{cursor:pointer}
+td.cellpop-active{cursor:pointer}
 .cellpop-pop{display:flex;align-items:flex-start;gap:.5rem}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem}
 .cellpop-copy{flex:none;font-size:.7rem;padding:.15rem .55rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155}
@@ -629,6 +629,10 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
   document.querySelectorAll('td.cellpop').forEach(function(td){
     var val = td.textContent.trim();
     if (!val) return;
+    // only wire cells that are actually truncated — if the value fits, the
+    // popover would just be noise.
+    if (td.scrollWidth - td.clientWidth <= 1) return;
+    td.classList.add('cellpop-active');
     td.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
       if (pin.hasPinFor(td)) return;
