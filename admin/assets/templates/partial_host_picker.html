@@ -12,7 +12,7 @@
 {{ define "host_picker" }}
 <span class="host-picker">
   <details class="hp-dd">
-    <summary>{{ t .Lang "hunt.filter.host" }}: <b>{{ if .HostSelected }}{{ len .HostSelected }} {{ t .Lang "hunt.filter.host_selected" }}{{ else }}{{ t .Lang "hunt.filter.host_all" }}{{ end }}</b></summary>
+    <summary>{{ t .Lang "hunt.filter.host" }}: <b class="hp-sel-label">{{ if .HostSelectedList }}{{ if eq (len .HostSelectedList) 1 }}{{ index .HostSelectedList 0 }}{{ else }}{{ len .HostSelectedList }} {{ t .Lang "hunt.filter.host_selected" }}{{ end }}{{ else }}{{ t .Lang "hunt.filter.host_all" }}{{ end }}</b></summary>
     <div class="hp-list">
       {{ range .Hosts }}
       <label><input type="checkbox" class="hp-host" value="{{ . }}" {{ if index $.HostSelected . }}checked{{ end }}>{{ . }}{{ if eq . $.SelfHostID }} <span class="hp-self">({{ t $.Lang "hunt.filter.host_self" }})</span>{{ end }}</label>
@@ -29,6 +29,7 @@
 <style>
 .host-picker{position:relative;font-size:.8rem}
 .host-picker .hp-dd>summary{list-style:none;cursor:pointer;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;color:#0f172a;white-space:nowrap}
+.host-picker .hp-sel-label{display:inline-block;max-width:11rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .host-picker .hp-dd>summary::-webkit-details-marker{display:none}
 .host-picker .hp-dd>summary::after{content:"▾";margin-left:.35rem;color:#94a3b8;font-size:.65rem}
 .host-picker .hp-dd[open]>summary::after{content:"▴"}

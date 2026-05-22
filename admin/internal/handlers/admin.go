@@ -428,11 +428,15 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		data["Hosts"] = hostList
 	}
 	if _, ok := data["HostSelected"]; !ok {
+		list := resolveHostFilter(r)
 		sel := map[string]bool{}
-		for _, x := range resolveHostFilter(r) {
+		for _, x := range list {
 			sel[x] = true
 		}
 		data["HostSelected"] = sel
+		// HostSelectedList: the same selection as a slice, so the picker
+		// summary can show the single host's name when exactly one is picked.
+		data["HostSelectedList"] = list
 	}
 	if _, ok := data["SelfHostID"]; !ok {
 		data["SelfHostID"] = h.HostID
