@@ -98,11 +98,13 @@ func TestSettingsSitesTabRender(t *testing.T) {
 		t.Errorf("host inventory missing the disable/enable toggle")
 	}
 	// the self host-id editor lives in the multi-host section.
-	if !strings.Contains(body, "section=host") || !strings.Contains(body, `name="host_id"`) {
-		t.Errorf("sites tab missing the editable host-id form")
+	if !strings.Contains(body, `name="host_id"`) {
+		t.Errorf("sites tab missing the editable host-id field")
 	}
-	if tabForSection("host") != "sites" {
-		t.Errorf(`tabForSection("host") = %q, want "sites"`, tabForSection("host"))
+	// the whole tab is a single settings form (host id + site acceptance) ->
+	// exactly one save form, so one Save button.
+	if n := strings.Count(body, "save?section=sites"); n != 1 {
+		t.Errorf("want exactly 1 settings-save form on the sites tab, got %d", n)
 	}
 	// The shared header_tools partial must put the host + site pickers on the
 	// settings page too (regression: they used to be dashboard-only).
@@ -111,9 +113,9 @@ func TestSettingsSitesTabRender(t *testing.T) {
 			t.Errorf("settings header missing the %q", want)
 		}
 	}
-	// shop is defined, so only blog should carry a promote form.
-	if n := strings.Count(body, `name="site" value=`); n != 1 {
-		t.Errorf("want exactly 1 ghost promote form, got %d", n)
+	// shop is defined, so only blog should carry a one-click promote button.
+	if n := strings.Count(body, "data-site="); n != 1 {
+		t.Errorf("want exactly 1 ghost promote button, got %d", n)
 	}
 }
 

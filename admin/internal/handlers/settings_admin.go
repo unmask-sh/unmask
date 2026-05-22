@@ -613,7 +613,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.URL.Query().Get("section")
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites", "host":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -747,12 +747,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "shared-feed":
 		applySharedFeedForm(&cur.SharedFeed, r)
 	case "sites":
+		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
-	case "host":
-		// This instance's host id (= the Sites / Hosts tab).  "hostname" mode
-		// clears it so the OS hostname fallback applies; "custom" stores the
-		// charset-guarded value.  Takes effect on the next admin restart
-		// (h.HostID is resolved at startup).
+		// host id: "hostname" mode clears it so the OS hostname fallback
+		// applies; "custom" stores the charset-guarded value.  Takes effect on
+		// the next admin restart (h.HostID is resolved at startup).
 		if r.FormValue("host_id_mode") == "custom" {
 			hid := strings.TrimSpace(r.FormValue("host_id"))
 			if hid != "" && !hostIDRE.MatchString(hid) {
@@ -896,13 +895,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	redirBack("")
 }
 
-func tabForSection(s string) string {
-	// The "host" section (= this host's id) is edited on the Sites / Hosts tab.
-	if s == "host" {
-		return "sites"
-	}
-	return s
-}
+func tabForSection(s string) string { return s }
 
 func (h *Handler) snapshotSettings() settings.Settings {
 	settingsMu.Lock()
