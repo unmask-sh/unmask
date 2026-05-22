@@ -90,13 +90,27 @@ if [ "$HAVE_CREATEREPO" = 1 ]; then
         [ -n "$latest" ] && cp -f "$latest" "$arch_dir/unmask-release-latest.noarch.rpm"
     done
 
-    # generate repodata
+    # sign packages + generate repodata
     for arch in x86_64 aarch64; do
         arch_dir="$OUT/rpm/$arch"
         [ -d "$arch_dir/RPMS" ] || continue
+        # GPG-sign each rpm package (= required for dnf gpgcheck=1).  Done
+        # before createrepo_c so the metadata hashes the signed files.
+        # Idempotent: re-signing an already-signed rpm replaces the signature.
+        # The signing key must be RSA -- rpm 4.16 (EL9) cannot create or
+        # verify ed25519/EdDSA signatures.
+        if [ -n "${UNMASK_GPG_KEY_ID:-}" ]; then
+            echo "  -> sign rpms in $arch_dir/RPMS (key=$UNMASK_GPG_KEY_ID)"
+            for r in "$arch_dir"/RPMS/*.rpm; do
+                [ -f "$r" ] || continue
+                rpm --addsign --define "_gpg_name $UNMASK_GPG_KEY_ID" "$r" >/dev/null
+            done
+        else
+            echo "  -> WARNING: UNMASK_GPG_KEY_ID unset -> rpms NOT signed (dnf gpgcheck=1 will fail)"
+        fi
         echo "  -> createrepo_c $arch_dir"
         createrepo_c --quiet "$arch_dir"
-        # GPG sign (= optional)
+        # sign the repo metadata (= repo_gpgcheck=1)
         if [ -n "${UNMASK_GPG_KEY_ID:-}" ]; then
             gpg --batch --yes --default-key "$UNMASK_GPG_KEY_ID" \
                 --detach-sign --armor "$arch_dir/repodata/repomd.xml"
