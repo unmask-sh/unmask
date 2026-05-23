@@ -810,9 +810,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "appearance":
 		// Combined save for the theme tab: branding identity + copy preset
-		// + theme card.  The two used to be separate forms with two save
-		// buttons on the same page; appearance merges them so the operator
-		// makes one decision and presses one button.
+		// + theme card + "show credit" badge.  Multiple forms with multiple
+		// save buttons on the same page confused operators; appearance
+		// dispatches them all from one button press.
 		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
 			redirBack(err.Error())
 			return
@@ -822,6 +822,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			t = "default"
 		}
 		cur.Challenge.Theme = t
+		// show_credit was previously on the challenge tab; now lives next
+		// to the theme cards so the operator sees the live preview toggle
+		// alongside it.  Plain checkbox -> bool.
+		cur.Challenge.ShowCredit = r.FormValue("show_credit") == "1"
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":

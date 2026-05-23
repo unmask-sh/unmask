@@ -2170,17 +2170,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              style="width:6rem">
     </div>
 
-    <div class="field">
-      <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.challenge.show_credit" }}</span>
-        <button type="button" class="ua-help-trigger" data-help-target="ch-credit-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="ch-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
-      <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-        <input type="checkbox" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
-        {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
-      </label>
-    </div>
+    {{/* "show credit" badge toggle moved to the theme tab so it sits next to
+         the live preview iframes (= operator can see it appear/disappear).
+         Kept the i18n strings under settings.challenge.show_credit_* so the
+         help text stays the canonical source. */}}
 
     <div class="field">
       <div class="field-label field-label-row">
@@ -2663,6 +2656,18 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
 
       <div class="field">
+        <div class="field-label field-label-row">
+          <span>{{ t .Lang "settings.challenge.show_credit" }}</span>
+          <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
+        </div>
+        <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
+        <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
+          {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
+        </label>
+      </div>
+
+      <div class="field">
         <label>{{ t .Lang "settings.branding.logo_label" }}</label>
         {{ if .BrandingHasLogo }}
         <div style="display:flex;align-items:center;gap:.7rem;margin:.3rem 0 .4rem;padding:.5rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
@@ -2761,7 +2766,7 @@ document.addEventListener("DOMContentLoaded", function(){
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}{{ if $.Branding.FooterText }}&_preview_footer_text={{ $.Branding.FooterText }}{{ end }}"></iframe>
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}{{ if $.Branding.FooterText }}&_preview_footer_text={{ $.Branding.FooterText }}{{ end }}&_preview_show_credit={{ if $.Challenge.ShowCredit }}1{{ else }}0{{ end }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
@@ -2882,6 +2887,10 @@ document.addEventListener("DOMContentLoaded", function(){
     var el = document.getElementById('branding-footer-text');
     return el ? el.value.trim() : '';
   }
+  function currentShowCredit(){
+    var el = document.getElementById('branding-show-credit');
+    return el && el.checked ? '1' : '0';
+  }
   function updatePreviewLinks(){
     var bp = basePath();
     // Always emit _preview_site_name / _preview_footer_text (even when blank)
@@ -2896,7 +2905,8 @@ document.addEventListener("DOMContentLoaded", function(){
         '?_preview_preset=' + encodeURIComponent(preset) +
         '&theme=' + encodeURIComponent(theme) +
         '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
-        '&_preview_footer_text=' + encodeURIComponent(currentFooterText());
+        '&_preview_footer_text=' + encodeURIComponent(currentFooterText()) +
+        '&_preview_show_credit=' + currentShowCredit();
       a.href = url;
     });
   }
@@ -2930,7 +2940,8 @@ document.addEventListener("DOMContentLoaded", function(){
       var url = bp + '/challenge/?_test_ja4=0&theme=' + encodeURIComponent(theme) +
                 '&_preview=1&_preview_preset=' + encodeURIComponent(preset) +
                 '&_preview_site_name=' + encodeURIComponent(sn) +
-                '&_preview_footer_text=' + encodeURIComponent(ft);
+                '&_preview_footer_text=' + encodeURIComponent(ft) +
+                '&_preview_show_credit=' + currentShowCredit();
       f.src = url;
     });
   }
@@ -2960,6 +2971,11 @@ document.addEventListener("DOMContentLoaded", function(){
   if (siteName) siteName.addEventListener('input', onBrandInput);
   var footerText = document.getElementById('branding-footer-text');
   if (footerText) footerText.addEventListener('input', onBrandInput);
+  // Credit toggle: checkbox change fires immediately (= no debounce needed,
+  // operator clicks once per toggle).  Use the same updateAll path so the
+  // iframe reloads with the new credit visibility.
+  var showCreditCb = document.getElementById('branding-show-credit');
+  if (showCreditCb) showCreditCb.addEventListener('change', updateAll);
   // Initial sync (= covers the case where the form's saved selection differs
   // from what the server rendered into the static hrefs / samples).  Don't
   // re-fire the iframe load on initial sync -- server already rendered the

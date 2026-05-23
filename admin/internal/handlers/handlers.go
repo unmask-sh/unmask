@@ -602,8 +602,18 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// "protected by unmask" credit: when OFF in settings (default), strip the
 	// marker region from the HTML.  When ON, drop only the markers and keep
-	// the aside body.
-	body = stripOrKeepCredit(body, h.Settings.Challenge.ShowCredit)
+	// the aside body.  Operator-side previews (= /admin/test/ or ?_preview=1)
+	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
+	// reflects the toggle live without saving.
+	showCredit := h.Settings.Challenge.ShowCredit
+	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
+		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
+			showCredit = true
+		} else if v == "0" {
+			showCredit = false
+		}
+	}
+	body = stripOrKeepCredit(body, showCredit)
 
 	ip := clientIP(r)
 	if pkt := events.PackIP(ip); pkt != nil {
