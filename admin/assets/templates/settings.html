@@ -2656,18 +2656,6 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
 
       <div class="field">
-        <div class="field-label field-label-row">
-          <span>{{ t .Lang "settings.challenge.show_credit" }}</span>
-          <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
-        </div>
-        <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
-        <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
-          {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
-        </label>
-      </div>
-
-      <div class="field">
         <label>{{ t .Lang "settings.branding.logo_label" }}</label>
         {{ if .BrandingHasLogo }}
         <div style="display:flex;align-items:center;gap:.7rem;margin:.3rem 0 .4rem;padding:.5rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
@@ -2683,6 +2671,18 @@ document.addEventListener("DOMContentLoaded", function(){
         <input type="file" name="branding_logo_file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
                style="font-size:.85rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.logo_desc") }}</p>
+      </div>
+
+      <div class="field">
+        <div class="field-label field-label-row">
+          <span>{{ t .Lang "settings.challenge.show_credit" }}</span>
+          <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
+        </div>
+        <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
+        <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
+          {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
+        </label>
       </div>
     </div>
   </div>
