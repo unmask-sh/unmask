@@ -13,13 +13,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.1.0] — 2026-05-24
 
 ### Added
-- (2026-05-24) **Alpine apk support**: `apk add unmask` installs the main
-  daemon and registers the OpenRC init script.  `unmask-plugin-nginx`
-  detects musl libc (= Alpine) in postinstall and gracefully skips placement
-  (= the bundled .so is glibc-built; Alpine's nginx is musl-linked) while
-  leaving `apk` happy and `nginx -t` green.  auth_request mode delivers full
-  unmask functionality on Alpine.  LP install page gains an Alpine option
-  in the OS dropdown + a stable `unmask-release-latest.apk` URL.
+- (2026-05-24) **Alpine first-class native-mode support**: `apk add
+  unmask unmask-plugin-nginx unmask-web-nginx` reaches `http=403 +
+  challenge HTML` end-to-end on Alpine 3.x.  Three changes make this work:
+  (a) `unmask-plugin-nginx` apk metadata depends on `gcompat`, which
+  provides the glibc compat layer that lets Alpine's musl-linked nginx
+  dlopen the bundled glibc-built .so; (b) postinstall-web-nginx detects
+  Alpine's `http.d/` vs RHEL/Debian `conf.d/` by parsing nginx.conf for
+  which dir is inside http {}, so upstream / map directives land in the
+  right scope; (c) postinstall-plugin-nginx-fat branches on gcompat
+  presence -- present means full native-mode install, absent means the
+  old skip-with-hint fallback.  JA4 fingerprinting is available on
+  Alpine too.  LP install page now lists Alpine without a "v0.1 only
+  supports auth_request" caveat.  OpenRC init script symlink is set up
+  automatically.
 
 - (2026-05-24) **build-repo.sh apk latest alias**: the apk stage now writes
   `unmask-release-latest.apk` next to the versioned file, mirroring what
