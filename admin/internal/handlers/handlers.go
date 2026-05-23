@@ -39,6 +39,7 @@ const (
 	captchaPlaceholder   = "/*__CAPTCHA__*/null"
 	themePlaceholder     = `/*__THEME__*/"default"`
 	brandingPlaceholder  = `/*__BRANDING__*/null`
+	buildVPlaceholder    = `__BUILD_V__`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	origPathPlaceholder  = `/*__ORIG_PATH__*/""`
@@ -153,6 +154,12 @@ func captchaInjectJSON(c settings.Captcha) string {
 	}
 	return string(b)
 }
+
+// buildVersionStamp is set at admin start (= time.Now().Unix()) and is
+// rendered into challenge.html as a `?v=...` query on the <script src>.
+// Each restart breaks visitor-side caching of challenge.js so a UI fix
+// propagates without waiting for the 10-minute Cache-Control window.
+var buildVersionStamp = time.Now().Unix()
 
 // brandingInjectJSON builds the JSON object embedded in challenge.html.
 // challenge.js reads window.__brand and applies logo / site_name / footer /
@@ -422,6 +429,12 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
 		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding, h.basePath())))
+	// Cache-bust the challenge.js URL with the admin's start-time epoch so
+	// every restart forces visitors to re-fetch the script.  Without this
+	// the public-side max-age=600 keeps stale JS in browsers for up to 10
+	// minutes after a fix lands -- painful while iterating on copy / brand.
+	body = bytes.ReplaceAll(body, []byte(buildVPlaceholder),
+		[]byte(strconv.FormatInt(buildVersionStamp, 10)))
 
 	// challenge_mode resolution:
 	//   1) rate-limit path (= "/_rl/" / forceReason="rate_limit") uses
