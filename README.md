@@ -39,8 +39,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 **pre-release (v0.1)** — Packages, install wizard, and per-HTTP-server support are complete.
 
-Security reports (see [SECURITY.md](SECURITY.md)) get priority response;
-other issues and feature requests are handled when time permits. PRs welcome.
+Security reports (see [SECURITY.md](SECURITY.md)) get priority response.
+Bug reports, documentation fixes, and PRs are reviewed regularly.
 
 ## License
 
