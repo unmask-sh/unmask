@@ -1155,11 +1155,9 @@ func defaults() Settings {
 				},
 				BanDuration: 86400, // 24h
 				BanFilePath: "/etc/unmask/banned.txt",
-				// captcha_only on a trip: a real user essentially never lands
-				// on a honeypot path, so a trip is bot-confirmed.  pow_then_
-				// captcha still reaches CAPTCHA (chain), but the leading PoW
-				// round-trip is wasted work against a bot-confirmed client.
-				DefaultAction: RateChallengeCaptchaOnly,
+				// DefaultAction left empty -> inherits the same fallback as
+				// the rate-limit default (pow_then_captcha).  Keeps the
+				// chain choice consistent across axes.
 			},
 		},
 	}

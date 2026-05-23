@@ -485,12 +485,9 @@ func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
 		return axisDecision{sev: sevDeny, reason: "honeypot:deny"}, true
 	}
 	if !settings.IsValidRateChallengeMode(act) {
-		// A real user essentially never lands on a honeypot path, so a trip
-		// is bot-confirmed.  pow_then_captcha would also gate the request
-		// (the chain still reaches CAPTCHA), but the leading PoW round-trip
-		// is wasted work against a bot-confirmed client -- send them
-		// straight to CAPTCHA instead.
-		act = settings.RateChallengeCaptchaOnly
+		// Inherit the same chain default as the rate-limit axis so the
+		// "default = pow_then_captcha" recommendation holds everywhere.
+		act = settings.RateChallengePoWThenCaptcha
 	}
 	s := severityFromAction(act)
 	return axisDecision{sev: s, reason: "honeypot:" + act, chMode: chModeFromSeverity(s)}, true
@@ -519,9 +516,8 @@ func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool)
 			return axisDecision{sev: sevDeny, reason: "ban:honeypot:deny"}, true
 		}
 		if !settings.IsValidRateChallengeMode(act) {
-			// Mirror honeypotDecide: fall back to captcha_only so a
-			// PoW-capable bot can't slip through the ban gate.
-			act = settings.RateChallengeCaptchaOnly
+			// Mirror honeypotDecide -- inherit the rate-limit chain default.
+			act = settings.RateChallengePoWThenCaptcha
 		}
 		s := severityFromAction(act)
 		return axisDecision{sev: s, reason: "ban:honeypot:" + act, chMode: chModeFromSeverity(s)}, true
