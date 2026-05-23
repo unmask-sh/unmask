@@ -658,8 +658,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	section := r.URL.Query().Get("section")
 	// Branding upload uses multipart/form-data because of the logo file.
+	// "appearance" carries the same multipart form (= branding + theme in
+	// one POST -- the operator sees a single save button on the theme tab).
 	// Every other section is plain x-www-form-urlencoded.
-	if section == "branding" {
+	if section == "branding" || section == "appearance" {
 		// Cap the upload at ~4 MiB so a runaway POST cannot eat the admin's
 		// memory; reasonable for logo files (the typical SVG is <50 KiB).
 		if err := r.ParseMultipartForm(4 << 20); err != nil {
@@ -671,7 +673,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -806,6 +808,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
+	case "appearance":
+		// Combined save for the theme tab: branding identity + copy preset
+		// + theme card.  The two used to be separate forms with two save
+		// buttons on the same page; appearance merges them so the operator
+		// makes one decision and presses one button.
+		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+		t := strings.TrimSpace(r.FormValue("theme"))
+		if !challengeThemes[t] {
+			t = "default"
+		}
+		cur.Challenge.Theme = t
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -962,10 +978,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 }
 
 // tabForSection maps a save form's ?section= value to the destination tab
-// for the post-save redirect.  Most sections share the name; the branding
-// form lives inside the theme tab, so it redirects there instead.
+// for the post-save redirect.  Most sections share the name; the branding /
+// appearance forms live inside the theme tab, so they redirect there.
 func tabForSection(s string) string {
-	if s == "branding" {
+	if s == "branding" || s == "appearance" {
 		return "theme"
 	}
 	return s

@@ -313,12 +313,18 @@ func stripOrKeepCredit(body []byte, show bool) []byte {
 // the "/rl1/" prefix, restore the original URI, and treat as rl=1.
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	site := siteFromRequest(r)
+	// Explicit operator-side force (= /test/force-pow / /admin/test/force-*
+	// add ?_force=...) -- short-circuit the monitor / passthrough early exits
+	// below so the operator can preview the challenge page even when the
+	// site is in observe-only or passthrough mode.  Public /test/* is already
+	// gated by Challenge.PublicTestPages; /admin/test/* is auth-gated.
+	forceQuery := strings.TrimSpace(r.URL.Query().Get("_force"))
 	// monitor mode: don't serve a challenge, redirect immediately.  Keep the
 	// event with phase=serve (preserves dashboard aggregation continuity).
 	// In auth_request mode AuthCheck has already returned pass, so this path
 	// is not reached.  Reached via native mode (nginx plugin sends straight
 	// to the challenge route).
-	if h.snapshotSettings().Challenge.ObserveOnly {
+	if forceQuery == "" && h.snapshotSettings().Challenge.ObserveOnly {
 		h.serveObserveOnlyRedirect(w, r, site)
 		return
 	}
@@ -429,10 +435,12 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// Monitoring mode (= 全アクセスを通す).  When ON we short-circuit the
 	// challenge: log the signal in events, then bounce the visitor to the
 	// original URL without showing PoW / CAPTCHA.
-	if h.Settings.Global.Passthrough {
+	if forceQuery == "" && h.Settings.Global.Passthrough {
 		// Issue _bv so the visitor doesn't loop back through nginx's
 		// challenge redirect on the next request.  Cookie shape mirrors
-		// the post-PoW success path.
+		// the post-PoW success path.  Skipped when ?_force= is set so
+		// the operator's test endpoint can still preview the page in
+		// passthrough mode.
 		h.setBVCookie(w, "passthrough.0.c")
 		target := "/"
 		if rlOrigURI != "" {

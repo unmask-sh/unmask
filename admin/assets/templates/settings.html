@@ -2629,16 +2629,14 @@ document.addEventListener("DOMContentLoaded", function(){
 
 {{ if eq .Tab "theme" }}
 
-{{/* Branding panel — sits ABOVE the theme cards because operators picking a
-     theme are also likely to want to set the logo / site name to make the
-     challenge page feel like part of their own site.  Split into two sub-
-     cards inside one <form>: "識別情報" (= what is your site?) and
-     "文言テンプレート" (= which copy variant do visitors see?).  Mixing
-     them in one flat list confused operators -- the new structure tells the
-     reader which decisions are about facts vs about wording.  Separate
-     <form> from the theme form because the file upload needs multipart. */}}
+{{/* "Appearance" form: one form, one save button.  Holds three sub-cards:
+     branding identity (logo / site name / footer) + copy template (preset
+     radios + live preview link) + theme (look & feel cards).  Mixed into a
+     single multipart POST so the operator never sees two save buttons on
+     the same tab; the appearance save handler dispatches to the existing
+     applyBrandingForm + the theme allowlist clamp. */}}
 <form method="post" enctype="multipart/form-data"
-      action="{{ .BasePath }}/admin/settings/save?section=branding" id="branding-form">
+      action="{{ .BasePath }}/admin/settings/save?section=appearance" id="appearance-form">
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
 
@@ -2718,11 +2716,10 @@ document.addEventListener("DOMContentLoaded", function(){
     </div>
   </div>
 
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
-
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=theme" id="theme-form">
-  <div class="bcd-card">
+  <div class="bcd-card" style="margin-top:.4rem">
+    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
+      {{ t .Lang "settings.theme.h" }}
+    </div>
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
 
     <input type="hidden" name="theme" id="theme-input" value="{{ .ChallengeTheme }}">
