@@ -400,7 +400,12 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
         <td class="mono verdict-cell"{{ if .Verdict }} title="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge" title="rate-limit hit (zone: {{ .RLZone }})">rl:{{ .RLZone }}</span>{{ end }}</td>
         <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
-        <td class="url mono" title="{{ .Path }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        {{/* URL column uses the same cellpop pattern as JA4 / UA: native
+             title= dropped (= duplicate of the cell text), the popover only
+             appears when the value is actually truncated, and the popover
+             body offers a copy button so the operator can lift the full
+             path even if the table is narrow. */}}
+        <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="actions">
           {{ if .Banned }}
