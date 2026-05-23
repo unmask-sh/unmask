@@ -302,6 +302,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}
 	}
 
+	// Retention tab: surface the current size of the data the retention
+	// knobs will prune.  Cheap (= a few COUNT(*) / MIN() queries) but only
+	// needed when this tab is being viewed, so gate the work on `tab`.
+	var retentionView retentionStatsView
+	if tab == "retention" {
+		rctx, rcancel := context.WithTimeout(r.Context(), 3*time.Second)
+		retentionView = h.retentionStats(rctx)
+		rcancel()
+	}
+
 	return map[string]any{
 		"Lang":               i18n.Resolve(r),
 		"TZ":                 resolveTZ(r),
@@ -335,6 +345,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"EventsBatchIntervalMs": h.Settings.EventsBatchIntervalMs,
 		"EventsDropped":         events.GlobalFlusherDropped(),
 		"NginxLogEnabled":       h.Settings.NginxLog.Enabled,
+		"Retention":             retentionView,
 		"Tab":                tab,
 		"TabHelpKey":         tabHelpKey(tab),
 		"Saved":              r.URL.Query().Get("saved") != "",
@@ -2765,4 +2776,70 @@ func tabHelpKey(tab string) string {
 		return "settings.sites.intro"
 	}
 	return ""
+}
+
+// retentionStatsView: current size of the data the retention tab controls, so
+// the operator can see what they're about to prune.  Zero values are fine when
+// the tab is not being rendered (= the template just hides the empty row).
+type retentionStatsView struct {
+	EventsRows         int64  // unmask_event row count
+	EventsOldest       string // raw date_created of the oldest unmask_event row, or ""
+	CookieMinuteRows   int64  // unmask_cookie_minute row count
+	CookieMinuteOldest string // formatted UTC datetime of the oldest bucket, or ""
+	DBSize             int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
+	DBSizeStr          string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
+}
+
+// retentionStats: cheap point-in-time stats for the retention tab.  Best-
+// effort: query errors are logged and produce zero fields rather than fail
+// the whole page.
+func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
+	v := retentionStatsView{}
+	if h == nil || h.DB == nil {
+		return v
+	}
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows); err != nil {
+		log.Printf("retentionStats events count: %v", err)
+	}
+	if err := h.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(MIN(date_created), '') FROM unmask_event`).Scan(&v.EventsOldest); err != nil {
+		log.Printf("retentionStats events oldest: %v", err)
+	}
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows); err != nil {
+		log.Printf("retentionStats cookie_minute count: %v", err)
+	}
+	var oldestMin int64
+	if err := h.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(MIN(bucket_min), 0) FROM unmask_cookie_minute`).Scan(&oldestMin); err != nil {
+		log.Printf("retentionStats cookie_minute oldest: %v", err)
+	}
+	if oldestMin > 0 {
+		v.CookieMinuteOldest = time.Unix(oldestMin*60, 0).UTC().Format("2006-01-02 15:04 UTC")
+	}
+	if h.Settings.DB.Driver == "sqlite" && h.Settings.DB.SQLitePath != "" {
+		if st, err := os.Stat(h.Settings.DB.SQLitePath); err == nil {
+			v.DBSize = st.Size()
+			v.DBSizeStr = humanBytes(v.DBSize)
+		}
+	}
+	return v
+}
+
+// humanBytes: render a byte count as a one-decimal SI-style string
+// (e.g. 12345 -> "12.1 KB").  Returns "" for n<=0.
+func humanBytes(n int64) string {
+	if n <= 0 {
+		return ""
+	}
+	const k = 1024.0
+	switch {
+	case n < int64(k):
+		return fmt.Sprintf("%d B", n)
+	case n < int64(k*k):
+		return fmt.Sprintf("%.1f KB", float64(n)/k)
+	case n < int64(k*k*k):
+		return fmt.Sprintf("%.1f MB", float64(n)/(k*k))
+	default:
+		return fmt.Sprintf("%.2f GB", float64(n)/(k*k*k))
+	}
 }

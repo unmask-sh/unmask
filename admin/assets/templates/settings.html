@@ -2941,6 +2941,14 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
       <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      {{ if gt .Retention.EventsRows 0 }}
+      <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
+        {{ t .Lang "settings.retention.current_label" }}:
+        <strong>{{ comma .Retention.EventsRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if .Retention.EventsOldest }} · {{ t .Lang "settings.retention.oldest_label" }} <code>{{ .Retention.EventsOldest }}</code>{{ end }}
+        {{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
+      </div>
+      {{ end }}
     </div>
   </div>
 
@@ -2957,6 +2965,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <button type="button" class="ua-help-trigger" data-help-target="retention-nginx-log-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-nginx-log-help">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</script>
+      {{ if gt .Retention.CookieMinuteRows 0 }}
+      <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
+        {{ t .Lang "settings.retention.current_label" }}:
+        <strong>{{ comma .Retention.CookieMinuteRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if .Retention.CookieMinuteOldest }} · {{ t .Lang "settings.retention.oldest_label" }} <code>{{ .Retention.CookieMinuteOldest }}</code>{{ end }}
+      </div>
+      {{ end }}
     </div>
   </div>
 
