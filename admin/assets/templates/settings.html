@@ -2645,14 +2645,6 @@ document.addEventListener("DOMContentLoaded", function(){
       {{ t .Lang "settings.branding.identity_heading" }}
     </div>
 
-    <div class="field">
-      <label style="display:inline-flex;align-items:center;gap:.4rem;font-weight:500">
-        <input type="checkbox" name="branding_enabled" value="1" {{ if .Branding.Enabled }}checked{{ end }}>
-        {{ t .Lang "settings.branding.enabled_label" }}
-      </label>
-      <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.78rem;line-height:1.5">{{ t .Lang "settings.branding.enabled_desc" }}</p>
-    </div>
-
     <div class="branding-grid">
       <div class="field">
         <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>

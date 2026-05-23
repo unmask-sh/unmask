@@ -170,9 +170,6 @@ var buildVersionStamp = time.Now().Unix()
 // .png) so the browser fetches /<base>/branding/logo.<ext>; an empty path
 // omits the field and the JS hides the <img> slot.
 func brandingInjectJSON(b settings.Branding, basePath string) string {
-	if !b.Enabled {
-		return "null"
-	}
 	type out struct {
 		LogoURL    string `json:"logo_url,omitempty"`
 		SiteName   string `json:"site_name,omitempty"`
@@ -221,7 +218,7 @@ func brandingInjectJSON(b settings.Branding, basePath string) string {
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	b := h.snapshotSettings().Branding
-	if !b.Enabled || strings.TrimSpace(b.LogoPath) == "" {
+	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
 		return
 	}

@@ -146,9 +146,11 @@ func (c Challenge) ResolvedPowDifficulty() int {
 // short brand string). Visitor-facing copy lives in challenge.js as a fixed
 // set of presets the operator picks from — that way ja/en stays consistent
 // regardless of the visitor's browser locale.
+//
+// There is intentionally no "enabled" toggle: leaving the identity fields
+// blank already produces the same end result (visitor sees the copy preset
+// only, no logo / name / footer), so the toggle was a redundant control.
 type Branding struct {
-	// Enabled: when false, defaults are used (= no logo, default copy).
-	Enabled bool `yaml:"enabled,omitempty"`
 	// LogoPath: absolute path on disk to the uploaded logo file (PNG / JPEG /
 	// SVG). Empty = no logo. Served via /branding/logo with Content-Type set
 	// from the file extension. SVGs are sanitized at upload time (= <script>
@@ -1137,12 +1139,11 @@ func defaults() Settings {
 			},
 		},
 		Branding: Branding{
-			// Off by default; activating requires the operator to flip
-			// the switch in the branding panel.  When enabled but with
-			// no logo / site name / footer set, only the "friendly" copy
-			// preset takes effect (= still strictly better than the old
-			// "Verifying your browser…" baseline).
-			Enabled:    false,
+			// Default copy preset is "friendly" — strictly better than
+			// the old "Verifying your browser…" baseline that triggered
+			// "is my browser infected?" confusion in real users.  Logo /
+			// site name / footer stay blank until the operator fills them
+			// in via the branding panel.
 			CopyPreset: BrandingPresetFriendly,
 		},
 		RateLimit: RateLimitConfig{

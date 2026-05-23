@@ -2998,7 +2998,6 @@ var (
 // logo untouched (= operator only changed text fields).  branding_logo_clear=1
 // removes the on-disk file + clears LogoPath.
 func applyBrandingForm(cur *settings.Branding, configPath string, r *http.Request) error {
-	cur.Enabled = r.FormValue("branding_enabled") == "1"
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
