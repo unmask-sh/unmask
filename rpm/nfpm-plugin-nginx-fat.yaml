@@ -42,6 +42,16 @@ apk:
 depends:
   - unmask
 
+overrides:
+  # On Alpine, gcompat lets nginx (musl-linked) dlopen our glibc-built
+  # plugin .so.  Without it the module fails to load and the challenge
+  # never fires.  Pin as a hard apk dependency so `apk add unmask-plugin-nginx`
+  # pulls it in by default.
+  apk:
+    depends:
+      - unmask
+      - gcompat
+
 scripts:
   preinstall: ./scripts/preinstall-plugin-nginx-fat.sh
   postinstall: ./scripts/postinstall-plugin-nginx-fat.sh

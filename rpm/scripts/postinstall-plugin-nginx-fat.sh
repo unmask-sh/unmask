@@ -29,30 +29,41 @@ fi
 
 # Detect musl libc (= Alpine / similar).  The bundled .so files are built
 # against glibc; nginx on Alpine is linked against musl and cannot dlopen a
-# glibc .so.  Native mode is unsupported on Alpine in v0.1 -- skip the
-# install with a clear pointer to auth_request mode.  Exit 0 so the apk
-# transaction succeeds; the user can still install unmask-web-nginx and
-# the main package for the auth_request flow.
+# glibc .so directly.  Alpine's `gcompat` package provides a glibc compat
+# layer that lets dlopen + symbol resolution succeed.  If gcompat is present
+# we proceed normally; otherwise we skip with a hint so apk add gcompat
+# unblocks the operator.
 if ldd --version 2>&1 | grep -qi musl \
    || [ -e /lib/ld-musl-x86_64.so.1 ] \
    || [ -e /lib/ld-musl-aarch64.so.1 ]; then
-    cat <<'EOF'
+    if [ -e /lib/ld-linux-x86-64.so.2 ] || [ -e /lib/ld-linux-aarch64.so.1 ]; then
+        echo "unmask-plugin-nginx: musl libc + gcompat detected (= Alpine with glibc compat). Proceeding with glibc-built module."
+    else
+        cat <<'EOF'
 ================================================================
-unmask-plugin-nginx: musl libc detected (= Alpine).
+unmask-plugin-nginx: musl libc without gcompat detected (= Alpine).
 ================================================================
 
-The bundled module .so files are built against glibc and cannot be
-loaded by an nginx linked against musl.  Native mode is not supported
-on Alpine in v0.1.
+The bundled module .so files are glibc-built.  Alpine's nginx is musl-
+linked and cannot dlopen a glibc .so without the gcompat glibc compat
+layer.  Install gcompat and rerun the unmask-plugin-nginx install:
 
-Workaround: run unmask in auth_request mode -- the main `unmask`
-package is enough; nginx subrequests the admin daemon.
-See https://unmask.sh/install/  ->  pick "nginx · auth_request".
+  sudo apk add gcompat
+  sudo apk add --no-cache unmask-plugin-nginx
+
+(gcompat is listed as a soft `depends` in the apk metadata, so a plain
+`apk add unmask-plugin-nginx` should already pull it in -- this branch
+fires only when gcompat was explicitly excluded.)
+
+Alternatively, run unmask in auth_request mode -- the main `unmask`
+package alone is enough; nginx subrequests the admin daemon.  See
+https://unmask.sh/install/  ->  pick "nginx · auth_request".
 
 The .so binaries stay under /usr/share/unmask/plugin/ for inspection.
 ================================================================
 EOF
-    exit 0
+        exit 0
+    fi
 fi
 
 # ---- 0.5. Determine the host nginx's OpenSSL ABI ----

@@ -22,13 +22,27 @@ echo "unmask-web-nginx: installing nginx integration..."
 # admin daemon has done its first render.
 # (The admin daemon will later overwrite this with the correct contents.)
 UPSTREAM_SRC=/etc/unmask/upstream.conf
-UPSTREAM_LINK=/etc/nginx/conf.d/00-unmask-upstream.conf
 [ -d /etc/unmask ] || mkdir -p /etc/unmask
 [ -e "$UPSTREAM_SRC" ] || : > "$UPSTREAM_SRC"
-# Alpine ships only /etc/nginx/http.d/ by default, but the stock nginx.conf
-# still includes /etc/nginx/conf.d/*.conf -- creating the dir lets our
-# symlinks land in conf.d/ on every distro without forking the path.
-mkdir -p /etc/nginx/conf.d
+# Pick the include dir that lands inside http {}.  On RHEL / Debian the stock
+# nginx.conf has `include /etc/nginx/conf.d/*.conf;` inside http {}, so conf.d/
+# is the right place.  Alpine inverts this: conf.d/ is included in main scope
+# and http.d/ is included in http {}.  Our upstream / map files contain
+# directives that only belong in http {}, so route by what the host nginx.conf
+# actually does.
+NGINX_INCDIR=/etc/nginx/conf.d
+if [ -d /etc/nginx/http.d ] \
+   && [ -r /etc/nginx/nginx.conf ] \
+   && awk '
+       /\<http[[:space:]]*\{/ { in_http=1 }
+       in_http && /include[[:space:]]+\/etc\/nginx\/http\.d\// { found=1 }
+       /^\}/ { in_http=0 }
+       END { exit !found }
+     ' /etc/nginx/nginx.conf; then
+    NGINX_INCDIR=/etc/nginx/http.d
+fi
+mkdir -p "$NGINX_INCDIR"
+UPSTREAM_LINK=$NGINX_INCDIR/00-unmask-upstream.conf
 if [ ! -L "$UPSTREAM_LINK" ] && [ ! -e "$UPSTREAM_LINK" ]; then
     ln -sf "$UPSTREAM_SRC" "$UPSTREAM_LINK"
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
@@ -38,11 +52,11 @@ fi
 # unmask-plugin-nginx + admin combination.  Even without the plugin, keep the
 # symlink alive by pointing it at an empty placeholder that is still rendered.
 RENDERED_SRC=/etc/unmask/native/http.inc
-RENDERED_LINK=/etc/nginx/conf.d/00-unmask.conf
+RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
 [ -d /etc/unmask/native ] || mkdir -p /etc/unmask/native
 [ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
-# cleanup of the legacy symlink
-rm -f /etc/nginx/conf.d/00-unmask-rendered.conf
+# cleanup of the legacy symlink (= whichever include dir applies on this host)
+rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
 if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
     ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
     echo "unmask-web-nginx: symlinked $RENDERED_LINK -> $RENDERED_SRC"
