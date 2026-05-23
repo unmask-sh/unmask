@@ -197,6 +197,12 @@ if [ "$HAVE_APK" = 1 ]; then
         done
         # skip if no apks to index
         [ "$(ls "$d"/*.apk 2>/dev/null | wc -l)" -gt 0 ] || continue
+        # latest alias for unmask-release (= install docs link to a stable URL,
+        # parallel to rpm's unmask-release-latest.noarch.rpm and deb's
+        # unmask-release_latest_all.deb).  apk add reads metadata from the
+        # file content, so the alias filename is purely a download URL anchor.
+        latest=$(ls -1 "$d"/unmask-release-[0-9]*.apk 2>/dev/null | sort -V | tail -1)
+        [ -n "$latest" ] && cp -f "$latest" "$d/unmask-release-latest.apk"
         # --description: required for apk-tools v3 to recognize APKINDEX
         # (= confirmed via 2026-05-11 [B]).
         ( cd "$d" && apk index --quiet --description "unmask repository (single-path)" -o APKINDEX.tar.gz *.apk )

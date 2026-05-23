@@ -25,6 +25,10 @@ UPSTREAM_SRC=/etc/unmask/upstream.conf
 UPSTREAM_LINK=/etc/nginx/conf.d/00-unmask-upstream.conf
 [ -d /etc/unmask ] || mkdir -p /etc/unmask
 [ -e "$UPSTREAM_SRC" ] || : > "$UPSTREAM_SRC"
+# Alpine ships only /etc/nginx/http.d/ by default, but the stock nginx.conf
+# still includes /etc/nginx/conf.d/*.conf -- creating the dir lets our
+# symlinks land in conf.d/ on every distro without forking the path.
+mkdir -p /etc/nginx/conf.d
 if [ ! -L "$UPSTREAM_LINK" ] && [ ! -e "$UPSTREAM_LINK" ]; then
     ln -sf "$UPSTREAM_SRC" "$UPSTREAM_LINK"
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
@@ -42,6 +46,28 @@ rm -f /etc/nginx/conf.d/00-unmask-rendered.conf
 if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
     ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
     echo "unmask-web-nginx: symlinked $RENDERED_LINK -> $RENDERED_SRC"
+fi
+
+# SELinux: nginx defaults to the httpd_t domain on RHEL-family distros, where
+# auth_request / proxy_pass to 127.0.0.1:9477 is kernel-blocked unless the
+# httpd_can_network_connect bool is on.  Without this the bot challenge never
+# fires -- the visitor lands on the backend as if unmask were absent.  Auto-
+# enable so install-and-go works; opt out by setting UNMASK_SKIP_SETSEBOOL=1
+# before install.  Bool is persistent (-P) so it survives reboots.
+if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] \
+   && command -v getenforce >/dev/null 2>&1 \
+   && [ "$(getenforce 2>/dev/null)" = "Enforcing" ] \
+   && command -v setsebool >/dev/null 2>&1 \
+   && command -v getsebool >/dev/null 2>&1; then
+    if getsebool httpd_can_network_connect 2>/dev/null | grep -q ' --> off'; then
+        if setsebool -P httpd_can_network_connect 1 2>/dev/null; then
+            echo "unmask-web-nginx: SELinux setsebool -P httpd_can_network_connect 1 applied"
+            echo "  (= nginx can now proxy_pass to unmask-admin.  set UNMASK_SKIP_SETSEBOOL=1 to opt out)"
+        else
+            echo "unmask-web-nginx: WARNING -- setsebool failed."
+            echo "  -> run manually: sudo setsebool -P httpd_can_network_connect 1"
+        fi
+    fi
 fi
 
 if command -v nginx >/dev/null 2>&1; then

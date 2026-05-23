@@ -27,6 +27,34 @@ EOF
     exit 0
 fi
 
+# Detect musl libc (= Alpine / similar).  The bundled .so files are built
+# against glibc; nginx on Alpine is linked against musl and cannot dlopen a
+# glibc .so.  Native mode is unsupported on Alpine in v0.1 -- skip the
+# install with a clear pointer to auth_request mode.  Exit 0 so the apk
+# transaction succeeds; the user can still install unmask-web-nginx and
+# the main package for the auth_request flow.
+if ldd --version 2>&1 | grep -qi musl \
+   || [ -e /lib/ld-musl-x86_64.so.1 ] \
+   || [ -e /lib/ld-musl-aarch64.so.1 ]; then
+    cat <<'EOF'
+================================================================
+unmask-plugin-nginx: musl libc detected (= Alpine).
+================================================================
+
+The bundled module .so files are built against glibc and cannot be
+loaded by an nginx linked against musl.  Native mode is not supported
+on Alpine in v0.1.
+
+Workaround: run unmask in auth_request mode -- the main `unmask`
+package is enough; nginx subrequests the admin daemon.
+See https://unmask.sh/install/  ->  pick "nginx · auth_request".
+
+The .so binaries stay under /usr/share/unmask/plugin/ for inspection.
+================================================================
+EOF
+    exit 0
+fi
+
 # ---- 0.5. Determine the host nginx's OpenSSL ABI ----
 # Look at the version of libcrypto.so the nginx binary links against, and
 # pick the plugin .so built against the matching ABI.  Thanks to the
