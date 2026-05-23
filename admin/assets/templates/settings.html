@@ -2707,10 +2707,21 @@ document.addEventListener("DOMContentLoaded", function(){
           <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
           <span>— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
         </div>
-        <a class="branding-preset-preview" target="_blank" rel="noopener"
-           href="{{ $.BasePath }}/admin/test/force-captcha?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
-          {{ t $.Lang "settings.branding.preview_link" }} ↗
-        </a>
+        {{/* Pin preset (= row); theme inherited from the form's currently selected
+             theme card (= updated live by inline JS below).  Two buttons so the
+             operator sees both PoW and CAPTCHA flows for this preset. */}}
+        <span class="preview-link-group">
+          <a class="preview-link" target="_blank" rel="noopener"
+             data-preview-preset="{{ $p }}" data-preview-mode="pow"
+             href="{{ $.BasePath }}/admin/test/force-pow?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}&theme={{ $.ChallengeTheme }}">
+            {{ t $.Lang "settings.branding.preview_pow" }} ↗
+          </a>
+          <a class="preview-link" target="_blank" rel="noopener"
+             data-preview-preset="{{ $p }}" data-preview-mode="captcha"
+             href="{{ $.BasePath }}/admin/test/force-captcha?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}&theme={{ $.ChallengeTheme }}">
+            {{ t $.Lang "settings.branding.preview_captcha" }} ↗
+          </a>
+        </span>
       </label>
       {{ end }}
     </div>
@@ -2736,6 +2747,20 @@ document.addEventListener("DOMContentLoaded", function(){
         <div class="theme-preview-frame">
           <iframe src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1" loading="lazy" title="theme preview: {{ $opt }}"></iframe>
         </div>
+        {{/* Pin theme (= card); preset inherited from the form's currently
+             selected preset (= updated live by inline JS below). */}}
+        <div class="theme-card-actions" onclick="event.stopPropagation();">
+          <a class="preview-link" target="_blank" rel="noopener"
+             data-preview-theme="{{ $opt }}" data-preview-mode="pow"
+             href="{{ $.BasePath }}/admin/test/force-pow?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+            {{ t $.Lang "settings.branding.preview_pow" }} ↗
+          </a>
+          <a class="preview-link" target="_blank" rel="noopener"
+             data-preview-theme="{{ $opt }}" data-preview-mode="captcha"
+             href="{{ $.BasePath }}/admin/test/force-captcha?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+            {{ t $.Lang "settings.branding.preview_captcha" }} ↗
+          </a>
+        </div>
       </label>
       {{ end }}
     </div>
@@ -2756,8 +2781,13 @@ document.addEventListener("DOMContentLoaded", function(){
 .branding-preset-text{flex:1;min-width:0;font-size:.86rem;color:#334155;line-height:1.4}
 .branding-preset-text strong{margin-right:.25rem}
 .branding-preset-text span{color:#64748b}
-.branding-preset-preview{flex:0 0 auto;font-size:.78rem;color:#1e40af;text-decoration:none;padding:.18rem .55rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
-.branding-preset-preview:hover{background:#eff6ff;border-color:#3b82f6}
+.preview-link-group{flex:0 0 auto;display:inline-flex;gap:.3rem}
+/* Shared style for the small "PoW ↗ / CAPTCHA ↗" links on preset rows and
+   theme cards.  Same look = same affordance ("open the real challenge page
+   in a new tab with these settings"). */
+.preview-link{font-size:.74rem;color:#1e40af;text-decoration:none;padding:.18rem .5rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
+.preview-link:hover{background:#eff6ff;border-color:#3b82f6}
+.theme-card-actions{display:flex;justify-content:flex-end;gap:.35rem;padding:0 .9rem .8rem}
 .theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
 .theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}
 .theme-card{display:block;border:.125rem solid #e2e8f0;border-radius:.5rem;background:#fafbfc;cursor:pointer;overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .05s;position:relative}
@@ -2776,21 +2806,76 @@ document.addEventListener("DOMContentLoaded", function(){
 <script>
 (function(){
   var input = document.getElementById('theme-input');
-  var cards = document.querySelectorAll('#theme-form .theme-card');
-  if (!input || !cards.length) return;
-  // card click -> update input.value + toggle .selected.  the iframe is disabled with
-  // pointer-events:none, so click reaches the whole label.  label > input[radio] carries
-  // the form-submitted value.  the hidden input matches the section save handler's lookup key.
-  cards.forEach(function(card){
-    card.addEventListener('click', function(){
-      var t = card.getAttribute('data-theme');
-      if (!t) return;
-      input.value = t;
-      cards.forEach(function(c){ c.classList.toggle('selected', c === card); });
-      var radio = card.querySelector('input[type=radio]');
-      if (radio) radio.checked = true;
+  var cards = document.querySelectorAll('#appearance-form .theme-card');
+  // card click -> update input.value + toggle .selected + refresh preview links.
+  // the iframe is disabled with pointer-events:none, so click reaches the whole
+  // label.  label > input[radio] carries the form-submitted value.  the hidden
+  // input matches the section save handler's lookup key.
+  if (input && cards.length) {
+    cards.forEach(function(card){
+      card.addEventListener('click', function(){
+        var t = card.getAttribute('data-theme');
+        if (!t) return;
+        input.value = t;
+        cards.forEach(function(c){ c.classList.toggle('selected', c === card); });
+        var radio = card.querySelector('input[type=radio]');
+        if (radio) radio.checked = true;
+        updatePreviewLinks();
+      });
     });
+  }
+
+  // --- live preview link updater ------------------------------------------
+  // Each .preview-link has data-preview-mode (= "pow" / "captcha") and
+  // optionally data-preview-preset (= the preset is fixed for this link --
+  // theme is taken from the current selection) or data-preview-theme (= the
+  // theme is fixed, preset taken from current selection).  Site name comes
+  // from the live input value, so the operator can type a name then click
+  // preview to see it substituted immediately without saving first.
+  function basePath(){
+    var f = document.getElementById('appearance-form');
+    if (!f) return '';
+    var a = f.getAttribute('action') || '';
+    // action looks like "<base>/admin/settings/save?section=appearance";
+    // strip from "/admin/" onwards to recover <base>.
+    var i = a.indexOf('/admin/');
+    return i >= 0 ? a.slice(0, i) : '';
+  }
+  function currentTheme(){
+    var r = document.querySelector('#appearance-form input[name="theme_radio"]:checked');
+    return r ? r.value : 'default';
+  }
+  function currentPreset(){
+    var r = document.querySelector('#appearance-form input[name="branding_copy_preset"]:checked');
+    return r ? r.value : 'friendly';
+  }
+  function currentSiteName(){
+    var el = document.getElementById('branding-site-name');
+    return el ? el.value.trim() : '';
+  }
+  function updatePreviewLinks(){
+    var bp = basePath();
+    document.querySelectorAll('#appearance-form .preview-link').forEach(function(a){
+      var mode    = a.dataset.previewMode || 'captcha';
+      var preset  = a.dataset.previewPreset || currentPreset();
+      var theme   = a.dataset.previewTheme  || currentTheme();
+      var url = bp + '/admin/test/force-' + mode +
+        '?_preview_preset=' + encodeURIComponent(preset) +
+        '&theme=' + encodeURIComponent(theme);
+      var sn = currentSiteName();
+      if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
+      a.href = url;
+    });
+  }
+  // Wire live updates on every input that affects the URL.
+  document.querySelectorAll('#appearance-form input[name="branding_copy_preset"]').forEach(function(r){
+    r.addEventListener('change', updatePreviewLinks);
   });
+  var siteName = document.getElementById('branding-site-name');
+  if (siteName) siteName.addEventListener('input', updatePreviewLinks);
+  // Initial sync (= covers the case where the form's saved selection differs
+  // from what the server rendered into the static hrefs).
+  updatePreviewLinks();
 })();
 </script>
 {{ end }}
