@@ -147,12 +147,14 @@
     var isAdminTest = location.pathname.indexOf('/admin/test/') !== -1;
     var isIframePreview = qs.get('_preview') === '1';
     if (isAdminTest || isIframePreview) {
-      var qp = qs.get('_preview_preset');
+      var qp  = qs.get('_preview_preset');
       var qs2 = qs.get('_preview_site_name');
-      if (qp && P[qp]) {
+      var qs3 = qs.get('_preview_footer_text');
+      if ((qp && P[qp]) || qs2 != null || qs3 != null) {
         if (!brand) brand = {};
-        brand.copy_preset = qp;
+        if (qp && P[qp]) brand.copy_preset = qp;
         if (qs2 != null) brand.site_name = qs2;
+        if (qs3 != null) brand.footer_text = qs3;
       }
     }
   } catch (_) {}

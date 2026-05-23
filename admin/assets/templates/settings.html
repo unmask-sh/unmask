@@ -2755,7 +2755,7 @@ document.addEventListener("DOMContentLoaded", function(){
                name -- with a 350ms debounce on input so we don't reload the
                5 iframes on every keystroke. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}"></iframe>
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}{{ if $.Branding.FooterText }}&_preview_footer_text={{ $.Branding.FooterText }}{{ end }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
@@ -2868,6 +2868,10 @@ document.addEventListener("DOMContentLoaded", function(){
     var el = document.getElementById('branding-site-name');
     return el ? el.value.trim() : '';
   }
+  function currentFooterText(){
+    var el = document.getElementById('branding-footer-text');
+    return el ? el.value.trim() : '';
+  }
   function updatePreviewLinks(){
     var bp = basePath();
     document.querySelectorAll('#appearance-form .preview-link').forEach(function(a){
@@ -2879,6 +2883,8 @@ document.addEventListener("DOMContentLoaded", function(){
         '&theme=' + encodeURIComponent(theme);
       var sn = currentSiteName();
       if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
+      var ft = currentFooterText();
+      if (ft) url += '&_preview_footer_text=' + encodeURIComponent(ft);
       a.href = url;
     });
   }
@@ -2903,11 +2909,13 @@ document.addEventListener("DOMContentLoaded", function(){
     var bp = basePath();
     var preset = currentPreset();
     var sn = currentSiteName();
+    var ft = currentFooterText();
     document.querySelectorAll('#appearance-form .theme-preview-frame iframe').forEach(function(f){
       var theme = f.getAttribute('data-theme') || 'default';
       var url = bp + '/challenge/?_test_ja4=0&theme=' + encodeURIComponent(theme) +
                 '&_preview=1&_preview_preset=' + encodeURIComponent(preset);
       if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
+      if (ft) url += '&_preview_footer_text=' + encodeURIComponent(ft);
       f.src = url;
     });
   }
@@ -2925,14 +2933,18 @@ document.addEventListener("DOMContentLoaded", function(){
   document.querySelectorAll('#appearance-form input[name="branding_copy_preset"]').forEach(function(r){
     r.addEventListener('change', updateAll);
   });
-  var siteName = document.getElementById('branding-site-name');
-  if (siteName) siteName.addEventListener('input', function(){
-    // Links + sample text are cheap, refresh immediately; iframe reload
-    // debounced to avoid thrashing.
+  // Site name + footer text both feed the brand DOM; updates fire on every
+  // keystroke so the small <a> hrefs and sample-text row reflect the typed
+  // value, while the heavier 5-iframe reload is debounced (350ms).
+  function onBrandInput(){
     updatePreviewLinks();
     updatePresetSamples();
     refreshThemeIframesDebounced();
-  });
+  }
+  var siteName = document.getElementById('branding-site-name');
+  if (siteName) siteName.addEventListener('input', onBrandInput);
+  var footerText = document.getElementById('branding-footer-text');
+  if (footerText) footerText.addEventListener('input', onBrandInput);
   // Initial sync (= covers the case where the form's saved selection differs
   // from what the server rendered into the static hrefs / samples).  Don't
   // re-fire the iframe load on initial sync -- server already rendered the
