@@ -8,10 +8,11 @@
 //     requires changing the Verdict field.
 //
 // merge:
-//   Aggregate built-in (= JA4VerdictGroups) and extra
-//   (= settings.Nginx.JA4Verdicts.Extra) by ID.  If extra ever overlaps a
-//   built-in ID, extra wins (= defensive — should not happen in practice).
-//   Normally extra IDs are 100+ so collisions don't occur.
+//
+//	Aggregate built-in (= JA4VerdictGroups) and extra
+//	(= settings.Nginx.JA4Verdicts.Extra) by ID.  If extra ever overlaps a
+//	built-in ID, extra wins (= defensive — should not happen in practice).
+//	Normally extra IDs are 100+ so collisions don't occur.
 package nginxconf
 
 import (

@@ -24,9 +24,9 @@ func newCaptures() (*checks, func(t, m string), func(t, m string), func(t, m str
 }
 
 // TestCheckMMDBPath covers the three significant outcomes:
-//   1. file missing  -> WARN with install-ipgeo hint
-//   2. file present + not an mmdb -> ERR
-//   3. empty path -> no-op (caller filters)
+//  1. file missing  -> WARN with install-ipgeo hint
+//  2. file present + not an mmdb -> ERR
+//  3. empty path -> no-op (caller filters)
 func TestCheckMMDBPath(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -74,9 +74,9 @@ func TestCheckMMDBPath(t *testing.T) {
 }
 
 // TestCheckGeoRules covers:
-//   1. empty rules list -> no-op
-//   2. all valid country codes -> OK with count
-//   3. mixed valid + unknown -> WARN with the unknown ones listed
+//  1. empty rules list -> no-op
+//  2. all valid country codes -> OK with count
+//  3. mixed valid + unknown -> WARN with the unknown ones listed
 func TestCheckGeoRules(t *testing.T) {
 	mk := func(rules ...settings.GeoRule) settings.Settings {
 		return settings.Settings{Nginx: settings.Nginx{Geo: settings.GeoConfig{Rules: rules}}}

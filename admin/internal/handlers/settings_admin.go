@@ -5,12 +5,12 @@
 // exposed to the web (= no form is rendered).
 //
 // Save flow:
-//   1. receive POST → form parse → overlay onto a temporary Settings
-//   2. validate (= regex compile / duplicates / empty values)
-//   3. settings.Save() does the atomic write
-//   4. nginxconf.Render() refreshes nginx-rendered*.conf immediately
-//   5. update Handler.Settings (= in-memory copy) by mutex swap
-//   6. redirect to dashboard (= banner asks the user to run "nginx -s reload")
+//  1. receive POST → form parse → overlay onto a temporary Settings
+//  2. validate (= regex compile / duplicates / empty values)
+//  3. settings.Save() does the atomic write
+//  4. nginxconf.Render() refreshes nginx-rendered*.conf immediately
+//  5. update Handler.Settings (= in-memory copy) by mutex swap
+//  6. redirect to dashboard (= banner asks the user to run "nginx -s reload")
 package handlers
 
 import (
@@ -29,13 +29,13 @@ import (
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
-	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
-	"github.com/unmask-sh/unmask/admin/internal/classify"
-	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -315,16 +315,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	return map[string]any{
-		"Lang":               i18n.Resolve(r),
-		"TZ":                 resolveTZ(r),
-		"BasePath":           h.Settings.Server.BasePath,
-		"Version":            h.Version,
-		"ConfigPath":         h.ConfigPath,
+		"Lang":       i18n.Resolve(r),
+		"TZ":         resolveTZ(r),
+		"BasePath":   h.Settings.Server.BasePath,
+		"Version":    h.Version,
+		"ConfigPath": h.ConfigPath,
 		// Self host id (= identifies which machine in a shared DB / aggregated dashboard).
 		// SelfHostID: resolved value (= config value → os.Hostname → "default", in priority order).
 		// ConfiguredHostID: raw value from config.yml. Empty means the hostname fallback was used.
-		"SelfHostID":         h.HostID,
-		"ConfiguredHostID":   h.Settings.Server.HostID,
+		"SelfHostID":       h.HostID,
+		"ConfiguredHostID": h.Settings.Server.HostID,
 		// OSHostname: the raw os.Hostname() — shown next to the "use the OS
 		// hostname" radio so the operator sees what that option resolves to,
 		// even while a custom id is configured.
@@ -336,33 +336,33 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			return n
 		}(),
 		// listen mode (= TCP / unix socket). Distinguished by the "unix:" prefix on bind.
-		"ListenMode":     listenModeOf(h.Settings.Server),
-		"ListenBind":     h.Settings.Server.Bind,
-		"ListenPort":     h.Settings.Server.Port,
-		"ListenSockPath": socketPathOf(h.Settings.Server),
-		"ListenSockMode": defStr(h.Settings.Server.SocketMode, "0660"),
-		"ListenSockGroup": defStr(h.Settings.Server.SocketGroup, "nginx"),
+		"ListenMode":            listenModeOf(h.Settings.Server),
+		"ListenBind":            h.Settings.Server.Bind,
+		"ListenPort":            h.Settings.Server.Port,
+		"ListenSockPath":        socketPathOf(h.Settings.Server),
+		"ListenSockMode":        defStr(h.Settings.Server.SocketMode, "0660"),
+		"ListenSockGroup":       defStr(h.Settings.Server.SocketGroup, "nginx"),
 		"EventsRetentionDays":   h.Settings.EventsRetentionDays,
 		"EventsBatchSize":       h.Settings.EventsBatchSize,
 		"EventsBatchIntervalMs": h.Settings.EventsBatchIntervalMs,
 		"EventsDropped":         events.GlobalFlusherDropped(),
 		"NginxLogEnabled":       h.Settings.NginxLog.Enabled,
 		"Retention":             retentionView,
-		"Tab":                tab,
-		"TabHelpKey":         tabHelpKey(tab),
-		"Saved":              r.URL.Query().Get("saved") != "",
-		"Error":              readFlash(w, r, h.Settings.Server.BasePath, "err"),
-		"Cur":                cur,
-		"Global":             h.snapshotSettings().Global,
-		"IPGeoMMDBPath":      ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath":   ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":        h.IPGeo != nil && h.IPGeo.Loaded(),
-		"IPGeoASNLoaded":     h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"Tab":                   tab,
+		"TabHelpKey":            tabHelpKey(tab),
+		"Saved":                 r.URL.Query().Get("saved") != "",
+		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Cur":                   cur,
+		"Global":                h.snapshotSettings().Global,
+		"IPGeoMMDBPath":         ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath":      ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":           h.IPGeo != nil && h.IPGeo.Loaded(),
+		"IPGeoASNLoaded":        h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
-		"IPGeoCommonGeo":  scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/"),
-		"IPGeoCommonASN":  scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/"),
+		"IPGeoCommonGeo": scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/"),
+		"IPGeoCommonASN": scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/"),
 		// IPGeoMode / IPGeoASNMode: which radio is currently active.
 		//   "dbip"   -> saved path matches DefaultMMDBPath / DefaultASNPath
 		//   "custom" -> a non-default path
@@ -380,34 +380,34 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath)
 			return info
 		}(),
-		"LBPresets":          buildLBPresetView(cur),
-		"LBExtras":           buildLBExtraView(cur),
-		"SearchBotGroups":    searchBotGroups,
-		"SearchBotsRules":    pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
+		"LBPresets":             buildLBPresetView(cur),
+		"LBExtras":              buildLBExtraView(cur),
+		"SearchBotGroups":       searchBotGroups,
+		"SearchBotsRules":       pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
 		"UpstreamRescue":        upstreamRescue,
 		"UpstreamDisabled":      upstreamDisabledSet,
 		"UpstreamRescueTotal":   upstreamTotal,
 		"UpstreamRescueEnabled": upstreamEnabled,
 		"UpstreamGroupMode":     upstreamGroupMode,
 		"UpstreamGroupAction":   upstreamGroupAction,
-		"JA4Groups":          ja4Groups,
-		"JA4Rules":           ja4ExtraRules,
-		"JA4Verdicts":        cur.JA4Verdicts,
-		"JA4PresetAction":    cur.JA4Verdicts.PresetAction,
-		"JA4ExtraAction":     padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
-		"ChallengeAll":       cur.ChallengeTargets.All,
-		"ChallengeGroups":    tgtGroups,
-		"ChallengeRules":     pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
-		"ChallengeTargets":   cur.ChallengeTargets,
+		"JA4Groups":             ja4Groups,
+		"JA4Rules":              ja4ExtraRules,
+		"JA4Verdicts":           cur.JA4Verdicts,
+		"JA4PresetAction":       cur.JA4Verdicts.PresetAction,
+		"JA4ExtraAction":        padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
+		"ChallengeAll":          cur.ChallengeTargets.All,
+		"ChallengeGroups":       tgtGroups,
+		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
+		"ChallengeTargets":      cur.ChallengeTargets,
 		"ChallengePresetAction": cur.ChallengeTargets.PresetAction,
-		"HoneypotGroups":      honeypotGroups,
-		"HoneypotRules":       pairRules(cur.Honeypot.Extra, cur.Honeypot.ExtraTitle, cur.Honeypot.ExtraDisabled, cur.Honeypot.ExtraUpdatedAt),
-		"HoneypotBanDuration": cur.Honeypot.BanDuration,
-		"Honeypot":            cur.Honeypot,
-		"HoneypotPresetAction": cur.Honeypot.PresetAction,
-		"HoneypotExtraAction":  padToLen(cur.Honeypot.ExtraAction, len(cur.Honeypot.Extra)),
-		"BypassIPsRules":      pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
-		"BypassPresetGroups":  bypassPresetGroups,
+		"HoneypotGroups":        honeypotGroups,
+		"HoneypotRules":         pairRules(cur.Honeypot.Extra, cur.Honeypot.ExtraTitle, cur.Honeypot.ExtraDisabled, cur.Honeypot.ExtraUpdatedAt),
+		"HoneypotBanDuration":   cur.Honeypot.BanDuration,
+		"Honeypot":              cur.Honeypot,
+		"HoneypotPresetAction":  cur.Honeypot.PresetAction,
+		"HoneypotExtraAction":   padToLen(cur.Honeypot.ExtraAction, len(cur.Honeypot.Extra)),
+		"BypassIPsRules":        pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
+		"BypassPresetGroups":    bypassPresetGroups,
 		"ProtectedRules": pairProtectedRules(
 			cur.ProtectedPaths.Extra,
 			cur.ProtectedPaths.ExtraTitle,
@@ -415,7 +415,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			cur.ProtectedPaths.ExtraUpdatedAt,
 			cur.ProtectedPaths.ExtraMode,
 		),
-		"BypassPathGroups": bypassPathGroups,
+		"BypassPathGroups":      bypassPathGroups,
 		"ProtectedPresetGroups": protectedPresetGroups,
 		"ProtectedPaths":        cur.ProtectedPaths,
 		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
@@ -617,7 +617,7 @@ func pairJA4Rules(
 			action = nginxconf.JA4ActionOK
 		}
 		out[i] = ja4ExtraRule{
-			ID: e.ID,
+			ID:      e.ID,
 			Pattern: e.Pattern, Verdict: e.Verdict, Action: action,
 			Title: t, Enabled: !isDisabled, UpdatedAt: ts,
 		}
@@ -1002,10 +1002,11 @@ func (h *Handler) snapshotSettings() settings.Settings {
 func (h *Handler) SnapshotSettings() settings.Settings { return h.snapshotSettings() }
 
 // UpdateSettings: atomically modify + persist + in-memory swap a settings.Settings.
-//   1. Re-load the latest from disk (= consistent with other processes / concurrent saves)
-//   2. Apply the mutator
-//   3. Atomic save to file
-//   4. Swap into h.Settings under settingsMu
+//  1. Re-load the latest from disk (= consistent with other processes / concurrent saves)
+//  2. Apply the mutator
+//  3. Atomic save to file
+//  4. Swap into h.Settings under settingsMu
+//
 // Returns ErrNoConfigPath and does nothing if ConfigPath is empty.
 //
 // Use: sharedfeed package's SettingsUpdate callback (= server-driven write-back
@@ -1066,12 +1067,13 @@ func defStr(s, fallback string) string {
 }
 
 // applyServerListenForm: receives the listen-mode form (= TCP / unix socket).
-//   listen_mode  : "tcp" | "socket" radio.
-//   tcp_bind     : bind IP for TCP (= "127.0.0.1" / "0.0.0.0" / a specific IP).
-//   tcp_port     : port for TCP (= 1..65535).
-//   socket_path  : absolute path for unix socket (= "/run/unmask/admin.sock" etc.).
-//   socket_mode  : octal file-mode string (= "0660" etc.). Empty = keep current.
-//   socket_group : group owner name. Empty = keep current.
+//
+//	listen_mode  : "tcp" | "socket" radio.
+//	tcp_bind     : bind IP for TCP (= "127.0.0.1" / "0.0.0.0" / a specific IP).
+//	tcp_port     : port for TCP (= 1..65535).
+//	socket_path  : absolute path for unix socket (= "/run/unmask/admin.sock" etc.).
+//	socket_mode  : octal file-mode string (= "0660" etc.). Empty = keep current.
+//	socket_group : group owner name. Empty = keep current.
 //
 // The change is saved to config.yml but does not take effect on reload
 // (= listen-side change requires systemctl restart unmask-admin). The banner
@@ -1380,12 +1382,12 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 //
 // The UI exposes the country-DB path as a radio:
 //   - mode=dbip   -> path is forced to ipgeo.DefaultMMDBPath; the custom
-//                    input is ignored.  The file might not exist yet (= user
-//                    clicks the dl button afterwards), so we skip the
-//                    Open-test in this mode.
+//     input is ignored.  The file might not exist yet (= user
+//     clicks the dl button afterwards), so we skip the
+//     Open-test in this mode.
 //   - mode=custom -> path is whatever the user typed.  Open-test it so
-//                    invalid paths fail loudly at save time rather than
-//                    silently producing an empty country chart later.
+//     invalid paths fail loudly at save time rather than
+//     silently producing an empty country chart later.
 //
 // ASN DB stays a free input (= no radio); typical operator either has no
 // ASN file or already knows where it lives.
@@ -1656,9 +1658,10 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 }
 
 // applyHoneypotForm: receive the honeypot tab form. Same shape as search-bots etc.
-//   ban_duration: TTL (seconds) for BANs from honeypot hits. 0 = permanent.
-//   honeypot_preset_enabled[]: list of preset-group IDs to enable (= checkbox)
-//   honeypot_pat / _title / _enabled / _updated_at: 4 parallel arrays from the row UI
+//
+//	ban_duration: TTL (seconds) for BANs from honeypot hits. 0 = permanent.
+//	honeypot_preset_enabled[]: list of preset-group IDs to enable (= checkbox)
+//	honeypot_pat / _title / _enabled / _updated_at: 4 parallel arrays from the row UI
 func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// ban_duration: numeric + range check. Keep current value if the field is
 	// absent (= safety net for forms that don't include it; current UI always sends it).
@@ -2031,7 +2034,6 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	n.JA4Verdicts.Extra = tmp.Nginx.JA4Verdicts.Extra
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -2583,12 +2585,13 @@ var rateZoneNameRE = regexp.MustCompile(`^[a-zA-Z0-9_]{1,32}$`)
 // applyGeoForm: per-country rule axis (= settings.Nginx.Geo).
 //
 // Form fields:
-//   geo_default_action : "" / "skip" / "pow_only" / "captcha_only" /
-//                          "pow_then_captcha" / "deny"  (= unmatched countries)
-//   geo_country[]      : parallel array of ISO codes
-//   geo_action[]       : parallel action per row (empty = inherit default)
-//   geo_enabled_<i>    : per-row "1" when ticked (= rule active)
-//   geo_updated_at[]   : preserved timestamp per row
+//
+//	geo_default_action : "" / "skip" / "pow_only" / "captcha_only" /
+//	                       "pow_then_captcha" / "deny"  (= unmatched countries)
+//	geo_country[]      : parallel array of ISO codes
+//	geo_action[]       : parallel action per row (empty = inherit default)
+//	geo_enabled_<i>    : per-row "1" when ticked (= rule active)
+//	geo_updated_at[]   : preserved timestamp per row
 //
 // Rows are zipped by position.  Trailing empty Country slots are dropped.
 // Duplicate Country codes return an error so the LookupRule linear scan
@@ -2720,6 +2723,7 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 //   - terms_accepted=0  → reset TermsAcceptedAt to 0 (= consent withdrawn)
 //   - submit_enabled    : "share to hub when BANning"
 //   - subscribe_enabled : "pull BANs from other installs and force CAPTCHA"
+//
 // register_url / submit_url / feed_url can be overridden via admin but stay
 // empty by default (= sharedfeed package default constants are used).
 func applySharedFeedForm(c *settings.SharedFeed, r *http.Request) {
@@ -2813,7 +2817,6 @@ func (h *Handler) AdminSMTPTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
-
 // tabHelpKey returns the i18n key whose value is the popover content for
 // the given settings tab.  Empty result means "no help text → omit the
 // ?-button entirely."  Stays as a single lookup table so the template
@@ -2865,14 +2868,14 @@ func tabHelpKey(tab string) string {
 // the operator can see what they're about to prune.  Zero values are fine when
 // the tab is not being rendered (= the template just hides the empty row).
 type retentionStatsView struct {
-	EventsRows         int    // unmask_event row count (= int so the template's `comma` filter accepts it)
-	EventsOldestTS     int64  // unix seconds of the oldest unmask_event row, or 0 if none
-	EventsOldest       string // server-side UTC fallback string ("YYYY-MM-DD HH:MM UTC"), or ""
-	CookieMinuteRows   int    // unmask_cookie_minute row count
+	EventsRows           int    // unmask_event row count (= int so the template's `comma` filter accepts it)
+	EventsOldestTS       int64  // unix seconds of the oldest unmask_event row, or 0 if none
+	EventsOldest         string // server-side UTC fallback string ("YYYY-MM-DD HH:MM UTC"), or ""
+	CookieMinuteRows     int    // unmask_cookie_minute row count
 	CookieMinuteOldestTS int64  // unix seconds of the oldest bucket, or 0 if none
-	CookieMinuteOldest string // UTC fallback string, or ""
-	DBSize             int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
-	DBSizeStr          string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
+	CookieMinuteOldest   string // UTC fallback string, or ""
+	DBSize               int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
+	DBSizeStr            string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -2985,13 +2988,13 @@ func sanitizeSVG(data []byte) []byte {
 }
 
 var (
-	svgDropScript   = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<script\b[^>]*/?>`)
-	svgDropForeign  = regexp.MustCompile(`(?is)<foreignObject\b[^>]*>.*?</foreignObject\s*>|<foreignObject\b[^>]*/?>`)
-	svgDropIframe   = regexp.MustCompile(`(?is)<iframe\b[^>]*>.*?</iframe\s*>|<iframe\b[^>]*/?>`)
-	svgDropObject   = regexp.MustCompile(`(?is)<object\b[^>]*>.*?</object\s*>|<object\b[^>]*/?>`)
-	svgDropEmbed    = regexp.MustCompile(`(?is)<embed\b[^>]*/?>`)
-	svgStripOnAttr  = regexp.MustCompile(`(?i)\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
-	svgStripJSHref  = regexp.MustCompile(`(?i)\s(?:xlink:)?href\s*=\s*("(?:javascript|data:text/html)[^"]*"|'(?:javascript|data:text/html)[^']*'|(?:javascript|data:text/html)[^\s>]*)`)
+	svgDropScript  = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<script\b[^>]*/?>`)
+	svgDropForeign = regexp.MustCompile(`(?is)<foreignObject\b[^>]*>.*?</foreignObject\s*>|<foreignObject\b[^>]*/?>`)
+	svgDropIframe  = regexp.MustCompile(`(?is)<iframe\b[^>]*>.*?</iframe\s*>|<iframe\b[^>]*/?>`)
+	svgDropObject  = regexp.MustCompile(`(?is)<object\b[^>]*>.*?</object\s*>|<object\b[^>]*/?>`)
+	svgDropEmbed   = regexp.MustCompile(`(?is)<embed\b[^>]*/?>`)
+	svgStripOnAttr = regexp.MustCompile(`(?i)\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
+	svgStripJSHref = regexp.MustCompile(`(?i)\s(?:xlink:)?href\s*=\s*("(?:javascript|data:text/html)[^"]*"|'(?:javascript|data:text/html)[^']*'|(?:javascript|data:text/html)[^\s>]*)`)
 )
 
 // applyBrandingForm mutates cur in place with the values from the branding

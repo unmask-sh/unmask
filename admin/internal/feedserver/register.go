@@ -11,8 +11,8 @@ import (
 
 // ServeRegister: POST /api/feed/register
 //
-//   request:  {"unmask_version":"..."}  ← body unused (= stats only)
-//   response: {"token":"<hex 64 char>"}  ← raw token. client stores in config.yml.
+//	request:  {"unmask_version":"..."}  ← body unused (= stats only)
+//	response: {"token":"<hex 64 char>"}  ← raw token. client stores in config.yml.
 //
 // Repeated registers from the same source IP within RegisterRateMu seconds are
 // rejected (= 429).  IP = leftmost X-Forwarded-For if present, else RemoteAddr.

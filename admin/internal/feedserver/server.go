@@ -21,8 +21,8 @@ type Server struct {
 	cfg     settings.FeedServer
 	db      *sql.DB
 	logger  *log.Logger
-	mu      sync.Mutex            // guards registerByIP updates
-	regByIP map[string]time.Time  // per-IP rate limit for the register endpoint
+	mu      sync.Mutex           // guards registerByIP updates
+	regByIP map[string]time.Time // per-IP rate limit for the register endpoint
 }
 
 // Open: open SQLite and migrate schema.  Returns error if cfg.DBPath is empty.

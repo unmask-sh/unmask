@@ -24,11 +24,11 @@ import (
 // config.yml's nginx.bypass_ip_disabled_presets turns it OFF.  IDs are NOT
 // in the same namespace as SearchBotGroups (= managed separately).
 type BypassIPGroup struct {
-	ID       string // stable identifier (= "google-common", "bing", "openai-gptbot", etc.)
-	Label    string // UI display name
-	Source   string // upstream URL (= "https://developers.google.com/...", for display + auto-update reference)
-	File     string // embed file name (= "iprange/<file>.json")
-	AddedIn  string
+	ID      string // stable identifier (= "google-common", "bing", "openai-gptbot", etc.)
+	Label   string // UI display name
+	Source  string // upstream URL (= "https://developers.google.com/...", for display + auto-update reference)
+	File    string // embed file name (= "iprange/<file>.json")
+	AddedIn string
 	// Populated post-load.  Don't build directly; go through Resolve().
 	prefixes []string  // merged list of ipv4 / ipv6 prefixes
 	creation time.Time // creationTime from the JSON (= for UI display)

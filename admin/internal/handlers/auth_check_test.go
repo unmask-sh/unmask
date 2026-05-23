@@ -58,8 +58,8 @@ func TestPickStrongest(t *testing.T) {
 	d := func(s axisSeverity, r string) axisDecision { return axisDecision{sev: s, reason: r} }
 
 	cases := []struct {
-		name         string
-		in           []axisDecision
+		name          string
+		in            []axisDecision
 		wantWinnerSev axisSeverity
 		wantWinnerR   string
 		wantSupp      []string
@@ -108,7 +108,7 @@ func TestGeoDecideForCountry(t *testing.T) {
 		{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true},
 		{Country: "DE", Action: settings.GeoActionSkip, Enabled: true},
 		{Country: "RU", Action: settings.RateChallengeCaptchaOnly, Enabled: false}, // disabled -> no opinion
-		{Country: "FR", Action: ""},                                                 // inherit default
+		{Country: "FR", Action: ""}, // inherit default
 	}
 	geoSkipDefault := settings.GeoConfig{DefaultAction: settings.GeoActionSkip, Rules: rules}
 	geoDenyDefault := settings.GeoConfig{DefaultAction: settings.RateChallengeDeny, Rules: rules}
@@ -185,13 +185,13 @@ func TestBanDecideFromSource(t *testing.T) {
 // TestJA4Decide: bot verdict -> captcha; non-bot -> silent.
 func TestJA4Decide(t *testing.T) {
 	cases := []struct {
-		name      string
-		action    string
-		verdict   string
-		wantOK    bool
-		wantSev   axisSeverity
-		wantR     string
-		wantChM   string
+		name    string
+		action  string
+		verdict string
+		wantOK  bool
+		wantSev axisSeverity
+		wantR   string
+		wantChM string
 	}{
 		{"bot -> captcha", "bot", "t13d3515h2_bfa", true, sevCaptchaOnly, "ja4:t13d3515h2_bfa", settings.RateChallengeCaptchaOnly},
 		{"ok -> silent", "ok", "t13d1516h2_abc", false, 0, "", ""},

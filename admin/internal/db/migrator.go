@@ -2,20 +2,21 @@
 //
 // Design (= minimal version inspired by zabbix / cacti / golang-migrate):
 //
-//   1. Numbered SQL files like `0001_xxx.sql` / `0002_xxx.sql` ... live in
-//      per-driver dirs (= migrations/sqlite/ / migrations/mariadb/).
-//   2. At startup (= via Migrate()), create the schema_migrations table and
-//      read the applied versions.
-//   3. Existing v0.1 DBs were already legacy-normalized by ensure*, so if
-//      schema_migrations is empty AND unmask_event exists, INSERT version=1
-//      as the baseline (= run nothing).
-//   4. Apply pending SQL by ascending version.  Stop on failure (= don't
-//      proceed to subsequent migrations).
-//   5. Forward-only.  Downgrade is handled via backup → restore.
+//  1. Numbered SQL files like `0001_xxx.sql` / `0002_xxx.sql` ... live in
+//     per-driver dirs (= migrations/sqlite/ / migrations/mariadb/).
+//  2. At startup (= via Migrate()), create the schema_migrations table and
+//     read the applied versions.
+//  3. Existing v0.1 DBs were already legacy-normalized by ensure*, so if
+//     schema_migrations is empty AND unmask_event exists, INSERT version=1
+//     as the baseline (= run nothing).
+//  4. Apply pending SQL by ascending version.  Stop on failure (= don't
+//     proceed to subsequent migrations).
+//  5. Forward-only.  Downgrade is handled via backup → restore.
 //
 // Operating procedure when a feature requires a schema change:
-//   Just add migrations/sqlite/0002_xxx.sql + migrations/mariadb/0002_xxx.sql.
-//   Use the same version number on both drivers (= prevents version drift).
+//
+//	Just add migrations/sqlite/0002_xxx.sql + migrations/mariadb/0002_xxx.sql.
+//	Use the same version number on both drivers (= prevents version drift).
 package db
 
 import (

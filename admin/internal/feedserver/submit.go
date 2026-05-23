@@ -13,9 +13,9 @@ import (
 
 // ServeSubmit: POST /api/feed/submit
 //
-//   header:  Authorization: Bearer <token>
-//   request: {"ip":"...", "ja4":"...", "reason":"...", "comment":"..."}
-//   response: 204 No Content (= accepted.  Judgment runs later via cron)
+//	header:  Authorization: Bearer <token>
+//	request: {"ip":"...", "ja4":"...", "reason":"...", "comment":"..."}
+//	response: 204 No Content (= accepted.  Judgment runs later via cron)
 //
 // Auth: sha256 of token compared to feed_tokens.secret_hash.  On match,
 // appends a row to feed_submissions and updates tokens.last_seen_at.

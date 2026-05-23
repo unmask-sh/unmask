@@ -4,7 +4,7 @@
 // We do NOT bundle the file in the rpm/deb; instead, this helper downloads
 // the current month's snapshot on demand from the public URL:
 //
-//   https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
+//	https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
 //
 // New months may take a few days to publish; on 404 we fall back to the
 // previous month so a first-of-month invocation does not fail.
@@ -106,9 +106,9 @@ func defaultURLTemplateForKind(k InstallKind) string {
 // the outcome, or an error if no month-snapshot could be fetched.
 //
 // Verification steps (= each on the temporary `.next` file before atomic mv):
-//   1. Content-Length and stream length agree
-//   2. maxminddb.Open succeeds (= valid mmdb structure)
-//   3. A lookup on a known public IP returns a country (= sanity smoke test)
+//  1. Content-Length and stream length agree
+//  2. maxminddb.Open succeeds (= valid mmdb structure)
+//  3. A lookup on a known public IP returns a country (= sanity smoke test)
 func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 	kind := opts.Kind
 	if kind == "" {

@@ -5,14 +5,14 @@
 // from automation).
 //
 // Checks:
-//   1. config.yml is readable / parses
-//   2. nginxconf.Render() dry-run succeeds
-//   3. DB pings + the major tables exist
-//   4. If the IP-geo mmdb path is set, the file is readable
-//   5. The dir of ban_file_path is writable
-//   6. If challenge_html_path is set, the file is readable
-//   7. honeypot ban_duration / cookie_days are sensible
-//   8. nginx output_dir is writable
+//  1. config.yml is readable / parses
+//  2. nginxconf.Render() dry-run succeeds
+//  3. DB pings + the major tables exist
+//  4. If the IP-geo mmdb path is set, the file is readable
+//  5. The dir of ban_file_path is writable
+//  6. If challenge_html_path is set, the file is readable
+//  7. honeypot ban_duration / cookie_days are sensible
+//  8. nginx output_dir is writable
 package main
 
 import (

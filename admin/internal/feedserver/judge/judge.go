@@ -4,11 +4,12 @@
 // it on the feed as ip_ja4 / ja4_only / ip_only (= or to skip it).
 //
 // Four-mode structure:
-//   heuristic_only : lightweight + deterministic.  No AI dependency.
-//   ai_only        : leave it entirely to AI.  Yields no result when AI is unavailable.
-//   and            : adopt only when both agree (= strict)
-//   or             : adopt when either agrees (= lenient)
-//   ai_primary     : prefer AI's verdict, fall back to heuristic when AI is unavailable
+//
+//	heuristic_only : lightweight + deterministic.  No AI dependency.
+//	ai_only        : leave it entirely to AI.  Yields no result when AI is unavailable.
+//	and            : adopt only when both agree (= strict)
+//	or             : adopt when either agrees (= lenient)
+//	ai_primary     : prefer AI's verdict, fall back to heuristic when AI is unavailable
 //
 // AI judge is a stub in v0.1 (= always returns Skip).  Once AIEndpoint
 // configuration arrives, the intent is to implement it in a separate file.
@@ -23,26 +24,26 @@ import (
 type MatchKind string
 
 const (
-	MatchNone   MatchKind = ""        // do not adopt (= keep out of the feed)
-	MatchIPJA4  MatchKind = "ip_ja4"  // hit on "ip and ja4"
+	MatchNone   MatchKind = ""       // do not adopt (= keep out of the feed)
+	MatchIPJA4  MatchKind = "ip_ja4" // hit on "ip and ja4"
 	MatchJA4    MatchKind = "ja4_only"
 	MatchIPOnly MatchKind = "ip_only"
 )
 
 // Input: input for one (ip, ja4) aggregation.
 type Input struct {
-	IP            string
-	JA4           string
-	Reports       int      // submission count for this (ip, ja4)
-	UniqueTokens  int      // number of reporting install tokens (= duplicates from the same install excluded)
-	IPOnlyReports int      // total submissions for the same ip with different ja4 (= used for ip_only judgement)
-	JA4OnlyReports int     // total submissions for the same ja4 with different ip (= used for ja4_only judgement)
-	UniqueTokensIP int     // unique token count when aggregating by ip only
-	UniqueTokensJA4 int    // unique token count when aggregating by ja4 only
-	Comments      []string // free-text comments attached (= input for the AI judge)
-	Reasons       []string // attached reasons
-	FirstSeen     int64
-	LastSeen      int64
+	IP              string
+	JA4             string
+	Reports         int      // submission count for this (ip, ja4)
+	UniqueTokens    int      // number of reporting install tokens (= duplicates from the same install excluded)
+	IPOnlyReports   int      // total submissions for the same ip with different ja4 (= used for ip_only judgement)
+	JA4OnlyReports  int      // total submissions for the same ja4 with different ip (= used for ja4_only judgement)
+	UniqueTokensIP  int      // unique token count when aggregating by ip only
+	UniqueTokensJA4 int      // unique token count when aggregating by ja4 only
+	Comments        []string // free-text comments attached (= input for the AI judge)
+	Reasons         []string // attached reasons
+	FirstSeen       int64
+	LastSeen        int64
 }
 
 // Decision: the judge's output.
@@ -140,11 +141,12 @@ func (a *AIStub) Judge(_ context.Context, _ Input) Decision {
 // CombinedJudge: compose two judgers per the mode.
 //
 // modes:
-//   "heuristic_only" : Heuristic only
-//   "ai_only"        : AI only
-//   "and"            : both produced the same non-None MatchKind -> adopt
-//   "or"             : prefer Heuristic; if None, use AI
-//   "ai_primary"     : prefer AI; if None, use Heuristic
+//
+//	"heuristic_only" : Heuristic only
+//	"ai_only"        : AI only
+//	"and"            : both produced the same non-None MatchKind -> adopt
+//	"or"             : prefer Heuristic; if None, use AI
+//	"ai_primary"     : prefer AI; if None, use Heuristic
 type CombinedJudge struct {
 	Mode      string
 	Heuristic Judger

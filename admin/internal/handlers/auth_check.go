@@ -1,26 +1,29 @@
 // Core of auth_request mode.
 //
 // Flow:
-//   client -> HTTP server (= nginx / Apache / Caddy / etc.)
-//                       | subrequest (= auth_request / forward_auth / ext_authz)
-//                       v
-//          /unmask/api/check  <- this endpoint
-//                       |
-//                       +-> 200 OK         : let through (= forward normally)
-//                           401 Unauthorized: challenge needed (= server redirects to /unmask/challenge/)
-//                           403 Forbidden   : block (= persistent BAN / honeypot trip)
+//
+//	client -> HTTP server (= nginx / Apache / Caddy / etc.)
+//	                    | subrequest (= auth_request / forward_auth / ext_authz)
+//	                    v
+//	       /unmask/api/check  <- this endpoint
+//	                    |
+//	                    +-> 200 OK         : let through (= forward normally)
+//	                        401 Unauthorized: challenge needed (= server redirects to /unmask/challenge/)
+//	                        403 Forbidden   : block (= persistent BAN / honeypot trip)
 //
 // Inputs from the HTTP server come as headers:
-//   X-Original-URI    original request path + query
-//   X-Original-IP     client IP (= equivalent to nginx/Apache's $remote_addr)
-//   X-Original-UA     User-Agent
-//   X-Original-Host   Host header
-//   X-Unmask-Site     (= optional) multi-site identifier
-//   Cookie            client cookies including _bv / _br (= passed by the server)
+//
+//	X-Original-URI    original request path + query
+//	X-Original-IP     client IP (= equivalent to nginx/Apache's $remote_addr)
+//	X-Original-UA     User-Agent
+//	X-Original-Host   Host header
+//	X-Unmask-Site     (= optional) multi-site identifier
+//	Cookie            client cookies including _bv / _br (= passed by the server)
 //
 // Response headers:
-//   X-Unmask-Action   pass | challenge | block
-//   X-Unmask-Reason   human-readable reason (e.g. "ban:honeypot", "ua:user_dev")
+//
+//	X-Unmask-Action   pass | challenge | block
+//	X-Unmask-Reason   human-readable reason (e.g. "ban:honeypot", "ua:user_dev")
 package handlers
 
 import (
@@ -48,11 +51,11 @@ import (
 type axisSeverity int
 
 const (
-	sevPass            axisSeverity = 0
-	sevPoWOnly         axisSeverity = 1
-	sevCaptchaOnly     axisSeverity = 2
-	sevPoWThenCaptcha  axisSeverity = 3
-	sevDeny            axisSeverity = 4
+	sevPass           axisSeverity = 0
+	sevPoWOnly        axisSeverity = 1
+	sevCaptchaOnly    axisSeverity = 2
+	sevPoWThenCaptcha axisSeverity = 3
+	sevDeny           axisSeverity = 4
 )
 
 // axisDecision: one axis' vote.  Empty (= sevPass with no reason) means the
@@ -845,9 +848,10 @@ func lookupJA4Verdict(ja4 string, n settings.Nginx) (verdict, action, source str
 // category.  Unregistered -> "" / "".
 //
 // category:
-//   "search_ai"  : matched SearchBots (= normally rescued)
-//   "challenge"  : matched ChallengeTargets (= normally blocked)
-//   ""           : matched neither (= normal human handling -> show the button)
+//
+//	"search_ai"  : matched SearchBots (= normally rescued)
+//	"challenge"  : matched ChallengeTargets (= normally blocked)
+//	""           : matched neither (= normal human handling -> show the button)
 func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 	if ua == "" {
 		return "", ""

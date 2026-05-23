@@ -7,10 +7,10 @@ import (
 
 // migrate: build the SQLite schema idempotently.
 //
-//   feed_tokens(id, secret_hash, created_at, last_seen_at, abuse_score)
-//     secret_hash = sha256(raw_token) hex.  raw_token is never stored.
-//   feed_submissions(id, token_id, ip, ja4, reason, comment, submitted_at)
-//     Indexes for (ip, ja4) aggregation + submitted_at expiry.
+//	feed_tokens(id, secret_hash, created_at, last_seen_at, abuse_score)
+//	  secret_hash = sha256(raw_token) hex.  raw_token is never stored.
+//	feed_submissions(id, token_id, ip, ja4, reason, comment, submitted_at)
+//	  Indexes for (ip, ja4) aggregation + submitted_at expiry.
 //
 // Assumed to live in a separate file from the main admin DB (= settings.FeedServer.DBPath).
 func migrate(db *sql.DB) error {

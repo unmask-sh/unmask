@@ -37,11 +37,11 @@ import (
 )
 
 const (
-	SourceHoneypot         = "honeypot"
-	SourceManual           = "manual"
-	SourceProtectedFailed  = "protected_failed"  // v0.2+
-	SourceRateLimitAbuse   = "rate_limit_abuse"  // v0.2+
-	SourceJA4Loop          = "ja4_loop"          // v0.2+
+	SourceHoneypot        = "honeypot"
+	SourceManual          = "manual"
+	SourceProtectedFailed = "protected_failed" // v0.2+
+	SourceRateLimitAbuse  = "rate_limit_abuse" // v0.2+
+	SourceJA4Loop         = "ja4_loop"         // v0.2+
 )
 
 // Entry: one ban record.

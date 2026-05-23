@@ -77,9 +77,9 @@ func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
 // kind-specific validity window for remoteIP.
 //
 // Three formats are accepted:
-//   1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"             (3 segments. issued by server)
-//   2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"         (4 segments. v0.1+ challenge.js)
-//   3. legacy djb2   : "<issued_unix>.<djb2 hex>.<target_b36>.<flags_b36>"  (4 segments. v0.0, deprecated)
+//  1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"             (3 segments. issued by server)
+//  2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"         (4 segments. v0.1+ challenge.js)
+//  3. legacy djb2   : "<issued_unix>.<djb2 hex>.<target_b36>.<flags_b36>"  (4 segments. v0.0, deprecated)
 //
 // In the PoW path the client computes the hash in JS and issues the cookie
 // itself, so bv_secret is not passed to the server (= the seed challenge.js

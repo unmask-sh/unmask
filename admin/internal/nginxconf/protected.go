@@ -8,7 +8,7 @@
 //   - "captcha" : skip PoW → straight to CAPTCHA → issue _bv.  standard.  medium UX cost
 //   - "pow"     : PoW only → issue _bv.  lightweight protection that only charges CPU cost
 //   - "strict"  : PoW → CAPTCHA chain → _bv.  In v0.1 behaves like captcha
-//                 (= the chain JS state machine ships in v0.2).  The yml schema carries all 3 from the start.
+//     (= the chain JS state machine ships in v0.2).  The yml schema carries all 3 from the start.
 package nginxconf
 
 const (

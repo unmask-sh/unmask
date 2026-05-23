@@ -78,8 +78,8 @@ func verifyHTTP(ctx context.Context, endpoint, secret, token, ip string, useScor
 	}
 	var body struct {
 		Success    bool     `json:"success"`
-		Score      float64  `json:"score"`        // recaptcha v3
-		ErrorCodes []string `json:"error-codes"`  // turnstile / recaptcha
+		Score      float64  `json:"score"`       // recaptcha v3
+		ErrorCodes []string `json:"error-codes"` // turnstile / recaptcha
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		return nil, err

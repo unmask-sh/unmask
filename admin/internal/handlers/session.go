@@ -1,11 +1,12 @@
 // Session cookie for the admin dashboard.
 //
 // Format: "<user_id>.<role>.<exp_unix>.<remember>.<sig16>"
-//   user_id  = unmask_user.id (= int64)
-//   role     = "superadmin" | "admin" | "viewer"
-//   exp_unix = expiry, unix seconds
-//   remember = "1" (= auto-login) / "0".  Decides refresh extension width.
-//   sig16    = HMAC-SHA256(secret, "<user_id>.<role>.<exp>.<remember>") hex[:16]
+//
+//	user_id  = unmask_user.id (= int64)
+//	role     = "superadmin" | "admin" | "viewer"
+//	exp_unix = expiry, unix seconds
+//	remember = "1" (= auto-login) / "0".  Decides refresh extension width.
+//	sig16    = HMAC-SHA256(secret, "<user_id>.<role>.<exp>.<remember>") hex[:16]
 //
 // Reuses settings.Secret.BVSecret as the secret (= rotating it invalidates all sessions).
 // admin_token has been removed.  Since the user identifier is in the cookie,

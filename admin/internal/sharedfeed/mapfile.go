@@ -60,9 +60,10 @@ func ReadDocument(dir string) (FeedDocument, error) {
 // WriteMapFiles: split feed entries across 3 nginx map snippets and atomic-write.
 //
 // Output:
-//   shared-feed-ipja4.map  ← match=ip_ja4  : `"<ip>:<ja4>" 1;`
-//   shared-feed-ja4.map    ← match=ja4_only: `"<ja4>"      1;`
-//   shared-feed-ip.map     ← match=ip_only : `"<ip>"       1;`
+//
+//	shared-feed-ipja4.map  ← match=ip_ja4  : `"<ip>:<ja4>" 1;`
+//	shared-feed-ja4.map    ← match=ja4_only: `"<ja4>"      1;`
+//	shared-feed-ip.map     ← match=ip_only : `"<ip>"       1;`
 //
 // nginx includes them via map ${key} ${var} { default 0; include ...; } to
 // drive the hit check.

@@ -9,9 +9,9 @@
 //
 // Example output:
 //
-//   == suggested ja4 to investigate (= top 20) ==
-//      req       uniq_ip  ja4                                         sample_ua
-//      12345     8421     t13d1517h2_8daaf6152771_b0da82dd1658        Mozilla/5.0 (Windows NT 10.0; Win64;...
+//	== suggested ja4 to investigate (= top 20) ==
+//	   req       uniq_ip  ja4                                         sample_ua
+//	   12345     8421     t13d1517h2_8daaf6152771_b0da82dd1658        Mozilla/5.0 (Windows NT 10.0; Win64;...
 //
 // Risk of false positives from a browser's intentional fingerprint, so always
 // review before manually adding to ja4-verdict.map.

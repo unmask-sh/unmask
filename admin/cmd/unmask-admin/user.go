@@ -1,10 +1,10 @@
 // user CLI sub-command:
 //
-//   unmask-admin user list
-//   unmask-admin user create <username> [-role superadmin|admin|viewer] [-password PASS]
-//   unmask-admin user reset-password <username> [-password PASS]
-//   unmask-admin user set-role <username> <role>
-//   unmask-admin user delete <username>
+//	unmask-admin user list
+//	unmask-admin user create <username> [-role superadmin|admin|viewer] [-password PASS]
+//	unmask-admin user reset-password <username> [-password PASS]
+//	unmask-admin user set-role <username> <role>
+//	unmask-admin user delete <username>
 //
 // If password is omitted, prompts on stdin (= entered twice in the terminal).
 // Pass -password for non-interactive use, but note that it leaks into shell history.

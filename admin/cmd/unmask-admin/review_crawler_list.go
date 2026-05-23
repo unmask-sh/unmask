@@ -4,12 +4,13 @@
 // Use as a sanity check before enabling auto-update, or to confirm the
 // upstream isn't broken.
 // Output:
-//   == added (= patterns added upstream) ==
-//     <regex>     <instance count>
-//   == removed (= patterns dropped upstream) ==
-//     <regex>
-//   == summary ==
-//     embed: N entries, upstream: M entries, added=A, removed=R, unchanged=U
+//
+//	== added (= patterns added upstream) ==
+//	  <regex>     <instance count>
+//	== removed (= patterns dropped upstream) ==
+//	  <regex>
+//	== summary ==
+//	  embed: N entries, upstream: M entries, added=A, removed=R, unchanged=U
 //
 // Usage:
 //

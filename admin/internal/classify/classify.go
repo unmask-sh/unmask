@@ -65,17 +65,17 @@ func (c Category) String() string {
 // `service` lets AuthCheck fall through to lookupUAListed where the
 // per-axis ResolveGroupMode decides "challenge" symmetrically with nginx.
 var tagCategory = map[string]string{
-	"search-engine":      "search_ai",
-	"ai-crawler":         "search_ai",
-	"ai-training":        "search_ai",
-	"ai-user":            "search_ai",
-	"advertising":        "search_ai",
-	"seo":                "search_ai",
-	"monitoring":         "search_ai",
-	"social-preview":     "search_ai",
-	"feed-reader":        "search_ai",
-	"archiver":           "search_ai",
-	"academic":           "search_ai",
+	"search-engine":  "search_ai",
+	"ai-crawler":     "search_ai",
+	"ai-training":    "search_ai",
+	"ai-user":        "search_ai",
+	"advertising":    "search_ai",
+	"seo":            "search_ai",
+	"monitoring":     "search_ai",
+	"social-preview": "search_ai",
+	"feed-reader":    "search_ai",
+	"archiver":       "search_ai",
+	"academic":       "search_ai",
 	// Below default to GroupModeBlack via DefaultGroupMode.  Keep them out of
 	// search_ai so the challenge path can reach them via lookupUAListed.
 	"scanner":            "service",

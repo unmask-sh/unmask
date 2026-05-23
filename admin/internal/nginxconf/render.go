@@ -111,6 +111,7 @@ func Render(s settings.Settings, outDir, version string) error {
 // value for the upstream block's `server XXX;`.
 //   - TCP    : "host:port"  (= existing behavior)
 //   - unix   : "unix:/path/to.sock"
+//
 // If bind has a "unix:" prefix, it's socket mode.
 func buildUpstreamServer(s settings.Settings) string {
 	bind := strings.TrimSpace(s.Server.Bind)
@@ -168,10 +169,10 @@ func renderToFile(outDir, outName, tmplPath string, data any) error {
 
 // renderData: flat struct passed to text/template.
 type renderData struct {
-	GeneratedAt    string
-	Version        string
-	OutputDir      string
-	BVSecret       string
+	GeneratedAt           string
+	Version               string
+	OutputDir             string
+	BVSecret              string
 	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
 	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
 	PowDifficulty         int
@@ -184,7 +185,7 @@ type renderData struct {
 	// "pass" or not; the actual chain choice happens admin-side.
 	KnownBrowserAction string
 	UnknownUAAction    string
-	UpstreamAddr   string
+	UpstreamAddr       string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -192,21 +193,21 @@ type renderData struct {
 	// Determined by looking at server.bind in config.yml.
 	UpstreamServer string
 
-	SearchBotPatterns      []string // flatten of enabled presets + extras
-	JA4Verdicts            []JA4VerdictRule
-	HoneypotPatterns       []string // OR list of honeypot path patterns
-	ProtectedPaths         []ProtectedPathRule // protected paths {Pattern, Mode}
-	BypassPaths            []BypassPathRule    // whitelist paths {Pattern, Site}
-	ChallengeAll           bool     // true -> $is_challenge_target = 1 (= UA-agnostic)
-	ChallengeTargetPatterns []string // OR list of UA patterns evaluated when false
+	SearchBotPatterns       []string // flatten of enabled presets + extras
+	JA4Verdicts             []JA4VerdictRule
+	HoneypotPatterns        []string            // OR list of honeypot path patterns
+	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode}
+	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site}
+	ChallengeAll            bool                // true -> $is_challenge_target = 1 (= UA-agnostic)
+	ChallengeTargetPatterns []string            // OR list of UA patterns evaluated when false
 
-	BypassIPs   []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
+	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
 	// monitoring tools etc.).  Rendered into the $is_bypass_ip geo (so they
 	// skip the challenge) and into a dedicated $unmask_stats_excluded geo that
 	// gates the unmask_minimal access_log via `if=`.
 	StatsExcludeIPs []string
-	BanFilePath string   // ban list file watched by the unmask module (= "" disables it)
+	BanFilePath     string // ban list file watched by the unmask module (= "" disables it)
 
 	NginxLogEnabled bool
 	NginxLogSocket  string
@@ -270,25 +271,25 @@ type GeoRuleRender struct {
 
 func buildRenderData(s settings.Settings, outDir, version string) (renderData, error) {
 	d := renderData{
-		GeneratedAt:     time.Now().UTC().Format(time.RFC3339),
-		Version:         version,
-		OutputDir:       outDir,
-		BVSecret:        s.Secret.BVSecret,
+		GeneratedAt:           time.Now().UTC().Format(time.RFC3339),
+		Version:               version,
+		OutputDir:             outDir,
+		BVSecret:              s.Secret.BVSecret,
 		BVPowValidSeconds:     s.Challenge.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.ResolvedPowDifficulty(),
 		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction, s.Global.DefaultAction),
 		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction, s.Global.DefaultAction),
-		UpstreamAddr:    defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
-		UpstreamServer:  buildUpstreamServer(s),
-		BypassIPs:       mergeBypassIPs(s),
-		StatsExcludeIPs: sanitizeIPs(s.Nginx.StatsExcludeIPs),
-		BanFilePath:     trimSpaceAndQuotes(s.Nginx.Honeypot.BanFilePath),
-		NginxLogSocket:  s.NginxLog.SocketPath,
-		NginxLogEnabled: s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
-		AdminAllowFrom:   defaultAllow(s.Nginx.AdminAllowFrom),
-		MetricsAllowFrom: defaultAllow(s.Nginx.MetricsAllowFrom),
-		LBIPRanges:       effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
+		UpstreamAddr:          defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
+		UpstreamServer:        buildUpstreamServer(s),
+		BypassIPs:             mergeBypassIPs(s),
+		StatsExcludeIPs:       sanitizeIPs(s.Nginx.StatsExcludeIPs),
+		BanFilePath:           trimSpaceAndQuotes(s.Nginx.Honeypot.BanFilePath),
+		NginxLogSocket:        s.NginxLog.SocketPath,
+		NginxLogEnabled:       s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
+		AdminAllowFrom:        defaultAllow(s.Nginx.AdminAllowFrom),
+		MetricsAllowFrom:      defaultAllow(s.Nginx.MetricsAllowFrom),
+		LBIPRanges:            effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
 	}
 
 	// search bots: merge enabled presets + extras.

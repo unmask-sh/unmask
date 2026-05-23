@@ -3,9 +3,9 @@
 // Flow:
 //   - Submit(*Event) enqueues onto the channel (= non-blocking)
 //   - The worker goroutine:
-//       1) buffer accumulates up to batchSize items    → flush immediately
-//       2) flushInterval elapses (= max idle latency)  → flush the rest (= skip when 0)
-//       3) Stop() (= shutdown signal) → drain + final flush + exit
+//     1) buffer accumulates up to batchSize items    → flush immediately
+//     2) flushInterval elapses (= max idle latency)  → flush the rest (= skip when 0)
+//     3) Stop() (= shutdown signal) → drain + final flush + exit
 //   - Flush inserts every row inside a single transaction (= 10-50x faster on SQLite WAL)
 //   - On a full queue, drop + warn log (= prevent OOM from a bot flood)
 //

@@ -9,7 +9,8 @@
 //
 // In nginx-rendered.conf this expands to a `geo $unmask_lb_<vendor>` block
 // so a user can simply write something like
-//   if ($unmask_lb_gcp = 1) { set $effective_ja4 $http_x_client_ja4; }
+//
+//	if ($unmask_lb_gcp = 1) { set $effective_ja4 $http_x_client_ja4; }
 //
 // IP ranges are release snapshots (= updated manually).  The vendor's
 // official source is referenced from the Source field of each entry.
@@ -267,7 +268,7 @@ var LBIPRanges = []LBIPRange{
 		Label:  "AWS ALB / ELB (= all regions. The right answer is to use your own VPC subnets.)",
 		Source: "https://ip-ranges.amazonaws.com/ip-ranges.json",
 		Header: "$http_x_client_ja4",
-		CIDRs: []string{
+		CIDRs:  []string{
 			// ALB calls the backend with VPC-internal IPs, so a global
 			// CIDR list is unnecessary.  Users should normally specify
 			// the internal subnets of the same VPC as the ALB / ELB.

@@ -19,17 +19,17 @@ import (
 type Phase string
 
 const (
-	PhaseServe              Phase = "serve"
-	PhaseLoad               Phase = "load"
-	PhasePoWPass            Phase = "pow_pass"             // multi-step mode: PoW solved, handing off to the next stage (= _bv NOT yet issued; payload.next records the follow-up)
-	PhaseCaptcha            Phase = "captcha"              // CAPTCHA UI displayed (= still unauthenticated)
-	PhaseBVPowOnly          Phase = "bv_pow_only"          // _bv issued via challenge_mode=pow_only
-	PhaseBVCaptchaOnly      Phase = "bv_captcha_only"      // _bv issued via challenge_mode=captcha_only
-	PhaseBVPowThenCaptcha   Phase = "bv_pow_then_captcha"  // _bv issued via challenge_mode=pow_then_captcha
-	PhaseVerifyNG           Phase = "verify_ng"            // /verify rejected (= CAPTCHA failed)
-	PhaseError              Phase = "error"                // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
-	PhaseCookieErr          Phase = "cookie_err"
-	PhaseCheck              Phase = "check" // single auth_request /api/check hit
+	PhaseServe            Phase = "serve"
+	PhaseLoad             Phase = "load"
+	PhasePoWPass          Phase = "pow_pass"            // multi-step mode: PoW solved, handing off to the next stage (= _bv NOT yet issued; payload.next records the follow-up)
+	PhaseCaptcha          Phase = "captcha"             // CAPTCHA UI displayed (= still unauthenticated)
+	PhaseBVPowOnly        Phase = "bv_pow_only"         // _bv issued via challenge_mode=pow_only
+	PhaseBVCaptchaOnly    Phase = "bv_captcha_only"     // _bv issued via challenge_mode=captcha_only
+	PhaseBVPowThenCaptcha Phase = "bv_pow_then_captcha" // _bv issued via challenge_mode=pow_then_captcha
+	PhaseVerifyNG         Phase = "verify_ng"           // /verify rejected (= CAPTCHA failed)
+	PhaseError            Phase = "error"               // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
+	PhaseCookieErr        Phase = "cookie_err"
+	PhaseCheck            Phase = "check" // single auth_request /api/check hit
 )
 
 // allowedPhases gates which beacon phase strings the server accepts on
@@ -37,17 +37,17 @@ const (
 // pattern so adding a new challenge_mode in the future means adding the
 // matching entry here only — no JSON_EXTRACT, no schema churn.
 var allowedPhases = map[string]bool{
-	"serve":                true,
-	"load":                 true,
-	"pow_pass":             true,
-	"captcha":              true,
-	"bv_pow_only":          true,
-	"bv_captcha_only":      true,
-	"bv_pow_then_captcha":  true,
-	"verify_ng":            true,
-	"error":                true,
-	"cookie_err":           true,
-	"check":                true,
+	"serve":               true,
+	"load":                true,
+	"pow_pass":            true,
+	"captcha":             true,
+	"bv_pow_only":         true,
+	"bv_captcha_only":     true,
+	"bv_pow_then_captcha": true,
+	"verify_ng":           true,
+	"error":               true,
+	"cookie_err":          true,
+	"check":               true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }
@@ -325,6 +325,7 @@ func extractRLZone(payload string) string {
 //     and challenge.js sends it through.  Native mode rewrites to
 //     /unmask/challenge/..., so we prefer "orig_path" sent via
 //     window.UNMASK.orig_path embedded in challenge.html.
+//
 // Used by the URL column in the raw hunt log table.
 func extractPath(payload string) string {
 	if p := extractStringField(payload, "orig_path", 1024); p != "" {
@@ -459,13 +460,13 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 	out := make([]Row, 0, 32)
 	for rows.Next() {
 		var (
-			id, flags, rcount       int64
-			date                    sql.NullTime
-			dateStr                 sql.NullString
-			site_, host_, phase_    string
-			ipBytes                 []byte
-			ua, ja4, verdict        sql.NullString
-			cBV, cBR, payload       sql.NullString
+			id, flags, rcount    int64
+			date                 sql.NullTime
+			dateStr              sql.NullString
+			site_, host_, phase_ string
+			ipBytes              []byte
+			ua, ja4, verdict     sql.NullString
+			cBV, cBR, payload    sql.NullString
 		)
 		// SQLite returns TEXT as string; MariaDB returns DATETIME as time.Time.  Handle both.
 		if d.Driver == db.DriverSQLite {
@@ -510,9 +511,10 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 }
 
 // FetchPaged fetches the most recent rows id DESC, limit per page from offset.  Used by the hunt tab UI.
-//   filter: ipSubstr (LIKE on IP), ja4Substr (LIKE on JA4), phase, sinceMin (now - sinceMin minutes; 0 for unlimited)
-//   site  : "" for all sites; non-empty narrows to that one site (single-select filter).
-//   hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
+//
+//	filter: ipSubstr (LIKE on IP), ja4Substr (LIKE on JA4), phase, sinceMin (now - sinceMin minutes; 0 for unlimited)
+//	site  : "" for all sites; non-empty narrows to that one site (single-select filter).
+//	hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
 func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
@@ -568,13 +570,13 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 	out := make([]Row, 0, limit)
 	for rows.Next() {
 		var (
-			id, flags, rcount       int64
-			date                    sql.NullTime
-			dateStr                 sql.NullString
-			site_, host_, phase_    string
-			ipBytes                 []byte
-			ua, ja4, verdict        sql.NullString
-			cBV, cBR, payload       sql.NullString
+			id, flags, rcount    int64
+			date                 sql.NullTime
+			dateStr              sql.NullString
+			site_, host_, phase_ string
+			ipBytes              []byte
+			ua, ja4, verdict     sql.NullString
+			cBV, cBR, payload    sql.NullString
 		)
 		if d.Driver == db.DriverSQLite {
 			if err := rows.Scan(&id, &dateStr, &site_, &host_, &ipBytes, &ua, &ja4, &verdict,

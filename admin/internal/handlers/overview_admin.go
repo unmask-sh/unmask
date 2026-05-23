@@ -121,20 +121,20 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
 	data := map[string]any{
-		"Lang":           i18n.Resolve(r),
-		"TZ":             resolveTZ(r),
-		"KPIEvents":      kpiEvents,
-		"KPIServes":      kpiServes,
-		"KPIPoWPass":     kpiPoWPass,
-		"KPICaptchaPass": kpiCaptchaPass,
-		"KPIBlocked":     kpiBlocked,
+		"Lang":             i18n.Resolve(r),
+		"TZ":               resolveTZ(r),
+		"KPIEvents":        kpiEvents,
+		"KPIServes":        kpiServes,
+		"KPIPoWPass":       kpiPoWPass,
+		"KPICaptchaPass":   kpiCaptchaPass,
+		"KPIBlocked":       kpiBlocked,
 		"KPIUniqueTotal":   uTotal,
 		"KPIUniqueBlocked": uBlocked,
 		"KPINonHumanPct":   nonHumanPct,
 		"KPINonHumanKnown": uKnown && uTotal > 0,
-		"KPICurrentBans": currentBans,
-		"Recent":         recent,
-		"AITraffic":      aiRows,
+		"KPICurrentBans":   currentBans,
+		"Recent":           recent,
+		"AITraffic":        aiRows,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -342,6 +342,7 @@ func parseHostFilter(raws []string) []string {
 // resolveHostFilter: resolve the global scope of the host filter.  Precedence:
 //  1. unmask_hosts cookie (= written by the shared host_picker.  comma-separated.  empty = all hosts)
 //  2. ?host= query param (= deep link / back-compat.  Only when the cookie is unset)
+//
 // The host picker uses a cookie like the TZ / language pickers, so the
 // selection is preserved across navigation (= one view scope shared by every admin page).
 func resolveHostFilter(r *http.Request) []string {

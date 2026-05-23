@@ -5,10 +5,10 @@
 // redirects to `/admin/` (= prevent re-setup).
 //
 // Steps:
-//   1. welcome
-//   2. choose DB driver (sqlite / mariadb) + connection test + save admin.yml + migration
-//   3. create administrator account (= the first row in unmask_user)
-//   4. done -> on to login
+//  1. welcome
+//  2. choose DB driver (sqlite / mariadb) + connection test + save admin.yml + migration
+//  3. create administrator account (= the first row in unmask_user)
+//  4. done -> on to login
 //
 // setupNeeded() returns true when any of:
 //   - h.DB == nil                (= initial start failed to connect)
@@ -220,14 +220,14 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	data := map[string]any{
-		"Lang":         i18n.Resolve(r),
-		"TZ":           resolveTZ(r),
-		"BasePath":     h.Settings.Server.BasePath,
-		"Version":      h.Version,
-		"Step":         step,
-		"Error":        q.Get("err"),
-		"DB":           cur,
-		"LangOptions":  langOpts,
+		"Lang":        i18n.Resolve(r),
+		"TZ":          resolveTZ(r),
+		"BasePath":    h.Settings.Server.BasePath,
+		"Version":     h.Version,
+		"Step":        step,
+		"Error":       q.Get("err"),
+		"DB":          cur,
+		"LangOptions": langOpts,
 	}
 	if step == "user" && wstate != nil && wstate.UserSet {
 		// Pre-fill the username so the user can review / edit on backtrack.

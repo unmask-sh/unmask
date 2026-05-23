@@ -1,12 +1,13 @@
 // feed-build: cron entry that runs the shared-feed aggregation + feed.json
 // generation exactly once.
 //
-//   unmask-admin feed-build                # run with feed_server settings from config.yml
-//   unmask-admin feed-build -dry-run       # print JSON to stdout only (= no file update)
+//	unmask-admin feed-build                # run with feed_server settings from config.yml
+//	unmask-admin feed-build -dry-run       # print JSON to stdout only (= no file update)
 //
 // admin serve runs this automatically every hour, so this command is intended for:
 //   - running on the exact cron tick
 //   - refreshing feed.json immediately after a settings change
+//
 // No-op when Active() is false (= Enabled=false / DBPath empty).
 package main
 

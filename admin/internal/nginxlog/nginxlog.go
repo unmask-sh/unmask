@@ -19,8 +19,8 @@
 //   - "pow"              : repeater carrying a 4-seg _bv with djb2 OK
 //   - "challenge_served" : $final_challenge=1 (= the req was rejected)
 //   - extensibility: if the plugin returns a new kind ("signature" /
-//          "webauthn" / "passkey" etc.), it gets recorded as a new
-//          row automatically with no schema change.
+//     "webauthn" / "passkey" etc.), it gets recorded as a new
+//     row automatically with no schema change.
 //
 // Mutual exclusion: a req where kind="captcha" or "pow" doesn't become
 // challenge_served (= bv_any_valid=1 on the nginx side ->
@@ -42,9 +42,10 @@
 //     is absent, but it's acceptable for aggregation).
 //
 // syslog protocol:
-//   nginx's `access_log syslog:` is RFC 3164.  The line head has a
-//   <priority> prefix (e.g. "<134>") + optional timestamp/host, so
-//   strip them on the parse side.
+//
+//	nginx's `access_log syslog:` is RFC 3164.  The line head has a
+//	<priority> prefix (e.g. "<134>") + optional timestamp/host, so
+//	strip them on the parse side.
 package nginxlog
 
 import (
@@ -629,7 +630,6 @@ func trafficHLLUpsert(drv db.Driver) string {
 		VALUES (?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE sketch = VALUES(sketch)`
 }
-
 
 // flushLoop: 60-second ticker.
 func (r *Reader) flushLoop() {

@@ -57,14 +57,15 @@ func init() {
 // the release, new groups get the latest version (= the UI labels
 // them "since vX").
 // ID design for SearchBotGroup:
-//   The group-level string ID (= "google" / "bing" etc.) is the
-//   rename-safe identifier.  disabled_presets in config.yml refers
-//   to this ID.  Rules (= each pattern) are just a UA regex array
-//   without per-rule attributes (= action / verdict), so unlike
-//   JA4VerdictRule there is no numeric-ID linkage to DB columns.  If
-//   you only need to rename a pattern, swap the string in the
-//   array.  ChallengeTargetGroup / HoneypotGroup follow the same
-//   design.
+//
+//	The group-level string ID (= "google" / "bing" etc.) is the
+//	rename-safe identifier.  disabled_presets in config.yml refers
+//	to this ID.  Rules (= each pattern) are just a UA regex array
+//	without per-rule attributes (= action / verdict), so unlike
+//	JA4VerdictRule there is no numeric-ID linkage to DB columns.  If
+//	you only need to rename a pattern, swap the string in the
+//	array.  ChallengeTargetGroup / HoneypotGroup follow the same
+//	design.
 type SearchBotGroup struct {
 	ID       string
 	Label    string
@@ -324,7 +325,7 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 //     order.
 //   - cli / python_libs / node_libs / go_libs / java_libs / headless were
 //     also removed in favour of the upstream rescue groups (= http-library
-//     + browser-automation, default black).  Same UA coverage, single
+//   - browser-automation, default black).  Same UA coverage, single
 //     source of truth.
 //   - What remains here are presets that don't fit any upstream category
 //     (= empty / very short UA) and are still worth flagging.

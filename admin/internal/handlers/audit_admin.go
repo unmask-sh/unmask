@@ -35,16 +35,16 @@ type AuditSettingsDetail struct {
 // auditEnriched: row + parsed detail (= the template renders Diff inline and
 // shows the Restore button only when Before is present).
 type auditEnriched struct {
-	ID         int64
-	UserID     int64
+	ID          int64
+	UserID      int64
 	UserIDValid bool
-	Username   string
-	Action     string
-	Target     string
-	At         string
-	Section    string // settings_save only
-	Diff       string
-	HasBefore  bool
+	Username    string
+	Action      string
+	Target      string
+	At          string
+	Section     string // settings_save only
+	Diff        string
+	HasBefore   bool
 }
 
 func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
@@ -120,8 +120,9 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 // user can revert to this exact state later via the standard restore flow.
 //
 // Form fields:
-//   name : optional label (e.g., "pre-promo", "v0.1-baseline").  Empty -> "manual".
-//   note : free-text description (stored in detail.note for the UI).
+//
+//	name : optional label (e.g., "pre-promo", "v0.1-baseline").  Empty -> "manual".
+//	note : free-text description (stored in detail.note for the UI).
 //
 // Differs from settings_save audit rows in that nothing is changed; this is a
 // pure capture.  Listed alongside save rows on /admin/audit/ with its own pill.

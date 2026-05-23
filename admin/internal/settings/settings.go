@@ -73,7 +73,7 @@ type Challenge struct {
 	// unset.  Browser-side cookie Max-Age is no longer driven by this value
 	// (= cookies are written with a fixed 365-day Max-Age so that a server-
 	// side window change takes effect immediately on the next request).
-	CookieSeconds         int `yaml:"cookie_seconds"`
+	CookieSeconds int `yaml:"cookie_seconds"`
 	// PowCookieValidSeconds: server-side validity window for _bv issued via
 	// the PoW path (= 4-segment "pow2" cookie).  0 = inherit CookieSeconds.
 	// Granularity is 1 day (= ceil(seconds/86400) used by the nginx HMAC
@@ -85,10 +85,10 @@ type Challenge struct {
 	// CookieDays: legacy / backward compat. If yaml lacks cookie_seconds but
 	// has cookie_days, load-time migrates with CookieSeconds = CookieDays * 86400.
 	// Save always writes cookie_seconds only (= cookie_days is not emitted).
-	CookieDays              int     `yaml:"cookie_days,omitempty"`
-	CaptchaScoreThreshold   float64 `yaml:"captcha_score_threshold"`
-	DebugRateLimitPer5Min   int     `yaml:"debug_rate_limit_per_5min"`
-	ChallengeHTMLPath       string  `yaml:"challenge_html_path"`
+	CookieDays            int     `yaml:"cookie_days,omitempty"`
+	CaptchaScoreThreshold float64 `yaml:"captcha_score_threshold"`
+	DebugRateLimitPer5Min int     `yaml:"debug_rate_limit_per_5min"`
+	ChallengeHTMLPath     string  `yaml:"challenge_html_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public
@@ -251,25 +251,27 @@ type Server struct {
 
 // IPGeo: optional IP-geolocation mmdb integration (DB-IP Lite / MaxMind
 // GeoLite2 / etc., all consumable via the maxminddb-format reader).
-//   mmdb_path     : Country or City DB. Pointing at the City DB also enables
-//                   city-level lookup. (e.g., /usr/share/GeoIP/GeoLite2-Country.mmdb).
-//                   Unset → no country chart and no country row in popovers.
-//   mmdb_asn_path : ASN DB (GeoLite2-ASN.mmdb etc.). Unset → no ASN row.
-//   For GeoLite2 the MaxMind license prohibits bundling the binary, so the
-//   user downloads it themselves; DB-IP Lite (CC BY 4.0) can be auto-fetched
-//   via `unmask-admin install-ipgeo`.
+//
+//	mmdb_path     : Country or City DB. Pointing at the City DB also enables
+//	                city-level lookup. (e.g., /usr/share/GeoIP/GeoLite2-Country.mmdb).
+//	                Unset → no country chart and no country row in popovers.
+//	mmdb_asn_path : ASN DB (GeoLite2-ASN.mmdb etc.). Unset → no ASN row.
+//	For GeoLite2 the MaxMind license prohibits bundling the binary, so the
+//	user downloads it themselves; DB-IP Lite (CC BY 4.0) can be auto-fetched
+//	via `unmask-admin install-ipgeo`.
 type IPGeo struct {
 	MMDBPath    string `yaml:"mmdb_path"`
 	MMDBASNPath string `yaml:"mmdb_asn_path"`
 }
 
 // NginxLog: data source for the cookie-passage dashboard.
-//   enabled    : false → do not render the access_log directive in
-//                nginx-rendered.{conf,server.inc}. Dashboard / hunt charts
-//                show all zeros, but UDP datagram send/receive cost is zero.
-//                Default true. Empty socket_path is effectively disabled too.
-//   socket_path: path of the Unix datagram socket the admin binds. Keep in
-//                sync with nginx access_log syslog:server=unix:<same path>.
+//
+//	enabled    : false → do not render the access_log directive in
+//	             nginx-rendered.{conf,server.inc}. Dashboard / hunt charts
+//	             show all zeros, but UDP datagram send/receive cost is zero.
+//	             Default true. Empty socket_path is effectively disabled too.
+//	socket_path: path of the Unix datagram socket the admin binds. Keep in
+//	             sync with nginx access_log syslog:server=unix:<same path>.
 type NginxLog struct {
 	Enabled    bool   `yaml:"enabled"`
 	SocketPath string `yaml:"socket_path"`
@@ -310,7 +312,7 @@ type Nginx struct {
 	// internal probes etc. that would otherwise be dashboard noise).  These IPs
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
 	// they never reach the funnel / cookie / crawler aggregation.
-	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
+	StatsExcludeIPs  []string `yaml:"stats_exclude_ips,omitempty"`
 	AdminAllowFrom   []string `yaml:"admin_allow_from"`
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
 
@@ -392,11 +394,11 @@ type GeoRule struct {
 // to honeypot / BAN / JA4 / UA as usual."  Visitors from a `skip` country
 // can still be challenged by downstream axes.
 const (
-	GeoActionSkip            = "skip"
-	GeoActionPoWOnly         = RateChallengePoWOnly
-	GeoActionCaptchaOnly     = RateChallengeCaptchaOnly
-	GeoActionPoWThenCaptcha  = RateChallengePoWThenCaptcha
-	GeoActionDeny            = RateChallengeDeny
+	GeoActionSkip           = "skip"
+	GeoActionPoWOnly        = RateChallengePoWOnly
+	GeoActionCaptchaOnly    = RateChallengeCaptchaOnly
+	GeoActionPoWThenCaptcha = RateChallengePoWThenCaptcha
+	GeoActionDeny           = RateChallengeDeny
 )
 
 // IsValidGeoAction validates an action submitted via form / yaml.  Empty
@@ -494,15 +496,15 @@ type ProtectedPathsConfig struct {
 // HoneypotConfig: honeypot path configuration + persistent BAN list management.
 //
 // Behavior:
-//   1. nginx matches a honeypot path (= /wp-login.php etc.) → $serve_bot_challenge=1
-//   2. nginx access_log writes "hp=1 ja4=t13d... ip=1.2.3.4" → the admin
-//      receives it on the syslog socket
-//   3. admin appends the (ip, ja4) tuple to `ban_file_path` (= TTL=ban_duration)
-//   4. nginx module watches ban_file by mtime and exposes $unmask_banned=1
-//   5. user picks the behavior in their server block:
-//      `if ($unmask_banned = 1) { rewrite ^ /unmask/challenge/ last; }`
-//      (= force CAPTCHA) or `return 403;` (= hard ban). The behavior is the
-//      conf's responsibility (= unmask only exposes the variable)
+//  1. nginx matches a honeypot path (= /wp-login.php etc.) → $serve_bot_challenge=1
+//  2. nginx access_log writes "hp=1 ja4=t13d... ip=1.2.3.4" → the admin
+//     receives it on the syslog socket
+//  3. admin appends the (ip, ja4) tuple to `ban_file_path` (= TTL=ban_duration)
+//  4. nginx module watches ban_file by mtime and exposes $unmask_banned=1
+//  5. user picks the behavior in their server block:
+//     `if ($unmask_banned = 1) { rewrite ^ /unmask/challenge/ last; }`
+//     (= force CAPTCHA) or `return 403;` (= hard ban). The behavior is the
+//     conf's responsibility (= unmask only exposes the variable)
 type HoneypotConfig struct {
 	// Disabled preset groups (= same shape as search-bots etc.).
 	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
@@ -530,9 +532,9 @@ type HoneypotConfig struct {
 
 // ChallengeTargetsConfig: which UAs receive a challenge when bot signals fire.
 //
-//   all              : true → always target regardless of UA (= preset / extra ignored)
-//   disabled_presets : list of preset-group IDs to keep OFF
-//   extra            : custom UA patterns (= nginx case-insensitive regex)
+//	all              : true → always target regardless of UA (= preset / extra ignored)
+//	disabled_presets : list of preset-group IDs to keep OFF
+//	extra            : custom UA patterns (= nginx case-insensitive regex)
 type ChallengeTargetsConfig struct {
 	All             bool     `yaml:"all"`
 	DisabledPresets []string `yaml:"disabled_presets"`
@@ -597,6 +599,7 @@ type SearchBotsConfig struct {
 //   - ExtraTitle       : human label in the row UI (= same role as preset.Label)
 //   - ExtraDisabled    : temporary OFF flag (= same as UA filter)
 //   - ExtraUpdatedAt   : add/update unix sec (= same as UA filter)
+//
 // Pattern / Verdict / Action come from Extra[i]; ExtraTitle / Disabled /
 // UpdatedAt align by the same index.
 type JA4VerdictsConfig struct {
@@ -627,10 +630,10 @@ type JA4VerdictsConfig struct {
 // backfills and saves once.
 // TrustedLBExtra: custom definition for an LB not in the preset list.
 //   - id     : value used by the $unmask_lb_vendor nginx variable
-//              (= lowercase letters + digits + _). Must not collide with preset IDs.
+//     (= lowercase letters + digits + _). Must not collide with preset IDs.
 //   - cidrs  : trusted source IP ranges. IPv4 / IPv6 may be mixed.
 //   - header : nginx variable this LB places JA4 into (= "$http_x_client_ja4"
-//              etc.). Default is "$http_x_client_ja4".
+//     etc.). Default is "$http_x_client_ja4".
 //   - label  : for UI display (= optional).
 type TrustedLBExtra struct {
 	ID     string   `yaml:"id"`
@@ -748,20 +751,20 @@ func (c HostInventoryConfig) IsDisabled(host string) bool {
 }
 
 type Settings struct {
-	DB            DB              `yaml:"db"`
-	Secret        Secret          `yaml:"secret"`
-	Challenge     Challenge       `yaml:"challenge"`
-	Branding      Branding        `yaml:"branding,omitempty"`
-	Server        Server          `yaml:"server"`
-	IPGeo         IPGeo           `yaml:"ipgeo"`
-	NginxLog      NginxLog        `yaml:"nginx_log"`
-	Nginx         Nginx           `yaml:"nginx"`
-	RateLimit     RateLimitConfig `yaml:"rate_limit"`
-	SharedFeed    SharedFeed      `yaml:"shared_feed,omitempty"`
-	FeedServer    FeedServer      `yaml:"feed_server,omitempty"`
-	Notifications Notifications   `yaml:"notifications,omitempty"`
-	SMTP          SMTP            `yaml:"smtp,omitempty"`
-	Global        GlobalConfig    `yaml:"global,omitempty"`
+	DB            DB                   `yaml:"db"`
+	Secret        Secret               `yaml:"secret"`
+	Challenge     Challenge            `yaml:"challenge"`
+	Branding      Branding             `yaml:"branding,omitempty"`
+	Server        Server               `yaml:"server"`
+	IPGeo         IPGeo                `yaml:"ipgeo"`
+	NginxLog      NginxLog             `yaml:"nginx_log"`
+	Nginx         Nginx                `yaml:"nginx"`
+	RateLimit     RateLimitConfig      `yaml:"rate_limit"`
+	SharedFeed    SharedFeed           `yaml:"shared_feed,omitempty"`
+	FeedServer    FeedServer           `yaml:"feed_server,omitempty"`
+	Notifications Notifications        `yaml:"notifications,omitempty"`
+	SMTP          SMTP                 `yaml:"smtp,omitempty"`
+	Global        GlobalConfig         `yaml:"global,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
@@ -884,7 +887,7 @@ func (s SharedFeed) SubmitActive() bool {
 // Roles:
 //   - client (default)   : sharedfeed.Client just submits / pulls to an external hub
 //   - hub  (Enabled=true): feedserver.Server exposes register / submit endpoints
-//                          + cron aggregates submissions and writes feed.json
+//   - cron aggregates submissions and writes feed.json
 type FeedServer struct {
 	Enabled bool `yaml:"enabled"`
 
@@ -965,10 +968,10 @@ func (f FeedServer) Active() bool {
 type Notifications struct {
 	Disabled            bool   `yaml:"disabled,omitempty"`
 	URL                 string `yaml:"url,omitempty"`
-	Format              string `yaml:"format,omitempty"`              // "slack" | "discord" | "generic"
-	SiteLabel           string `yaml:"site_label,omitempty"`          // optional label shown in notifications (e.g., "blog-jp")
-	BanEvents           bool   `yaml:"ban_events,omitempty"`          // notify on honeypot / manual ban
-	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`     // notify when the 5min threshold is exceeded
+	Format              string `yaml:"format,omitempty"`                 // "slack" | "discord" | "generic"
+	SiteLabel           string `yaml:"site_label,omitempty"`             // optional label shown in notifications (e.g., "blog-jp")
+	BanEvents           bool   `yaml:"ban_events,omitempty"`             // notify on honeypot / manual ban
+	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`        // notify when the 5min threshold is exceeded
 	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // 0 = disabled
 }
 
@@ -983,16 +986,16 @@ type Notifications struct {
 //     (nginx / Apache / Caddy / Envoy).
 //
 // Zone resolution order:
-//   1. Scan Zones in index order. Adopt the first zone whose PathPatterns
-//      prefix-matches.
-//   2. If none match, adopt the Default zone.
+//  1. Scan Zones in index order. Adopt the first zone whose PathPatterns
+//     prefix-matches.
+//  2. If none match, adopt the Default zone.
 //
 // challenge_mode (= behavior for clients over the threshold):
 //   - "captcha_only"      : straight to CAPTCHA (= compat with v0.1 behavior)
 //   - "pow_only"          : PoW only. Lightweight, but robust bots pass through
 //   - "pow_then_captcha"  : escalate to CAPTCHA on PoW failure. Chain in late v0.1.
 //   - "deny"              : no challenge; immediately 403 block (= for API /
-//                            paths dedicated to known bots)
+//     paths dedicated to known bots)
 type RateLimitConfig struct {
 	Default RateZone   `yaml:"default"`
 	Zones   []RateZone `yaml:"zones,omitempty"`
@@ -1008,8 +1011,8 @@ type RateLimitConfig struct {
 
 // Rate-limit key kinds.
 const (
-	RateLimitKeyIP      = "ip"
-	RateLimitKeyJA4     = "ja4"
+	RateLimitKeyIP       = "ip"
+	RateLimitKeyJA4      = "ja4"
 	RateLimitKeyIPAndJA4 = "ip+ja4"
 )
 
@@ -1037,6 +1040,7 @@ func (rl RateLimitConfig) ResolvedKey() string {
 // PathPatterns: simple prefix match. e.g. "/api/" matches "/api/foo".
 //   - empty list = applies to all paths (= meant for use as Default).
 //   - multiple entries: a match against any one selects this zone.
+//
 // WindowSec: 0 → 60 (= 1-minute window).
 // ChallengeMode: empty → parent (= settings-wide) default "captcha_only".
 type RateZone struct {

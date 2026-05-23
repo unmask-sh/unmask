@@ -51,7 +51,8 @@ type playgroundJA4Match struct {
 //
 // Input:  { ja4, ua, ip }
 // Output: { ja4_match: {pattern, verdict, action, source}, classify: "human"|...,
-//           bypass_ip: bool, summary: "..." }
+//
+//	bypass_ip: bool, summary: "..." }
 func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		JA4 string `json:"ja4"`

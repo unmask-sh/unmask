@@ -9,8 +9,8 @@
 //   - Hot-swap config support (= same atomic-pointer-swap pattern as notifier).
 //
 // Use cases:
-//   1. Alert notifications (= ban_created / challenge_burst.  In parallel with webhook.)
-//   2. Password reminder (= send reset link.)
+//  1. Alert notifications (= ban_created / challenge_burst.  In parallel with webhook.)
+//  2. Password reminder (= send reset link.)
 //
 // Failures are logged and returned as error (= callers that want to branch can inspect err).
 package mail

@@ -3,13 +3,13 @@
 // Design principles:
 //   - Just POST to a webhook URL via stdlib net/http.  Zero SDK dependencies.
 //   - 3 format adapters:
-//	   slack     : { text, blocks }    Slack webhook + Mattermost compat
-//	   discord   : { content, embeds }
-//	   generic   : POST a straightforward JSON { event, ip, ja4, ua, ts, ... }
+//     slack     : { text, blocks }    Slack webhook + Mattermost compat
+//     discord   : { content, embeds }
+//     generic   : POST a straightforward JSON { event, ip, ja4, ua, ts, ... }
 //   - Send failures are logged only (= ban / challenge is not blocked).  No retry.
 //   - Notification event kinds:
-//	   ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
-//	   challenge_burst : challenge count in the last 5 minutes exceeds the threshold
+//     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
+//     challenge_burst : challenge count in the last 5 minutes exceeds the threshold
 package notifier
 
 import (
@@ -69,8 +69,8 @@ type Notifier struct {
 	dynamic atomic.Pointer[Config]
 
 	// Optional mail integration.  If both are nil, mail notification is skipped.
-	mailer       MailSender
-	mailGetTo    func() []string // recipient list resolver (= wraps UserRepo.AlertRecipients)
+	mailer    MailSender
+	mailGetTo func() []string // recipient list resolver (= wraps UserRepo.AlertRecipients)
 }
 
 // New: cfg is passed by value (= hot-swap later via SetConfig).

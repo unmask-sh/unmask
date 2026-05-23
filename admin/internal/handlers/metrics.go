@@ -31,13 +31,13 @@ var scoreBuckets = []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}
 
 type metricsState struct {
 	scoreCount uint64
-	scoreSum   uint64    // microsecond-style fixed-point: x1000
-	scoreBkt   []uint64  // len = len(scoreBuckets)+1 (last = +Inf)
+	scoreSum   uint64   // microsecond-style fixed-point: x1000
+	scoreBkt   []uint64 // len = len(scoreBuckets)+1 (last = +Inf)
 	qLat       sync.Map // op string -> *latencyAcc
 
-	cache       *metricsSnapshot
-	cacheUntil  time.Time
-	cacheMu     sync.Mutex
+	cache      *metricsSnapshot
+	cacheUntil time.Time
+	cacheMu    sync.Mutex
 }
 
 type latencyAcc struct {

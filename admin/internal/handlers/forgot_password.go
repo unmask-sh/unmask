@@ -1,13 +1,13 @@
 // Password reminder (= forgot-password / reset-password) handlers.
 //
 // Flow:
-//   1. Enter email or username on /admin/forgot-password.
-//   2. If the user exists, has an email, and the Mailer is enabled →
-//      issue a token → write to DB → send mail.
-//   3. Even when the user does not exist / has no email, the UI still
-//      shows the same "we sent the mail" message (= enumeration protection).
-//   4. Enter the new password at /admin/reset-password?token=...
-//   5. If the token is valid and unexpired, update the password + consume the token.
+//  1. Enter email or username on /admin/forgot-password.
+//  2. If the user exists, has an email, and the Mailer is enabled →
+//     issue a token → write to DB → send mail.
+//  3. Even when the user does not exist / has no email, the UI still
+//     shows the same "we sent the mail" message (= enumeration protection).
+//  4. Enter the new password at /admin/reset-password?token=...
+//  5. If the token is valid and unexpired, update the password + consume the token.
 //
 // When SMTP is unconfigured (= h.Mailer.Enabled()=false), even visiting
 // /admin/forgot-password announces "mail cannot be sent."  The link on the

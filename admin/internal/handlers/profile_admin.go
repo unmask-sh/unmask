@@ -57,8 +57,9 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // AdminProfileSave: POST /admin/profile/save — dispatch on op.
-//   op="profile"  : update email / alert_opt_out.  Current password not required.
-//   op="password" : verify current password + set new password.
+//
+//	op="profile"  : update email / alert_opt_out.  Current password not required.
+//	op="password" : verify current password + set new password.
 func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 	if h.UserRepo == nil {
 		http.Error(w, "user repo not configured", http.StatusInternalServerError)

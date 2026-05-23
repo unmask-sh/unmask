@@ -63,9 +63,9 @@ func TestCrawlerAggregation(t *testing.T) {
 		return ""
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)  // served (challenged)
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)   // served (challenged)
 	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false) // not a crawler -> ignored
 	r.bumpCrawler("", false)                                         // empty UA -> ignored
 

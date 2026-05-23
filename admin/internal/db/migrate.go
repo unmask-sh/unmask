@@ -15,10 +15,10 @@ import (
 //
 // Order:
 //
-//	1. legacy ensure* (= v0 -> v1 normalization, idempotent ALTERs)
-//	2. schema SQL (= CREATE TABLE IF NOT EXISTS to set up the v1 baseline)
-//	3. ApplyCookieMinuteMigrationData (= move data from the v1 old-column format to kind/cnt)
-//	4. RunMigrations() (= numbered SQL framework.  v1 baseline marker + v2+ deltas)
+//  1. legacy ensure* (= v0 -> v1 normalization, idempotent ALTERs)
+//  2. schema SQL (= CREATE TABLE IF NOT EXISTS to set up the v1 baseline)
+//  3. ApplyCookieMinuteMigrationData (= move data from the v1 old-column format to kind/cnt)
+//  4. RunMigrations() (= numbered SQL framework.  v1 baseline marker + v2+ deltas)
 //
 // To change the schema for a new feature, just add migrations/<driver>/0002_xxx.sql.
 // See migrator.go's package doc for details.
@@ -110,7 +110,7 @@ func ensureSiteColumn(conn *DB) error {
 //
 // Column: nullable INTEGER.  Holds the preset rule's ID (= 1-99 built-
 // in / 100+ extra).  Verdicts that didn't match a preset on the nginx
-// side (= ja4_verdict is 'ok' / '' / unknown) stay NULL.  The
+// side (= ja4_verdict is 'ok' / ” / unknown) stay NULL.  The
 // ja4_verdict (= name) column is still written in parallel.  Display
 // layer prefers ID and falls back to name.
 //
@@ -281,6 +281,7 @@ func ensureCookieMinuteFC(conn *DB) error {
 //   - The later CREATE TABLE IF NOT EXISTS creates the new schema.
 //   - INSERT 4 kind-specific rows per old row (= total / captcha / pow / challenge_served).
 //   - Drop the old table.
+//
 // Idempotent: no-op when the new schema (= kind column) is already present.
 func ensureCookieMinuteKind(conn *DB) error {
 	hasTbl, err := hasTable(conn, "unmask_cookie_minute")
@@ -314,10 +315,12 @@ func ensureCookieMinuteKind(conn *DB) error {
 //
 // Old row {bucket_min, site, cnt_total, cnt_bv, cnt_bp, cnt_fc} expands
 // into 4 kind-specific rows:
-//   kind="total"            cnt=cnt_total
-//   kind="captcha"          cnt=cnt_bv
-//   kind="pow"              cnt=cnt_bp
-//   kind="challenge_served" cnt=cnt_fc
+//
+//	kind="total"            cnt=cnt_total
+//	kind="captcha"          cnt=cnt_bv
+//	kind="pow"              cnt=cnt_bp
+//	kind="challenge_served" cnt=cnt_fc
+//
 // Skip cnt=0 (= shrink row count).  After completion, drop the v1 table.
 func ApplyCookieMinuteMigrationData(conn *DB) error {
 	hasV1, err := hasTable(conn, "unmask_cookie_minute_v1")

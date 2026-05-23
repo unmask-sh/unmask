@@ -3,11 +3,11 @@
 // Role:
 //   - register: at startup, fetch a token from the unmask.sh register endpoint.
 //   - submit:   on BAN operations, if share=true POST (ip, ja4, reason, comment)
-//               to unmask.sh.  The BAN itself still succeeds if the post fails.
+//     to unmask.sh.  The BAN itself still succeeds if the post fails.
 //   - pull:     fetch the feed JSON every 1h and atomic-write
-//               /etc/unmask/shared-feed-*.map (= ipja4 / ja4 / ip).  nginx
-//               then derives $shared_feed_hit via include + map → on hit, lock
-//               to CAPTCHA.
+//     /etc/unmask/shared-feed-*.map (= ipja4 / ja4 / ip).  nginx
+//     then derives $shared_feed_hit via include + map → on hit, lock
+//     to CAPTCHA.
 //
 // Design principles:
 //   - The judgment (= which of IP / JA4 / IP+JA4 to match against) is decided

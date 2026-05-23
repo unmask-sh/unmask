@@ -1,14 +1,15 @@
 // bot-hunting tab: page through unmask_event to find bots and act with a single click.
 //
 // Structure:
-//   1. Top N rankings for the last N minutes (= top 30 by IP / JA4 / UA, ordered by req count desc).
-//      Each row carries [BAN now] / [UA blacklist] / [JA4 verdict bot] buttons.
-//   2. Raw-log pager (= unmask_event in reverse chronological order, 100 / page).
-//      Filters: exact IP / JA4 substring / phase / time range.
-//   3. Live tail (= reuses the existing SSE /admin/api/events/stream from JS in the template).
+//  1. Top N rankings for the last N minutes (= top 30 by IP / JA4 / UA, ordered by req count desc).
+//     Each row carries [BAN now] / [UA blacklist] / [JA4 verdict bot] buttons.
+//  2. Raw-log pager (= unmask_event in reverse chronological order, 100 / page).
+//     Filters: exact IP / JA4 substring / phase / time range.
+//  3. Live tail (= reuses the existing SSE /admin/api/events/stream from JS in the template).
 //
 // Action endpoint:
-//   POST /admin/hunt/action  op=ban|ua_blacklist|ja4_bot
+//
+//	POST /admin/hunt/action  op=ban|ua_blacklist|ja4_bot
 package handlers
 
 import (
@@ -195,26 +196,26 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := map[string]any{
-		"Lang":      i18n.Resolve(r),
-		"TZ":        resolveTZ(r),
-		"BasePath":  h.Settings.Server.BasePath,
-		"Version":   h.Version,
-		"Range":     rng,
-		"SinceMin":  sinceMin,
-		"IPFilter":  ipFilter,
-		"JA4Filter": ja4Filter,
-		"Phase":     phaseFilter,
-		"Rows":      enriched,
-		"IPRank":    ipRank,
-		"JA4Rank":   ja4Rank,
-		"UARank":    uaRank,
-		"Offset":    offset,
-		"NextOffset":   offset + pageSize,
-		"PrevOffset":   maxInt(offset-pageSize, 0),
-		"HasMore":      hasMore,
-		"HasPrev":      offset > 0,
-		"Saved":        q.Get("saved") != "",
-		"Error":        readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Lang":       i18n.Resolve(r),
+		"TZ":         resolveTZ(r),
+		"BasePath":   h.Settings.Server.BasePath,
+		"Version":    h.Version,
+		"Range":      rng,
+		"SinceMin":   sinceMin,
+		"IPFilter":   ipFilter,
+		"JA4Filter":  ja4Filter,
+		"Phase":      phaseFilter,
+		"Rows":       enriched,
+		"IPRank":     ipRank,
+		"JA4Rank":    ja4Rank,
+		"UARank":     uaRank,
+		"Offset":     offset,
+		"NextOffset": offset + pageSize,
+		"PrevOffset": maxInt(offset-pageSize, 0),
+		"HasMore":    hasMore,
+		"HasPrev":    offset > 0,
+		"Saved":      q.Get("saved") != "",
+		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
 		// SharedFeedActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the

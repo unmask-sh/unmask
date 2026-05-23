@@ -23,29 +23,29 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
-	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
 	"github.com/unmask-sh/unmask/admin/internal/user"
-	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 const (
-	challengePlaceholder = `/*__CAPTCHA_FORCE__*/"none"`
-	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
-	captchaPlaceholder   = "/*__CAPTCHA__*/null"
-	themePlaceholder     = `/*__THEME__*/"default"`
-	brandingPlaceholder  = `/*__BRANDING__*/null`
-	buildVPlaceholder    = `__BUILD_V__`
-	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
-	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
-	origPathPlaceholder  = `/*__ORIG_PATH__*/""`
+	challengePlaceholder   = `/*__CAPTCHA_FORCE__*/"none"`
+	challengeProbe         = "<!--__SUBFILTER_PROBE__-->"
+	captchaPlaceholder     = "/*__CAPTCHA__*/null"
+	themePlaceholder       = `/*__THEME__*/"default"`
+	brandingPlaceholder    = `/*__BRANDING__*/null`
+	buildVPlaceholder      = `__BUILD_V__`
+	chmodePlaceholder      = `/*__CHMODE__*/"pow_then_captcha"`
+	powDiffPlaceholder     = "/*__POW_DIFFICULTY__*/18"
+	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
-	defaultSite          = "default"
+	defaultSite            = "default"
 )
 
 // challengeThemes is the allowlist applied to the challenge page.  ?theme=
@@ -76,17 +76,17 @@ func pickChallengeTheme(r *http.Request, configured string) string {
 type Handler struct {
 	DB          *db.DB
 	Settings    settings.Settings
-	ConfigPath  string              // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
-	Version     string              // unmask-admin version (for display)
-	HostID      string              // host identifier of this unmask-admin instance.  Embedded in events for per-host aggregation on a shared DB.
-	IPGeo       *ipgeo.Reader       // optional, may be nil/empty (mmdb unset)
-	NginxLog    *nginxlog.Reader    // optional, may be nil/empty (access_log_path unset)
-	BanMgr      *ban.Manager        // optional, may be nil (ban_file_path unset)
-	UserRepo    *user.Repository    // internal user management (login / users tab / audit hook)
-	Notifier    *notifier.Notifier  // optional, may be nil (notification URL unset)
-	Mailer      *mail.Mailer        // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter *ratelimit.Limiter  // sliding-window counter for auth_request mode.  nil disables counting.
-	SharedFeed  *sharedfeed.Client  // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	ConfigPath  string             // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
+	Version     string             // unmask-admin version (for display)
+	HostID      string             // host identifier of this unmask-admin instance.  Embedded in events for per-host aggregation on a shared DB.
+	IPGeo       *ipgeo.Reader      // optional, may be nil/empty (mmdb unset)
+	NginxLog    *nginxlog.Reader   // optional, may be nil/empty (access_log_path unset)
+	BanMgr      *ban.Manager       // optional, may be nil (ban_file_path unset)
+	UserRepo    *user.Repository   // internal user management (login / users tab / audit hook)
+	Notifier    *notifier.Notifier // optional, may be nil (notification URL unset)
+	Mailer      *mail.Mailer       // optional, may be nil (SMTP unset).  Used by alert / password reset.
+	RateLimiter *ratelimit.Limiter // sliding-window counter for auth_request mode.  nil disables counting.
+	SharedFeed  *sharedfeed.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.
@@ -286,8 +286,9 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 // stripOrKeepCredit processes the
 // <!--UNMASK_CREDIT_START-->...<!--UNMASK_CREDIT_END--> segment of
 // challenge.html based on settings.Challenge.ShowCredit.
-//   show=false: drop the markers and the contents (aside) entirely (excluded from the output HTML)
-//   show=true : drop only the marker comments and keep the aside body
+//
+//	show=false: drop the markers and the contents (aside) entirely (excluded from the output HTML)
+//	show=true : drop only the marker comments and keep the aside body
 //
 // No-op for old templates that lack the markers.
 func stripOrKeepCredit(body []byte, show bool) []byte {
@@ -725,8 +726,9 @@ func htmlEscape(s string) string {
 }
 
 // testPagePrefix derives the /test/ index prefix from r.URL.Path.
-//   /unmask/admin/test/...  → /unmask/admin/test
-//   /unmask/test/...        → /unmask/test
+//
+//	/unmask/admin/test/...  → /unmask/admin/test
+//	/unmask/test/...        → /unmask/test
 func (h *Handler) testPagePrefix(r *http.Request) string {
 	base := h.Settings.Server.BasePath
 	if strings.Contains(r.URL.Path, base+"/admin/test/") || strings.HasSuffix(r.URL.Path, base+"/admin/test") {

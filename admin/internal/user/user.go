@@ -9,10 +9,10 @@
 // range as of 2026).
 //
 // Authentication flow:
-//   1. Login form receives username + password.
-//   2. Verify(username, password) runs bcrypt verification.
-//   3. On success, issue a session cookie (= cookies pkg) with user_id +
-//      role in the payload.
+//  1. Login form receives username + password.
+//  2. Verify(username, password) runs bcrypt verification.
+//  3. On success, issue a session cookie (= cookies pkg) with user_id +
+//     role in the payload.
 package user
 
 import (

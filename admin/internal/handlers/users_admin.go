@@ -2,10 +2,11 @@
 //
 // Row UI list + a "new user" form at the bottom + edit / reset / delete on each row.
 // Everything is received by a single endpoint (= POST /admin/users/save) and dispatched by op:
-//   op=create                 → create new with username + password + role
-//   op=set_role&id=<id>       → change role
-//   op=reset_password&id=<id> → change password
-//   op=delete&id=<id>         → delete
+//
+//	op=create                 → create new with username + password + role
+//	op=set_role&id=<id>       → change role
+//	op=reset_password&id=<id> → change password
+//	op=delete&id=<id>         → delete
 //
 // The schema is simple, so we do not "bulk-save the row UI"; each operation is one atomic POST.
 package handlers
