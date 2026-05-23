@@ -486,10 +486,10 @@ func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
 	}
 	if !settings.IsValidRateChallengeMode(act) {
 		// A real user essentially never lands on a honeypot path, so a trip
-		// is almost certainly a bot.  PoW alone is automatable; default the
-		// fallback to captcha_only so the gate is something a bot has to
-		// actually solve (vs pow_then_captcha which lets PoW-capable bots
-		// through without ever showing a CAPTCHA).
+		// is bot-confirmed.  pow_then_captcha would also gate the request
+		// (the chain still reaches CAPTCHA), but the leading PoW round-trip
+		// is wasted work against a bot-confirmed client -- send them
+		// straight to CAPTCHA instead.
 		act = settings.RateChallengeCaptchaOnly
 	}
 	s := severityFromAction(act)
