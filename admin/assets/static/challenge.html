@@ -141,12 +141,13 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
 </head>
 <body>
 <div class="box">
-  <!-- Branding slot: site identity (logo / name) shown above the verification
-       spinner.  challenge.js (= window.__brand) toggles display when branding
-       is enabled — defaults to hidden so the layout doesn't reserve space. -->
+  <!-- Branding slot: logo above the verification spinner.  challenge.js
+       fills src + alt and flips display when brand.logo_url is set.  Site
+       name lives only in the copy ({site_name} substitution) + as the logo's
+       alt text — a separate visible name line below the logo proved
+       redundant (the logo already carries the brand). -->
   <div id="brand-head" style="display:none;margin:0 0 1em">
-    <img id="brand-logo" alt="" style="display:none;max-height:60px;max-width:240px;margin:0 auto .4em;object-fit:contain">
-    <div id="brand-site" style="display:none;font-weight:600;color:#475569;font-size:.95em"></div>
+    <img id="brand-logo" alt="" style="display:none;max-height:60px;max-width:240px;margin:0 auto;object-fit:contain">
   </div>
   <!-- per-theme art / SVG mount point.  display:none on the default theme. -->
   <div class="theme-art" aria-hidden="true">

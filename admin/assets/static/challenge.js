@@ -174,28 +174,22 @@
   for(var sk in t){
     if(typeof t[sk]==='string') t[sk]=t[sk].replace(/\{site_name\}/g, subject);
   }
-  // Apply brand DOM (logo / site name / footer).  Each element is hidden by
-  // default (inline style="display:none" in challenge.html); flip to visible
-  // only when the corresponding field is set so the layout doesn't move on
-  // pages that don't use branding.
+  // Apply brand DOM (logo / footer).  Site name lives only in the copy
+  // ({site_name} substitution above) and as the logo's alt text -- a
+  // visible name line below the logo was redundant with the logo image
+  // itself.  Each element is hidden by default in challenge.html and only
+  // shown when the corresponding brand field is set, so layouts without
+  // branding don't shift.
   if(brand){
     var bhead=document.getElementById('brand-head');
     var blogo=document.getElementById('brand-logo');
-    var bsite=document.getElementById('brand-site');
     var bfoot=document.getElementById('brand-foot');
-    var headShow=false;
     if(brand.logo_url&&blogo){
       blogo.src=brand.logo_url;
       blogo.alt=brand.site_name||'';
       blogo.style.display='';
-      headShow=true;
+      if(bhead) bhead.style.display='';
     }
-    if(brand.site_name&&bsite){
-      bsite.textContent=brand.site_name;
-      bsite.style.display='';
-      headShow=true;
-    }
-    if(headShow&&bhead) bhead.style.display='';
     if(brand.footer_text&&bfoot){
       bfoot.textContent=brand.footer_text;
       bfoot.style.display='';
