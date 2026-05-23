@@ -159,11 +159,14 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	// 7. challenge settings sanity
-	if s.Challenge.CookieDays <= 0 || s.Challenge.CookieDays > 365 {
-		addWarn("cookie_days", fmt.Sprintf("value %d is outside the sensible range (1-365)", s.Challenge.CookieDays))
+	// 7. challenge settings sanity.  CookieDays is a legacy yaml-only field
+	// that load-time migration sets to 0 once it has folded into CookieSeconds,
+	// so the canonical knob to inspect here is CookieSeconds (in seconds).
+	cookieDays := s.Challenge.CookieSeconds / 86400
+	if cookieDays <= 0 || cookieDays > 365 {
+		addWarn("cookie_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", s.Challenge.CookieSeconds, cookieDays))
 	} else {
-		addOK("cookie_days", fmt.Sprintf("%d days", s.Challenge.CookieDays))
+		addOK("cookie_seconds", fmt.Sprintf("%d days (= %d seconds)", cookieDays, s.Challenge.CookieSeconds))
 	}
 	if s.Challenge.CaptchaScoreThreshold < 0 || s.Challenge.CaptchaScoreThreshold > 1 {
 		addWarn("captcha_score_threshold", fmt.Sprintf("value %.2f is outside (0.0-1.0)", s.Challenge.CaptchaScoreThreshold))
