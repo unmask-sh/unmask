@@ -8,17 +8,36 @@
 # unconditional rm here would delete the symlinks the new %post just created.
 # rpm passes $1=0 on final removal ($1>=1 on upgrade); dpkg passes
 # "remove"/"purge" on removal and "upgrade" on upgrade.
-case "${1:-}" in
-    0|remove|purge)
-        for link in /etc/nginx/conf.d/00-unmask.conf \
-                    /etc/nginx/conf.d/00-unmask-upstream.conf \
-                    /etc/nginx/conf.d/00-unmask-rendered.conf; do
-            if [ -L "$link" ]; then
-                rm -f "$link"
-            fi
-        done
-        ;;
-esac
+# Decide whether this invocation is a real removal (= clean symlinks) or an
+# upgrade / reinstall (= keep them so the new %post-created links are not
+# nuked).  Argument conventions vary:
+#   rpm:   $1 = "0" on final remove, "1..." on upgrade
+#   dpkg:  $1 = "remove" / "purge" on remove, "upgrade" on upgrade
+#   apk:   $1 = the package version string (= "0.1.0"); there is no built-in
+#          upgrade distinction at this hook since apk has separate pre/post-
+#          upgrade hooks, so post-deinstall here always means uninstall.
+do_cleanup=0
+if [ -d /lib/apk ]; then
+    # apk hosts: post-deinstall is uninstall-only by spec.
+    do_cleanup=1
+else
+    case "${1:-}" in
+        0|remove|purge) do_cleanup=1 ;;
+    esac
+fi
+
+if [ "$do_cleanup" = 1 ]; then
+    for link in /etc/nginx/conf.d/00-unmask.conf \
+                /etc/nginx/conf.d/00-unmask-upstream.conf \
+                /etc/nginx/conf.d/00-unmask-rendered.conf \
+                /etc/nginx/http.d/00-unmask.conf \
+                /etc/nginx/http.d/00-unmask-upstream.conf \
+                /etc/nginx/http.d/00-unmask-rendered.conf; do
+        if [ -L "$link" ]; then
+            rm -f "$link"
+        fi
+    done
+fi
 
 if command -v nginx >/dev/null 2>&1; then
     echo "unmask-web-nginx: snippet removed.  remember to:"
