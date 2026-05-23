@@ -8,7 +8,7 @@
 <title>Checking your browser...</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#333}
+body{position:relative;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#333}
 .box{text-align:center;padding:2em;max-width:420px;width:90%}
 .spinner{width:40px;height:40px;margin:0 auto 1em;border:4px solid #ddd;border-top:4px solid #333;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -131,8 +131,12 @@ body.theme-paper button:hover{background:#7d3a18}
 body.theme-paper button:disabled{background:#9a9088;color:#d8d2c5}
 body.theme-paper .note{color:#9a9088;font-family:inherit;font-size:.78em;letter-spacing:.005em}
 body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px solid rgba(125,58,24,.25)}
-/* unmask credit (= subtle, bottom right. Translucent bg keeps contrast independent of theme + bundled brand icon) */
-.unmask-credit{position:fixed;bottom:.6rem;right:.9rem;font-size:.7rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;z-index:100;padding:.3em .55em .3em .4em;border-radius:.4em;background:rgba(255,255,255,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 1px 4px rgba(0,0,0,.08);color:#334155}
+/* unmask credit (= subtle, bottom right.  Translucent bg keeps contrast
+   independent of theme + bundled brand icon).  position:absolute (not
+   fixed) anchors to the document bottom so scrolling tall content -- and
+   the admin theme-card iframe -- no longer overlays the spinner / verify
+   text. */
+.unmask-credit{position:absolute;bottom:.6rem;right:.9rem;font-size:.7rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;z-index:100;padding:.3em .55em .3em .4em;border-radius:.4em;background:rgba(255,255,255,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 1px 4px rgba(0,0,0,.08);color:#334155}
 .unmask-credit a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:.35em}
 .unmask-credit a:hover{text-decoration:underline}
 .unmask-credit img{width:1.1em;height:1.1em;display:block;border-radius:.2em;flex:none}
