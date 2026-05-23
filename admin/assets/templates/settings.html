@@ -2749,7 +2749,13 @@ document.addEventListener("DOMContentLoaded", function(){
         </div>
         <p class="theme-card-desc">{{ t $.Lang (printf "settings.theme.option.%s_desc" $opt) }}</p>
         <div class="theme-preview-frame">
-          <iframe src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1" loading="lazy" title="theme preview: {{ $opt }}"></iframe>
+          {{/* iframe src carries the SAVED preset + site name so a fresh page
+               load already shows the right wording.  JS below refreshes the
+               src when the operator changes the preset / types a new site
+               name -- with a 350ms debounce on input so we don't reload the
+               5 iframes on every keystroke. */}}
+          <iframe data-theme="{{ $opt }}" loading="lazy" title="theme preview: {{ $opt }}"
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
@@ -2889,16 +2895,50 @@ document.addEventListener("DOMContentLoaded", function(){
       el.textContent = '「' + tpl.replace(/\{site_name\}/g, subject) + '」';
     });
   }
-  function updateAll(){ updatePreviewLinks(); updatePresetSamples(); }
+  // Theme card iframes: refresh src so each preview reflects the current
+  // preset + site name selection.  Iframes are heavier than the small <a>
+  // hrefs, so we debounce the input handler (= 350ms) to avoid 5 reloads on
+  // every keystroke.  Radio changes fire immediately.
+  function refreshThemeIframes(){
+    var bp = basePath();
+    var preset = currentPreset();
+    var sn = currentSiteName();
+    document.querySelectorAll('#appearance-form .theme-preview-frame iframe').forEach(function(f){
+      var theme = f.getAttribute('data-theme') || 'default';
+      var url = bp + '/challenge/?_test_ja4=0&theme=' + encodeURIComponent(theme) +
+                '&_preview=1&_preview_preset=' + encodeURIComponent(preset);
+      if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
+      f.src = url;
+    });
+  }
+  var iframeDebounce = null;
+  function refreshThemeIframesDebounced(){
+    clearTimeout(iframeDebounce);
+    iframeDebounce = setTimeout(refreshThemeIframes, 350);
+  }
+  function updateAll(){
+    updatePreviewLinks();
+    updatePresetSamples();
+    refreshThemeIframes();
+  }
   // Wire live updates on every input that affects the URL / sample text.
   document.querySelectorAll('#appearance-form input[name="branding_copy_preset"]').forEach(function(r){
     r.addEventListener('change', updateAll);
   });
   var siteName = document.getElementById('branding-site-name');
-  if (siteName) siteName.addEventListener('input', updateAll);
+  if (siteName) siteName.addEventListener('input', function(){
+    // Links + sample text are cheap, refresh immediately; iframe reload
+    // debounced to avoid thrashing.
+    updatePreviewLinks();
+    updatePresetSamples();
+    refreshThemeIframesDebounced();
+  });
   // Initial sync (= covers the case where the form's saved selection differs
-  // from what the server rendered into the static hrefs / samples).
-  updateAll();
+  // from what the server rendered into the static hrefs / samples).  Don't
+  // re-fire the iframe load on initial sync -- server already rendered the
+  // right src.
+  updatePreviewLinks();
+  updatePresetSamples();
 })();
 </script>
 {{ end }}

@@ -1,10 +1,7 @@
 (async function(){
-  // ============================================================
-  // _preview=1: dedicated mode for the settings UI's iframe.  Don't run PoW / CAPTCHA;
-  // stop with spinner + "Verifying your browser..." displayed (= just for previewing
-  // the theme. No cookies, reloads, or debug beacons fire).
-  // ============================================================
-  if (window.UNMASK && window.UNMASK._preview) return;
+  // _preview=1 mode: see the early-return below `document.getElementById('msg').textContent=t.verify`.
+  // We let setup run far enough to apply the brand / preset / site-name overlay
+  // and paint the spinner text, then bail before any PoW or beacon work runs.
 
   // ============================================================
   // multi-site support: extract site ID from our own URL pathname.
@@ -138,14 +135,18 @@
   };
   var brand=(window.UNMASK&&window.UNMASK.brand)||null;
   // Admin "live preview" overrides: the branding panel links to
-  // /admin/test/force-captcha with ?_preview_preset=X (and optionally
-  // ?_preview_site_name=...) so the operator can see each preset before
-  // saving.  Only honour these when the URL is under /admin/test/ -- that
-  // path is auth-gated, so visitors cannot inject a different preset on
-  // the real challenge page.
+  // /admin/test/force-* with ?_preview_preset=X (and optionally
+  // ?_preview_site_name=...); the theme cards' iframes use the same params
+  // with ?_preview=1 on /unmask/challenge/.  Honour the override when EITHER
+  // path is admin-auth-gated (/admin/test/) OR _preview=1 is set on the
+  // challenge route (the latter is rendered with `pointer-events:none` inside
+  // an admin iframe and only paints text -- no real bypass).  Public visitors
+  // hitting /unmask/challenge/ without _preview=1 cannot inject a preset.
   try {
-    if (location.pathname.indexOf('/admin/test/') !== -1) {
-      var qs = new URLSearchParams(location.search);
+    var qs = new URLSearchParams(location.search);
+    var isAdminTest = location.pathname.indexOf('/admin/test/') !== -1;
+    var isIframePreview = qs.get('_preview') === '1';
+    if (isAdminTest || isIframePreview) {
       var qp = qs.get('_preview_preset');
       var qs2 = qs.get('_preview_site_name');
       if (qp && P[qp]) {
@@ -205,6 +206,14 @@
 
   // set initial text
   document.getElementById('msg').textContent=t.verify;
+
+  // ============================================================
+  // _preview=1 / admin theme cards: stop here.  Setup has run far enough
+  // to paint the brand (logo / site name / footer / preset text); skip
+  // behavioral listeners, PoW, CAPTCHA, debug beacons, and the redirect
+  // back to orig.  See the early-return comment at the top of the IIFE.
+  // ============================================================
+  if (window.UNMASK && window.UNMASK._preview) return;
 
   var start=Date.now();
   var captchaToken='';
