@@ -141,6 +141,9 @@
       timeZone: tzVal,
       year:'numeric', month:'short', day:'2-digit',
       hour:'2-digit', minute:'2-digit',
+      // Append the short TZ name (e.g. JST / UTC / PDT) so the operator
+      // does not have to guess which timezone the figure is in.
+      timeZoneName: 'short',
     });
     const dFmt  = new Intl.DateTimeFormat(locVal, {
       timeZone: tzVal,
