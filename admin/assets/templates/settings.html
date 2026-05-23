@@ -2754,7 +2754,14 @@ document.addEventListener("DOMContentLoaded", function(){
                src when the operator changes the preset / types a new site
                name -- with a 350ms debounce on input so we don't reload the
                5 iframes on every keystroke. */}}
-          <iframe data-theme="{{ $opt }}" loading="lazy" title="theme preview: {{ $opt }}"
+          {{/* scrolling="no" suppresses the iframe's own scrollbar -- pointer-
+               events:none on the iframe already blocks user scroll input, so
+               a visible scrollbar would just look broken (= "why can't I scroll?").
+               Tall themes like "cat" overflow the frame slightly when branding
+               adds logo / footer rows; the bottom clip is acceptable as a
+               look-only preview. */}}
+          <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="no"
+                  title="theme preview: {{ $opt }}"
                   src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}{{ if $.Branding.FooterText }}&_preview_footer_text={{ $.Branding.FooterText }}{{ end }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
@@ -2874,17 +2881,19 @@ document.addEventListener("DOMContentLoaded", function(){
   }
   function updatePreviewLinks(){
     var bp = basePath();
+    // Always emit _preview_site_name / _preview_footer_text (even when blank)
+    // so an empty input explicitly clears the saved value -- without this,
+    // clearing the footer textbox left the previously-saved footer visible
+    // in the preview because challenge.js fell back to the brand JSON.
     document.querySelectorAll('#appearance-form .preview-link').forEach(function(a){
       var mode    = a.dataset.previewMode || 'captcha';
       var preset  = a.dataset.previewPreset || currentPreset();
       var theme   = a.dataset.previewTheme  || currentTheme();
       var url = bp + '/admin/test/force-' + mode +
         '?_preview_preset=' + encodeURIComponent(preset) +
-        '&theme=' + encodeURIComponent(theme);
-      var sn = currentSiteName();
-      if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
-      var ft = currentFooterText();
-      if (ft) url += '&_preview_footer_text=' + encodeURIComponent(ft);
+        '&theme=' + encodeURIComponent(theme) +
+        '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
+        '&_preview_footer_text=' + encodeURIComponent(currentFooterText());
       a.href = url;
     });
   }
@@ -2908,14 +2917,17 @@ document.addEventListener("DOMContentLoaded", function(){
   function refreshThemeIframes(){
     var bp = basePath();
     var preset = currentPreset();
+    // Always include the empty value so clearing site name / footer in the
+    // form actually clears them in the preview (= matches the link builder
+    // above; see the comment there for the reasoning).
     var sn = currentSiteName();
     var ft = currentFooterText();
     document.querySelectorAll('#appearance-form .theme-preview-frame iframe').forEach(function(f){
       var theme = f.getAttribute('data-theme') || 'default';
       var url = bp + '/challenge/?_test_ja4=0&theme=' + encodeURIComponent(theme) +
-                '&_preview=1&_preview_preset=' + encodeURIComponent(preset);
-      if (sn) url += '&_preview_site_name=' + encodeURIComponent(sn);
-      if (ft) url += '&_preview_footer_text=' + encodeURIComponent(ft);
+                '&_preview=1&_preview_preset=' + encodeURIComponent(preset) +
+                '&_preview_site_name=' + encodeURIComponent(sn) +
+                '&_preview_footer_text=' + encodeURIComponent(ft);
       f.src = url;
     });
   }
