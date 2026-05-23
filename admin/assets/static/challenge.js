@@ -137,6 +137,24 @@
     }
   };
   var brand=(window.UNMASK&&window.UNMASK.brand)||null;
+  // Admin "live preview" overrides: the branding panel links to
+  // /admin/test/force-captcha with ?_preview_preset=X (and optionally
+  // ?_preview_site_name=...) so the operator can see each preset before
+  // saving.  Only honour these when the URL is under /admin/test/ -- that
+  // path is auth-gated, so visitors cannot inject a different preset on
+  // the real challenge page.
+  try {
+    if (location.pathname.indexOf('/admin/test/') !== -1) {
+      var qs = new URLSearchParams(location.search);
+      var qp = qs.get('_preview_preset');
+      var qs2 = qs.get('_preview_site_name');
+      if (qp && P[qp]) {
+        if (!brand) brand = {};
+        brand.copy_preset = qp;
+        if (qs2 != null) brand.site_name = qs2;
+      }
+    }
+  } catch (_) {}
   if(brand&&brand.copy_preset&&P[brand.copy_preset]&&P[brand.copy_preset][lang]){
     var pv=P[brand.copy_preset][lang];
     // Shallow-merge: preset fields override the L baseline; notRobot /

@@ -2631,16 +2631,23 @@ document.addEventListener("DOMContentLoaded", function(){
 
 {{/* Branding panel — sits ABOVE the theme cards because operators picking a
      theme are also likely to want to set the logo / site name to make the
-     challenge page feel like part of their own site.  Separate <form> so the
-     file upload stays multipart while the theme form remains
-     application/x-www-form-urlencoded. */}}
+     challenge page feel like part of their own site.  Split into two sub-
+     cards inside one <form>: "識別情報" (= what is your site?) and
+     "文言テンプレート" (= which copy variant do visitors see?).  Mixing
+     them in one flat list confused operators -- the new structure tells the
+     reader which decisions are about facts vs about wording.  Separate
+     <form> from the theme form because the file upload needs multipart. */}}
 <form method="post" enctype="multipart/form-data"
       action="{{ .BasePath }}/admin/settings/save?section=branding" id="branding-form">
-  <div class="bcd-card">
-    <h2 style="margin:.1rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
-    <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
+  <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
+  <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
 
-    <div class="field" style="margin-top:.5rem">
+  <div class="bcd-card" style="margin-top:.4rem">
+    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
+      {{ t .Lang "settings.branding.identity_heading" }}
+    </div>
+
+    <div class="field">
       <label style="display:inline-flex;align-items:center;gap:.4rem;font-weight:500">
         <input type="checkbox" name="branding_enabled" value="1" {{ if .Branding.Enabled }}checked{{ end }}>
         {{ t .Lang "settings.branding.enabled_label" }}
@@ -2666,20 +2673,6 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
 
       <div class="field">
-        <label>{{ t .Lang "settings.branding.preset_label" }}</label>
-        <div style="display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.3rem">
-          {{ range $p := .BrandingPresets }}
-          <label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.85rem">
-            <input type="radio" name="branding_copy_preset" value="{{ $p }}"
-                   {{ if or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}checked{{ end }}>
-            <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
-            <span style="color:#64748b">— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
-          </label>
-          {{ end }}
-        </div>
-      </div>
-
-      <div class="field">
         <label>{{ t .Lang "settings.branding.logo_label" }}</label>
         {{ if .BrandingHasLogo }}
         <div style="display:flex;align-items:center;gap:.7rem;margin:.3rem 0 .4rem;padding:.5rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
@@ -2698,6 +2691,33 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
     </div>
   </div>
+
+  <div class="bcd-card" style="margin-top:.4rem">
+    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
+      {{ t .Lang "settings.branding.template_heading" }}
+    </div>
+    <p class="note" style="margin:0 0 .55rem;color:#64748b;font-size:.78rem;line-height:1.5">
+      {{ safeHTML (t .Lang "settings.branding.template_intro") }}
+    </p>
+
+    <div class="branding-preset-list">
+      {{ range $p := .BrandingPresets }}
+      {{ $sel := or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}
+      <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
+        <input type="radio" name="branding_copy_preset" value="{{ $p }}" {{ if $sel }}checked{{ end }}>
+        <div class="branding-preset-text">
+          <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
+          <span>— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
+        </div>
+        <a class="branding-preset-preview" target="_blank" rel="noopener"
+           href="{{ $.BasePath }}/admin/test/force-captcha?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+          {{ t $.Lang "settings.branding.preview_link" }} ↗
+        </a>
+      </label>
+      {{ end }}
+    </div>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
@@ -2728,6 +2748,19 @@ document.addEventListener("DOMContentLoaded", function(){
 <style>
 .branding-grid{display:grid;grid-template-columns:1fr;gap:.9rem;margin-top:.6rem}
 .branding-grid .field label{font-weight:500;color:#475569;font-size:.85rem;display:block;margin-bottom:.2rem}
+/* preset selector: one row per preset = radio + label/desc + preview link.
+   Whole row is clickable (= the <label> wraps the radio + text). */
+.branding-preset-list{display:flex;flex-direction:column;gap:.35rem}
+.branding-preset-row{display:flex;align-items:center;gap:.7rem;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#fff;cursor:pointer;transition:background .12s,border-color .12s}
+.branding-preset-row:hover{background:#f8fafc;border-color:#cbd5e1}
+.branding-preset-row.selected,
+.branding-preset-row:has(input[type=radio]:checked){background:#eff6ff;border-color:#3b82f6}
+.branding-preset-row input[type=radio]{margin:0;flex:0 0 auto}
+.branding-preset-text{flex:1;min-width:0;font-size:.86rem;color:#334155;line-height:1.4}
+.branding-preset-text strong{margin-right:.25rem}
+.branding-preset-text span{color:#64748b}
+.branding-preset-preview{flex:0 0 auto;font-size:.78rem;color:#1e40af;text-decoration:none;padding:.18rem .55rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
+.branding-preset-preview:hover{background:#eff6ff;border-color:#3b82f6}
 .theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
 .theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}
 .theme-card{display:block;border:.125rem solid #e2e8f0;border-radius:.5rem;background:#fafbfc;cursor:pointer;overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .05s;position:relative}
