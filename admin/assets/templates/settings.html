@@ -2628,6 +2628,79 @@ document.addEventListener("DOMContentLoaded", function(){
 {{ end }}
 
 {{ if eq .Tab "theme" }}
+
+{{/* Branding panel — sits ABOVE the theme cards because operators picking a
+     theme are also likely to want to set the logo / site name to make the
+     challenge page feel like part of their own site.  Separate <form> so the
+     file upload stays multipart while the theme form remains
+     application/x-www-form-urlencoded. */}}
+<form method="post" enctype="multipart/form-data"
+      action="{{ .BasePath }}/admin/settings/save?section=branding" id="branding-form">
+  <div class="bcd-card">
+    <h2 style="margin:.1rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
+    <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
+
+    <div class="field" style="margin-top:.5rem">
+      <label style="display:inline-flex;align-items:center;gap:.4rem;font-weight:500">
+        <input type="checkbox" name="branding_enabled" value="1" {{ if .Branding.Enabled }}checked{{ end }}>
+        {{ t .Lang "settings.branding.enabled_label" }}
+      </label>
+      <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.78rem;line-height:1.5">{{ t .Lang "settings.branding.enabled_desc" }}</p>
+    </div>
+
+    <div class="branding-grid">
+      <div class="field">
+        <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>
+        <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
+               value="{{ .Branding.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
+               style="width:100%;max-width:24rem">
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.site_name_desc" }}</p>
+      </div>
+
+      <div class="field">
+        <label for="branding-footer-text">{{ t .Lang "settings.branding.footer_label" }}</label>
+        <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
+               value="{{ .Branding.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
+               style="width:100%;max-width:24rem">
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
+      </div>
+
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.preset_label" }}</label>
+        <div style="display:flex;flex-wrap:wrap;gap:.6rem;margin-top:.3rem">
+          {{ range $p := .BrandingPresets }}
+          <label style="display:inline-flex;align-items:center;gap:.3rem;font-size:.85rem">
+            <input type="radio" name="branding_copy_preset" value="{{ $p }}"
+                   {{ if or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}checked{{ end }}>
+            <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
+            <span style="color:#64748b">— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
+          </label>
+          {{ end }}
+        </div>
+      </div>
+
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.logo_label" }}</label>
+        {{ if .BrandingHasLogo }}
+        <div style="display:flex;align-items:center;gap:.7rem;margin:.3rem 0 .4rem;padding:.5rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
+          <img src="{{ .BrandingLogoURL }}"
+               alt="" style="max-height:40px;max-width:120px;object-fit:contain">
+          <span style="color:#64748b;font-size:.8rem">{{ t .Lang "settings.branding.logo_current" }}</span>
+          <label style="margin-left:auto;display:inline-flex;align-items:center;gap:.3rem;color:#b91c1c;font-size:.8rem">
+            <input type="checkbox" name="branding_logo_clear" value="1">
+            {{ t .Lang "settings.branding.logo_clear" }}
+          </label>
+        </div>
+        {{ end }}
+        <input type="file" name="branding_logo_file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+               style="font-size:.85rem">
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.logo_desc") }}</p>
+      </div>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=theme" id="theme-form">
   <div class="bcd-card">
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
@@ -2653,6 +2726,8 @@ document.addEventListener("DOMContentLoaded", function(){
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 <style>
+.branding-grid{display:grid;grid-template-columns:1fr;gap:.9rem;margin-top:.6rem}
+.branding-grid .field label{font-weight:500;color:#475569;font-size:.85rem;display:block;margin-bottom:.2rem}
 .theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
 .theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}
 .theme-card{display:block;border:.125rem solid #e2e8f0;border-radius:.5rem;background:#fafbfc;cursor:pointer;overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .05s;position:relative}

@@ -111,6 +111,76 @@
   var lang=detectLang();
   var t=L[lang]||L.en;
 
+  // --- branding: copy preset + site name + logo/footer ----------------
+  //
+  // Operators pick a preset in the admin panel; the visitor sees the same
+  // preset text translated into their own language.  Only ja / en have
+  // translations for now — other languages fall back to the L baseline so
+  // the language stays consistent (verify message in en preset on a fr
+  // visitor would feel jarring).
+  //
+  // {site_name} in any preset / L string is replaced with the configured
+  // site name, or a localized default ("サイト" / "this site") when not
+  // configured.
+  var P={
+    friendly:{
+      en:{verify:'Verifying you can reach {site_name} safely, just a moment...',title:'Safety check',desc:'Please confirm to continue.',note:'This check helps protect the site from automated abuse.'},
+      ja:{verify:'{site_name} で安全確認中です. 数秒お待ちください...',title:'安全確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから site を保護するための確認です.'}
+    },
+    neutral:{
+      en:{verify:'Performing a security check for {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This security check protects the site from automated access.'},
+      ja:{verify:'{site_name} のセキュリティ確認中です. しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'}
+    },
+    minimal:{
+      en:{verify:'Connecting to {site_name}... just a moment',title:'Connecting',desc:'Please confirm to continue.',note:''},
+      ja:{verify:'{site_name} に接続中... 数秒お待ちください',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''}
+    }
+  };
+  var brand=(window.UNMASK&&window.UNMASK.brand)||null;
+  if(brand&&brand.copy_preset&&P[brand.copy_preset]&&P[brand.copy_preset][lang]){
+    var pv=P[brand.copy_preset][lang];
+    // Shallow-merge: preset fields override the L baseline; notRobot /
+    // wrong / error stay from L (= operator does not customize them).
+    var merged={};
+    for(var lk in t){ if(t.hasOwnProperty(lk)) merged[lk]=t[lk]; }
+    for(var pk in pv){ if(pv.hasOwnProperty(pk)) merged[pk]=pv[pk]; }
+    t=merged;
+  }
+  // {site_name} substitution.  Run on every string in t so a preset can put
+  // the placeholder in any field; non-string entries (= none today) skipped.
+  var subjectFallback=(lang==='ja')?'サイト':'this site';
+  var subject=(brand&&brand.site_name)?brand.site_name:subjectFallback;
+  for(var sk in t){
+    if(typeof t[sk]==='string') t[sk]=t[sk].replace(/\{site_name\}/g, subject);
+  }
+  // Apply brand DOM (logo / site name / footer).  Each element is hidden by
+  // default (inline style="display:none" in challenge.html); flip to visible
+  // only when the corresponding field is set so the layout doesn't move on
+  // pages that don't use branding.
+  if(brand){
+    var bhead=document.getElementById('brand-head');
+    var blogo=document.getElementById('brand-logo');
+    var bsite=document.getElementById('brand-site');
+    var bfoot=document.getElementById('brand-foot');
+    var headShow=false;
+    if(brand.logo_url&&blogo){
+      blogo.src=brand.logo_url;
+      blogo.alt=brand.site_name||'';
+      blogo.style.display='';
+      headShow=true;
+    }
+    if(brand.site_name&&bsite){
+      bsite.textContent=brand.site_name;
+      bsite.style.display='';
+      headShow=true;
+    }
+    if(headShow&&bhead) bhead.style.display='';
+    if(brand.footer_text&&bfoot){
+      bfoot.textContent=brand.footer_text;
+      bfoot.style.display='';
+    }
+  }
+
   // set the html lang and dir attributes
   document.documentElement.lang=lang==='zht'?'zh-Hant':lang;
   if(lang==='ar')document.documentElement.dir='rtl';
@@ -154,7 +224,11 @@
     cap.style.display='block';
     document.getElementById('captchaTitle').textContent=t.title;
     document.getElementById('captchaDesc').textContent=t.desc;
-    document.getElementById('captchaNote').textContent=t.note;
+    var noteEl=document.getElementById('captchaNote');
+    // Empty note (= the "minimal" preset removes the note string) hides the
+    // element entirely instead of leaving a blank line where it used to be.
+    if(t.note){ noteEl.textContent=t.note; noteEl.style.display=''; }
+    else      { noteEl.style.display='none'; }
     document.getElementById('notRobotLabel').textContent = t.notRobot || "I'm not a robot";
     sig.loadAt = performance.now();
     captchaToken = String(Math.random()).slice(2) + '.' + Math.round(performance.now());

@@ -17,9 +17,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -463,6 +465,42 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Theme list with a guaranteed display order (= map iteration is unordered).
 		// "default" first, then by mood (= calm → lively).
 		"ThemeOptions": []string{"default", "dark", "terminal", "paper", "cat"},
+		// Branding settings used by the theme tab's top section.  The view
+		// only needs the four operator-editable fields; visitor-facing copy
+		// presets are resolved client-side (challenge.js).
+		"Branding": h.snapshotSettings().Branding,
+		// Whether the resolved Branding has a logo on disk.  Used to show
+		// the "current logo" thumbnail + the "remove logo" toggle.  Path is
+		// not shown to the operator (= internal detail).
+		"BrandingHasLogo": func() bool {
+			b := h.snapshotSettings().Branding
+			if strings.TrimSpace(b.LogoPath) == "" {
+				return false
+			}
+			st, err := os.Stat(b.LogoPath)
+			return err == nil && !st.IsDir()
+		}(),
+		// Pre-computed admin-side logo URL with a cache-bust query so the
+		// preview thumbnail refreshes immediately after upload (= the
+		// /branding/logo.<ext> serve carries 5-min Cache-Control).
+		"BrandingLogoURL": func() string {
+			b := h.snapshotSettings().Branding
+			p := strings.TrimSpace(b.LogoPath)
+			if p == "" {
+				return ""
+			}
+			ext := strings.ToLower(filepath.Ext(p))
+			if !brandingAllowedExt[ext] {
+				return ""
+			}
+			base := strings.TrimRight(h.Settings.Server.BasePath, "/")
+			url := base + "/branding/logo"
+			if st, err := os.Stat(p); err == nil {
+				url += "?v=" + strconv.FormatInt(st.ModTime().Unix(), 10)
+			}
+			return url
+		}(),
+		"BrandingPresets": []string{settings.BrandingPresetFriendly, settings.BrandingPresetNeutral, settings.BrandingPresetMinimal},
 		// Notification webhook settings (= used by the notifications tab).
 		"Notifications": h.snapshotSettings().Notifications,
 		// SMTP settings (= used by the smtp tab). Mask the password (= empty
@@ -618,13 +656,22 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "config path unknown — cannot persist (admin doesn't know where config.yml lives)", http.StatusBadRequest)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	section := r.URL.Query().Get("section")
+	// Branding upload uses multipart/form-data because of the logo file.
+	// Every other section is plain x-www-form-urlencoded.
+	if section == "branding" {
+		// Cap the upload at ~4 MiB so a runaway POST cannot eat the admin's
+		// memory; reasonable for logo files (the typical SVG is <50 KiB).
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			http.Error(w, "bad form (multipart): "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	section := r.URL.Query().Get("section")
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -751,6 +798,14 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			t = "default"
 		}
 		cur.Challenge.Theme = t
+	case "branding":
+		// Brand identity shown on the challenge page (= logo + name +
+		// footer + copy preset).  See settings.Branding for the data shape
+		// and handlers.go ServeBrandingLogo for the logo serve path.
+		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -906,7 +961,15 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	redirBack("")
 }
 
-func tabForSection(s string) string { return s }
+// tabForSection maps a save form's ?section= value to the destination tab
+// for the post-save redirect.  Most sections share the name; the branding
+// form lives inside the theme tab, so it redirects there instead.
+func tabForSection(s string) string {
+	if s == "branding" {
+		return "theme"
+	}
+	return s
+}
 
 func (h *Handler) snapshotSettings() settings.Settings {
 	settingsMu.Lock()
@@ -2853,4 +2916,129 @@ func humanBytes(n int64) string {
 	default:
 		return fmt.Sprintf("%.2f GB", float64(n)/(k*k*k))
 	}
+}
+
+// --- branding form helpers ----------------------------------------------
+
+// allowed logo file extensions, mapped from MIME-ish suffixes accepted on
+// upload.  Kept tight so a misnamed file (.exe disguised as .png) just gets
+// rejected — Content-Type sniffing on the upload side is non-trivial in
+// pure Go, so we lean on the extension here and rely on the visitor-side
+// serve handler to set the Content-Type per the on-disk extension.
+var brandingAllowedExt = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true,
+	".svg": true, ".webp": true, ".gif": true,
+}
+
+// pickLogoExt returns the lowercase extension (with the dot) when it sits
+// in brandingAllowedExt, plus ok=true.  Unknown extensions return ok=false.
+func pickLogoExt(filename string) (string, bool) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	if brandingAllowedExt[ext] {
+		return ext, true
+	}
+	return "", false
+}
+
+// sanitizeSVG strips the most common JS-execution vectors out of an SVG
+// payload before it lands in the static serve.  This is a regex-based
+// best-effort filter (not a full XML parser): the threat model is
+// "operator uploads a malicious SVG that runs JS in visitors' browsers",
+// which is a defence-in-depth concern -- the operator is already admin,
+// but the challenge page is rendered for unauthenticated visitors.
+//
+// Strips:
+//   - <script>...</script> blocks
+//   - <foreignObject>, <iframe>, <object>, <embed> elements
+//   - on*= event-handler attributes (= onload / onclick / ...)
+//   - href / xlink:href values starting with "javascript:" or "data:text/html"
+func sanitizeSVG(data []byte) []byte {
+	src := string(data)
+	src = svgDropScript.ReplaceAllString(src, "")
+	src = svgDropForeign.ReplaceAllString(src, "")
+	src = svgDropIframe.ReplaceAllString(src, "")
+	src = svgDropObject.ReplaceAllString(src, "")
+	src = svgDropEmbed.ReplaceAllString(src, "")
+	src = svgStripOnAttr.ReplaceAllString(src, "")
+	src = svgStripJSHref.ReplaceAllString(src, "")
+	return []byte(src)
+}
+
+var (
+	svgDropScript   = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script\s*>|<script\b[^>]*/?>`)
+	svgDropForeign  = regexp.MustCompile(`(?is)<foreignObject\b[^>]*>.*?</foreignObject\s*>|<foreignObject\b[^>]*/?>`)
+	svgDropIframe   = regexp.MustCompile(`(?is)<iframe\b[^>]*>.*?</iframe\s*>|<iframe\b[^>]*/?>`)
+	svgDropObject   = regexp.MustCompile(`(?is)<object\b[^>]*>.*?</object\s*>|<object\b[^>]*/?>`)
+	svgDropEmbed    = regexp.MustCompile(`(?is)<embed\b[^>]*/?>`)
+	svgStripOnAttr  = regexp.MustCompile(`(?i)\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
+	svgStripJSHref  = regexp.MustCompile(`(?i)\s(?:xlink:)?href\s*=\s*("(?:javascript|data:text/html)[^"]*"|'(?:javascript|data:text/html)[^']*'|(?:javascript|data:text/html)[^\s>]*)`)
+)
+
+// applyBrandingForm mutates cur in place with the values from the branding
+// form (= section=branding).  configPath is the path to the active
+// config.yml so the logo can be persisted next to it (= <dir>/branding/logo.<ext>).
+//
+// The logo file accepts a single upload.  Missing file = leave existing
+// logo untouched (= operator only changed text fields).  branding_logo_clear=1
+// removes the on-disk file + clears LogoPath.
+func applyBrandingForm(cur *settings.Branding, configPath string, r *http.Request) error {
+	cur.Enabled = r.FormValue("branding_enabled") == "1"
+	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
+	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
+	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
+		cur.CopyPreset = p
+	} else {
+		cur.CopyPreset = settings.BrandingPresetFriendly
+	}
+	// Length caps so a runaway paste doesn't bloat the config file or
+	// overflow the challenge layout.
+	if n := len([]rune(cur.SiteName)); n > 80 {
+		cur.SiteName = string([]rune(cur.SiteName)[:80])
+	}
+	if n := len([]rune(cur.FooterText)); n > 160 {
+		cur.FooterText = string([]rune(cur.FooterText)[:160])
+	}
+	// Logo handling: explicit clear takes priority over file upload.
+	if r.FormValue("branding_logo_clear") == "1" {
+		if cur.LogoPath != "" {
+			_ = os.Remove(cur.LogoPath)
+		}
+		cur.LogoPath = ""
+		return nil
+	}
+	f, fh, err := r.FormFile("branding_logo_file")
+	if err == http.ErrMissingFile || f == nil {
+		// No upload this time — keep the existing on-disk file.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("logo: read upload: %w", err)
+	}
+	defer f.Close()
+	ext, ok := pickLogoExt(fh.Filename)
+	if !ok {
+		return fmt.Errorf("logo: unsupported extension (allowed: png, jpg, jpeg, svg, webp, gif)")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, 4<<20))
+	if err != nil {
+		return fmt.Errorf("logo: read failed: %w", err)
+	}
+	if ext == ".svg" {
+		data = sanitizeSVG(data)
+	}
+	dir := filepath.Join(filepath.Dir(configPath), "branding")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("logo: mkdir failed: %w", err)
+	}
+	// Drop any prior logo whose extension differs from the new upload so
+	// stale files do not accumulate on disk.
+	if cur.LogoPath != "" && strings.ToLower(filepath.Ext(cur.LogoPath)) != ext {
+		_ = os.Remove(cur.LogoPath)
+	}
+	path := filepath.Join(dir, "logo"+ext)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("logo: write failed: %w", err)
+	}
+	cur.LogoPath = path
+	return nil
 }

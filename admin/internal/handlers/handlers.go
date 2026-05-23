@@ -38,6 +38,7 @@ const (
 	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
 	captchaPlaceholder   = "/*__CAPTCHA__*/null"
 	themePlaceholder     = `/*__THEME__*/"default"`
+	brandingPlaceholder  = `/*__BRANDING__*/null`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	origPathPlaceholder  = `/*__ORIG_PATH__*/""`
@@ -151,6 +152,106 @@ func captchaInjectJSON(c settings.Captcha) string {
 		return "null"
 	}
 	return string(b)
+}
+
+// brandingInjectJSON builds the JSON object embedded in challenge.html.
+// challenge.js reads window.__brand and applies logo / site_name / footer /
+// copy preset.  Returns "null" when branding is disabled or carries no info
+// worth sending — keeps the visitor payload minimal in the common case.
+//
+// logo_url is built from the configured logo file's extension (e.g. .svg /
+// .png) so the browser fetches /<base>/branding/logo.<ext>; an empty path
+// omits the field and the JS hides the <img> slot.
+func brandingInjectJSON(b settings.Branding, basePath string) string {
+	if !b.Enabled {
+		return "null"
+	}
+	type out struct {
+		LogoURL    string `json:"logo_url,omitempty"`
+		SiteName   string `json:"site_name,omitempty"`
+		FooterText string `json:"footer_text,omitempty"`
+		CopyPreset string `json:"copy_preset"`
+	}
+	o := out{
+		SiteName:   strings.TrimSpace(b.SiteName),
+		FooterText: strings.TrimSpace(b.FooterText),
+		CopyPreset: b.ResolvedCopyPreset(),
+	}
+	if p := strings.TrimSpace(b.LogoPath); p != "" {
+		ext := strings.ToLower(filepath.Ext(p))
+		// Allowlist of extensions we will actually serve.  Anything else is
+		// treated as "no logo" so a stale config doesn't trip the visitor.
+		switch ext {
+		case ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif":
+			base := strings.TrimRight(basePath, "/")
+			url := base + "/branding/logo"
+			// Cache-bust via mtime so a new upload propagates to visitors
+			// without waiting for the 5-min Cache-Control max-age.
+			if st, err := os.Stat(p); err == nil {
+				url += "?v=" + strconv.FormatInt(st.ModTime().Unix(), 10)
+			}
+			o.LogoURL = url
+		}
+	}
+	// Skip the payload entirely when there's nothing to override (= the
+	// visitor still benefits from the friendlier default copy preset,
+	// applied client-side from window.__brand defaults).
+	if o.LogoURL == "" && o.SiteName == "" && o.FooterText == "" && o.CopyPreset == settings.BrandingPresetFriendly {
+		return "null"
+	}
+	js, err := json.Marshal(o)
+	if err != nil {
+		return "null"
+	}
+	return string(js)
+}
+
+// ServeBrandingLogo: GET {base}/branding/logo.<ext>.  Reads the configured
+// logo file from disk, sniffs the file extension to pick a Content-Type, and
+// streams the bytes back.  Public (no auth) — the logo is visitor-facing.
+// 404 when branding is disabled or no logo is configured; a path/extension
+// mismatch (e.g. visitor asks for .png but operator stored .svg) is also a
+// 404 so cached URLs cannot fall through to a different file.
+func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
+	b := h.snapshotSettings().Branding
+	if !b.Enabled || strings.TrimSpace(b.LogoPath) == "" {
+		http.NotFound(w, r)
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(b.LogoPath))
+	data, err := os.ReadFile(b.LogoPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	switch ext {
+	case ".svg":
+		w.Header().Set("Content-Type", "image/svg+xml")
+	case ".png":
+		w.Header().Set("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		w.Header().Set("Content-Type", "image/jpeg")
+	case ".webp":
+		w.Header().Set("Content-Type", "image/webp")
+	case ".gif":
+		w.Header().Set("Content-Type", "image/gif")
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	// Short cache to ride out a flurry of visitor requests but still let a
+	// freshly-uploaded logo propagate within minutes.
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	if _, err := w.Write(data); err != nil {
+		return
+	}
+}
+
+// basePath returns the configured admin base URL prefix without a trailing
+// slash. Used when assembling visitor-facing URLs (e.g. the logo URL embedded
+// in challenge.html).
+func (h *Handler) basePath() string {
+	return strings.TrimRight(h.Settings.Server.BasePath, "/")
 }
 
 // loadChallengeHTML returns the challenge.html bytes.  Order:
@@ -313,6 +414,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	theme := pickChallengeTheme(r, h.Settings.Challenge.Theme)
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
+	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
+		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding, h.basePath())))
 
 	// challenge_mode resolution:
 	//   1) rate-limit path (= "/_rl/" / forceReason="rate_limit") uses

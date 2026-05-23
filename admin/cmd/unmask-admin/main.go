@@ -617,6 +617,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	mux.HandleFunc("GET "+base+"/static/popover-pin.js", h.ServePopoverPinJS)
 	mux.HandleFunc("GET "+base+"/static/popover-pin.css", h.ServePopoverPinCSS)
 	mux.HandleFunc("GET "+base+"/static/icon.png", h.ServeIcon)
+	// Branding logo (visitor-facing, no auth).  Single endpoint regardless
+	// of the stored file's extension; the handler picks the correct
+	// Content-Type from the on-disk file.  Cache-busting is via ?v=<mtime>
+	// in the URL embedded in challenge.html / the admin preview thumbnail.
+	mux.HandleFunc("GET "+base+"/branding/logo", h.ServeBrandingLogo)
 	// Rate-limit path (nginx rewrites the original URI into /unmask/_rl<orig URI>).
 	// Path subtree match (trailing slash, no {$}) catches any path after
 	// _rl/.  Kept as a separate namespace to avoid collisions with

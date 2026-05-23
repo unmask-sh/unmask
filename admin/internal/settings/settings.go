@@ -136,6 +136,62 @@ func (c Challenge) ResolvedPowDifficulty() int {
 	return c.PowDifficulty
 }
 
+// Branding: per-site identity shown on the challenge page so visitors can
+// recognise "this is operated by <site>" instead of feeling like a 3rd-party
+// security tool hijacked the browser. The defaults ("Verifying your browser…")
+// triggered a recurring "is my browser infected?" question from real users; a
+// logo + site name + softer copy preset cuts that confusion.
+//
+// All operator-facing fields here are LANGUAGE-AGNOSTIC (= a logo image, a
+// short brand string). Visitor-facing copy lives in challenge.js as a fixed
+// set of presets the operator picks from — that way ja/en stays consistent
+// regardless of the visitor's browser locale.
+type Branding struct {
+	// Enabled: when false, defaults are used (= no logo, default copy).
+	Enabled bool `yaml:"enabled,omitempty"`
+	// LogoPath: absolute path on disk to the uploaded logo file (PNG / JPEG /
+	// SVG). Empty = no logo. Served via /branding/logo with Content-Type set
+	// from the file extension. SVGs are sanitized at upload time (= <script>
+	// / on*= / <foreignObject> / external href stripped).
+	LogoPath string `yaml:"logo_path,omitempty"`
+	// SiteName: short brand string substituted into {site_name} placeholders
+	// in the preset copy. Plain text; HTML-escaped at render time.
+	SiteName string `yaml:"site_name,omitempty"`
+	// FooterText: optional small text below the challenge content (e.g.
+	// "Operated by ACME"). Plain text; HTML-escaped at render time.
+	FooterText string `yaml:"footer_text,omitempty"`
+	// CopyPreset: which copy preset to apply to the challenge page strings.
+	// "friendly" (= default / 不安解消寄り) | "neutral" (= 現状互換) |
+	// "minimal" (= 短文). Empty / unknown → "friendly".
+	CopyPreset string `yaml:"copy_preset,omitempty"`
+}
+
+// CopyPreset values (= the allowlist).
+const (
+	BrandingPresetFriendly = "friendly"
+	BrandingPresetNeutral  = "neutral"
+	BrandingPresetMinimal  = "minimal"
+)
+
+// IsValidBrandingPreset: allowlist check used by the save handler and
+// the challenge-page serve. Empty falls back to friendly.
+func IsValidBrandingPreset(p string) bool {
+	switch p {
+	case BrandingPresetFriendly, BrandingPresetNeutral, BrandingPresetMinimal:
+		return true
+	}
+	return false
+}
+
+// ResolvedCopyPreset: returns CopyPreset clamped to a known value, or the
+// friendly default if unset / invalid.
+func (b Branding) ResolvedCopyPreset() string {
+	if IsValidBrandingPreset(b.CopyPreset) {
+		return b.CopyPreset
+	}
+	return BrandingPresetFriendly
+}
+
 // Captcha: CAPTCHA provider settings. Non-builtin providers use an external
 // siteverify service, so they carry site_key (= shown in HTML) and secret_key
 // (= used for server verification).
@@ -693,6 +749,7 @@ type Settings struct {
 	DB            DB              `yaml:"db"`
 	Secret        Secret          `yaml:"secret"`
 	Challenge     Challenge       `yaml:"challenge"`
+	Branding      Branding        `yaml:"branding,omitempty"`
 	Server        Server          `yaml:"server"`
 	IPGeo         IPGeo           `yaml:"ipgeo"`
 	NginxLog      NginxLog        `yaml:"nginx_log"`
@@ -1078,6 +1135,15 @@ func defaults() Settings {
 				Provider:          "builtin",
 				RecaptchaMinScore: 0.5,
 			},
+		},
+		Branding: Branding{
+			// Off by default; activating requires the operator to flip
+			// the switch in the branding panel.  When enabled but with
+			// no logo / site name / footer set, only the "friendly" copy
+			// preset takes effect (= still strictly better than the old
+			// "Verifying your browser…" baseline).
+			Enabled:    false,
+			CopyPreset: BrandingPresetFriendly,
 		},
 		RateLimit: RateLimitConfig{
 			// The Default zone is path-agnostic / applies to all traffic.
