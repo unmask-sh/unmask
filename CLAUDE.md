@@ -9,10 +9,10 @@
 
 ## 出自と「親」 リポジトリ
 
-設計と検証は `<internal-codebase>` の Mojolicious コードベースで行われた.
+設計と検証は `/home/apps/tool` の Mojolicious コードベースで行われた.
 ロジック・テンプレート・SQL は `tool` の以下に存在する:
 
-| 元ファイル (= <internal-codebase>/) | unmask での対応 |
+| 元ファイル (= /home/apps/tool/) | unmask での対応 |
 |---|---|
 | `lib/Tool/Controller/BotChallenge.pm`        | `admin/` の challenge serve endpoint |
 | `lib/Tool/Controller/Api/BotChallenge.pm`    | `admin/` の verify endpoints |
@@ -76,12 +76,12 @@
 
 ## 開発ワークフロー
 
-internal-dev の本番動作中システム (= <internal-codebase> 経由) を眺めて要件確認できる.
-admin 画面は https://example.invalid/admin/tool/bot_challenge_debug/ (= 要 UID 認証).
+dev2 の本番動作中システム (= /home/apps/tool 経由) を眺めて要件確認できる.
+admin 画面は https://uic.jp/admin/tool/bot_challenge_debug/ (= 要 UID 認証).
 
 ## やってはいけないこと
 
-- **<internal-codebase>/ を勝手に変更しない** — このプロジェクトとは別物
+- **/home/apps/tool/ を勝手に変更しない** — このプロジェクトとは別物
 - **commit せずにコピペコードを大量に置かない** — clean-room を維持
 - **FoxIO の ja4-nginx-module ソースを参照しない** — BSL 汚染回避.
   仕様 (https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md)

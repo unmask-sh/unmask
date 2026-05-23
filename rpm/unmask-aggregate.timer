@@ -1,6 +1,6 @@
 [Unit]
 Description=Run unmask aggregate hourly
-Documentation=https://github.com/unmask-sh/unmask
+Documentation=https://github.com/shoeisha/unmask
 
 [Timer]
 # 毎時 7 分 (= 0 分は他 cron との衝突が多いのでズラす). 起動時にも 1 度走る.

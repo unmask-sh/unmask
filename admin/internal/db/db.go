@@ -21,7 +21,7 @@ import (
 	mysql "github.com/go-sql-driver/mysql"
 	_ "modernc.org/sqlite"
 
-	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/shoeisha/unmask/admin/internal/settings"
 )
 
 type Driver string

@@ -1,6 +1,6 @@
 // Package dashboard: ダッシュボード用の集計クエリ群.
 //
-// 本家 (= <internal-codebase>/lib/Tool/Controller/Admin/BotChallengeDebug.pm) の
+// 本家 (= /home/apps/tool/lib/Tool/Controller/Admin/BotChallengeDebug.pm) の
 // 構成に揃える: 1) ファネル (verdict 別) 2) cookie 通過 3) flags 分布
 // 4) JA4 verdict 分布 5) JA4 hit 判定 6) reload ループ 7) CAPTCHA 失敗 IP
 // 8) cookie_set_ok=false 9) stealth 突破 10) JS error 11) 30日推移
@@ -14,9 +14,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/unmask-sh/unmask/admin/internal/classify"
-	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
+	"github.com/shoeisha/unmask/admin/internal/classify"
+	"github.com/shoeisha/unmask/admin/internal/db"
+	"github.com/shoeisha/unmask/admin/internal/geoip"
 )
 
 // Range は 1d / 7d / 30d. 不正値は 1d.

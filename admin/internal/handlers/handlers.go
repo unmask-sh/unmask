@@ -14,13 +14,13 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/unmask-sh/unmask/admin/assets"
-	"github.com/unmask-sh/unmask/admin/internal/captcha"
-	"github.com/unmask-sh/unmask/admin/internal/cookies"
-	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/events"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
-	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/shoeisha/unmask/admin/assets"
+	"github.com/shoeisha/unmask/admin/internal/captcha"
+	"github.com/shoeisha/unmask/admin/internal/cookies"
+	"github.com/shoeisha/unmask/admin/internal/db"
+	"github.com/shoeisha/unmask/admin/internal/events"
+	"github.com/shoeisha/unmask/admin/internal/geoip"
+	"github.com/shoeisha/unmask/admin/internal/settings"
 )
 
 const (

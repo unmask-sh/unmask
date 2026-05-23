@@ -25,7 +25,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/shoeisha/unmask/admin/assets"
 )
 
 type Category int

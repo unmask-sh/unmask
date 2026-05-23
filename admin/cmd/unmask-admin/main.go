@@ -27,10 +27,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/geoip"
-	"github.com/unmask-sh/unmask/admin/internal/handlers"
-	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/shoeisha/unmask/admin/internal/db"
+	"github.com/shoeisha/unmask/admin/internal/geoip"
+	"github.com/shoeisha/unmask/admin/internal/handlers"
+	"github.com/shoeisha/unmask/admin/internal/settings"
 )
 
 const Version = "0.1.0"

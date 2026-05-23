@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/shoeisha/unmask/admin/internal/db"
+	"github.com/shoeisha/unmask/admin/internal/settings"
 )
 
 // newTestHandler builds a Handler backed by a temporary sqlite file.

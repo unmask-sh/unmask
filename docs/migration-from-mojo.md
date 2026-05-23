@@ -1,13 +1,13 @@
 # Mojolicious (tool) → unmask 移植ガイド
 
-このリポジトリは `<internal-codebase>` の bot-challenge 機能を独立した
+このリポジトリは `/home/apps/tool` の bot-challenge 機能を独立した
 配布物として切り出すための再実装です. 元の Perl/Mojolicious 実装を
 読みつつ、 unmask 用に Python/C で書き直してください.
 
 ## 元コード参照マップ
 
 ### challenge ページ配信
-- 元: `<internal-codebase>/lib/Tool/Controller/BotChallenge.pm`
+- 元: `/home/apps/tool/lib/Tool/Controller/BotChallenge.pm`
 - 役割: `data/bot-challenge.html` を読み、 ja4_verdict を見て
   `/*__JA4_HIT__*/0` placeholder を `0` か `1` に書き換え 403 で返す.
   `phase='serve'` を `bot_challenge_debug` テーブルに INSERT.
@@ -15,7 +15,7 @@
 - 注: nginx に proxy_pass される. 静的配信ではない.
 
 ### PoW / CAPTCHA verify
-- 元: `<internal-codebase>/lib/Tool/Controller/Api/BotChallenge.pm`
+- 元: `/home/apps/tool/lib/Tool/Controller/Api/BotChallenge.pm`
 - 役割:
   - `_score_click_signals()`: behavioral signals (mouseTrail, scrolls,
     keys, windowSize, clickAt) → 0.0-1.0 score. 閾値 0.5
@@ -26,7 +26,7 @@
 - unmask 移植先: `admin/main.py` の verify / debug endpoint
 
 ### 集計と判定
-- 元: `<internal-codebase>/lib/Tool/Command/AggregateAccessLog.pm`
+- 元: `/home/apps/tool/lib/Tool/Command/AggregateAccessLog.pm`
 - 利用部分:
   - `_build_bot_categories()`: crawler-user-agents.json + 追加 pattern を
     search_ai / service / user_dev に分類
@@ -35,7 +35,7 @@
 - unmask 移植先: `admin/classify.py` (= UA / verdict → is_bot 関数)
 
 ### Admin 画面
-- 元: `<internal-codebase>/templates/tool/admin/bot_challenge_debug/index.html.ep`
+- 元: `/home/apps/tool/templates/tool/admin/bot_challenge_debug/index.html.ep`
 - 構成 (= 上から順):
   1. challenge ファネル (verdict 別) — serve / rl / load / silent / stealth /
      pow / captcha / verify_ok / verify_ng / cookie_err / JS error / PoW率 /
@@ -54,7 +54,7 @@
 - unmask 移植先: `admin/templates/dashboard.html`
 
 ### nginx 設定
-- 元: `<internal-codebase>/conf/middle/nginx/nginx-front_reverse_proxy-production.conf`
+- 元: `/home/apps/tool/conf/middle/nginx/nginx-front_reverse_proxy-production.conf`
 - 抽出すべきセクション:
   - `map $effective_ja4 $ja4_verdict { ... }` (~133-180 行付近)
   - `map "$bv_valid:$is_search_bot:$is_google_ip:$is_known_browser:$ja4_verdict:$serve_bot_challenge" $final_challenge { ... }` (~225 行付近)
@@ -65,7 +65,7 @@
 - unmask 移植先: `nginx/unmask.conf` (= snippet 化, include 推奨)
 
 ### challenge HTML JS
-- 元: `<internal-codebase>/data/bot-challenge.html` (= 既にコピー済 `challenge/`)
+- 元: `/home/apps/tool/data/bot-challenge.html` (= 既にコピー済 `challenge/`)
 - 機能:
   - PoW: djb2 hash で 1-2 秒の計算
   - 完了後 `_bv` cookie set + reload で transparent pass
@@ -74,7 +74,7 @@
   - debug ビーコン: phase=load/pow/captcha/verify_ok/verify_ng/cookie_err/error
 
 ### Schema
-- 元: `bot_challenge_debug` テーブル (`<internal-codebase>/lib/Tool/Schema/Result/BotChallengeDebug.pm`)
+- 元: `bot_challenge_debug` テーブル (`/home/apps/tool/lib/Tool/Schema/Result/BotChallengeDebug.pm`)
 - 主要列: id, ip_address (varbinary 16), user_agent (varchar 255),
   ja4 (varchar 40), ja4_verdict (varchar 40), phase (varchar 16),
   flags (int), reload_count (int), cookie_bv (varchar 80),
@@ -83,7 +83,7 @@
 
 ## 移植順序の推奨
 
-1. **JA4 module** (= C, 最も独立) — `ja4-module/`. PoC 済 (internal-dev で compile 通り).
+1. **JA4 module** (= C, 最も独立) — `ja4-module/`. PoC 済 (dev2 で compile 通り).
    公式 nginx での動作確認のため、 docker 等で clean RHEL/Rocky build env
    を用意する.
 2. **schema** — SQLite で event テーブル + index 設計

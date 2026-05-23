@@ -1,6 +1,6 @@
 [Unit]
 Description=unmask admin (JA4 bot challenge backend)
-Documentation=https://github.com/unmask-sh/unmask
+Documentation=https://github.com/shoeisha/unmask
 After=network-online.target
 Wants=network-online.target
 

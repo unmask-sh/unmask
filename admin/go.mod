@@ -1,4 +1,4 @@
-module github.com/unmask-sh/unmask/admin
+module github.com/shoeisha/unmask/admin
 
 go 1.22
 

@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/unmask-sh/unmask/admin/assets"
-	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/shoeisha/unmask/admin/assets"
+	"github.com/shoeisha/unmask/admin/internal/dashboard"
 )
 
 var (

@@ -1,7 +1,7 @@
 # Getting started
 
 unmask を新しい nginx box に入れて bot challenge を有効化するまでの手順.
-動作確認は internal-dev (RHEL 9, nginx 1.26.2 ソース build) で実施済み.
+動作確認は dev2 (RHEL 9, nginx 1.26.2 ソース build) で実施済み.
 
 ## 1. パッケージを入れる
 

@@ -9,7 +9,7 @@ import (
 	"log"
 	"net"
 
-	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/shoeisha/unmask/admin/internal/db"
 )
 
 type Phase string

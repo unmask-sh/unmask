@@ -21,7 +21,7 @@ description: |
   Bundles a dynamic nginx module, an admin server (Go static binary),
   and the challenge HTML / config snippets.
 vendor: unmask
-homepage: https://github.com/unmask-sh/unmask
+homepage: https://github.com/shoeisha/unmask
 license: Apache-2.0
 
 # rpm 限定の細かい設定
@@ -33,7 +33,7 @@ rpm:
 # deb 限定
 deb:
   fields:
-    Vcs-Browser: https://github.com/unmask-sh/unmask
+    Vcs-Browser: https://github.com/shoeisha/unmask
 
 depends:
   # nginx は user 自前 install の前提 (= module を load_module で追加する).
