@@ -2783,9 +2783,11 @@ func tabHelpKey(tab string) string {
 // the tab is not being rendered (= the template just hides the empty row).
 type retentionStatsView struct {
 	EventsRows         int    // unmask_event row count (= int so the template's `comma` filter accepts it)
-	EventsOldest       string // raw date_created of the oldest unmask_event row, or ""
+	EventsOldestTS     int64  // unix seconds of the oldest unmask_event row, or 0 if none
+	EventsOldest       string // server-side UTC fallback string ("YYYY-MM-DD HH:MM UTC"), or ""
 	CookieMinuteRows   int    // unmask_cookie_minute row count
-	CookieMinuteOldest string // formatted UTC datetime of the oldest bucket, or ""
+	CookieMinuteOldestTS int64  // unix seconds of the oldest bucket, or 0 if none
+	CookieMinuteOldest string // UTC fallback string, or ""
 	DBSize             int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
 	DBSizeStr          string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
 }
@@ -2801,9 +2803,17 @@ func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
 	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows); err != nil {
 		log.Printf("retentionStats events count: %v", err)
 	}
-	if err := h.DB.QueryRowContext(ctx,
-		`SELECT COALESCE(MIN(date_created), '') FROM unmask_event`).Scan(&v.EventsOldest); err != nil {
+	// Oldest unmask_event row as unix seconds.  The column is TEXT; convert
+	// driver-side so we don't have to parse multiple datetime formats in Go.
+	eventsOldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
+	if h.Settings.DB.Driver == "mariadb" {
+		eventsOldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
+	}
+	if err := h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS); err != nil {
 		log.Printf("retentionStats events oldest: %v", err)
+	}
+	if v.EventsOldestTS > 0 {
+		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).UTC().Format("2006-01-02 15:04 UTC")
 	}
 	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows); err != nil {
 		log.Printf("retentionStats cookie_minute count: %v", err)
@@ -2814,7 +2824,8 @@ func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
 		log.Printf("retentionStats cookie_minute oldest: %v", err)
 	}
 	if oldestMin > 0 {
-		v.CookieMinuteOldest = time.Unix(oldestMin*60, 0).UTC().Format("2006-01-02 15:04 UTC")
+		v.CookieMinuteOldestTS = oldestMin * 60
+		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).UTC().Format("2006-01-02 15:04 UTC")
 	}
 	if h.Settings.DB.Driver == "sqlite" && h.Settings.DB.SQLitePath != "" {
 		if st, err := os.Stat(h.Settings.DB.SQLitePath); err == nil {
