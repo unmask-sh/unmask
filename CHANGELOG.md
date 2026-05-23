@@ -10,7 +10,82 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Short entries use minute precision.
 - Within a release, entries are sorted by date descending (newest at top).
 
-## [Unreleased]
+## [0.1.0] — 2026-05-24
+
+### Added
+- (2026-05-24) **Alpine apk support**: `apk add unmask` installs the main
+  daemon and registers the OpenRC init script.  `unmask-plugin-nginx`
+  detects musl libc (= Alpine) in postinstall and gracefully skips placement
+  (= the bundled .so is glibc-built; Alpine's nginx is musl-linked) while
+  leaving `apk` happy and `nginx -t` green.  auth_request mode delivers full
+  unmask functionality on Alpine.  LP install page gains an Alpine option
+  in the OS dropdown + a stable `unmask-release-latest.apk` URL.
+
+- (2026-05-24) **build-repo.sh apk latest alias**: the apk stage now writes
+  `unmask-release-latest.apk` next to the versioned file, mirroring what
+  rpm and deb stages already do, so install docs can link to a stable URL.
+
+- (2026-05-23) **Challenge page branding feature**: optional logo, site
+  name, footer text, copy preset (= friendly / neutral / minimal), and
+  unmask credit toggle, all editable from the theme tab in the admin UI
+  with a live preview iframe per theme × preset.
+
+- (2026-05-23) **18-language preset translations** for the challenge copy
+  (= ja / en + zh / zht / ko / es / pt / fr / de / ru / it / tr / pl / vi /
+  th / id / ar / hi).  Preset switching takes effect regardless of the
+  visitor's locale.
+
+- (2026-05-23) **CAPTCHA box fade-in**: .25s opacity + translateY transition
+  on captcha appearance, with `prefers-reduced-motion` disabling the
+  animation entirely.
+
+### Fixed
+- (2026-05-24) **SELinux blocked the auth_request subrequest on RHEL family**:
+  postinstall-web-nginx now auto-applies `setsebool -P
+  httpd_can_network_connect 1` when SELinux is Enforcing, so nginx can
+  proxy_pass to the unmask-admin loopback socket.  Opt out with
+  `UNMASK_SKIP_SETSEBOOL=1`.  Fixes the "challenge silently does not fire"
+  symptom on alma8 / alma9 / alma10 / centos7 (= the install-matrix run
+  confirmed http=403 + challenge page on all 8 distros after the fix).
+
+- (2026-05-24) **postinstall-web-nginx on Alpine**: `mkdir -p
+  /etc/nginx/conf.d` so Alpine (= ships only http.d/ by default but
+  still includes conf.d/*.conf in nginx.conf) accepts the existing
+  conf.d/00-unmask*.conf symlinks without forking the install path.
+
+- (2026-05-24) **install-test-official.sh centos6 quoting**: centos6 has
+  been dropped from the default keys list -- the docker-bullseye legacy
+  SSH proxy mangles `"`-literals in cleanup_rpm / fire_check bodies
+  (`bash: +en: command not found`, `sh: 12: Syntax error: "then"
+  unexpected`).  centos6 stays a manual-verify target per the
+  centos6-support memory; pass `centos6` explicitly to opt in.
+
+### Changed
+- (2026-05-23) **Apache forward-auth is now explicit per-VirtualHost
+  opt-in**: snippets/apache-forward-auth.conf ships with
+  `LuaHookAccessChecker` commented out, matching nginx mode's per-server
+  `include protect.inc;` mental model.  Installing the package no longer
+  silently turns on auth on every VirtualHost; operators add the single
+  LuaHook line inside the `<VirtualHost>` they want to protect.  The
+  global `/unmask/*` ProxyPass stays in conf.d so the admin UI / challenge
+  HTML / static assets remain reachable from every VirtualHost.
+
+- (2026-05-23) **install page nginx config examples** are reorganised so
+  the shared 3 elements (= `# unmask` + `include server.inc;` +
+  `location @unmask_admin_down { ... }`) are fixed across all 3 scopes,
+  and only `include protect.inc;` placement varies by scope -- outside
+  any location for whole-site, inside the target location for path-only,
+  inside the catch-all `location /` for the exclude pattern.
+
+- (2026-05-24) **CI workflow** (= .github/workflows/ci.yml): Go 1.22 →
+  1.25 to match go.mod and release.yml; push / pull_request triggers
+  now include the multi-site branch (= the current v0.1 dev branch).
+
+- (2026-05-23) **README + LP product tone sweep**: dropped "handled when
+  time permits" hedge in README status; LP TOP use case 03 rewritten to
+  "SaaS-non-委託"; competitor product names removed across LP / docs;
+  "nginx" generalised to "httpd" where the message applies to multiple
+  HTTP servers.
 
 ### Added
 - (2026-05-19) **IP-geo (ipgeo) UX overhaul**: per-country geo rule axis,
@@ -445,9 +520,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   headers in auth_request mode and judge JA4 verdict. With GCP LB etc.,
   JA4 fingerprint-based bot judgement now works without nginx-module.
 
-## [0.1.0] — 2026-05-07
+## [0.1.0-pre] — 2026-05-07
 
-Initial OSS release.
+Initial OSS commit (= pre-tag).  Rolled forward into 0.1.0 above with
+the 2026-05-07 ~ 2026-05-24 polish work in between.
 
 ### Added — bot detection
 - **JA4 fingerprint** computed from the TLS handshake via an nginx dynamic
@@ -530,4 +606,4 @@ Initial OSS release.
 - nginx module written in C as a dynamic module. `--with-compat` supported.
 
 [0.1.0]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.0
-[Unreleased]: https://github.com/unmask-sh/unmask/compare/v0.1.0...HEAD
+[0.1.0-pre]: https://github.com/unmask-sh/unmask/commits/main/?until=2026-05-07
