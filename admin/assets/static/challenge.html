@@ -12,7 +12,9 @@ body{position:relative;display:flex;justify-content:center;align-items:center;mi
 .box{text-align:center;padding:2em;max-width:420px;width:90%}
 .spinner{width:40px;height:40px;margin:0 auto 1em;border:4px solid #ddd;border-top:4px solid #333;border-radius:50%;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-#captcha{display:none;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:2em;margin-top:1.5em}
+#captcha{display:none;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:2em;margin-top:1.5em;opacity:0;transform:translateY(8px);transition:opacity .25s ease, transform .25s ease}
+#captcha.show{opacity:1;transform:translateY(0)}
+@media (prefers-reduced-motion: reduce){#captcha,#captcha.show{transition:none;transform:none}}
 #captcha h2{font-size:1.1em;margin-bottom:.3em}
 .desc{font-size:.85em;color:#666;margin-bottom:1.2em;line-height:1.5}
 .math{font-size:2.2em;font-weight:bold;color:#111;letter-spacing:.05em;margin:.5em 0}

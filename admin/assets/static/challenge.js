@@ -121,10 +121,9 @@
   // --- branding: copy preset + site name + logo/footer ----------------
   //
   // Operators pick a preset in the admin panel; the visitor sees the same
-  // preset text translated into their own language.  Only ja / en have
-  // translations for now — other languages fall back to the L baseline so
-  // the language stays consistent (verify message in en preset on a fr
-  // visitor would feel jarring).
+  // preset text translated into their own language.  All 18 languages have
+  // friendly / neutral / minimal entries so preset switching is honoured
+  // regardless of the visitor's locale.
   //
   // {site_name} in any preset / L string is replaced with the configured
   // site name, or a localized default ("サイト" / "this site") when not
@@ -132,15 +131,63 @@
   var P={
     friendly:{
       en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.'},
-      ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.'}
+      ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.'},
+      zh:{verify:'正在加载 {site_name},请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'用于防止自动化滥用的简短验证。'},
+      zht:{verify:'正在載入 {site_name},請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'用於防止自動化濫用的簡短驗證。'},
+      ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 짧은 확인입니다.'},
+      es:{verify:'Cargando {site_name}, un momento...',title:'Verificación rápida',desc:'Confirme para continuar.',note:'Una breve comprobación para evitar accesos automatizados.'},
+      pt:{verify:'Carregando {site_name}, um momento...',title:'Verificação rápida',desc:'Confirme para continuar.',note:'Uma verificação curta para impedir acessos automatizados.'},
+      fr:{verify:'Chargement de {site_name}, un instant...',title:'Vérification rapide',desc:'Confirmez pour continuer.',note:'Une rapide vérification pour empêcher les accès automatisés.'},
+      de:{verify:'{site_name} wird geladen, einen Moment...',title:'Kurze Prüfung',desc:'Bestätigen Sie, um fortzufahren.',note:'Eine kurze Prüfung gegen automatisierte Zugriffe.'},
+      ru:{verify:'Загрузка {site_name}, подождите немного...',title:'Быстрая проверка',desc:'Подтвердите, чтобы продолжить.',note:'Краткая проверка против автоматических обращений.'},
+      it:{verify:'Caricamento di {site_name}, un attimo...',title:'Verifica rapida',desc:'Conferma per continuare.',note:'Una rapida verifica per bloccare gli accessi automatici.'},
+      tr:{verify:'{site_name} yükleniyor, bir saniye...',title:'Hızlı doğrulama',desc:'Devam etmek için onaylayın.',note:'Otomatik erişimi engellemek için kısa bir doğrulama.'},
+      pl:{verify:'Ładowanie {site_name}, chwila...',title:'Szybka weryfikacja',desc:'Potwierdź, aby kontynuować.',note:'Krótka weryfikacja blokująca zautomatyzowane wejścia.'},
+      vi:{verify:'Đang tải {site_name}, một lát...',title:'Kiểm tra nhanh',desc:'Xác nhận để tiếp tục.',note:'Một bước kiểm tra ngắn để chặn truy cập tự động.'},
+      th:{verify:'กำลังโหลด {site_name} สักครู่...',title:'การยืนยันด่วน',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:'การตรวจสั้น ๆ เพื่อกันการเข้าถึงอัตโนมัติ'},
+      id:{verify:'Memuat {site_name}, sebentar...',title:'Pemeriksaan cepat',desc:'Konfirmasi untuk melanjutkan.',note:'Pemeriksaan singkat untuk mencegah akses otomatis.'},
+      ar:{verify:'جارٍ تحميل {site_name}، لحظة...',title:'تحقق سريع',desc:'يرجى التأكيد للمتابعة.',note:'تحقق قصير لمنع الوصول الآلي.'},
+      hi:{verify:'{site_name} लोड हो रहा है, एक क्षण...',title:'त्वरित जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'स्वचालित दुरुपयोग रोकने के लिए एक छोटी जाँच।'}
     },
     neutral:{
       en:{verify:'Verifying your access to {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This check protects against automated access.'},
-      ja:{verify:'{site_name} へのアクセスを確認しています. しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'}
+      ja:{verify:'{site_name} へのアクセスを確認しています. しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'},
+      zh:{verify:'正在验证您对 {site_name} 的访问,请稍候...',title:'安全验证',desc:'请勾选以继续。',note:'此验证可防止自动化访问。'},
+      zht:{verify:'正在驗證您對 {site_name} 的存取,請稍候...',title:'安全驗證',desc:'請勾選以繼續。',note:'此驗證可防止自動化存取。'},
+      ko:{verify:'{site_name}에 대한 액세스를 확인하고 있습니다. 잠시만 기다려 주세요...',title:'보안 확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 확인입니다.'},
+      es:{verify:'Verificando tu acceso a {site_name}, espera un momento...',title:'Verificación de seguridad',desc:'Confirme para continuar.',note:'Esta verificación protege contra accesos automatizados.'},
+      pt:{verify:'Verificando seu acesso a {site_name}, aguarde um momento...',title:'Verificação de segurança',desc:'Confirme para continuar.',note:'Esta verificação protege contra acessos automatizados.'},
+      fr:{verify:'Vérification de votre accès à {site_name}, patientez un instant...',title:'Vérification de sécurité',desc:'Confirmez pour continuer.',note:'Cette vérification protège contre les accès automatisés.'},
+      de:{verify:'Ihr Zugriff auf {site_name} wird überprüft, einen Moment...',title:'Sicherheitsprüfung',desc:'Bestätigen Sie, um fortzufahren.',note:'Diese Prüfung schützt vor automatisierten Zugriffen.'},
+      ru:{verify:'Проверяем ваш доступ к {site_name}, подождите...',title:'Проверка безопасности',desc:'Подтвердите, чтобы продолжить.',note:'Эта проверка защищает от автоматических обращений.'},
+      it:{verify:'Verifica del tuo accesso a {site_name}, attendi un momento...',title:'Verifica di sicurezza',desc:'Conferma per continuare.',note:'Questa verifica protegge dagli accessi automatici.'},
+      tr:{verify:'{site_name} erişiminiz doğrulanıyor, lütfen bekleyin...',title:'Güvenlik doğrulaması',desc:'Devam etmek için onaylayın.',note:'Bu doğrulama otomatik erişime karşı koruma sağlar.'},
+      pl:{verify:'Weryfikujemy Twój dostęp do {site_name}, proszę czekać...',title:'Weryfikacja bezpieczeństwa',desc:'Potwierdź, aby kontynuować.',note:'Ta weryfikacja chroni przed zautomatyzowanym dostępem.'},
+      vi:{verify:'Đang xác minh quyền truy cập của bạn vào {site_name}, vui lòng chờ...',title:'Kiểm tra bảo mật',desc:'Xác nhận để tiếp tục.',note:'Bước kiểm tra này giúp chặn truy cập tự động.'},
+      th:{verify:'กำลังตรวจสอบการเข้าถึง {site_name} ของคุณ กรุณารอสักครู่...',title:'การตรวจสอบความปลอดภัย',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:'การตรวจสอบนี้ป้องกันการเข้าถึงอัตโนมัติ'},
+      id:{verify:'Memverifikasi akses Anda ke {site_name}, mohon tunggu...',title:'Pemeriksaan keamanan',desc:'Konfirmasi untuk melanjutkan.',note:'Pemeriksaan ini melindungi dari akses otomatis.'},
+      ar:{verify:'جارٍ التحقق من وصولك إلى {site_name}، يرجى الانتظار...',title:'تحقق أمني',desc:'يرجى التأكيد للمتابعة.',note:'هذا التحقق يحمي من الوصول الآلي.'},
+      hi:{verify:'{site_name} तक आपकी पहुँच की पुष्टि की जा रही है, कृपया प्रतीक्षा करें...',title:'सुरक्षा जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'यह जाँच स्वचालित पहुँच से सुरक्षा करती है।'}
     },
     minimal:{
       en:{verify:'Connecting to {site_name}...',title:'Connecting',desc:'Please confirm to continue.',note:''},
-      ja:{verify:'{site_name} に接続中...',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''}
+      ja:{verify:'{site_name} に接続中...',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''},
+      zh:{verify:'正在连接到 {site_name}...',title:'正在连接',desc:'请勾选以继续。',note:''},
+      zht:{verify:'正在連線至 {site_name}...',title:'正在連線',desc:'請勾選以繼續。',note:''},
+      ko:{verify:'{site_name}에 연결 중...',title:'연결 중',desc:'계속하려면 체크해 주세요.',note:''},
+      es:{verify:'Conectando con {site_name}...',title:'Conectando',desc:'Confirme para continuar.',note:''},
+      pt:{verify:'Conectando a {site_name}...',title:'Conectando',desc:'Confirme para continuar.',note:''},
+      fr:{verify:'Connexion à {site_name}...',title:'Connexion',desc:'Confirmez pour continuer.',note:''},
+      de:{verify:'Verbindung zu {site_name}...',title:'Verbindung',desc:'Bestätigen Sie, um fortzufahren.',note:''},
+      ru:{verify:'Подключение к {site_name}...',title:'Подключение',desc:'Подтвердите, чтобы продолжить.',note:''},
+      it:{verify:'Connessione a {site_name}...',title:'Connessione',desc:'Conferma per continuare.',note:''},
+      tr:{verify:'{site_name} adresine bağlanılıyor...',title:'Bağlanıyor',desc:'Devam etmek için onaylayın.',note:''},
+      pl:{verify:'Łączenie z {site_name}...',title:'Łączenie',desc:'Potwierdź, aby kontynuować.',note:''},
+      vi:{verify:'Đang kết nối tới {site_name}...',title:'Đang kết nối',desc:'Xác nhận để tiếp tục.',note:''},
+      th:{verify:'กำลังเชื่อมต่อกับ {site_name}...',title:'กำลังเชื่อมต่อ',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:''},
+      id:{verify:'Menghubungkan ke {site_name}...',title:'Menghubungkan',desc:'Konfirmasi untuk melanjutkan.',note:''},
+      ar:{verify:'جارٍ الاتصال بـ {site_name}...',title:'جارٍ الاتصال',desc:'يرجى التأكيد للمتابعة.',note:''},
+      hi:{verify:'{site_name} से कनेक्ट हो रहा है...',title:'कनेक्ट हो रहा है',desc:'जारी रखने के लिए पुष्टि करें।',note:''}
     }
   };
   var brand=(window.UNMASK&&window.UNMASK.brand)||null;
@@ -255,6 +302,10 @@
     document.getElementById('msg').style.display='none';
     var cap=document.getElementById('captcha');
     cap.style.display='block';
+    // Trigger the fade-in / slide-up transition next frame (= must paint at
+    // the initial opacity/transform first, then flip to .show, otherwise the
+    // browser collapses the two state changes and the animation never runs).
+    requestAnimationFrame(function(){ cap.classList.add('show'); });
     document.getElementById('captchaTitle').textContent=t.title;
     document.getElementById('captchaDesc').textContent=t.desc;
     var noteEl=document.getElementById('captchaNote');
