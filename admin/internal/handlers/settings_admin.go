@@ -2782,9 +2782,9 @@ func tabHelpKey(tab string) string {
 // the operator can see what they're about to prune.  Zero values are fine when
 // the tab is not being rendered (= the template just hides the empty row).
 type retentionStatsView struct {
-	EventsRows         int64  // unmask_event row count
+	EventsRows         int    // unmask_event row count (= int so the template's `comma` filter accepts it)
 	EventsOldest       string // raw date_created of the oldest unmask_event row, or ""
-	CookieMinuteRows   int64  // unmask_cookie_minute row count
+	CookieMinuteRows   int    // unmask_cookie_minute row count
 	CookieMinuteOldest string // formatted UTC datetime of the oldest bucket, or ""
 	DBSize             int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
 	DBSizeStr          string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
