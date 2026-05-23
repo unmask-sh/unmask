@@ -3529,5 +3529,39 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 
+<!-- Sticky-nav offset.  position:sticky;top:1rem leaves the bottom of a long
+     nav (= shared-feed under "community") clipped below the viewport.  Set
+     top dynamically so the nav scrolls in flow until its last item reaches
+     the viewport bottom, at which point sticky engages and the nav locks
+     with shared-feed at the bottom edge.  Falls back to top:1rem (the CSS
+     default) on viewports tall enough to hold the whole nav. -->
+<script>
+(function(){
+  var nav = document.querySelector('.settings-shell > .settings-nav');
+  if (!nav) return;
+  function update(){
+    // offsetHeight reflects the rendered nav height (= sum of links + section
+    // headers + any padding).  innerHeight is the visual viewport.
+    var navH = nav.offsetHeight;
+    var vh   = window.innerHeight;
+    if (navH > vh - 16) {
+      // Nav is taller than (viewport - 1rem).  Sticky kicks in once natural
+      // top would be above (vh - navH); at that moment the bottom edge of the
+      // nav (= shared-feed) sits exactly at the viewport bottom.
+      nav.style.top = (vh - navH) + 'px';
+    } else {
+      // Nav fits — pin at the top with a 1rem inset (the original behavior).
+      nav.style.top = '1rem';
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', update);
+  } else {
+    update();
+  }
+  window.addEventListener('resize', update);
+})();
+</script>
+
 </body>
 </html>
