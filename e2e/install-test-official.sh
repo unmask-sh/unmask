@@ -46,30 +46,35 @@ LOG_DIR="$RUN_DIR/logs-official"
 mkdir -p "$LOG_DIR"
 
 declare -A TEST=(
-  [deb13]=9100 [deb12]=9101 [ub2604]=9102 [ub2404]=9103
+  [deb13]=9100 [deb12]=9101 [ub2604]=9102 [ub2404]=9103 [alpine]=9104
   [alma10]=9105 [alma9]=9106 [alma8]=9107 [centos7]=9108 [centos6]=9109
 )
 declare -A FAMILY=(
-  [deb13]=deb [deb12]=deb [ub2604]=deb [ub2404]=deb
+  [deb13]=deb [deb12]=deb [ub2604]=deb [ub2404]=deb [alpine]=apk
   [alma10]=rpm [alma9]=rpm [alma8]=rpm [centos7]=rpm-eol [centos6]=rpm-eol-2
 )
 declare -A LABEL=(
   [deb13]="Debian 13" [deb12]="Debian 12"
   [ub2604]="Ubuntu 26.04" [ub2404]="Ubuntu 24.04"
+  [alpine]="Alpine Linux 3"
   [alma10]="AlmaLinux 10" [alma9]="AlmaLinux 9" [alma8]="AlmaLinux 8"
   [centos7]="CentOS 7" [centos6]="CentOS 6"
 )
-# Alpine (= 9104) は v0.1 サポート外として LP install / 本 script から除外 (= 2026-05-13).
-# unmask-admin が musl で crash + plugin .so が glibc-built で dlopen 不可.  v0.2 候補.
+# Alpine (= 9104) is now a first-class native-mode target (2026-05-24): gcompat
+# pulled in via apk depends lets the glibc-built plugin .so dlopen on Alpine's
+# musl-linked nginx.  Earlier comment (= "musl で crash + plugin glibc-built で
+# dlopen 不可") is obsolete -- admin is pure-Go static and runs on musl, and
+# gcompat closes the dlopen gap.
 # rpm の repo path は postinstall script の slug 解決に頼るので URL は almalinux 固定で OK
 # (= 全 distribution は almalinux への symlink)
 declare -A RPM_MAJ=([alma9]=9 [alma10]=10 [alma8]=8 [centos7]=7 [centos6]=6)
 
 # 発火チェック対象: 独自 ClientHello parser (= 2026-05-13) で OpenSSL 1.0 / 1.1 / 3 全 ABI
 # に対応したため、 alma8 (= OpenSSL 1.1) / centos7 / centos6 (= OpenSSL 1.0) も plugin 発火可能.
+# Alpine は gcompat で glibc plugin を dlopen するので fire 対象に含める.
 declare -A FIRE=(
   [alma9]=1 [alma10]=1 [alma8]=1
-  [deb12]=1 [deb13]=1 [ub2404]=1 [ub2604]=1
+  [deb12]=1 [deb13]=1 [ub2404]=1 [ub2604]=1 [alpine]=1
   [centos7]=1 [centos6]=1
 )
 
@@ -305,7 +310,7 @@ install_apk() {
   vssh -o ConnectTimeout=30 root@$ip "set +e
     echo '$REPO_HOST unmask.sh' >> /etc/hosts
     apk add --no-cache wget curl 2>&1 | tail -1
-    wget -q -O /tmp/unmask-release.apk $REPO_URL/apk/main/x86_64/unmask-release-0.1.0.apk
+    wget -q -O /tmp/unmask-release.apk $REPO_URL/apk/main/x86_64/unmask-release-latest.apk
     apk add --allow-untrusted /tmp/unmask-release.apk 2>&1 | tail -5
     # postinstall は /etc/apk/repositories と /etc/apk/repositories.d/unmask.list 両方に
     # 配置する場合あり (= 22:18 [A] で repositories.d/ static 同梱に変更. apk-tools v3 は両 file 読む).
@@ -389,9 +394,21 @@ fire_check() {
     # docs に従い user vhost に protect.inc を include する形を再現する.  distro 既定の
     # default server を消さず、 fire_check 用の test vhost を別ファイルで上書きで生成する.
     rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-enabled/default.disabled
-    rm -f /etc/nginx/conf.d/default.conf
+    rm -f /etc/nginx/conf.d/default.conf /etc/nginx/http.d/default.conf
+    # Pick the include dir that lives inside http {} -- conf.d/ is correct on
+    # RHEL/Debian but main-scope on Alpine, where http.d/ is the http {} dir.
     SITES_DIR=/etc/nginx/conf.d
-    grep -q '/etc/nginx/sites-enabled' /etc/nginx/nginx.conf 2>/dev/null && SITES_DIR=/etc/nginx/sites-enabled
+    if grep -q '/etc/nginx/sites-enabled' /etc/nginx/nginx.conf 2>/dev/null; then
+        SITES_DIR=/etc/nginx/sites-enabled
+    elif [ -d /etc/nginx/http.d ] && awk '
+        /\<http[[:space:]]*\{/ { in_http=1 }
+        in_http && /include[[:space:]]+\/etc\/nginx\/http\.d\// { found=1 }
+        /^\}/ { in_http=0 }
+        END { exit !found }
+      ' /etc/nginx/nginx.conf 2>/dev/null; then
+        SITES_DIR=/etc/nginx/http.d
+    fi
+    echo \"SITES_DIR=\$SITES_DIR\"
     mkdir -p \$SITES_DIR
     cat > \$SITES_DIR/zz-fire-test.conf <<'EOF'
 server {
@@ -530,7 +547,7 @@ keys=("$@")
 # the bodies to be `"`-free), centos6 is verified manually per the
 # [[reference_centos6_support]] memory and is not part of the default run.
 # Pass `centos6` explicitly to opt in.
-[ ${#keys[@]} -eq 0 ] && keys=(alma9 alma10 alma8 deb12 deb13 ub2404 ub2604 centos7)
+[ ${#keys[@]} -eq 0 ] && keys=(alma9 alma10 alma8 deb12 deb13 ub2404 ub2604 centos7 alpine)
 
 declare -a OK=() FAIL=() FIRED=()
 for k in "${keys[@]}"; do
