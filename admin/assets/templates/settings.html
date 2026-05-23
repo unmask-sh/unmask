@@ -31,12 +31,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 /* settings: left sidebar (= by category) + right content. */
 .settings-shell{display:grid;grid-template-columns:14rem 1fr;gap:1.5rem;align-items:start;margin-top:.5rem}
-/* Plain flow (no position:sticky).  With ~17 tabs across 5 sections the nav
- * easily exceeds a typical viewport, and a sticky nav that's taller than the
- * viewport leaves the bottom items (= shared-feed) permanently clipped no
- * matter how far the operator scrolls.  Letting the nav move with the page
- * means every item is reachable just by scrolling the right pane down. */
-.settings-nav{font-size:.875rem}
+/* Sticky anchored to the BOTTOM, not the top.  The nav is ~17 tabs tall and
+ * exceeds a typical viewport, so the classic sticky-to-top behavior left the
+ * bottom item (= shared-feed) permanently clipped.  With `bottom: 1rem` the
+ * nav scrolls with the page as the operator scrolls down, until shared-feed
+ * reaches the viewport bottom -- at which point sticky engages so the nav
+ * stays anchored there and the operator can keep working in the right pane
+ * without the bottom items disappearing again. */
+.settings-nav{position:sticky;bottom:1rem;font-size:.875rem}
 .settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
 .settings-nav h3:first-child{margin-top:0}
 .settings-nav ul{list-style:none;padding:0;margin:0}
