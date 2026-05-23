@@ -124,16 +124,16 @@
   // configured.
   var P={
     friendly:{
-      en:{verify:'Verifying you can reach {site_name} safely, just a moment...',title:'Safety check',desc:'Please confirm to continue.',note:'This check helps protect the site from automated abuse.'},
-      ja:{verify:'ご訪問者の確認をしています. {site_name} まで数秒お待ちください...',title:'安全確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから site を保護するための確認です.'}
+      en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.'},
+      ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.'}
     },
     neutral:{
-      en:{verify:'Security check before reaching {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This security check protects the site from automated access.'},
-      ja:{verify:'ご訪問者のセキュリティ確認中です. {site_name} まで数秒お待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'}
+      en:{verify:'Verifying your access to {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This check protects against automated access.'},
+      ja:{verify:'{site_name} へのアクセスを確認しています. しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'}
     },
     minimal:{
-      en:{verify:'Connecting to {site_name}... just a moment',title:'Connecting',desc:'Please confirm to continue.',note:''},
-      ja:{verify:'{site_name} に接続中... 数秒お待ちください',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''}
+      en:{verify:'Connecting to {site_name}...',title:'Connecting',desc:'Please confirm to continue.',note:''},
+      ja:{verify:'{site_name} に接続中...',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''}
     }
   };
   var brand=(window.UNMASK&&window.UNMASK.brand)||null;
