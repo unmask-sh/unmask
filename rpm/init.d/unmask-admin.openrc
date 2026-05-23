@@ -11,7 +11,7 @@ name="unmask-admin"
 description="unmask admin server (JA4 bot challenge backend)"
 
 command="/usr/sbin/unmask-admin"
-command_args="serve -config /etc/unmask/admin.yml"
+command_args="serve -config /etc/unmask/config.yml"
 command_user="unmask:unmask"
 command_background=true
 
