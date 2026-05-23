@@ -2402,49 +2402,8 @@ document.addEventListener("DOMContentLoaded", function(){
         {{ else }}
           <span class="muted" style="font-size:.78rem">{{ safeHTML (t .Lang "settings.geo.mmdb_missing") }}</span>
         {{ end }}
-        <span style="flex:1"></span>
-        <button type="button" id="mmdb-install-btn"
-                style="font-size:.82rem;padding:.3rem .85rem;background:#dbeafe;color:#1e40af;border:1px solid #93c5fd;border-radius:.25rem;cursor:pointer">
-          📥 {{ t .Lang "settings.geo.mmdb_install_btn" }}
-        </button>
       </div>
-      <div id="mmdb-install-status" style="display:none;margin-top:.5rem;font-size:.78rem"></div>
     </div>
-    <script>
-    (function(){
-      var btn = document.getElementById('mmdb-install-btn');
-      var box = document.getElementById('mmdb-install-status');
-      if (!btn) return;
-      btn.addEventListener('click', function(){
-        btn.disabled = true;
-        var orig = btn.textContent;
-        btn.textContent = '… downloading';
-        box.style.display = 'block';
-        box.style.color = '#475569';
-        box.textContent = '{{ t .Lang "settings.geo.mmdb_install_running" }}';
-        fetch('{{ .BasePath }}/admin/api/mmdb/install', {method:'POST', headers:{'Accept':'application/json'}})
-          .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
-          .then(function(r){
-            if (r.ok && r.body.ok === 1) {
-              box.style.color = '#166534';
-              box.textContent = '✓ ' + (r.body.path || '') + ' · ' + (r.body.month || '') + ' · ' + (r.body.bytes || '?') + ' B';
-              setTimeout(function(){ location.reload(); }, 1200);
-            } else {
-              box.style.color = '#991b1b';
-              box.textContent = '✗ ' + (r.body && r.body.error ? r.body.error : 'install failed');
-              btn.disabled = false;
-              btn.textContent = orig;
-            }
-          })
-          .catch(function(e){
-            box.style.color = '#991b1b';
-            box.textContent = '✗ ' + e;
-            btn.disabled = false;
-            btn.textContent = orig;
-          });
-      });
-    })();
-    </script>
 
     <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.default_help") }}</div>
