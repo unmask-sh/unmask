@@ -543,7 +543,7 @@ var dict = map[Lang]map[string]string{
 
 		// settings
 		"settings.title":              "設定",
-		"settings.tab.top":            "概要",
+		"settings.tab.top":            "設定 TOP",
 		"settings.top.intro":          "各設定の概要です。 項目をクリックすると個別の設定画面に移動します。 保存後は <code>sudo nginx -s reload</code> で反映されます。",
 		"settings.top.desc.network":      "管理画面・メトリクスへの接続を許可する IP と、 信頼するロードバランサの設定。",
 		"settings.top.desc.retention":    "イベントログの保持日数と自動削除の設定。",
@@ -1622,7 +1622,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"cookie.desc.none":           `No cookie (first visit / expired / blocked / spoof bot). Computed as total - CAPTCHA passed - PoW passed`,
 
 		"settings.title":                  "Settings",
-		"settings.tab.top":                "Overview",
+		"settings.tab.top":                "Settings TOP",
 		"settings.top.intro":              "An overview of every settings section. Click an item to open its page. After saving, run <code>sudo nginx -s reload</code> to apply.",
 		"settings.top.desc.network":      "IPs allowed to reach the admin UI and metrics, plus trusted load-balancer settings.",
 		"settings.top.desc.retention":    "How many days event logs are kept before automatic deletion.",
