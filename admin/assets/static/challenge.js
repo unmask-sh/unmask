@@ -69,25 +69,35 @@
   });
 
   // --- i18n ---
+  //
+  // The L baseline is what visitors see for languages that do NOT yet have
+  // a preset translation in the P table (see below).  ja / en land on the
+  // P-table presets (friendly / neutral / minimal) via the operator's
+  // selection; the 16 other languages currently fall back to the L row.
+  // To keep the visitor experience consistent across languages, the L
+  // verify wording was rewritten away from the "Verifying your browser..."
+  // baseline (= triggered "is my browser infected?" anxiety in real users)
+  // toward a destination-focused loading message.  Title / desc / note /
+  // wrong / error were also softened to avoid an accusatory tone.
   var L={
-    en:{verify:'Verifying your browser, please wait...',title:'Security Check',desc:'Please confirm to continue.',note:'This check protects the site from automated access.',notRobot:"I'm not a robot",wrong:'Verification failed. Please try again.',error:'Error. Please try again.'},
-    ja:{verify:'ブラウザを確認しています。しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください。',note:'この確認は自動アクセスからサイトを保護するために表示されています。',notRobot:'私はロボットではありません',wrong:'確認に失敗しました。もう一度お試しください。',error:'エラーが発生しました。もう一度お試しください。'},
-    zh:{verify:'正在验证您的浏览器，请稍候...',title:'安全验证',desc:'请勾选以继续。',note:'此验证用于保护网站免受自动访问。',notRobot:'我不是机器人',wrong:'验证失败，请重试。',error:'发生错误，请重试。'},
-    zht:{verify:'正在驗證您的瀏覽器，請稍候...',title:'安全驗證',desc:'請勾選以繼續。',note:'此驗證用於保護網站免受自動存取。',notRobot:'我不是機器人',wrong:'驗證失敗，請重試。',error:'發生錯誤，請重試。'},
-    ko:{verify:'브라우저를 확인하고 있습니다. 잠시 기다려 주세요...',title:'보안 확인',desc:'계속하려면 체크해 주세요.',note:'이 확인은 자동 접근으로부터 사이트를 보호하기 위해 표시됩니다.',notRobot:'저는 로봇이 아닙니다',wrong:'확인에 실패했습니다. 다시 시도해 주세요.',error:'오류가 발생했습니다. 다시 시도해 주세요.'},
-    es:{verify:'Verificando su navegador, por favor espere...',title:'Verificación de seguridad',desc:'Resuelva esto para continuar.',note:'Esta verificación protege el sitio del acceso automatizado.',wrong:'Incorrecto. Inténtelo de nuevo.',enterNum:'Introduzca un número.',error:'Error. Inténtelo de nuevo.'},
-    pt:{verify:'Verificando seu navegador, aguarde...',title:'Verificação de segurança',desc:'Resolva isto para continuar.',note:'Esta verificação protege o site contra acesso automatizado.',wrong:'Incorreto. Tente novamente.',enterNum:'Digite um número.',error:'Erro. Tente novamente.'},
-    fr:{verify:'Vérification de votre navigateur, veuillez patienter...',title:'Vérification de sécurité',desc:'Résolvez ceci pour continuer.',note:'Cette vérification protège le site contre les accès automatisés.',wrong:'Incorrect. Réessayez.',enterNum:'Veuillez entrer un nombre.',error:'Erreur. Veuillez réessayer.'},
-    de:{verify:'Ihr Browser wird überprüft, bitte warten...',title:'Sicherheitsprüfung',desc:'Lösen Sie dies, um fortzufahren.',note:'Diese Prüfung schützt die Website vor automatisiertem Zugriff.',wrong:'Falsch. Versuchen Sie es erneut.',enterNum:'Bitte geben Sie eine Zahl ein.',error:'Fehler. Bitte versuchen Sie es erneut.'},
-    ru:{verify:'Проверка вашего браузера, подождите...',title:'Проверка безопасности',desc:'Решите задачу, чтобы продолжить.',note:'Эта проверка защищает сайт от автоматического доступа.',wrong:'Неверно. Попробуйте снова.',enterNum:'Введите число.',error:'Ошибка. Попробуйте снова.'},
-    it:{verify:'Verifica del browser in corso, attendere...',title:'Controllo di sicurezza',desc:'Risolvi questo per continuare.',note:'Questo controllo protegge il sito dall\'accesso automatizzato.',wrong:'Errato. Riprova.',enterNum:'Inserisci un numero.',error:'Errore. Riprova.'},
-    tr:{verify:'Tarayıcınız doğrulanıyor, lütfen bekleyin...',title:'Güvenlik kontrolü',desc:'Devam etmek için bunu çözün.',note:'Bu kontrol siteyi otomatik erişimden korur.',wrong:'Yanlış. Tekrar deneyin.',enterNum:'Lütfen bir sayı girin.',error:'Hata. Lütfen tekrar deneyin.'},
-    pl:{verify:'Weryfikacja przeglądarki, proszę czekać...',title:'Kontrola bezpieczeństwa',desc:'Rozwiąż to, aby kontynuować.',note:'Ta kontrola chroni stronę przed automatycznym dostępem.',wrong:'Niepoprawnie. Spróbuj ponownie.',enterNum:'Proszę wpisać liczbę.',error:'Błąd. Spróbuj ponownie.'},
-    vi:{verify:'Đang xác minh trình duyệt, vui lòng đợi...',title:'Kiểm tra bảo mật',desc:'Hãy giải bài toán này để tiếp tục.',note:'Kiểm tra này bảo vệ trang web khỏi truy cập tự động.',wrong:'Sai. Vui lòng thử lại.',enterNum:'Vui lòng nhập một số.',error:'Lỗi. Vui lòng thử lại.'},
-    th:{verify:'กำลังตรวจสอบเบราว์เซอร์ กรุณารอสักครู่...',title:'การตรวจสอบความปลอดภัย',desc:'กรุณาแก้โจทย์นี้เพื่อดำเนินการต่อ',note:'การตรวจสอบนี้ปกป้องเว็บไซต์จากการเข้าถึงอัตโนมัติ',wrong:'ไม่ถูกต้อง ลองอีกครั้ง',enterNum:'กรุณาใส่ตัวเลข',error:'เกิดข้อผิดพลาด กรุณาลองอีกครั้ง'},
-    id:{verify:'Memverifikasi browser Anda, harap tunggu...',title:'Pemeriksaan keamanan',desc:'Selesaikan ini untuk melanjutkan.',note:'Pemeriksaan ini melindungi situs dari akses otomatis.',wrong:'Salah. Coba lagi.',enterNum:'Masukkan angka.',error:'Error. Coba lagi.'},
-    ar:{verify:'جارٍ التحقق من متصفحك، يرجى الانتظار...',title:'فحص أمني',desc:'حل هذه المسألة للمتابعة.',note:'هذا الفحص يحمي الموقع من الوصول الآلي.',wrong:'إجابة خاطئة. حاول مرة أخرى.',enterNum:'الرجاء إدخال رقم.',error:'خطأ. يرجى المحاولة مرة أخرى.'},
-    hi:{verify:'आपके ब्राउज़र की जाँच हो रही है, कृपया प्रतीक्षा करें...',title:'सुरक्षा जाँच',desc:'जारी रखने के लिए इसे हल करें।',note:'यह जाँच साइट को स्वचालित पहुँच से बचाती है।',wrong:'गलत। पुनः प्रयास करें।',enterNum:'कृपया एक संख्या दर्ज करें।',error:'त्रुटि। कृपया पुनः प्रयास करें।'}
+    en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.'},
+    ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください.',error:'うまくいきませんでした. 少し時間をおいてからお試しください.'},
+    zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'用于防止自动化滥用的简短验证。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。'},
+    zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'用於防止自動化濫用的簡短驗證。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。'},
+    ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 짧은 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'},
+    es:{verify:'Cargando {site_name}, un momento...',title:'Verificación rápida',desc:'Confirme para continuar.',note:'Una breve comprobación para evitar accesos automatizados.',wrong:'Inténtelo una vez más, por favor.',enterNum:'Introduzca un número.',error:'Algo no funcionó. Inténtelo de nuevo en un momento.'},
+    pt:{verify:'Carregando {site_name}, um momento...',title:'Verificação rápida',desc:'Confirme para continuar.',note:'Uma verificação curta para impedir acessos automatizados.',wrong:'Tente novamente, por favor.',enterNum:'Digite um número.',error:'Algo deu errado. Tente novamente em um instante.'},
+    fr:{verify:'Chargement de {site_name}, un instant...',title:'Vérification rapide',desc:'Confirmez pour continuer.',note:'Une rapide vérification pour empêcher les accès automatisés.',wrong:'Veuillez réessayer.',enterNum:'Veuillez entrer un nombre.',error:'Une erreur est survenue. Réessayez dans un instant.'},
+    de:{verify:'{site_name} wird geladen, einen Moment...',title:'Kurze Prüfung',desc:'Bestätigen Sie, um fortzufahren.',note:'Eine kurze Prüfung gegen automatisierte Zugriffe.',wrong:'Bitte versuchen Sie es erneut.',enterNum:'Bitte geben Sie eine Zahl ein.',error:'Etwas ist schiefgelaufen. Bitte versuchen Sie es gleich noch einmal.'},
+    ru:{verify:'Загрузка {site_name}, подождите немного...',title:'Быстрая проверка',desc:'Подтвердите, чтобы продолжить.',note:'Краткая проверка против автоматических обращений.',wrong:'Попробуйте ещё раз.',enterNum:'Введите число.',error:'Что-то пошло не так. Попробуйте снова через мгновение.'},
+    it:{verify:'Caricamento di {site_name}, un attimo...',title:'Verifica rapida',desc:'Conferma per continuare.',note:'Una rapida verifica per bloccare gli accessi automatici.',wrong:'Riprova, per favore.',enterNum:'Inserisci un numero.',error:'Qualcosa è andato storto. Riprova tra poco.'},
+    tr:{verify:'{site_name} yükleniyor, bir saniye...',title:'Hızlı doğrulama',desc:'Devam etmek için onaylayın.',note:'Otomatik erişimi engellemek için kısa bir doğrulama.',wrong:'Lütfen tekrar deneyin.',enterNum:'Lütfen bir sayı girin.',error:'Bir şeyler ters gitti. Birazdan tekrar deneyin.'},
+    pl:{verify:'Ładowanie {site_name}, chwila...',title:'Szybka weryfikacja',desc:'Potwierdź, aby kontynuować.',note:'Krótka weryfikacja blokująca zautomatyzowane wejścia.',wrong:'Spróbuj jeszcze raz.',enterNum:'Proszę wpisać liczbę.',error:'Coś poszło nie tak. Spróbuj ponownie za chwilę.'},
+    vi:{verify:'Đang tải {site_name}, một lát...',title:'Kiểm tra nhanh',desc:'Xác nhận để tiếp tục.',note:'Một bước kiểm tra ngắn để chặn truy cập tự động.',wrong:'Vui lòng thử lại.',enterNum:'Vui lòng nhập một số.',error:'Đã xảy ra lỗi. Vui lòng thử lại sau giây lát.'},
+    th:{verify:'กำลังโหลด {site_name} สักครู่...',title:'การยืนยันด่วน',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:'การตรวจสั้น ๆ เพื่อกันการเข้าถึงอัตโนมัติ',wrong:'กรุณาลองอีกครั้ง',enterNum:'กรุณาใส่ตัวเลข',error:'เกิดบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง'},
+    id:{verify:'Memuat {site_name}, sebentar...',title:'Pemeriksaan cepat',desc:'Konfirmasi untuk melanjutkan.',note:'Pemeriksaan singkat untuk mencegah akses otomatis.',wrong:'Silakan coba lagi.',enterNum:'Masukkan angka.',error:'Terjadi kesalahan. Silakan coba lagi sebentar lagi.'},
+    ar:{verify:'جارٍ تحميل {site_name}، لحظة...',title:'تحقق سريع',desc:'يرجى التأكيد للمتابعة.',note:'تحقق قصير لمنع الوصول الآلي.',wrong:'يرجى المحاولة مرة أخرى.',enterNum:'الرجاء إدخال رقم.',error:'حدث خطأ ما. يرجى المحاولة بعد لحظات.'},
+    hi:{verify:'{site_name} लोड हो रहा है, एक क्षण...',title:'त्वरित जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'स्वचालित दुरुपयोग रोकने के लिए एक छोटी जाँच।',wrong:'कृपया फिर से प्रयास करें।',enterNum:'कृपया एक संख्या दर्ज करें।',error:'कुछ गलत हो गया। कृपया कुछ देर बाद पुनः प्रयास करें।'}
   };
 
   // language detection: URL path -> Accept-Language -> default English
@@ -454,16 +464,21 @@
   // Error screen for environments where cookies are disabled or unwritable.
   // Both the PoW path and the flags>=3 path will reload forever without cookies,
   // so display an explicit error before falling into the loop.
+  // Cookie-required screen.  Old wording said "to verify your browser",
+  // which fed the same "is my browser infected?" anxiety that drove the
+  // visitor-copy rewrite above.  Reframe as "needed to load this site" so
+  // the visitor understands cookies are a normal site requirement, not a
+  // security investigation.
   var COOKIE_ERR_I18N = {
-    en: { title:'Cookies are required', desc:'This site uses a security cookie to verify your browser. Please enable cookies in your browser settings and reload this page.' },
-    ja: { title:'Cookie を有効にしてください', desc:'このサイトはブラウザを確認するためにセキュリティ Cookie を使用します。ブラウザの設定で Cookie を有効にして、このページを再読み込みしてください。' },
-    zh: { title:'需要启用 Cookie', desc:'本网站使用安全 Cookie 来验证您的浏览器。请在浏览器设置中启用 Cookie 并重新加载此页面。' },
-    zht:{ title:'需要啟用 Cookie', desc:'本網站使用安全 Cookie 來驗證您的瀏覽器。請在瀏覽器設定中啟用 Cookie 並重新載入此頁面。' },
-    ko: { title:'쿠키를 활성화해 주세요', desc:'이 사이트는 브라우저를 확인하기 위해 보안 쿠키를 사용합니다. 브라우저 설정에서 쿠키를 활성화하고 이 페이지를 다시 로드해 주세요.' },
-    es: { title:'Se requieren cookies', desc:'Este sitio utiliza una cookie de seguridad para verificar su navegador. Habilite las cookies en la configuración de su navegador y vuelva a cargar esta página.' },
-    pt: { title:'Cookies são necessários', desc:'Este site usa um cookie de segurança para verificar seu navegador. Ative os cookies nas configurações do seu navegador e recarregue esta página.' },
-    fr: { title:'Les cookies sont requis', desc:'Ce site utilise un cookie de sécurité pour vérifier votre navigateur. Activez les cookies dans les paramètres de votre navigateur et rechargez cette page.' },
-    de: { title:'Cookies sind erforderlich', desc:'Diese Website verwendet ein Sicherheits-Cookie zur Überprüfung Ihres Browsers. Aktivieren Sie Cookies in Ihren Browsereinstellungen und laden Sie diese Seite neu.' }
+    en: { title:'Please enable cookies', desc:'This site needs cookies to load. Please enable cookies in your browser settings and reload this page.' },
+    ja: { title:'Cookie を有効にしてください', desc:'このサイトを表示するには cookie が必要です. ブラウザの設定で cookie を有効にして、 ページを再読み込みしてください.' },
+    zh: { title:'请启用 Cookie', desc:'本站需要 Cookie 才能正常加载。请在浏览器设置中启用 Cookie 后重新加载页面。' },
+    zht:{ title:'請啟用 Cookie', desc:'本站需要 Cookie 才能正常載入。請在瀏覽器設定中啟用 Cookie 後重新載入頁面。' },
+    ko: { title:'쿠키를 활성화해 주세요', desc:'이 사이트를 표시하려면 쿠키가 필요합니다. 브라우저 설정에서 쿠키를 활성화한 후 페이지를 다시 로드해 주세요.' },
+    es: { title:'Habilite las cookies', desc:'Este sitio necesita cookies para cargar. Habilite las cookies en la configuración de su navegador y recargue la página.' },
+    pt: { title:'Habilite os cookies', desc:'Este site precisa de cookies para carregar. Habilite os cookies nas configurações do seu navegador e recarregue a página.' },
+    fr: { title:'Activez les cookies', desc:'Ce site a besoin des cookies pour se charger. Activez les cookies dans les paramètres de votre navigateur et rechargez la page.' },
+    de: { title:'Bitte Cookies aktivieren', desc:'Diese Website benötigt Cookies zum Laden. Aktivieren Sie Cookies in Ihren Browser-Einstellungen und laden Sie die Seite neu.' }
   };
   function showCookieError(){
     var c=COOKIE_ERR_I18N[lang]||COOKIE_ERR_I18N.en;

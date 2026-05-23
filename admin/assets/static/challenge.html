@@ -224,11 +224,15 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
     <div class="paws" aria-hidden="true" style="display:none"><span>🐾</span><span>🐾</span><span>🐾</span></div>
   </div>
   <div id="cookieErr" style="display:none">
-    <h2 id="cookieErrTitle" style="color:#d32f2f">Cookies are required</h2>
-    <p class="desc" id="cookieErrDesc">This site uses a security cookie to verify your browser. Please enable cookies in your browser settings and reload this page.</p>
+    <h2 id="cookieErrTitle" style="color:#d32f2f">Please enable cookies</h2>
+    <p class="desc" id="cookieErrDesc">This site needs cookies to load. Please enable cookies in your browser settings and reload this page.</p>
   </div>
   <noscript>
-    <p style="color:red">JavaScript is required. Please enable JavaScript and reload.</p>
+    <!-- Soften the JS-required message: it used to be red shouted text
+         that pushed the visitor to mistrust their browser setup.  Plain
+         color + neutral phrasing reads as a site-loading requirement
+         instead of an accusation. -->
+    <p style="color:#475569">JavaScript needs to be enabled to load this site. Please turn it on and reload the page.</p>
   </noscript>
   <!-- Branding footer: optional "Operated by …" string.  challenge.js fills
        textContent when window.__brand.footer_text is set. -->
