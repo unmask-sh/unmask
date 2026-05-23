@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a defect in unmask (= admin / nginx module / web snippet / packaging).
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug.  Security issues should
+        go to **oss@unmask.sh** instead -- see [SECURITY.md](https://github.com/unmask-sh/unmask/blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Short description + what you expected to happen.
+      placeholder: |
+        After `apk add unmask-plugin-nginx` on Alpine 3.21 the bundled .so does
+        not load: `nginx -t` exits with "version `GLIBC_2.34' not found".
+        Expected: gcompat auto-pulled by apk depends so the .so loads.
+    validations:
+      required: true
+
+  - type: input
+    id: distro
+    attributes:
+      label: Distro / version
+      description: From `cat /etc/os-release` -- include both NAME and VERSION_ID.
+      placeholder: 'AlmaLinux 9.4 / Debian 12 / Alpine 3.23 / etc.'
+    validations:
+      required: true
+
+  - type: input
+    id: nginx-version
+    attributes:
+      label: HTTP server + version
+      description: From `nginx -v` / `httpd -v` / `caddy version`.
+      placeholder: 'nginx/1.26.2'
+    validations:
+      required: false
+
+  - type: input
+    id: unmask-version
+    attributes:
+      label: unmask version
+      description: From `unmask-admin --version` or `rpm -q unmask` / `dpkg -l unmask` / `apk info -e unmask`.
+      placeholder: '0.1.0'
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Operating mode
+      options:
+        - nginx native module
+        - auth_request (nginx)
+        - auth_request (Apache forward-auth)
+        - auth_request (Caddy / Traefik / other)
+        - not applicable (= packaging issue)
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Commands or actions that reliably trigger the bug.
+      placeholder: |
+        1. `apk add unmask unmask-plugin-nginx unmask-web-nginx`
+        2. `nginx -t`
+        3. observe the error
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: |
+        Output of `nginx -t`, `systemctl status unmask-admin`, `journalctl -u
+        unmask-admin -n 100`, contents of `/var/log/unmask/admin.log`, etc.
+        Please redact tokens / secrets.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Workarounds you tried, related issues, screenshots.
