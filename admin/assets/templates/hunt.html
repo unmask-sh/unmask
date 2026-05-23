@@ -262,7 +262,10 @@ td.cellpop-active{cursor:pointer}
       <tbody>
       {{ range .JA4Rank }}
       <tr>
-        <td class="key"{{ if .Key }} title="{{ .Key }}"{{ end }}>{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        {{/* JA4 strings are always fully visible in this column (= no
+             truncation), so a native title= would just repeat the same
+             value as a tooltip and clutter the UI. */}}
+        <td class="key">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ .Count }}</td>
         <td class="actions">
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
