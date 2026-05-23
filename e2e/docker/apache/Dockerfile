@@ -51,5 +51,13 @@ RUN sed -i 's#127\.0\.0\.1:9477#admin:9477#g' \
         /etc/apache2/conf-available/unmask.conf \
     && a2enconf unmask
 
+# Enable unmask on this VirtualHost (= opt-in per VirtualHost — same single
+# line the install page tells operators to drop into their <VirtualHost>).
+# The snippet's LuaHookAccessChecker is commented out by default so installing
+# the package does not silently auto-protect every VirtualHost; e2e exercises
+# the documented opt-in step exactly as production operators would.
+RUN sed -i 's|<VirtualHost \*:8081>|<VirtualHost *:8081>\n    LuaHookAccessChecker /etc/apache2/unmask.lua handle_request|' \
+        /etc/apache2/sites-available/000-default.conf
+
 EXPOSE 8081
 CMD ["sh", "-c", ". /etc/apache2/envvars && mkdir -p \"$APACHE_RUN_DIR\" && exec apache2 -D FOREGROUND"]
