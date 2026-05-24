@@ -831,32 +831,25 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if origPath != "" {
 			payload["orig_path"] = origPath
 		}
-		// Dedupe: nginx access logs on tool1-jp show real browser clients
-		// requesting the same URL twice within ~40ms (= Chrome prerender /
-		// double-click / GCP LB retry).  Both requests hit ServeChallenge with
-		// the same beacon_token (= it's regenerated per request, but a real
-		// double-fire from one tab produces the same orig_path + UA + ja4 +
-		// host, and the JS-beacon side echoes whichever bt arrived last so
-		// they collide in the hunt session view anyway).  The cleanest
-		// in-memory dedupe is on (host, bt) since bt is unique per serve and
-		// duplicate serves of the same fire share it: keep the first, drop
-		// any follow-up within a short TTL.
-		if !serveDedupe.shouldRecord(h.HostID + ":" + beaconToken) {
-			// Still write the HTTP response; only suppress the duplicate
-			// event row that would clutter the hunt table.
-		} else {
-			events.InsertAsync(h.DB, &events.Event{
-				Site:         site,
-				Host:         h.HostID,
-				IPPacked:     pkt,
-				UserAgent:    r.Header.Get("User-Agent"),
-				JA4:          safeJA4(ja4),
-				JA4Verdict:   verdict,
-				JA4VerdictID: h.VerdictNameToID(verdict),
-				Phase:        string(events.PhaseServe),
-				Payload:      payload,
-			})
-		}
+		// Note: we record every serve hit verbatim, including the cases where
+		// a client (= Chrome prerender / double-click / LB retry) reaches us
+		// twice within milliseconds.  Suppressing the second row would hide
+		// real traffic and erase the operator's chance of spotting the
+		// pattern + chasing the root cause.  The hunt session view collapses
+		// consecutive same-phase pills in the inline chain so the visual
+		// stays clean; the raw rows remain queryable via SQL / events CLI /
+		// the API for anyone who wants to drill in.
+		events.InsertAsync(h.DB, &events.Event{
+			Site:         site,
+			Host:         h.HostID,
+			IPPacked:     pkt,
+			UserAgent:    r.Header.Get("User-Agent"),
+			JA4:          safeJA4(ja4),
+			JA4Verdict:   verdict,
+			JA4VerdictID: h.VerdictNameToID(verdict),
+			Phase:        string(events.PhaseServe),
+			Payload:      payload,
+		})
 	}
 
 	// Cloudflare-compatible: challenge returns 403.
