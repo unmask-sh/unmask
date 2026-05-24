@@ -10,7 +10,75 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Short entries use minute precision.
 - Within a release, entries are sorted by date descending (newest at top).
 
-## [0.1.0] — 2026-05-24
+## [0.1.0] — 2026-05-25
+
+### Added
+- (2026-05-25) **Ubuntu 22.04 LTS in the verified install matrix**.  Closes
+  the only remaining nginx version gap between alma8 (1.14.1) and
+  alma9/centos7 (1.20.1) -- 22.04 ships nginx 1.18.0, which the fat
+  plugin already bundles; the CI just wasn't exercising that .so against
+  a real box.  Verified end-to-end: `apt install unmask-plugin-nginx` on
+  a fresh box pulls in nginx + lands the matching 1.18.0 .so + the
+  challenge page returns http=403 size=18297.
+
+- (2026-05-25) **Shared `partial_events_table` for the overview + hunt
+  recent-events tables**.  Both pages now render the same session-collapse
+  logic (= group rows by beacon_token into one outcome row with a chain
+  of phase pills), so the overview Recent Detections card matches the
+  hunt log row-for-row with no separate maintenance path.
+
+### Changed
+- (2026-05-25) **`bypass_ips` switched to the `enabled_presets` opt-in
+  schema** that `bypass_paths` and `protected_paths` already use.  The
+  yaml field renames from `bypass_ip_disabled_presets` to
+  `bypass_ip_enabled_presets`, and the in-memory `BypassIPEnabledPresets`
+  is a list of IDs to turn ON.  Defaults() ships every shipped group ID
+  in that list so the "search bot rescue" safety net is preserved; new
+  presets in a later release stay OFF until the operator opts in via
+  the existing SeenVersion / IsNew gate.  Existing config.yml files with
+  the old `bypass_ip_disabled_presets` field have it dropped silently on
+  load (= no compat code; the single operator re-toggles whatever they
+  intentionally disabled).
+
+- (2026-05-25) **Light-theme `info-popup` family across every admin
+  page**.  The legacy slate-800 hover popup on hunt / dashboard /
+  overview / settings is now a white card with a slate-300 border,
+  matching the `[data-popover]` chip popovers already used in settings
+  tabs.  Behaviour (hover / click-to-pin / drag / collapse / copy /
+  ESC LIFO) is unchanged; 49 popovers across the admin app become a
+  single visual component.
+
+- (2026-05-25) **Pinned popup is portal'd out of the events table's
+  scroll container** so the phase-help popup on the recent-events panel
+  no longer clips against `.events-scroll`.  The same portal handles
+  the `max-height: <viewport>-2rem` cap when the help body is long.
+
+### Fixed
+- (2026-05-25) **`unmask-plugin-nginx` now declares nginx as a hard
+  install dependency** in the rpm / deb / apk metadata.  Without this,
+  the documented install order (= unmask -> plugin -> web-nginx) ran the
+  plugin's postinstall before nginx existed; postinstall would fall back
+  to `nginx not installed, skipped placing the module` and never lay
+  down `/usr/lib/nginx/modules/ngx_http_unmask_module.so`.  Subsequent
+  steps installed nginx via `unmask-web-nginx` but did not re-trigger
+  the plugin's placement, so `nginx -t` passed but the challenge
+  silently never fired.  Adding `nginx` to Depends/Requires lets the
+  package manager pull nginx in before the plugin postinstall runs, so
+  the matching .so lands on the first install attempt regardless of
+  package order.  Surfaced while adding Ubuntu 22.04 to the CI matrix:
+  the existing distro test VMs all had nginx pre-installed at snapshot
+  time, masking the order issue on fresh boxes.
+
+- (2026-05-25) **Overview help tips no longer get shadowed by local
+  CSS**.  `overview.html` carried a copy of the original dark
+  `.info-popup` rule that won the cascade against the shared
+  `popover-pin.css`, so help tips on the overview page stayed dark even
+  after the global migration.  Removed the duplicate.
+
+<!-- ============================================================
+     Entries from 2026-05-24 and earlier follow.  All part of the
+     same 0.1.0 release; date prefixes provide the timeline.
+     ============================================================ -->
 
 ### Added
 - (2026-05-24) **Alpine first-class native-mode support**: `apk add
