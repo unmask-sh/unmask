@@ -962,7 +962,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "bypass-paths" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths">
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.bypass_paths.preset.title" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</span></span></h2>
+    <h2>
+      {{ t .Lang "settings.bypass_paths.preset.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="bp-preset-help" aria-label="?">?</button>
+      <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script>
+    </h2>
     <div class="ua-section">
       {{ range .BypassPathGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
@@ -977,8 +981,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
 
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.bypass_paths.title" }}</h2>
-    <p class="desc">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</p>
+    <h2>
+      {{ t .Lang "settings.bypass_paths.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="bp-custom-help" aria-label="?">?</button>
+      <script type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
+    </h2>
     <div class="rule-list" data-rule-name="bp_pat">
       {{ range .BypassPathsRules }}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
@@ -1023,7 +1030,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </template>
     </div>
     <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
-    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.bypass_paths.note") }}</div>
   </div>
   <datalist id="bp-site-candidates">
     {{ range .Sites }}<option value="{{ . }}">{{ end }}
