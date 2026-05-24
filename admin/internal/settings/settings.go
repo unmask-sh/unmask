@@ -1237,15 +1237,11 @@ func defaults() Settings {
 				// chain choice consistent across axes.
 			},
 			ProtectedPaths: ProtectedPathsConfig{
-				// Default = unmask's own admin login covered by CAPTCHA.
-				// /unmask/admin/ is unmask's own fixed path, so this preset
-				// has no site-layout dependency (= cannot break unrelated
-				// paths) and the reputational cost of an unmask brute-force
-				// or scraping incident -- on an anti-bot product! -- is
-				// large enough that a CAPTCHA gate is the right default.
-				// The "common-admin" preset stays OFF (= assumes /wp-admin/
-				// etc. exist; turning that on without checking the layout
-				// is the kind of footgun we deliberately leave to opt-in).
+				// "unmask" preset enabled by default: covers /unmask/admin/
+				// with a CAPTCHA gate layered on top of the IP allow-list.
+				// Path is fixed by unmask itself, no site-layout risk.
+				// "common-admin" stays opt-in because its patterns (= /wp-admin/
+				// etc.) depend on what the protected site actually serves.
 				EnabledPresets: []string{"unmask"},
 			},
 		},
