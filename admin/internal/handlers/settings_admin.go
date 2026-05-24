@@ -2442,6 +2442,20 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 	if c.RecaptchaMinScore <= 0 {
 		c.RecaptchaMinScore = 0.5
 	}
+
+	// Builtin behavioral CAPTCHA threshold (0.0..1.0). Only consulted when
+	// Provider == "builtin"; harmless to store otherwise.  Empty submit
+	// preserves the current value; explicit invalid input falls back to 0.5.
+	if v := strings.TrimSpace(r.FormValue("builtin_score_threshold")); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil || f < 0 || f > 1 {
+			return fmt.Errorf("builtin_score_threshold must be a float in 0.0-1.0 (got %q)", v)
+		}
+		c.BuiltinScoreThreshold = f
+	}
+	if c.BuiltinScoreThreshold <= 0 {
+		c.BuiltinScoreThreshold = 0.5
+	}
 	return nil
 }
 
@@ -2455,11 +2469,13 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 //	                                range is honored at second precision.
 //	captcha_cookie_valid_seconds  : same range for the CAPTCHA path.
 //	cookie_seconds                : legacy single-knob fallback when the kind-specific values are unset.
-//	captcha_score_threshold       : 0.0-1.0 (= behavioral CAPTCHA human-pass threshold.
-//	                                          Smaller = more permissive. default 0.5).
 //	debug_rate_limit_per_5min     : 1-10000 (= rate limit for inserting challenge debug
 //	                                           payloads from the same IP into unmask_event.
 //	                                           default 20).
+//
+// The behavioral CAPTCHA pass threshold has moved to the captcha tab
+// (= applyCaptchaForm / builtin_score_threshold) since it only applies to
+// the builtin provider -- third-party providers use their own siteverify.
 func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("pow_cookie_valid_seconds")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -2482,13 +2498,6 @@ func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
 		}
 		c.CookieSeconds = n
 		c.CookieDays = 0 // canonicalize (= omitempty on save)
-	}
-	if v := strings.TrimSpace(r.FormValue("captcha_score_threshold")); v != "" {
-		f, err := strconv.ParseFloat(v, 64)
-		if err != nil || f < 0 || f > 1 {
-			return fmt.Errorf("captcha_score_threshold must be a float in 0.0-1.0 (got %q)", v)
-		}
-		c.CaptchaScoreThreshold = f
 	}
 	if v := strings.TrimSpace(r.FormValue("pow_difficulty")); v != "" {
 		n, err := strconv.Atoi(v)

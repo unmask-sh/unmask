@@ -63,8 +63,11 @@ func newTestHandler(t *testing.T) *Handler {
 		},
 		Challenge: settings.Challenge{
 			CookieDays:            3,
-			CaptchaScoreThreshold: 0.5,
 			DebugRateLimitPer5Min: 100,
+			CaptchaProvider: settings.Captcha{
+				Provider:              "builtin",
+				BuiltinScoreThreshold: 0.5,
+			},
 		},
 	}
 	return &Handler{DB: conn, Settings: s}

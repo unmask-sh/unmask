@@ -1053,9 +1053,11 @@ secret:
 
 challenge:
   cookie_days: 3
-  captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 20
   challenge_html_path: ""   # empty -> use the embedded version inside the binary
+  captcha:
+    provider: builtin
+    builtin_score_threshold: 0.5   # behavioral pass threshold (builtin only)
 
 server:
   bind: 127.0.0.1

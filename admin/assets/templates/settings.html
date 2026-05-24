@@ -2080,6 +2080,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.no_setup" }}</span>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.fast" }}</span>
         <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</div>
+        <div class="captcha-keys">
+          <label class="captcha-keylabel">
+            {{ t .Lang "settings.captcha.builtin.score_threshold" }}
+            <button type="button" class="ua-help-trigger" data-help-target="builtin-score-help" aria-label="?">?</button>
+            <input type="number" name="builtin_score_threshold" min="0" max="1" step="0.05"
+                   value="{{ if gt .Captcha.BuiltinScoreThreshold 0.0 }}{{ .Captcha.BuiltinScoreThreshold }}{{ else }}0.5{{ end }}"
+                   style="width:6rem">
+          </label>
+          <script type="text/html" id="builtin-score-help">{{ safeHTML (t .Lang "settings.captcha.builtin.score_threshold_help") }}</script>
+        </div>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="turnstile" {{ if eq .Captcha.Provider "turnstile" }}checked{{ end }}>
@@ -2162,17 +2172,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              style="width:8rem"
              oninput="document.getElementById('ch-captcha-cookie-hint').textContent=secToHuman(this.value)">
       <span class="ch-hint" id="ch-captcha-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
-    </div>
-
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label for="ch-score">{{ t .Lang "settings.challenge.score_threshold" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="ch-score-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="ch-score-help">{{ safeHTML (t .Lang "settings.challenge.score_threshold_help") }}</script>
-      <input type="number" id="ch-score" name="captcha_score_threshold" min="0" max="1" step="0.05"
-             value="{{ if gt .Challenge.CaptchaScoreThreshold 0.0 }}{{ .Challenge.CaptchaScoreThreshold }}{{ else }}0.5{{ end }}"
-             style="width:6rem">
     </div>
 
     <div class="field">

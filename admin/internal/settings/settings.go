@@ -19,9 +19,11 @@
 //	  captcha_secret_base: <random>      # math captcha token HMAC-SHA256 base
 //	challenge:
 //	  cookie_days: 3
-//	  captcha_score_threshold: 0.5
 //	  debug_rate_limit_per_5min: 20
 //	  challenge_html_path: ""            # empty → use the embedded copy
+//	  captcha:
+//	    provider: builtin
+//	    builtin_score_threshold: 0.5     # behavioral pass threshold (builtin only)
 //	server:
 //	  bind: 127.0.0.1
 //	  port: 9477
@@ -86,7 +88,6 @@ type Challenge struct {
 	// has cookie_days, load-time migrates with CookieSeconds = CookieDays * 86400.
 	// Save always writes cookie_seconds only (= cookie_days is not emitted).
 	CookieDays            int     `yaml:"cookie_days,omitempty"`
-	CaptchaScoreThreshold float64 `yaml:"captcha_score_threshold"`
 	DebugRateLimitPer5Min int     `yaml:"debug_rate_limit_per_5min"`
 	ChallengeHTMLPath     string  `yaml:"challenge_html_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
@@ -203,14 +204,19 @@ func (b Branding) ResolvedCopyPreset() string {
 // on the site is limited (= the attacker can use the key on their own site,
 // but cannot bypass unmask's protection).
 type Captcha struct {
-	Provider           string  `yaml:"provider,omitempty"` // "builtin" (default) | "turnstile" | "hcaptcha" | "recaptcha"
-	TurnstileSiteKey   string  `yaml:"turnstile_site_key,omitempty"`
-	TurnstileSecretKey string  `yaml:"turnstile_secret_key,omitempty"`
-	HCaptchaSiteKey    string  `yaml:"hcaptcha_site_key,omitempty"`
-	HCaptchaSecretKey  string  `yaml:"hcaptcha_secret_key,omitempty"`
-	RecaptchaSiteKey   string  `yaml:"recaptcha_site_key,omitempty"`
-	RecaptchaSecretKey string  `yaml:"recaptcha_secret_key,omitempty"`
-	RecaptchaMinScore  float64 `yaml:"recaptcha_min_score,omitempty"` // reCAPTCHA v3 score threshold. default 0.5
+	Provider string `yaml:"provider,omitempty"` // "builtin" (default) | "turnstile" | "hcaptcha" | "recaptcha"
+	// BuiltinScoreThreshold: 0.0-1.0. Pass threshold for the unmask builtin
+	// behavioral CAPTCHA (= 5-axis score on the challenge page). default 0.5.
+	// Only consulted when Provider == "builtin"; the third-party providers
+	// hand verification off to their own siteverify endpoint.
+	BuiltinScoreThreshold float64 `yaml:"builtin_score_threshold,omitempty"`
+	TurnstileSiteKey      string  `yaml:"turnstile_site_key,omitempty"`
+	TurnstileSecretKey    string  `yaml:"turnstile_secret_key,omitempty"`
+	HCaptchaSiteKey       string  `yaml:"hcaptcha_site_key,omitempty"`
+	HCaptchaSecretKey     string  `yaml:"hcaptcha_secret_key,omitempty"`
+	RecaptchaSiteKey      string  `yaml:"recaptcha_site_key,omitempty"`
+	RecaptchaSecretKey    string  `yaml:"recaptcha_secret_key,omitempty"`
+	RecaptchaMinScore     float64 `yaml:"recaptcha_min_score,omitempty"` // reCAPTCHA v3 score threshold. default 0.5
 }
 
 type Server struct {
@@ -1140,12 +1146,12 @@ func defaults() Settings {
 			CookieSeconds:             86400 * 3,
 			PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
 			CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
-			CaptchaScoreThreshold:     0.5,
 			DebugRateLimitPer5Min:     20,
 			Theme:                     "default",
 			CaptchaProvider: Captcha{
-				Provider:          "builtin",
-				RecaptchaMinScore: 0.5,
+				Provider:              "builtin",
+				BuiltinScoreThreshold: 0.5,
+				RecaptchaMinScore:     0.5,
 			},
 		},
 		Branding: Branding{

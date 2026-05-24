@@ -168,10 +168,10 @@ func cmdDoctor(args []string) error {
 	} else {
 		addOK("cookie_seconds", fmt.Sprintf("%d days (= %d seconds)", cookieDays, s.Challenge.CookieSeconds))
 	}
-	if s.Challenge.CaptchaScoreThreshold < 0 || s.Challenge.CaptchaScoreThreshold > 1 {
-		addWarn("captcha_score_threshold", fmt.Sprintf("value %.2f is outside (0.0-1.0)", s.Challenge.CaptchaScoreThreshold))
+	if th := s.Challenge.CaptchaProvider.BuiltinScoreThreshold; th < 0 || th > 1 {
+		addWarn("captcha.builtin_score_threshold", fmt.Sprintf("value %.2f is outside (0.0-1.0)", th))
 	} else {
-		addOK("captcha_score_threshold", fmt.Sprintf("%.2f", s.Challenge.CaptchaScoreThreshold))
+		addOK("captcha.builtin_score_threshold", fmt.Sprintf("%.2f", th))
 	}
 
 	// 8. nginx output_dir writable
