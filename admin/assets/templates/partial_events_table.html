@@ -90,8 +90,16 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
 
 {{/* Session view + cellpop scripts.  Self-contained: each IIFE scans the
      DOM for table.events tbody tr[data-bt] (= session) and .cellpop (=
-     cellpop), so adding the partial anywhere on the page wires them up. */}}
+     cellpop), so adding the partial anywhere on the page wires them up.
+
+     Wait for DOMContentLoaded -- the cell-popover div lives on the host
+     page AFTER the partial call (hunt.html ~L384, overview.html below
+     </main>), so the inline <script> fires before that div is parsed.
+     Running immediately would null-out getElementById('cell-popover') and
+     bail early, losing the entire session view.  See feedback_partial_row_shape
+     memo: the partial must not assume what comes after it. */}}
 <script>
+document.addEventListener('DOMContentLoaded', function(){
 // Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
 // 3-5 rows that share the same beacon_token.  Collapse them into the latest
 // phase row + an inline 'serve › load › bv_pow' chain.  Each pill is the
@@ -266,5 +274,6 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     });
   });
 })();
+}); // DOMContentLoaded
 </script>
 {{ end }}
