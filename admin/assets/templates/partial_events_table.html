@@ -31,23 +31,24 @@
       <th style="width:10.5rem">IP</th>
       <th style="width:10rem">JA4</th>
       <th style="width:5rem">verdict</th>
+      {{/* phase header help: each line pulls the i18n value from
+           help.phase.* (= same source the dashboard funnel uses), so the
+           text stays in the user's language and auto-updates when the
+           catalog moves.  Previously this was a hardcoded English block
+           that drifted from the canonical phase set. */}}
       <th style="width:12rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
-<strong>phase list</strong> &mdash; event types showing the challenge progression.  Colors match the pills on table rows.<br><br>
-<span class="phase-pill ph-serve">serve</span> moment the challenge HTML was returned (= entry point that injected forced CAPTCHA / PoW due to JA4 bot / honeypot / rate-limit / protected path / etc.).  <code>payload.observe_only=1</code> means pass-through mode (= would-be challenge that passed through without enforcement)<br><br>
-<span class="phase-pill ph-load">load</span> client browser loaded the challenge HTML and JS started (= still unpassed, around the start of PoW computation)<br><br>
-<span class="phase-pill ph-pow_pass">pow_pass</span> client solved the PoW (= SHA-256 hash) midway through a multi-step mode (= e.g. <code>pow_then_captcha</code>); _bv NOT yet issued, handing off to the next stage (recorded in <code>payload.next</code>).  Followed by a <code>captcha</code> row<br><br>
-<span class="phase-pill ph-captcha">captcha</span> moment the client <strong>displayed</strong> the CAPTCHA UI (= still unpassed, before solving starts)<br><br>
-<span class="phase-pill ph-bv_pow_only">bv_pow_only</span> <code>_bv</code> cookie issued via <code>challenge_mode=pow_only</code> (= PoW solved, no CAPTCHA in the path).  Terminal &mdash; authentication complete<br><br>
-<span class="phase-pill ph-bv_captcha_only">bv_captcha_only</span> <code>_bv</code> issued via <code>challenge_mode=captcha_only</code> (= CAPTCHA solved, no PoW in the path).  Terminal<br><br>
-<span class="phase-pill ph-bv_pow_then_captcha">bv_pow_then_captcha</span> <code>_bv</code> issued via <code>challenge_mode=pow_then_captcha</code> (= PoW + CAPTCHA both cleared).  Terminal<br><br>
-<span class="phase-pill ph-verify_ng">verify_ng</span> CAPTCHA solution rejected by <code>/verify</code> (= signature mismatch / score too low) &rarr; re-challenge<br><br>
-<span class="phase-pill ph-cookie_err">cookie_err</span> <code>_bv</code> cookie format invalid (= expired / tampered / cookie from another site / etc.) &rarr; re-challenge<br><br>
-<span class="phase-pill ph-error">error</span> challenge.js failed.  <code>payload.kind</code> = <code>js_exception</code> (= window.onerror) / <code>ext_render_err</code> (= Turnstile / hCaptcha / reCAPTCHA mount failed) / <code>ext_exec_err</code> (= reCAPTCHA execute() rejected) / <code>ext_unknown_provider</code> (= unsupported CAPTCHA provider).  Normally zero; non-zero suggests a client-environment issue or a bot variant<br><br>
-<span class="phase-pill ph-check">check</span> one auth_request mode <code>/api/check</code> decision (= decision API usable from web servers other than nginx)<br><br>
-<span class="phase-pill ph-check-pass">check(pass)</span> <code>/api/check</code> ruled pass<br><br>
-<span class="phase-pill ph-check-block">check(block)</span> <code>/api/check</code> ruled block via BAN / forced CAPTCHA / honeypot / etc.<br><br>
-when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-limit hit from a separate layer
-<button type="button" class="info-popup-close" aria-label="close">&times;</button></span></span></th>
+        {{ safeHTML (t .Lang "help.phase.serve") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.load") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.pow_pass") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_captcha_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_then_captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.verify_ng") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.cookie_err") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.rl") }}
+      </span></span></th>
       <th style="width:2.5rem">flags</th>
       <th>URL</th>
       <th>UA</th>
