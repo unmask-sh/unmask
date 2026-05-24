@@ -45,6 +45,24 @@ jobs:
         run: go tool cover -func=coverage.out | tail -5
 
   # --------------------------------------------------------------------
+  # golangci-lint (= bundle of ~10 linters incl. staticcheck, gosec, revive)
+  # --------------------------------------------------------------------
+  golangci-lint:
+    runs-on: ubuntu-latest
+    needs: go-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+      - uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+          working-directory: admin
+          args: --timeout=5m
+
+  # --------------------------------------------------------------------
   # admin binary (= cross compile linux/{amd64,arm64})
   # --------------------------------------------------------------------
   build-admin:

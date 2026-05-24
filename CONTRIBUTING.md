@@ -62,6 +62,26 @@ Exceptions (preserved as Japanese):
 - `admin/assets/static/challenge.js` Japanese i18n maps
 - The `<option value="ja">日本語</option>` picker native name
 
+## Developer Certificate of Origin (DCO)
+
+Every commit must carry a `Signed-off-by:` trailer that asserts you have
+the right to submit the change under the project's license.  We follow
+the [Developer Certificate of Origin 1.1](https://developercertificate.org/).
+
+The trailer is one line at the bottom of the commit message:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+`git commit -s` adds it automatically.  By including it you are stating
+the four conditions in the DCO 1.1 text (= roughly: you wrote it, or you
+have permission from whoever did, and you are OK with it being open-source
+under the project's license).
+
+A simple lightweight alternative to a CLA — no separate document to sign,
+the assertion is in the commit history itself.
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under

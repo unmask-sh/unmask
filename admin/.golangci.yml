@@ -1,0 +1,42 @@
+# golangci-lint config for the admin/ module.
+# Keeps the set conservative for v0.1 (= rejects only the obvious smell);
+# linters are added back over time as the codebase tightens.
+
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck       # unchecked errors
+    - gosimple       # simplification suggestions
+    - govet          # superset of `go vet`
+    - ineffassign    # ineffectual assignments
+    - staticcheck    # bug-prone patterns + dead code
+    - unused         # unused funcs / vars / fields
+    - gosec          # security smell (= weak crypto, exec without sanitization)
+    - misspell       # common English typos in comments / strings
+    - revive         # gofmt-style style guard
+  settings:
+    gosec:
+      excludes:
+        - G104        # we deliberately ignore some err returns in best-effort cleanup paths
+        - G304        # file inclusion via variable — config paths come from settings / env, validated upstream
+        - G404        # math/rand for non-crypto contexts is fine (jitter, etc.)
+        - G115        # int overflow on conversion — go 1.21+ produces a panic, callers gate ranges already
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-naming
+        - name: error-return
+        - name: increment-decrement
+        - name: var-declaration
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters: [gosec, errcheck]   # test fixtures intentionally ignore errors

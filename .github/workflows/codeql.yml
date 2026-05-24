@@ -1,0 +1,52 @@
+# GitHub CodeQL — SAST scan on push to main, PRs into main, and weekly.
+# Covers Go (= admin/) and JavaScript (= challenge.js + LP).  C (= the
+# nginx module under nginx-module/) is intentionally not in the matrix
+# because CodeQL's C analyzer needs `make` to drive the build and the
+# module has to be built against pinned nginx source — that flow lives
+# in build-module-multi and is overkill for the SAST gate.
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 18 * * 1"   # Mondays 18:30 UTC = 03:30 JST
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        if: matrix.language == 'go'
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      # Go: explicit build inside admin/ so CodeQL's autobuild picks the right
+      # module root (= the repo root is not a Go module).
+      - name: build go
+        if: matrix.language == 'go'
+        working-directory: admin
+        run: go build ./...
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
