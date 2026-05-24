@@ -95,13 +95,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		log.Printf("overview recent: %v", err)
 	}
 	// IP rendering is unified as "flag + IP + popover" (= same as bans / hunt / dashboard).
-	// Tag each row with the IP-geo-looked-up country code.  Leave empty if IP-geo is not loaded.
+	// Tag each row with the IP-geo-looked-up country code + the ban state for the IP.
+	// Banned is required by the shared partial_events_table.html partial -- without
+	// it the {{ if .Banned }} branch fails template execution and the page truncates
+	// at the first row of the recent table.  Same shape as huntEventRow.
 	type recentRow struct {
 		events.Row
 		CountryCode string
+		Banned      bool
 	}
 	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
+	banOK := h.BanMgr != nil
 	ccCache := map[string]string{}
+	banCache := map[string]bool{}
 	recent := make([]recentRow, 0, len(recentRaw))
 	for _, r0 := range recentRaw {
 		cc := ""
@@ -113,7 +119,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 				ccCache[r0.IP] = cc
 			}
 		}
-		recent = append(recent, recentRow{Row: r0, CountryCode: cc})
+		banned := false
+		if banOK && r0.IP != "" {
+			if v, ok := banCache[r0.IP]; ok {
+				banned = v
+			} else {
+				banned = h.BanMgr.IsBanned(ctx, r0.IP, "")
+				banCache[r0.IP] = banned
+			}
+		}
+		recent = append(recent, recentRow{Row: r0, CountryCode: cc, Banned: banned})
 	}
 
 	// AI traffic funnel (= last 24h, top of overview).  Five-bucket
