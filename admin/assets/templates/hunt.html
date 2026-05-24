@@ -661,12 +661,15 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
   Object.keys(groups).forEach(function(bt){
     var grp = groups[bt];
     if (grp.length < 2) return;
-    // pick representative: the serve row (= fire-start time on screen) if any,
-    // otherwise the oldest row in the group (= earliest ts).
+    // pick representative: the terminal (= latest) row.  Shows the outcome
+    // phase (verify_ok / verify_ng / bv_pow_only / bv_captcha_only / ...)
+    // on the line itself so the operator scans the table for results
+    // without opening every popover; the per-phase timestamps including
+    // the serve-time stay one hover away on the +N badge.
     grp.sort(function(a, b){
       return Number(a.getAttribute('data-ts')||0) - Number(b.getAttribute('data-ts')||0);
     });
-    var rep = grp.find(function(tr){ return tr.getAttribute('data-phase') === 'serve'; }) || grp[0];
+    var rep = grp[grp.length - 1];
     // hide the rest + remember them on rep so the popover can list every phase.
     var others = grp.filter(function(tr){ return tr !== rep; });
     others.forEach(function(tr){ tr.style.display = 'none'; });
