@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
@@ -831,17 +832,32 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if origPath != "" {
 			payload["orig_path"] = origPath
 		}
-		events.InsertAsync(h.DB, &events.Event{
-			Site:         site,
-			Host:         h.HostID,
-			IPPacked:     pkt,
-			UserAgent:    r.Header.Get("User-Agent"),
-			JA4:          safeJA4(ja4),
-			JA4Verdict:   verdict,
-			JA4VerdictID: h.VerdictNameToID(verdict),
-			Phase:        string(events.PhaseServe),
-			Payload:      payload,
-		})
+		// Dedupe: nginx access logs on tool1-jp show real browser clients
+		// requesting the same URL twice within ~40ms (= Chrome prerender /
+		// double-click / GCP LB retry).  Both requests hit ServeChallenge with
+		// the same beacon_token (= it's regenerated per request, but a real
+		// double-fire from one tab produces the same orig_path + UA + ja4 +
+		// host, and the JS-beacon side echoes whichever bt arrived last so
+		// they collide in the hunt session view anyway).  The cleanest
+		// in-memory dedupe is on (host, bt) since bt is unique per serve and
+		// duplicate serves of the same fire share it: keep the first, drop
+		// any follow-up within a short TTL.
+		if !serveDedupe.shouldRecord(h.HostID + ":" + beaconToken) {
+			// Still write the HTTP response; only suppress the duplicate
+			// event row that would clutter the hunt table.
+		} else {
+			events.InsertAsync(h.DB, &events.Event{
+				Site:         site,
+				Host:         h.HostID,
+				IPPacked:     pkt,
+				UserAgent:    r.Header.Get("User-Agent"),
+				JA4:          safeJA4(ja4),
+				JA4Verdict:   verdict,
+				JA4VerdictID: h.VerdictNameToID(verdict),
+				Phase:        string(events.PhaseServe),
+				Payload:      payload,
+			})
+		}
 	}
 
 	// Cloudflare-compatible: challenge returns 403.
