@@ -65,6 +65,12 @@ location ^~ /unmask/ {
     proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
     proxy_set_header   X-Protected-Mode $protected_mode;
     proxy_set_header   X-Banned         $unmask_banned;
+    # Branding tab uploads a logo image (= /admin/settings/save?section=branding
+    # / appearance, multipart/form-data).  The admin caps the body at 4 MiB
+    # itself; nginx's default 1 MiB limit would 413 before the request reached
+    # the handler, so lift it to match.  Other /unmask/* endpoints are small
+    # JSON / GET-only -- the larger ceiling here costs nothing for them.
+    client_max_body_size 4m;
     # SSE (= /unmask/admin/api/events/stream) needs unbuffered HTTP/1.1.
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
