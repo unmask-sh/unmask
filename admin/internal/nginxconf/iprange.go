@@ -94,6 +94,18 @@ var BypassIPGroups = []BypassIPGroup{
 		Source: "https://www.perplexity.com/perplexitybot.json",
 		File:   "iprange/perplexitybot.json",
 	},
+	{
+		// Real-user Chrome prefetch traffic transits via *.fetch.tunnel.googlezip.net,
+		// hits the origin without running JS, and otherwise loops on the challenge
+		// page forever -- blocking degrades LCP for legitimate Chrome users by
+		// 20-30% on prefetched navigations.  Official IP list is RFC 8805 geofeed,
+		// converted to the same JSON schema as the rest of the presets.
+		ID:      "chrome-prefetch-proxy",
+		Label:   "Chrome Private Prefetch Proxy (= real-user prefetch via *.fetch.tunnel.googlezip.net)",
+		Source:  "https://developer.chrome.com/docs/privacy-security/private-prefetch-proxy-for-network-admins",
+		File:    "iprange/chrome-prefetch-proxy.json",
+		AddedIn: "v0.1",
+	},
 }
 
 // iprangePayload: shared JSON schema across vendors.
