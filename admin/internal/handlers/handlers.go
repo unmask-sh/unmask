@@ -1096,15 +1096,15 @@ const testIndexBody = `<h1>unmask test pages</h1>
     <span class="desc">Delete the pass cookies (<code>_bv</code> / <code>_br</code>) so the challenge can be re-triggered.</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-pow" data-test-link target="_blank" rel="noopener">Always PoW</a>
+    <a href="<<PREFIX>>/force-pow" data-test-link target="_blank" rel="noopener">Always PoW ↗</a>
     <span class="desc">Serve challenge.html in <code>pow_only</code> mode.  Exercise the flow that forces PoW (SHA-256 hashcash).</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-pow-then-captcha" data-test-link target="_blank" rel="noopener">PoW &rarr; CAPTCHA</a>
+    <a href="<<PREFIX>>/force-pow-then-captcha" data-test-link target="_blank" rel="noopener">PoW &rarr; CAPTCHA ↗</a>
     <span class="desc">Serve the full <code>pow_then_captcha</code> chain.  PoW first, CAPTCHA second.</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-captcha" data-test-link target="_blank" rel="noopener">Always CAPTCHA</a>
+    <a href="<<PREFIX>>/force-captcha" data-test-link target="_blank" rel="noopener">Always CAPTCHA ↗</a>
     <span class="desc">Serve challenge.html in <code>captcha_only</code> mode.  Exercise the flow that forces the behavioral CAPTCHA.</span>
   </li>
 </ul>
@@ -1178,9 +1178,9 @@ const resetCookieBody = `<h1>cookie reset</h1>
 <p>Accessing a protected path next will re-trigger the challenge.</p>
 <h2>Continue testing</h2>
 <ul class="tests">
-  <li><a href="<<PREFIX>>/force-pow" target="_blank" rel="noopener">Always PoW</a></li>
-  <li><a href="<<PREFIX>>/force-pow-then-captcha" target="_blank" rel="noopener">PoW &rarr; CAPTCHA</a></li>
-  <li><a href="<<PREFIX>>/force-captcha" target="_blank" rel="noopener">Always CAPTCHA</a></li>
+  <li><a href="<<PREFIX>>/force-pow" target="_blank" rel="noopener">Always PoW ↗</a></li>
+  <li><a href="<<PREFIX>>/force-pow-then-captcha" target="_blank" rel="noopener">PoW &rarr; CAPTCHA ↗</a></li>
+  <li><a href="<<PREFIX>>/force-captcha" target="_blank" rel="noopener">Always CAPTCHA ↗</a></li>
 </ul>`
 
 // ServeChallengeJS: GET {base}/static/challenge.js
