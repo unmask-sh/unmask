@@ -115,6 +115,47 @@ window.popoverPin = window.popoverPin || (function(){
   // Exposed for the info-tip flavor below.
   window._popoverExtractVisibleText = extractVisibleText;
   window._popoverCapTitle = capTitle;
+  // Shared clipboard handler attached to the title-bar copy button.  Pulls
+  // the visible body text (= textContent, so embedded HTML / <code> markup
+  // becomes plain) and writes it via the async Clipboard API.  Falls back to
+  // an old-school `document.execCommand('copy')` path on browsers that block
+  // navigator.clipboard outside a user gesture or over plain HTTP.
+  function copyCloneBody(clone, btn){
+    var body = clone.querySelector('.popover-body');
+    if (!body) return;
+    var text = (body.innerText || body.textContent || '').trim();
+    if (!text) return;
+    function flashOk(){
+      var prev = btn.textContent;
+      btn.textContent = '✓';
+      btn.classList.add('popover-copy-ok');
+      setTimeout(function(){
+        btn.textContent = prev;
+        btn.classList.remove('popover-copy-ok');
+      }, 900);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(flashOk, function(){
+        // Promise rejection (e.g. permission denied) → fall through to legacy.
+        legacyCopy(text, flashOk);
+      });
+      return;
+    }
+    legacyCopy(text, flashOk);
+  }
+  function legacyCopy(text, onOk){
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      onOk();
+    } catch (_){}
+  }
   function buildTools(clone, onClose, title){
     var tools = document.createElement('div');
     tools.className = 'popover-tools';
@@ -126,6 +167,18 @@ window.popoverPin = window.popoverPin || (function(){
       t.title = title; // browser tooltip when truncated
       tools.appendChild(t);
     }
+    // copy-to-clipboard
+    var copy = document.createElement('button');
+    copy.type = 'button';
+    copy.className = 'popover-copy';
+    copy.setAttribute('aria-label', 'copy');
+    copy.title = 'copy contents to clipboard';
+    copy.textContent = '⧉';
+    copy.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      copyCloneBody(clone, copy);
+    });
+    tools.appendChild(copy);
     // collapse toggle
     var col = document.createElement('button');
     col.type = 'button';
@@ -153,6 +206,8 @@ window.popoverPin = window.popoverPin || (function(){
     tools.appendChild(btn);
     return tools;
   }
+  // Exposed for the info-tip flavor below.
+  window._popoverCopyCloneBody = copyCloneBody;
   // Exposed so installInfoTipPinning can reuse the same drag wiring.
   window._popoverAttachDragToBar = attachDragToBar;
   var clampToViewport = window.popoverClampToViewport;
@@ -348,6 +403,15 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           b.addEventListener('click', handler);
           return b;
         }
+        // copy-to-clipboard (= shares the helper from popoverPin so behavior /
+        // visual feedback match across both pinning flavors).
+        var cp = btn('popover-copy', 'copy', 'copy contents to clipboard', '⧉', function(e){
+          e.preventDefault(); e.stopPropagation();
+          if (typeof window._popoverCopyCloneBody === 'function'){
+            window._popoverCopyCloneBody(clone, cp);
+          }
+        });
+        t.appendChild(cp);
         // collapse
         var col = btn('popover-collapse', 'collapse', 'toggle one-line / full', '▾', function(e){
           e.preventDefault(); e.stopPropagation();

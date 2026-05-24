@@ -88,9 +88,14 @@
  * line in the same shade as the bar would disappear into the page. */
 .popover-tools{
   position:absolute;
-  top:0;
-  left:0;
-  right:0;
+  /* Inset by the popover outline width (= .125rem, drawn 2px inside via
+   * outline-offset:-.125rem) so the blue frame stays visible across the
+   * top edge.  Without this, the bar's background covers the outline only
+   * on top/left/right -- the user notices the frame looking thinner along
+   * the title strip. */
+  top:.125rem;
+  left:.125rem;
+  right:.125rem;
   height:1.65rem;
   display:none;
   align-items:center;
@@ -99,10 +104,16 @@
   gap:.1rem;
   background:#e2e8f0;
   border-bottom:1px solid #94a3b8;
-  border-radius:.4rem .4rem 0 0;
+  /* Top corners shrink by the outline width so the bar tucks inside the
+   * popover's rounded corner cleanly. */
+  border-radius:.275rem .275rem 0 0;
   cursor:grab;
   user-select:none;
 }
+/* Indent the title text so it doesn't hug the rounded corner -- the bar's
+ * left padding above is the floor; .popover-title bumps it further so the
+ * label has breathing room from the popover edge. */
+.popover-tools .popover-title{margin-left:.35rem}
 .popover-tools:active{cursor:grabbing}
 .is-pinned .popover-tools{display:flex}
 /* Title text on the left side of the bar (= source heading the `?` was
@@ -122,23 +133,38 @@
 }
 /* the original close button is embedded inside tools, so reset its absolute positioning. */
 .popover-tools .popover-close{position:static;display:inline-flex}
+/* Title-bar buttons.  Same width/height as before so the bar height stays
+ * fixed, but each button now reads as a real chip -- white face, 1px slate
+ * border, slightly bolder glyph -- instead of an invisible-until-hover
+ * affordance.  Keeps the existing right-anchor layout. */
 .popover-tools button{
   width:1.4rem;height:1.4rem;
-  background:transparent;color:#475569;border:0;
-  font-size:.9rem;line-height:1;
+  background:#fff;color:#1e293b;
+  border:1px solid #94a3b8;
+  font-size:.95rem;line-height:1;
+  font-weight:700;
   cursor:pointer;
   border-radius:.2rem;padding:0;
   display:inline-flex;align-items:center;justify-content:center;
   flex:none;
 }
-.popover-tools button:hover{background:rgba(0,0,0,.08);color:#0f172a}
-.popover-tools .popover-close:hover{background:#ef4444;color:#fff}
+.popover-tools button:hover{background:#f8fafc;color:#0f172a;border-color:#475569}
+.popover-tools .popover-close:hover{background:#ef4444;color:#fff;border-color:#ef4444}
+/* Brief green flash after a successful copy so the visitor gets feedback even
+ * though the page itself doesn't move.  Applied via class for ~900ms by JS. */
+.popover-tools .popover-copy.popover-copy-ok,
+.popover-tools .popover-copy.popover-copy-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
 
-/* collapse mode (= single-line display).  Suppress line breaks / br to render a single line + ellipsis. */
-[data-popover].popover-collapsed{max-width:30rem;min-height:0}
-[data-popover].popover-collapsed .popover-body{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-height:1.4em;line-height:1.4em;font-size:.85em;display:block}
-[data-popover].popover-collapsed br{display:none}
-[data-popover].popover-collapsed code,[data-popover].popover-collapsed b{display:inline;font-size:inherit}
+/* Collapsed mode = title bar only.  Hide the body and the bottom hint
+ * (= ESC to close / click to pin).  Keep the popover's padding-top so the
+ * absolutely-positioned title bar still has room above the (now empty)
+ * content area; clear padding-bottom so the popover shrinks to bar height. */
+[data-popover].popover-collapsed{min-height:0;padding-bottom:0}
+[data-popover].popover-collapsed .popover-body{display:none}
+[data-popover].popover-collapsed::after{display:none}
+.info-popup-pinned.popover-collapsed{padding-bottom:0}
+.info-popup-pinned.popover-collapsed .popover-body{display:none}
+.info-popup-pinned.popover-collapsed::after{display:none}
 
 /* base style for info-tip (= `?` ball + hover popup).  Drop next to a heading on any page as
  * <span class="info-tip">?<span class="info-popup">description...</span></span> — hover shows
@@ -180,9 +206,12 @@
 .info-popup-pinned code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
 /* Dark variant of the title bar: drop a full step beneath the body color
  * (slate-950 against slate-800) so the depth difference is visible even
- * on dim displays.  The title text lifts to slate-300 for legibility. */
-.info-popup-pinned .popover-tools{background:#020617;border-bottom:1px solid #475569;border-radius:.3rem .3rem 0 0}
+ * on dim displays.  The title text lifts to slate-300 for legibility.
+ * Top corners scale from the popover's .3rem radius minus the outline. */
+.info-popup-pinned .popover-tools{background:#020617;border-bottom:1px solid #475569;border-radius:.175rem .175rem 0 0}
 .info-popup-pinned .popover-title{color:#cbd5e1}
-.info-popup-pinned .popover-tools button{color:#cbd5e1}
-.info-popup-pinned .popover-tools button:hover{background:rgba(255,255,255,.12);color:#fff}
-.info-popup-pinned .popover-tools .popover-close:hover{background:#ef4444;color:#fff}
+/* Dark button chip: slate body with a slate-500 border so the chip stands
+ * out from the slate-950 bar. */
+.info-popup-pinned .popover-tools button{background:#1e293b;color:#e2e8f0;border:1px solid #64748b}
+.info-popup-pinned .popover-tools button:hover{background:#334155;color:#fff;border-color:#94a3b8}
+.info-popup-pinned .popover-tools .popover-close:hover{background:#ef4444;color:#fff;border-color:#ef4444}
