@@ -188,6 +188,16 @@ window.popoverPin = window.popoverPin || (function(){
     col.title = 'toggle one-line / full (double-click title bar also works)';
     col.textContent = '▾';
     function toggleCollapse(){
+      // Freeze the rendered width on the way down so the bar doesn't snap
+      // back to the popover's natural narrow size once the body is hidden.
+      // Restore on expand so the popover can grow again if the body / title
+      // text would have changed.
+      var willCollapse = !clone.classList.contains('popover-collapsed');
+      if (willCollapse){
+        clone.style.width = clone.getBoundingClientRect().width + 'px';
+      } else {
+        clone.style.width = '';
+      }
       var on = clone.classList.toggle('popover-collapsed');
       col.textContent = on ? '▸' : '▾';
     }
@@ -425,8 +435,16 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         });
         t.appendChild(cp);
         // collapse.  Title-bar double-click below shares the toggle so the
-        // glyph stays in sync whichever path fired it.
+        // glyph stays in sync whichever path fired it.  Width is frozen on
+        // collapse so the bar keeps its current horizontal footprint -- same
+        // pattern as the popoverPin flavor.
         function toggleCollapse(){
+          var willCollapse = !clone.classList.contains('popover-collapsed');
+          if (willCollapse){
+            clone.style.width = clone.getBoundingClientRect().width + 'px';
+          } else {
+            clone.style.width = '';
+          }
           var on = clone.classList.toggle('popover-collapsed');
           col.textContent = on ? '▸' : '▾';
         }
