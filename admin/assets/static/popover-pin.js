@@ -179,19 +179,31 @@ window.popoverPin = window.popoverPin || (function(){
       copyCloneBody(clone, copy);
     });
     tools.appendChild(copy);
-    // collapse toggle
+    // collapse toggle.  Shared with the bar's dblclick handler below so the
+    // button glyph stays in sync no matter which path collapsed the popover.
     var col = document.createElement('button');
     col.type = 'button';
     col.className = 'popover-collapse';
     col.setAttribute('aria-label', 'collapse');
-    col.title = 'toggle one-line / full';
+    col.title = 'toggle one-line / full (double-click title bar also works)';
     col.textContent = '▾';
-    col.addEventListener('click', function(e){
-      e.preventDefault(); e.stopPropagation();
+    function toggleCollapse(){
       var on = clone.classList.toggle('popover-collapsed');
       col.textContent = on ? '▸' : '▾';
+    }
+    col.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      toggleCollapse();
     });
     tools.appendChild(col);
+    // Windows-style title-bar shortcut: double-click anywhere on the bar
+    // (except a button) toggles collapse.  Same code path as the collapse
+    // button so the chevron glyph flips correctly.
+    tools.addEventListener('dblclick', function(e){
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      toggleCollapse();
+    });
     // close
     var btn = document.createElement('button');
     btn.type = 'button';
@@ -412,13 +424,23 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           }
         });
         t.appendChild(cp);
-        // collapse
-        var col = btn('popover-collapse', 'collapse', 'toggle one-line / full', '▾', function(e){
-          e.preventDefault(); e.stopPropagation();
+        // collapse.  Title-bar double-click below shares the toggle so the
+        // glyph stays in sync whichever path fired it.
+        function toggleCollapse(){
           var on = clone.classList.toggle('popover-collapsed');
           col.textContent = on ? '▸' : '▾';
-        });
+        }
+        var col = btn('popover-collapse', 'collapse',
+          'toggle one-line / full (double-click title bar also works)',
+          '▾',
+          function(e){ e.preventDefault(); e.stopPropagation(); toggleCollapse(); }
+        );
         t.appendChild(col);
+        t.addEventListener('dblclick', function(e){
+          if (e.target.closest('button')) return;
+          e.preventDefault();
+          toggleCollapse();
+        });
         // close.  Defer to the shared _popoverUnpin callback so click and ESC
         // run the same teardown (= clone DOM remove + tip state reset).
         var cl = btn('popover-close', 'close', 'close', '×', function(e){
