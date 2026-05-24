@@ -165,10 +165,11 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 td.cellpop-active{cursor:pointer}
 .cellpop-pop{display:block}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
-/* session badge + popover content (= "+N" pill next to the serve phase pill,
-   click opens a per-phase timestamp timeline). */
-.session-badge{display:inline-block;font-size:.7rem;padding:.05rem .35rem;border-radius:.25rem;background:#e2e8f0;color:#334155;cursor:pointer;user-select:none;vertical-align:.05rem}
-.session-badge:hover{background:#0f172a;color:#fff}
+/* session chain (= "serve → load → pow → bv_pow_only" inline pills on the
+   collapsed row's phase cell.  Hover / click opens a per-phase timestamp
+   popover via popoverPin). */
+.session-chain{display:inline-flex;align-items:center;gap:.25rem;flex-wrap:wrap}
+.session-arrow{color:#94a3b8;font-size:.78rem;user-select:none}
 .session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
 .session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
 .session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
@@ -670,18 +671,38 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       return Number(a.getAttribute('data-ts')||0) - Number(b.getAttribute('data-ts')||0);
     });
     var rep = grp[grp.length - 1];
-    // hide the rest + remember them on rep so the popover can list every phase.
+    // hide the other rows from the group; the chain lives on rep's phase cell.
     var others = grp.filter(function(tr){ return tr !== rep; });
     others.forEach(function(tr){ tr.style.display = 'none'; });
-    // session badge on the phase pill cell: "+N" with a chevron, click toggles
-    // hover popover with the per-phase timeline.
+    // Replace the phase cell on the representative row with the full chain
+    // "serve → load → pow → bv_pow_only", each as its own colored pill.
+    // Keeps the outcome at the right end (= where the eye lands).  Click /
+    // hover the cell opens a popover with HH:MM:SS.mmm per phase.
     var phaseCell = rep.querySelector('td:nth-child(5)'); // at, ip, ja4, verdict, phase
     if (!phaseCell) return;
-    var badge = document.createElement('span');
-    badge.className = 'session-badge';
-    badge.textContent = '+' + others.length;
-    phaseCell.appendChild(document.createTextNode(' '));
-    phaseCell.appendChild(badge);
+    // preserve the rl-badge (= optional rate-limit indicator after the pill)
+    var rlBadge = phaseCell.querySelector('.rl-badge');
+    phaseCell.innerHTML = '';
+    var chain = document.createElement('span');
+    chain.className = 'session-chain';
+    grp.forEach(function(tr, i){
+      if (i > 0){
+        var arrow = document.createElement('span');
+        arrow.className = 'session-arrow';
+        arrow.textContent = '→';
+        chain.appendChild(arrow);
+      }
+      var ph = tr.getAttribute('data-phase') || '';
+      var pill = document.createElement('span');
+      pill.className = 'phase-pill ph-' + ph;
+      pill.textContent = ph;
+      chain.appendChild(pill);
+    });
+    phaseCell.appendChild(chain);
+    if (rlBadge){
+      phaseCell.appendChild(document.createTextNode(' '));
+      phaseCell.appendChild(rlBadge);
+    }
     // build the timeline html lazily on hover/click
     function timelineHtml(){
       var lines = grp.map(function(tr){
@@ -693,20 +714,21 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       });
       return '<div class="session-timeline">' + lines.join('') + '</div>';
     }
+    chain.style.cursor = 'pointer';
     var timer = null;
-    badge.addEventListener('mouseenter', function(e){
+    chain.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
-      if (pin.hasPinFor(badge)) return;
+      if (pin.hasPinFor(chain)) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
     });
-    badge.addEventListener('mouseleave', function(){
+    chain.addEventListener('mouseleave', function(){
       clearTimeout(timer); pin.hideHover();
     });
-    badge.addEventListener('click', function(e){
+    chain.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(timelineHtml(), e.pageX, e.pageY, badge, 'session (' + grp.length + ' phases)');
+      pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
     });
   });
 })();
