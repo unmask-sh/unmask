@@ -2213,6 +2213,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="checkbox" name="public_test_pages" value="1" {{ if .Challenge.PublicTestPages }}checked{{ end }}>
         <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
       </label>
+      {{/* Quick links to the actual test pages.  Admin side is always
+           available to logged-in users; public side returns 404 until
+           the checkbox above is enabled. */}}
+      <div style="margin-top:.55rem;font-size:.8rem;display:flex;gap:.65rem;flex-wrap:wrap">
+        <a href="{{ .BasePath }}/admin/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
+          {{ t .Lang "settings.challenge.test_link_admin" }} ↗
+        </a>
+        <span style="color:#94a3b8">·</span>
+        <a href="{{ .BasePath }}/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
+          {{ t .Lang "settings.challenge.test_link_public" }} ↗
+        </a>
+        {{ if not .Challenge.PublicTestPages }}
+        <span style="color:#94a3b8;font-size:.72rem">({{ t .Lang "settings.challenge.test_link_public_disabled" }})</span>
+        {{ end }}
+      </div>
     </div>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
