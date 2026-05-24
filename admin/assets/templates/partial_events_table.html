@@ -209,8 +209,11 @@ document.addEventListener('DOMContentLoaded', function(){
         var ms = rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
+        // Use the same short label the inline chain shows (= bv_pow_only -> bv_pow)
+        // so the timeline labels match what the user clicked on.
+        var label = PHASE_SHORT[ph] || ph;
         return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
-               '</time> <span class="' + pillCls + '">' + ph + '</span></div>';
+               '</time> <span class="' + pillCls + '">' + label + '</span></div>';
       });
       return '<div class="session-timeline">' + lines.join('') + '</div>';
     }
