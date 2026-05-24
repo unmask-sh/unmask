@@ -619,7 +619,9 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       var x = e.pageX, y = e.pageY;
       // pass html so the unpin path can also re-display primary as a hover popover
       // (= instant on fetchAndFmt cache hit. UX: "click again = unpin + return to hover state").
-      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+      // ip is also passed as the title-bar title so a pinned popover identifies
+      // itself with the IP value rather than the column heading text.
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td, ip); });
     });
   });
 })();
