@@ -138,7 +138,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPINonHumanKnown": uKnown && uTotal > 0,
 		"KPICurrentBans":   currentBans,
 		"Recent":           recent,
-		"AITraffic":        aiRows,
+		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the
+		// same recent slice under those keys.  EventsCap=5 caps the client-side
+		// visible-session count after the session-collapse pass so the card
+		// honours its "直近 5 件" heading even though we pre-fetched 20 raw rows.
+		"Rows":      recent,
+		"EventsCap": 5,
+		"Range":     "",
+		"AITraffic": aiRows,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)

@@ -1,0 +1,270 @@
+{{/*
+  partial_events_table -- the raw-event log table shared by the hunt page
+  ("/admin/hunt/") and the overview card ("/admin/").  This is the single
+  source of truth for: the <tr> shape (= data-bt / data-phase / data-ts /
+  data-ts-ms), the cell layout, the session-collapse JS (= group rows by
+  beacon_token, show the phase chain on the latest row), and the cellpop JS
+  (= popover on truncated JA4 / verdict / URL / UA / host-badge / site-badge).
+
+  Context expected (= pass via {{ template "events_table_block" . }}):
+    .Rows                  []events.Row (= the events to render)
+    .Lang                  i18n key (= 'ja' / 'en' / ...)
+    .BasePath              admin base (= '/unmask')
+    .Hosts                 map[host]bool (= len > 1 hides the host-badge)
+    .SitePickerOptions     []sitepicker.Option (= len > 1 hides the site-badge)
+    .Range                 range token (= passed back via the ban form)
+    .EventsCap             int -- optional client-side hard cap on visible
+                           sessions after collapse.  Zero / missing = no cap.
+
+  cell-popover div + popover-pin partial must be on the surrounding page; the
+  partial does NOT inject either so the page keeps full layout control.
+*/}}
+{{ define "events_table_block" }}
+<table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
+  <thead>
+    <tr>
+      <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
+      <th style="width:10.5rem">IP</th>
+      <th style="width:10rem">JA4</th>
+      <th style="width:5rem">verdict</th>
+      <th style="width:12rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+<strong>phase list</strong> &mdash; event types showing the challenge progression.  Colors match the pills on table rows.<br><br>
+<span class="phase-pill ph-serve">serve</span> moment the challenge HTML was returned (= entry point that injected forced CAPTCHA / PoW due to JA4 bot / honeypot / rate-limit / protected path / etc.).  <code>payload.observe_only=1</code> means pass-through mode (= would-be challenge that passed through without enforcement)<br><br>
+<span class="phase-pill ph-load">load</span> client browser loaded the challenge HTML and JS started (= still unpassed, around the start of PoW computation)<br><br>
+<span class="phase-pill ph-pow_pass">pow_pass</span> client solved the PoW (= SHA-256 hash) midway through a multi-step mode (= e.g. <code>pow_then_captcha</code>); _bv NOT yet issued, handing off to the next stage (recorded in <code>payload.next</code>).  Followed by a <code>captcha</code> row<br><br>
+<span class="phase-pill ph-captcha">captcha</span> moment the client <strong>displayed</strong> the CAPTCHA UI (= still unpassed, before solving starts)<br><br>
+<span class="phase-pill ph-bv_pow_only">bv_pow_only</span> <code>_bv</code> cookie issued via <code>challenge_mode=pow_only</code> (= PoW solved, no CAPTCHA in the path).  Terminal &mdash; authentication complete<br><br>
+<span class="phase-pill ph-bv_captcha_only">bv_captcha_only</span> <code>_bv</code> issued via <code>challenge_mode=captcha_only</code> (= CAPTCHA solved, no PoW in the path).  Terminal<br><br>
+<span class="phase-pill ph-bv_pow_then_captcha">bv_pow_then_captcha</span> <code>_bv</code> issued via <code>challenge_mode=pow_then_captcha</code> (= PoW + CAPTCHA both cleared).  Terminal<br><br>
+<span class="phase-pill ph-verify_ng">verify_ng</span> CAPTCHA solution rejected by <code>/verify</code> (= signature mismatch / score too low) &rarr; re-challenge<br><br>
+<span class="phase-pill ph-cookie_err">cookie_err</span> <code>_bv</code> cookie format invalid (= expired / tampered / cookie from another site / etc.) &rarr; re-challenge<br><br>
+<span class="phase-pill ph-error">error</span> challenge.js failed.  <code>payload.kind</code> = <code>js_exception</code> (= window.onerror) / <code>ext_render_err</code> (= Turnstile / hCaptcha / reCAPTCHA mount failed) / <code>ext_exec_err</code> (= reCAPTCHA execute() rejected) / <code>ext_unknown_provider</code> (= unsupported CAPTCHA provider).  Normally zero; non-zero suggests a client-environment issue or a bot variant<br><br>
+<span class="phase-pill ph-check">check</span> one auth_request mode <code>/api/check</code> decision (= decision API usable from web servers other than nginx)<br><br>
+<span class="phase-pill ph-check-pass">check(pass)</span> <code>/api/check</code> ruled pass<br><br>
+<span class="phase-pill ph-check-block">check(block)</span> <code>/api/check</code> ruled block via BAN / forced CAPTCHA / honeypot / etc.<br><br>
+when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-limit hit from a separate layer
+<button type="button" class="info-popup-close" aria-label="close">&times;</button></span></span></th>
+      <th style="width:2.5rem">flags</th>
+      <th>URL</th>
+      <th>UA</th>
+      <th style="width:4rem"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Rows }}
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}">
+      <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
+      <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+      <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="mono verdict-cell{{ if and .Verdict (gt (len .Verdict) 20) }} cellpop{{ end }}"{{ if and .Verdict (gt (len .Verdict) 20) }} data-full-value="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}</td>
+      <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
+      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="actions">
+        {{ if .Banned }}
+          <span class="rank-registered">
+            <span class="action-pill action-bot">already BANned</span>
+          </span>
+        {{ else }}
+          <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+            <input type="hidden" name="op" value="ban">
+            <input type="hidden" name="ip"  value="{{ .IP }}">
+            <input type="hidden" name="ja4" value="{{ .JA4 }}">
+            <input type="hidden" name="duration_sec" value="0">
+            <input type="hidden" name="reason" value="bot hunt (= event row)">
+            <input type="hidden" name="range" value="{{ $.Range }}">
+            <input type="hidden" name="share" value="">
+            <input type="hidden" name="comment" value="">
+            <input type="hidden" name="accept_terms" value="">
+            <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
+          </form>
+        {{ end }}
+      </td>
+    </tr>
+    {{ else }}
+    <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+
+{{/* Session view + cellpop scripts.  Self-contained: each IIFE scans the
+     DOM for table.events tbody tr[data-bt] (= session) and .cellpop (=
+     cellpop), so adding the partial anywhere on the page wires them up. */}}
+<script>
+// Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
+// 3-5 rows that share the same beacon_token.  Collapse them into the latest
+// phase row + an inline 'serve › load › bv_pow' chain.  Each pill is the
+// same colored phase-pill as before.  Click / hover the chain for a
+// HH:MM:SS.mmm timeline of every phase.  Rows without beacon_token (= phase=
+// check / pre-bt events) stay untouched.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var rows = document.querySelectorAll('table.events tbody tr[data-bt]');
+  var groups = {};
+  rows.forEach(function(tr){
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    (groups[bt] = groups[bt] || []).push(tr);
+  });
+  function fmtTs(ms){
+    if (!ms) return '';
+    var d = new Date(Number(ms));
+    var pad = function(n, w){ n = String(n); while (n.length < (w||2)) n = '0'+n; return n; };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+         + '.' + pad(d.getMilliseconds(), 3);
+  }
+  var PHASE_WEIGHT = {
+    'serve':1, 'load':2, 'pow':3, 'captcha':4,
+    'verify_ok':5, 'verify_ng':5,
+    'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
+    'error':7, 'cookie_err':7
+  };
+  var PHASE_SHORT = {
+    'bv_pow_only':         'bv_pow',
+    'bv_captcha_only':     'bv_cap',
+    'bv_pow_then_captcha': 'bv_pc'
+  };
+  function rowKey(tr){
+    var ms = Number(tr.getAttribute('data-ts-ms')||0);
+    if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
+    return ms;
+  }
+  Object.keys(groups).forEach(function(bt){
+    var grp = groups[bt];
+    if (grp.length < 2) return;
+    grp.sort(function(a, b){
+      var d = rowKey(a) - rowKey(b);
+      if (d) return d;
+      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')] || 99;
+      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
+      return wa - wb;
+    });
+    // Collapse consecutive same-phase rows (= rare but happens when the
+    // server fires the same phase twice for one request).  The timeline
+    // popover still shows every event with its own timestamp.
+    var dedupedChain = [];
+    grp.forEach(function(tr){
+      var ph = tr.getAttribute('data-phase');
+      var last = dedupedChain[dedupedChain.length - 1];
+      if (last && last.getAttribute('data-phase') === ph) return;
+      dedupedChain.push(tr);
+    });
+    var rep = grp[grp.length - 1];
+    grp.filter(function(tr){ return tr !== rep; }).forEach(function(tr){ tr.style.display='none'; });
+    // Date column: promote the oldest (= serve) row's <time> to rep.  The
+    // operator's mental model is 'when did this fire start', not 'finish'.
+    var oldest = grp[0];
+    if (oldest !== rep){
+      var oldestTime = oldest.querySelector('td.at time.js-datetime');
+      var repTime    = rep.querySelector('td.at time.js-datetime');
+      if (oldestTime && repTime){
+        repTime.setAttribute('data-ts', oldestTime.getAttribute('data-ts'));
+        repTime.textContent = oldestTime.textContent;
+      }
+    }
+    var phaseCell = rep.querySelector('td:nth-child(5)');
+    if (!phaseCell) return;
+    var rlBadge = phaseCell.querySelector('.rl-badge');
+    phaseCell.innerHTML = '';
+    var chain = document.createElement('span');
+    chain.className = 'session-chain';
+    dedupedChain.forEach(function(tr, i){
+      if (i > 0){
+        var arrow = document.createElement('span');
+        arrow.className = 'session-arrow';
+        arrow.textContent = '›';
+        chain.appendChild(arrow);
+      }
+      var ph = tr.getAttribute('data-phase') || '';
+      var pill = document.createElement('span');
+      pill.className = 'phase-pill ph-' + ph;
+      pill.textContent = PHASE_SHORT[ph] || ph;
+      chain.appendChild(pill);
+    });
+    phaseCell.appendChild(chain);
+    if (rlBadge){
+      phaseCell.appendChild(document.createTextNode(' '));
+      phaseCell.appendChild(rlBadge);
+    }
+    function timelineHtml(){
+      var lines = grp.map(function(tr){
+        var ms = rowKey(tr);
+        var ph = tr.getAttribute('data-phase') || '';
+        var pillCls = 'phase-pill ph-' + ph;
+        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
+               '</time> <span class="' + pillCls + '">' + ph + '</span></div>';
+      });
+      return '<div class="session-timeline">' + lines.join('') + '</div>';
+    }
+    chain.style.cursor = 'pointer';
+    var timer = null;
+    chain.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(chain)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
+    });
+    chain.addEventListener('mouseleave', function(){
+      clearTimeout(timer); pin.hideHover();
+    });
+    chain.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
+    });
+  });
+  // Optional client-side hard cap on visible sessions (= overview card caps
+  // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
+  // keep the partial parameterless.
+  var capAttr = document.querySelector('table.events');
+  var cap = capAttr ? Number(capAttr.getAttribute('data-events-cap') || 0) : 0;
+  if (cap > 0){
+    var visible = Array.from(document.querySelectorAll('table.events tbody tr'))
+      .filter(function(tr){ return tr.style.display !== 'none'; });
+    visible.slice(cap).forEach(function(tr){ tr.style.display = 'none'; });
+  }
+})();
+
+// JA4 / UA / URL / verdict / host-badge / site-badge cellpop.  A truncated
+// cell opens a pinnable popover holding the full value (= selectable text +
+// the title-bar copy button on popoverPin).  Untruncated cells stay quiet.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function popHtml(val){
+    return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
+      '</code></div>';
+  }
+  document.querySelectorAll('.cellpop').forEach(function(el){
+    var full = el.getAttribute('data-full-value');
+    var val = (full && full.length) ? full : el.textContent.trim();
+    if (!val) return;
+    if (!full && el.scrollWidth - el.clientWidth <= 1) return;
+    el.classList.add('cellpop-active');
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
+    });
+  });
+})();
+</script>
+{{ end }}
