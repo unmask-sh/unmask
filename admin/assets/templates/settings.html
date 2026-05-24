@@ -2743,21 +2743,11 @@ document.addEventListener("DOMContentLoaded", function(){
             「{{ replace $sampleTpl "{site_name}" $subject }}」
           </div>
         </div>
-        {{/* Pin preset (= row); theme inherited from the form's currently selected
-             theme card (= updated live by inline JS below).  Two buttons so the
-             operator sees both PoW and CAPTCHA flows for this preset. */}}
-        <span class="preview-link-group">
-          <a class="preview-link" target="_blank" rel="noopener"
-             data-preview-preset="{{ $p }}" data-preview-mode="pow"
-             href="{{ $.BasePath }}/admin/test/force-pow?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}&theme={{ $.ChallengeTheme }}">
-            {{ t $.Lang "settings.branding.preview_pow" }} ↗
-          </a>
-          <a class="preview-link" target="_blank" rel="noopener"
-             data-preview-preset="{{ $p }}" data-preview-mode="captcha"
-             href="{{ $.BasePath }}/admin/test/force-captcha?_preview_preset={{ $p }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}&theme={{ $.ChallengeTheme }}">
-            {{ t $.Lang "settings.branding.preview_captcha" }} ↗
-          </a>
-        </span>
+        {{/* Preview links live on the theme cards below.  The page flow is
+             "logo → site name → copy preset → theme", so visual checking
+             happens at the theme step; running preview from the copy row
+             would interrupt that progression.  The inline sample above is
+             enough to compare wording across friendly / neutral / minimal. */}}
       </label>
       {{ end }}
     </div>
@@ -2834,10 +2824,9 @@ document.addEventListener("DOMContentLoaded", function(){
    Italic + lighter color so the operator reads it as a quote of what
    visitors get, not as another label. */
 .branding-preset-sample{font-size:.78rem;color:#475569;font-style:italic;line-height:1.5;word-break:break-word}
-.preview-link-group{flex:0 0 auto;display:inline-flex;gap:.3rem}
-/* Shared style for the small "PoW ↗ / CAPTCHA ↗" links on preset rows and
-   theme cards.  Same look = same affordance ("open the real challenge page
-   in a new tab with these settings"). */
+/* Small "PoW ↗ / CAPTCHA ↗" links on theme cards.  Opens the real
+   challenge page in a new tab with the operator's current site name /
+   footer / preset choices applied. */
 .preview-link{font-size:.74rem;color:#1e40af;text-decoration:none;padding:.18rem .5rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
 .preview-link:hover{background:#eff6ff;border-color:#3b82f6}
 .theme-card-actions{display:flex;justify-content:flex-end;gap:.35rem;padding:0 .9rem .8rem}
