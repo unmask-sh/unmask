@@ -2780,8 +2780,9 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 //   - submit_enabled    : "share to hub when BANning"
 //   - subscribe_enabled : "pull BANs from other installs and force CAPTCHA"
 //
-// register_url / submit_url / feed_url can be overridden via admin but stay
-// empty by default (= sharedfeed package default constants are used).
+// The hub URLs live in defaults() (sharedfeed-package constants) and are not
+// edited from the UI; the unmask.sh hub is the only target until the feature
+// graduates beyond preview.
 func applySharedFeedForm(c *settings.SharedFeed, r *http.Request) {
 	c.SubmitEnabled = r.FormValue("submit_enabled") == "1"
 	c.SubscribeEnabled = r.FormValue("subscribe_enabled") == "1"
@@ -2791,17 +2792,6 @@ func applySharedFeedForm(c *settings.SharedFeed, r *http.Request) {
 	}
 	if !terms {
 		c.TermsAcceptedAt = 0
-	}
-	// URL override is rarely needed in production but retained for dev. Empty
-	// values fall back to the sharedfeed-package Default constants (= unmask.sh hub).
-	if v := strings.TrimSpace(r.FormValue("register_url")); v != "" {
-		c.RegisterURL = v
-	}
-	if v := strings.TrimSpace(r.FormValue("submit_url")); v != "" {
-		c.SubmitURL = v
-	}
-	if v := strings.TrimSpace(r.FormValue("feed_url")); v != "" {
-		c.FeedURL = v
 	}
 }
 

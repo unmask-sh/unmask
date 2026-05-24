@@ -3641,22 +3641,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </tr>
     </table>
 
-    <details style="margin-top:1.4rem">
-      <summary style="cursor:pointer;color:#475569;font-size:.85rem">{{ t .Lang "settings.shared_feed.advanced_h" }}</summary>
-      <div class="note" style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.shared_feed.advanced_desc") }}</div>
-      <div class="field">
-        <label class="field-label" for="sf-register">register_url</label>
-        <input type="url" id="sf-register" name="register_url" value="{{ .SharedFeed.RegisterURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
-      </div>
-      <div class="field">
-        <label class="field-label" for="sf-submit">submit_url</label>
-        <input type="url" id="sf-submit" name="submit_url" value="{{ .SharedFeed.SubmitURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
-      </div>
-      <div class="field">
-        <label class="field-label" for="sf-feed">feed_url</label>
-        <input type="url" id="sf-feed" name="feed_url" value="{{ .SharedFeed.FeedURL }}" placeholder="{{ t .Lang "settings.shared_feed.url_default_hint" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.85rem">
-      </div>
-    </details>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
