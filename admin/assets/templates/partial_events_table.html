@@ -281,6 +281,59 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 })();
+
+// Portal the phase '?' info-popup out of the .events-scroll wrapper on hover.
+// .events-scroll has overflow:hidden auto (= the horizontal-scroll fallback for
+// the table) which clips the popup at the wrapper's bottom edge -- the popup
+// is ~870px tall but only ~50px shows through, so the user sees a sliver and
+// has to click-pin to read the rest.  On hover we move the popup to <body>
+// with position:fixed, anchored just below the tip, and restore it on
+// mouseleave so the click-to-pin flow (= popover-pin.js clones the original
+// popup) keeps working.
+(function(){
+  var tips = document.querySelectorAll('table.events thead .info-tip');
+  tips.forEach(function(tip){
+    var popup = tip.querySelector('.info-popup');
+    if (!popup) return;
+    var originalParent = popup.parentNode;
+    var nextSibling = popup.nextSibling;
+    var portalOn = false;
+    function portal(){
+      if (portalOn || tip.classList.contains('pinned')) return;
+      portalOn = true;
+      var r = tip.getBoundingClientRect();
+      popup.style.position = 'fixed';
+      popup.style.top = (r.bottom + 6) + 'px';
+      // Clamp horizontally so the popup stays on-screen even when the tip is
+      // near the right edge.  448px = info-popup's max width per popover-pin.css.
+      popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 460)) + 'px';
+      popup.style.display = 'block';
+      popup.style.zIndex = '600';
+      document.body.appendChild(popup);
+    }
+    function unportal(){
+      if (!portalOn) return;
+      portalOn = false;
+      popup.style.position = '';
+      popup.style.top = '';
+      popup.style.left = '';
+      popup.style.display = '';
+      popup.style.zIndex = '';
+      if (nextSibling && nextSibling.parentNode === originalParent){
+        originalParent.insertBefore(popup, nextSibling);
+      } else {
+        originalParent.appendChild(popup);
+      }
+    }
+    tip.addEventListener('mouseenter', portal);
+    tip.addEventListener('mouseleave', unportal);
+    tip.addEventListener('focus', portal);
+    tip.addEventListener('blur', unportal);
+    // popover-pin.js click handler reads the popup contents to build a clone;
+    // restore the popup to its original spot first so the clone source is intact.
+    tip.addEventListener('click', unportal, true /* capture */);
+  });
+})();
 }); // DOMContentLoaded
 </script>
 {{ end }}
