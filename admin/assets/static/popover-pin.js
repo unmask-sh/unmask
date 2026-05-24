@@ -51,6 +51,26 @@ window.popoverPin = window.popoverPin || (function(){
   // helper that builds the tools (= top-right action buttons).
   // [drag handle] [collapse toggle] [close].  drag uses mousedown to move the popover.
   // collapse toggles the popover-collapsed class.
+  // raiseToFront re-appends the clone to its parent so its DOM-tail position
+  // wins the stacking contest against other pinned clones at the same
+  // z-index.  Triggered by mousedown anywhere on the clone (= title bar,
+  // body, hint line) so clicking a popover always brings it forward like
+  // a real window.  No-op when the clone is already last.
+  function raiseToFront(clone){
+    var p = clone.parentNode;
+    if (!p) return;
+    if (p.lastElementChild === clone) return;
+    p.appendChild(clone);
+  }
+  function attachRaiseOnFocus(clone){
+    // Capture phase so the raise happens before drag / button handlers run.
+    // mousedown (not click) so the focus order is set before a potential
+    // text selection / drag starts.
+    clone.addEventListener('mousedown', function(){ raiseToFront(clone); }, true);
+  }
+  // Exposed for the info-tip flavor below.
+  window._popoverRaiseToFront = raiseToFront;
+  window._popoverAttachRaiseOnFocus = attachRaiseOnFocus;
   // attachDragToBar wires the Windows-style title-bar drag: mousedown anywhere
   // on the bar (except on a child <button>) starts the drag.  Hoisted so both
   // the popoverPin clone and the info-tip clone use the same teardown path.
@@ -275,6 +295,9 @@ window.popoverPin = window.popoverPin || (function(){
       var tools = buildTools(clone, clone._popoverUnpin, titleFromTrigger(trigger));
       clone.appendChild(tools);
       document.body.appendChild(clone);
+      // Bring this clone to the front whenever the user interacts with it,
+      // so a stack of pinned popovers behaves like a stack of windows.
+      attachRaiseOnFocus(clone);
       // Now that the clone is in the DOM with content + tools, measure + clamp.
       var rect = clone.getBoundingClientRect();
       var pos = clampToViewport(x, y, rect.width, rect.height);
@@ -478,6 +501,9 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
       };
       clone.appendChild(tools);
       document.body.appendChild(clone);
+      if (typeof window._popoverAttachRaiseOnFocus === 'function'){
+        window._popoverAttachRaiseOnFocus(clone);
+      }
       // Edge-aware reposition: measure now that the clone is in the DOM, then
       // clamp so it doesn't overflow.  We pass the trigger's rect (= original
       // anchor) so the clamp can flip above if there's no room below.
