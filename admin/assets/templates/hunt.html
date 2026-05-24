@@ -221,15 +221,15 @@ td.cellpop-active{cursor:pointer}
       <tbody>
       {{ range .IPRank }}
       <tr>
-        <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
+        <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
         <td class="num">{{ .Count }}</td>
         <td class="actions">
           {{ if .BypassIP }}
-            <span class="rank-registered" title="bypass IPs">
+            <span class="rank-registered">
               <span class="action-pill action-ok">bypass</span>
             </span>
           {{ else if .Banned }}
-            <span class="rank-registered" title="unmask_ban">
+            <span class="rank-registered">
               <span class="action-pill action-bot">already BANned</span>
             </span>
           {{ else }}
@@ -271,7 +271,7 @@ td.cellpop-active{cursor:pointer}
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
             {{ if .Verdict }}
             {{/* already registered = show the verdict name + source.  No action button. */}}
-            <span class="rank-registered" title="{{ .Source }}">
+            <span class="rank-registered">
               <span class="action-pill action-{{ .Action }}">{{ .Verdict }}</span>
             </span>
             {{ else }}
@@ -307,7 +307,7 @@ td.cellpop-active{cursor:pointer}
           {{ if .Key }}
             {{ if .Listed }}
             {{/* already registered = show the group / extra name. */}}
-            <span class="rank-registered" title="{{ .Listed }}">
+            <span class="rank-registered">
               {{ if eq .Category "search_ai" }}
                 <span class="action-pill action-ok">search_ai: {{ .Listed }}</span>
               {{ else }}
@@ -394,11 +394,11 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     <tbody>
       {{ range .Rows }}
       <tr>
-        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge" title="host: {{ .Host }}">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge" title="site: {{ .Site }}">{{ .Site }}</span>{{ end }}</td>
+        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge">{{ .Site }}</span>{{ end }}</td>
         {{/* IP cell: title= dropped (= the IP is fully shown in the cell;
              ipclick already opens a richer popover with geo / verdict / etc.
              on hover, which made the native tooltip extra noise). */}}
-        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         {{/* Verdict cell: same as JA4 / UA / URL -- swap the native title=
              for the cellpop pattern so the popover only fires when the
@@ -408,7 +408,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
              the full value via data-full-value -- cellpop JS prefers it
              over the (clipped) textContent. */}}
         <td class="mono verdict-cell{{ if and .Verdict (gt (len .Verdict) 20) }} cellpop{{ end }}"{{ if and .Verdict (gt (len .Verdict) 20) }} data-full-value="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge" title="rate-limit hit (zone: {{ .RLZone }})">rl:{{ .RLZone }}</span>{{ end }}</td>
+        <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}</td>
         <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
         {{/* URL column uses the same cellpop pattern as JA4 / UA: native
              title= dropped (= duplicate of the cell text), the popover only
@@ -419,7 +419,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
         <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="actions">
           {{ if .Banned }}
-            <span class="rank-registered" title="unmask_ban">
+            <span class="rank-registered">
               <span class="action-pill action-bot">already BANned</span>
             </span>
           {{ else }}
@@ -542,7 +542,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
     var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
     var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
-                  '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+                  '.png" alt="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
 
     var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
 
@@ -756,9 +756,9 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     if (ev.phase === 'check' && ev.action) phaseTxt += '(' + ev.action + ')';
     // host / site badges: only when the deploy actually has more than one.
     var hostHtml = '';
-    if (MULTI_HOST && ev.host) hostHtml = '<span class="host" title="host: ' + escapeText(ev.host) + '">' + escapeText(ev.host) + '</span> ';
+    if (MULTI_HOST && ev.host) hostHtml = '<span class="host">' + escapeText(ev.host) + '</span> ';
     var siteHtml = '';
-    if (MULTI_SITE && ev.site) siteHtml = '<span class="site" title="site: ' + escapeText(ev.site) + '">' + escapeText(ev.site) + '</span> ';
+    if (MULTI_SITE && ev.site) siteHtml = '<span class="site">' + escapeText(ev.site) + '</span> ';
     d.innerHTML =
       '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
       hostHtml + siteHtml +
