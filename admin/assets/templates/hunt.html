@@ -167,8 +167,11 @@ td.cellpop-active{cursor:pointer}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
 /* session chain (= "serve → load → pow → bv_pow_only" inline pills on the
    collapsed row's phase cell.  Hover / click opens a per-phase timestamp
-   popover via popoverPin). */
-.session-chain{display:inline-flex;align-items:center;gap:.25rem;flex-wrap:wrap}
+   popover via popoverPin).  nowrap because the flow is the entire point of
+   the row: pushing pills onto a second line breaks the read at-a-glance.
+   The cell is given enough width via the parent <td> override below. */
+.session-chain{display:inline-flex;align-items:center;gap:.25rem;flex-wrap:nowrap;white-space:nowrap}
+table.events td:has(.session-chain){white-space:nowrap;min-width:max-content}
 .session-arrow{color:#94a3b8;font-size:.78rem;user-select:none}
 .session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
 .session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
