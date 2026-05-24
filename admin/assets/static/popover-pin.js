@@ -138,9 +138,13 @@ window.popoverPin = window.popoverPin || (function(){
       body.className = 'popover-body';
       body.innerHTML = html;
       clone.appendChild(body);
-      var tools = buildTools(clone, function(){
-        clone.remove(); pins.delete(trigger);
-      });
+      // Self-unpin callback the global ESC handler invokes for LIFO close.
+      // Mirrors what the close-button does so map state stays consistent.
+      clone._popoverUnpin = function(){
+        clone.remove();
+        pins.delete(trigger);
+      };
+      var tools = buildTools(clone, clone._popoverUnpin);
       clone.appendChild(tools);
       document.body.appendChild(clone);
       // Now that the clone is in the DOM with content + tools, measure + clamp.
@@ -179,13 +183,34 @@ window.popoverPin = window.popoverPin || (function(){
       }
     };
   }
+  // ESC closes pinned popovers LIFO: each press peels off the most recently
+  // opened clone, so users can incrementally walk back through a stack of
+  // pinned helps without nuking the whole working set with one keystroke.
+  // Each clone carries a _popoverUnpin callback (set by makeClone /
+  // installInfoTipPinning) that also cleans up the install()'s pins Map or
+  // the info-tip's pinned class -- the handler just invokes it.
   document.addEventListener('keydown', function(e){
-    if (e.key === 'Escape'){
-      document.querySelectorAll('.popover-clone').forEach(function(p){ p.remove(); });
+    if (e.key !== 'Escape') return;
+    var clones = document.querySelectorAll('.popover-clone');
+    if (clones.length === 0){
+      // Edge case: a transient .pinned class lingers without a body-level
+      // clone (e.g. inline-only popovers).  Clean it so ESC still feels
+      // responsive.
       document.querySelectorAll('.info-tip.pinned').forEach(function(t){
         t.classList.remove('pinned');
       });
+      return;
     }
+    var last = clones[clones.length - 1];
+    if (typeof last._popoverUnpin === 'function'){
+      last._popoverUnpin();
+    } else {
+      last.remove();
+    }
+    // Don't bubble so a higher-level ESC binding (= future modal close,
+    // search-bar dismiss, etc.) doesn't also fire on the same press.
+    e.preventDefault();
+    e.stopPropagation();
   });
   return { install: install };
 })();
@@ -278,15 +303,23 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           col.textContent = on ? '▸' : '▾';
         });
         t.appendChild(col);
-        // close
+        // close.  Defer to the shared _popoverUnpin callback so click and ESC
+        // run the same teardown (= clone DOM remove + tip state reset).
         var cl = btn('popover-close', 'close', '', '×', function(e){
           e.preventDefault(); e.stopPropagation();
-          clone.remove(); tip._pinClone = null;
-          tip.classList.remove('pinned');
+          if (typeof clone._popoverUnpin === 'function') clone._popoverUnpin();
         });
         t.appendChild(cl);
         return t;
       })();
+      // ESC handler in popoverPin invokes this to peel pinned info-tip clones
+      // off in LIFO order.  Mirrors the close-button logic.
+      clone._popoverUnpin = function(){
+        clone.remove();
+        tip._pinClone = null;
+        tip.classList.remove('pinned');
+        if (typeof tip.blur === 'function') tip.blur();
+      };
       clone.appendChild(tools);
       document.body.appendChild(clone);
       // Edge-aware reposition: measure now that the clone is in the DOM, then

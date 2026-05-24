@@ -64,9 +64,12 @@
   z-index:400;
 }
 
-/* "click to pin" hint (= subtle hint shown at the bottom of the hover state. Hidden when pinned). */
+/* Subtle bottom hint.  Hover state advertises that clicking pins the popover;
+ * once pinned, the same line flips to remind the visitor that ESC dismisses
+ * the most-recently-opened clone (= LIFO stack -- multiple ESC presses peel
+ * them off one at a time). */
 [data-popover]::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed #e2e8f0;font-size:.7rem;color:#94a3b8;letter-spacing:.04em;font-weight:400}
-[data-popover].is-pinned::after{display:none}
+[data-popover].is-pinned::after{content:"ESC to close"}
 
 /* close button (= legacy).  Also embedded inside popover-tools (= reset to
    position:static there to avoid duplication issues). */
@@ -118,6 +121,9 @@
    The .pinned rule is placed after to override the :hover / :focus rules. */
 .info-tip.pinned .info-popup{display:none}
 .info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed rgba(255,255,255,.12);font-size:.65rem;color:#64748b;letter-spacing:.04em;font-weight:400;text-transform:none}
+/* Body-level clone keeps the hint visible; flip the content to "ESC to close"
+ * so the visitor knows the keyboard shortcut peels off the latest pin. */
+.info-popup-pinned::after{content:"ESC to close"}
 .info-tip.pinned .info-popup::after{display:none}
 
 /* clone created when an info-tip is click-pinned (= attached to body).  Same base styling as the popup +
