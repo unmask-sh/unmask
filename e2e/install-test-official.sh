@@ -48,14 +48,15 @@ mkdir -p "$LOG_DIR"
 declare -A TEST=(
   [deb13]=9100 [deb12]=9101 [ub2604]=9102 [ub2404]=9103 [alpine]=9104
   [alma10]=9105 [alma9]=9106 [alma8]=9107 [centos7]=9108 [centos6]=9109
+  [ub2204]=9110
 )
 declare -A FAMILY=(
-  [deb13]=deb [deb12]=deb [ub2604]=deb [ub2404]=deb [alpine]=apk
+  [deb13]=deb [deb12]=deb [ub2604]=deb [ub2404]=deb [ub2204]=deb [alpine]=apk
   [alma10]=rpm [alma9]=rpm [alma8]=rpm [centos7]=rpm-eol [centos6]=rpm-eol-2
 )
 declare -A LABEL=(
   [deb13]="Debian 13" [deb12]="Debian 12"
-  [ub2604]="Ubuntu 26.04" [ub2404]="Ubuntu 24.04"
+  [ub2604]="Ubuntu 26.04" [ub2404]="Ubuntu 24.04" [ub2204]="Ubuntu 22.04"
   [alpine]="Alpine Linux 3"
   [alma10]="AlmaLinux 10" [alma9]="AlmaLinux 9" [alma8]="AlmaLinux 8"
   [centos7]="CentOS 7" [centos6]="CentOS 6"
@@ -74,7 +75,7 @@ declare -A RPM_MAJ=([alma9]=9 [alma10]=10 [alma8]=8 [centos7]=7 [centos6]=6)
 # Alpine は gcompat で glibc plugin を dlopen するので fire 対象に含める.
 declare -A FIRE=(
   [alma9]=1 [alma10]=1 [alma8]=1
-  [deb12]=1 [deb13]=1 [ub2404]=1 [ub2604]=1 [alpine]=1
+  [deb12]=1 [deb13]=1 [ub2404]=1 [ub2604]=1 [ub2204]=1 [alpine]=1
   [centos7]=1 [centos6]=1
 )
 
@@ -547,7 +548,7 @@ keys=("$@")
 # the bodies to be `"`-free), centos6 is verified manually per the
 # [[reference_centos6_support]] memory and is not part of the default run.
 # Pass `centos6` explicitly to opt in.
-[ ${#keys[@]} -eq 0 ] && keys=(alma9 alma10 alma8 deb12 deb13 ub2404 ub2604 centos7 alpine)
+[ ${#keys[@]} -eq 0 ] && keys=(alma9 alma10 alma8 deb12 deb13 ub2404 ub2604 ub2204 centos7 alpine)
 
 declare -a OK=() FAIL=() FIRED=()
 for k in "${keys[@]}"; do
