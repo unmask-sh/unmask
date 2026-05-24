@@ -77,12 +77,10 @@ table.events td.actions{text-align:right;white-space:nowrap;width:auto}
 .cellpop-active{cursor:pointer}
 .cellpop-pop{display:block}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
-/* phase column "?" info tip popup */
-.info-tip{display:inline-block;margin-left:.3rem;color:#94a3b8;font-size:.7rem;cursor:help;position:relative;padding:.05rem .35rem;border-radius:50%;border:1px solid #cbd5e1;background:#f8fafc;line-height:1}
-.info-tip:hover,.info-tip:focus{color:#475569;border-color:#94a3b8;outline:none}
-.info-popup{display:none;position:absolute;top:1.6rem;right:0;width:30rem;max-width:80vw;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;padding:.75rem;box-shadow:0 .25rem .75rem rgba(0,0,0,.1);z-index:100;font-size:.75rem;line-height:1.5;color:#334155;text-transform:none;letter-spacing:0;font-weight:normal;text-align:left;white-space:normal}
-.info-tip:hover .info-popup,.info-tip:focus .info-popup,.info-tip:focus-within .info-popup{display:block}
-.info-popup-close{position:absolute;top:.25rem;right:.4rem;background:transparent;border:0;cursor:pointer;color:#94a3b8;font-size:1rem;padding:.1rem .3rem}
+/* .info-tip / .info-popup are styled by /static/popover-pin.css (= same as
+   hunt / dashboard).  Local rules were removed -- they were overriding the
+   shared stylesheet and killing the hover popup, so the "?" only opened via
+   the popover-pin.js click-to-pin path. */
 /* ban form action button (= matches hunt.html .rank-act + .danger) */
 .actions .rank-act{font-size:.7rem;padding:.2rem .55rem;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:.2rem;cursor:pointer;font-weight:600}
 .actions .rank-act.danger{border-color:#fecaca;background:#fef2f2;color:#991b1b}
