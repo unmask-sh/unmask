@@ -187,7 +187,6 @@ window.popoverPin = window.popoverPin || (function(){
       var t = document.createElement('span');
       t.className = 'popover-title';
       t.textContent = title;
-      t.title = title; // browser tooltip when truncated
       tools.appendChild(t);
     }
     // copy-to-clipboard
@@ -195,7 +194,6 @@ window.popoverPin = window.popoverPin || (function(){
     copy.type = 'button';
     copy.className = 'popover-copy';
     copy.setAttribute('aria-label', 'copy');
-    copy.title = 'copy contents to clipboard';
     copy.textContent = '⧉';
     copy.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
@@ -208,7 +206,6 @@ window.popoverPin = window.popoverPin || (function(){
     col.type = 'button';
     col.className = 'popover-collapse';
     col.setAttribute('aria-label', 'collapse');
-    col.title = 'toggle one-line / full (double-click title bar also works)';
     col.textContent = '▾';
     function toggleCollapse(){
       // Freeze the rendered width on the way down so the bar doesn't snap
@@ -242,7 +239,6 @@ window.popoverPin = window.popoverPin || (function(){
     btn.type = 'button';
     btn.className = 'popover-close';
     btn.setAttribute('aria-label', 'close');
-    btn.title = 'close';
     btn.textContent = '×';
     btn.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
@@ -442,13 +438,12 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           var ti = document.createElement('span');
           ti.className = 'popover-title';
           ti.textContent = titleText;
-          ti.title = titleText;
           t.appendChild(ti);
         }
-        function btn(cls, label, title, text, handler){
+        function btn(cls, label, _unused_title, text, handler){
           var b = document.createElement('button');
           b.type = 'button'; b.className = cls;
-          b.setAttribute('aria-label', label); b.title = title; b.textContent = text;
+          b.setAttribute('aria-label', label); b.textContent = text;
           b.addEventListener('click', handler);
           return b;
         }
