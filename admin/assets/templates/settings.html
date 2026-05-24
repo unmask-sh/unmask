@@ -204,10 +204,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    surface in front of pinned. */
 /* Edge-aware anchor handled by popover-pin.js + popover-pin.css; the rules below
  * keep settings-specific padding (= 2rem right for the close button) but inherit
- * the flip + scrollbar-safe width from the shared sheet. */
-.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#1e293b;color:#f1f5f9;padding:.7rem 2rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
-.info-popup a{color:#93c5fd;text-decoration:underline}
-.info-popup code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+ * the flip + scrollbar-safe width from the shared sheet.  Light card matches the
+ * shared popover-pin.css; the only delta is the extra right padding. */
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.7rem 2rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);text-transform:none;letter-spacing:0;white-space:normal}
+.info-popup a{color:#1d4ed8;text-decoration:underline}
+.info-popup code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
 .info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
 .info-popup.info-popup-flip-x{left:auto;right:0}
 .info-popup.info-popup-flip-y{top:auto;bottom:130%}
@@ -217,11 +218,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .info-tip.pinned .info-popup{display:block;outline:.125rem solid #3b82f6;outline-offset:-.125rem;box-shadow:0 .375rem 1rem rgba(59,130,246,.35);z-index:400}
 /* Small bottom hint -- "click to pin" on hover, swaps to "ESC to close" once
  * pinned so the keyboard shortcut (LIFO close) is discoverable. */
-.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed rgba(255,255,255,.12);font-size:.65rem;color:#64748b;letter-spacing:.04em;font-weight:400;text-transform:none}
+.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed #e2e8f0;font-size:.7rem;color:#94a3b8;letter-spacing:.04em;font-weight:400;text-transform:none}
 .info-popup-pinned::after{content:"ESC to close"}
 .info-tip.pinned .info-popup::after{display:none}
-.info-popup-close{display:none;position:absolute;top:.25rem;right:.4rem;width:1.4rem;height:1.4rem;background:transparent;color:#cbd5e1;border:0;font-size:1.15rem;line-height:1;cursor:pointer;border-radius:.2rem;padding:0;font-weight:600;z-index:1}
-.info-popup-close:hover{background:rgba(255,255,255,.12);color:#fff}
+.info-popup-close{display:none;position:absolute;top:.25rem;right:.4rem;width:1.4rem;height:1.4rem;background:transparent;color:#64748b;border:0;font-size:1.15rem;line-height:1;cursor:pointer;border-radius:.2rem;padding:0;font-weight:600;z-index:1}
+.info-popup-close:hover{background:rgba(0,0,0,.06);color:#0f172a}
 .info-tip.pinned .info-popup-close{display:inline-flex;align-items:center;justify-content:center}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}

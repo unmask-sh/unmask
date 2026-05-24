@@ -172,16 +172,16 @@
 .info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
 .info-tip:hover,.info-tip:focus{background:#0f172a}
 .info-tip.pinned{background:#3b82f6;cursor:default}
-/* hover popup (= dark theme).  Plain compact padding while hovering.
+/* hover popup (= light theme; matches the [data-popover] card look).
  * Default anchor: top:130% / left:0 (= below the tip, flush left).
  * Edge-flip classes are added by popover-pin.js on mouseenter / focusin:
  *   .info-popup-flip-x : anchor right (= right edge would overflow viewport)
  *   .info-popup-flip-y : anchor above (= bottom edge would overflow viewport)
  * max-width = viewport - 1rem keeps the popup from forcing a horizontal scrollbar
  * even on narrow screens, which is the other source of "ガクガク" layout jitter. */
-.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#1e293b;color:#f1f5f9;padding:.7rem .9rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .25rem .75rem rgba(0,0,0,.15);text-transform:none;letter-spacing:0;white-space:normal}
-.info-popup a{color:#93c5fd;text-decoration:underline}
-.info-popup code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.7rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);text-transform:none;letter-spacing:0;white-space:normal}
+.info-popup a{color:#1d4ed8;text-decoration:underline}
+.info-popup code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
 .info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
 /* Edge flip: anchor the popup on the side that has room.  The popup keeps its
  * width (= min(28rem,...)); only the anchor side changes. */
@@ -192,26 +192,16 @@
 /* while pinned, display lives on the body-level clone (= .info-popup-pinned), so hide the inline popup.
    The .pinned rule is placed after to override the :hover / :focus rules. */
 .info-tip.pinned .info-popup{display:none}
-.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed rgba(255,255,255,.12);font-size:.65rem;color:#64748b;letter-spacing:.04em;font-weight:400;text-transform:none}
+.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed #e2e8f0;font-size:.7rem;color:#94a3b8;letter-spacing:.04em;font-weight:400;text-transform:none}
 /* Body-level clone keeps the hint visible; flip the content to "ESC to close"
  * so the visitor knows the keyboard shortcut peels off the latest pin. */
 .info-popup-pinned::after{content:"ESC to close"}
 .info-tip.pinned .info-popup::after{display:none}
 
-/* clone created when an info-tip is click-pinned (= attached to body).  Same base styling as the popup +
+/* clone created when an info-tip is click-pinned (= attached to body).  Same light card +
  * extra padding-top reserved for tools (= grows upward).  JS offsets y upward by the tools size
- * so the content's visual position matches the hover popup exactly. */
-.info-popup-pinned{background:#1e293b;color:#f1f5f9;padding:1.85rem .9rem .7rem .9rem;border-radius:.3rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
-.info-popup-pinned a{color:#93c5fd;text-decoration:underline}
-.info-popup-pinned code{background:#334155;color:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
-/* Dark variant of the title bar: drop a full step beneath the body color
- * (slate-950 against slate-800) so the depth difference is visible even
- * on dim displays.  The title text lifts to slate-300 for legibility.
- * Top corners scale from the popover's .3rem radius minus the outline. */
-.info-popup-pinned .popover-tools{background:#020617;border-bottom:1px solid #475569;border-radius:.175rem .175rem 0 0}
-.info-popup-pinned .popover-title{color:#cbd5e1}
-/* Dark button chip: slate body with a slate-500 border so the chip stands
- * out from the slate-950 bar. */
-.info-popup-pinned .popover-tools button{background:#1e293b;color:#e2e8f0;border:1px solid #64748b}
-.info-popup-pinned .popover-tools button:hover{background:#334155;color:#fff;border-color:#94a3b8}
-.info-popup-pinned .popover-tools .popover-close:hover{background:#ef4444;color:#fff;border-color:#ef4444}
+ * so the content's visual position matches the hover popup exactly.  Inherits the same chip-
+ * style title bar as [data-popover].is-pinned (= no per-variant tools overrides needed). */
+.info-popup-pinned{background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:1.85rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
+.info-popup-pinned a{color:#1d4ed8;text-decoration:underline}
+.info-popup-pinned code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
