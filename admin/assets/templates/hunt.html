@@ -162,7 +162,7 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 .ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
 /* JA4 / UA cells: a truncated value opens a pinnable popover so the full
    string can be selected + copied (the native title tooltip cannot). */
-td.cellpop-active{cursor:pointer}
+.cellpop-active{cursor:pointer}
 .cellpop-pop{display:block}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
 /* session chain (= "serve → load → pow → bv_pow_only" inline pills on the
@@ -403,7 +403,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     <tbody>
       {{ range .Rows }}
       <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}">
-        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge">{{ .Site }}</span>{{ end }}</td>
+        <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
         {{/* IP cell: title= dropped (= the IP is fully shown in the cell;
              ipclick already opens a richer popover with geo / verdict / etc.
              on hover, which made the native tooltip extra noise). */}}
@@ -781,32 +781,37 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
       '</code></div>';
   }
-  document.querySelectorAll('td.cellpop').forEach(function(td){
+  // Targets any element carrying the `cellpop` class -- raw-log <td>s
+  // (JA4 / verdict / URL / UA) and the inline host-badge / site-badge spans.
+  // The truncation check below uses scrollWidth/clientWidth so untruncated
+  // values stay popover-less; only overflow opens the popover.
+  document.querySelectorAll('.cellpop').forEach(function(el){
     // data-full-value wins over textContent: server-side truncated cells
     // (= verdict / etc. where the template clips with a slice) carry the
     // full value out-of-band so the popover can offer the original text +
     // copy, even when the visible cell already fits.
-    var full = td.getAttribute('data-full-value');
-    var val = (full && full.length) ? full : td.textContent.trim();
+    var full = el.getAttribute('data-full-value');
+    var val = (full && full.length) ? full : el.textContent.trim();
     if (!val) return;
     // Skip CSS-fit cells unless data-full-value is set: if the visible text
     // already shows everything, the popover would just be noise.
-    if (!full && td.scrollWidth - td.clientWidth <= 1) return;
-    td.classList.add('cellpop-active');
-    td.addEventListener('mouseenter', function(e){
+    if (!full && el.scrollWidth - el.clientWidth <= 1) return;
+    el.classList.add('cellpop-active');
+    el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
-      if (pin.hasPinFor(td)) return;
+      if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
     });
-    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
-    td.addEventListener('click', function(e){
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
       e.preventDefault();
+      e.stopPropagation();
       clearTimeout(timer);
       // Pass val as the title-bar title so the pinned popover shows the
-      // actual cell value (= IP / JA4 / URL / UA / verdict) instead of the
-      // column heading auto-extracted from the closest <th> / <h3>.
-      pin.handleClick(popHtml(val), e.pageX, e.pageY, td, val);
+      // actual cell value (= IP / JA4 / URL / UA / verdict / site) instead
+      // of the column heading auto-extracted from the closest <th> / <h3>.
+      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
     });
   });
 })();
@@ -883,9 +888,9 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     if (ev.phase === 'check' && ev.action) phaseTxt += '(' + ev.action + ')';
     // host / site badges: only when the deploy actually has more than one.
     var hostHtml = '';
-    if (MULTI_HOST && ev.host) hostHtml = '<span class="host">' + escapeText(ev.host) + '</span> ';
+    if (MULTI_HOST && ev.host) hostHtml = '<span class="host-badge cellpop">' + escapeText(ev.host) + '</span> ';
     var siteHtml = '';
-    if (MULTI_SITE && ev.site) siteHtml = '<span class="site">' + escapeText(ev.site) + '</span> ';
+    if (MULTI_SITE && ev.site) siteHtml = '<span class="site-badge cellpop">' + escapeText(ev.site) + '</span> ';
     d.innerHTML =
       '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
       hostHtml + siteHtml +
