@@ -691,6 +691,19 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     // hide the other rows from the group; the chain lives on rep's phase cell.
     var others = grp.filter(function(tr){ return tr !== rep; });
     others.forEach(function(tr){ tr.style.display = 'none'; });
+    // Replace rep's date with the oldest row's date (= serve in almost
+    // every session).  The operator's mental model is 'when did this fire
+    // start', not 'when did it finish' -- the finish time is one hover
+    // away on the phase chain.
+    var oldest = grp[0];
+    if (oldest !== rep){
+      var oldestTime = oldest.querySelector('td.at time.js-datetime');
+      var repTime    = rep.querySelector('td.at time.js-datetime');
+      if (oldestTime && repTime){
+        repTime.setAttribute('data-ts', oldestTime.getAttribute('data-ts'));
+        repTime.textContent = oldestTime.textContent;
+      }
+    }
     // Replace the phase cell on the representative row with the full chain
     // "serve → load → pow → bv_pow_only", each as its own colored pill.
     // Keeps the outcome at the right end (= where the eye lands).  Click /
