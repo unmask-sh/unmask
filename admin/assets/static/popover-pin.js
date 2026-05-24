@@ -11,7 +11,10 @@
 //     showHover(html, x, y)       : display the transient popover (= primary) for hover
 //     hideHover()                 : hide the transient popover
 //     hasPinFor(trigger)          : whether there's a pinned clone for this trigger element
-//     handleClick(html, x, y, trg): click toggle (= close if pinned, otherwise pin)
+//     handleClick(html, x, y, trg, customTitle?): click toggle (= close if pinned, otherwise pin).
+//                                                 customTitle overrides the title-bar text that
+//                                                 would otherwise be auto-extracted from trg's
+//                                                 closest <th> / <h1-h6> ancestor.
 //
 //   Esc key closes all pinned popovers at once.
 //
@@ -267,7 +270,7 @@ window.popoverPin = window.popoverPin || (function(){
       p.style.top  = pos.y + 'px';
       p.style.visibility = '';
     }
-    function makeClone(html, x, y, trigger){
+    function makeClone(html, x, y, trigger, customTitle){
       var clone = document.createElement('div');
       var dp = primary.getAttribute('data-popover');
       if (dp) clone.setAttribute('data-popover', dp);
@@ -291,7 +294,10 @@ window.popoverPin = window.popoverPin || (function(){
         clone.remove();
         pins.delete(trigger);
       };
-      var tools = buildTools(clone, clone._popoverUnpin, titleFromTrigger(trigger));
+      var titleArg = (typeof customTitle === 'string' && customTitle)
+                       ? capTitle(customTitle)
+                       : titleFromTrigger(trigger);
+      var tools = buildTools(clone, clone._popoverUnpin, titleArg);
       clone.appendChild(tools);
       document.body.appendChild(clone);
       // Bring this clone to the front whenever the user interacts with it,
@@ -315,7 +321,7 @@ window.popoverPin = window.popoverPin || (function(){
         if (c) pins.delete(trigger);
         return false;
       },
-      handleClick: function(html, x, y, trigger){
+      handleClick: function(html, x, y, trigger, customTitle){
         var existing = pins.get(trigger);
         if (existing && existing.isConnected){
           // unpin: remove the clone and, assuming we're still over the same trigger, re-show the
@@ -327,7 +333,7 @@ window.popoverPin = window.popoverPin || (function(){
           return;
         }
         if (existing) pins.delete(trigger);
-        var clone = makeClone(html, x, y, trigger);
+        var clone = makeClone(html, x, y, trigger, customTitle);
         pins.set(trigger, clone);
         primary.style.display = 'none';
       }

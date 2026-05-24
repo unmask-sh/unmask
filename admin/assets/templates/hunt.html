@@ -666,7 +666,10 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     td.addEventListener('click', function(e){
       e.preventDefault();
       clearTimeout(timer);
-      pin.handleClick(popHtml(val), e.pageX, e.pageY, td);
+      // Pass val as the title-bar title so the pinned popover shows the
+      // actual cell value (= IP / JA4 / URL / UA / verdict) instead of the
+      // column heading auto-extracted from the closest <th> / <h3>.
+      pin.handleClick(popHtml(val), e.pageX, e.pageY, td, val);
     });
   });
 })();
