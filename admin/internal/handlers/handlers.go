@@ -787,8 +787,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// beacon token: a short-lived signed token that challenge.js echoes back
 	// in _bcDebug payload.bt.  DebugBeacon validates it to reject blind POSTs
-	// / replays to /api/debug.
-	btJSON, _ := json.Marshal(issueBeaconToken(h.Settings.Secret.CaptchaSecretBase, clientIP(r)))
+	// / replays to /api/debug.  Also embedded in the serve event's payload
+	// below so the hunt UI can group serve + all subsequent beacons (load /
+	// pow / bv_*) into one session row.
+	beaconToken := issueBeaconToken(h.Settings.Secret.CaptchaSecretBase, clientIP(r))
+	btJSON, _ := json.Marshal(beaconToken)
 	body = bytes.ReplaceAll(body, []byte(beaconTokenPlaceholder),
 		append([]byte(`/*__BEACON_TOKEN__*/`), btJSON...))
 
@@ -821,6 +824,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		testInt, _ := strconv.Atoi(test)
 		payload := map[string]any{
 			"force_reason": forceReason, "rl": rlInt, "test": testInt,
+			// Echo the beacon token so this serve row shares a group key
+			// with the subsequent load / pow / bv_* beacons in the hunt UI.
+			"bt": beaconToken,
 		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
