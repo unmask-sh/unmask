@@ -160,7 +160,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"Rows":      recent,
 		"EventsCap": 5,
 		"Range":     "",
-		"AITraffic": aiRows,
+		// Drop the per-row BAN action column on the overview card so the URL /
+		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
+		// (= the actual deep-dive destination) keeps the action column on.
+		"HideActions": true,
+		"AITraffic":   aiRows,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
