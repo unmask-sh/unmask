@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -428,9 +429,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			cur.BypassPaths.ExtraSite,
 		),
 		// Dropdown options come from sites already observed in unmask_event
-		// (= auto-complete). On failure, continue with an empty list (= datalist
-		// works even when empty, the field still accepts free input).
-		"Sites": h.observedSites(r),
+		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
+		// the picker only suggests names the operator has already declared --
+		// matches the ghost-sites filter applied in the dashboard / hunt picker.
+		// On failure, continue with an empty list (= datalist works even when
+		// empty, the field still accepts free input).
+		"Sites": h.observedSitesFilteredForPicker(r, sitesConfig),
 		// Sites tab: acceptance config (mode + defined list) + ghost report.
 		"SitesConfig":     sitesConfig,
 		"SiteModeDefined": sitesConfig.ResolvedMode() == settings.SiteModeDefined,
@@ -544,6 +548,45 @@ func (h *Handler) observedSites(r *http.Request) []string {
 		return nil
 	}
 	return xs
+}
+
+// observedSitesFilteredForPicker drops ghost sites (= observed but not in
+// settings.Sites.Defined) when the acceptance mode is "defined".  Auto mode
+// returns the full observed list unchanged.  Defined entries that have not
+// yet been observed are appended so the operator can pick a freshly defined
+// site even before traffic arrives.  Result is alphabetically sorted for
+// stable rendering.
+func (h *Handler) observedSitesFilteredForPicker(r *http.Request, sc settings.SiteAcceptanceConfig) []string {
+	observed := h.observedSites(r)
+	if sc.ResolvedMode() != settings.SiteModeDefined {
+		return observed
+	}
+	defined := map[string]bool{}
+	for _, s := range sc.Defined {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			defined[s] = true
+		}
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(observed)+len(defined))
+	for _, s := range observed {
+		if defined[s] && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	// Defined-but-unobserved sites: include so the picker can suggest them
+	// before any traffic lands.  Empty Defined list -> empty result, which
+	// is the right answer (no sites are "known").
+	for s := range defined {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // extraRule: (pattern, title, enabled, updated_at) struct passed to the template.
