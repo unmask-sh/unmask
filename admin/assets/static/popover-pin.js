@@ -121,13 +121,16 @@ window.popoverPin = window.popoverPin || (function(){
     return text;
   }
   // titleFromTrigger climbs from the `?` button up to the nearest labelling
-  // context -- prefer headings (most informative) but fall back to fieldset
-  // legends, table cells, labels, and card / field containers so popovers
-  // attached next to a checkbox or input still get a useful title.
+  // context -- prefer narrow, label-only ancestors before falling back to
+  // broader containers.  Most forms in settings.html wrap the label + `?`
+  // pair in a small `.field-label` row separate from the input + unit hint,
+  // so checking that class before `.field` keeps the title focused on the
+  // label and out of the "秒 (= 0 で永久, ...)" hint text that lives below it.
   function titleFromTrigger(trigger){
     if (!trigger || !trigger.closest) return '';
     var anchor = trigger.closest(
-      'h1,h2,h3,h4,h5,h6, legend, th, label, .field, .bcd-card'
+      'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
+      '.field-label, .field, .bcd-card'
     );
     if (!anchor) return '';
     return capTitle(extractVisibleText(anchor));
@@ -425,7 +428,8 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         // Title from the nearest labelling context -- same precedence as the
         // popoverPin flavor so stacked pins behave identically.
         var anchor = tip.closest && tip.closest(
-          'h1,h2,h3,h4,h5,h6, legend, th, label, .field, .bcd-card'
+          'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
+          '.field-label, .field, .bcd-card'
         );
         var titleText = '';
         if (anchor && typeof window._popoverExtractVisibleText === 'function'){
