@@ -716,6 +716,17 @@
 
   var elapsed=Date.now()-start;
 
+  // Spinner floor: PoW often finishes in ~30-100 ms on modern hardware, which
+  // makes the page look like it skipped the check entirely.  Hold the spinner
+  // for at least `pow_min_display_ms` (= operator-configured floor; default
+  // 1.5s) so the visual "we ran a verification" beat lands.  0 disables the
+  // floor for real-timing measurement on /unmask/test/.
+  var minDisp = (window.UNMASK && window.UNMASK.pow_min_display_ms) || 0;
+  if (minDisp > 0 && elapsed < minDisp) {
+    await new Promise(function(r){ setTimeout(r, minDisp - elapsed); });
+    elapsed = Date.now() - start;
+  }
+
   // Branch by chain mode.  Two distinct phases because they mean different things:
   //   - 'pow_pass'    : PoW solved + handing off to next stage (= midpoint; still unauthenticated.
   //                     _bv is NOT issued here; the server issues it on the next stage pass)

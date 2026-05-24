@@ -43,6 +43,7 @@ const (
 	buildVPlaceholder      = `__BUILD_V__`
 	chmodePlaceholder      = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder     = "/*__POW_DIFFICULTY__*/18"
+	powMinDisplayMsPH      = "/*__POW_MIN_DISPLAY_MS__*/1500"
 	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
@@ -573,15 +574,20 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		forceReason = "test"
 	}
 
-	// _force= debug override (via /unmask/force-pow / /unmask/force-captcha).
-	//   "pow"     : force forceReason="none" + chMode=pow_only.  Always flow through PoW path.
-	//   "captcha" : force forceReason="test" + chMode=captcha_only.  Always flow through CAPTCHA.
+	// _force= debug override (via /unmask/force-pow / /unmask/force-captcha /
+	// /unmask/force-pow-then-captcha).
+	//   "pow"              : forceReason="none" + chMode=pow_only.  PoW only path.
+	//   "captcha"          : forceReason="test" + chMode=captcha_only.  CAPTCHA only.
+	//   "pow_then_captcha" : forceReason="none" + chMode=pow_then_captcha.  Full chain.
 	switch strings.TrimSpace(r.URL.Query().Get("_force")) {
 	case "pow":
 		forceReason = "none"
 		test = "1"
 	case "captcha":
 		forceReason = "test"
+		test = "1"
+	case "pow_then_captcha":
+		forceReason = "none"
 		test = "1"
 	}
 
@@ -726,6 +732,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		chMode = settings.RateChallengePoWOnly
 	case "captcha":
 		chMode = settings.RateChallengeCaptchaOnly
+	case "pow_then_captcha":
+		chMode = settings.RateChallengePoWThenCaptcha
 	}
 	body = bytes.ReplaceAll(body, []byte(chmodePlaceholder),
 		[]byte(`/*__CHMODE__*/"`+chMode+`"`))
@@ -734,6 +742,20 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// leading-zero-bits used by challenge.js's SHA-256 hashcash).
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
 		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", h.Settings.Challenge.ResolvedPowDifficulty())))
+
+	// PoW minimum display time (= visual spinner floor).  Default reads
+	// from settings; `?_pow_display=N` query param overrides at request
+	// time so the /unmask/test/ pages can dial it to 0 (= real timing,
+	// no floor) or to a higher number to demo a slow PoW.  Clamps to a
+	// safe range so a hostile query value can't lock the page forever.
+	powMinDisplay := h.Settings.Challenge.PowMinDisplayMs
+	if v := strings.TrimSpace(r.URL.Query().Get("_pow_display")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 30000 {
+			powMinDisplay = n
+		}
+	}
+	body = bytes.ReplaceAll(body, []byte(powMinDisplayMsPH),
+		[]byte(fmt.Sprintf("/*__POW_MIN_DISPLAY_MS__*/%d", powMinDisplay)))
 
 	// Original URI (path + query): 2-tier source.
 	//   1. _orig query string (passed by nginx-rendered-protect.inc as a
@@ -962,6 +984,18 @@ func (h *Handler) ForceCaptcha(w http.ResponseWriter, r *http.Request) {
 	h.ServeChallenge(w, r)
 }
 
+// ForcePoWThenCaptcha: GET {base}/test/force-pow-then-captcha + admin path —
+// preview the PoW → CAPTCHA chain end-to-end.  PoW runs first as on the
+// terminal pow_only path, then the page hands off to the CAPTCHA stage.
+func (h *Handler) ForcePoWThenCaptcha(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery == "" {
+		r.URL.RawQuery = "_force=pow_then_captcha"
+	} else {
+		r.URL.RawQuery += "&_force=pow_then_captcha"
+	}
+	h.ServeChallenge(w, r)
+}
+
 // PublicTestGate: gate for the public side (/unmask/test/*).  Returns 404
 // unless settings.Challenge.PublicTestPages is true.  Not used on the admin
 // side (/unmask/admin/test/*).
@@ -1039,6 +1073,17 @@ const testIndexBody = `<h1>unmask test pages</h1>
   <button type="button" data-theme="paper">paper</button>
 </div>
 
+<h2>PoW display time</h2>
+<p class="muted" style="margin:0 0 .5rem">Override the PoW spinner floor (= <code>settings.challenge.pow_min_display_ms</code>) for the next preview.  Pick <strong>0</strong> to see the real PoW solve time without the visual floor.</p>
+<div id="pow-display-picker" class="theme-picker">
+  <button type="button" data-pow-display="">saved</button>
+  <button type="button" data-pow-display="0">0 ms (real)</button>
+  <button type="button" data-pow-display="500">500 ms</button>
+  <button type="button" data-pow-display="1500">1500 ms</button>
+  <button type="button" data-pow-display="3000">3000 ms</button>
+  <button type="button" data-pow-display="5000">5000 ms</button>
+</div>
+
 <h2>Tests</h2>
 <ul class="tests">
   <li>
@@ -1047,7 +1092,11 @@ const testIndexBody = `<h1>unmask test pages</h1>
   </li>
   <li>
     <a href="<<PREFIX>>/force-pow" data-test-link>Always PoW</a>
-    <span class="desc">Serve challenge.html in <code>pow_only</code> mode.  Exercise the flow that forces PoW (djb2 hash).</span>
+    <span class="desc">Serve challenge.html in <code>pow_only</code> mode.  Exercise the flow that forces PoW (SHA-256 hashcash).</span>
+  </li>
+  <li>
+    <a href="<<PREFIX>>/force-pow-then-captcha" data-test-link>PoW &rarr; CAPTCHA</a>
+    <span class="desc">Serve the full <code>pow_then_captcha</code> chain.  PoW first, CAPTCHA second.</span>
   </li>
   <li>
     <a href="<<PREFIX>>/force-captcha" data-test-link>Always CAPTCHA</a>
@@ -1058,23 +1107,39 @@ const testIndexBody = `<h1>unmask test pages</h1>
 
 <script>
 (function(){
-  var buttons = document.querySelectorAll('#theme-picker button');
-  var links = document.querySelectorAll('a[data-test-link]');
-  var current = '';
-  try { current = localStorage.getItem('unmask:test-theme') || ''; } catch(e) {}
+  var themeButtons = document.querySelectorAll('#theme-picker button');
+  var powButtons   = document.querySelectorAll('#pow-display-picker button');
+  var links        = document.querySelectorAll('a[data-test-link]');
+  var theme = '';
+  var pow   = '';
+  try { theme = localStorage.getItem('unmask:test-theme') || ''; } catch(e) {}
+  try { pow   = localStorage.getItem('unmask:test-pow-display') || ''; } catch(e) {}
   function update(){
-    buttons.forEach(function(b){
-      b.classList.toggle('active', (b.dataset.theme || '') === current);
+    themeButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.theme || '') === theme);
+    });
+    powButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.powDisplay || '') === pow);
     });
     links.forEach(function(a){
       var href = (a.getAttribute('href') || '').split('?')[0];
-      a.setAttribute('href', current ? href + '?theme=' + encodeURIComponent(current) : href);
+      var qs = [];
+      if (theme) qs.push('theme=' + encodeURIComponent(theme));
+      if (pow !== '') qs.push('_pow_display=' + encodeURIComponent(pow));
+      a.setAttribute('href', qs.length ? href + '?' + qs.join('&') : href);
     });
   }
-  buttons.forEach(function(b){
+  themeButtons.forEach(function(b){
     b.addEventListener('click', function(){
-      current = b.dataset.theme || '';
-      try { localStorage.setItem('unmask:test-theme', current); } catch(e){}
+      theme = b.dataset.theme || '';
+      try { localStorage.setItem('unmask:test-theme', theme); } catch(e){}
+      update();
+    });
+  });
+  powButtons.forEach(function(b){
+    b.addEventListener('click', function(){
+      pow = b.dataset.powDisplay || '';
+      try { localStorage.setItem('unmask:test-pow-display', pow); } catch(e){}
       update();
     });
   });
@@ -1092,6 +1157,7 @@ const resetCookieBody = `<h1>cookie reset</h1>
 <h2>Continue testing</h2>
 <ul class="tests">
   <li><a href="<<PREFIX>>/force-pow">Always PoW</a></li>
+  <li><a href="<<PREFIX>>/force-pow-then-captcha">PoW &rarr; CAPTCHA</a></li>
   <li><a href="<<PREFIX>>/force-captcha">Always CAPTCHA</a></li>
 </ul>`
 

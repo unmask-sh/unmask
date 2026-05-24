@@ -106,6 +106,15 @@ type Challenge struct {
 	// Practical range is 8-24. Default 18 (= ~262144 iter; modern devices ~500ms,
 	// mobile ~1s). Higher = harsher to bots. At 20+ mobile waits seconds.
 	PowDifficulty int `yaml:"pow_difficulty,omitempty"`
+	// PowMinDisplayMs: minimum visible time of the PoW spinner before the
+	// page proceeds.  Default 1500 ms.  Real PoW often completes in tens of
+	// milliseconds on modern hardware, which looks like the page did nothing
+	// -- visitors then suspect a glitch.  Holding the spinner for at least
+	// PowMinDisplayMs lets the "we ran a check" UX register without making
+	// real users wait longer than necessary (= no-op if the PoW itself took
+	// longer than the floor).  0 disables the floor (= proceed immediately
+	// when the math finishes; useful for /unmask/test/ benchmarking).
+	PowMinDisplayMs int `yaml:"pow_min_display_ms,omitempty"`
 	// ShowCredit: whether to show the "protected by unmask" credit at the
 	// bottom-right of the challenge page. Default false (= hidden). Turning
 	// it ON shows it as pill + icon. The trade-off between the self-hosted
@@ -1147,6 +1156,7 @@ func defaults() Settings {
 			PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
 			CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
 			DebugRateLimitPer5Min:     20,
+			PowMinDisplayMs:           1500,
 			Theme:                     "default",
 			CaptchaProvider: Captcha{
 				Provider:              "builtin",

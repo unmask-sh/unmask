@@ -645,10 +645,12 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	mux.HandleFunc("GET "+base+"/test/reset-cookie", h.PublicTestGate(h.ResetCookie))
 	mux.HandleFunc("GET "+base+"/test/force-pow", h.PublicTestGate(h.ForcePoW))
 	mux.HandleFunc("GET "+base+"/test/force-captcha", h.PublicTestGate(h.ForceCaptcha))
+	mux.HandleFunc("GET "+base+"/test/force-pow-then-captcha", h.PublicTestGate(h.ForcePoWThenCaptcha))
 	mux.HandleFunc("GET "+base+"/admin/test/{$}", h.AuthMiddleware(h.TestIndex))
 	mux.HandleFunc("GET "+base+"/admin/test/reset-cookie", h.AuthMiddleware(h.ResetCookie))
 	mux.HandleFunc("GET "+base+"/admin/test/force-pow", h.AuthMiddleware(h.ForcePoW))
 	mux.HandleFunc("GET "+base+"/admin/test/force-captcha", h.AuthMiddleware(h.ForceCaptcha))
+	mux.HandleFunc("GET "+base+"/admin/test/force-pow-then-captcha", h.AuthMiddleware(h.ForcePoWThenCaptcha))
 
 	// API endpoints (default + per-site)
 	mux.HandleFunc("POST "+base+"/api/verify", h.VerifyJSON)

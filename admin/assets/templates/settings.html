@@ -2188,6 +2188,18 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <div class="field">
       <div class="field-label field-label-row">
+        <label for="ch-pow-min-display">{{ t .Lang "settings.challenge.pow_min_display" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="ch-pow-min-display-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="ch-pow-min-display-help">{{ safeHTML (t .Lang "settings.challenge.pow_min_display_help") }}</script>
+      <input type="number" id="ch-pow-min-display" name="pow_min_display_ms" min="0" max="30000" step="100"
+             value="{{ .Challenge.PowMinDisplayMs }}"
+             style="width:7rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
+    </div>
+
+    <div class="field">
+      <div class="field-label field-label-row">
         <label for="ch-debug-rate">{{ t .Lang "settings.challenge.debug_rate" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-debug-help" aria-label="?">?</button>
       </div>
@@ -2794,6 +2806,11 @@ document.addEventListener("DOMContentLoaded", function(){
             {{ t $.Lang "settings.branding.preview_pow" }} ↗
           </a>
           <a class="preview-link" target="_blank" rel="noopener"
+             data-preview-theme="{{ $opt }}" data-preview-mode="pow_then_captcha"
+             href="{{ $.BasePath }}/admin/test/force-pow-then-captcha?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+            {{ t $.Lang "settings.branding.preview_pow_then_captcha" }} ↗
+          </a>
+          <a class="preview-link" target="_blank" rel="noopener"
              data-preview-theme="{{ $opt }}" data-preview-mode="captcha"
              href="{{ $.BasePath }}/admin/test/force-captcha?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
             {{ t $.Lang "settings.branding.preview_captcha" }} ↗
@@ -2917,7 +2934,10 @@ document.addEventListener("DOMContentLoaded", function(){
       var mode    = a.dataset.previewMode || 'captcha';
       var preset  = a.dataset.previewPreset || currentPreset();
       var theme   = a.dataset.previewTheme  || currentTheme();
-      var url = bp + '/admin/test/force-' + mode +
+      // Path uses kebab-case (force-pow-then-captcha) while the chMode enum
+      // value uses snake_case (pow_then_captcha) -- normalize for the URL.
+      var modePath = mode.replace(/_/g, '-');
+      var url = bp + '/admin/test/force-' + modePath +
         '?_preview_preset=' + encodeURIComponent(preset) +
         '&theme=' + encodeURIComponent(theme) +
         '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
