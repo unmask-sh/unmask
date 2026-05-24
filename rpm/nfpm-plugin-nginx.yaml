@@ -46,6 +46,10 @@ apk:
 
 depends:
   - unmask
+  # nginx is required at install time so postinstall can detect the host
+  # version and place the .so into nginx's --modules-path.  See the
+  # equivalent comment in nfpm-plugin-nginx-fat.yaml.
+  - nginx
 
 contents:
   # Place the nginx dynamic module (.so) at a **staging path**.  The real

@@ -41,6 +41,13 @@ apk:
 
 depends:
   - unmask
+  # nginx must be installed before the plugin postinstall runs -- it parses
+  # `nginx -V` to pick the matching .so out of the fat bundle, and stops with
+  # "nginx not installed, skipped placing the module" otherwise.  Without this
+  # depend, `apt install unmask-plugin-nginx` on a fresh box drops the package
+  # in but never lays down /usr/lib/nginx/modules/ngx_http_unmask_module.so,
+  # so nginx -t passes but the challenge silently never fires.
+  - nginx
 
 overrides:
   # On Alpine, gcompat lets nginx (musl-linked) dlopen our glibc-built
@@ -50,6 +57,7 @@ overrides:
   apk:
     depends:
       - unmask
+      - nginx
       - gcompat
 
 scripts:
