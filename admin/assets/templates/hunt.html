@@ -172,7 +172,7 @@ td.cellpop-active{cursor:pointer}
    The cell is given enough width via the parent <td> override below. */
 .session-chain{display:inline-flex;align-items:center;gap:.25rem;flex-wrap:nowrap;white-space:nowrap}
 table.events td:has(.session-chain){white-space:nowrap;min-width:max-content}
-.session-arrow{color:#94a3b8;font-size:.78rem;user-select:none}
+.session-arrow{color:#94a3b8;font-size:.85rem;user-select:none;line-height:1;padding:0 .05rem}
 .session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
 .session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
 .session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
@@ -402,7 +402,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     </thead>
     <tbody>
       {{ range .Rows }}
-      <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}">
+      <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}">
         <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge">{{ .Site }}</span>{{ end }}</td>
         {{/* IP cell: title= dropped (= the IP is fully shown in the cell;
              ipclick already opens a richer popover with geo / verdict / etc.
@@ -665,13 +665,27 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
   Object.keys(groups).forEach(function(bt){
     var grp = groups[bt];
     if (grp.length < 2) return;
-    // pick representative: the terminal (= latest) row.  Shows the outcome
-    // phase (verify_ok / verify_ng / bv_pow_only / bv_captcha_only / ...)
-    // on the line itself so the operator scans the table for results
-    // without opening every popover; the per-phase timestamps including
-    // the serve-time stay one hover away on the +N badge.
+    // Sort by ms timestamp (sub-second precision: data-ts-ms) so phases
+    // that fire inside the same wall-clock second don't end up in DOM
+    // order (= 'load → serve → pow' nonsense).  Ties broken by phase weight,
+    // since two beacons can land at the exact same millisecond on a fast LAN.
+    var PHASE_WEIGHT = {
+      'serve':1, 'load':2, 'pow':3, 'captcha':4,
+      'verify_ok':5, 'verify_ng':5,
+      'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
+      'error':7, 'cookie_err':7
+    };
+    function rowKey(tr){
+      var ms = Number(tr.getAttribute('data-ts-ms')||0);
+      if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
+      return ms;
+    }
     grp.sort(function(a, b){
-      return Number(a.getAttribute('data-ts')||0) - Number(b.getAttribute('data-ts')||0);
+      var d = rowKey(a) - rowKey(b);
+      if (d) return d;
+      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')] || 99;
+      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
+      return wa - wb;
     });
     var rep = grp[grp.length - 1];
     // hide the other rows from the group; the chain lives on rep's phase cell.
@@ -700,7 +714,10 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       if (i > 0){
         var arrow = document.createElement('span');
         arrow.className = 'session-arrow';
-        arrow.textContent = '→';
+        // Narrow single-line separator: half the width of "→" with the
+        // same direction cue.  Falls back to a typographic ascii ">" if
+        // the font lacks the glyph.
+        arrow.textContent = '›';
         chain.appendChild(arrow);
       }
       var ph = tr.getAttribute('data-phase') || '';
@@ -717,10 +734,10 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     // build the timeline html lazily on hover/click
     function timelineHtml(){
       var lines = grp.map(function(tr){
-        var ts = Number(tr.getAttribute('data-ts')||0);
+        var ms = rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
-        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ts) +
+        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
                '</time> <span class="' + pillCls + '">' + ph + '</span></div>';
       });
       return '<div class="session-timeline">' + lines.join('') + '</div>';
