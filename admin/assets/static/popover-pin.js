@@ -51,18 +51,14 @@ window.popoverPin = window.popoverPin || (function(){
   // helper that builds the tools (= top-right action buttons).
   // [drag handle] [collapse toggle] [close].  drag uses mousedown to move the popover.
   // collapse toggles the popover-collapsed class.
-  function buildTools(clone, onClose){
-    var tools = document.createElement('div');
-    tools.className = 'popover-tools';
-    // drag handle
-    var drag = document.createElement('button');
-    drag.type = 'button';
-    drag.className = 'popover-drag';
-    drag.setAttribute('aria-label', 'drag');
-    drag.title = 'drag to move';
-    drag.textContent = '⠿';
-    drag.addEventListener('mousedown', function(e){
-      e.preventDefault(); e.stopPropagation();
+  // attachDragToBar wires the Windows-style title-bar drag: mousedown anywhere
+  // on the bar (except on a child <button>) starts the drag.  Hoisted so both
+  // the popoverPin clone and the info-tip clone use the same teardown path.
+  function attachDragToBar(bar, clone){
+    bar.addEventListener('mousedown', function(e){
+      // Let clicks on the action buttons (collapse / close) through.
+      if (e.target.closest('button')) return;
+      e.preventDefault();
       var rect = clone.getBoundingClientRect();
       var sx = e.clientX, sy = e.clientY;
       var ox = rect.left + window.scrollX, oy = rect.top + window.scrollY;
@@ -77,7 +73,11 @@ window.popoverPin = window.popoverPin || (function(){
       document.addEventListener('mousemove', onMove);
       document.addEventListener('mouseup', onUp);
     });
-    tools.appendChild(drag);
+  }
+  function buildTools(clone, onClose){
+    var tools = document.createElement('div');
+    tools.className = 'popover-tools';
+    attachDragToBar(tools, clone);
     // collapse toggle
     var col = document.createElement('button');
     col.type = 'button';
@@ -96,6 +96,7 @@ window.popoverPin = window.popoverPin || (function(){
     btn.type = 'button';
     btn.className = 'popover-close';
     btn.setAttribute('aria-label', 'close');
+    btn.title = 'close';
     btn.textContent = '×';
     btn.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
@@ -104,6 +105,8 @@ window.popoverPin = window.popoverPin || (function(){
     tools.appendChild(btn);
     return tools;
   }
+  // Exposed so installInfoTipPinning can reuse the same drag wiring.
+  window._popoverAttachDragToBar = attachDragToBar;
   var clampToViewport = window.popoverClampToViewport;
   function install(primary){
     var pins = new Map();
@@ -262,14 +265,15 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
       body.className = 'popover-body';
       body.innerHTML = popup.innerHTML;
       clone.appendChild(body);
-      // tools (= drag / collapse / close)
-      var pinHelper = window.popoverPin && window.popoverPin.install
-        ? window.popoverPin.install(popup) : null;
-      // build the tools directly (= popoverPin.install builds clones via primary, so for info-tip
-      // we go through a different path: create the clone separately and just attach the tools).
+      // tools = Windows-style title bar (= full-width strip, drag region on
+      // the bar itself, collapse + close at the right).  Mirrors the bar
+      // built by popoverPin.buildTools so behavior and styling stay shared.
       var tools = (function(){
         var t = document.createElement('div');
         t.className = 'popover-tools';
+        if (typeof window._popoverAttachDragToBar === 'function'){
+          window._popoverAttachDragToBar(t, clone);
+        }
         function btn(cls, label, title, text, handler){
           var b = document.createElement('button');
           b.type = 'button'; b.className = cls;
@@ -277,25 +281,6 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           b.addEventListener('click', handler);
           return b;
         }
-        // drag
-        var dr = btn('popover-drag', 'drag', 'drag to move', '⠿', function(e){});
-        dr.addEventListener('mousedown', function(e){
-          e.preventDefault(); e.stopPropagation();
-          var rect2 = clone.getBoundingClientRect();
-          var sx = e.clientX, sy = e.clientY;
-          var ox = rect2.left + window.scrollX, oy = rect2.top + window.scrollY;
-          function onMove(ev){
-            clone.style.left = (ox + ev.clientX - sx) + 'px';
-            clone.style.top  = (oy + ev.clientY - sy) + 'px';
-          }
-          function onUp(){
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-          }
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
-        });
-        t.appendChild(dr);
         // collapse
         var col = btn('popover-collapse', 'collapse', 'toggle one-line / full', '▾', function(e){
           e.preventDefault(); e.stopPropagation();
@@ -305,7 +290,7 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         t.appendChild(col);
         // close.  Defer to the shared _popoverUnpin callback so click and ESC
         // run the same teardown (= clone DOM remove + tip state reset).
-        var cl = btn('popover-close', 'close', '', '×', function(e){
+        var cl = btn('popover-close', 'close', 'close', '×', function(e){
           e.preventDefault(); e.stopPropagation();
           if (typeof clone._popoverUnpin === 'function') clone._popoverUnpin();
         });
