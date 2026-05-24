@@ -300,6 +300,12 @@ type Row struct {
 	// auth_request origin URI).  Query string included.  Shown in the URL
 	// column of the raw hunt log table.
 	Path string `json:"path,omitempty"`
+	// BeaconToken: identifier minted per challenge HTML serve and echoed by
+	// every subsequent beacon from that challenge session.  Used by the hunt
+	// UI's "session view" to collapse 3-5 rows of one challenge fire into a
+	// single row.  Different challenge serves get different tokens, so a bot
+	// reloading repeatedly is never accidentally merged.
+	BeaconToken string `json:"bt,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -314,6 +320,17 @@ func extractAction(payload string) string {
 // up to 32 chars.
 func extractRLZone(payload string) string {
 	return extractStringField(payload, "rl_zone", 32)
+}
+
+// extractBeaconToken pulls "bt" out of payload_json.  The token is generated
+// per challenge HTML serve and carried by every subsequent beacon from that
+// challenge session (load / pow / captcha / verify_ok / etc.), so it is the
+// natural primary key for collapsing the hunt-log table into one row per
+// challenge session.  Empty for `phase=check` rows (= the auth_request
+// subrequest never opens a challenge), in which case the hunt UI falls back
+// to "no grouping" for that row.
+func extractBeaconToken(payload string) string {
+	return extractStringField(payload, "bt", 64)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
@@ -505,6 +522,9 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 		}
 		// Path is extracted regardless of phase (recorded for load / serve / check).
 		r.Path = extractPath(payload.String)
+		// BeaconToken: present on every challenge-flow phase
+		// (serve / load / pow / captcha / verify_* / bv_*).  Absent on phase=check.
+		r.BeaconToken = extractBeaconToken(payload.String)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -601,6 +621,7 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 			row.RLZone = extractRLZone(payload.String)
 		}
 		row.Path = extractPath(payload.String)
+		row.BeaconToken = extractBeaconToken(payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()

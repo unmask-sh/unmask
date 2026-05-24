@@ -165,6 +165,13 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 td.cellpop-active{cursor:pointer}
 .cellpop-pop{display:block}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
+/* session badge + popover content (= "+N" pill next to the serve phase pill,
+   click opens a per-phase timestamp timeline). */
+.session-badge{display:inline-block;font-size:.7rem;padding:.05rem .35rem;border-radius:.25rem;background:#e2e8f0;color:#334155;cursor:pointer;user-select:none;vertical-align:.05rem}
+.session-badge:hover{background:#0f172a;color:#fff}
+.session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
+.session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
+.session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
 </style>
 {{ template "popover_pin_assets" . }}
 </head>
@@ -391,7 +398,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     </thead>
     <tbody>
       {{ range .Rows }}
-      <tr>
+      <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}">
         <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge">{{ .Site }}</span>{{ end }}</td>
         {{/* IP cell: title= dropped (= the IP is fully shown in the cell;
              ipclick already opens a richer popover with geo / verdict / etc.
@@ -622,6 +629,81 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       // ip is also passed as the title-bar title so a pinned popover identifies
       // itself with the IP value rather than the column heading text.
       fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td, ip); });
+    });
+  });
+})();
+
+// Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
+// 3-5 rows that share the same beacon_token.  Collapse them into the serve
+// row + a "+N more" badge + a click-to-pin popover that lists every phase's
+// timestamp.  beacon_token is per-challenge-serve so a bot reloading
+// repeatedly stays as separate rows (= one fire = one row, never merged
+// across fires).  Rows without beacon_token (= phase=check / pre-bt events)
+// stay untouched.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var rows = document.querySelectorAll('table.events tbody tr[data-bt]');
+  var groups = {}; // bt -> [tr, tr, ...]
+  rows.forEach(function(tr){
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    (groups[bt] = groups[bt] || []).push(tr);
+  });
+  function fmtTs(ms){
+    if (!ms) return '';
+    var d = new Date(Number(ms));
+    var pad = function(n, w){ n = String(n); while (n.length < (w||2)) n = '0'+n; return n; };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+         + '.' + pad(d.getMilliseconds(), 3);
+  }
+  Object.keys(groups).forEach(function(bt){
+    var grp = groups[bt];
+    if (grp.length < 2) return;
+    // pick representative: the serve row (= fire-start time on screen) if any,
+    // otherwise the oldest row in the group (= earliest ts).
+    grp.sort(function(a, b){
+      return Number(a.getAttribute('data-ts')||0) - Number(b.getAttribute('data-ts')||0);
+    });
+    var rep = grp.find(function(tr){ return tr.getAttribute('data-phase') === 'serve'; }) || grp[0];
+    // hide the rest + remember them on rep so the popover can list every phase.
+    var others = grp.filter(function(tr){ return tr !== rep; });
+    others.forEach(function(tr){ tr.style.display = 'none'; });
+    // session badge on the phase pill cell: "+N" with a chevron, click toggles
+    // hover popover with the per-phase timeline.
+    var phaseCell = rep.querySelector('td:nth-child(5)'); // at, ip, ja4, verdict, phase
+    if (!phaseCell) return;
+    var badge = document.createElement('span');
+    badge.className = 'session-badge';
+    badge.textContent = '+' + others.length;
+    phaseCell.appendChild(document.createTextNode(' '));
+    phaseCell.appendChild(badge);
+    // build the timeline html lazily on hover/click
+    function timelineHtml(){
+      var lines = grp.map(function(tr){
+        var ts = Number(tr.getAttribute('data-ts')||0);
+        var ph = tr.getAttribute('data-phase') || '';
+        var pillCls = 'phase-pill ph-' + ph;
+        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ts) +
+               '</time> <span class="' + pillCls + '">' + ph + '</span></div>';
+      });
+      return '<div class="session-timeline">' + lines.join('') + '</div>';
+    }
+    var timer = null;
+    badge.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(badge)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
+    });
+    badge.addEventListener('mouseleave', function(){
+      clearTimeout(timer); pin.hideHover();
+    });
+    badge.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(timelineHtml(), e.pageX, e.pageY, badge, 'session (' + grp.length + ' phases)');
     });
   });
 })();
