@@ -197,7 +197,14 @@ type renderData struct {
 	JA4Verdicts             []JA4VerdictRule
 	HoneypotPatterns        []string            // OR list of honeypot path patterns
 	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode}
-	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site}
+	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site} (= source-of-truth list)
+	// BypassPathsGlobal / BypassPathsPerHost are the rendered split:
+	// global rules feed a `map $request_uri ...` block directly, while per-host
+	// rules group by Site and are emitted as separate path-only maps + a host
+	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
+	// no anchor stripping needed because no map ever concatenates host + uri.
+	BypassPathsGlobal  []string             // patterns from rules with Site == ""
+	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
 	ChallengeAll            bool                // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string            // OR list of UA patterns evaluated when false
 
@@ -428,10 +435,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// existing deploys).
 	pp := []ProtectedPathRule{}
 	ppSeen := map[string]bool{}
-	disabledPP := toSet(s.Nginx.ProtectedPaths.DisabledPresets)
-	neverSavedPP := s.Nginx.ProtectedPaths.DisabledPresets == nil
+	enabledPP := toSet(s.Nginx.ProtectedPaths.EnabledPresets)
 	for _, g := range ProtectedPathPresetGroups {
-		if neverSavedPP || disabledPP[g.ID] {
+		if !enabledPP[g.ID] {
 			continue
 		}
 		for _, r := range g.Rules {
@@ -468,11 +474,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.ProtectedPaths = pp
 
 	// Whitelist paths: enabled presets + extras (= skip ExtraDisabled[i]=true).
+	//
+	// Patterns are stored as path-anchored PCRE (e.g., `^/api/`) and are
+	// evaluated against `$request_uri` in the rendered nginx map -- no host
+	// concatenation, so `^` keeps its natural "start of path" meaning.  Per-host
+	// rules are split off into separate maps below; the host is selected by a
+	// dispatcher map, never embedded in the path pattern.
+	//
+	// Preset opt-in: only IDs explicitly listed in EnabledPresets render.
+	// Matches the "All OFF by default" docstring on BypassPathPresetGroups.
 	bp := []BypassPathRule{}
 	bpSeen := map[string]bool{}
-	disabledBPath := toSet(s.Nginx.BypassPaths.DisabledPresets)
+	enabledBPath := toSet(s.Nginx.BypassPaths.EnabledPresets)
 	for _, g := range BypassPathPresetGroups {
-		if disabledBPath[g.ID] {
+		if !enabledBPath[g.ID] {
 			continue
 		}
 		if VersionLess(seenVer, g.AddedIn) {
@@ -513,6 +528,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		return bp[i].Pattern < bp[j].Pattern
 	})
 	d.BypassPaths = bp
+
+	// Split into the render-friendly form used by http.conf.tmpl: a single
+	// global map keyed on $request_uri + one path-only map per unique host
+	// + a host dispatcher map.  Keeping the path patterns alone in each map
+	// means `^/api/` is honored literally with no double-anchor wart.
+	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bp)
 
 	// RateLimit zones: default goes first, followed by named zones in order.
 	// If Default.Name is empty, fall back to "unmask_rate" (= matches

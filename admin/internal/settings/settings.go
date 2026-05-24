@@ -448,10 +448,14 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 //   - rate limit (= not counted in the $rate_limit_key map)
 //
 // site column: empty = applies to all sites. A string = applies only when
-// `$unmask_site` equals that value (= in multi-site setups you can scope
+// `$host` equals that value (= in multi-site setups you can scope
 // "bypass /api/ only for site=foo").
 type BypassPathsConfig struct {
-	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
+	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
+	// Absent / nil / [] all mean "no preset enabled" (= matches the
+	// "All OFF by default" docstring on BypassPathPresetGroups).  Operators
+	// add an ID here to turn that preset's path patterns into bypass entries.
+	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
 	// 5 parallel arrays: path / title / disabled / updated_at / site
 	Extra          []string `yaml:"extra,omitempty"`
 	ExtraTitle     []string `yaml:"extra_title,omitempty"`
@@ -472,11 +476,13 @@ type BypassPathsConfig struct {
 // gate / important-path protection). The mode column is parallel to the path
 // list as part of the 5 parallel arrays.
 type ProtectedPathsConfig struct {
-	// DisabledPresets: do NOT add omitempty (= once saved, always write even []).
-	// nil = "never saved" → all presets OFF (= compat with existing yml).
-	// After save, [] / [id] / [id1,id2] explicitly communicates the state.
-	DisabledPresets []string `yaml:"disabled_presets"`
-	Extra           []string `yaml:"extra,omitempty"`
+	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
+	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
+	// presets (= unmask / common-admin etc.) are off by default because
+	// turning them on inserts a CAPTCHA before admin login -- always a
+	// deliberate operator choice, never a default.
+	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
+	Extra          []string `yaml:"extra,omitempty"`
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`

@@ -384,19 +384,55 @@ map "$shared_feed_hit_ipja4$shared_feed_hit_ja4$shared_feed_hit_ip" $shared_feed
 # paths / rate limit.  Useful for "the whole site is under unmask, but
 # static / api pass through".
 #
-# site column: empty = applies to all sites; non-empty = only when the request
-# vhost ($host) matches.  Single map evaluates "<site>:<request_uri>"; an empty
-# site column uses [^:]* (any site).
-map "$host:$request_uri" $is_bypass_path {
+# Design: every path map is keyed on `$request_uri` alone -- never a
+# host-prefixed concatenation.  This lets operators write path-anchored
+# regex (`^/api/`) literally without worrying about a second `^` landing
+# mid-string.  Per-host rules go through a host dispatcher map that selects
+# which per-host map's result to surface.
+#
+# Stage A: global rules (= rule.Site == "").  Applied to every host.
+map $request_uri $unmask_bp_global {
     default "0";
-{{- range .BypassPaths }}
-{{- if .Site }}
-    "~^{{ .Site }}:{{ .Pattern }}" "1";
-{{- else }}
-    "~^[^:]*:{{ .Pattern }}" "1";
-{{- end }}
+{{- range .BypassPathsGlobal }}
+    "~{{ . }}" "1";
 {{- end }}
 }
+
+{{- if .BypassPathsPerHost }}
+
+# Stage B: per-host rules.  One map per unique host string; pattern stays in
+# the same path-anchored form because the map is keyed on $request_uri.
+{{- range .BypassPathsPerHost }}
+map $request_uri $unmask_bp_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- end }}
+
+# Stage C: host dispatcher.  Selects the per-host map's value for the
+# current $host; unknown hosts pin to "0" so they fall through to global.
+map $host $unmask_bp_per_host {
+    default "0";
+{{- range .BypassPathsPerHost }}
+    "{{ .Host }}" $unmask_bp_host_{{ .VarName }};
+{{- end }}
+}
+
+# Stage D: OR-combine global + per-host into the canonical signal.
+map "$unmask_bp_global$unmask_bp_per_host" $is_bypass_path {
+    default "0";
+    "~1" "1";
+}
+{{- else }}
+
+# No per-host rules configured -- global map is the canonical signal directly.
+map $unmask_bp_global $is_bypass_path {
+    default "0";
+    "1" "1";
+}
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # $final_challenge — final decision on whether to trigger challenge

@@ -710,9 +710,18 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 	pm := pathMatchers{}
 
 	// bypass paths: enabled presets + enabled extras.
-	disabledBP := toSet(n.BypassPaths.DisabledPresets)
+	//
+	// Pattern convention: BypassPathRule.Pattern is a **path-anchored** PCRE
+	// regex evaluated against the URI directly (e.g., `^/api/`).  We compile
+	// it as-is with a case-insensitive flag; no anchor manipulation, matching
+	// what the nginx renderer feeds into `map $request_uri ...`.
+	//
+	// Preset opt-in: only IDs in EnabledPresets activate, matching the
+	// renderer so admin's in-memory check agrees with the nginx config it
+	// produced.
+	enabledBP := toSet(n.BypassPaths.EnabledPresets)
 	for _, g := range nginxconf.BypassPathPresetGroups {
-		if disabledBP[g.ID] {
+		if !enabledBP[g.ID] {
 			continue
 		}
 		for _, r := range g.Rules {
@@ -753,10 +762,10 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 	}
 
 	// protected paths: presets + extras.  No site concept.
-	disabledPP := toSet(n.ProtectedPaths.DisabledPresets)
-	neverSavedPP := n.ProtectedPaths.DisabledPresets == nil
+	// Preset opt-in: only IDs in EnabledPresets activate.
+	enabledPP := toSet(n.ProtectedPaths.EnabledPresets)
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
-		if neverSavedPP || disabledPP[g.ID] {
+		if !enabledPP[g.ID] {
 			continue
 		}
 		for _, r := range g.Rules {

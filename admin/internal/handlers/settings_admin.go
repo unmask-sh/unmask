@@ -202,11 +202,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	// bypass paths preset groups: allowlist-path preset.
-	disabledBPath := toSet(cur.BypassPaths.DisabledPresets)
+	//
+	// Opt-in: only IDs in EnabledPresets render as checked.  Default = all
+	// off (matches the docstring on BypassPathPresetGroups).
+	enabledBPath := toSet(cur.BypassPaths.EnabledPresets)
 	bypassPathGroups := make([]map[string]any, 0, len(nginxconf.BypassPathPresetGroups))
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
-		enabled := !disabledBPath[g.ID]
+		enabled := enabledBPath[g.ID]
 		if isNew {
 			enabled = false
 		}
@@ -221,18 +224,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	// protected paths preset groups: protected-path preset (= unmask / common-admin).
-	// Default all OFF (= turning them ON makes CAPTCHA appear before admin
-	// login, which is a footgun). If DisabledPresets is nil, treat as "protected
-	// tab has never been saved" and force all OFF. After save, an explicit []
-	// is recorded (= even when all enabled), so it is no longer nil (= we can
-	// distinguish never-saved from explicitly-all-enabled).
-	disabledPP := toSet(cur.ProtectedPaths.DisabledPresets)
-	neverSavedPP := cur.ProtectedPaths.DisabledPresets == nil
+	// Opt-in: only IDs in EnabledPresets render as checked.  Turning a preset
+	// on inserts a CAPTCHA before admin login, so default OFF is the safe
+	// choice -- operators must opt in explicitly.
+	enabledPP := toSet(cur.ProtectedPaths.EnabledPresets)
 	protectedPresetGroups := make([]map[string]any, 0, len(nginxconf.ProtectedPathPresetGroups))
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
-		enabled := !disabledPP[g.ID]
-		if isNew || neverSavedPP {
+		enabled := enabledPP[g.ID]
+		if isNew {
 			enabled = false
 		}
 		protectedPresetGroups = append(protectedPresetGroups, map[string]any{
@@ -2125,19 +2125,20 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.ProtectedPaths.ExtraMode = outMode
 
 	// Receive presets: "protected_preset_enabled" carries the list of checked
-	// IDs. The remainder of all preset IDs (= those NOT checked) becomes
-	// DisabledPresets.
-	checked := map[string]bool{}
-	for _, id := range r.Form["protected_preset_enabled"] {
-		checked[strings.TrimSpace(id)] = true
-	}
-	disabled := []string{}
+	// IDs and is written directly to EnabledPresets.  Unknown IDs (= form
+	// tampering) are dropped silently.
+	known := map[string]bool{}
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
-		if !checked[g.ID] {
-			disabled = append(disabled, g.ID)
+		known[g.ID] = true
+	}
+	enabled := []string{}
+	for _, id := range r.Form["protected_preset_enabled"] {
+		id = strings.TrimSpace(id)
+		if known[id] {
+			enabled = append(enabled, id)
 		}
 	}
-	n.ProtectedPaths.DisabledPresets = disabled
+	n.ProtectedPaths.EnabledPresets = enabled
 
 	// Protected default action
 	if v := strings.TrimSpace(r.FormValue("protected_default_action")); v != "" {
@@ -2247,25 +2248,28 @@ func pairProtectedRules(extras, titles []string, disabled []bool, updatedAt []in
 
 // applyBypassPathsForm: receive the bypass-paths tab form. 5 parallel arrays + presets.
 func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	enabledIDs := map[string]bool{}
-	for _, id := range r.Form["bypass_path_preset_enabled"] {
-		enabledIDs[strings.TrimSpace(id)] = true
-	}
-	disabledOut := []string{}
+	// Preset checkboxes go straight to EnabledPresets (= opt-in list).  Unknown
+	// IDs (= form tampering) are dropped silently.
+	known := map[string]bool{}
 	for _, g := range nginxconf.BypassPathPresetGroups {
-		if !enabledIDs[g.ID] {
-			disabledOut = append(disabledOut, g.ID)
+		known[g.ID] = true
+	}
+	enabled := []string{}
+	for _, id := range r.Form["bypass_path_preset_enabled"] {
+		id = strings.TrimSpace(id)
+		if known[id] {
+			enabled = append(enabled, id)
 		}
 	}
-	n.BypassPaths.DisabledPresets = disabledOut
+	n.BypassPaths.EnabledPresets = enabled
 
 	pats := r.Form["bp_pat"]
 	titles := r.Form["bp_title"]
-	enabled := r.Form["bp_enabled"]
+	rowEnabled := r.Form["bp_enabled"]
 	upds := r.Form["bp_updated_at"]
 	sites := r.Form["bp_site"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabled), len(upds), len(sites)} {
+	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -2287,8 +2291,8 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			t = strings.TrimSpace(titles[i])
 			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
 		}
-		if i < len(enabled) {
-			isEnabled = enabled[i] == "1"
+		if i < len(rowEnabled) {
+			isEnabled = rowEnabled[i] == "1"
 		}
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
