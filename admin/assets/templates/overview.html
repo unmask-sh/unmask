@@ -201,6 +201,14 @@ table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
 .ai-cat-agent    {background:#bbf7d0;color:#14532d}
 .ai-cat-scraper  {background:#fecaca;color:#7f1d1d}
 .ai-cat-collector{background:#e9d5ff;color:#5b21b6}
+/* session chain (= same logic as the hunt table.  Collapses serve/load/pow/bv
+   into one row identified by beacon_token.) */
+.session-chain{display:inline-flex;align-items:center;gap:.1rem;flex-wrap:nowrap;white-space:nowrap}
+table.recent td:has(.session-chain){white-space:nowrap;min-width:max-content;overflow:visible}
+.session-arrow{color:#94a3b8;font-size:.85rem;user-select:none;line-height:1;padding:0}
+.session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
+.session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
+.session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
 </style>
 
 <div class="bcd-card">
@@ -217,9 +225,9 @@ table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
     </thead>
     <tbody>
       {{ range .Recent }}
-      <tr>
-        <td class="mono">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge" title="host: {{ .Host }}">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge" title="site: {{ .Site }}">{{ .Site }}</span>{{ end }}</td>
-        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+      <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}">
+        <td class="mono">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge">{{ .Site }}</span>{{ end }}</td>
+        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="mono">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span></td>
@@ -349,9 +357,132 @@ table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
       clearTimeout(timer);
       const ip = td.dataset.ip;
       const x = e.pageX, y = e.pageY;
-      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td));
+      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td, ip));
     });
   });
+})();
+
+// Session view: collapse rows of one challenge fire (= same beacon_token)
+// into the latest-phase row + an inline 'serve › load › bv_pow' chain.
+// Trimmed to a maximum of 5 visible sessions to match the card heading
+// "直近 5 件" / "Recent detections (last 5)".  Mirror of the hunt-table
+// logic; differences are: smaller pre-fetch, max-5 cap, no chain timeline
+// popover (= keep the card light -- hunt is the deep-dive destination).
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var rows = Array.from(document.querySelectorAll('table.recent tbody tr[data-bt]'));
+  var groups = {};
+  rows.forEach(function(tr){
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    (groups[bt] = groups[bt] || []).push(tr);
+  });
+  var PHASE_WEIGHT = {
+    'serve':1, 'load':2, 'pow':3, 'captcha':4,
+    'verify_ok':5, 'verify_ng':5,
+    'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
+    'error':7, 'cookie_err':7
+  };
+  var PHASE_SHORT = {
+    'bv_pow_only':'bv_pow','bv_captcha_only':'bv_cap','bv_pow_then_captcha':'bv_pc'
+  };
+  function rowKey(tr){
+    var ms = Number(tr.getAttribute('data-ts-ms')||0);
+    if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
+    return ms;
+  }
+  function fmtTs(ms){
+    if (!ms) return '';
+    var d = new Date(Number(ms));
+    var pad = function(n, w){ n = String(n); while (n.length < (w||2)) n = '0'+n; return n; };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+         + '.' + pad(d.getMilliseconds(), 3);
+  }
+  var visibleSessions = 0;
+  var MAX_VISIBLE = 5;
+  Object.keys(groups).forEach(function(bt){
+    var grp = groups[bt];
+    grp.sort(function(a, b){
+      var d = rowKey(a) - rowKey(b);
+      if (d) return d;
+      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')] || 99;
+      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
+      return wa - wb;
+    });
+    if (grp.length < 2) return;
+    var dedupedChain = [];
+    grp.forEach(function(tr){
+      var ph = tr.getAttribute('data-phase');
+      var last = dedupedChain[dedupedChain.length - 1];
+      if (last && last.getAttribute('data-phase') === ph) return;
+      dedupedChain.push(tr);
+    });
+    var rep = grp[grp.length - 1];
+    grp.filter(function(tr){ return tr !== rep; }).forEach(function(tr){ tr.style.display='none'; });
+    // Date column: show the oldest (= serve) row's <time> on the rep.
+    var oldest = grp[0];
+    if (oldest !== rep){
+      var oldestTime = oldest.querySelector('td time.js-datetime');
+      var repTime    = rep.querySelector('td time.js-datetime');
+      if (oldestTime && repTime){
+        repTime.setAttribute('data-ts', oldestTime.getAttribute('data-ts'));
+        repTime.textContent = oldestTime.textContent;
+      }
+    }
+    // Replace the phase cell content with the inline session chain.
+    var phaseCell = rep.querySelector('td:nth-child(5)');
+    if (!phaseCell) return;
+    phaseCell.innerHTML = '';
+    var chain = document.createElement('span');
+    chain.className = 'session-chain';
+    dedupedChain.forEach(function(tr, i){
+      if (i > 0){
+        var arrow = document.createElement('span');
+        arrow.className = 'session-arrow';
+        arrow.textContent = '›';
+        chain.appendChild(arrow);
+      }
+      var ph = tr.getAttribute('data-phase') || '';
+      var pill = document.createElement('span');
+      pill.className = 'phase-pill ph-' + ph;
+      pill.textContent = PHASE_SHORT[ph] || ph;
+      chain.appendChild(pill);
+    });
+    phaseCell.appendChild(chain);
+    // Timeline popover on chain hover/click (= same as hunt).
+    function timelineHtml(){
+      var lines = grp.map(function(tr){
+        var ms = rowKey(tr);
+        var ph = tr.getAttribute('data-phase') || '';
+        var pillCls = 'phase-pill ph-' + ph;
+        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
+               '</time> <span class="' + pillCls + '">' + ph + '</span></div>';
+      });
+      return '<div class="session-timeline">' + lines.join('') + '</div>';
+    }
+    chain.style.cursor = 'pointer';
+    var timer = null;
+    chain.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(chain)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
+    });
+    chain.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    chain.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
+    });
+  });
+  // Trim to MAX_VISIBLE sessions.  rows that survived collapse (= visible
+  // representatives + lone non-grouped rows) are pruned past the cap so
+  // the card shows ~5 sessions, not 20 raw rows.
+  var visibleRows = Array.from(document.querySelectorAll('table.recent tbody tr'))
+    .filter(function(tr){ return tr.style.display !== 'none'; });
+  visibleRows.slice(MAX_VISIBLE).forEach(function(tr){ tr.style.display = 'none'; });
 })();
 </script>
 </body>

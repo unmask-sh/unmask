@@ -85,8 +85,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		currentBans = len(h.BanMgr.Snapshot())
 	}
 
-	// 5 most recent detections (= any phase / id desc).
-	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 5, 0)
+	// 5 most recent detections (= any phase / id desc).  Fetch 20 raw rows
+	// so the client-side session collapse (= same logic as the hunt table:
+	// group by beacon_token + collapse into one row showing the phase chain)
+	// still has roughly 5 visible sessions in the typical case where one
+	// fire contributes 3-5 raw rows.
+	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 20, 0)
 	if err != nil {
 		log.Printf("overview recent: %v", err)
 	}
