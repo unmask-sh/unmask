@@ -163,10 +163,8 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 /* JA4 / UA cells: a truncated value opens a pinnable popover so the full
    string can be selected + copied (the native title tooltip cannot). */
 td.cellpop-active{cursor:pointer}
-.cellpop-pop{display:flex;align-items:flex-start;gap:.5rem}
-.cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem}
-.cellpop-copy{flex:none;font-size:.7rem;padding:.15rem .55rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155}
-.cellpop-copy:hover{background:#0f172a;color:#fff;border-color:#0f172a}
+.cellpop-pop{display:block}
+.cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
 </style>
 {{ template "popover_pin_assets" . }}
 </head>
@@ -640,9 +638,11 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
   }
+  // popover body holds just the value (= selectable text); the title-bar
+  // copy button on popoverPin's pinned popover handles clipboard.
   function popHtml(val){
     return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
-      '</code><button type="button" class="cellpop-copy">copy</button></div>';
+      '</code></div>';
   }
   document.querySelectorAll('td.cellpop').forEach(function(td){
     // data-full-value wins over textContent: server-side truncated cells
@@ -668,19 +668,6 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       clearTimeout(timer);
       pin.handleClick(popHtml(val), e.pageX, e.pageY, td);
     });
-  });
-  // copy button — delegated, since popoverPin builds the pinned clone lazily.
-  document.addEventListener('click', function(e){
-    var b = e.target.closest('.cellpop-copy');
-    if (!b) return;
-    var v = b.parentNode.querySelector('.cellpop-val');
-    if (!v || !navigator.clipboard) return;
-    navigator.clipboard.writeText(v.textContent).then(function(){
-      var orig = b.textContent;
-      b.textContent = 'copied';
-      b.disabled = true;
-      setTimeout(function(){ b.textContent = orig; b.disabled = false; }, 1200);
-    }).catch(function(){});
   });
 })();
 // live tail (= reuses the existing SSE /admin/api/events/stream)
