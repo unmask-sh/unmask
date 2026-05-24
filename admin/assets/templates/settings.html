@@ -866,7 +866,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "bypass-ips" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-ips">
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.bypass.preset.title" }}</h2>
+    <h2>
+      {{ t .Lang "settings.bypass.preset.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="bypass-preset-help" aria-label="?">?</button>
+      <script type="text/html" id="bypass-preset-help">{{ safeHTML (t .Lang "settings.bypass.preset.help") }}</script>
+    </h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.bypass.preset.desc") }}</p>
     <table class="settings-preset">
       <thead>
