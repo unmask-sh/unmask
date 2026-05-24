@@ -202,6 +202,6 @@
  * extra padding-top reserved for tools (= grows upward).  JS offsets y upward by the tools size
  * so the content's visual position matches the hover popup exactly.  Inherits the same chip-
  * style title bar as [data-popover].is-pinned (= no per-variant tools overrides needed). */
-.info-popup-pinned{background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:1.85rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
+.info-popup-pinned{background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:1.85rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);max-height:calc(100vh - 2rem);overflow-y:auto;box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
 .info-popup-pinned a{color:#1d4ed8;text-decoration:underline}
 .info-popup-pinned code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
