@@ -2499,13 +2499,6 @@ func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
 		c.CookieSeconds = n
 		c.CookieDays = 0 // canonicalize (= omitempty on save)
 	}
-	if v := strings.TrimSpace(r.FormValue("pow_min_display_ms")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 30000 {
-			return fmt.Errorf("pow_min_display_ms must be an integer in 0-30000 (got %q)", v)
-		}
-		c.PowMinDisplayMs = n
-	}
 	if v := strings.TrimSpace(r.FormValue("pow_difficulty")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 8 || n > 24 {

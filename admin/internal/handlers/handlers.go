@@ -43,7 +43,11 @@ const (
 	buildVPlaceholder      = `__BUILD_V__`
 	chmodePlaceholder      = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder     = "/*__POW_DIFFICULTY__*/18"
-	powMinDisplayMsPH      = "/*__POW_MIN_DISPLAY_MS__*/1500"
+	// PoW spinner floor.  Default 0 (= no floor, real timing); only the
+	// /unmask/test/ pages override this via `?_pow_display=N` to slow the
+	// spinner down for visual inspection.  Production traffic always sees
+	// the real PoW solve time.
+	powMinDisplayMsPH = "/*__POW_MIN_DISPLAY_MS__*/0"
 	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
@@ -743,19 +747,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
 		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", h.Settings.Challenge.ResolvedPowDifficulty())))
 
-	// PoW minimum display time (= visual spinner floor).  Default reads
-	// from settings; `?_pow_display=N` query param overrides at request
-	// time so the /unmask/test/ pages can dial it to 0 (= real timing,
-	// no floor) or to a higher number to demo a slow PoW.  Clamps to a
-	// safe range so a hostile query value can't lock the page forever.
-	powMinDisplay := h.Settings.Challenge.PowMinDisplayMs
+	// PoW spinner floor.  Production sees no floor (real PoW timing); the
+	// /unmask/test/ pages opt into a slowdown via `?_pow_display=N` so an
+	// operator inspecting the visuals can actually see the spinner instead
+	// of having it flash past.  Clamps to a safe range so a hostile query
+	// value cannot wedge the page indefinitely.
 	if v := strings.TrimSpace(r.URL.Query().Get("_pow_display")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 30000 {
-			powMinDisplay = n
+			body = bytes.ReplaceAll(body, []byte(powMinDisplayMsPH),
+				[]byte(fmt.Sprintf("/*__POW_MIN_DISPLAY_MS__*/%d", n)))
 		}
 	}
-	body = bytes.ReplaceAll(body, []byte(powMinDisplayMsPH),
-		[]byte(fmt.Sprintf("/*__POW_MIN_DISPLAY_MS__*/%d", powMinDisplay)))
 
 	// Original URI (path + query): 2-tier source.
 	//   1. _orig query string (passed by nginx-rendered-protect.inc as a
@@ -1074,10 +1076,9 @@ const testIndexBody = `<h1>unmask test pages</h1>
 </div>
 
 <h2>PoW display time</h2>
-<p class="muted" style="margin:0 0 .5rem">Override the PoW spinner floor (= <code>settings.challenge.pow_min_display_ms</code>) for the next preview.  Pick <strong>0</strong> to see the real PoW solve time without the visual floor.</p>
+<p class="muted" style="margin:0 0 .5rem">PoW usually finishes in tens of milliseconds on modern hardware, so the spinner is hard to inspect.  Pick a floor to hold the spinner longer for visual checks.  Test-only: production traffic always sees the real PoW solve time.</p>
 <div id="pow-display-picker" class="theme-picker">
-  <button type="button" data-pow-display="">saved</button>
-  <button type="button" data-pow-display="0">0 ms (real)</button>
+  <button type="button" data-pow-display="">none (real)</button>
   <button type="button" data-pow-display="500">500 ms</button>
   <button type="button" data-pow-display="1500">1500 ms</button>
   <button type="button" data-pow-display="3000">3000 ms</button>

@@ -443,11 +443,12 @@
     u.searchParams.delete('_test_ja4');
     // the following paths have no "original page" (= test or direct access), so redirect to "/".
     //   - /unmask/challenge.html / /unmask/challenge/<site>/    direct challenge access
-    //   - /unmask/(admin/)?test/force-(pow|captcha)             test pages.
-    //                                                            reloading the same path causes a loop.
+    //   - /unmask/(admin/)?test/force-*                         test pages of any flavor
+    //                                                            (pow / pow-then-captcha / captcha / ...).
+    //                                                            Reloading the same path causes a loop.
     if (u.pathname === '/unmask/challenge.html' ||
         /^\/unmask\/challenge(\/[a-z0-9][a-z0-9-]*)?\/?$/.test(u.pathname) ||
-        /^\/unmask\/(admin\/)?test\/force-(pow|captcha)\/?$/.test(u.pathname)) {
+        /^\/unmask\/(admin\/)?test\/force-[a-z][a-z0-9-]*\/?$/.test(u.pathname)) {
       location.replace('/');
     } else {
       location.replace(u.pathname+u.search);

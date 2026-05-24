@@ -2188,18 +2188,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <div class="field">
       <div class="field-label field-label-row">
-        <label for="ch-pow-min-display">{{ t .Lang "settings.challenge.pow_min_display" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="ch-pow-min-display-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="ch-pow-min-display-help">{{ safeHTML (t .Lang "settings.challenge.pow_min_display_help") }}</script>
-      <input type="number" id="ch-pow-min-display" name="pow_min_display_ms" min="0" max="30000" step="100"
-             value="{{ .Challenge.PowMinDisplayMs }}"
-             style="width:7rem">
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
-    </div>
-
-    <div class="field">
-      <div class="field-label field-label-row">
         <label for="ch-debug-rate">{{ t .Lang "settings.challenge.debug_rate" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-debug-help" aria-label="?">?</button>
       </div>
