@@ -2759,6 +2759,34 @@ document.addEventListener("DOMContentLoaded", function(){
     </div>
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
 
+    {{/* PoW spinner floor picker (= preview-only).  Same buttons + same
+         localStorage key as /unmask/admin/test/'s pow-display picker, so a
+         choice made there carries over here and vice versa.  Production
+         traffic always sees the real PoW timing -- this knob only affects
+         what the preview links inject as `?_pow_display=N`. */}}
+    <div class="pow-display-row">
+      <span class="pow-display-label">{{ t .Lang "settings.theme.pow_display_label" }}</span>
+      <div id="pow-display-picker" class="theme-picker">
+        <button type="button" data-pow-display="">{{ t .Lang "settings.theme.pow_display.none" }}</button>
+        <button type="button" data-pow-display="500">500 ms</button>
+        <button type="button" data-pow-display="1500">1500 ms</button>
+        <button type="button" data-pow-display="3000">3000 ms</button>
+        <button type="button" data-pow-display="5000">5000 ms</button>
+      </div>
+    </div>
+
+    {{/* Redirect target for "after PoW / CAPTCHA pass" -- preview only,
+         shares the same localStorage key (unmask:test-redirect-to) with
+         the test page below.  challenge.js validates input client-side
+         (must start with `/`, must not be protocol-relative `//`) before
+         using it as the redirect target. */}}
+    <div class="pow-display-row">
+      <span class="pow-display-label">{{ t .Lang "settings.theme.redirect_label" }}</span>
+      <input type="text" id="test-redirect-input" placeholder="/" value="/"
+             style="font-size:.78rem;padding:.22rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:14rem">
+      <span class="pow-display-help" style="font-size:.7rem;color:#94a3b8;flex-basis:100%">{{ safeHTML (t .Lang "settings.theme.redirect_help") }}</span>
+    </div>
+
     <input type="hidden" name="theme" id="theme-input" value="{{ .ChallengeTheme }}">
 
     <div class="theme-grid">
@@ -2836,6 +2864,15 @@ document.addEventListener("DOMContentLoaded", function(){
 .preview-link:hover{background:#eff6ff;border-color:#3b82f6}
 .theme-card-actions{display:flex;justify-content:flex-end;gap:.35rem;padding:0 .9rem .8rem}
 .theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
+/* PoW spinner-floor row (= preview-only knob, shared localStorage with
+ * /unmask/admin/test/).  Mirrors the test page's .theme-picker button
+ * style so the two pickers feel like the same control. */
+.pow-display-row{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin:0 0 .9rem}
+.pow-display-label{font-size:.8rem;color:#475569;font-weight:600;flex:0 0 auto}
+.pow-display-row .theme-picker{display:inline-flex;flex-wrap:wrap;gap:.3rem}
+.pow-display-row .theme-picker button{font-size:.74rem;color:#475569;background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;padding:.22rem .55rem;cursor:pointer;line-height:1.2}
+.pow-display-row .theme-picker button:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
+.pow-display-row .theme-picker button.active{background:#1e293b;border-color:#1e293b;color:#fff}
 .theme-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(20rem,1fr));gap:1rem}
 .theme-card{display:block;border:.125rem solid #e2e8f0;border-radius:.5rem;background:#fafbfc;cursor:pointer;overflow:hidden;transition:border-color .15s,box-shadow .15s,transform .05s;position:relative}
 .theme-card:hover{border-color:#cbd5e1;transform:translateY(-1px);box-shadow:0 .25rem .6rem rgba(0,0,0,.05)}
@@ -2918,6 +2955,11 @@ document.addEventListener("DOMContentLoaded", function(){
     // so an empty input explicitly clears the saved value -- without this,
     // clearing the footer textbox left the previously-saved footer visible
     // in the preview because challenge.js fell back to the brand JSON.
+    // Preview-only knobs: spinner floor + redirect target.  Stored in
+    // localStorage so /unmask/admin/test/ and this tab share the same value.
+    var powDisplay = '', redirectTo = '';
+    try { powDisplay = localStorage.getItem('unmask:test-pow-display') || ''; } catch (_) {}
+    try { redirectTo = localStorage.getItem('unmask:test-redirect-to')  || ''; } catch (_) {}
     document.querySelectorAll('#appearance-form .preview-link').forEach(function(a){
       var mode    = a.dataset.previewMode || 'captcha';
       var preset  = a.dataset.previewPreset || currentPreset();
@@ -2931,6 +2973,12 @@ document.addEventListener("DOMContentLoaded", function(){
         '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
         '&_preview_footer_text=' + encodeURIComponent(currentFooterText()) +
         '&_preview_show_credit=' + currentShowCredit();
+      if (powDisplay !== '') {
+        url += '&_pow_display=' + encodeURIComponent(powDisplay);
+      }
+      if (redirectTo && redirectTo !== '/') {
+        url += '&_test_redirect=' + encodeURIComponent(redirectTo);
+      }
       a.href = url;
     });
   }
@@ -3000,6 +3048,48 @@ document.addEventListener("DOMContentLoaded", function(){
   // iframe reloads with the new credit visibility.
   var showCreditCb = document.getElementById('branding-show-credit');
   if (showCreditCb) showCreditCb.addEventListener('change', updateAll);
+
+  // PoW display-time picker: persist the choice to localStorage and refresh
+  // the preview-link hrefs so the next click carries the chosen floor.  Same
+  // storage key as the /unmask/admin/test/ picker -- selection follows the
+  // operator between the two pages.
+  var powButtons = document.querySelectorAll('#pow-display-picker button');
+  var savedPowDisplay = '';
+  try { savedPowDisplay = localStorage.getItem('unmask:test-pow-display') || ''; } catch (_) {}
+  function paintPowButtons(){
+    powButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.powDisplay || '') === savedPowDisplay);
+    });
+  }
+  powButtons.forEach(function(b){
+    b.addEventListener('click', function(){
+      savedPowDisplay = b.dataset.powDisplay || '';
+      try { localStorage.setItem('unmask:test-pow-display', savedPowDisplay); } catch (_) {}
+      paintPowButtons();
+      updatePreviewLinks();
+    });
+  });
+  paintPowButtons();
+
+  // Redirect-after-pass input: same persistence + same validation contract as
+  // challenge.js (must start with `/` and not be protocol-relative `//`).
+  // Invalid input is ignored client-side so the input always reflects the
+  // last well-formed value.
+  var redirectInput = document.getElementById('test-redirect-input');
+  if (redirectInput) {
+    var savedRedirect = '';
+    try { savedRedirect = localStorage.getItem('unmask:test-redirect-to') || ''; } catch (_) {}
+    if (savedRedirect) redirectInput.value = savedRedirect;
+    redirectInput.addEventListener('input', function(){
+      var v = redirectInput.value;
+      // Accept only `/foo` paths.  Blank means "use default `/`".
+      if (v === '' || (v.indexOf('/') === 0 && v.indexOf('//') !== 0)) {
+        try { localStorage.setItem('unmask:test-redirect-to', v); } catch (_) {}
+        updatePreviewLinks();
+      }
+    });
+  }
+
   // Initial sync (= covers the case where the form's saved selection differs
   // from what the server rendered into the static hrefs / samples).  Don't
   // re-fire the iframe load on initial sync -- server already rendered the

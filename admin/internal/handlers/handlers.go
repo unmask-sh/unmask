@@ -1085,6 +1085,10 @@ const testIndexBody = `<h1>unmask test pages</h1>
   <button type="button" data-pow-display="5000">5000 ms</button>
 </div>
 
+<h2>Redirect after pass</h2>
+<p class="muted" style="margin:0 0 .5rem">Override where the page navigates once PoW / CAPTCHA succeeds.  Same-origin paths only (must start with <code>/</code>, no protocol-relative <code>//host</code>).  Invalid input falls back to <code>/</code>.</p>
+<input type="text" id="test-redirect-input" placeholder="/" value="/" style="font-size:.85rem;padding:.3rem .55rem;border:1px solid #cbd5e1;border-radius:.3rem;width:24rem;max-width:100%">
+
 <h2>Tests</h2>
 <ul class="tests">
   <li>
@@ -1110,11 +1114,15 @@ const testIndexBody = `<h1>unmask test pages</h1>
 (function(){
   var themeButtons = document.querySelectorAll('#theme-picker button');
   var powButtons   = document.querySelectorAll('#pow-display-picker button');
+  var redirectInp  = document.getElementById('test-redirect-input');
   var links        = document.querySelectorAll('a[data-test-link]');
   var theme = '';
   var pow   = '';
-  try { theme = localStorage.getItem('unmask:test-theme') || ''; } catch(e) {}
-  try { pow   = localStorage.getItem('unmask:test-pow-display') || ''; } catch(e) {}
+  var redirectTo = '';
+  try { theme      = localStorage.getItem('unmask:test-theme')        || ''; } catch(e) {}
+  try { pow        = localStorage.getItem('unmask:test-pow-display')  || ''; } catch(e) {}
+  try { redirectTo = localStorage.getItem('unmask:test-redirect-to')  || ''; } catch(e) {}
+  if (redirectInp && redirectTo) redirectInp.value = redirectTo;
   function update(){
     themeButtons.forEach(function(b){
       b.classList.toggle('active', (b.dataset.theme || '') === theme);
@@ -1127,6 +1135,7 @@ const testIndexBody = `<h1>unmask test pages</h1>
       var qs = [];
       if (theme) qs.push('theme=' + encodeURIComponent(theme));
       if (pow !== '') qs.push('_pow_display=' + encodeURIComponent(pow));
+      if (redirectTo && redirectTo !== '/') qs.push('_test_redirect=' + encodeURIComponent(redirectTo));
       a.setAttribute('href', qs.length ? href + '?' + qs.join('&') : href);
     });
   }
@@ -1144,6 +1153,18 @@ const testIndexBody = `<h1>unmask test pages</h1>
       update();
     });
   });
+  if (redirectInp) {
+    redirectInp.addEventListener('input', function(){
+      var v = redirectInp.value;
+      // Same client-side contract as challenge.js: only "/foo" paths
+      // (not protocol-relative "//host").  Empty means "fall back to /".
+      if (v === '' || (v.indexOf('/') === 0 && v.indexOf('//') !== 0)) {
+        redirectTo = v;
+        try { localStorage.setItem('unmask:test-redirect-to', v); } catch(e){}
+        update();
+      }
+    });
+  }
   update();
 })();
 </script>`

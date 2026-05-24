@@ -449,7 +449,16 @@
     if (u.pathname === '/unmask/challenge.html' ||
         /^\/unmask\/challenge(\/[a-z0-9][a-z0-9-]*)?\/?$/.test(u.pathname) ||
         /^\/unmask\/(admin\/)?test\/force-[a-z][a-z0-9-]*\/?$/.test(u.pathname)) {
-      location.replace('/');
+      // Test-only override: ?_test_redirect=PATH (same-origin only).  Must
+      // start with `/` and must not be protocol-relative `//host`, so a
+      // hostile URL crafted with `_test_redirect=https://evil.example/` is
+      // ignored.  Empty / invalid falls back to "/".
+      var target = '/';
+      var qsRedir = u.searchParams.get('_test_redirect');
+      if (qsRedir && qsRedir.length > 0 && qsRedir.charAt(0) === '/' && qsRedir.charAt(1) !== '/') {
+        target = qsRedir;
+      }
+      location.replace(target);
     } else {
       location.replace(u.pathname+u.search);
     }
