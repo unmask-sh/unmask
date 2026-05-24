@@ -311,9 +311,15 @@ type Nginx struct {
 	BypassIPsDisabled  []bool   `yaml:"bypass_ips_disabled,omitempty"`
 	BypassIPsUpdatedAt []int64  `yaml:"bypass_ips_updated_at,omitempty"`
 	// IDs of official IP-range preset groups (= Googlebot / Bingbot / OAI etc.)
-	// to keep OFF. Empty → all presets enabled (= default safety net). Group
-	// definitions live in nginxconf/iprange.go.
-	BypassIPDisabledPresets []string `yaml:"bypass_ip_disabled_presets,omitempty"`
+	// to enable.  Empty → no preset enabled (= no automatic crawler rescue).
+	// Group definitions live in nginxconf/iprange.go.
+	//
+	// Schema matches BypassPathsConfig.EnabledPresets / ProtectedPathsConfig.
+	// EnabledPresets so every preset list across the app reads the same way:
+	// the user lists what's ON, never what's OFF.  Defaults() seeds this with
+	// every shipped group ID so a fresh install still rescues crawlers out of
+	// the box; toggling a group OFF in the UI removes its ID from this list.
+	BypassIPEnabledPresets []string `yaml:"bypass_ip_enabled_presets,omitempty"`
 	// IP / CIDR list excluded entirely from statistics (= own monitoring tools,
 	// internal probes etc. that would otherwise be dashboard noise).  These IPs
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
@@ -1214,6 +1220,19 @@ func defaults() Settings {
 			// path falls back to loopback via defaultAllow.
 			AdminAllowFrom:   nil,
 			MetricsAllowFrom: nil,
+			// All shipped crawler IP-range presets are ON by default -- this is
+			// the "search bot rescue" safety net required by the CLAUDE.md
+			// design principle "検索 bot は絶対通す".  Operators uncheck a row
+			// in the UI to drop its ID from this list.  When a new preset is
+			// added in a later release it ships with isNew=true and stays OFF
+			// until the operator opts in (= SeenVersion gate).
+			BypassIPEnabledPresets: []string{
+				"google-common", "google-special", "google-user-triggered",
+				"bing", "duckduckbot",
+				"openai-gptbot", "openai-searchbot", "openai-chatgpt-user",
+				"perplexitybot",
+				"chrome-prefetch-proxy",
+			},
 			ChallengeTargets: ChallengeTargetsConfig{
 				// Default = challenge every UA (= safe default for self-hosted
 				// setups that prioritize bot exclusion). Search / AI bots are

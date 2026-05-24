@@ -247,12 +247,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	// bypass IP preset groups: enabled/disabled for official IP ranges + creationTime + count.
-	disabledBP := toSet(cur.BypassIPDisabledPresets)
+	// EnabledPresets is an opt-in list; a group is on when its ID appears in the set.
+	enabledBP := toSet(cur.BypassIPEnabledPresets)
 	bypassPresetGroups := make([]map[string]any, 0, len(nginxconf.BypassIPGroups))
 	for i := range nginxconf.BypassIPGroups {
 		g := &nginxconf.BypassIPGroups[i]
 		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
-		enabled := !disabledBP[g.ID]
+		enabled := enabledBP[g.ID]
 		if isNew {
 			enabled = false
 		}
@@ -1674,19 +1675,22 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.BypassIPsDisabled = outDisabled
 	n.BypassIPsUpdatedAt = outUpdated
 
-	// Collect disabled preset groups. The template sends checkbox values for
-	// enabled groups as `bypass_preset_enabled[]=ID` (= same pattern as search_bots).
-	enabledIDs := map[string]bool{}
+	// Collect enabled preset groups.  The template sends checkbox values for
+	// enabled groups as `bypass_preset_enabled[]=ID` (= same pattern as
+	// bypass_paths / protected_paths).  Iterate over the canonical group order
+	// rather than the raw form values so the saved list is stable + dedup'd
+	// and unknown IDs from a forged form are silently dropped.
+	enabledForm := map[string]bool{}
 	for _, id := range r.Form["bypass_preset_enabled"] {
-		enabledIDs[strings.TrimSpace(id)] = true
+		enabledForm[strings.TrimSpace(id)] = true
 	}
-	disabledOut := []string{}
+	enabledOut := []string{}
 	for _, g := range nginxconf.BypassIPGroups {
-		if !enabledIDs[g.ID] {
-			disabledOut = append(disabledOut, g.ID)
+		if enabledForm[g.ID] {
+			enabledOut = append(enabledOut, g.ID)
 		}
 	}
-	n.BypassIPDisabledPresets = disabledOut
+	n.BypassIPEnabledPresets = enabledOut
 
 	// stats_exclude_ips: textarea (one IP / CIDR per line) -- IPs dropped
 	// entirely from statistics.  Validate each entry as IP or CIDR.

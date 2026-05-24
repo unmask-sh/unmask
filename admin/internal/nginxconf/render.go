@@ -706,7 +706,7 @@ func defaultAllow(xs []string) []string {
 func mergeBypassIPs(s settings.Settings) []string {
 	out := []string{}
 	seen := map[string]bool{}
-	for _, p := range FlattenBypassPresets(s.Nginx.BypassIPDisabledPresets) {
+	for _, p := range FlattenBypassPresets(s.Nginx.BypassIPEnabledPresets) {
 		if seen[p] {
 			continue
 		}

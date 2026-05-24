@@ -20,9 +20,10 @@ import (
 
 // BypassIPGroup: one source of an official IP range.
 //
-// Can be disabled per-group.  Listing the ID in
-// config.yml's nginx.bypass_ip_disabled_presets turns it OFF.  IDs are NOT
-// in the same namespace as SearchBotGroups (= managed separately).
+// Enabled per-group via config.yml's nginx.bypass_ip_enabled_presets (= list
+// of IDs to turn ON).  Defaults() ships every group ID in that list so a
+// fresh install rescues crawlers out of the box.  IDs are NOT in the same
+// namespace as SearchBotGroups (= managed separately).
 type BypassIPGroup struct {
 	ID      string // stable identifier (= "google-common", "bing", "openai-gptbot", etc.)
 	Label   string // UI display name
@@ -189,18 +190,20 @@ func (g *BypassIPGroup) PrefixCount() int {
 	return len(g.prefixes)
 }
 
-// FlattenBypassPresets: concatenate prefixes from every group not in disabledPresets.
-// Deduplicated.  Order is by group order → sort order within group.
-func FlattenBypassPresets(disabledPresets []string) []string {
+// FlattenBypassPresets: concatenate prefixes from every group listed in
+// enabledPresets.  Deduplicated.  Order is by group order → sort order
+// within group.  An empty list returns no prefixes (= operator turned every
+// preset OFF; UA-only crawler matching takes over as the rescue path).
+func FlattenBypassPresets(enabledPresets []string) []string {
 	loadAll()
-	disabled := map[string]bool{}
-	for _, id := range disabledPresets {
-		disabled[id] = true
+	enabled := map[string]bool{}
+	for _, id := range enabledPresets {
+		enabled[id] = true
 	}
 	out := []string{}
 	seen := map[string]bool{}
 	for _, g := range BypassIPGroups {
-		if disabled[g.ID] {
+		if !enabled[g.ID] {
 			continue
 		}
 		for _, p := range g.prefixes {
