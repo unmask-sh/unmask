@@ -603,9 +603,17 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// patterns are preferred as more specific, so the literal for the default
 	// site and the {site} wildcard can coexist without routing ambiguity.
 
-	// challenge HTML / JS
-	mux.HandleFunc("GET "+base+"/challenge/{$}", h.ServeChallenge)
-	mux.HandleFunc("GET "+base+"/challenge/{site}/{$}", h.ServeChallenge)
+	// challenge HTML / JS.  Challenge endpoints accept **any** method so a
+	// non-GET request that gets rewritten into here (= nginx `error_page 429
+	// = @unmask_rate_challenge` rewrites POST /api/foo to /unmask/_rl/...
+	// keeping the method) reaches the handler; ServeChallengeOrJSON then
+	// returns an HTML challenge to browser navigation and a JSON 403 to
+	// XHR / fetch clients.  Pre-v0.1, "GET " on the pattern made Go's
+	// ServeMux respond 405 to anything else.
+	mux.HandleFunc(base+"/challenge/{$}", h.ServeChallengeOrJSON)
+	mux.HandleFunc(base+"/challenge/{site}/{$}", h.ServeChallengeOrJSON)
+	// /static/challenge.js stays GET-only -- a real asset, not a challenge
+	// response.  A POST to a static file legitimately deserves a 405.
 	mux.HandleFunc("GET "+base+"/static/challenge.js", h.ServeChallengeJS)
 	// Country-flag PNGs for the country chart (251 countries embedded).  ISO
 	// 3166-1 alpha-2 + special (unknown).  No auth, same as challenge.js
@@ -625,10 +633,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// Rate-limit path (nginx rewrites the original URI into /unmask/_rl<orig URI>).
 	// Path subtree match (trailing slash, no {$}) catches any path after
 	// _rl/.  Kept as a separate namespace to avoid collisions with
-	// challenge/{site} routing.
-	mux.HandleFunc("GET "+base+"/_rl/", h.ServeChallenge)
+	// challenge/{site} routing.  Method-agnostic so a POST /api/foo that
+	// trips `limit_req` and rewrites to /unmask/_rl/api/foo lands here.
+	mux.HandleFunc(base+"/_rl/", h.ServeChallengeOrJSON)
 	// legacy URL: /unmask/challenge.html -> same handler (redirect handled by nginx)
-	mux.HandleFunc("GET "+base+"/challenge.html", h.ServeChallenge)
+	mux.HandleFunc(base+"/challenge.html", h.ServeChallengeOrJSON)
 	// debug / test pages (sanity checks).  Exposed via two paths:
 	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
 	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)

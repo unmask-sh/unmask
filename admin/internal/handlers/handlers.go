@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -310,6 +311,180 @@ func stripOrKeepCredit(body []byte, show bool) []byte {
 	}
 	// Delete markers + body together.  Leftover surrounding whitespace is acceptable.
 	return append(body[:start:start], body[endPos:]...)
+}
+
+// ServeChallengeOrJSON is the public-facing challenge entry point.  It chooses
+// between an HTML challenge (= browser navigation) and a JSON 403 (= XHR /
+// fetch / non-HTML API client) so any HTTP method reaches a meaningful
+// response instead of Go's ServeMux auto-405.
+//
+// Pre-v0.1, the route was registered as `GET /unmask/_rl/` / `GET
+// /unmask/challenge/`, so a POST / PUT redirect from `limit_req` or
+// `$final_challenge` produced a 405 + "Method Not Allowed" with `Allow: GET,
+// HEAD`.  Real fetch / XHR clients (= e.g. POST /api/foo from a SPA) saw
+// this opaque 405 with no way to recover.  Now: HTML navigation keeps the
+// HTML challenge UX, while API clients get a JSON 403 with a challenge_url
+// they can redirect the user to.
+func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
+	if isHTMLNavigation(r) {
+		h.ServeChallenge(w, r)
+		return
+	}
+	h.serveChallengeJSON(w, r)
+}
+
+// isHTMLNavigation reports whether the request is a top-level browser
+// navigation that can render an HTML challenge.  Prefers Sec-Fetch-Dest
+// (= sent by every modern browser and not by curl / fetch / XHR).  Falls
+// back to the Accept header.  Spoofable, so only used to pick the
+// failure-response format -- never to grant access.
+//
+// GET requests without these signals are treated as HTML (= conservative
+// default for legacy clients / monitoring probes that still expect the
+// classic challenge HTML).
+func isHTMLNavigation(r *http.Request) bool {
+	if dest := r.Header.Get("Sec-Fetch-Dest"); dest != "" {
+		switch dest {
+		case "document", "iframe", "frame", "nested-document":
+			return true
+		default:
+			// "empty" (= fetch / XHR), "script", "image", "style", "font",
+			// "worker", etc. -- never HTML.
+			return false
+		}
+	}
+	if mode := r.Header.Get("Sec-Fetch-Mode"); mode == "cors" || mode == "no-cors" || mode == "websocket" {
+		return false
+	}
+	if strings.Contains(r.Header.Get("Accept"), "text/html") {
+		return true
+	}
+	// No Sec-Fetch-* and no text/html in Accept.  Use the method as a final
+	// hint: GET / HEAD is most often a browser asking for a page, while
+	// POST / PUT / DELETE / PATCH is almost always an API call.
+	switch r.Method {
+	case http.MethodGet, http.MethodHead:
+		return true
+	default:
+		return false
+	}
+}
+
+// serveChallengeJSON returns a 403 + JSON body to an API client.  Records the
+// same event as ServeChallenge (= dashboard sees the challenge fire), so
+// operators can tell which paths are blocking real XHR / fetch traffic.
+//
+// The body shape is small and stable:
+//
+//	{
+//	  "error":         "challenge_required",
+//	  "challenge_url": "/unmask/challenge/?_orig=%2Fapi%2Ffoo",
+//	  "retry_after":   600,
+//	  "reason":        "rate_limit" | "ja4_bot" | "honeypot" | "banned" |
+//	                   "protected" | "test" | "none"
+//	}
+//
+// Clients can detect the JSON error and either retry after the
+// Retry-After window, redirect the visitor to challenge_url to obtain a
+// `_bv` cookie, or surface the reason to the operator.
+func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
+	// Mirror the rate-limit path detection in ServeChallenge so the recorded
+	// event carries `rl=1` when this fires off `/unmask/_rl/...`.
+	rl := 0
+	var rlOrigURI string
+	if i := strings.Index(r.URL.Path, "/_rl/"); i >= 0 {
+		rl = 1
+		rlOrigURI = r.URL.Path[i+len("/_rl"):]
+		if rlOrigURI == "" {
+			rlOrigURI = "/"
+		}
+		if r.URL.RawQuery != "" {
+			rlOrigURI += "?" + r.URL.RawQuery
+		}
+	}
+	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	if origPath == "" {
+		origPath = truncateAt(rlOrigURI, 200)
+	}
+
+	// Reason: mirror ServeChallenge's force-reason ladder so dashboards / API
+	// clients see the same axis label that the HTML response would carry.
+	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
+	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	if action == "" && ja4 != "" {
+		if _, a := matchJA4(ja4, h.Settings.Nginx); a != "" {
+			action = a
+		}
+	}
+	reason := "none"
+	if action == "bot" {
+		reason = "ja4_bot"
+	}
+	if r.Header.Get("X-Honeypot-Hit") == "1" {
+		reason = "honeypot"
+	}
+	if r.Header.Get("X-Banned") == "1" {
+		reason = "banned"
+	}
+	switch strings.TrimSpace(r.Header.Get("X-Protected-Mode")) {
+	case "captcha", "strict":
+		reason = "protected"
+	}
+	if rl == 1 {
+		reason = "rate_limit"
+	}
+
+	// challenge_url the client can redirect the user to.  Default-site form;
+	// per-site challenges still work because the visit reaches the same
+	// handler with `{site}` in the URL anyway.
+	chURL := "/unmask/challenge/"
+	if origPath != "" {
+		chURL += "?_orig=" + url.QueryEscape(origPath)
+	}
+
+	// Event recording so the dashboard funnel still counts this as a serve
+	// (= distinguishable via payload.non_html_client=1).
+	site := siteFromRequest(r)
+	ip := clientIP(r)
+	if pkt := events.PackIP(ip); pkt != nil {
+		payload := map[string]any{
+			"force_reason":     reason,
+			"rl":               rl,
+			"non_html_client":  1,
+			"method":           r.Method,
+		}
+		if origPath != "" {
+			payload["orig_path"] = origPath
+		}
+		events.InsertAsync(h.DB, &events.Event{
+			Site:         site,
+			Host:         h.HostID,
+			IPPacked:     pkt,
+			UserAgent:    r.Header.Get("User-Agent"),
+			JA4:          safeJA4(ja4),
+			JA4Verdict:   verdict,
+			JA4VerdictID: h.VerdictNameToID(verdict),
+			Phase:        string(events.PhaseServe),
+			Payload:      payload,
+		})
+	}
+
+	// Same response headers as the HTML challenge so reverse-proxy logs /
+	// CDN policies treat both responses identically.
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Retry-After", "600")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	w.WriteHeader(http.StatusForbidden)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error":         "challenge_required",
+		"challenge_url": chURL,
+		"retry_after":   600,
+		"reason":        reason,
+	})
+
+	h.Notifier.ChallengeServed()
 }
 
 // ServeChallenge: GET {base}/challenge/ (legacy: {base}/challenge.html)

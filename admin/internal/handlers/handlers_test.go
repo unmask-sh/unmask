@@ -301,3 +301,140 @@ func TestResolveSiteFilterEncodedCookie(t *testing.T) {
 		t.Fatalf("resolveSiteFilter = %q, want 2001:db8::1", got)
 	}
 }
+
+// TestIsHTMLNavigation drives the client-type detector used by
+// ServeChallengeOrJSON.  Browser document navigation -> HTML challenge;
+// fetch / XHR / explicit JSON Accept -> JSON 403.
+func TestIsHTMLNavigation(t *testing.T) {
+	mk := func(method string, headers map[string]string) *http.Request {
+		req := httptest.NewRequest(method, "/api/foo", nil)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		return req
+	}
+	cases := []struct {
+		name string
+		req  *http.Request
+		want bool
+	}{
+		{
+			"browser navigation: Sec-Fetch-Dest=document",
+			mk("GET", map[string]string{"Sec-Fetch-Dest": "document", "Accept": "text/html"}),
+			true,
+		},
+		{
+			"iframe load also HTML",
+			mk("GET", map[string]string{"Sec-Fetch-Dest": "iframe"}),
+			true,
+		},
+		{
+			"fetch / XHR: Sec-Fetch-Dest=empty",
+			mk("POST", map[string]string{"Sec-Fetch-Dest": "empty", "Accept": "*/*"}),
+			false,
+		},
+		{
+			"CORS POST without Sec-Fetch-Dest still classifies via Sec-Fetch-Mode",
+			mk("POST", map[string]string{"Sec-Fetch-Mode": "cors", "Accept": "*/*"}),
+			false,
+		},
+		{
+			"explicit JSON Accept on POST is not HTML",
+			mk("POST", map[string]string{"Accept": "application/json"}),
+			false,
+		},
+		{
+			"legacy GET with no fetch metadata + Accept text/html",
+			mk("GET", map[string]string{"Accept": "text/html"}),
+			true,
+		},
+		{
+			"bare GET with no headers falls back to method (HTML)",
+			mk("GET", map[string]string{}),
+			true,
+		},
+		{
+			"bare POST with no headers falls back to method (not HTML)",
+			mk("POST", map[string]string{}),
+			false,
+		},
+	}
+	for _, c := range cases {
+		got := isHTMLNavigation(c.req)
+		if got != c.want {
+			t.Errorf("%s: got %v want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestServeChallengeOrJSON_NonHTMLClient verifies the JSON 403 path: API
+// client gets application/json with a parseable body carrying challenge_url,
+// retry_after, and reason.  This is the regression guard against the
+// pre-v0.1 405 + "Method Not Allowed" leak.
+func TestServeChallengeOrJSON_NonHTMLClient(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodPost, "/unmask/_rl/api/foo", strings.NewReader(`{"any":"body"}`))
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+
+	rr := httptest.NewRecorder()
+	h.ServeChallengeOrJSON(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status: got %d want 403", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json*", ct)
+	}
+	if rr.Header().Get("Retry-After") != "600" {
+		t.Errorf("Retry-After = %q, want 600", rr.Header().Get("Retry-After"))
+	}
+	if rr.Header().Get("X-Robots-Tag") == "" {
+		t.Errorf("X-Robots-Tag missing")
+	}
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body not JSON: %v\n%s", err, rr.Body.String())
+	}
+	if body["error"] != "challenge_required" {
+		t.Errorf("error = %v, want challenge_required", body["error"])
+	}
+	chURL, _ := body["challenge_url"].(string)
+	if !strings.HasPrefix(chURL, "/unmask/challenge/") {
+		t.Errorf("challenge_url = %q, want prefix /unmask/challenge/", chURL)
+	}
+	// _rl/api/foo -> orig_path /api/foo -> challenge_url should embed it.
+	if !strings.Contains(chURL, "_orig=") {
+		t.Errorf("challenge_url missing _orig= query: %q", chURL)
+	}
+	if body["reason"] != "rate_limit" {
+		t.Errorf("reason = %v, want rate_limit (path was /_rl/...)", body["reason"])
+	}
+	if body["retry_after"].(float64) != 600 {
+		t.Errorf("retry_after = %v, want 600", body["retry_after"])
+	}
+}
+
+// TestServeChallengeOrJSON_HTMLClient verifies the HTML challenge path stays
+// the default for browser navigation.  We don't exercise the full HTML body
+// (= templates / placeholders need more setup); we just check the response
+// is HTML-shaped rather than JSON.
+func TestServeChallengeOrJSON_HTMLClient(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/challenge/", nil)
+	req.Header.Set("Sec-Fetch-Dest", "document")
+	req.Header.Set("Accept", "text/html")
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+
+	rr := httptest.NewRecorder()
+	h.ServeChallengeOrJSON(rr, req)
+
+	// HTML branch may 500 if the embedded asset isn't loaded in this test
+	// (= newTestHandler doesn't wire up assets).  Either way it must NOT be
+	// a JSON 403 with the API shape.
+	if ct := rr.Header().Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
+		t.Errorf("HTML client got JSON Content-Type %q (= took the API branch by mistake)", ct)
+	}
+}
