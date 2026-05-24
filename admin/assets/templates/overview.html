@@ -51,7 +51,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .shortcut .desc{font-size:.78rem;color:#64748b;margin-top:.15rem;line-height:1.4}
 /* Recent events table -- shared partial.  table.events / phase-pill / etc.
    are styled identically to the hunt page so the partial can scan
-   document.querySelectorAll('table.events tbody tr[data-bt]') uniformly. */
+   document.querySelectorAll('table.events tbody tr[data-bt]') uniformly.
+   .events-scroll wraps the table for horizontal-scroll fallback when the
+   sum of per-th widths overflows the card. */
+.events-scroll{overflow-x:auto}
+.events-scroll table.events{min-width:100%}
 table.events{width:100%;border-collapse:collapse;font-size:.85rem;table-layout:fixed}
 table.events thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
 table.events tbody td{padding:.4rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
@@ -240,7 +244,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
 <div class="bcd-card">
   <h2>{{ t .Lang "overview.recent_h" }}</h2>
+  <div class="events-scroll">
   {{ template "events_table_block" . }}
+  </div>
   <div style="margin-top:.5rem;text-align:right">
     <a href="{{.BasePath}}/admin/hunt/" style="font-size:.85rem;color:#475569;text-decoration:none">{{ t .Lang "overview.recent_more" }} →</a>
   </div>
