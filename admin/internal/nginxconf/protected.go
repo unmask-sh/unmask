@@ -40,9 +40,13 @@ type ProtectedPathPresetGroup struct {
 
 // ProtectedPathPresetGroups: typical "you probably want to protect this" path sets.
 //
-// All OFF by default (= they may not match your path layout, and we want to
-// avoid the accident of locking the operator out of admin itself).  The user
-// removes them from disabled_presets to opt in.
+// Default ON / OFF is set in settings.defaults(): "unmask" ships ON because
+// it covers unmask's own admin login at the fixed `/unmask/admin/` path --
+// no site-layout dependency, and the brand cost of an admin brute-force on
+// an anti-bot product is too large to leave to opt-in.  "common-admin" stays
+// OFF because it assumes `/wp-admin/` etc. exist on the protected site;
+// enabling it without checking the layout would silently CAPTCHA legitimate
+// users.
 //
 // Mode is fixed by the preset.  Admin login forms expect a human, so
 // "captcha" is appropriate (= blocks bots, while a real operator gets through
