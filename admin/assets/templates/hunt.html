@@ -688,6 +688,14 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
     phaseCell.innerHTML = '';
     var chain = document.createElement('span');
     chain.className = 'session-chain';
+    // Compact pill text for the multi-pill chain only -- the full phase
+    // string still goes in the popover timeline below.  Saves horizontal
+    // space on rows that show 4-5 pills.
+    var PHASE_SHORT = {
+      'bv_pow_only':         'bv_pow',
+      'bv_captcha_only':     'bv_cap',
+      'bv_pow_then_captcha': 'bv_pc'
+    };
     grp.forEach(function(tr, i){
       if (i > 0){
         var arrow = document.createElement('span');
@@ -698,7 +706,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       var ph = tr.getAttribute('data-phase') || '';
       var pill = document.createElement('span');
       pill.className = 'phase-pill ph-' + ph;
-      pill.textContent = ph;
+      pill.textContent = PHASE_SHORT[ph] || ph;
       chain.appendChild(pill);
     });
     phaseCell.appendChild(chain);
