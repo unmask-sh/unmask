@@ -301,12 +301,34 @@ document.addEventListener('DOMContentLoaded', function(){
     function portal(){
       if (portalOn || tip.classList.contains('pinned')) return;
       portalOn = true;
+      // popover-pin.js's edge-flip runs on mouseenter capture and adds
+      // .info-popup-flip-y when it thinks the popup would overflow the
+      // viewport.  flip-y sets bottom:130% via popover-pin.css, which once we
+      // re-anchor with top:Xpx ends up shrinking the popup's box to ~24px
+      // (= top + bottom constrains height) and letting the 800px of content
+      // overflow visible into 'transparent' space below.  Since we anchor
+      // the portaled popup ourselves, the flip is no longer needed -- strip
+      // both flip classes so the popup falls back to height:auto.
+      popup.classList.remove('info-popup-flip-x', 'info-popup-flip-y');
       var r = tip.getBoundingClientRect();
+      // The phase help block is ~870px tall when populated with every
+      // help.phase.* entry; on a 900px laptop viewport it will not fit
+      // regardless of which side of the tip we anchor on.  Anchor under
+      // the tip when there's at least half a viewport of room below, else
+      // anchor above, and cap the popup with a viewport-bound max-height
+      // + overflow:auto so the user can scroll the rest into view.
+      var below = r.bottom + 6;
+      var above = r.top - 6;
+      var anchorBelow = (window.innerHeight - below) >= 240;
+      var top = anchorBelow ? below : Math.max(8, above - Math.min(above - 16, 600));
+      var maxH = anchorBelow ? (window.innerHeight - top - 8) : (above - 8);
       popup.style.position = 'fixed';
-      popup.style.top = (r.bottom + 6) + 'px';
-      // Clamp horizontally so the popup stays on-screen even when the tip is
-      // near the right edge.  448px = info-popup's max width per popover-pin.css.
+      popup.style.top = top + 'px';
       popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 460)) + 'px';
+      popup.style.bottom = 'auto';
+      popup.style.right = 'auto';
+      popup.style.maxHeight = maxH + 'px';
+      popup.style.overflowY = 'auto';
       popup.style.display = 'block';
       popup.style.zIndex = '600';
       document.body.appendChild(popup);
@@ -317,6 +339,10 @@ document.addEventListener('DOMContentLoaded', function(){
       popup.style.position = '';
       popup.style.top = '';
       popup.style.left = '';
+      popup.style.bottom = '';
+      popup.style.right = '';
+      popup.style.maxHeight = '';
+      popup.style.overflowY = '';
       popup.style.display = '';
       popup.style.zIndex = '';
       if (nextSibling && nextSibling.parentNode === originalParent){
