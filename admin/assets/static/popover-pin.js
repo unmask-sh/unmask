@@ -74,10 +74,58 @@ window.popoverPin = window.popoverPin || (function(){
       document.addEventListener('mouseup', onUp);
     });
   }
-  function buildTools(clone, onClose){
+  // extractVisibleText returns the user-visible text of an element, skipping
+  // hidden / chrome / sibling-help nodes so a heading like
+  //   <h1>honeypot <button class="ua-help-trigger">?</button>
+  //       <script type="text/html">long help body...</script>
+  //       <a class="settings-tab-preview">live preview ↗</a></h1>
+  // resolves to just "honeypot".  Operates on a deep clone so the live DOM
+  // is untouched.
+  function extractVisibleText(el){
+    if (!el || !el.cloneNode) return '';
+    var c = el.cloneNode(true);
+    var hidden = c.querySelectorAll(
+      'script, style, template, ' +              // not visible
+      '.ua-help-trigger, .info-tip, .info-popup, ' + // the trigger itself + its hover popup
+      '.settings-tab-preview, ' +                 // settings.html: live-preview link sits inside h1
+      '.added, .new-badge, .badge, ' +            // version chips / "new" markers
+      '[hidden]'
+    );
+    hidden.forEach(function(n){ n.remove(); });
+    return (c.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+  // Cap title text so a paragraph never lands in the title bar.
+  function capTitle(text){
+    if (!text) return '';
+    if (text.length > 60) return text.slice(0, 60).trim() + '…';
+    return text;
+  }
+  // titleFromTrigger climbs from the `?` button up to the nearest labelling
+  // context -- prefer headings (most informative) but fall back to fieldset
+  // legends, table cells, labels, and card / field containers so popovers
+  // attached next to a checkbox or input still get a useful title.
+  function titleFromTrigger(trigger){
+    if (!trigger || !trigger.closest) return '';
+    var anchor = trigger.closest(
+      'h1,h2,h3,h4,h5,h6, legend, th, label, .field, .bcd-card'
+    );
+    if (!anchor) return '';
+    return capTitle(extractVisibleText(anchor));
+  }
+  // Exposed for the info-tip flavor below.
+  window._popoverExtractVisibleText = extractVisibleText;
+  window._popoverCapTitle = capTitle;
+  function buildTools(clone, onClose, title){
     var tools = document.createElement('div');
     tools.className = 'popover-tools';
     attachDragToBar(tools, clone);
+    if (title){
+      var t = document.createElement('span');
+      t.className = 'popover-title';
+      t.textContent = title;
+      t.title = title; // browser tooltip when truncated
+      tools.appendChild(t);
+    }
     // collapse toggle
     var col = document.createElement('button');
     col.type = 'button';
@@ -147,7 +195,7 @@ window.popoverPin = window.popoverPin || (function(){
         clone.remove();
         pins.delete(trigger);
       };
-      var tools = buildTools(clone, clone._popoverUnpin);
+      var tools = buildTools(clone, clone._popoverUnpin, titleFromTrigger(trigger));
       clone.appendChild(tools);
       document.body.appendChild(clone);
       // Now that the clone is in the DOM with content + tools, measure + clamp.
@@ -273,6 +321,25 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         t.className = 'popover-tools';
         if (typeof window._popoverAttachDragToBar === 'function'){
           window._popoverAttachDragToBar(t, clone);
+        }
+        // Title from the nearest labelling context -- same precedence as the
+        // popoverPin flavor so stacked pins behave identically.
+        var anchor = tip.closest && tip.closest(
+          'h1,h2,h3,h4,h5,h6, legend, th, label, .field, .bcd-card'
+        );
+        var titleText = '';
+        if (anchor && typeof window._popoverExtractVisibleText === 'function'){
+          titleText = window._popoverExtractVisibleText(anchor);
+        }
+        if (typeof window._popoverCapTitle === 'function'){
+          titleText = window._popoverCapTitle(titleText);
+        }
+        if (titleText){
+          var ti = document.createElement('span');
+          ti.className = 'popover-title';
+          ti.textContent = titleText;
+          ti.title = titleText;
+          t.appendChild(ti);
         }
         function btn(cls, label, title, text, handler){
           var b = document.createElement('button');
