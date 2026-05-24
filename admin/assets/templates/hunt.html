@@ -170,9 +170,9 @@ td.cellpop-active{cursor:pointer}
    popover via popoverPin).  nowrap because the flow is the entire point of
    the row: pushing pills onto a second line breaks the read at-a-glance.
    The cell is given enough width via the parent <td> override below. */
-.session-chain{display:inline-flex;align-items:center;gap:.25rem;flex-wrap:nowrap;white-space:nowrap}
-table.events td:has(.session-chain){white-space:nowrap;min-width:max-content}
-.session-arrow{color:#94a3b8;font-size:.85rem;user-select:none;line-height:1;padding:0 .05rem}
+.session-chain{display:inline-flex;align-items:center;gap:.1rem;flex-wrap:nowrap;white-space:nowrap}
+table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;overflow:visible}
+.session-arrow{color:#94a3b8;font-size:.85rem;user-select:none;line-height:1;padding:0}
 .session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
 .session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
 .session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
@@ -377,7 +377,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content}
         <th style="width:10.5rem">IP</th>
         <th style="width:10rem">JA4</th>
         <th style="width:5rem">verdict</th>
-        <th style="width:5rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+        <th style="width:12rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
 <strong>phase list</strong> &mdash; event types showing the challenge progression.  Colors match the pills on table rows.<br><br>
 <span class="phase-pill ph-serve">serve</span> moment the challenge HTML was returned (= entry point that injected forced CAPTCHA / PoW due to JA4 bot / honeypot / rate-limit / protected path / etc.).  <code>payload.observe_only=1</code> means pass-through mode (= would-be challenge that passed through without enforcement)<br><br>
 <span class="phase-pill ph-load">load</span> client browser loaded the challenge HTML and JS started (= still unpassed, around the start of PoW computation)<br><br>
