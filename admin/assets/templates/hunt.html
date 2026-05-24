@@ -687,6 +687,18 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
       return wa - wb;
     });
+    // Collapse consecutive same-phase rows (= rare but happens when the
+    // server fires the same phase twice for one request, e.g. nginx's
+    // log_subrequest re-entering /unmask/challenge/).  The timeline
+    // popover still shows every event with its own timestamp; only the
+    // inline chain hides the duplicates so the visual stays meaningful.
+    var dedupedChain = [];
+    grp.forEach(function(tr){
+      var ph = tr.getAttribute('data-phase');
+      var last = dedupedChain[dedupedChain.length - 1];
+      if (last && last.getAttribute('data-phase') === ph) return;
+      dedupedChain.push(tr);
+    });
     var rep = grp[grp.length - 1];
     // hide the other rows from the group; the chain lives on rep's phase cell.
     var others = grp.filter(function(tr){ return tr !== rep; });
@@ -723,7 +735,7 @@ when the <code>rl:&lt;zone&gt;</code> badge is shown alongside, that's a rate-li
       'bv_captcha_only':     'bv_cap',
       'bv_pow_then_captcha': 'bv_pc'
     };
-    grp.forEach(function(tr, i){
+    dedupedChain.forEach(function(tr, i){
       if (i > 0){
         var arrow = document.createElement('span');
         arrow.className = 'session-arrow';
