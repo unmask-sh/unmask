@@ -3886,5 +3886,37 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 
+<script>
+// Suppress implicit form submission on Enter inside settings inputs.
+//
+// Every settings tab is a single form with many text / number / select
+// fields and a "保存" button at the bottom.  Hitting Enter while a field
+// has focus would otherwise pick the first submit-capable button and save
+// the whole tab -- accidental, easy to do, hard to undo (= overwrites
+// every other field on the tab with the form's current values).
+//
+// What's allowed:
+//   - <textarea>                    : newline is part of normal editing
+//   - <button>                      : Enter on a focused button is an
+//                                     explicit activation, identical to
+//                                     a click; that's intentional
+//   - <input type="submit|button">  : same reasoning
+//
+// Everything else (text / number / search / email / password / etc.)
+// swallows Enter so the operator has to scroll down and click 保存.
+document.addEventListener('keydown', function(e){
+  if (e.key !== 'Enter') return;
+  var t = e.target;
+  if (!t || !t.tagName) return;
+  var tag = t.tagName.toLowerCase();
+  if (tag === 'textarea' || tag === 'button') return;
+  if (tag === 'input') {
+    var typ = (t.type || '').toLowerCase();
+    if (typ === 'submit' || typ === 'button') return;
+    e.preventDefault();
+  }
+});
+</script>
+
 </body>
 </html>
