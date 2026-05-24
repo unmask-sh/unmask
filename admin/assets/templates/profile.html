@@ -31,7 +31,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .field input{width:100%;padding:.5rem .65rem;font-size:1rem;border:.0625rem solid #cbd5e1;border-radius:.3rem}
 .field input[type=password]{font-family:ui-monospace,Menlo,monospace}
 .field input:focus{outline:none;border-color:#3b82f6}
-.field .check{font-size:.85rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal}
+/* Checkbox / radio reset: the text-input width/padding rule above otherwise
+ * stretches the checkbox into a giant box and breaks the inline "label + box"
+ * layout for the opt-out toggle. */
+.field input[type=checkbox],.field input[type=radio]{width:auto;padding:0;margin:0;flex:none;vertical-align:middle}
+.field .check{font-size:.85rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal;margin:0}
 .btn{padding:.55rem 1.4rem;font-size:.95rem;background:#3b82f6;color:#fff;border:none;border-radius:.3rem;cursor:pointer;font-weight:600}
 .btn:hover{background:#2563eb}
 .alert{padding:.7rem 1rem;border-radius:.3rem;font-size:.9rem;margin-bottom:1rem}
@@ -51,6 +55,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .picker label{color:#94a3b8}
 .picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
 .picker select option{color:#0f172a;background:#fff}
+/* Profile-page picker (= same partial, but rendered as a normal light-theme
+ * form section in a card, not the compact dark dropdown in the header). */
+.profile-prefs .picker{display:grid;grid-template-columns:max-content 1fr;gap:.55rem .9rem;align-items:center;color:#475569}
+.profile-prefs .picker label{color:#475569;font-size:.85rem;font-weight:600;margin:0}
+.profile-prefs .picker select{font-size:.95rem;color:#0f172a;background:#fff;border:.0625rem solid #cbd5e1;border-radius:.3rem;padding:.4rem .55rem;cursor:pointer;width:auto;min-width:14rem}
+.profile-prefs .picker select:focus{outline:none;border-color:#3b82f6}
 </style>
 </head>
 <body>
@@ -117,6 +127,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     </div>
     <button type="submit" class="btn">{{ t .Lang "profile.submit" }}</button>
   </form>
+</div>
+
+<div class="bcd-card profile-prefs">
+  <h2>{{ t .Lang "profile.preferences_h" }}</h2>
+  <p class="desc">{{ t .Lang "profile.preferences_desc" }}</p>
+  {{ template "lang_tz_picker" . }}
 </div>
 </main>
 </body>

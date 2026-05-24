@@ -20,8 +20,8 @@
     <span class="user-menu-arrow">▾</span>
   </span>
   <div class="user-menu-pop">
-    {{/* Personal: TZ / language (rarely changed, kept out of the top bar) + profile. */}}
-    {{ template "lang_tz_picker" . }}
+    {{/* Personal entry.  TZ + language pickers live on the profile page
+         itself (= rarely changed; no need to keep them in the dropdown). */}}
     <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
     {{/* Admin-only section, set off by a labelled divider. */}}
     {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
