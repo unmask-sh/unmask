@@ -69,7 +69,31 @@ type Secret struct {
 	CaptchaSecretBase string `yaml:"captcha_secret_base"`
 }
 
-type Challenge struct {
+// ChallengeConfig: multi-site Default + Sites wrapper around a ChallengeValues
+// record.  In v2 each site either uses Default verbatim (= no entry in Sites)
+// or carries a complete self-contained ChallengeValues record (= a full set,
+// no field-level inheritance).  Resolve(site) returns the effective record.
+type ChallengeConfig struct {
+	Default ChallengeValues            `yaml:"default"`
+	Sites   map[string]ChallengeValues `yaml:"sites,omitempty"`
+}
+
+// Resolve returns the ChallengeValues for the given site.  When site has an
+// entry in Sites the entry is returned verbatim (= no merge with Default,
+// even if a field is the zero value -- that's intentional per the v2 design).
+// Otherwise Default is returned verbatim.
+func (c ChallengeConfig) Resolve(site string) ChallengeValues {
+	if v, ok := c.Sites[site]; ok {
+		return v
+	}
+	return c.Default
+}
+
+// ChallengeValues: one complete challenge record.  This carries the same
+// fields the single-set Challenge struct did before multi-site v2 -- a full
+// set of knobs (PoW difficulty, cookie windows, CAPTCHA provider, ...) that
+// a site either inherits via Default or fully owns via Sites[<host>].
+type ChallengeValues struct {
 	// CookieSeconds: legacy single-knob _bv lifetime.  Now serves as the
 	// fall-back default for {Pow,Captcha}CookieValidSeconds when those are
 	// unset.  Browser-side cookie Max-Age is no longer driven by this value
@@ -87,9 +111,9 @@ type Challenge struct {
 	// CookieDays: legacy / backward compat. If yaml lacks cookie_seconds but
 	// has cookie_days, load-time migrates with CookieSeconds = CookieDays * 86400.
 	// Save always writes cookie_seconds only (= cookie_days is not emitted).
-	CookieDays            int     `yaml:"cookie_days,omitempty"`
-	DebugRateLimitPer5Min int     `yaml:"debug_rate_limit_per_5min"`
-	ChallengeHTMLPath     string  `yaml:"challenge_html_path"`
+	CookieDays            int    `yaml:"cookie_days,omitempty"`
+	DebugRateLimitPer5Min int    `yaml:"debug_rate_limit_per_5min"`
+	ChallengeHTMLPath     string `yaml:"challenge_html_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public
@@ -130,28 +154,48 @@ type Challenge struct {
 }
 
 // ResolvedPowDifficulty: returns default 18 when 0 / out of range.
-func (c Challenge) ResolvedPowDifficulty() int {
+func (c ChallengeValues) ResolvedPowDifficulty() int {
 	if c.PowDifficulty < 8 || c.PowDifficulty > 24 {
 		return 18
 	}
 	return c.PowDifficulty
 }
 
-// Branding: per-site identity shown on the challenge page so visitors can
-// recognise "this is operated by <site>" instead of feeling like a 3rd-party
-// security tool hijacked the browser. The defaults ("Verifying your browser…")
-// triggered a recurring "is my browser infected?" question from real users; a
-// logo + site name + softer copy preset cuts that confusion.
+// Branding: multi-site Default + Sites wrapper around a BrandingValues
+// record.  Same shape as ChallengeConfig: a site either inherits Default
+// verbatim (= no entry in Sites) or carries a complete BrandingValues
+// record (= every field set, no field-level merge with Default).
 //
-// All operator-facing fields here are LANGUAGE-AGNOSTIC (= a logo image, a
-// short brand string). Visitor-facing copy lives in challenge.js as a fixed
-// set of presets the operator picks from — that way ja/en stays consistent
+// All operator-facing fields are LANGUAGE-AGNOSTIC (= a logo image, a short
+// brand string).  Visitor-facing copy lives in challenge.js as a fixed set
+// of presets the operator picks from -- that way ja/en stays consistent
 // regardless of the visitor's browser locale.
 //
 // There is intentionally no "enabled" toggle: leaving the identity fields
 // blank already produces the same end result (visitor sees the copy preset
 // only, no logo / name / footer), so the toggle was a redundant control.
 type Branding struct {
+	Default BrandingValues            `yaml:"default"`
+	Sites   map[string]BrandingValues `yaml:"sites,omitempty"`
+}
+
+// Resolve returns the BrandingValues for the given site.  When site has an
+// entry in Sites the entry is returned verbatim (no merge with Default).
+// Otherwise Default is returned verbatim.
+func (b Branding) Resolve(site string) BrandingValues {
+	if v, ok := b.Sites[site]; ok {
+		return v
+	}
+	return b.Default
+}
+
+// BrandingValues: per-site identity shown on the challenge page so visitors
+// can recognise "this is operated by <site>" instead of feeling like a
+// 3rd-party security tool hijacked the browser.  The defaults ("Verifying
+// your browser…") triggered a recurring "is my browser infected?" question
+// from real users; a logo + site name + softer copy preset cuts that
+// confusion.
+type BrandingValues struct {
 	// LogoPath: absolute path on disk to the uploaded logo file (PNG / JPEG /
 	// SVG). Empty = no logo. Served via /branding/logo with Content-Type set
 	// from the file extension. SVGs are sanitized at upload time (= <script>
@@ -188,7 +232,7 @@ func IsValidBrandingPreset(p string) bool {
 
 // ResolvedCopyPreset: returns CopyPreset clamped to a known value, or the
 // friendly default if unset / invalid.
-func (b Branding) ResolvedCopyPreset() string {
+func (b BrandingValues) ResolvedCopyPreset() string {
 	if IsValidBrandingPreset(b.CopyPreset) {
 		return b.CopyPreset
 	}
@@ -771,7 +815,7 @@ func (c HostInventoryConfig) IsDisabled(host string) bool {
 type Settings struct {
 	DB            DB                   `yaml:"db"`
 	Secret        Secret               `yaml:"secret"`
-	Challenge     Challenge            `yaml:"challenge"`
+	Challenge     ChallengeConfig      `yaml:"challenge"`
 	Branding      Branding             `yaml:"branding,omitempty"`
 	Server        Server               `yaml:"server"`
 	IPGeo         IPGeo                `yaml:"ipgeo"`
@@ -1145,28 +1189,33 @@ func defaults() Settings {
 				User: "unmask", Database: "unmask",
 			},
 		},
-		Challenge: Challenge{
-			// Legacy umbrella; kept so config files that only set cookie_seconds
-			// still control both kinds.  New installs prefer the per-kind values
-			// below (= PoW shorter than CAPTCHA, since PoW is auto-only proof).
-			CookieSeconds:             86400 * 3,
-			PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
-			CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
-			DebugRateLimitPer5Min:     20,
-			Theme:                     "default",
-			CaptchaProvider: Captcha{
-				Provider:              "builtin",
-				BuiltinScoreThreshold: 0.5,
-				RecaptchaMinScore:     0.5,
+		Challenge: ChallengeConfig{
+			Default: ChallengeValues{
+				// Legacy umbrella; kept so config files that only set
+				// cookie_seconds still control both kinds.  New installs prefer
+				// the per-kind values below (= PoW shorter than CAPTCHA, since
+				// PoW is auto-only proof).
+				CookieSeconds:             86400 * 3,
+				PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
+				CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
+				DebugRateLimitPer5Min:     20,
+				Theme:                     "default",
+				CaptchaProvider: Captcha{
+					Provider:              "builtin",
+					BuiltinScoreThreshold: 0.5,
+					RecaptchaMinScore:     0.5,
+				},
 			},
 		},
 		Branding: Branding{
-			// Default copy preset is "friendly" — strictly better than
-			// the old "Verifying your browser…" baseline that triggered
-			// "is my browser infected?" confusion in real users.  Logo /
-			// site name / footer stay blank until the operator fills them
-			// in via the branding panel.
-			CopyPreset: BrandingPresetFriendly,
+			Default: BrandingValues{
+				// Default copy preset is "friendly" — strictly better than
+				// the old "Verifying your browser…" baseline that triggered
+				// "is my browser infected?" confusion in real users.  Logo /
+				// site name / footer stay blank until the operator fills them
+				// in via the branding panel.
+				CopyPreset: BrandingPresetFriendly,
+			},
 		},
 		RateLimit: RateLimitConfig{
 			// The Default zone is path-agnostic / applies to all traffic.
@@ -1321,13 +1370,13 @@ func Load(path string) (Settings, error) {
 	// cookie_days, we can't detect it (= yaml.Unmarshal does not touch
 	// CookieSeconds), so detect "yaml has cookie_days and differs from defaults"
 	// and migrate.
-	if s.Challenge.CookieDays > 0 && s.Challenge.CookieSeconds == 86400*3 {
+	if s.Challenge.Default.CookieDays > 0 && s.Challenge.Default.CookieSeconds == 86400*3 {
 		// If CookieDays is set explicitly, prefer it (= migrate even if it
 		// matches defaults' 3; harmless because 86400*3 → 86400*3 is a no-op).
-		s.Challenge.CookieSeconds = s.Challenge.CookieDays * 86400
+		s.Challenge.Default.CookieSeconds = s.Challenge.Default.CookieDays * 86400
 	}
 	// CookieDays is legacy. CookieSeconds is the sole canonical value. omitempty on save.
-	s.Challenge.CookieDays = 0
+	s.Challenge.Default.CookieDays = 0
 	BackfillExtraVerdictIDs(&s)
 	return s, nil
 }
@@ -1342,11 +1391,11 @@ const BrowserCookieMaxAgeSeconds = 365 * 86400
 
 // CookieMaxAgeSeconds: seconds passed to the cookie's Max-Age.  Fixed at
 // BrowserCookieMaxAgeSeconds (= server validity window decides effective TTL).
-func (c Challenge) CookieMaxAgeSeconds() int { return BrowserCookieMaxAgeSeconds }
+func (c ChallengeValues) CookieMaxAgeSeconds() int { return BrowserCookieMaxAgeSeconds }
 
 // PowCookieValidSecondsResolved: PowCookieValidSeconds if set, else
 // CookieSeconds (= legacy single knob), else 3 days.
-func (c Challenge) PowCookieValidSecondsResolved() int {
+func (c ChallengeValues) PowCookieValidSecondsResolved() int {
 	if c.PowCookieValidSeconds > 0 {
 		return c.PowCookieValidSeconds
 	}
@@ -1358,7 +1407,7 @@ func (c Challenge) PowCookieValidSecondsResolved() int {
 
 // CaptchaCookieValidSecondsResolved: CaptchaCookieValidSeconds if set, else
 // CookieSeconds, else 3 days.
-func (c Challenge) CaptchaCookieValidSecondsResolved() int {
+func (c ChallengeValues) CaptchaCookieValidSecondsResolved() int {
 	if c.CaptchaCookieValidSeconds > 0 {
 		return c.CaptchaCookieValidSeconds
 	}

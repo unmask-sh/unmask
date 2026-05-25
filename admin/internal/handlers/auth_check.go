@@ -190,7 +190,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// depth": if both geo says pow_only and ja4 says captcha_only, the
 	// visitor gets captcha_only).  Side-effects (= honeypot's BAN add) fire
 	// inside each axis regardless of whether it wins the max.
-	bvCookie := pickValidBV(r, cfg, ip)
+	bvCookie := pickValidBV(r, cfg, ip, site)
 	bvOK := bvCookie != ""
 	// honeypotChMode: chain to surface to the challenge JS when the
 	// honeypot case takes the challenge branch.  Set by honeypotDecide
@@ -326,7 +326,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// phase right after install, to see "how many challenges would
 	// fire if I went strict."  The original action is saved in
 	// payload.would_be_action.
-	observeOnly := cfg.Challenge.ObserveOnly && (action == "challenge" || action == "block")
+	observeOnly := cfg.Challenge.Resolve(site).ObserveOnly && (action == "challenge" || action == "block")
 	wouldBeAction := action
 	wouldBeReason := reason
 
@@ -947,7 +947,8 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 // the stale cookie sorts ahead of the new one in the Cookie header.  The
 // matching nginx C plugin does the same iteration in
 // ngx_unmask_bv_kind_compute.
-func pickValidBV(r *http.Request, cfg settings.Settings, ip string) string {
+func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string {
+	ch := cfg.Challenge.Resolve(site)
 	for _, c := range r.Cookies() {
 		if c.Name != "_bv" {
 			continue
@@ -956,9 +957,9 @@ func pickValidBV(r *http.Request, cfg settings.Settings, ip string) string {
 			continue
 		}
 		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip,
-			cfg.Challenge.PowCookieValidSecondsResolved(),
-			cfg.Challenge.CaptchaCookieValidSecondsResolved(),
-			cfg.Challenge.ResolvedPowDifficulty()) {
+			ch.PowCookieValidSecondsResolved(),
+			ch.CaptchaCookieValidSecondsResolved(),
+			ch.ResolvedPowDifficulty()) {
 			return c.Value
 		}
 	}

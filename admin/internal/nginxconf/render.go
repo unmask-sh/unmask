@@ -282,9 +282,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Version:               version,
 		OutputDir:             outDir,
 		BVSecret:              s.Secret.BVSecret,
-		BVPowValidSeconds:     s.Challenge.PowCookieValidSecondsResolved(),
-		BVCaptchaValidSeconds: s.Challenge.CaptchaCookieValidSecondsResolved(),
-		PowDifficulty:         s.Challenge.ResolvedPowDifficulty(),
+		// nginx render currently emits a single global secret/window/difficulty
+		// (= no `map $host` block yet).  Use Default directly; per-site
+		// rendering lands in v2 phase 3.
+		// TODO(multi-site v2 phase 3): walk s.Challenge.Sites and emit
+		// `map $host` blocks for PowDifficulty / cookie windows.
+		BVPowValidSeconds:     s.Challenge.Default.PowCookieValidSecondsResolved(),
+		BVCaptchaValidSeconds: s.Challenge.Default.CaptchaCookieValidSecondsResolved(),
+		PowDifficulty:         s.Challenge.Default.ResolvedPowDifficulty(),
 		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction, s.Global.DefaultAction),
 		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction, s.Global.DefaultAction),
 		UpstreamAddr:          defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),

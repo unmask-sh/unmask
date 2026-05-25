@@ -150,8 +150,11 @@ func cmdDoctor(args []string) error {
 		addWarn("ban file path", "not set (= honeypot persistent BAN feature disabled)")
 	}
 
-	// 6. challenge html override (= optional)
-	if p := s.Challenge.ChallengeHTMLPath; p != "" {
+	// 6. challenge html override (= optional).  Doctor reports the global
+	// default only; per-site challenge_html_path overrides are surfaced in
+	// the admin UI's per-site card list.
+	chDefault := s.Challenge.Default
+	if p := chDefault.ChallengeHTMLPath; p != "" {
 		if _, err := os.Stat(p); err != nil {
 			addErr("challenge html override", err.Error())
 		} else {
@@ -162,13 +165,13 @@ func cmdDoctor(args []string) error {
 	// 7. challenge settings sanity.  CookieDays is a legacy yaml-only field
 	// that load-time migration sets to 0 once it has folded into CookieSeconds,
 	// so the canonical knob to inspect here is CookieSeconds (in seconds).
-	cookieDays := s.Challenge.CookieSeconds / 86400
+	cookieDays := chDefault.CookieSeconds / 86400
 	if cookieDays <= 0 || cookieDays > 365 {
-		addWarn("cookie_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", s.Challenge.CookieSeconds, cookieDays))
+		addWarn("cookie_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", chDefault.CookieSeconds, cookieDays))
 	} else {
-		addOK("cookie_seconds", fmt.Sprintf("%d days (= %d seconds)", cookieDays, s.Challenge.CookieSeconds))
+		addOK("cookie_seconds", fmt.Sprintf("%d days (= %d seconds)", cookieDays, chDefault.CookieSeconds))
 	}
-	if th := s.Challenge.CaptchaProvider.BuiltinScoreThreshold; th < 0 || th > 1 {
+	if th := chDefault.CaptchaProvider.BuiltinScoreThreshold; th < 0 || th > 1 {
 		addWarn("captcha.builtin_score_threshold", fmt.Sprintf("value %.2f is outside (0.0-1.0)", th))
 	} else {
 		addOK("captcha.builtin_score_threshold", fmt.Sprintf("%.2f", th))

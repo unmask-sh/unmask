@@ -2154,7 +2154,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="ch-pow-cookie-help">{{ safeHTML (t .Lang "settings.challenge.pow_cookie_valid_seconds_help") }}</script>
       <input type="number" id="ch-pow-cookie-sec" name="pow_cookie_valid_seconds" min="60" max="31536000" step="60"
-             value="{{ if gt .Challenge.PowCookieValidSeconds 0 }}{{ .Challenge.PowCookieValidSeconds }}{{ else if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}259200{{ end }}"
+             value="{{ if gt .ChallengeValues.PowCookieValidSeconds 0 }}{{ .ChallengeValues.PowCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}259200{{ end }}"
              {{/* default: 259200 (= 3 days). PoW is automatic / lightweight proof; refresh more often than CAPTCHA. */}}
              style="width:8rem"
              oninput="document.getElementById('ch-pow-cookie-hint').textContent=secToHuman(this.value)">
@@ -2168,7 +2168,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="ch-captcha-cookie-help">{{ safeHTML (t .Lang "settings.challenge.captcha_cookie_valid_seconds_help") }}</script>
       <input type="number" id="ch-captcha-cookie-sec" name="captcha_cookie_valid_seconds" min="60" max="31536000" step="60"
-             value="{{ if gt .Challenge.CaptchaCookieValidSeconds 0 }}{{ .Challenge.CaptchaCookieValidSeconds }}{{ else if gt .Challenge.CookieSeconds 0 }}{{ .Challenge.CookieSeconds }}{{ else }}604800{{ end }}"
+             value="{{ if gt .ChallengeValues.CaptchaCookieValidSeconds 0 }}{{ .ChallengeValues.CaptchaCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}604800{{ end }}"
              {{/* default: 604800 (= 7 days). CAPTCHA is human-effort proof; longer than PoW reduces re-CAPTCHA friction. */}}
              style="width:8rem"
              oninput="document.getElementById('ch-captcha-cookie-hint').textContent=secToHuman(this.value)">
@@ -2182,7 +2182,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="ch-pow-help">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</script>
       <input type="number" id="ch-pow-diff" name="pow_difficulty" min="8" max="24" step="1"
-             value="{{ .Challenge.ResolvedPowDifficulty }}"
+             value="{{ .ChallengeValues.ResolvedPowDifficulty }}"
              style="width:6rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">bit</span>
     </div>
@@ -2194,7 +2194,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="ch-debug-help">{{ safeHTML (t .Lang "settings.challenge.debug_rate_help") }}</script>
       <input type="number" id="ch-debug-rate" name="debug_rate_limit_per_5min" min="1" max="10000" step="1"
-             value="{{ if gt .Challenge.DebugRateLimitPer5Min 0 }}{{ .Challenge.DebugRateLimitPer5Min }}{{ else }}20{{ end }}"
+             value="{{ if gt .ChallengeValues.DebugRateLimitPer5Min 0 }}{{ .ChallengeValues.DebugRateLimitPer5Min }}{{ else }}20{{ end }}"
              style="width:6rem">
     </div>
 
@@ -2211,7 +2211,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <script type="text/html" id="ch-test-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</script>
       <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
         <input type="hidden" name="public_test_pages_present" value="1">
-        <input type="checkbox" name="public_test_pages" value="1" {{ if .Challenge.PublicTestPages }}checked{{ end }}>
+        <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeValues.PublicTestPages }}checked{{ end }}>
         <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
       </label>
       {{/* Quick links to the actual test pages.  Admin side is always
@@ -2225,7 +2225,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <a href="{{ .BasePath }}/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
           {{ t .Lang "settings.challenge.test_link_public" }} ↗
         </a>
-        {{ if not .Challenge.PublicTestPages }}
+        {{ if not .ChallengeValues.PublicTestPages }}
         <span style="color:#94a3b8;font-size:.72rem">({{ t .Lang "settings.challenge.test_link_public_disabled" }})</span>
         {{ end }}
       </div>
@@ -2233,6 +2233,94 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+
+{{/* ─── Site-specific challenge (v2 phase 1) ──────────────────────────
+     One card per host in Challenge.Sites.  Each entry is a complete
+     ChallengeValues record (cookie windows + difficulty + theme + captcha
+     provider + show_credit + observe_only); no field-level inheritance.
+     The "+ Add" form is seeded with the Default values so the operator
+     only changes what they want different. */}}
+<section class="bcd-card challenge-sites-card" style="margin-top:1.2rem">
+  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
+    {{ t .Lang "settings.challenge.sites.section_title" }}
+  </div>
+  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
+    {{ safeHTML (t .Lang "settings.challenge.sites.intro") }}
+  </p>
+  {{ if .Challenge.Sites }}
+  <div class="site-card-list">
+    {{ range $host, $cv := .Challenge.Sites }}
+    <div class="site-card">
+      <div class="site-card-head">
+        <strong>{{ $host }}</strong>
+        <span class="muted">
+          PoW {{ $cv.ResolvedPowDifficulty }} bit ·
+          {{ if $cv.Theme }}{{ $cv.Theme }}{{ else }}default{{ end }} ·
+          {{ if $cv.ShowCredit }}{{ t $.Lang "settings.challenge.sites.credit_on" }}{{ else }}{{ t $.Lang "settings.challenge.sites.credit_off" }}{{ end }}
+        </span>
+      </div>
+      <div class="site-card-actions">
+        <form method="post" style="display:inline"
+              action="{{ $.BasePath }}/admin/settings/challenge/site/delete"
+              onsubmit="return confirm('{{ t $.Lang "settings.challenge.sites.delete_confirm" }}: {{ $host }}')">
+          <input type="hidden" name="site" value="{{ $host }}">
+          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.challenge.sites.delete" }}</button>
+        </form>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
+    {{ t .Lang "settings.challenge.sites.empty" }}
+  </p>
+  {{ end }}
+
+  <details class="site-add-block">
+    <summary class="btn-mini">{{ t .Lang "settings.challenge.sites.add" }}</summary>
+    <form method="post" action="{{ .BasePath }}/admin/settings/challenge/site/save"
+          class="site-add-form">
+      <div class="field">
+        <label>{{ t .Lang "settings.challenge.sites.host_label" }}</label>
+        <input type="text" name="site" required maxlength="253"
+               placeholder="shop.example.com"
+               pattern="[A-Za-z0-9.\-]+"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.challenge.pow_cookie_valid_seconds" }}</label>
+        <input type="number" name="pow_cookie_valid_seconds" min="60" max="31536000" step="60"
+               value="{{ if gt .ChallengeValues.PowCookieValidSeconds 0 }}{{ .ChallengeValues.PowCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}259200{{ end }}"
+               style="width:8rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.challenge.captcha_cookie_valid_seconds" }}</label>
+        <input type="number" name="captcha_cookie_valid_seconds" min="60" max="31536000" step="60"
+               value="{{ if gt .ChallengeValues.CaptchaCookieValidSeconds 0 }}{{ .ChallengeValues.CaptchaCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}604800{{ end }}"
+               style="width:8rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
+        <input type="number" name="pow_difficulty" min="8" max="24" step="1"
+               value="{{ .ChallengeValues.ResolvedPowDifficulty }}" style="width:6rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.theme.h" }}</label>
+        <select name="theme" style="font-size:.9rem;padding:.25rem .4rem">
+          {{ range $opt := .ThemeOptions }}
+          <option value="{{ $opt }}" {{ if eq $.ChallengeTheme $opt }}selected{{ end }}>{{ t $.Lang (printf "settings.theme.option.%s" $opt) }}</option>
+          {{ end }}
+        </select>
+      </div>
+      <label style="font-size:.85rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem">
+        <input type="checkbox" name="show_credit" value="1" {{ if .ChallengeValues.ShowCredit }}checked{{ end }}>
+        {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
+      </label>
+      <button type="submit" class="btn">{{ t .Lang "settings.challenge.sites.save" }}</button>
+    </form>
+  </details>
+</section>
+
 <script>
 // human-readable display next to a seconds input (= 86400 -> "1 d", 3600 -> "1 h", etc.).
 function secToHuman(s){
@@ -2685,7 +2773,7 @@ document.addEventListener("DOMContentLoaded", function(){
       <div class="field">
         <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>
         <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
-               value="{{ .Branding.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
+               value="{{ .BrandingValues.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
                style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.site_name_desc" }}</p>
       </div>
@@ -2693,7 +2781,7 @@ document.addEventListener("DOMContentLoaded", function(){
       <div class="field">
         <label for="branding-footer-text">{{ t .Lang "settings.branding.footer_label" }}</label>
         <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
-               value="{{ .Branding.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
+               value="{{ .BrandingValues.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
                style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
       </div>
@@ -2723,7 +2811,7 @@ document.addEventListener("DOMContentLoaded", function(){
         </div>
         <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .ChallengeValues.ShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
       </div>
@@ -2743,10 +2831,10 @@ document.addEventListener("DOMContentLoaded", function(){
          can see exactly what the visitor will read for each preset, instead
          of guessing from "friendly / neutral / minimal" labels. */}}
     <div class="branding-preset-list">
-      {{ $subject := $.Branding.SiteName }}
+      {{ $subject := $.BrandingValues.SiteName }}
       {{ if eq $subject "" }}{{ $subject = t $.Lang "settings.branding.fallback_subject" }}{{ end }}
       {{ range $p := .BrandingPresets }}
-      {{ $sel := or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}
+      {{ $sel := or (eq $.BrandingValues.CopyPreset $p) (and (eq $.BrandingValues.CopyPreset "") (eq $p "friendly")) }}
       {{ $sampleTpl := t $.Lang (printf "settings.branding.preset.%s_sample" $p) }}
       <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
         <input type="radio" name="branding_copy_preset" value="{{ $p }}" {{ if $sel }}checked{{ end }}>
@@ -2827,24 +2915,24 @@ document.addEventListener("DOMContentLoaded", function(){
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.Branding.CopyPreset }}&_preview_preset={{ $.Branding.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}{{ if $.Branding.FooterText }}&_preview_footer_text={{ $.Branding.FooterText }}{{ end }}&_preview_show_credit={{ if $.Challenge.ShowCredit }}1{{ else }}0{{ end }}"></iframe>
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.ChallengeValues.ShowCredit }}1{{ else }}0{{ end }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
         <div class="theme-card-actions" onclick="event.stopPropagation();">
           <a class="preview-link" target="_blank" rel="noopener"
              data-preview-theme="{{ $opt }}" data-preview-mode="pow"
-             href="{{ $.BasePath }}/admin/test/force-pow?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+             href="{{ $.BasePath }}/admin/test/force-pow?theme={{ $opt }}&_preview_preset={{ if $.BrandingValues.CopyPreset }}{{ $.BrandingValues.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}">
             {{ t $.Lang "settings.branding.preview_pow" }} ↗
           </a>
           <a class="preview-link" target="_blank" rel="noopener"
              data-preview-theme="{{ $opt }}" data-preview-mode="pow_then_captcha"
-             href="{{ $.BasePath }}/admin/test/force-pow-then-captcha?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+             href="{{ $.BasePath }}/admin/test/force-pow-then-captcha?theme={{ $opt }}&_preview_preset={{ if $.BrandingValues.CopyPreset }}{{ $.BrandingValues.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}">
             {{ t $.Lang "settings.branding.preview_pow_then_captcha" }} ↗
           </a>
           <a class="preview-link" target="_blank" rel="noopener"
              data-preview-theme="{{ $opt }}" data-preview-mode="captcha"
-             href="{{ $.BasePath }}/admin/test/force-captcha?theme={{ $opt }}&_preview_preset={{ if $.Branding.CopyPreset }}{{ $.Branding.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.Branding.SiteName }}&_preview_site_name={{ $.Branding.SiteName }}{{ end }}">
+             href="{{ $.BasePath }}/admin/test/force-captcha?theme={{ $opt }}&_preview_preset={{ if $.BrandingValues.CopyPreset }}{{ $.BrandingValues.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}">
             {{ t $.Lang "settings.branding.preview_captcha" }} ↗
           </a>
         </div>
@@ -2854,6 +2942,100 @@ document.addEventListener("DOMContentLoaded", function(){
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+
+{{/* ─── Site-specific branding (v2 phase 1) ───────────────────────────
+     One card per host in Branding.Sites.  Each entry is a complete
+     BrandingValues record (= no field-level inheritance from Default).
+     "+ Add" opens an inline form pre-seeded with the Default values;
+     "×" deletes the entry, returning the site to Default verbatim. */}}
+<section class="bcd-card branding-sites-card" style="margin-top:1.2rem">
+  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
+    {{ t .Lang "settings.branding.sites.section_title" }}
+  </div>
+  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
+    {{ safeHTML (t .Lang "settings.branding.sites.intro") }}
+  </p>
+  {{ if .Branding.Sites }}
+  <div class="site-card-list">
+    {{ range $host, $bv := .Branding.Sites }}
+    <div class="site-card">
+      <div class="site-card-head">
+        <strong>{{ $host }}</strong>
+        <span class="muted">
+          {{ if $bv.SiteName }}{{ $bv.SiteName }}{{ else }}—{{ end }} ·
+          {{ if $bv.LogoPath }}{{ t $.Lang "settings.branding.sites.logo_set" }}{{ else }}{{ t $.Lang "settings.branding.sites.logo_none" }}{{ end }} ·
+          {{ $bv.ResolvedCopyPreset }}
+        </span>
+      </div>
+      <div class="site-card-actions">
+        <button type="button" class="btn-mini" data-action="edit"
+                data-host="{{ $host }}"
+                data-site-name="{{ $bv.SiteName }}"
+                data-footer="{{ $bv.FooterText }}"
+                data-preset="{{ $bv.ResolvedCopyPreset }}">
+          {{ t $.Lang "settings.branding.sites.edit" }}
+        </button>
+        <form method="post" style="display:inline"
+              action="{{ $.BasePath }}/admin/settings/branding/site/delete"
+              onsubmit="return confirm('{{ t $.Lang "settings.branding.sites.delete_confirm" }}: {{ $host }}')">
+          <input type="hidden" name="site" value="{{ $host }}">
+          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.branding.sites.delete" }}</button>
+        </form>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
+    {{ t .Lang "settings.branding.sites.empty" }}
+  </p>
+  {{ end }}
+
+  <details class="site-add-block">
+    <summary class="btn-mini">{{ t .Lang "settings.branding.sites.add" }}</summary>
+    <form method="post" enctype="multipart/form-data"
+          action="{{ .BasePath }}/admin/settings/branding/site/save"
+          class="site-add-form">
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.sites.host_label" }}</label>
+        <input type="text" name="site" required maxlength="253"
+               placeholder="shop.example.com"
+               pattern="[A-Za-z0-9.\-]+"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.site_name_label" }}</label>
+        <input type="text" name="branding_site_name" maxlength="80"
+               value="{{ .BrandingValues.SiteName }}"
+               placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.footer_label" }}</label>
+        <input type="text" name="branding_footer_text" maxlength="160"
+               value="{{ .BrandingValues.FooterText }}"
+               placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.logo_label" }}</label>
+        <input type="file" name="branding_logo_file"
+               accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
+               style="font-size:.85rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.branding.template_heading" }}</label>
+        <select name="branding_copy_preset" style="font-size:.9rem;padding:.25rem .4rem">
+          {{ range $p := .BrandingPresets }}
+          <option value="{{ $p }}" {{ if eq $.BrandingValues.CopyPreset $p }}selected{{ end }}>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</option>
+          {{ end }}
+        </select>
+      </div>
+      <button type="submit" class="btn">{{ t .Lang "settings.branding.sites.save" }}</button>
+    </form>
+  </details>
+</section>
+
 <style>
 .branding-grid{display:grid;grid-template-columns:1fr;gap:.9rem;margin-top:.6rem}
 .branding-grid .field label{font-weight:500;color:#475569;font-size:.85rem;display:block;margin-bottom:.2rem}
@@ -2906,6 +3088,22 @@ document.addEventListener("DOMContentLoaded", function(){
    rows, and the operator wants to scroll to verify the bottom.  Click-to-
    select is still possible via the head bar (= radio + name) above. */
 .theme-preview-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:auto}
+/* per-site cards (= multi-site v2 phase 1) */
+.branding-sites-card,.challenge-sites-card{padding:.9rem 1rem;border:1px solid #e2e8f0;border-radius:.4rem;background:#fff}
+.site-card-list{display:flex;flex-direction:column;gap:.35rem;margin:.2rem 0 .8rem}
+.site-card{display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.55rem .8rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#f8fafc}
+.site-card-head{display:flex;flex-direction:column;gap:.15rem;font-size:.9rem;color:#0f172a;min-width:0;flex:1}
+.site-card-head .muted{color:#64748b;font-size:.78rem}
+.site-card-actions{display:flex;gap:.35rem;flex-shrink:0}
+.btn-mini{font-size:.78rem;padding:.25rem .65rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
+.btn-mini:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
+.btn-mini.btn-danger{color:#b91c1c;border-color:#fecaca}
+.btn-mini.btn-danger:hover{background:#fef2f2;border-color:#f87171}
+.site-add-block{margin-top:.5rem}
+.site-add-block summary{display:inline-block;list-style:none;cursor:pointer}
+.site-add-block summary::-webkit-details-marker{display:none}
+.site-add-form{display:flex;flex-direction:column;gap:.55rem;margin-top:.7rem;padding:.8rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem}
+.site-add-form .field label{display:block;font-size:.82rem;font-weight:500;color:#475569;margin-bottom:.2rem}
 </style>
 <script>
 (function(){

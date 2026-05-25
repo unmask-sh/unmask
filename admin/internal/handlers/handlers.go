@@ -175,7 +175,7 @@ var buildVersionStamp = time.Now().Unix()
 // logo_url is built from the configured logo file's extension (e.g. .svg /
 // .png) so the browser fetches /<base>/branding/logo.<ext>; an empty path
 // omits the field and the JS hides the <img> slot.
-func brandingInjectJSON(b settings.Branding, basePath string) string {
+func brandingInjectJSON(b settings.BrandingValues, basePath string) string {
 	type out struct {
 		LogoURL    string `json:"logo_url,omitempty"`
 		SiteName   string `json:"site_name,omitempty"`
@@ -223,7 +223,8 @@ func brandingInjectJSON(b settings.Branding, basePath string) string {
 // mismatch (e.g. visitor asks for .png but operator stored .svg) is also a
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	b := h.snapshotSettings().Branding
+	site := siteFromRequest(r)
+	b := h.snapshotSettings().Branding.Resolve(site)
 	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
 		return
@@ -272,7 +273,10 @@ func (h *Handler) basePath() string {
 //
 // For backward compatibility, bot-challenge.html (the old name) is checked as fallback.
 func (h *Handler) loadChallengeHTML() ([]byte, error) {
-	if p := h.Settings.Challenge.ChallengeHTMLPath; p != "" {
+	// challenge_html_path is treated as a global override (= same template
+	// for every site).  Per-site challenge HTML override is out of scope for
+	// v0.1 -- branding / preset / theme already cover the typical needs.
+	if p := h.Settings.Challenge.Default.ChallengeHTMLPath; p != "" {
 		return os.ReadFile(p)
 	}
 	for _, p := range []string{
@@ -509,7 +513,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// In auth_request mode AuthCheck has already returned pass, so this path
 	// is not reached.  Reached via native mode (nginx plugin sends straight
 	// to the challenge route).
-	if forceQuery == "" && h.snapshotSettings().Challenge.ObserveOnly {
+	if forceQuery == "" && h.snapshotSettings().Challenge.Resolve(site).ObserveOnly {
 		h.serveObserveOnlyRedirect(w, r, site)
 		return
 	}
@@ -605,13 +609,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__CAPTCHA_FORCE__*/"`+forceReason+`"`))
 	body = bytes.ReplaceAll(body, []byte(challengeProbe),
 		[]byte("<!--probe=ON force_reason="+forceReason+"-->"))
+	// Resolve per-site challenge + branding once; reuse for every placeholder
+	// substitution below.  Default verbatim when the site has no Sites entry.
+	ch := h.Settings.Challenge.Resolve(site)
+	br := h.Settings.Branding.Resolve(site)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
-		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(h.Settings.Challenge.CaptchaProvider)))
-	theme := pickChallengeTheme(r, h.Settings.Challenge.Theme)
+		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(ch.CaptchaProvider)))
+	theme := pickChallengeTheme(r, ch.Theme)
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
-		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding, h.basePath())))
+		[]byte("/*__BRANDING__*/"+brandingInjectJSON(br, h.basePath())))
 	// Cache-bust the challenge.js URL with the admin's start-time epoch so
 	// every restart forces visitors to re-fetch the script.  Without this
 	// the public-side max-age=600 keeps stale JS in browsers for up to 10
@@ -745,7 +753,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// PoW difficulty (settings.Challenge.PowDifficulty; the target
 	// leading-zero-bits used by challenge.js's SHA-256 hashcash).
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
-		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", h.Settings.Challenge.ResolvedPowDifficulty())))
+		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", ch.ResolvedPowDifficulty())))
 
 	// PoW spinner floor.  Production sees no floor (real PoW timing); the
 	// /unmask/test/ pages opt into a slowdown via `?_pow_display=N` so an
@@ -808,7 +816,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// the aside body.  Operator-side previews (= /admin/test/ or ?_preview=1)
 	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
 	// reflects the toggle live without saving.
-	showCredit := h.Settings.Challenge.ShowCredit
+	showCredit := ch.ShowCredit
 	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
 		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
 			showCredit = true
@@ -1017,7 +1025,7 @@ func (h *Handler) ForcePoWThenCaptcha(w http.ResponseWriter, r *http.Request) {
 // side (/unmask/admin/test/*).
 func (h *Handler) PublicTestGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !h.snapshotSettings().Challenge.PublicTestPages {
+		if !h.snapshotSettings().Challenge.Resolve(siteFromRequest(r)).PublicTestPages {
 			http.NotFound(w, r)
 			return
 		}
@@ -1332,6 +1340,8 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
+	site := siteFromRequest(r)
+	ch := h.Settings.Challenge.Resolve(site)
 	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
 	// kind is kept site-agnostic: a per-site _bv binding needs a dot-safe site
 	// encoding plus a site-aware native verifier — tracked as a later phase in
@@ -1341,7 +1351,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	// If a 3rd-party CAPTCHA provider is configured, verify with highest
 	// priority (behavioral signal becomes supplementary).  For builtin,
 	// proceed with the normal flow.
-	if cc := h.Settings.Challenge.CaptchaProvider; cc.Provider != "" && cc.Provider != "builtin" && payload.ProviderToken != "" {
+	if cc := ch.CaptchaProvider; cc.Provider != "" && cc.Provider != "builtin" && payload.ProviderToken != "" {
 		secret := captchaSecretFor(cc)
 		res, err := captcha.VerifyExternal(r.Context(), cc.Provider, secret, payload.ProviderToken, ip)
 		if err != nil {
@@ -1376,7 +1386,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		score := captcha.Score(payload.Sig)
 		Metrics.ObserveScore(score)
-		if score >= h.Settings.Challenge.CaptchaProvider.BuiltinScoreThreshold {
+		if score >= ch.CaptchaProvider.BuiltinScoreThreshold {
 			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
 			h.setBVCookie(w, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
@@ -1462,7 +1472,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 
 	// per-IP rate limit (default 20 entries per 5 minutes).
 	cnt, err := events.CountRecentByIP(r.Context(), h.DB, pkt, 5)
-	if err == nil && cnt >= h.Settings.Challenge.DebugRateLimitPer5Min {
+	if err == nil && cnt >= h.Settings.Challenge.Resolve(site).DebugRateLimitPer5Min {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
@@ -1499,7 +1509,9 @@ func (h *Handler) setBVCookie(w http.ResponseWriter, val string) {
 		Name:     "_bv",
 		Value:    val,
 		Path:     "/",
-		MaxAge:   h.Settings.Challenge.CookieMaxAgeSeconds(),
+		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
+		// unnecessary for the browser-side Max-Age.
+		MaxAge:   h.Settings.Challenge.Default.CookieMaxAgeSeconds(),
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, c)

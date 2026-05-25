@@ -61,12 +61,14 @@ func newTestHandler(t *testing.T) *Handler {
 			BVSecret:          "test-secret",
 			CaptchaSecretBase: "test-base",
 		},
-		Challenge: settings.Challenge{
-			CookieDays:            3,
-			DebugRateLimitPer5Min: 100,
-			CaptchaProvider: settings.Captcha{
-				Provider:              "builtin",
-				BuiltinScoreThreshold: 0.5,
+		Challenge: settings.ChallengeConfig{
+			Default: settings.ChallengeValues{
+				CookieDays:            3,
+				DebugRateLimitPer5Min: 100,
+				CaptchaProvider: settings.Captcha{
+					Provider:              "builtin",
+					BuiltinScoreThreshold: 0.5,
+				},
 			},
 		},
 	}

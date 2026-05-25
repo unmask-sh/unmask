@@ -446,9 +446,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HostInventory": hostInventory,
 		"HostDisabled":  hostDisabled,
 		// CAPTCHA provider settings (= used by the captcha tab).
-		"Captcha": h.snapshotSettings().Challenge.CaptchaProvider,
-		// Settings used by the challenge tab (= cookie_days / score_threshold / debug rate).
-		"Challenge": h.snapshotSettings().Challenge,
+		// Pulled from the Default record; the captcha tab edits the global
+		// default only.  Per-site captcha provider override is part of the
+		// per-site card UI on the challenge tab.
+		"Captcha": h.snapshotSettings().Challenge.Default.CaptchaProvider,
+		// Settings used by the challenge tab.  Passes the wrapper so the
+		// template can iterate .Challenge.Sites for the per-site card list;
+		// the default form reads .ChallengeValues for individual fields.
+		"Challenge":       h.snapshotSettings().Challenge,
+		"ChallengeValues": h.snapshotSettings().Challenge.Default,
 		// Settings used by the rate-limit tab (= default zone + named zones list).
 		"RateLimit": h.snapshotSettings().RateLimit,
 		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
@@ -460,8 +466,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GeoCountriesAll": ipgeo.CountriesSorted(),
 		"GeoCountryMap":   ipgeo.Countries,
 		// Challenge-page theme (= used by the theme tab; empty/invalid → "default").
+		// Reads the Default record; per-site theme override lives on the
+		// per-site card on the challenge tab.
 		"ChallengeTheme": func() string {
-			t := h.snapshotSettings().Challenge.Theme
+			t := h.snapshotSettings().Challenge.Default.Theme
 			if !challengeThemes[t] {
 				return "default"
 			}
@@ -470,15 +478,18 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Theme list with a guaranteed display order (= map iteration is unordered).
 		// "default" first, then by mood (= calm → lively).
 		"ThemeOptions": []string{"default", "dark", "terminal", "paper", "cat"},
-		// Branding settings used by the theme tab's top section.  The view
-		// only needs the four operator-editable fields; visitor-facing copy
-		// presets are resolved client-side (challenge.js).
-		"Branding": h.snapshotSettings().Branding,
+		// Branding settings used by the theme tab's top section.  Passes the
+		// wrapper so the template can iterate .Branding.Sites for the per-site
+		// card list; the default form reads .BrandingValues for individual
+		// fields.  Visitor-facing copy presets are resolved client-side
+		// (challenge.js).
+		"Branding":       h.snapshotSettings().Branding,
+		"BrandingValues": h.snapshotSettings().Branding.Default,
 		// Whether the resolved Branding has a logo on disk.  Used to show
 		// the "current logo" thumbnail + the "remove logo" toggle.  Path is
 		// not shown to the operator (= internal detail).
 		"BrandingHasLogo": func() bool {
-			b := h.snapshotSettings().Branding
+			b := h.snapshotSettings().Branding.Default
 			if strings.TrimSpace(b.LogoPath) == "" {
 				return false
 			}
@@ -489,7 +500,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// preview thumbnail refreshes immediately after upload (= the
 		// /branding/logo.<ext> serve carries 5-min Cache-Control).
 		"BrandingLogoURL": func() string {
-			b := h.snapshotSettings().Branding
+			b := h.snapshotSettings().Branding.Default
 			p := strings.TrimSpace(b.LogoPath)
 			if p == "" {
 				return ""
@@ -816,12 +827,17 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "captcha":
-		if err := applyCaptchaForm(&cur.Challenge.CaptchaProvider, r); err != nil {
+		// CAPTCHA provider edits target the Default record; per-site CAPTCHA
+		// overrides ride the per-site card endpoints (see add/edit/delete
+		// routes below).
+		if err := applyCaptchaForm(&cur.Challenge.Default.CaptchaProvider, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
 	case "challenge":
-		if err := applyChallengeForm(&cur.Challenge, r); err != nil {
+		// Challenge tab save: applyChallengeFormV2 updates Default + Sites
+		// from the same form payload (= one click writes both blocks).
+		if err := applyChallengeFormV2(&cur.Challenge, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -836,19 +852,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "theme":
-		// Challenge-page theme. Keep the allowlist in sync with
-		// handlers.go challengeThemes (= "default" / "cat"). Snap invalid
-		// values to "default".
+		// Challenge-page theme.  Targets the Default record; per-site theme
+		// override lives on the per-site card on the challenge tab.  Keep
+		// the allowlist in sync with handlers.go challengeThemes ("default"
+		// / "cat" / ...); invalid values snap to "default".
 		t := strings.TrimSpace(r.FormValue("theme"))
 		if !challengeThemes[t] {
 			t = "default"
 		}
-		cur.Challenge.Theme = t
+		cur.Challenge.Default.Theme = t
 	case "branding":
-		// Brand identity shown on the challenge page (= logo + name +
-		// footer + copy preset).  See settings.Branding for the data shape
-		// and handlers.go ServeBrandingLogo for the logo serve path.
-		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+		// Branding tab save: applyBrandingFormV2 updates Default + Sites
+		// from the same form payload.  See settings.Branding for the data
+		// shape and handlers.go ServeBrandingLogo for the logo serve path.
+		if err := applyBrandingFormV2(&cur.Branding, h.ConfigPath, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -856,8 +873,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// Combined save for the theme tab: branding identity + copy preset
 		// + theme card + "show credit" badge.  Multiple forms with multiple
 		// save buttons on the same page confused operators; appearance
-		// dispatches them all from one button press.
-		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+		// dispatches them all from one button press.  All operate on the
+		// Default record.
+		if err := applyBrandingFormV2(&cur.Branding, h.ConfigPath, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -865,11 +883,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if !challengeThemes[t] {
 			t = "default"
 		}
-		cur.Challenge.Theme = t
+		cur.Challenge.Default.Theme = t
 		// show_credit was previously on the challenge tab; now lives next
 		// to the theme cards so the operator sees the live preview toggle
 		// alongside it.  Plain checkbox -> bool.
-		cur.Challenge.ShowCredit = r.FormValue("show_credit") == "1"
+		cur.Challenge.Default.ShowCredit = r.FormValue("show_credit") == "1"
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -2480,7 +2498,11 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 // The behavioral CAPTCHA pass threshold has moved to the captcha tab
 // (= applyCaptchaForm / builtin_score_threshold) since it only applies to
 // the builtin provider -- third-party providers use their own siteverify.
-func applyChallengeForm(c *settings.Challenge, r *http.Request) error {
+//
+// Operates on a *settings.ChallengeValues record (= one Default or one site
+// entry).  applyChallengeFormV2 wraps this so a single form submit updates
+// the Default record and adds / edits the per-site cards in one pass.
+func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("pow_cookie_valid_seconds")); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 60 || n > 31_536_000 {
@@ -3051,10 +3073,13 @@ var (
 // form (= section=branding).  configPath is the path to the active
 // config.yml so the logo can be persisted next to it (= <dir>/branding/logo.<ext>).
 //
+// Operates on a *settings.BrandingValues record (= one Default or one site
+// entry).  applyBrandingFormV2 wraps this for the default + sites save path.
+//
 // The logo file accepts a single upload.  Missing file = leave existing
 // logo untouched (= operator only changed text fields).  branding_logo_clear=1
 // removes the on-disk file + clears LogoPath.
-func applyBrandingForm(cur *settings.Branding, configPath string, r *http.Request) error {
+func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
@@ -3113,4 +3138,153 @@ func applyBrandingForm(cur *settings.Branding, configPath string, r *http.Reques
 	}
 	cur.LogoPath = path
 	return nil
+}
+
+// applyBrandingFormV2: top-level entry point for the branding tab save.
+// In v2 there is a single form per tab that edits the Default record only;
+// per-site cards have their own add / edit / delete endpoints (see the
+// HandleBrandingSite* methods below).  Until the cards land, this is a thin
+// adapter onto applyBrandingForm targeting cur.Default.
+func applyBrandingFormV2(cur *settings.Branding, configPath string, r *http.Request) error {
+	return applyBrandingForm(&cur.Default, configPath, r)
+}
+
+// applyChallengeFormV2: top-level entry point for the challenge tab save.
+// Mirrors applyBrandingFormV2: the Default record is edited via the same
+// form fields, per-site entries via dedicated card endpoints.
+func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error {
+	return applyChallengeForm(&cur.Default, r)
+}
+
+// AdminBrandingSiteSave: POST {base}/admin/settings/branding/site/save
+//
+// Persists one Sites[<host>] entry for the branding wrapper.  The form
+// carries the site identifier in `site` plus the same field names as the
+// default form (branding_site_name / branding_footer_text /
+// branding_copy_preset / branding_logo_file / branding_logo_clear).  Empty
+// fields are persisted as-is (= the v2 contract is "complete record",
+// nothing inherits from Default).  Already-existing sites are overwritten;
+// the same handler covers add + edit.  Redirects back to the theme tab,
+// where the per-site card section lives.
+func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "theme", func(cur *settings.Settings, site string) error {
+		if cur.Branding.Sites == nil {
+			cur.Branding.Sites = map[string]settings.BrandingValues{}
+		}
+		// Seed from the existing entry so that an edit that does not touch
+		// the logo file preserves it (= applyBrandingForm leaves LogoPath
+		// alone when there is no upload).
+		bv := cur.Branding.Sites[site]
+		if err := applyBrandingForm(&bv, h.ConfigPath, r); err != nil {
+			return err
+		}
+		cur.Branding.Sites[site] = bv
+		return nil
+	})
+}
+
+// AdminBrandingSiteDelete: POST {base}/admin/settings/branding/site/delete
+// Drops cur.Branding.Sites[<site>] entirely, returning the site to Default
+// verbatim on the next request.
+func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "theme", func(cur *settings.Settings, site string) error {
+		delete(cur.Branding.Sites, site)
+		return nil
+	})
+}
+
+// AdminChallengeSiteSave: POST {base}/admin/settings/challenge/site/save
+//
+// Same shape as AdminBrandingSiteSave but for the challenge wrapper.  Carries
+// every challenge field (cookie windows / difficulty / captcha provider /
+// theme / show_credit / observe_only) as a complete record.
+func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
+		if cur.Challenge.Sites == nil {
+			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
+		}
+		cv := cur.Challenge.Sites[site]
+		if err := applyChallengeForm(&cv, r); err != nil {
+			return err
+		}
+		// captcha provider + theme share the form field names with the
+		// captcha / theme tabs.  Reuse the existing parsers so the per-site
+		// card form behaves the same as the default form.
+		if err := applyCaptchaForm(&cv.CaptchaProvider, r); err != nil {
+			return err
+		}
+		if t := strings.TrimSpace(r.FormValue("theme")); t != "" {
+			if !challengeThemes[t] {
+				t = "default"
+			}
+			cv.Theme = t
+		}
+		cur.Challenge.Sites[site] = cv
+		return nil
+	})
+}
+
+// AdminChallengeSiteDelete: POST {base}/admin/settings/challenge/site/delete
+func (h *Handler) AdminChallengeSiteDelete(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
+		delete(cur.Challenge.Sites, site)
+		return nil
+	})
+}
+
+// adminScalarSiteSave is the shared body for all four per-site card endpoints.
+// It loads the latest settings from disk, runs mutate, saves atomically, and
+// swaps the in-memory snapshot under settingsMu.  Errors are surfaced via the
+// same flash cookie + redirect contract as AdminSettingsSave.
+func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, tab string, mutate func(*settings.Settings, string) error) {
+	if h.ConfigPath == "" {
+		http.Error(w, "config path unknown", http.StatusBadRequest)
+		return
+	}
+	// branding endpoints can carry multipart (= the save form has a logo
+	// upload); challenge + delete are plain.  Decide by the actual content
+	// type instead of the URL path so a delete via x-www-form-urlencoded
+	// against the /branding/ subtree still parses cleanly.
+	ctype := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ctype, "multipart/") {
+		if err := r.ParseMultipartForm(4 << 20); err != nil {
+			http.Error(w, "bad form (multipart): "+err.Error(), http.StatusBadRequest)
+			return
+		}
+	} else if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	base := h.Settings.Server.BasePath
+	redirBack := func(msg string) {
+		dst := base + "/admin/settings/?tab=" + tab
+		if msg == "" {
+			dst += "&saved=1"
+		} else {
+			setFlash(w, base, "err", msg)
+		}
+		http.Redirect(w, r, dst, http.StatusFound)
+	}
+	site := normalizeSite(strings.TrimSpace(r.FormValue("site")))
+	if site == "" {
+		redirBack("site is required")
+		return
+	}
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	cur, err := settings.Load(h.ConfigPath)
+	if err != nil {
+		redirBack("load: " + err.Error())
+		return
+	}
+	if err := mutate(&cur, site); err != nil {
+		redirBack(err.Error())
+		return
+	}
+	if err := settings.Save(cur, h.ConfigPath); err != nil {
+		redirBack("save: " + err.Error())
+		return
+	}
+	h.Settings = cur
+	redirBack("")
 }

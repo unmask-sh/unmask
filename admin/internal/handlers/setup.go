@@ -488,7 +488,9 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	settingsMu.Lock()
 	h.Settings.DB = s.DB
 	h.Settings.Nginx.ChallengeTargets.All = cur.Nginx.ChallengeTargets.All
-	h.Settings.Challenge.ObserveOnly = cur.Challenge.ObserveOnly
+	// Setup wizard only touches the global Default record (= per-site
+	// overrides are introduced later via the settings tab).
+	h.Settings.Challenge.Default.ObserveOnly = cur.Challenge.Default.ObserveOnly
 	settingsMu.Unlock()
 	if old != nil && old != conn {
 		_ = old.Close()

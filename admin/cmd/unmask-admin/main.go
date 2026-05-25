@@ -709,6 +709,16 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 		h.AuthMiddleware(h.AdminSettingsIndex))
 	mux.HandleFunc("POST "+base+"/admin/settings/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))
+	// per-site card endpoints for the Branding / Challenge tabs (= v2
+	// scalar override surface).  Each writes one Sites[<host>] entry.
+	mux.HandleFunc("POST "+base+"/admin/settings/branding/site/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBrandingSiteSave)))
+	mux.HandleFunc("POST "+base+"/admin/settings/branding/site/delete",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBrandingSiteDelete)))
+	mux.HandleFunc("POST "+base+"/admin/settings/challenge/site/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminChallengeSiteSave)))
+	mux.HandleFunc("POST "+base+"/admin/settings/challenge/site/delete",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminChallengeSiteDelete)))
 	// webhook test send (notifications tab's "send test" button)
 	mux.HandleFunc("POST "+base+"/admin/api/notify/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))
