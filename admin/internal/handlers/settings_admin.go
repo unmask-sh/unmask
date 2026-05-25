@@ -197,6 +197,70 @@ func protectedPathsOverrideCount(ov settings.ProtectedPathsOverride) int {
 	return n
 }
 
+// challengeOverrideCount: counts override knobs in a ChallengeOverride entry.
+// ShowCreditSet itself counts as 1 (= "this site explicitly chose a credit
+// state") so the picker badge reflects the bool override.  PowDifficulty 0
+// and empty Theme inherit and are not counted.
+func challengeOverrideCount(ov settings.ChallengeOverride) int {
+	n := 0
+	if strings.TrimSpace(ov.Theme) != "" {
+		n++
+	}
+	if ov.PowDifficulty != 0 {
+		n++
+	}
+	if ov.ShowCreditSet {
+		n++
+	}
+	return n
+}
+
+// rateLimitOverrideCount: counts the scalar Default-zone overrides the site
+// has set.  BurstSet itself counts (= explicit "burst=0" is an override).
+func rateLimitOverrideCount(ov settings.RateLimitOverride) int {
+	n := 0
+	if ov.RequestsPerMin > 0 {
+		n++
+	}
+	if ov.BurstSet {
+		n++
+	}
+	if ov.WindowSec > 0 {
+		n++
+	}
+	if strings.TrimSpace(ov.ChallengeMode) != "" {
+		n++
+	}
+	return n
+}
+
+// honeypotOverrideCount: counts override knobs the site has set in a
+// HoneypotOverride entry.  Each appended row + each remove entry counts as
+// 1, plus per-field counters for the scalar overrides.
+func honeypotOverrideCount(ov settings.HoneypotOverride) int {
+	n := 0
+	for _, p := range ov.AppendExtra {
+		if strings.TrimSpace(p) != "" {
+			n++
+		}
+	}
+	for _, s := range ov.Remove {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	if ov.DisabledPresets != nil {
+		n++
+	}
+	if strings.TrimSpace(ov.DefaultAction) != "" {
+		n++
+	}
+	if ov.BanDurationSet {
+		n++
+	}
+	return n
+}
+
 // buildScopeOptions: stitches the picker rows from the site picker source
 // (= same list that addMeToData feeds into SitePickerOptions) plus the
 // override map keys (across all override-aware sections).  Sites that have
@@ -213,6 +277,9 @@ func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scop
 	branding := snap.Branding
 	bypass := snap.Nginx.BypassPaths
 	protected := snap.Nginx.ProtectedPaths
+	challenge := snap.Challenge
+	rateLimit := snap.RateLimit
+	honeypot := snap.Nginx.Honeypot
 	addSite := func(site string) {
 		site = strings.ToLower(strings.TrimSpace(site))
 		if site == "" || seen[site] {
@@ -222,6 +289,9 @@ func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scop
 		count := brandingOverrideFieldCount(branding.Overrides[site])
 		count += bypassPathsOverrideCount(bypass.Overrides[site])
 		count += protectedPathsOverrideCount(protected.Overrides[site])
+		count += challengeOverrideCount(challenge.Overrides[site])
+		count += rateLimitOverrideCount(rateLimit.Overrides[site])
+		count += honeypotOverrideCount(honeypot.Overrides[site])
 		opts = append(opts, scopeOption{
 			Site:          site,
 			OverrideCount: count,
@@ -254,6 +324,15 @@ func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scop
 		addSite(site)
 	}
 	for site := range protected.Overrides {
+		addSite(site)
+	}
+	for site := range challenge.Overrides {
+		addSite(site)
+	}
+	for site := range rateLimit.Overrides {
+		addSite(site)
+	}
+	for site := range honeypot.Overrides {
 		addSite(site)
 	}
 	// A scope cookie pinned to a freshly named site that has no overrides
@@ -545,6 +624,28 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// lookup yields the zero value and every helper returns 0 for it.
 		"ScopeBypassPathsOverrideCount":    bypassPathsOverrideCount(h.snapshotSettings().Nginx.BypassPaths.Overrides[resolveSettingsScope(r)]),
 		"ScopeProtectedPathsOverrideCount": protectedPathsOverrideCount(h.snapshotSettings().Nginx.ProtectedPaths.Overrides[resolveSettingsScope(r)]),
+		// Phase 2.1 per-site overrides for the challenge / rate_limit /
+		// honeypot tabs.  Each Override* field is the raw entry from
+		// snap.Overrides[scope]; ScopeXxxOverrideCount drives the same
+		// "currently editing N overrides" banner used by the path tabs.
+		// Honeypot also exposes its append/remove view helpers so the
+		// row UI mirrors the bypass / protected pattern (= inherited
+		// block, append block, removed block).
+		"ScopeChallengeOverrideCount": challengeOverrideCount(h.snapshotSettings().Challenge.Overrides[resolveSettingsScope(r)]),
+		"ScopeRateLimitOverrideCount": rateLimitOverrideCount(h.snapshotSettings().RateLimit.Overrides[resolveSettingsScope(r)]),
+		"ScopeHoneypotOverrideCount":  honeypotOverrideCount(h.snapshotSettings().Nginx.Honeypot.Overrides[resolveSettingsScope(r)]),
+		"ChallengeOverride":           h.snapshotSettings().Challenge.Overrides[resolveSettingsScope(r)],
+		"RateLimitOverride":           h.snapshotSettings().RateLimit.Overrides[resolveSettingsScope(r)],
+		"HoneypotOverride":            h.snapshotSettings().Nginx.Honeypot.Overrides[resolveSettingsScope(r)],
+		// Resolved per-site views so the template can show "default: X"
+		// annotations next to the per-site input.  Empty scope returns
+		// the default verbatim so the templates degrade gracefully.
+		"ChallengeResolved": h.snapshotSettings().Challenge.Resolve(resolveSettingsScope(r)),
+		"RateLimitResolved": h.snapshotSettings().RateLimit.Resolve(resolveSettingsScope(r)),
+		"HoneypotResolved":  h.snapshotSettings().Nginx.Honeypot.Resolve(resolveSettingsScope(r)),
+		"HoneypotInheritedRows": buildHoneypotInheritedRows(cur.Honeypot, resolveSettingsScope(r)),
+		"HoneypotAppendRows":    buildHoneypotAppendRows(cur.Honeypot, resolveSettingsScope(r)),
+		"HoneypotRemoveStrings": collectHoneypotRemove(cur.Honeypot, resolveSettingsScope(r)),
 		"Cur":                   cur,
 		"Global":                h.snapshotSettings().Global,
 		"IPGeoMMDBPath":         ipgeoCur.MMDBPath,
@@ -1046,7 +1147,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "honeypot":
-		if err := applyHoneypotForm(&cur.Nginx, r, lang); err != nil {
+		if err := applyHoneypotFormScoped(&cur.Nginx, r, lang, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -1071,12 +1172,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "challenge":
-		if err := applyChallengeForm(&cur.Challenge, r); err != nil {
+		if err := applyChallengeFormScoped(&cur.Challenge, r, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
 	case "rate_limit":
-		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
+		if err := applyRateLimitFormScoped(&cur.RateLimit, r, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -2825,6 +2926,135 @@ func collectBypassPathsRemove(b settings.BypassPathsConfig, site string) []strin
 	return out
 }
 
+// honeypotInheritedRow: row-UI struct for the per-site honeypot editor's
+// "Inherited from default" block.  Pattern is the only required column;
+// Action surfaces the default-scope per-row override (= ExtraAction[i]) so
+// the operator sees the chain inherited per row.
+type honeypotInheritedRow struct {
+	Pattern   string
+	Title     string
+	Enabled   bool
+	UpdatedAt int64
+	Action    string
+	Removed   bool
+}
+
+// buildHoneypotInheritedRows: project the default-scope Extra arrays into
+// per-site editor rows.  Removed is true when the site's Override.Remove
+// contains the pattern (= exact string match, matches HoneypotConfig.Resolve).
+// Default scope returns nil so the template falls back to the legacy editor.
+func buildHoneypotInheritedRows(h settings.HoneypotConfig, site string) []honeypotInheritedRow {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	removed := map[string]bool{}
+	if ov, ok := h.Overrides[site]; ok {
+		for _, s := range ov.Remove {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			removed[s] = true
+		}
+	}
+	out := make([]honeypotInheritedRow, 0, len(h.Extra))
+	for i, p := range h.Extra {
+		out = append(out, honeypotInheritedRow{
+			Pattern:   p,
+			Title:     sliceAtStr(h.ExtraTitle, i),
+			Enabled:   !sliceAtBool(h.ExtraDisabled, i),
+			UpdatedAt: sliceAtInt64(h.ExtraUpdatedAt, i),
+			Action:    sliceAtStr(h.ExtraAction, i),
+			Removed:   removed[p],
+		})
+	}
+	return out
+}
+
+// honeypotAppendRow: row-UI struct for the site-only Append rows.  Same
+// shape as honeypotInheritedRow minus the Removed flag (= Append rows
+// never carry a "remove" toggle; they're edited / deleted in place).
+type honeypotAppendRow struct {
+	Pattern   string
+	Title     string
+	Enabled   bool
+	UpdatedAt int64
+	Action    string
+}
+
+// buildHoneypotAppendRows: project the site's Override.AppendExtra* parallel
+// arrays into editor rows.  Default scope returns nil.
+func buildHoneypotAppendRows(h settings.HoneypotConfig, site string) []honeypotAppendRow {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := h.Overrides[site]
+	if !ok {
+		return nil
+	}
+	out := make([]honeypotAppendRow, 0, len(ov.AppendExtra))
+	for i, p := range ov.AppendExtra {
+		out = append(out, honeypotAppendRow{
+			Pattern:   p,
+			Title:     sliceAtStr(ov.AppendExtraTitle, i),
+			Enabled:   !sliceAtBool(ov.AppendExtraDisabled, i),
+			UpdatedAt: sliceAtInt64(ov.AppendExtraUpdatedAt, i),
+			Action:    sliceAtStr(ov.AppendExtraAction, i),
+		})
+	}
+	return out
+}
+
+// collectHoneypotRemove: returns the site's Override.Remove list verbatim
+// for the "currently removed" summary block.  Default scope returns nil.
+func collectHoneypotRemove(h settings.HoneypotConfig, site string) []string {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := h.Overrides[site]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(ov.Remove))
+	for _, s := range ov.Remove {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// Safe slice accessors used by the honeypot per-site row builders.  Inline
+// helpers keep the build functions readable without sprinkling len() guards.
+// Mirror the unexported sliceAt* helpers in the settings package; kept
+// duplicated here to avoid widening the settings API surface for what is
+// essentially template-side glue.
+func sliceAtStr(s []string, i int) string {
+	if i < 0 || i >= len(s) {
+		return ""
+	}
+	return s[i]
+}
+
+func sliceAtBool(s []bool, i int) bool {
+	if i < 0 || i >= len(s) {
+		return false
+	}
+	return s[i]
+}
+
+func sliceAtInt64(s []int64, i int) int64 {
+	if i < 0 || i >= len(s) {
+		return 0
+	}
+	return s[i]
+}
+
 // applyProtectedFormScoped dispatches the protected-paths form into either
 // the shared baseline (scope == "") or the per-site Overrides map.  Default
 // scope behaves identically to the legacy applyProtectedForm.  Site scope
@@ -3115,6 +3345,298 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 	if c.BuiltinScoreThreshold <= 0 {
 		c.BuiltinScoreThreshold = 0.5
 	}
+	return nil
+}
+
+// applyChallengeFormScoped dispatches the challenge form into either the
+// shared baseline (scope == "") or the per-site Challenge.Overrides map.
+// Default scope behaves identically to the legacy applyChallengeForm.
+// Site scope only honours the per-site surface defined in
+// settings.ChallengeOverride (= Theme / PowDifficulty / ShowCredit); the
+// install-wide knobs (cookie TTLs / public_test_pages / debug rate-limit /
+// captcha provider) are left untouched in site scope -- a stray submit
+// from a misconfigured form must not silently rewrite them.
+//
+// reset_challenge=1 drops the site's override entry entirely.  An entry
+// that ends up empty (= no field set + reset not requested) is deleted from
+// the map so the YAML stays compact.
+func applyChallengeFormScoped(c *settings.Challenge, r *http.Request, scope string) error {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return applyChallengeForm(c, r)
+	}
+	if r.FormValue("reset_challenge") == "1" {
+		delete(c.Overrides, scope)
+		return nil
+	}
+	override := c.Overrides[scope]
+	// Theme override.  Empty / "inherit" -> inherit the default scope.  The
+	// allowlist (challengeThemes) is enforced by the default-scope helper;
+	// here we mirror its sentinel so the inherit option round-trips
+	// cleanly.
+	if v := strings.TrimSpace(r.FormValue("theme")); v != "" && v != "inherit" {
+		if challengeThemes[v] {
+			override.Theme = v
+		} else {
+			override.Theme = ""
+		}
+	} else {
+		override.Theme = ""
+	}
+	// PowDifficulty override.  Empty / 0 -> inherit; otherwise validate the
+	// same 8..24 range as the default scope.
+	if v := strings.TrimSpace(r.FormValue("pow_difficulty")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 8 || n > 24 {
+			return fmt.Errorf("pow_difficulty must be an integer in 8-24 (got %q)", v)
+		}
+		override.PowDifficulty = n
+	} else {
+		override.PowDifficulty = 0
+	}
+	// ShowCredit override.  The form posts a sentinel
+	// show_credit_override = "inherit" | "on" | "off" so the radio set can
+	// distinguish "explicit off" (= site forces hide) from "inherit".
+	switch r.FormValue("show_credit_override") {
+	case "on":
+		override.ShowCredit = true
+		override.ShowCreditSet = true
+	case "off":
+		override.ShowCredit = false
+		override.ShowCreditSet = true
+	default:
+		override.ShowCredit = false
+		override.ShowCreditSet = false
+	}
+	if challengeOverrideCount(override) == 0 {
+		delete(c.Overrides, scope)
+		return nil
+	}
+	if c.Overrides == nil {
+		c.Overrides = map[string]settings.ChallengeOverride{}
+	}
+	c.Overrides[scope] = override
+	return nil
+}
+
+// applyRateLimitFormScoped dispatches the rate-limit form into either the
+// shared baseline (scope == "") or the per-site RateLimit.Overrides map.
+// Only the Default-zone scalars (rpm / burst / window / chMode) are
+// surfaced per-site; named Zones[] and Key are install-wide.
+//
+// reset_rate_limit=1 drops the site's override entry entirely.  An empty
+// override (= every field zero, BurstSet false) is deleted from the map.
+func applyRateLimitFormScoped(c *settings.RateLimitConfig, r *http.Request, scope string) error {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return applyRateLimitForm(c, r)
+	}
+	if r.FormValue("reset_rate_limit") == "1" {
+		delete(c.Overrides, scope)
+		return nil
+	}
+	override := c.Overrides[scope]
+	if v := strings.TrimSpace(r.FormValue("default_requests_per_min")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100000 {
+			return fmt.Errorf("requests_per_min must be an integer in 1-100000 (got %q)", v)
+		}
+		override.RequestsPerMin = n
+	} else {
+		override.RequestsPerMin = 0
+	}
+	// Burst override: the form posts a hidden burst_override_set marker so
+	// "0" is distinguishable from "inherit".  Without the marker we treat
+	// the value as inherit (= matches the empty-string default).
+	if r.FormValue("burst_override_set") == "1" {
+		v := strings.TrimSpace(r.FormValue("default_burst"))
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 100000 {
+			return fmt.Errorf("burst must be an integer in 0-100000 (got %q)", v)
+		}
+		override.Burst = n
+		override.BurstSet = true
+	} else {
+		override.Burst = 0
+		override.BurstSet = false
+	}
+	if v := strings.TrimSpace(r.FormValue("default_window_sec")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 3600 {
+			return fmt.Errorf("window_sec must be an integer in 1-3600 (got %q)", v)
+		}
+		override.WindowSec = n
+	} else {
+		override.WindowSec = 0
+	}
+	if v := strings.TrimSpace(r.FormValue("default_challenge_mode")); v != "" && v != "inherit" {
+		if !settings.IsValidRateChallengeMode(v) {
+			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha / deny (got %q)", v)
+		}
+		override.ChallengeMode = v
+	} else {
+		override.ChallengeMode = ""
+	}
+	if rateLimitOverrideCount(override) == 0 {
+		delete(c.Overrides, scope)
+		return nil
+	}
+	if c.Overrides == nil {
+		c.Overrides = map[string]settings.RateLimitOverride{}
+	}
+	c.Overrides[scope] = override
+	return nil
+}
+
+// applyHoneypotFormScoped dispatches the honeypot form into either the
+// shared baseline (scope == "") or the per-site Honeypot.Overrides map.
+// Default scope behaves identically to the legacy applyHoneypotForm.
+//
+// Site scope:
+//   - reset_honeypot=1            -> delete the site's override entry
+//   - honeypot_default_action     -> DefaultAction override (empty/"inherit" inherits)
+//   - ban_duration_override_set=1 -> ban_duration override (= explicit 0 / permanent
+//                                    survives the inherit sentinel)
+//   - honeypot_remove[]           -> default-scope Extra patterns the site drops
+//   - honeypot_pat / _title / _enabled / _updated_at / _extra_action ->
+//     site-only Append rows (mirrors the default-scope row UI; rows whose
+//     pattern is empty are skipped, regex validity enforced)
+//
+// EnabledPresets-style override (= DisabledPresets pointer) is not surfaced
+// in the row UI yet; this matches the bypass-paths phase 1.4b precedent.
+func applyHoneypotFormScoped(n *settings.Nginx, r *http.Request, lang i18n.Lang, scope string) error {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return applyHoneypotForm(n, r, lang)
+	}
+	if r.FormValue("reset_honeypot") == "1" {
+		delete(n.Honeypot.Overrides, scope)
+		return nil
+	}
+
+	// Append rows: regex-validate, drop empty patterns, mirror the
+	// default-scope decoder's behaviour for index-aligned parallel slices.
+	pats := r.Form["honeypot_pat"]
+	titles := r.Form["honeypot_title"]
+	enabledArr := r.Form["honeypot_enabled"]
+	upds := r.Form["honeypot_updated_at"]
+	chains := r.Form["honeypot_extra_action"]
+	maxLen := len(pats)
+	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(chains)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	appendPat := make([]string, 0, maxLen)
+	appendTitle := make([]string, 0, maxLen)
+	appendDisabled := make([]bool, 0, maxLen)
+	appendUpd := make([]int64, 0, maxLen)
+	appendAction := make([]string, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var p, t, action string
+		isEnabled := true
+		var ts int64
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.TrimSpace(titles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		if i < len(enabledArr) {
+			isEnabled = enabledArr[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
+				action = v
+			}
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.honeypot_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		appendPat = append(appendPat, p)
+		appendTitle = append(appendTitle, t)
+		appendDisabled = append(appendDisabled, !isEnabled)
+		appendUpd = append(appendUpd, ts)
+		appendAction = append(appendAction, action)
+	}
+
+	// Remove list: only keep patterns that actually appear in the default
+	// scope's Extra list (= prevents stale removes from sticking around
+	// after the default scope retires a row).
+	defaultExtra := map[string]bool{}
+	for _, p := range n.Honeypot.Extra {
+		defaultExtra[p] = true
+	}
+	removeSeen := map[string]bool{}
+	removeOut := []string{}
+	for _, s := range r.Form["honeypot_remove"] {
+		s = strings.TrimSpace(s)
+		if s == "" || removeSeen[s] {
+			continue
+		}
+		if !defaultExtra[s] {
+			continue
+		}
+		removeSeen[s] = true
+		removeOut = append(removeOut, s)
+	}
+
+	// DefaultAction override.  Empty / "inherit" / invalid -> empty (inherit).
+	defAct := ""
+	if v := strings.TrimSpace(r.FormValue("honeypot_default_action")); v != "" && v != "inherit" {
+		if settings.IsValidRateChallengeMode(v) {
+			defAct = v
+		}
+	}
+	// BanDuration override.  Honour ban_duration_override_set sentinel so 0
+	// (= permanent) is distinguishable from "inherit the default 86400".
+	var banDur int
+	var banSet bool
+	if r.FormValue("ban_duration_override_set") == "1" {
+		v := strings.TrimSpace(r.FormValue("ban_duration"))
+		bd, err := strconv.Atoi(v)
+		if err != nil || bd < 0 || bd > 2592000 {
+			return fmt.Errorf("ban_duration: invalid value %q (= 0..2592000)", v)
+		}
+		banDur = bd
+		banSet = true
+	}
+
+	override := n.Honeypot.Overrides[scope]
+	override.AppendExtra = appendPat
+	override.AppendExtraTitle = appendTitle
+	override.AppendExtraDisabled = appendDisabled
+	override.AppendExtraUpdatedAt = appendUpd
+	override.AppendExtraAction = appendAction
+	override.Remove = removeOut
+	override.DefaultAction = defAct
+	override.BanDuration = banDur
+	override.BanDurationSet = banSet
+	// DisabledPresets pointer override is not exposed in the per-site row
+	// UI yet; leave whatever the YAML carried so a future hand-edit
+	// survives a round-trip through the form.  Phase 2.x will add the
+	// per-preset checkbox surface.
+
+	if honeypotOverrideCount(override) == 0 {
+		delete(n.Honeypot.Overrides, scope)
+		return nil
+	}
+	if n.Honeypot.Overrides == nil {
+		n.Honeypot.Overrides = map[string]settings.HoneypotOverride{}
+	}
+	n.Honeypot.Overrides[scope] = override
 	return nil
 }
 

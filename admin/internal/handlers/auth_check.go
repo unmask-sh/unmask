@@ -214,13 +214,13 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		if d, ok := h.geoDecide(ip, cfg); ok {
 			decisions = append(decisions, d)
 		}
-		if d, ok := honeypotDecide(uri, matchers, cfg, h.BanMgr, r.Context(), ip); ok {
+		if d, ok := honeypotDecide(uri, matchers, cfg, site, h.BanMgr, r.Context(), ip); ok {
 			decisions = append(decisions, d)
 		}
-		if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
+		if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg, site); ok {
 			decisions = append(decisions, d)
 		}
-		if d, ok := protectedDecide(uri, matchers, cfg); ok {
+		if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
 			decisions = append(decisions, d)
 		}
 		if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
@@ -267,7 +267,12 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// final block).  Otherwise count, and on threshold exceedance,
 	// promote to challenge + emit the zone / challenge_mode in response
 	// headers so nginx can transfer them into the error_page query.
-	zone := cfg.RateLimit.ResolveZone(uri)
+	// Per-site override merges the Default-zone knobs (rpm / burst /
+	// window / chMode) before ResolveZone picks the matching zone.  Key
+	// and the named Zones[] list stay install-wide so the limit_req zone
+	// shared state still keys consistently across vhosts.
+	rlRes := cfg.RateLimit.Resolve(site)
+	zone := rlRes.ResolveZone(uri)
 	chMode := zone.ResolvedChallengeMode()
 	rlHit := false
 	rlCount := 0
@@ -281,8 +286,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// Compose the rate-limit counter key from the configured Key kind.
 		// Mirrors the nginx side's $rate_limit_key map so a request is
 		// counted the same way regardless of native vs auth_request mode.
+		// Key is install-wide (= rlRes.ResolvedKey == cfg.RateLimit.ResolvedKey).
 		var keyBase string
-		switch cfg.RateLimit.ResolvedKey() {
+		switch rlRes.ResolvedKey() {
 		case settings.RateLimitKeyJA4:
 			keyBase = ja4
 		case settings.RateLimitKeyIPAndJA4:
@@ -472,8 +478,10 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 // honeypotDecide returns a decision when the URI matches a honeypot path.
 // Side effect: adds an entry to the persistent BAN list (= regardless of
 // whether honeypot wins the max — the trap counts even if a stronger axis
-// is the visible verdict).
-func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
+// is the visible verdict).  The site argument selects the per-site honeypot
+// override (= DefaultAction / BanDuration) via HoneypotConfig.Resolve.
+// Pass "" to inherit the install-wide default.
+func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings, site string,
 	banMgr *ban.Manager, ctx context.Context, ip string) (axisDecision, bool) {
 	if !matchPathSimple(uri, matchers.honeypot) {
 		return axisDecision{}, false
@@ -482,7 +490,7 @@ func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
 		banMgr.AddWithSource(ctx, ip, "", "honeypot",
 			"auth_request: hit "+truncateAt(uri, 80), "")
 	}
-	act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
+	act := strings.TrimSpace(cfg.Nginx.Honeypot.Resolve(site).DefaultAction)
 	if act == settings.RateChallengeDeny {
 		return axisDecision{sev: sevDeny, reason: "honeypot:deny"}, true
 	}
@@ -497,7 +505,9 @@ func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
 
 // banDecide consults the persistent BAN list.  Resolution (= mgr lookup) is
 // split from the per-source policy so the policy half is table-testable.
-func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Settings) (axisDecision, bool) {
+// site flows through to banDecideFromSource so a honeypot-sourced ban picks
+// up the per-site honeypot DefaultAction override.
+func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Settings, site string) (axisDecision, bool) {
 	if mgr == nil {
 		return axisDecision{}, false
 	}
@@ -505,15 +515,16 @@ func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Se
 	if !banned {
 		return axisDecision{}, false
 	}
-	return banDecideFromSource(src, cfg)
+	return banDecideFromSource(src, cfg, site)
 }
 
 // banDecideFromSource: pure decision given a ban source string.  Honeypot-
 // derived bans honor Honeypot.DefaultAction (= the operator chose challenge-
-// or-deny semantics on that tab); other ban sources are hard 403.
-func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool) {
+// or-deny semantics on that tab); other ban sources are hard 403.  site
+// selects the per-site Honeypot override; pass "" to inherit.
+func banDecideFromSource(src string, cfg settings.Settings, site string) (axisDecision, bool) {
 	if src == "honeypot" {
-		act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
+		act := strings.TrimSpace(cfg.Nginx.Honeypot.Resolve(site).DefaultAction)
 		if act == settings.RateChallengeDeny {
 			return axisDecision{sev: sevDeny, reason: "ban:honeypot:deny"}, true
 		}
@@ -529,14 +540,17 @@ func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool)
 
 // protectedDecide fires when the URI matches a protected-paths regex.
 // The chain is the rate-limit challenge mode default (= "pow_then_captcha"
-// fallback when unset).
-func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings) (axisDecision, bool) {
+// fallback when unset).  site selects the per-site RateLimit override; pass
+// "" to inherit the install-wide default.
+func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, site string) (axisDecision, bool) {
 	if !matchPathSimple(uri, matchers.protected) {
 		return axisDecision{}, false
 	}
 	// Reuse the rate-limit chain mode as the protected-path default since
-	// the protected tab does not yet expose its own chMode picker.
-	act := strings.TrimSpace(cfg.RateLimit.Default.ChallengeMode)
+	// the protected tab does not yet expose its own chMode picker.  The
+	// per-site override on the rate-limit Default zone applies here too
+	// so a site that flipped its rate-limit chain also flips protected.
+	act := strings.TrimSpace(cfg.RateLimit.Resolve(site).Default.ChallengeMode)
 	if !settings.IsValidRateChallengeMode(act) {
 		act = settings.RateChallengePoWThenCaptcha
 	}

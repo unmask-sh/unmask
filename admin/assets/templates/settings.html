@@ -2005,6 +2005,157 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "honeypot" }}
+{{ if .Scope }}
+{{/* Phase 2.1: per-site editor for honeypot.  Three blocks (= Inherited from
+     default / Per-site additions / Per-site removals) mirror the protected /
+     bypass-paths editors, plus scalar overrides for DefaultAction and
+     BanDuration.  Preset toggles render read-only in site scope until the
+     per-preset surface ships in a later phase. */}}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot&scope={{ .Scope }}">
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.honeypot.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.honeypot.scope.banner" }}
+    </p>
+    <button type="submit" name="reset_honeypot" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.honeypot.scope.reset_confirm" }})">
+      {{ t .Lang "settings.honeypot.scope.reset_btn" }}
+    </button>
+  </div>
+
+  <div class="bcd-card">
+    {{/* ban_duration override -- explicit checkbox so "0 = permanent" is
+         distinguishable from "inherit default". */}}
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.honeypot.ban_duration_h" }}</label>
+      <input type="checkbox" id="hp-ban-dur-set" name="ban_duration_override_set" value="1" {{ if .HoneypotOverride.BanDurationSet }}checked{{ end }}
+             onchange="document.getElementById('hp-ban-dur-ov').disabled = !this.checked">
+      <label for="hp-ban-dur-set" style="font-weight:normal;margin-right:.6rem">{{ t .Lang "settings.honeypot.scope.override_explicit" }}</label>
+      <input type="number" id="hp-ban-dur-ov" name="ban_duration" min="0" max="2592000" step="60"
+             value="{{ if .HoneypotOverride.BanDurationSet }}{{ .HoneypotOverride.BanDuration }}{{ end }}"
+             placeholder="{{ .HoneypotResolved.BanDuration }}"
+             style="width:8rem"
+             {{ if not .HoneypotOverride.BanDurationSet }}disabled{{ end }}>
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.honeypot.scope.default_v" .HoneypotResolved.BanDuration }}</span>
+    </div>
+
+    {{/* DefaultAction override.  Inherit sentinel surfaces the resolved
+         default so the operator sees what they would inherit if they
+         cleared the override. */}}
+    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
+      <div class="field-label" style="font-weight:600;color:#475569">{{ t .Lang "settings.honeypot.action_h" }}</div>
+      {{ $hovcm := .HoneypotOverride.DefaultAction }}
+      <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value="inherit"          {{ if eq $hovcm "" }}selected{{ end }}>{{ tf .Lang "settings.honeypot.scope.inherit_default_v" .HoneypotResolved.DefaultAction }}</option>
+        <option value="pow_only"         {{ if eq $hovcm "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="pow_then_captcha" {{ if eq $hovcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="captcha_only"     {{ if eq $hovcm "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="deny"             {{ if eq $hovcm "deny" }}selected{{ end }}>deny</option>
+      </select>
+    </div>
+  </div>
+
+  {{/* Inherited block: each default-scope row carries a "remove for this
+       site" checkbox.  Pre-checked when the site already has the path in
+       Override.Remove. */}}
+  <div class="bcd-card">
+    <h3 style="font-size:.95rem;margin:0 0 .4rem">{{ t .Lang "settings.honeypot.scope.inherited_h" }}</h3>
+    <p class="note" style="margin:0 0 .6rem;font-size:.8rem">{{ t .Lang "settings.honeypot.scope.inherited_help" }}</p>
+    {{ if .HoneypotInheritedRows }}
+    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
+      <thead style="background:#f8fafc;color:#475569">
+        <tr>
+          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_pattern" }}</th>
+          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_title" }}</th>
+          <th style="text-align:center;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_remove" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .HoneypotInheritedRows }}
+        <tr style="border-top:1px solid #e2e8f0;{{ if .Removed }}opacity:.5;text-decoration:line-through{{ end }}">
+          <td style="padding:.3rem .5rem;font-family:ui-monospace,Menlo,monospace">{{ .Pattern }}</td>
+          <td style="padding:.3rem .5rem;color:#475569">{{ .Title }}{{ if not .Enabled }} <span style="color:#94a3b8;font-size:.75rem">({{ t $.Lang "settings.honeypot.scope.row_disabled" }})</span>{{ end }}</td>
+          <td style="padding:.3rem .5rem;text-align:center">
+            <input type="checkbox" name="honeypot_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="note" style="font-size:.8rem;color:#94a3b8">{{ t .Lang "settings.honeypot.scope.no_inherited" }}</p>
+    {{ end }}
+  </div>
+
+  {{/* Per-site additions.  Mirrors the default-scope custom row UI shape
+       (= the same form field names, so the existing JS row-add /
+       delete handlers work without branching on scope). */}}
+  <div class="bcd-card">
+    <h3 style="font-size:.95rem;margin:0 0 .4rem">{{ t .Lang "settings.honeypot.scope.append_h" }}</h3>
+    <p class="note" style="margin:0 0 .6rem;font-size:.8rem">{{ t .Lang "settings.honeypot.scope.append_help" }}</p>
+    <div class="rule-list" data-rule-name="honeypot_pat">
+    {{ range $i, $r := .HoneypotAppendRows }}
+    <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
+      <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+      <input type="hidden" name="honeypot_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+      <input type="hidden" name="honeypot_updated_at" value="{{ $r.UpdatedAt }}">
+      <span class="rule-view">
+        <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+        <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
+      </span>
+      <input type="text" name="honeypot_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+      <input type="text" name="honeypot_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+      <select name="honeypot_extra_action" class="extra-action-sel">
+        <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+        <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
+      </select>
+      <button type="button" class="rule-up">↑</button>
+      <button type="button" class="rule-down">↓</button>
+      <button type="button" class="rule-edit">✏️</button>
+      <button type="button" class="rule-save">✓</button>
+      <button type="button" class="rule-del">🗑</button>
+      <button type="button" class="rule-add">＋</button>
+    </div>
+    {{ end }}
+    <template class="rule-row-template">
+      <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+        <input type="checkbox" class="rule-toggle" checked>
+        <input type="hidden" name="honeypot_enabled" value="1">
+        <input type="hidden" name="honeypot_updated_at" value="0">
+        <span class="rule-view">
+          <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+          <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
+        </span>
+        <input type="text" name="honeypot_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="honeypot_pat" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+        <select name="honeypot_extra_action" class="extra-action-sel">
+          <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only">pow_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="captcha_only">captcha_only</option>
+          <option value="deny">deny</option>
+        </select>
+        <button type="button" class="rule-up">↑</button>
+        <button type="button" class="rule-down">↓</button>
+        <button type="button" class="rule-edit">✏️</button>
+        <button type="button" class="rule-save">✓</button>
+        <button type="button" class="rule-del">🗑</button>
+        <button type="button" class="rule-add">＋</button>
+      </div>
+    </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="honeypot_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+  </div>
+
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ else }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot">
   <div class="bcd-card">
     <!-- ban_duration: TTL of BANs auto-added when a honeypot is tripped -->
@@ -2149,6 +2300,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+{{ end }}
 {{ end }}
 
 {{ if eq .Tab "protected" }}
@@ -2552,7 +2704,70 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "challenge" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
+  {{ if .Scope }}
+  {{/* Phase 2.1: per-site editor for the challenge tab.  Only the scalars
+       defined in settings.ChallengeOverride are surfaced (= Theme /
+       PowDifficulty / ShowCredit).  The install-wide knobs (cookie TTLs /
+       public test pages / debug rate-limit / CAPTCHA provider) are
+       intentionally hidden in site scope -- editing them belongs at the
+       default scope only. */}}
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.challenge.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.challenge.scope.banner" }}
+    </p>
+    <button type="submit" name="reset_challenge" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.challenge.scope.reset_confirm" }})">
+      {{ t .Lang "settings.challenge.scope.reset_btn" }}
+    </button>
+  </div>
+
+  <div class="bcd-card">
+    {{/* per-site Challenge editor: Theme + PoW difficulty + ShowCredit.
+         The select carries an explicit "inherit" sentinel for each so the
+         operator can blank an override without leaving a stale value. */}}
+    <div class="field">
+      <label class="field-label" for="ch-theme-ov">{{ t .Lang "settings.challenge.scope.theme" }}</label>
+      <select id="ch-theme-ov" name="theme" style="width:14rem">
+        <option value="inherit" {{ if eq .ChallengeOverride.Theme "" }}selected{{ end }}>{{ tf .Lang "settings.challenge.scope.inherit_default_v" .ChallengeResolved.Theme }}</option>
+        <option value="default" {{ if eq .ChallengeOverride.Theme "default" }}selected{{ end }}>default</option>
+        <option value="cat" {{ if eq .ChallengeOverride.Theme "cat" }}selected{{ end }}>cat</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="ch-pow-diff-ov">{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
+      <input type="number" id="ch-pow-diff-ov" name="pow_difficulty" min="8" max="24" step="1"
+             value="{{ if gt .ChallengeOverride.PowDifficulty 0 }}{{ .ChallengeOverride.PowDifficulty }}{{ end }}"
+             placeholder="{{ .ChallengeResolved.ResolvedPowDifficulty }}"
+             style="width:6rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.challenge.scope.default_v" .ChallengeResolved.ResolvedPowDifficulty }}</span>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.challenge.scope.show_credit" }}</label>
+      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
+        {{ $shc := "" }}
+        {{ if .ChallengeOverride.ShowCreditSet }}
+          {{ if .ChallengeOverride.ShowCredit }}{{ $shc = "on" }}{{ else }}{{ $shc = "off" }}{{ end }}
+        {{ end }}
+        <label><input type="radio" name="show_credit_override" value="inherit" {{ if eq $shc "" }}checked{{ end }}>
+          {{ tf .Lang "settings.challenge.scope.inherit_default_v" (printf "%t" .ChallengeResolved.ShowCredit) }}</label>
+        <label><input type="radio" name="show_credit_override" value="on" {{ if eq $shc "on" }}checked{{ end }}>
+          {{ t .Lang "settings.challenge.scope.show_credit_on" }}</label>
+        <label><input type="radio" name="show_credit_override" value="off" {{ if eq $shc "off" }}checked{{ end }}>
+          {{ t .Lang "settings.challenge.scope.show_credit_off" }}</label>
+      </div>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ else }}
+{{/* default scope: legacy install-wide editor.  Unchanged from phase 1. */}}
   <div class="bcd-card">
 
     <div class="field">
@@ -2664,8 +2879,86 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 </script>
 {{ end }}
+{{ end }}
 
 {{ if eq .Tab "rate-limit" }}
+{{ if .Scope }}
+{{/* Phase 2.1: per-site editor for the rate-limit Default zone.  Only the
+     Default-zone scalars are surfaced (rpm / burst / window / chMode); the
+     named Zones[] list and the Key kind stay install-wide and are not
+     editable here.  Each field carries an "inherit" sentinel so the
+     operator can clear an override without leaving a stale value. */}}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit&scope={{ .Scope }}">
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.rate_limit.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.rate_limit.scope.banner" }}
+    </p>
+    <button type="submit" name="reset_rate_limit" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.rate_limit.scope.reset_confirm" }})">
+      {{ t .Lang "settings.rate_limit.scope.reset_btn" }}
+    </button>
+  </div>
+
+  <div class="bcd-card">
+    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
+      <input type="number" name="default_requests_per_min" min="1" max="100000" step="1"
+             value="{{ if gt .RateLimitOverride.RequestsPerMin 0 }}{{ .RateLimitOverride.RequestsPerMin }}{{ end }}"
+             placeholder="{{ .RateLimitResolved.Default.RequestsPerMin }}"
+             style="width:8rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.RequestsPerMin }}</span>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.rate_limit.burst" }}</label>
+      {{/* Burst takes a hidden sentinel so 0 is distinguishable from "inherit".
+           Empty input = inherit; explicit number (including 0) = explicit. */}}
+      <input type="checkbox" id="rl-burst-set" name="burst_override_set" value="1" {{ if .RateLimitOverride.BurstSet }}checked{{ end }}
+             onchange="document.getElementById('rl-burst-ov').disabled = !this.checked">
+      <label for="rl-burst-set" style="font-weight:normal;margin-right:.6rem">{{ t .Lang "settings.rate_limit.scope.override_explicit" }}</label>
+      <input type="number" id="rl-burst-ov" name="default_burst" min="0" max="100000" step="1"
+             value="{{ if .RateLimitOverride.BurstSet }}{{ .RateLimitOverride.Burst }}{{ end }}"
+             placeholder="{{ .RateLimitResolved.Default.Burst }}"
+             style="width:8rem"
+             {{ if not .RateLimitOverride.BurstSet }}disabled{{ end }}>
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.Burst }}</span>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.rate_limit.window_sec" }}</label>
+      <input type="number" name="default_window_sec" min="1" max="3600" step="1"
+             value="{{ if gt .RateLimitOverride.WindowSec 0 }}{{ .RateLimitOverride.WindowSec }}{{ end }}"
+             placeholder="{{ .RateLimitResolved.Default.WindowSec }}"
+             style="width:6rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.WindowSec }}</span>
+    </div>
+
+    <div class="field">
+      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
+      {{ $ovcm := .RateLimitOverride.ChallengeMode }}
+      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
+        <label><input type="radio" name="default_challenge_mode" value="inherit" {{ if eq $ovcm "" }}checked{{ end }}>
+          {{ tf .Lang "settings.rate_limit.scope.inherit_default_v" .RateLimitResolved.Default.ChallengeMode }}</label>
+        <label><input type="radio" name="default_challenge_mode" value="captcha_only" {{ if eq $ovcm "captcha_only" }}checked{{ end }}>
+          <strong>captcha_only</strong></label>
+        <label><input type="radio" name="default_challenge_mode" value="pow_only" {{ if eq $ovcm "pow_only" }}checked{{ end }}>
+          <strong>pow_only</strong></label>
+        <label><input type="radio" name="default_challenge_mode" value="pow_then_captcha" {{ if eq $ovcm "pow_then_captcha" }}checked{{ end }}>
+          <strong>pow_then_captcha</strong></label>
+        <label><input type="radio" name="default_challenge_mode" value="deny" {{ if eq $ovcm "deny" }}checked{{ end }}>
+          <strong>deny</strong></label>
+      </div>
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+{{ else }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit">
   <div class="bcd-card">
 
@@ -2813,6 +3106,7 @@ document.addEventListener("DOMContentLoaded", function(){
   };
 })();
 </script>
+{{ end }}
 {{ end }}
 
 {{ if eq .Tab "geo" }}
