@@ -370,9 +370,14 @@ document.addEventListener('DOMContentLoaded', function(){
     var full = el.getAttribute('data-full-value');
     var val = (full && full.length) ? full : el.textContent.trim();
     if (!val) return;
-    if (!full && el.scrollWidth - el.clientWidth <= 1) return;
+    // URL column always opens the popover (it carries Open / Copy buttons
+    // for any path, truncated or not).  Other columns only get the popover
+    // when the value is actually clipped -- a short JA4 / UA has nothing
+    // extra to show.
+    var isURL = el.classList.contains('url');
+    if (!isURL && !full && el.scrollWidth - el.clientWidth <= 1) return;
     el.classList.add('cellpop-active');
-    var url = el.classList.contains('url') ? fullURL(el, val) : '';
+    var url = isURL ? fullURL(el, val) : '';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
       clearTimeout(hideTimer);
