@@ -751,7 +751,7 @@ var dict = map[Lang]map[string]string{
 		"settings.scope.default":                  "default (= 全 host 共通)",
 		"settings.scope.switch_button":            "切替",
 		"settings.scope.override_label":          "この host だけ独自に設定する",
-		"settings.scope.override_hint":           "OFF にすると default が適用される (= 入力値は保持. 再度 ON で復元可)",
+		"settings.scope.override_hint":           "OFF にすると default が適用される",
 		"settings.scope.add_new":                  "+ 新しい host を追加…",
 		"settings.scope.add_prompt":               "host 名を入力してください (例: shop.example.com)",
 		"settings.scope.banner_default":           "default を編集中 (= override のない全 host に適用)",
