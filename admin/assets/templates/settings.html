@@ -302,6 +302,33 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-modal-save{background:#475569;color:#fff;border-color:#475569}
 .upstream-modal-save:hover{background:#334155}
 
+/* Scope picker row (= multi-site v2 step c).  Sits above the appearance /
+   challenge form and toggles which BrandingValues / ChallengeValues record
+   the form reads + writes.  Banner makes the active scope obvious so the
+   operator does not save against the wrong record by mistake.  Lives in the
+   global <style> block so every tab that opts into the scope picker gets
+   the same banner styling (not just the theme tab where it originated). */
+.scope-picker-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.55rem .8rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.35rem}
+.scope-picker-label{font-size:.82rem;font-weight:600;color:#334155;flex:0 0 auto}
+.scope-picker-select{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;min-width:14rem}
+.scope-picker-input{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;width:18rem}
+.scope-picker-banner{font-size:.78rem;color:#0f172a;padding:.15rem .5rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.25rem}
+.scope-picker-banner.scope-default{background:#dcfce7;border-color:#86efac;color:#166534}
+.scope-reset-row{display:flex;gap:.45rem;margin:.9rem 0 0;flex-wrap:wrap}
+.override-toggle-row{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;padding:.5rem .7rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.3rem;color:#92400e;font-size:.85rem;font-weight:500}
+.override-toggle-row input[type=checkbox]{margin:0}
+.override-toggle-row .override-hint{color:#78350f;font-weight:normal;font-size:.78rem;margin-left:auto}
+.scope-aware-form.override-off .bcd-card,
+.scope-aware-form.override-off .branding-grid,
+.scope-aware-form.override-off .field{opacity:.55}
+.scope-aware-form.override-off input:not([type=checkbox]):not([type=submit]):not([type=hidden]),
+.scope-aware-form.override-off select,
+.scope-aware-form.override-off textarea{background:#f1f5f9;color:#94a3b8;cursor:not-allowed}
+.btn-mini{font-size:.78rem;padding:.25rem .65rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
+.btn-mini:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
+.btn-mini.btn-danger{color:#b91c1c;border-color:#fecaca}
+.btn-mini.btn-danger:hover{background:#fef2f2;border-color:#f87171}
+
 </style>
 {{ template "popover_pin_assets" . }}
 </head>
@@ -3042,26 +3069,11 @@ document.addEventListener("DOMContentLoaded", function(){
 .btn-mini:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
 .btn-mini.btn-danger{color:#b91c1c;border-color:#fecaca}
 .btn-mini.btn-danger:hover{background:#fef2f2;border-color:#f87171}
-/* Scope picker row (= multi-site v2 step c).  Sits above the appearance /
-   challenge form and toggles which BrandingValues / ChallengeValues record
-   the form reads + writes.  Banner makes the active scope obvious so the
-   operator does not save against the wrong record by mistake. */
-.scope-picker-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.55rem .8rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.35rem}
-.scope-picker-label{font-size:.82rem;font-weight:600;color:#334155;flex:0 0 auto}
-.scope-picker-select{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;min-width:14rem}
-.scope-picker-input{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;width:18rem}
-.scope-picker-banner{font-size:.78rem;color:#0f172a;padding:.15rem .5rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.25rem}
-.scope-picker-banner.scope-default{background:#dcfce7;border-color:#86efac;color:#166534}
-.scope-reset-row{display:flex;gap:.45rem;margin:.9rem 0 0;flex-wrap:wrap}
-.override-toggle-row{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;padding:.5rem .7rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.3rem;color:#92400e;font-size:.85rem;font-weight:500}
-.override-toggle-row input[type=checkbox]{margin:0}
-.override-toggle-row .override-hint{color:#78350f;font-weight:normal;font-size:.78rem;margin-left:auto}
-.scope-aware-form.override-off .bcd-card,
-.scope-aware-form.override-off .branding-grid,
-.scope-aware-form.override-off .field{opacity:.55}
-.scope-aware-form.override-off input:not([type=checkbox]):not([type=submit]):not([type=hidden]),
-.scope-aware-form.override-off select,
-.scope-aware-form.override-off textarea{background:#f1f5f9;color:#94a3b8;cursor:not-allowed}
+/* Scope picker + override CSS moved to the global <style> block at the
+   top of this file so the rules apply to every tab.  The previous
+   location inside the theme tab's tab-scoped <style> kept the rules
+   out of the challenge tab body, which made the challenge tab render
+   the banner unstyled. */
 </style>
 <script>
 (function(){
