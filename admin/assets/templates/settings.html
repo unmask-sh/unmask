@@ -2176,23 +2176,22 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      which discards any unsaved edits.  The "+ Add new host..." option
      opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
-<form method="get" action="" class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
-  <input type="hidden" name="tab" value="challenge">
-  <label for="scope-input-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <input type="text" id="scope-input-challenge" name="scope" class="scope-picker-input rule-action"
-         list="scope-candidates" value="{{ .Scope }}"
-         placeholder="{{ t .Lang "settings.scope.default" }}"
-         autocomplete="off">
-  <button type="submit" class="btn-mini">{{ t .Lang "settings.scope.switch_button" }}</button>
-  <datalist id="scope-candidates">
-    {{ range $h := .ScopeHosts }}<option value="{{ $h }}">{{ end }}
-  </datalist>
+<div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <select id="scope-select-challenge" class="scope-picker-select"
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
+    <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
+    {{ range $h := .ScopeHosts }}
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    {{ end }}
+    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
+  </select>
   {{ if .ScopeIsSite }}
   <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
   {{ else }}
   <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
   {{ end }}
-</form>
+</div>
 
 <form method="post"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
@@ -2757,23 +2756,22 @@ document.addEventListener("DOMContentLoaded", function(){
      discards any unsaved edits (= same behavior as switching tabs).  The
      "+ Add new host..." entry opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
-<form method="get" action="" class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
-  <input type="hidden" name="tab" value="theme">
-  <label for="scope-input-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <input type="text" id="scope-input-theme" name="scope" class="scope-picker-input rule-action"
-         list="scope-candidates" value="{{ .Scope }}"
-         placeholder="{{ t .Lang "settings.scope.default" }}"
-         autocomplete="off">
-  <button type="submit" class="btn-mini">{{ t .Lang "settings.scope.switch_button" }}</button>
-  <datalist id="scope-candidates">
-    {{ range $h := .ScopeHosts }}<option value="{{ $h }}">{{ end }}
-  </datalist>
+<div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <select id="scope-select-theme" class="scope-picker-select"
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
+    <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
+    {{ range $h := .ScopeHosts }}
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    {{ end }}
+    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
+  </select>
   {{ if .ScopeIsSite }}
   <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
   {{ else }}
   <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
   {{ end }}
-</form>
+</div>
 
 {{/* "Appearance" form: one form, one save button.  Holds three sub-cards:
      branding identity (logo / site name / footer) + copy template (preset
