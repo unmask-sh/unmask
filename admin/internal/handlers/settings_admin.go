@@ -3282,71 +3282,17 @@ func applyRateLimitFormV2(cur *settings.RateLimitConfig, r *http.Request) error 
 	return applyRateLimitForm(cur, r)
 }
 
-// applyRateLimitValuesForm mutates a single RateLimitValues record from the
-// form fields shared by the default form and per-site cards.  Field names:
-// default_requests_per_min / default_burst / default_window_sec /
-// default_challenge_mode -- matches applyRateLimitForm so a per-site card
-// can reuse the same UI.
-func applyRateLimitValuesForm(v *settings.RateLimitValues, r *http.Request) error {
-	if raw := strings.TrimSpace(r.FormValue("default_requests_per_min")); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 100000 {
-			return fmt.Errorf("requests_per_min must be an integer in 1-100000 (got %q)", raw)
-		}
-		v.RequestsPerMin = n
-	}
-	if raw := strings.TrimSpace(r.FormValue("default_burst")); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 || n > 100000 {
-			return fmt.Errorf("burst must be an integer in 0-100000 (got %q)", raw)
-		}
-		v.Burst = n
-	}
-	if raw := strings.TrimSpace(r.FormValue("default_window_sec")); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > 3600 {
-			return fmt.Errorf("window_sec must be an integer in 1-3600 (got %q)", raw)
-		}
-		v.WindowSec = n
-	}
-	if raw := strings.TrimSpace(r.FormValue("default_challenge_mode")); raw != "" {
-		if !settings.IsValidRateChallengeMode(raw) {
-			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha / deny (got %q)", raw)
-		}
-		v.ChallengeMode = raw
-	}
-	if v.Name == "" {
-		v.Name = "unmask_rate"
-	}
-	return nil
-}
+// applyRateLimitValuesForm was used by the v2 per-site rate-limit card
+// (AdminRateLimitSiteSave) and removed in step b along with the per-site
+// scalar wrapper.  See applyRateLimitForm for the install-wide Default
+// path; per-site rate variations now live in RateZone rows with Site.
 
 // AdminRateLimitSiteSave: POST {base}/admin/settings/rate_limit/site/save
-//
-// Persists one Sites[<host>] entry for the rate-limit wrapper.  Same shape
-// as AdminBrandingSiteSave: the form field names are shared with the
-// default form so the per-site card can reuse the same UI.
-func (h *Handler) AdminRateLimitSiteSave(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "rate_limit", func(cur *settings.Settings, site string) error {
-		if cur.RateLimit.Sites == nil {
-			cur.RateLimit.Sites = map[string]settings.RateLimitValues{}
-		}
-		v := cur.RateLimit.Sites[site]
-		if err := applyRateLimitValuesForm(&v, r); err != nil {
-			return err
-		}
-		cur.RateLimit.Sites[site] = v
-		return nil
-	})
-}
-
-// AdminRateLimitSiteDelete: POST {base}/admin/settings/rate_limit/site/delete
-func (h *Handler) AdminRateLimitSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "rate_limit", func(cur *settings.Settings, site string) error {
-		delete(cur.RateLimit.Sites, site)
-		return nil
-	})
-}
+// Rate-limit per-site scalar overrides were dropped along with honeypot's:
+// every per-site rate variation can be expressed by adding a RateZone with
+// a Site column instead, which leaves a single place in the UI to look at
+// per-host rate behaviour.  Install-wide Default still applies when no
+// zone matches.
 
 // Honeypot per-site scalar overrides were dropped: the BAN list is keyed on
 // IP+JA4 and not on the visited host, so a per-host BanDurationSec did not

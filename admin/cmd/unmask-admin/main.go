@@ -728,10 +728,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	// (= bypass_paths / protected_paths / honeypot URLs) parse all rows
 	// in the main settings save, so they have no /site/ endpoint of their
 	// own.
-	mux.HandleFunc("POST "+base+"/admin/settings/rate_limit/site/save",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteSave)))
-	mux.HandleFunc("POST "+base+"/admin/settings/rate_limit/site/delete",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteDelete)))
+	// rate_limit per-site scalar routes (= site/save, site/delete) were
+	// dropped in v2 step b: per-site rate variation now lives in RateZone
+	// rows with a Site column instead of a per-host scalar wrapper.
 	// webhook test send (notifications tab's "send test" button)
 	mux.HandleFunc("POST "+base+"/admin/api/notify/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))

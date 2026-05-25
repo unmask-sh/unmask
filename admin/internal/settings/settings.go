@@ -1142,18 +1142,18 @@ type Notifications struct {
 //   - "deny"              : no challenge; immediately 403 block (= for API /
 //     paths dedicated to known bots)
 //
-// v2 layout (= multi-site phase 2): the per-site scalar parameters
-// (= requests_per_min / burst / window_sec / challenge_mode) live in
-// Default + Sites, the same shape used by Branding / Challenge.  Install-
-// wide knobs (= Zones path-list / Key fingerprint kind) stay on the parent
-// struct.  Resolve(site) returns Sites[site] verbatim if present, else
-// Default; from there the existing helpers (ResolvedWindowSec etc.) apply.
+// v2 layout (= multi-site, post-step-b): per-site scalar overrides were
+// dropped because every per-site rate variation can be expressed by adding
+// a RateZone with a Site column instead.  Default carries the install-wide
+// fallback (= the rate every site sees unless a more-specific zone
+// matches).  Zones is a flat list; rows scope themselves with PathPatterns
+// + Site, in that order from most-specific to least-specific match.
 type RateLimitConfig struct {
-	Default RateLimitValues            `yaml:"default"`
-	Sites   map[string]RateLimitValues `yaml:"sites,omitempty"`
-	// Zones: optional named zones with per-path overrides.  Install-wide
-	// (= the visitor's site does not change the zone match), so they keep
-	// their pre-v2 shape rather than going under the per-site wrapper.
+	// Default: install-wide fallback rate.  Applied when no zone matches.
+	Default RateLimitValues `yaml:"default"`
+	// Zones: rate-limit rule rows.  Each carries its own RPM / burst / window
+	// / mode + optional PathPatterns + Site filter.  Order matters for the
+	// match: the first zone whose PathPatterns and Site both match wins.
 	Zones []RateZone `yaml:"zones,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
@@ -1165,9 +1165,11 @@ type RateLimitConfig struct {
 	Key string `yaml:"key,omitempty"`
 }
 
-// RateLimitValues: per-site rate-limit scalar parameters.  Matches the
-// historical RateZone fields that make sense per-site (zone Name lives on
-// the install-wide side because nginx limit_req_zone is global).
+// RateLimitValues: install-wide scalar parameters reused by both the
+// Default block and as the value-type returned by RateZone.AsValues so
+// downstream callers stay agnostic of "default vs zone match".  No per-site
+// overrides at this level; per-site differences live in the zone Site
+// column instead.
 type RateLimitValues struct {
 	// Name: nginx `limit_req_zone` zone name (alnum + "_").  Default may be
 	// empty; render falls back to "unmask_rate".
@@ -1181,14 +1183,17 @@ type RateLimitValues struct {
 	ChallengeMode string `yaml:"challenge_mode,omitempty"`
 }
 
-// Resolve returns the RateLimitValues for the given site.  Sites[site] is
-// returned verbatim when present (= the v2 "complete record" contract);
-// otherwise Default is returned verbatim.
-func (c RateLimitConfig) Resolve(site string) RateLimitValues {
-	if v, ok := c.Sites[site]; ok {
-		return v
+// ResolveZones: zones visible to the given site.  An empty Site applies to
+// every host; a non-empty Site filters to exact match.  Order preserved so
+// PathPatterns priority + admin UI ordering both survive.
+func (c RateLimitConfig) ResolveZones(site string) []RateZone {
+	out := make([]RateZone, 0, len(c.Zones))
+	for _, z := range c.Zones {
+		if z.Site == "" || z.Site == site {
+			out = append(out, z)
+		}
 	}
-	return c.Default
+	return out
 }
 
 // ResolvedWindowSec: 0 -> 60 (= 1-minute window default).
@@ -1252,6 +1257,10 @@ type RateZone struct {
 	WindowSec      int      `yaml:"window_sec,omitempty"`
 	PathPatterns   []string `yaml:"path_patterns,omitempty"`
 	ChallengeMode  string   `yaml:"challenge_mode,omitempty"`
+	// Site: optional Host filter for this zone.  "" applies to every site;
+	// a host string (= normalised via siteFromRequest) limits the zone to
+	// requests landing on that vhost.
+	Site string `yaml:"site,omitempty"`
 }
 
 // Challenge-mode constants for rate-limit.
@@ -1307,16 +1316,17 @@ func (z RateZone) MatchPath(path string) bool {
 // ResolveZone returns the effective rate-limit triple for the (path, site)
 // pair as a RateLimitValues.  Resolution order:
 //  1. Scan Zones in index order.  The first zone whose PathPatterns match
-//     wins; zones are install-wide and not site-scoped (they represent
-//     "/api/ traffic always burns the api zone" semantics).
-//  2. Otherwise return the per-site default (= Sites[site] verbatim if
-//     present, else Default).
+//     AND whose Site filter matches wins ("" Site applies to every host).
+//  2. Otherwise return the install-wide Default verbatim.
 //
-// Pre-v2 callers used to pass only `path` and receive a RateZone; the v2
-// signature adds `site` and returns a RateLimitValues so the per-site
-// scalar wrapper is honored without leaking the install-wide PathPatterns.
+// Per-site rate variations are expressed by adding zones with a Site
+// column; the pre-v2 per-site Sites map was dropped because the same
+// effect was reachable through zones with less mental overhead.
 func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 	for _, z := range c.Zones {
+		if z.Site != "" && z.Site != site {
+			continue
+		}
 		if z.MatchPath(path) {
 			return RateLimitValues{
 				Name:           z.Name,
@@ -1327,7 +1337,7 @@ func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 			}
 		}
 	}
-	return c.Resolve(site)
+	return c.Default
 }
 
 func defaults() Settings {

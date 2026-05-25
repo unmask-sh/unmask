@@ -538,7 +538,7 @@ func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, s
 	}
 	// Reuse the rate-limit chain mode as the protected-path default since
 	// the protected tab does not yet expose its own chMode picker.
-	act := strings.TrimSpace(cfg.RateLimit.Resolve(site).ChallengeMode)
+	act := strings.TrimSpace(cfg.RateLimit.Default.ChallengeMode)
 	if !settings.IsValidRateChallengeMode(act) {
 		act = settings.RateChallengePoWThenCaptcha
 	}

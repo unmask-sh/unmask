@@ -2511,91 +2511,9 @@ document.addEventListener("DOMContentLoaded", function(){
 })();
 </script>
 
-{{/* ─── Site-specific rate-limit scalars (v2 phase 2) ────────────────
-     One card per host in RateLimit.Sites.  Each entry is a complete
-     RateLimitValues record (= no field-level inheritance from Default).
-     Zones (= the per-path table above) stay install-wide -- the visitor's
-     site does not affect which zone the path falls into. */}}
-<section class="bcd-card rate-limit-sites-card" style="margin-top:1.2rem">
-  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
-    {{ t .Lang "settings.rate_limit.sites.section_title" }}
-  </div>
-  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
-    {{ safeHTML (t .Lang "settings.rate_limit.sites.intro") }}
-  </p>
-  {{ if .RateLimit.Sites }}
-  <div class="site-card-list">
-    {{ range $host, $rv := .RateLimit.Sites }}
-    <div class="site-card">
-      <div class="site-card-head">
-        <strong>{{ $host }}</strong>
-        <span class="muted">
-          {{ if gt $rv.RequestsPerMin 0 }}{{ $rv.RequestsPerMin }} r/min{{ else }}—{{ end }} ·
-          burst {{ if gt $rv.Burst 0 }}{{ $rv.Burst }}{{ else }}—{{ end }} ·
-          {{ if $rv.ChallengeMode }}{{ $rv.ChallengeMode }}{{ else }}{{ t $.Lang "settings.rate_limit.sites.chmode_inherit" }}{{ end }}
-        </span>
-      </div>
-      <div class="site-card-actions">
-        <form method="post" style="display:inline"
-              action="{{ $.BasePath }}/admin/settings/rate_limit/site/delete"
-              onsubmit="return confirm('{{ t $.Lang "settings.rate_limit.sites.delete_confirm" }}: {{ $host }}')">
-          <input type="hidden" name="site" value="{{ $host }}">
-          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.rate_limit.sites.delete" }}</button>
-        </form>
-      </div>
-    </div>
-    {{ end }}
-  </div>
-  {{ else }}
-  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
-    {{ t .Lang "settings.rate_limit.sites.empty" }}
-  </p>
-  {{ end }}
-
-  <details class="site-add-block">
-    <summary class="btn-mini">{{ t .Lang "settings.rate_limit.sites.add" }}</summary>
-    <form method="post"
-          action="{{ .BasePath }}/admin/settings/rate_limit/site/save"
-          class="site-add-form">
-      <div class="field">
-        <label>{{ t .Lang "settings.rate_limit.sites.host_label" }}</label>
-        <input type="text" name="site" required maxlength="253"
-               placeholder="shop.example.com"
-               pattern="[A-Za-z0-9.\-]+"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
-        <input type="number" name="default_requests_per_min" min="1" max="100000" step="1"
-               value="{{ if gt .RateLimit.Default.RequestsPerMin 0 }}{{ .RateLimit.Default.RequestsPerMin }}{{ else }}100{{ end }}"
-               style="width:8rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.rate_limit.burst" }}</label>
-        <input type="number" name="default_burst" min="0" max="100000" step="1"
-               value="{{ if gt .RateLimit.Default.Burst 0 }}{{ .RateLimit.Default.Burst }}{{ else }}50{{ end }}"
-               style="width:8rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.rate_limit.window_sec" }}</label>
-        <input type="number" name="default_window_sec" min="1" max="3600" step="1"
-               value="{{ if gt .RateLimit.Default.WindowSec 0 }}{{ .RateLimit.Default.WindowSec }}{{ else }}60{{ end }}"
-               style="width:6rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
-        {{ $cmd := .RateLimit.Default.ChallengeMode }}{{ if eq $cmd "" }}{{ $cmd = "pow_then_captcha" }}{{ end }}
-        <select name="default_challenge_mode" style="font-size:.85rem;padding:.25rem .4rem">
-          <option value="pow_only"         {{ if eq $cmd "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $cmd "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $cmd "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $cmd "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
-      <button type="submit" class="btn">{{ t .Lang "settings.rate_limit.sites.save" }}</button>
-    </form>
-  </details>
-</section>
+{{/* Per-site rate-limit scalars dropped in v2 step b: per-site rate
+     variations are now expressed by adding a Zone with a Site column
+     (= the Zones table above already supports per-row Site filter). */}}
 {{ end }}
 
 {{ if eq .Tab "geo" }}

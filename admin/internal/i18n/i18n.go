@@ -810,15 +810,6 @@ var dict = map[Lang]map[string]string{
 		"settings.challenge.sites.credit_off":     "credit 非表示",
 
 		// per-site rate-limit cards (= multi-site v2 phase 2)
-		"settings.rate_limit.sites.section_title":  "site 別 rate-limit (= default を上書きする host)",
-		"settings.rate_limit.sites.intro":          "<code>$host</code> 単位で rate / burst / window / challenge mode を上書きする (= default に対する field 単位継承は <strong>無し</strong>; entry を作るとその site は record 全体を持つ). entry の無い host は default をそのまま使う. zones (= 上の path 別 table) は install-wide で site 別 override の対象外.",
-		"settings.rate_limit.sites.empty":          "未登録. default rate-limit が全 host に適用されます.",
-		"settings.rate_limit.sites.add":            "+ site を追加",
-		"settings.rate_limit.sites.delete":         "×",
-		"settings.rate_limit.sites.delete_confirm": "この site の rate-limit を削除 (= default に戻す) しますか",
-		"settings.rate_limit.sites.save":           "site を保存",
-		"settings.rate_limit.sites.host_label":     "host (= $host. 例: shop.example.com)",
-		"settings.rate_limit.sites.chmode_inherit": "(default 継承)",
 
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).
 		// URL rows live in the flat table on the same tab; the cards
@@ -1978,15 +1969,6 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.challenge.sites.credit_off":     "credit off",
 
 		// per-site rate-limit cards (= multi-site v2 phase 2)
-		"settings.rate_limit.sites.section_title":  "Site-specific rate-limit (= hosts that override the default)",
-		"settings.rate_limit.sites.intro":          "Override rate / burst / window / challenge mode per <code>$host</code>.  No field-level inheritance — adding an entry pins the <strong>entire</strong> record for that host.  Hosts without an entry use the default verbatim.  Zones (= the per-path table above) stay install-wide; the visitor's site does not affect zone resolution.",
-		"settings.rate_limit.sites.empty":          "No site-specific rate-limit yet.  The default applies to every host.",
-		"settings.rate_limit.sites.add":            "+ Add site",
-		"settings.rate_limit.sites.delete":         "×",
-		"settings.rate_limit.sites.delete_confirm": "Delete this site's rate-limit (= revert to default)?",
-		"settings.rate_limit.sites.save":           "Save site",
-		"settings.rate_limit.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
-		"settings.rate_limit.sites.chmode_inherit": "(inherit default)",
 
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).
 		// URL rows live in the flat table on the same tab; the cards

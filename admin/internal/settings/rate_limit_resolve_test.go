@@ -1,115 +1,69 @@
 package settings
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-// TestRateLimitResolveUndeclared: undeclared site -> Default verbatim.
-func TestRateLimitResolveUndeclared(t *testing.T) {
-	cfg := RateLimitConfig{
-		Default: RateLimitValues{
-			Name:           "unmask_rate",
-			RequestsPerMin: 100,
-			Burst:          50,
-			WindowSec:      60,
-			ChallengeMode:  RateChallengePoWThenCaptcha,
-		},
-	}
-	if got := cfg.Resolve("blog.example.com"); got != cfg.Default {
-		t.Fatalf("undeclared: want %+v, got %+v", cfg.Default, got)
+// TestRateLimitResolveZonesEmpty: empty config -> empty slice.
+func TestRateLimitResolveZonesEmpty(t *testing.T) {
+	var c RateLimitConfig
+	if got := c.ResolveZones("shop.example.com"); len(got) != 0 {
+		t.Fatalf("empty: want [], got %+v", got)
 	}
 }
 
-// TestRateLimitResolveDeclared: declared site -> Sites[site] verbatim
-// (= every field comes from the entry, not Default).
-func TestRateLimitResolveDeclared(t *testing.T) {
-	shop := RateLimitValues{
-		Name:           "unmask_rate_shop",
-		RequestsPerMin: 200,
-		Burst:          80,
-		WindowSec:      60,
-		ChallengeMode:  RateChallengePoWOnly,
-	}
-	cfg := RateLimitConfig{
-		Default: RateLimitValues{
-			Name:           "unmask_rate",
-			RequestsPerMin: 100,
-			Burst:          50,
-			WindowSec:      60,
-			ChallengeMode:  RateChallengePoWThenCaptcha,
-		},
-		Sites: map[string]RateLimitValues{"shop.example.com": shop},
-	}
-	if got := cfg.Resolve("shop.example.com"); got != shop {
-		t.Fatalf("declared: want %+v, got %+v", shop, got)
+// TestRateLimitResolveZonesAllSites: empty Site applies to every host.
+func TestRateLimitResolveZonesAllSites(t *testing.T) {
+	z := RateZone{Name: "api", RequestsPerMin: 100, PathPatterns: []string{"/api/"}}
+	c := RateLimitConfig{Zones: []RateZone{z}}
+	for _, site := range []string{"", "shop.example.com", "blog.example.com"} {
+		got := c.ResolveZones(site)
+		if !reflect.DeepEqual(got, []RateZone{z}) {
+			t.Fatalf("site=%q: want [z], got %+v", site, got)
+		}
 	}
 }
 
-// TestRateLimitResolveEmptyEntry: empty entry -> zero value (no field-level
-// merge).  This is the v2 contract: an entry exists or it does not.
-func TestRateLimitResolveEmptyEntry(t *testing.T) {
-	cfg := RateLimitConfig{
-		Default: RateLimitValues{
-			Name:           "unmask_rate",
-			RequestsPerMin: 100,
-			Burst:          50,
-		},
-		Sites: map[string]RateLimitValues{"empty.example.com": {}},
+// TestRateLimitResolveZonesSiteSpecific: non-empty Site filters exact match.
+func TestRateLimitResolveZonesSiteSpecific(t *testing.T) {
+	shop := RateZone{Name: "shop_api", RequestsPerMin: 200, Site: "shop.example.com"}
+	c := RateLimitConfig{Zones: []RateZone{shop}}
+	if got := c.ResolveZones("shop.example.com"); !reflect.DeepEqual(got, []RateZone{shop}) {
+		t.Fatalf("shop: want [shop], got %+v", got)
 	}
-	got := cfg.Resolve("empty.example.com")
-	if got != (RateLimitValues{}) {
-		t.Fatalf("empty entry: want zero, got %+v", got)
+	if got := c.ResolveZones("blog.example.com"); len(got) != 0 {
+		t.Fatalf("blog: want [], got %+v", got)
 	}
 }
 
-// TestRateLimitResolveZoneSiteFallback: when no Zone PathPatterns match, the
-// per-site default record wins.
-func TestRateLimitResolveZoneSiteFallback(t *testing.T) {
-	cfg := RateLimitConfig{
-		Default: RateLimitValues{
-			Name:           "unmask_rate",
-			RequestsPerMin: 100,
-			Burst:          50,
-		},
-		Sites: map[string]RateLimitValues{
-			"shop.example.com": {
-				Name:           "unmask_rate_shop",
-				RequestsPerMin: 200,
-				Burst:          80,
-			},
-		},
-	}
-	got := cfg.ResolveZone("/somewhere/", "shop.example.com")
-	if got.RequestsPerMin != 200 || got.Name != "unmask_rate_shop" {
-		t.Fatalf("shop fallback: want shop default, got %+v", got)
-	}
-	got = cfg.ResolveZone("/somewhere/", "blog.example.com")
-	if got.RequestsPerMin != 100 || got.Name != "unmask_rate" {
-		t.Fatalf("blog fallback: want install default, got %+v", got)
-	}
-}
-
-// TestRateLimitResolveZonePathWins: matching path zone overrides site default.
-func TestRateLimitResolveZonePathWins(t *testing.T) {
-	cfg := RateLimitConfig{
-		Default: RateLimitValues{
-			Name:           "unmask_rate",
-			RequestsPerMin: 100,
-		},
+// TestRateLimitResolveZoneMatch: ResolveZone(path, site) returns the first
+// matching zone (= PathPatterns + Site both match), else Default.
+func TestRateLimitResolveZoneMatch(t *testing.T) {
+	c := RateLimitConfig{
+		Default: RateLimitValues{RequestsPerMin: 100, Burst: 50},
 		Zones: []RateZone{
-			{
-				Name:           "unmask_rate_api",
-				RequestsPerMin: 500,
-				PathPatterns:   []string{"/api/"},
-			},
+			{Name: "shop_api", RequestsPerMin: 200, PathPatterns: []string{"/api/"}, Site: "shop.example.com"},
+			{Name: "blog_strict", RequestsPerMin: 30, PathPatterns: []string{"/api/"}, Site: "blog.example.com"},
+			{Name: "api", RequestsPerMin: 50, PathPatterns: []string{"/api/"}},
 		},
 	}
-	got := cfg.ResolveZone("/api/v2/health", "shop.example.com")
-	if got.Name != "unmask_rate_api" || got.RequestsPerMin != 500 {
-		t.Fatalf("path zone: want api zone, got %+v", got)
+	if got := c.ResolveZone("/api/v1", "shop.example.com"); got.RequestsPerMin != 200 {
+		t.Fatalf("shop /api/: want 200, got %d", got.RequestsPerMin)
+	}
+	if got := c.ResolveZone("/api/v1", "blog.example.com"); got.RequestsPerMin != 30 {
+		t.Fatalf("blog /api/: want 30, got %d", got.RequestsPerMin)
+	}
+	if got := c.ResolveZone("/api/v1", "other.example.com"); got.RequestsPerMin != 50 {
+		t.Fatalf("other /api/: want 50 (default zone), got %d", got.RequestsPerMin)
+	}
+	if got := c.ResolveZone("/", "shop.example.com"); got.RequestsPerMin != 100 {
+		t.Fatalf("shop /: want 100 (install default), got %d", got.RequestsPerMin)
 	}
 }
 
 // TestRateLimitValuesHelpers: ResolvedWindowSec / ResolvedChallengeMode
-// fallback behavior on the v2 value record.
+// fallback behaviour on the value record.
 func TestRateLimitValuesHelpers(t *testing.T) {
 	v := RateLimitValues{}
 	if got := v.ResolvedWindowSec(); got != 60 {
