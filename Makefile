@@ -50,7 +50,7 @@ MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
 GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down distro-check vet fmt clean help
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down distro-check vet fmt clean help repo repo-apk publish
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -315,6 +315,44 @@ package-release:
 # lacks by default; intended to run on Debian or inside docker).
 repo:
 	./tools/build-repo.sh
+
+## repo-apk - regenerate the apk repo index (APKINDEX.tar.gz) inside an
+# Alpine 3.20 container.  The build host (Rocky 9 dev2) lacks apk-tools /
+# abuild, so the apk stage of `make repo` is otherwise skipped and the
+# `../unmask-dl-build/apk/` tree goes stale.  This target:
+#   1. Builds (or reuses) the unmask-alpine-builder image from tools/Dockerfile.alpine
+#   2. Mounts the repo + the sibling keys/ and unmask-dl-build/ into /work,
+#      /keys, /out respectively.
+#   3. Runs `tools/build-repo.sh /out apk` (= apk stage only) inside the
+#      container, leaving /rpm/ and /deb/ untouched.
+#
+# Inputs (override via env):
+#   UNMASK_RSA_PRIVKEY  default: /keys/oss@unmask.sh-260509.rsa
+#   UNMASK_RSA_PUBNAME  default: oss@unmask.sh-260509.rsa.pub
+#                       (= the name written into APKINDEX's RSA signature
+#                        filename; apk-tools looks for /etc/apk/keys/<pubname>
+#                        on the client, shipped via unmask-release).
+#   UNMASK_GPG_KEY_ID   accepted for parity with `make repo`; ignored by apk stage.
+#
+# Container runs as the host uid:gid so files under /out stay writable by the
+# `apps` user (= no root-owned files in unmask-dl-build/).
+repo-apk:
+	@test -d $(DIST) || { echo 'ERR: $(DIST) absent; run `make package` first' >&2; exit 1; }
+	@test -d ../keys || { echo 'ERR: ../keys missing — expected RSA private key at ../keys/oss@unmask.sh-260509.rsa' >&2; exit 1; }
+	@test -d ../unmask-dl-build || { echo 'ERR: ../unmask-dl-build missing — run `make repo` once to seed the layout' >&2; exit 1; }
+	docker build -t unmask-alpine-builder -f tools/Dockerfile.alpine tools/
+	docker run --rm \
+		--user $(shell id -u):$(shell id -g) \
+		-v $(realpath .):/work \
+		-v $(realpath ../keys):/keys:ro \
+		-v $(realpath ../unmask-dl-build):/out \
+		-e UNMASK_RSA_PRIVKEY=$${UNMASK_RSA_PRIVKEY:-/keys/oss@unmask.sh-260509.rsa} \
+		-e UNMASK_RSA_PUBNAME=$${UNMASK_RSA_PUBNAME:-oss@unmask.sh-260509.rsa.pub} \
+		unmask-alpine-builder \
+		/work/tools/build-repo.sh /out apk
+	@echo ""
+	@echo ">>> apk repo regenerated at ../unmask-dl-build/apk/"
+	@ls -la ../unmask-dl-build/apk/main/*/APKINDEX.tar.gz 2>/dev/null || true
 
 ## publish - rsync repo/ to unmask.sh/dl/ (a GCE VM) via tools/publish-repo.sh.
 # UNMASK_DL_HOST / UNMASK_DL_USER / UNMASK_DL_PATH / UNMASK_SSH_KEY override

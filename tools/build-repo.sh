@@ -4,12 +4,17 @@
 # repo/.
 #
 # usage:
-#   ./tools/build-repo.sh [OUT_DIR]
+#   ./tools/build-repo.sh [OUT_DIR] [STAGE]
 #
 #   OUT_DIR default: ../unmask-dl-build (= sibling of the working tree so the
 #   build output stays out of the git index).  Production publish is handled
 #   by a separate script (= tools/publish-repo.sh) that rsyncs to
 #   unmask.sh:/var/www/unmask.sh/dl/.
+#
+#   STAGE default: all (= run rpm + deb + apk stages back to back).
+#   Pass `apk` (or `rpm` / `deb`) to run only that stage and leave the other
+#   stages' output untouched.  Used by `make repo-apk` to run the apk stage
+#   inside an Alpine container (apk-tools / abuild are not present on Rocky).
 #
 # **Single-path design** (= unified on 2026-05-10 17:39 JST):
 #   Per-distro paths are gone.  The implementation side has been
@@ -51,8 +56,23 @@ set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
 OUT="${1:-$ROOT/../unmask-dl-build}"
+STAGE="${2:-all}"
 
+case "$STAGE" in
+    all|rpm|deb|apk) ;;
+    *) echo "ERR: unknown stage '$STAGE'.  Valid: all | rpm | deb | apk." >&2; exit 1 ;;
+esac
+
+# DIST is only required for stages that read from it.  The apk-only path,
+# when invoked inside the Alpine container, also expects DIST to be present
+# because the indexer copies the *.apk files into the per-arch directory
+# before running `apk index`.
 [ -d "$DIST" ] || { echo "ERR: $DIST not found.  Run 'make package' first." >&2; exit 1; }
+
+# Helper: is the requested stage active?
+stage_active() {
+    [ "$STAGE" = "all" ] || [ "$STAGE" = "$1" ]
+}
 
 # ---- GnuPG keyring + agent passphrase preset ----
 # Project-local GNUPGHOME (= the unmask release keyring lives outside ~/.gnupg
@@ -64,7 +84,10 @@ export GNUPGHOME="${UNMASK_GNUPGHOME:-${ROOT%/repo}/keys/gpg}"
 
 # Preset the passphrase into the agent cache exactly once per build-repo invocation.
 # Idempotent: a second call within the same shell skips when UNMASK_GPG_PRESET_DONE is set.
-if [ -n "${UNMASK_GPG_KEY_ID:-}" ] && [ -z "${UNMASK_GPG_PRESET_DONE:-}" ]; then
+# Skip entirely when only the apk stage is requested -- apk signing uses
+# abuild-sign / RSA, not GPG.
+if [ -n "${UNMASK_GPG_KEY_ID:-}" ] && [ -z "${UNMASK_GPG_PRESET_DONE:-}" ] \
+        && { stage_active rpm || stage_active deb; }; then
     KEYGRIP=$(gpg --list-keys --with-keygrip --with-colons "$UNMASK_GPG_KEY_ID" 2>/dev/null \
         | awk -F: '$1=="grp"{print $10; exit}')
     if [ -z "$KEYGRIP" ]; then
@@ -111,17 +134,26 @@ have gpg          && echo "  [ok] gpg (= optional signing)"
 have abuild-sign  && echo "  [ok] abuild-sign (= optional apk signing)"
 echo
 
-echo "==> output: $OUT"
+echo "==> output: $OUT  (stage=$STAGE)"
 mkdir -p "$OUT"/{rpm,deb,apk,keys}
 
 # ---- keys (= always overwrite with the latest public key. idempotent because the files are small) ----
-cp "$ROOT/rpm/release/RPM-GPG-KEY-unmask" "$OUT/keys/RPM-GPG-KEY-unmask"
-cp "$ROOT/rpm/release/unmask.rsa.pub"      "$OUT/keys/unmask.rsa.pub"
+# Only refresh keys/ on a full run.  apk-only invocations (= the Alpine
+# container path) deliberately leave keys/ alone -- the existing files may be
+# owned by root from a previous full run and would otherwise fail with EACCES
+# under the container's non-root uid.  Keys are regenerated whenever the rpm
+# / deb stages run (= the host-side `make repo` flow).
+if stage_active rpm || stage_active deb; then
+    cp "$ROOT/rpm/release/RPM-GPG-KEY-unmask" "$OUT/keys/RPM-GPG-KEY-unmask"
+    cp "$ROOT/rpm/release/unmask.rsa.pub"      "$OUT/keys/unmask.rsa.pub"
+fi
 
 # ============================================================
 # rpm stage (= regenerate if createrepo_c is present; otherwise leave the existing tree)
 # ============================================================
-if [ "$HAVE_CREATEREPO" = 1 ]; then
+if ! stage_active rpm; then
+    echo "==> rpm stage: skip (= stage filter '$STAGE')"
+elif [ "$HAVE_CREATEREPO" = 1 ]; then
     echo "==> rpm stage: regenerate (= single path)"
     rm -rf "$OUT/rpm"
     mkdir -p "$OUT/rpm"
@@ -177,7 +209,9 @@ fi
 # ============================================================
 # deb stage (= regenerate if apt-ftparchive is present; otherwise keep existing)
 # ============================================================
-if [ "$HAVE_APT" = 1 ]; then
+if ! stage_active deb; then
+    echo "==> deb stage: skip (= stage filter '$STAGE')"
+elif [ "$HAVE_APT" = 1 ]; then
     echo "==> deb stage: regenerate (= single path / Suites: stable)"
     rm -rf "$OUT/deb"
     mkdir -p "$OUT/deb"
@@ -225,7 +259,9 @@ fi
 # ============================================================
 # apk stage (= regenerate if apk is present; otherwise keep existing)
 # ============================================================
-if [ "$HAVE_APK" = 1 ]; then
+if ! stage_active apk; then
+    echo "==> apk stage: skip (= stage filter '$STAGE')"
+elif [ "$HAVE_APK" = 1 ]; then
     echo "==> apk stage: regenerate (= single path / main 1 channel)"
     rm -rf "$OUT/apk"
     mkdir -p "$OUT/apk"
@@ -259,9 +295,24 @@ if [ "$HAVE_APK" = 1 ]; then
         [ -n "$latest" ] && cp -f "$latest" "$d/unmask-release-latest.apk"
         # --description: required for apk-tools v3 to recognize APKINDEX
         # (= confirmed via 2026-05-11 [B]).
-        ( cd "$d" && apk index --quiet --description "unmask repository (single-path)" -o APKINDEX.tar.gz *.apk )
+        # --allow-untrusted: `apk index` validates each input .apk against the
+        # local /etc/apk/keys/ keyring.  In the Alpine container our public
+        # key is not installed at /etc/apk/keys/ (= the container runs as a
+        # non-root uid and we ship the pub key separately via unmask-release).
+        # The signature on APKINDEX.tar.gz produced by `abuild-sign` below is
+        # what clients verify; the index-time check is developer-side only.
+        ( cd "$d" && apk index --quiet --allow-untrusted --description "unmask repository (single-path)" -o APKINDEX.tar.gz *.apk )
         if [ -n "${UNMASK_RSA_PRIVKEY:-}" ] && [ -f "$UNMASK_RSA_PRIVKEY" ]; then
-            abuild-sign -k "$UNMASK_RSA_PRIVKEY" "$d/APKINDEX.tar.gz"
+            # -p sets the pub-key NAME embedded in the index signature filename
+            # (= `.SIGN.RSA.<pubname>` inside APKINDEX.tar.gz).  apk-tools looks
+            # up `/etc/apk/keys/<pubname>` on the client.  Without -p,
+            # abuild-sign tries to read `${UNMASK_RSA_PRIVKEY}.pub` from disk
+            # which we do not ship -- the public key is distributed separately
+            # via the unmask-release package (= /etc/apk/keys/oss@unmask.sh-260509.rsa.pub).
+            pubname="${UNMASK_RSA_PUBNAME:-$(basename "$UNMASK_RSA_PRIVKEY").pub}"
+            abuild-sign -k "$UNMASK_RSA_PRIVKEY" -p "$pubname" "$d/APKINDEX.tar.gz"
+        else
+            echo "  -> WARNING: UNMASK_RSA_PRIVKEY unset or missing -> APKINDEX NOT signed (apk add will reject the repo)"
         fi
     done
 else

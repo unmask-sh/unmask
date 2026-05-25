@@ -39,6 +39,22 @@ DRY=""
 
 [ -d "$SRC" ] || { echo "ERR: $SRC is missing.  Run build-repo.sh first." >&2; exit 1; }
 
+# apk/ exclusion is now opt-in.
+#   v0.1 history: build-repo.sh's apk stage was skipped on the Rocky 9 build
+#     host (no apk-tools / abuild), so $SRC/apk/ was always stale.  We
+#     defaulted to --exclude=apk/ so publish would not overwrite the
+#     hand-curated copy on the remote with stale content.
+#   v0.2 onwards: `make repo-apk` regenerates $SRC/apk/ inside an Alpine
+#     container before publish, so apk/ is now safe to ship by default.
+# Keep an escape hatch (UNMASK_PUBLISH_SKIP_APK=1) for emergencies where the
+# Alpine container did not run and the operator wants to preserve the remote
+# copy.
+APK_EXCLUDE=""
+if [ "${UNMASK_PUBLISH_SKIP_APK:-0}" = "1" ]; then
+    echo "==> UNMASK_PUBLISH_SKIP_APK=1 -> excluding apk/ from publish (= preserve remote copy)"
+    APK_EXCLUDE="--exclude=apk/"
+fi
+
 echo "==> rsync $SRC/ -> $USER@$HOST:$DEST_PATH"
 # Note: feed/ is an artifact produced on the remote side by a separate
 # application (= the feed-server cron).  It does not exist under repo/, so
@@ -46,6 +62,7 @@ echo "==> rsync $SRC/ -> $USER@$HOST:$DEST_PATH"
 rsync -avhz $DRY \
     --delete-after \
     --exclude=feed/ \
+    $APK_EXCLUDE \
     --info=progress2 \
     --copy-unsafe-links \
     -e "ssh -i $SSH_KEY -o BatchMode=yes" \

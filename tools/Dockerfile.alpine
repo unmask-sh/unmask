@@ -1,0 +1,47 @@
+# tools/Dockerfile.alpine — Alpine image used by `make repo-apk` to regenerate
+# the apk repository index (APKINDEX.tar.gz) on a host that does not have
+# apk-tools / abuild installed (e.g. Rocky 9 dev2).
+#
+# The container is intentionally minimal: it only installs the toolchain
+# needed by build-repo.sh's apk stage (apk index + abuild-sign).  No keys
+# are baked into the image -- the RSA signing key is mounted in by the
+# caller at /keys/.
+#
+# Usage (driven by Makefile target `repo-apk`):
+#   docker run --rm \
+#       -v <repo>:/work \
+#       -v <repo>/../keys:/keys:ro \
+#       -v <repo>/../unmask-dl-build:/out \
+#       -e UNMASK_RSA_PRIVKEY=/keys/oss@unmask.sh-260509.rsa \
+#       -e UNMASK_RSA_PUBNAME=oss@unmask.sh-260509.rsa.pub \
+#       unmask-alpine-builder \
+#       /work/tools/build-repo.sh /out apk
+#
+# License: Apache-2.0 (see LICENSE at the repo root).
+
+FROM alpine:3.20
+
+# abuild ships abuild-sign / abuild-keygen.
+# apk-tools provides the `apk index` subcommand used by build-repo.sh.
+# The rest (bash / coreutils / findutils / sed / grep / tar / gzip / gawk / gnupg)
+# are present in build-repo.sh's portable code paths.  Pinning them here keeps
+# the image deterministic across Alpine 3.20 point releases.
+RUN apk add --no-cache \
+        abuild \
+        apk-tools \
+        bash \
+        coreutils \
+        findutils \
+        gnupg \
+        gawk \
+        sed \
+        grep \
+        tar \
+        gzip
+
+WORKDIR /work
+
+# Default to bash so the Makefile target can pass an explicit command line
+# (= `/work/tools/build-repo.sh /out apk`).  Override with `docker run ...
+# --entrypoint /bin/sh` for an interactive shell.
+ENTRYPOINT ["/bin/bash"]
