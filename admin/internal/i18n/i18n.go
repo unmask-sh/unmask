@@ -749,6 +749,7 @@ var dict = map[Lang]map[string]string{
 		// form below reads + writes (= Default or Sites[<host>]).
 		"settings.scope.label":                    "編集対象",
 		"settings.scope.default":                  "default (= 全 host 共通)",
+		"settings.scope.switch_button":            "切替",
 		"settings.scope.add_new":                  "+ 新しい host を追加…",
 		"settings.scope.add_prompt":               "host 名を入力してください (例: shop.example.com)",
 		"settings.scope.banner_default":           "default を編集中 (= override のない全 host に適用)",
@@ -1904,6 +1905,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		// form below reads + writes (= Default or Sites[<host>]).
 		"settings.scope.label":                    "Editing",
 		"settings.scope.default":                  "default (= all hosts)",
+		"settings.scope.switch_button":            "Switch",
 		"settings.scope.add_new":                  "+ Add new host...",
 		"settings.scope.add_prompt":               "Enter a host name (e.g. shop.example.com)",
 		"settings.scope.banner_default":           "Editing default (= applies to every host without an override)",
