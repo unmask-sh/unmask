@@ -257,7 +257,16 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
   if(t==='cat'){var p=document.querySelector('.paws');if(p)p.style.display='';}
   // _preview=1: for the settings UI's iframe preview. Don't run challenge.js;
   // just display spinner + msg as-is (= theme look check only).
-  if(/[?&]_preview=1\b/.test(location.search)){window.UNMASK._preview=true;}
+  // We also paint the PoW progress bar in a representative mid-state so the
+  // operator sees the bar's styling next to the spinner / msg while picking
+  // a theme.  Real PoW progress logic stays bypassed by challenge.js's
+  // early-return on window.UNMASK._preview.
+  if(/[?&]_preview=1\b/.test(location.search)){
+    window.UNMASK._preview=true;
+    var pb=document.getElementById('powProgress');
+    var pf=document.getElementById('powProgressFill');
+    if(pb&&pf){ pb.style.opacity='1'; pf.style.width='50%'; }
+  }
 })();</script>
 <script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>
 <!--UNMASK_CREDIT_START--><aside class="unmask-credit"><a href="https://unmask.sh" target="_blank" rel="noopener"><img src="/unmask/static/icon.png" alt="" width="14" height="14">protected by unmask</a></aside><!--UNMASK_CREDIT_END-->
