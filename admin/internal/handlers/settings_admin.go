@@ -342,15 +342,49 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			scopeChallenge = cv
 		}
 	}
-	// Sorted list of registered hosts across Branding + Challenge wrappers,
-	// powers the <select> in theme + challenge tabs.  Both wrappers may
-	// independently carry per-site overrides, so union the key sets.
+	// Sorted union of every host that has appeared anywhere in the config or
+	// the dashboard's site picker.  Feeds both the scope picker (theme +
+	// challenge tabs) and the per-row Site dropdowns on bypass / protected /
+	// honeypot URLs / rate-limit zones, so the operator sees the same set
+	// of suggestions across the settings page.  Sources:
+	//   - Branding.Sites / Challenge.Sites keys (= already-configured per-
+	//     site scalars)
+	//   - per-row Site column on bypass / protected / honeypot URLs / zones
+	//     (= sites the operator already typed somewhere else on this page)
+	//   - observedSitesFilteredForPicker (= hosts the dashboard has seen
+	//     traffic for, so a brand-new site that just started serving still
+	//     shows up before the operator has typed it anywhere)
 	scopeHostSet := map[string]bool{}
 	for h := range snap.Branding.Sites {
 		scopeHostSet[h] = true
 	}
 	for h := range snap.Challenge.Sites {
 		scopeHostSet[h] = true
+	}
+	for _, p := range snap.Nginx.BypassPaths.Paths {
+		if p.Site != "" {
+			scopeHostSet[p.Site] = true
+		}
+	}
+	for _, p := range snap.Nginx.ProtectedPaths.Paths {
+		if p.Site != "" {
+			scopeHostSet[p.Site] = true
+		}
+	}
+	for _, u := range snap.Nginx.Honeypot.URLs {
+		if u.Site != "" {
+			scopeHostSet[u.Site] = true
+		}
+	}
+	for _, z := range snap.RateLimit.Zones {
+		if z.Site != "" {
+			scopeHostSet[z.Site] = true
+		}
+	}
+	for _, h := range h.observedSitesFilteredForPicker(r, h.Settings.Sites) {
+		if h != "" {
+			scopeHostSet[h] = true
+		}
 	}
 	scopeHosts := make([]string, 0, len(scopeHostSet))
 	for h := range scopeHostSet {
