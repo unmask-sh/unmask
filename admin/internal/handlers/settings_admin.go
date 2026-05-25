@@ -2692,6 +2692,12 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			seen[line] = true
 			paths = append(paths, line)
 		}
+		// site: optional per-row Host filter (= multi-site v2 step b).
+		// Empty value -> zone applies to every vhost.  No normalisation is
+		// required here -- the resolver compares against the same form-of-host
+		// that was written through the picker / datalist, and the site list
+		// supplied to .Sites already comes from the canonical observed pool.
+		site := strings.TrimSpace(r.FormValue(prefix + "site"))
 		zones = append(zones, settings.RateZone{
 			Name:           name,
 			RequestsPerMin: rpm,
@@ -2699,6 +2705,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			WindowSec:      window,
 			PathPatterns:   paths,
 			ChallengeMode:  chmode,
+			Site:           site,
 		})
 	}
 	c.Zones = zones
