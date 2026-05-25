@@ -57,7 +57,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-site="{{ .Site }}">
       <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -286,6 +286,11 @@ document.addEventListener('DOMContentLoaded', function(){
 // JA4 / UA / URL / verdict / host-badge / site-badge cellpop.  A truncated
 // cell opens a pinnable popover holding the full value (= selectable text +
 // the title-bar copy button on popoverPin).  Untruncated cells stay quiet.
+//
+// URL cells get two extra controls in the popover: "Open in new tab" + "Copy
+// URL", built from the row's data-site + the path text.  scheme is assumed
+// https (= the address-bar form; the operator can always edit the URL after
+// pasting if a path was served over http instead).
 (function(){
   var pop = document.getElementById('cell-popover');
   if (!pop || !window.popoverPin) return;
@@ -296,28 +301,70 @@ document.addEventListener('DOMContentLoaded', function(){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
   }
-  function popHtml(val){
-    return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
-      '</code></div>';
+  function fullURL(el, val){
+    // val is a path ("/foo?bar=1"); the row's data-site is the host without
+    // port.  Reject anything that isn't a leading-slash path so we never
+    // build a bogus URL on a non-URL cellpop cell.
+    if (!val || val[0] !== '/') return '';
+    var tr = el.closest('tr');
+    var site = tr && tr.getAttribute('data-site');
+    if (!site) return '';
+    return 'https://' + site + val;
   }
+  function popHtml(val, url){
+    var body = '<code class="cellpop-val">' + esc(val) + '</code>';
+    if (url){
+      body += '<div class="cellpop-actions">' +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
+        '{{ t .Lang "cellpop.open_new_tab" }} ↗</a>' +
+        '<button type="button" class="cellpop-btn cellpop-copy" data-url="' + esc(url) + '">' +
+        '{{ t .Lang "cellpop.copy_url" }}</button>' +
+        '</div>';
+    }
+    return '<div class="cellpop-pop">' + body + '</div>';
+  }
+  // Delegated click for the Copy button (= the popover content is re-rendered
+  // on every show, so binding inside popHtml would not survive a re-show).
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.cellpop-copy');
+    if (!btn) return;
+    e.preventDefault();
+    var url = btn.getAttribute('data-url') || '';
+    if (!url) return;
+    var done = function(){
+      var orig = btn.textContent;
+      btn.textContent = {{ t .Lang "cellpop.copied" }};
+      setTimeout(function(){ btn.textContent = orig; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done, function(){
+        // fall back to execCommand on browsers that block the async API
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_) {}
+        document.body.removeChild(ta);
+      });
+    }
+  });
   document.querySelectorAll('.cellpop').forEach(function(el){
     var full = el.getAttribute('data-full-value');
     var val = (full && full.length) ? full : el.textContent.trim();
     if (!val) return;
     if (!full && el.scrollWidth - el.clientWidth <= 1) return;
     el.classList.add('cellpop-active');
+    var url = el.classList.contains('url') ? fullURL(el, val) : '';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
+      pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, val);
     });
   });
 })();
