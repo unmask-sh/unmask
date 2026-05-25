@@ -2968,22 +2968,15 @@ document.addEventListener("DOMContentLoaded", function(){
 {{/* Reset to default: drops cur.Branding.Sites[scope] + cur.Challenge.Sites[scope]
      so the host falls back to the Default record verbatim on the next
      request.  Outside of the appearance form so it cannot double-submit on
-     Enter.  Each delete endpoint runs against one wrapper only, so the
-     theme tab exposes both buttons -- one for branding-only reset, one for
-     challenge-only (= helpful when the operator wants to keep the per-site
-     branding but drop a stale challenge override, or vice versa). */}}
+     Enter.  Theme tab edits Branding only; the challenge-reset button
+     lives on the challenge tab so each tab carries the reset for the
+     section the operator is actually looking at. */}}
 <div class="scope-reset-row">
   <form method="post" style="display:inline"
         action="{{ .BasePath }}/admin/settings/branding/site/delete"
         onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
     <input type="hidden" name="site" value="{{ .Scope }}">
     <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_branding_button" }}</button>
-  </form>
-  <form method="post" style="display:inline"
-        action="{{ .BasePath }}/admin/settings/challenge/site/delete"
-        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
-    <input type="hidden" name="site" value="{{ .Scope }}">
-    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_challenge_button" }}</button>
   </form>
 </div>
 {{ end }}
