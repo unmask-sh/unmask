@@ -359,8 +359,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
     <li><a href="?tab=captcha"    {{ if eq .Tab "captcha"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.captcha"    }}</a></li>
-    <li><a href="?tab=challenge"  {{ if eq .Tab "challenge"  }}class="active"{{ end }}>{{ t .Lang "settings.tab.challenge"  }}</a></li>
-    <li><a href="?tab=theme"      {{ if eq .Tab "theme"      }}class="active"{{ end }}>{{ t .Lang "settings.tab.theme"      }}</a></li>
+    {{/* challenge + theme keep ?scope= in the URL so flipping between the
+         two tabs preserves the currently-edited site (= the operator that
+         opens theme&scope=uic.io and clicks "challenge" stays on uic.io,
+         and the per-site reset button stays visible).  Other tabs are
+         global views with no scope concept, so they intentionally drop
+         the query. */}}
+    <li><a href="?tab=challenge{{ if .Scope }}&scope={{ .Scope }}{{ end }}"  {{ if eq .Tab "challenge"  }}class="active"{{ end }}>{{ t .Lang "settings.tab.challenge"  }}</a></li>
+    <li><a href="?tab=theme{{ if .Scope }}&scope={{ .Scope }}{{ end }}"      {{ if eq .Tab "theme"      }}class="active"{{ end }}>{{ t .Lang "settings.tab.theme"      }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <ul>
