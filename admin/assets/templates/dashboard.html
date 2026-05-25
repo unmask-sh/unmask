@@ -597,7 +597,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
           <tbody>
             {{range firstN 10 (reverse .DailyTotal)}}
-            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{if .UniqIPs}}{{comma .UniqIPs}}{{else}}-{{end}}</td></tr>
+            <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{if .UniqIPs}}{{comma .UniqIPs}}{{else}}-{{end}}</td></tr>
             {{end}}
           </tbody>
         </table>
@@ -636,7 +636,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
           <tbody>
             {{range firstN 10 (reverse .DailyServeTotal)}}
-            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
+            <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
             {{end}}
           </tbody>
         </table>

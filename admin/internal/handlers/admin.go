@@ -152,6 +152,21 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				return out.Interface()
 			},
+			// weekday returns a short locale-aware day-of-week label for a
+			// "YYYY-MM-DD" date string.  Bad input -> "".  Falls back to the
+			// English short form when the language is unknown.
+			"weekday": func(date string, lang i18n.Lang) string {
+				t, err := time.Parse("2006-01-02", date)
+				if err != nil {
+					return ""
+				}
+				ja := []string{"日", "月", "火", "水", "木", "金", "土"}
+				en := []string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
+				if lang == "ja" {
+					return ja[t.Weekday()]
+				}
+				return en[t.Weekday()]
+			},
 			// firstN returns the first n elements of slice s (= caps a table to
 			// a few rows without trimming the underlying data). Non-slice / n<0
 			// returns s unchanged; n past the end is clamped.
