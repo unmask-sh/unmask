@@ -705,6 +705,19 @@
   // ---- PoW solve loop ----
   var nonce=0, target=0;
   var BATCH=5000, MAX_ITER=10000000;
+  // Reveal the progress bar -- the visitor sees something moving instead of a
+  // static "Loading..." that reads like a hung page (= ~6% of legitimate
+  // browsers abandon the challenge during this loop with no other signal in
+  // the logs, see hunt's load-then-silent investigation 2026-05-25).
+  // The expected nonce on a successful solve is ~2^(powDiff-1) on average
+  // (= geometric distribution mean for a leading-zero-bit target).  We scale
+  // the bar against that midpoint and clamp at 95% so the bar can keep moving
+  // forward even when the solve runs longer than average -- jumping to 100%
+  // only on completion avoids the "stuck at 100%" look that suggests a freeze.
+  var powBar=document.getElementById('powProgress');
+  var powFill=document.getElementById('powProgressFill');
+  var powExpectedAvg=Math.pow(2, Math.max(1, powDiff - 1));
+  if(powBar){ powBar.style.opacity='1'; }
   while(nonce<MAX_ITER){
     var batchEnd=Math.min(nonce+BATCH, MAX_ITER);
     for(;nonce<batchEnd;nonce++){
@@ -712,9 +725,14 @@
       if(leadingZeroBits(h)>=powDiff){ target=nonce; nonce=MAX_ITER; break; }
     }
     if(target>0)break;
+    if(powFill){
+      var pct=Math.min(95, Math.round((nonce/powExpectedAvg)*60));
+      powFill.style.width=pct+'%';
+    }
     // yield to UI thread between batches
     await new Promise(function(r){setTimeout(r,0);});
   }
+  if(powFill){ powFill.style.width='100%'; }
 
   // cookie token: <issued_unix>.pow2.<nonce>.<flags> (= 4 segments).
   //   parts[0] = issuance unix seconds (= server-injected via window.UNMASK.issued_at).

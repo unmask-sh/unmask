@@ -202,6 +202,14 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
   <!-- existing spinner (= for the default theme; hidden by CSS in the cat theme) -->
   <div class="spinner" id="spinner"></div>
   <p id="msg">Verifying your browser, please wait...</p>
+  <!-- Visible PoW progress.  Filled in by challenge.js once the solve loop
+       starts; kept zero-width + zero-height (= no layout shift) when the
+       JS bails before the loop (= silent bot / preview / cookie_err).
+       Language-free on purpose: the bar speaks for itself and stays
+       intelligible across all 18 locales. -->
+  <div id="powProgress" aria-hidden="true" style="width:60%;max-width:18rem;height:.25rem;margin:0 auto 1em;background:#e2e8f0;border-radius:.125rem;overflow:hidden;opacity:0;transition:opacity .2s">
+    <div id="powProgressFill" style="width:0%;height:100%;background:#3b82f6;transition:width .15s linear"></div>
+  </div>
   <div id="captcha">
     <h2 id="captchaTitle">Security Check</h2>
     <p class="desc" id="captchaDesc">Please confirm to continue.</p>
