@@ -3460,18 +3460,13 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 	h.Settings = cur
-	// Deletes leave no entry to land on, so jump back to the Default form
-	// (= scope=""); saves stay on the just-saved entry so the operator can
-	// confirm the new values are persisted.
-	if _, stillExists := cur.Branding.Sites[site]; stillExists {
-		redirBack("", site)
-		return
-	}
-	if _, stillExists := cur.Challenge.Sites[site]; stillExists {
-		redirBack("", site)
-		return
-	}
-	redirBack("", "")
+	// Stay on the just-saved scope even when the save dropped the entry
+	// (= operator unchecked "override on" + saved).  The redirect target is
+	// still ?scope=<host>, where the picker keeps the host selected and the
+	// banner shows "uic.io を編集中" + override toggle off.  Operators that
+	// truly want to leave the per-site view do so via the side menu (which
+	// drops scope intentionally) or by typing default into the scope picker.
+	redirBack("", site)
 }
 
 // applyRateLimitFormV2: top-level entry point for the rate-limit tab save.
