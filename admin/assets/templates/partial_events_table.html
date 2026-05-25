@@ -238,13 +238,22 @@ document.addEventListener('DOMContentLoaded', function(){
   // ORDER BY id DESC LIMIT 50, so a session whose events straddle a page
   // boundary leaves a single row inside this page -- the session-view
   // pass above skipped that row (grp.length < 2) and left a bare phase
-  // pill.  A bare 'serve' / 'load' / 'pow' / 'captcha' / 'pow_pass' /
-  // 'check' pill reads as "this session only had 1 event" which is
-  // misleading; the rest live on an adjacent page.  Prepend a muted '…'
-  // glyph + hover hint so the user can tell a fragment from a one-event
-  // session that legitimately terminated.  Raw rows stay verbatim (=
-  // memory feedback_raw_event_fidelity); we only annotate, never hide.
-  var FRAGMENT_PHASES = {serve:1, load:1, pow:1, pow_pass:1, captcha:1, check:1};
+  // pill.  A bare mid-chain pill reads as "this session only had 1 event"
+  // which is misleading; the rest live on an adjacent page.  Prepend a
+  // muted '…' glyph + hover hint so the user can tell a fragment from a
+  // one-event session that legitimately terminated.  Raw rows stay
+  // verbatim (= memory feedback_raw_event_fidelity); we only annotate,
+  // never hide.
+  //
+  // serve is intentionally NOT in this set.  serve is the session's
+  // *oldest* event, so a lone 'serve' on this page is either (a) the
+  // session continues on the previous page (= newer events past this
+  // page's top edge) -- which is itself a normal observation -- or, far
+  // more commonly, (b) a silent bot: the client was served the challenge
+  // and never executed the JS, so no later event ever existed.  Marking
+  // serve as a fragment would obscure the silent-bot signal which is one
+  // of the main things this view is supposed to surface.
+  var FRAGMENT_PHASES = {load:1, pow:1, pow_pass:1, captcha:1, check:1};
   rows.forEach(function(tr){
     if (tr.style.display === 'none') return;
     var bt = tr.getAttribute('data-bt');
