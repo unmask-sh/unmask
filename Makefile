@@ -323,11 +323,17 @@ publish:
 	./tools/publish-repo.sh $(ARGS)
 
 ## sign-rpm - GPG-sign dist/*.rpm (rpm --addsign).
-# Env: UNMASK_GPG_KEY_ID (required, e.g. 16E42DED2AA369AD or oss@unmask.sh).
-# Prereqs: rpm-sign (dnf install rpm-sign) + secret key loaded in gpg agent.
+# Env: UNMASK_GPG_KEY_ID (required, e.g. C03DD45E28C4446FDDC48EFC34A320B544B28158).
+# Optional:
+#   UNMASK_GNUPGHOME       project-local keyring (default keys/gpg)
+#   UNMASK_GPG_PASSPHRASE  for batch / CI; omit to be prompted via read -s
+# Prereqs: rpm-sign (dnf install rpm-sign) + secret imported into UNMASK_GNUPGHOME.
+# Reuses the passphrase-preset logic in tools/build-repo.sh by invoking a tiny
+# shim that exports GNUPGHOME, presets the cached passphrase into the agent
+# once, then runs rpm --addsign with the cache hit on every package.
 sign-rpm:
-	@[ -n "$(UNMASK_GPG_KEY_ID)" ] || { echo "ERR: UNMASK_GPG_KEY_ID not set (e.g. oss@unmask.sh)" >&2; exit 1; }
-	rpm --addsign --define "_gpg_name $(UNMASK_GPG_KEY_ID)" $(DIST)/*.rpm
+	@[ -n "$(UNMASK_GPG_KEY_ID)" ] || { echo "ERR: UNMASK_GPG_KEY_ID not set (e.g. C03DD45E...44B28158)" >&2; exit 1; }
+	@./tools/with-gpg-preset.sh rpm --addsign --define "_gpg_name $(UNMASK_GPG_KEY_ID)" $(DIST)/*.rpm
 
 ## sign-verify - verify GPG signatures on dist/*.rpm.
 sign-verify:

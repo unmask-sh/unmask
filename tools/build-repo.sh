@@ -31,9 +31,20 @@
 #   <OUT_DIR>/keys/{RPM-GPG-KEY-unmask,unmask.rsa.pub}
 #
 # GPG / RSA signing is controlled by environment variables:
-#   UNMASK_GPG_KEY_ID=oss@unmask.sh   # signing key for rpm/deb metadata
-#   UNMASK_RSA_PRIVKEY=~/.abuild/...rsa  # signing key for apk index
-# If unset, signing is skipped (= dry run).
+#   UNMASK_GPG_KEY_ID=C03DD45E28C4446FDDC48EFC34A320B544B28158  # rpm/deb signing key (fpr)
+#   UNMASK_GNUPGHOME=/home/apps/unmask/keys/gpg                 # project-local keyring (default)
+#   UNMASK_GPG_PASSPHRASE=...                                   # for batch / CI runs.  Omit to be prompted via read -s
+#   UNMASK_RSA_PRIVKEY=~/.abuild/...rsa                         # signing key for apk index
+# If UNMASK_GPG_KEY_ID is unset, signing is skipped (= dry run).
+#
+# Why preset the passphrase up front (= rather than letting each rpm --addsign /
+# gpg --detach-sign prompt):
+#   - rpm 4.16 + GnuPG 2.3 in Rocky 9 cannot prompt non-interactively when the
+#     surrounding context has no controlling TTY (= sudo -iu apps shell, nohup,
+#     cron).  pinentry-tty / pinentry-curses fail with 'inappropriate ioctl'.
+#   - We cache the passphrase once via PRESET_PASSPHRASE into the agent and let
+#     every subsequent sign hit the cache.  The cache TTL is bounded by the
+#     agent's max-cache-ttl (= /home/apps/unmask/keys/gpg/gpg-agent.conf default).
 
 set -eu
 
@@ -42,6 +53,49 @@ DIST="$ROOT/dist"
 OUT="${1:-$ROOT/../unmask-dl-build}"
 
 [ -d "$DIST" ] || { echo "ERR: $DIST not found.  Run 'make package' first." >&2; exit 1; }
+
+# ---- GnuPG keyring + agent passphrase preset ----
+# Project-local GNUPGHOME (= the unmask release keyring lives outside ~/.gnupg
+# so user keyrings stay unaffected and CI runs are deterministic).
+export GNUPGHOME="${UNMASK_GNUPGHOME:-${ROOT%/repo}/keys/gpg}"
+[ -d "$GNUPGHOME" ] || {
+    echo "WARN: GNUPGHOME=$GNUPGHOME absent.  Continuing -- signing will be skipped if UNMASK_GPG_KEY_ID is set."
+}
+
+# Preset the passphrase into the agent cache exactly once per build-repo invocation.
+# Idempotent: a second call within the same shell skips when UNMASK_GPG_PRESET_DONE is set.
+if [ -n "${UNMASK_GPG_KEY_ID:-}" ] && [ -z "${UNMASK_GPG_PRESET_DONE:-}" ]; then
+    KEYGRIP=$(gpg --list-keys --with-keygrip --with-colons "$UNMASK_GPG_KEY_ID" 2>/dev/null \
+        | awk -F: '$1=="grp"{print $10; exit}')
+    if [ -z "$KEYGRIP" ]; then
+        echo "ERR: cannot find keygrip for $UNMASK_GPG_KEY_ID under GNUPGHOME=$GNUPGHOME" >&2
+        echo "     -> gpg --list-secret-keys to verify the key is imported." >&2
+        exit 1
+    fi
+    if [ -z "${UNMASK_GPG_PASSPHRASE:-}" ]; then
+        printf "GPG passphrase for %s: " "$UNMASK_GPG_KEY_ID" >&2
+        stty -echo 2>/dev/null
+        IFS= read -r UNMASK_GPG_PASSPHRASE
+        stty echo 2>/dev/null
+        printf '\n' >&2
+        export UNMASK_GPG_PASSPHRASE
+    fi
+    # PRESET_PASSPHRASE wants hex-encoded passphrase.  od + tr is portable.
+    HEX=$(printf '%s' "$UNMASK_GPG_PASSPHRASE" | od -An -tx1 | tr -d ' \n')
+    gpg-connect-agent <<EOF >/dev/null 2>&1
+PRESET_PASSPHRASE $KEYGRIP -1 $HEX
+EOF
+    UNMASK_GPG_PRESET_DONE=1
+    export UNMASK_GPG_PRESET_DONE
+    # Verify the cache landed by signing /dev/null.  Failing here is better
+    # than failing two hundred lines later inside rpm --addsign.
+    if ! echo probe | gpg --batch --pinentry-mode loopback --passphrase "$UNMASK_GPG_PASSPHRASE" \
+            --local-user "$UNMASK_GPG_KEY_ID" --clearsign >/dev/null 2>&1; then
+        echo "ERR: GPG signing probe failed.  Wrong passphrase, or key not in $GNUPGHOME ?" >&2
+        exit 1
+    fi
+    echo "==> gpg passphrase preset for $UNMASK_GPG_KEY_ID (keygrip ${KEYGRIP:0:16}...)"
+fi
 
 # ---- Required tool detection (= graceful degradation) ----
 have() { command -v "$1" >/dev/null 2>&1; }
