@@ -2171,15 +2171,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
-  <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <select id="scope-select-challenge" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(!h)return;h=h.trim();if(!h)return;location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
-    <option value="" {{ if $scopeDefault }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
-    {{ range $h := .ScopeHosts }}
-    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
-    {{ end }}
-    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
-  </select>
+  <label for="scope-input-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <input type="text" id="scope-input-challenge" class="scope-picker-input rule-action"
+         list="scope-candidates" value="{{ .Scope }}"
+         placeholder="{{ t .Lang "settings.scope.default" }}"
+         onchange="(function(el){var v=(el.value||'').trim();location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)"
+         onkeydown="if(event.key==='Enter'){event.preventDefault();this.dispatchEvent(new Event('change'));}">
+  <datalist id="scope-candidates">
+    {{ range $h := .ScopeHosts }}<option value="{{ $h }}">{{ end }}
+  </datalist>
   {{ if .ScopeIsSite }}
   <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
   {{ else }}
@@ -2751,15 +2751,15 @@ document.addEventListener("DOMContentLoaded", function(){
      "+ Add new host..." entry opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
-  <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <select id="scope-select-theme" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(!h)return;h=h.trim();if(!h)return;location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
-    <option value="" {{ if $scopeDefault }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
-    {{ range $h := .ScopeHosts }}
-    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
-    {{ end }}
-    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
-  </select>
+  <label for="scope-input-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <input type="text" id="scope-input-theme" class="scope-picker-input rule-action"
+         list="scope-candidates" value="{{ .Scope }}"
+         placeholder="{{ t .Lang "settings.scope.default" }}"
+         onchange="(function(el){var v=(el.value||'').trim();location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)"
+         onkeydown="if(event.key==='Enter'){event.preventDefault();this.dispatchEvent(new Event('change'));}">
+  <datalist id="scope-candidates">
+    {{ range $h := .ScopeHosts }}<option value="{{ $h }}">{{ end }}
+  </datalist>
   {{ if .ScopeIsSite }}
   <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
   {{ else }}
@@ -3053,6 +3053,7 @@ document.addEventListener("DOMContentLoaded", function(){
 .scope-picker-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.55rem .8rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.35rem}
 .scope-picker-label{font-size:.82rem;font-weight:600;color:#334155;flex:0 0 auto}
 .scope-picker-select{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;min-width:14rem}
+.scope-picker-input{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;width:18rem}
 .scope-picker-banner{font-size:.78rem;color:#0f172a;padding:.15rem .5rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.25rem}
 .scope-picker-banner.scope-default{background:#dcfce7;border-color:#86efac;color:#166534}
 .scope-reset-row{display:flex;gap:.45rem;margin:.9rem 0 0;flex-wrap:wrap}
