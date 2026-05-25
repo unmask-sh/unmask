@@ -1142,6 +1142,7 @@ type ReloadLoopRow struct {
 	MaxReload   int
 	MaxFlags    int
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	LastSeen    string
 	LastSeenTS  int64
 	CountryCode string
@@ -1170,7 +1171,8 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hosts []string, hou
 		}
 		out = append(out, ReloadLoopRow{
 			IP: ipFromBytes(raw), Count: n, MaxReload: mr, MaxFlags: mf,
-			UA: truncate(ua.String, 50), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
+			UA: truncate(ua.String, 50), UAFull: ua.String,
+			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
@@ -1181,6 +1183,7 @@ type RLIPRow struct {
 	IP          string
 	Count       int
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	LastSeen    string
 	LastSeenTS  int64
 	CountryCode string
@@ -1225,7 +1228,8 @@ func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, ho
 		}
 		out = append(out, RLIPRow{
 			IP: ipFromBytes(raw), Count: n,
-			UA: truncate(ua.String, 60), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
+			UA: truncate(ua.String, 60), UAFull: ua.String,
+			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
@@ -1359,6 +1363,7 @@ type VerifyNGRow struct {
 	Behavioral  int
 	AvgScore    float64
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	JA4         string
 	LastSeen    string
 	LastSeenTS  int64
@@ -1400,6 +1405,7 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
 			Math: int(math.Int64), Behavioral: int(beh.Int64),
 			AvgScore:   avg.Float64,
 			UA:         truncate(ua.String, 50),
+			UAFull:     ua.String,
 			JA4:        ja4.String,
 			LastSeen:   ls.String,
 			LastSeenTS: parseDateTimeToUnix(ls.String),
@@ -1415,6 +1421,7 @@ type CookieFailRow struct {
 	IP          string
 	Count       int
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	LastSeen    string
 	LastSeenTS  int64
 	CountryCode string
@@ -1441,7 +1448,7 @@ func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, 
 		if err := rows.Scan(&raw, &n, &ua, &ls); err != nil {
 			return nil, err
 		}
-		out = append(out, CookieFailRow{IP: ipFromBytes(raw), Count: n, UA: truncate(ua.String, 50), LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String)})
+		out = append(out, CookieFailRow{IP: ipFromBytes(raw), Count: n, UA: truncate(ua.String, 50), UAFull: ua.String, LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String)})
 	}
 	return out, rows.Err()
 }
@@ -1455,6 +1462,7 @@ type StealthRow struct {
 	IP          string
 	Verdict     string
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	Count       int
 	LastSeen    string
 	LastSeenTS  int64
@@ -1492,7 +1500,7 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, h
 			return nil, err
 		}
 		out = append(out, StealthRow{
-			IP: ipFromBytes(raw), Verdict: v, UA: truncate(ua.String, 80),
+			IP: ipFromBytes(raw), Verdict: v, UA: truncate(ua.String, 80), UAFull: ua.String,
 			Count: n, LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
@@ -1503,6 +1511,7 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, h
 type JSErrorRow struct {
 	IP          string
 	UA          string
+	UAFull      string // raw UA before truncate, for cellpop full-value popover
 	Flags       int
 	Error       string
 	Date        string
@@ -1531,7 +1540,7 @@ func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours 
 			return nil, err
 		}
 		out = append(out, JSErrorRow{
-			IP: ipFromBytes(raw), UA: truncate(ua.String, 80), Flags: fl,
+			IP: ipFromBytes(raw), UA: truncate(ua.String, 80), UAFull: ua.String, Flags: fl,
 			Error:  truncate(strings.Trim(errStr.String, `"`), 120),
 			Date:   ds.String,
 			DateTS: parseDateTimeToUnix(ds.String),

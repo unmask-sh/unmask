@@ -398,7 +398,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           <tr>
             <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
             <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
-            <td class="bcd-mono">{{.UA}}</td>
+            <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
             <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
           </tr>
           {{else}}
@@ -452,7 +452,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <td class="bcd-num{{if gt .Math 0}} n-stealth{{end}}">{{comma .Math}}</td>
         <td class="bcd-num n-muted">{{score .AvgScore}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.JA4}}">{{.JA4}}</span></td>
-        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -473,7 +473,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span></td>
         <td class="bcd-num n-stealth">{{comma .Count}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -494,7 +494,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{range .JSErrors}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono">{{.Error}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
@@ -516,7 +516,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -538,7 +538,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <td class="bcd-num">{{comma .Count}}</td>
         <td class="bcd-num">{{comma .MaxReload}}</td>
         <td class="bcd-num">{{.MaxFlags}}</td>
-        <td class="bcd-mono">{{.UA}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -1076,6 +1076,7 @@ const countries = {{.CountriesJSON}};
 
 <div id="help-popover" data-popover="help"></div>
 <div id="ip-popover" data-popover="ip"></div>
+<div id="cell-popover" data-popover="cell"></div>
 
 <script id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
 <script>
@@ -1294,6 +1295,47 @@ const countries = {{.CountriesJSON}};
       // pass html so the unpin path can also re-display primary as a hover popover
       // (= immediate on cache hit.  UX: "click again = unpin + return to hover state").
       fetchAndFmt(ip, html => pin.handleClick(html, x, y, td));
+    });
+  });
+})();
+
+// UA cellpop on the dashboard (= same flow as partial_events_table.html).  A
+// truncated UA cell carries .cellpop + data-full-value="<raw UA>"; we open a
+// pinnable popover with the raw value so users can copy it.  Cells where
+// .UA == .UAFull (= not truncated) are left out by the template, so the IIFE
+// is a no-op for them.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function popHtml(val){
+    return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
+      '</code></div>';
+  }
+  document.querySelectorAll('.cellpop').forEach(function(el){
+    var full = el.getAttribute('data-full-value');
+    var val = (full && full.length) ? full : el.textContent.trim();
+    if (!val) return;
+    if (!full && el.scrollWidth - el.clientWidth <= 1) return;
+    el.classList.add('cellpop-active');
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
     });
   });
 })();
