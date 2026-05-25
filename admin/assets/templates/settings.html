@@ -1936,70 +1936,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
-{{/* ─── Site-specific honeypot scalars (v2 phase 2) ──────────────────
-     One card per host in Honeypot.Sites.  Each entry replaces Default
-     verbatim (= no field-level inheritance).  Today the only scalar is
-     BanDurationSec, so the card UI is intentionally small; URL rows live
-     in the flat table above, where the per-row "site" column scopes them
-     per-host. */}}
-<section class="bcd-card honeypot-sites-card" style="margin-top:1.2rem">
-  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
-    {{ t .Lang "settings.honeypot.sites.section_title" }}
-  </div>
-  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
-    {{ safeHTML (t .Lang "settings.honeypot.sites.intro") }}
-  </p>
-  {{ if .HoneypotSites }}
-  <div class="site-card-list">
-    {{ range $host, $hv := .HoneypotSites }}
-    <div class="site-card">
-      <div class="site-card-head">
-        <strong>{{ $host }}</strong>
-        <span class="muted">
-          {{ t $.Lang "settings.honeypot.ban_duration_h" }}:
-          {{ if gt $hv.BanDurationSec 0 }}{{ $hv.BanDurationSec }}s{{ else }}{{ t $.Lang "settings.honeypot.sites.ban_inherit" }}{{ end }}
-        </span>
-      </div>
-      <div class="site-card-actions">
-        <form method="post" style="display:inline"
-              action="{{ $.BasePath }}/admin/settings/honeypot/site/delete"
-              onsubmit="return confirm('{{ t $.Lang "settings.honeypot.sites.delete_confirm" }}: {{ $host }}')">
-          <input type="hidden" name="site" value="{{ $host }}">
-          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.honeypot.sites.delete" }}</button>
-        </form>
-      </div>
-    </div>
-    {{ end }}
-  </div>
-  {{ else }}
-  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
-    {{ t .Lang "settings.honeypot.sites.empty" }}
-  </p>
-  {{ end }}
-
-  <details class="site-add-block">
-    <summary class="btn-mini">{{ t .Lang "settings.honeypot.sites.add" }}</summary>
-    <form method="post"
-          action="{{ .BasePath }}/admin/settings/honeypot/site/save"
-          class="site-add-form">
-      <div class="field">
-        <label>{{ t .Lang "settings.honeypot.sites.host_label" }}</label>
-        <input type="text" name="site" required maxlength="253"
-               placeholder="shop.example.com"
-               pattern="[A-Za-z0-9.\-]+"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.honeypot.ban_duration_h" }}
-          <span style="color:#64748b;font-weight:normal;font-size:.78rem">({{ t .Lang "settings.honeypot.ban_duration_unit" }})</span>
-        </label>
-        <input type="number" name="honeypot_default_ban_duration_sec" min="0" max="2592000" step="60"
-               value="{{ .HoneypotDefaultBanDuration }}" style="width:8rem">
-      </div>
-      <button type="submit" class="btn">{{ t .Lang "settings.honeypot.sites.save" }}</button>
-    </form>
-  </details>
-</section>
+{{/* Honeypot per-site BanDurationSec was dropped in v2: BAN list is keyed
+     on IP+JA4, not on the visited host, so a per-host TTL did not have a
+     coherent meaning.  URL rows above carry their own per-row site filter
+     and remain per-host scoped. */}}
 {{ end }}
 
 {{ if eq .Tab "protected" }}

@@ -619,9 +619,11 @@ type HoneypotConfig struct {
 	// DisabledPresets: preset groups that are kept OFF (= same shape as
 	// search-bots etc.).
 	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
-	// URLs: custom honeypot path rows.  Honeypot fires BAN on hit with
-	// fixed behavior, so there is no per-row mode column.  For "force
-	// CAPTCHA / PoW" use the separate protected-paths tab.
+	// URLs: custom honeypot path rows.  Each row may bind to a single site
+	// via the Site field; an empty Site applies to every host.  Honeypot
+	// fires BAN on hit with fixed behavior, so there is no per-row mode
+	// column.  For "force CAPTCHA / PoW" use the separate protected-paths
+	// tab.
 	URLs []HoneypotURL `yaml:"urls,omitempty"`
 	// BanFilePath: output path for the ban list (= honeypot / manual / all
 	// sources).  Install-wide; default /etc/unmask/banned.txt.
@@ -634,12 +636,11 @@ type HoneypotConfig struct {
 	// Path-level resolution (= which preset was tripped) is wired up in a
 	// follow-up; the field is stored now so the UI is round-trippable.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
-	// Default: per-site scalar parameters that apply to every site by
-	// default (= ban duration etc.).  See HoneypotValues.
-	Default HoneypotValues `yaml:"default"`
-	// Sites: per-site overrides for the scalar parameters.  A site with no
-	// entry inherits Default verbatim; an entry replaces Default entirely.
-	Sites map[string]HoneypotValues `yaml:"sites,omitempty"`
+	// BanDurationSec: ban TTL in seconds applied to every honeypot trip.
+	// 0 falls back to the 24h default (= ResolvedBanDurationSec).  Single
+	// global value; per-site overrides were considered and dropped because
+	// the ban list is keyed on IP+JA4 and not on the visited host.
+	BanDurationSec int `yaml:"ban_duration_sec,omitempty"`
 }
 
 // HoneypotURL: one custom honeypot path row.  No Mode column (= honeypot
@@ -653,13 +654,6 @@ type HoneypotURL struct {
 	Site      string `yaml:"site,omitempty"`
 }
 
-// HoneypotValues: per-site honeypot scalar parameters.  BanDurationSec is
-// the ban TTL in seconds; 0 = permanent.  Adding more knobs later (= per-
-// site BanFilePath etc.) keeps install-wide values on HoneypotConfig.
-type HoneypotValues struct {
-	BanDurationSec int `yaml:"ban_duration_sec,omitempty"`
-}
-
 // ResolveURLs: filter URLs by site (same shape as BypassPathsConfig.ResolvePaths).
 func (h HoneypotConfig) ResolveURLs(site string) []HoneypotURL {
 	out := make([]HoneypotURL, 0, len(h.URLs))
@@ -671,21 +665,10 @@ func (h HoneypotConfig) ResolveURLs(site string) []HoneypotURL {
 	return out
 }
 
-// ResolveParams returns the scalar HoneypotValues for the given site.  When
-// site has an entry in Sites the entry is returned verbatim (= no field-
-// level merge); otherwise Default is returned verbatim.  Mirrors the v2
-// scalar contract used by Branding / Challenge.
-func (h HoneypotConfig) ResolveParams(site string) HoneypotValues {
-	if v, ok := h.Sites[site]; ok {
-		return v
-	}
-	return h.Default
-}
-
 // ResolvedBanDurationSec returns BanDurationSec when set; otherwise the
-// canonical 24h default so an empty entry does not flip the ban to
+// canonical 24h default so an empty value does not flip the ban to
 // "permanent" by accident.
-func (h HoneypotValues) ResolvedBanDurationSec() int {
+func (h HoneypotConfig) ResolvedBanDurationSec() int {
 	if h.BanDurationSec > 0 {
 		return h.BanDurationSec
 	}
@@ -1479,9 +1462,7 @@ func defaults() Settings {
 				// DefaultAction left empty -> inherits the same fallback as
 				// the rate-limit default (pow_then_captcha).  Keeps the
 				// chain choice consistent across axes.
-				Default: HoneypotValues{
-					BanDurationSec: 86400, // 24h
-				},
+				BanDurationSec: 86400, // 24h
 			},
 			ProtectedPaths: ProtectedPathsConfig{
 				// "unmask" preset enabled by default: covers /unmask/admin/

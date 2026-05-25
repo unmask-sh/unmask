@@ -256,9 +256,9 @@ func cmdServe(args []string) error {
 		defer nlog.Close()
 		// Honeypot ban duration is per-site in v2; the ban manager is a
 		// single shared writer so we seed it with the install-wide default.
-		// Per-site overrides apply when the honeypot trip fires, mutating
-		// the row TTL through ban.Manager (= follow-up wire).
-		banDur := time.Duration(s.Nginx.Honeypot.Default.ResolvedBanDurationSec()) * time.Second
+		// Per-site BanDurationSec was considered and dropped: BAN list is
+		// keyed on IP+JA4, not on the visited host.
+		banDur := time.Duration(s.Nginx.Honeypot.ResolvedBanDurationSec()) * time.Second
 		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur, s.Nginx.BypassIPs)
 		banMgr.Start()
 		defer banMgr.Close()
@@ -732,10 +732,6 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteSave)))
 	mux.HandleFunc("POST "+base+"/admin/settings/rate_limit/site/delete",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteDelete)))
-	mux.HandleFunc("POST "+base+"/admin/settings/honeypot/site/save",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHoneypotSiteSave)))
-	mux.HandleFunc("POST "+base+"/admin/settings/honeypot/site/delete",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHoneypotSiteDelete)))
 	// webhook test send (notifications tab's "send test" button)
 	mux.HandleFunc("POST "+base+"/admin/api/notify/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))

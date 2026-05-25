@@ -50,47 +50,16 @@ func TestHoneypotResolveURLsMixed(t *testing.T) {
 	}
 }
 
-// TestHoneypotResolveParamsUndeclared: undeclared site -> Default verbatim.
-func TestHoneypotResolveParamsUndeclared(t *testing.T) {
-	h := HoneypotConfig{
-		Default: HoneypotValues{BanDurationSec: 86400},
-	}
-	if got := h.ResolveParams("blog.example.com"); got != h.Default {
-		t.Fatalf("undeclared: want %+v, got %+v", h.Default, got)
-	}
-}
-
-// TestHoneypotResolveParamsDeclared: declared site -> Sites[site] verbatim.
-func TestHoneypotResolveParamsDeclared(t *testing.T) {
-	shop := HoneypotValues{BanDurationSec: 604800}
-	h := HoneypotConfig{
-		Default: HoneypotValues{BanDurationSec: 86400},
-		Sites:   map[string]HoneypotValues{"shop.example.com": shop},
-	}
-	if got := h.ResolveParams("shop.example.com"); got != shop {
-		t.Fatalf("declared: want %+v, got %+v", shop, got)
-	}
-}
-
-// TestHoneypotResolveParamsEmptyEntry: empty entry -> zero value (no merge).
-func TestHoneypotResolveParamsEmptyEntry(t *testing.T) {
-	h := HoneypotConfig{
-		Default: HoneypotValues{BanDurationSec: 86400},
-		Sites:   map[string]HoneypotValues{"empty.example.com": {}},
-	}
-	if got := h.ResolveParams("empty.example.com"); got != (HoneypotValues{}) {
-		t.Fatalf("empty entry: want zero, got %+v", got)
-	}
-}
-
 // TestHoneypotResolvedBanDurationSecFallback: 0 -> 86400 default.
+// BanDurationSec is install-wide (= per-site override was dropped because the
+// BAN list is keyed on IP+JA4, not on the visited host).
 func TestHoneypotResolvedBanDurationSecFallback(t *testing.T) {
-	v := HoneypotValues{}
-	if got := v.ResolvedBanDurationSec(); got != 86400 {
+	h := HoneypotConfig{}
+	if got := h.ResolvedBanDurationSec(); got != 86400 {
 		t.Fatalf("zero: want 86400, got %d", got)
 	}
-	v = HoneypotValues{BanDurationSec: 60}
-	if got := v.ResolvedBanDurationSec(); got != 60 {
+	h = HoneypotConfig{BanDurationSec: 60}
+	if got := h.ResolvedBanDurationSec(); got != 60 {
 		t.Fatalf("nonzero: want 60, got %d", got)
 	}
 }

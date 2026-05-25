@@ -404,10 +404,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ChallengePresetAction": cur.ChallengeTargets.PresetAction,
 		"HoneypotGroups":             honeypotGroups,
 		"HoneypotRules":              honeypotURLRows(cur.Honeypot.URLs),
-		"HoneypotDefaultBanDuration": cur.Honeypot.Default.BanDurationSec,
+		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
 		"Honeypot":                   cur.Honeypot,
-		"HoneypotDefault":            cur.Honeypot.Default,
-		"HoneypotSites":              cur.Honeypot.Sites,
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":         bypassPresetGroups,
@@ -1724,7 +1722,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if err != nil || v < 0 || v > 2592000 {
 			return fmt.Errorf("ban_duration_sec: invalid value %q (= 0..2592000)", raw)
 		}
-		n.Honeypot.Default.BanDurationSec = v
+		n.Honeypot.BanDurationSec = v
 	}
 
 	// Collect disabled preset groups.
@@ -3350,43 +3348,8 @@ func (h *Handler) AdminRateLimitSiteDelete(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-// applyHoneypotValuesForm mutates a single HoneypotValues record from the
-// form fields shared by the default form and per-site cards.  Field name:
-// honeypot_default_ban_duration_sec.
-func applyHoneypotValuesForm(v *settings.HoneypotValues, r *http.Request) error {
-	if raw := strings.TrimSpace(r.FormValue("honeypot_default_ban_duration_sec")); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 0 || n > 2592000 {
-			return fmt.Errorf("ban_duration_sec: invalid value %q (= 0..2592000)", raw)
-		}
-		v.BanDurationSec = n
-	}
-	return nil
-}
-
-// AdminHoneypotSiteSave: POST {base}/admin/settings/honeypot/site/save
-//
-// Persists one Sites[<host>] entry for the honeypot scalar wrapper.
-// URL rows (= the list section with per-row site filter) are persisted as
-// part of the normal honeypot tab save.
-func (h *Handler) AdminHoneypotSiteSave(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "honeypot", func(cur *settings.Settings, site string) error {
-		if cur.Nginx.Honeypot.Sites == nil {
-			cur.Nginx.Honeypot.Sites = map[string]settings.HoneypotValues{}
-		}
-		v := cur.Nginx.Honeypot.Sites[site]
-		if err := applyHoneypotValuesForm(&v, r); err != nil {
-			return err
-		}
-		cur.Nginx.Honeypot.Sites[site] = v
-		return nil
-	})
-}
-
-// AdminHoneypotSiteDelete: POST {base}/admin/settings/honeypot/site/delete
-func (h *Handler) AdminHoneypotSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "honeypot", func(cur *settings.Settings, site string) error {
-		delete(cur.Nginx.Honeypot.Sites, site)
-		return nil
-	})
-}
+// Honeypot per-site scalar overrides were dropped: the BAN list is keyed on
+// IP+JA4 and not on the visited host, so a per-host BanDurationSec did not
+// have a coherent meaning.  BanDurationSec lives directly on HoneypotConfig
+// and applies install-wide; per-site URL filtering still works via the
+// HoneypotURL.Site column.

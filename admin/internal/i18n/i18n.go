@@ -823,15 +823,6 @@ var dict = map[Lang]map[string]string{
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).
 		// URL rows live in the flat table on the same tab; the cards
 		// only override BanDurationSec today (= the only per-site scalar).
-		"settings.honeypot.sites.section_title":  "site 別 honeypot scalar (= default を上書きする host)",
-		"settings.honeypot.sites.intro":          "<code>$host</code> 単位で BAN duration を上書きする. URL 行 (= 上の table) は行ごとの site 列で別管理. entry の無い host は default ban duration をそのまま使う.",
-		"settings.honeypot.sites.empty":          "未登録. default ban duration が全 host に適用されます.",
-		"settings.honeypot.sites.add":            "+ site を追加",
-		"settings.honeypot.sites.delete":         "×",
-		"settings.honeypot.sites.delete_confirm": "この site の honeypot scalar を削除 (= default に戻す) しますか",
-		"settings.honeypot.sites.save":           "site を保存",
-		"settings.honeypot.sites.host_label":     "host (= $host. 例: shop.example.com)",
-		"settings.honeypot.sites.ban_inherit":    "(default 継承)",
 
 		// per-row "site" column placeholders for the list-style tabs
 		// (= same shape as the existing settings.bypass_paths.site_all).
@@ -2000,15 +1991,6 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).
 		// URL rows live in the flat table on the same tab; the cards
 		// only override BanDurationSec today (= the only per-site scalar).
-		"settings.honeypot.sites.section_title":  "Site-specific honeypot scalars (= hosts that override the default)",
-		"settings.honeypot.sites.intro":          "Override the BAN duration per <code>$host</code>.  URL rows (= the flat table above) carry their own per-row site filter and are unaffected by this section.  Hosts without an entry use the default ban duration.",
-		"settings.honeypot.sites.empty":          "No site-specific honeypot scalars yet.  The default ban duration applies to every host.",
-		"settings.honeypot.sites.add":            "+ Add site",
-		"settings.honeypot.sites.delete":         "×",
-		"settings.honeypot.sites.delete_confirm": "Delete this site's honeypot scalars (= revert to default)?",
-		"settings.honeypot.sites.save":           "Save site",
-		"settings.honeypot.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
-		"settings.honeypot.sites.ban_inherit":    "(inherit default)",
 
 		// per-row "site" column placeholders for the list-style tabs
 		// (= same shape as the existing settings.bypass_paths.site_all).
