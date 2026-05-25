@@ -1,0 +1,14 @@
+# expected output for ./run.sh -- when every override lands as designed.
+# Hand-maintained reference (= run.sh prints each line as PASS or FAIL);
+# divergence from this list is a regression in multi-site Resolve() / render.
+
+PASS  1 shop branding: site_name (= Shop Co)
+PASS  1 shop branding: logo_url present (<URL>)
+PASS  2 blog branding: site_name (= Blog Co)
+PASS  2 blog branding: copy_preset (= minimal)
+PASS  3 shop /admin/ -> challenge fired (default protected_paths)
+PASS  4 shop /checkout/ -> challenge fired (override append)
+PASS  5 blog /admin/ -> no challenge (remove override honored)
+PASS  6 shop /static/foo.txt -> 200 pass-through
+PASS  7 default branding: site_name fallback (= Default Co)
+PASS  multi-site-basic: all 7 assertions PASS

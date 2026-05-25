@@ -1,0 +1,71 @@
+# multi-site-basic scenario: 1 unmask-admin + 1 nginx (auth_request mode) +
+# 2 vhosts (shop.local + blog.local + default.example).  Self-contained -- the
+# only inputs are this dir's files (admin.yml, nginx.conf, *-logo.png).
+#
+# Start:
+#   docker compose -f e2e/scenarios/multi-site-basic/docker-compose.yml up -d --build --wait
+#
+# Run assertions:
+#   ./e2e/scenarios/multi-site-basic/run.sh
+#
+# Tear down:
+#   docker compose -f e2e/scenarios/multi-site-basic/docker-compose.yml down -v
+#
+# Why auth_request mode (= not the native nginx module):
+#   ProtectedPaths.Resolve(site) runs inside admin's /api/check, so per-site
+#   overrides take effect immediately without per-host nginx maps (= phase 2).
+#   Branding overrides already work in both modes (the challenge page handler
+#   reads Branding.Resolve(site) when serving HTML).
+
+name: unmask-e2e-multi-site
+
+services:
+  admin:
+    build:
+      # Reuse the e2e admin Dockerfile (= same image as the main suite).
+      context: ../../..
+      dockerfile: e2e/docker/admin/Dockerfile
+    volumes:
+      # Replace the baked-in /etc/unmask/admin.yml with the multi-site one.
+      - ./admin.yml:/etc/unmask/admin.yml:ro
+      # Branding logos referenced by admin.yml's logo_path.
+      - ./shop-logo.png:/opt/unmask/branding/shop-logo.png:ro
+      - ./blog-logo.png:/opt/unmask/branding/blog-logo.png:ro
+      - unmask-data:/var/lib/unmask
+    # The image's ENTRYPOINT is unmask-admin (= eats "sh" as a subcommand);
+    # clear it so the migrate+serve chain runs verbatim.
+    entrypoint: []
+    command: >
+      sh -c "/usr/local/bin/unmask-admin migrate -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask-admin serve   -config /etc/unmask/admin.yml"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  nginx:
+    image: nginx:1.26
+    depends_on:
+      admin:
+        condition: service_healthy
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    # The TLS cert + key are generated on container start so this scenario
+    # has no host-side state files.  nginx serves :8444 (avoids colliding
+    # with the main e2e suite on :8443).  The openssl binary ships in the
+    # nginx:1.26 (debian) image, no install step is required.
+    command:
+      - sh
+      - -c
+      - openssl req -x509 -nodes -newkey rsa:2048 -days 1 -keyout /etc/nginx/key.pem -out /etc/nginx/cert.pem -subj /CN=unmask-multi-site-e2e/O=unmask 2>/dev/null && exec nginx -g 'daemon off;'
+    ports:
+      - "8444:8444"
+    healthcheck:
+      test: ["CMD-SHELL", "openssl s_client -connect 127.0.0.1:8444 -servername shop.local </dev/null >/dev/null 2>&1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  unmask-data:

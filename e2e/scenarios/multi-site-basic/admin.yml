@@ -1,0 +1,88 @@
+# unmask-admin config for the multi-site-basic scenario (phase 1.5).
+#
+# Two vhosts (shop.local + blog.local) share a single unmask-admin instance.
+# Each vhost gets a per-site Branding + ProtectedPaths override:
+#
+#   shop.local:
+#     - SiteName  = "Shop Co"
+#     - LogoPath  = /opt/unmask/branding/shop-logo.png
+#     - protected_paths.append /checkout/   (= shop adds /checkout/ on top of /admin/)
+#
+#   blog.local:
+#     - SiteName    = "Blog Co"
+#     - CopyPreset  = minimal
+#     - protected_paths.remove /admin/      (= blog opts the default out)
+#
+#   default.example (= site with no overrides):
+#     - falls through to the top-level Branding ("Default Co")
+#     - inherits the default protected_paths (= /admin/ only)
+#
+# Auth_request mode is used so the per-site protected_paths.Resolve() runs at
+# /api/check time inside admin (= phase 2's per-host nginx map split is not
+# required for this scenario).
+
+db:
+  driver: sqlite
+  sqlite_path: /var/lib/unmask/unmask.sqlite
+
+secret:
+  bv_secret: "e2e-multi-site-bv-secret-do-not-use-in-prod"
+  captcha_secret_base: "e2e-multi-site-captcha-base-do-not-use-in-prod"
+
+challenge:
+  mode: pow_then_captcha
+  cookie_days: 3
+  captcha_score_threshold: 0.5
+
+server:
+  bind: 0.0.0.0
+  port: 9477
+  base_path: /unmask
+
+# Per-vhost Branding overrides.
+branding:
+  site_name: "Default Co"
+  copy_preset: friendly
+  overrides:
+    shop.local:
+      site_name: "Shop Co"
+      logo_path: /opt/unmask/branding/shop-logo.png
+    blog.local:
+      site_name: "Blog Co"
+      copy_preset: minimal
+
+# Real browser UAs pass by default so assertion 5 (= blog.local/admin with
+# protected_paths.remove ["/admin/"] -> no challenge) holds for a normal
+# browser UA.  Without this, the Global axis fallback would still gate every
+# unknown / known UA hit.
+global:
+  known_browser_action: pass
+  unknown_ua_action:    pass
+
+nginx_log:
+  socket_path: ""
+
+nginx:
+  output_dir: /etc/unmask
+  upstream_addr: admin:9477
+  seen_version: v0.1.0
+  admin_allow_from:
+    - 0.0.0.0/0
+  metrics_allow_from:
+    - 0.0.0.0/0
+  challenge_targets:
+    all: false
+
+  # The default protected_paths every site inherits is /admin/.  shop appends
+  # /checkout/; blog removes /admin/ (= opts default out entirely).
+  protected_paths:
+    paths:
+      - path: /admin/
+        mode: captcha
+    overrides:
+      shop.local:
+        append:
+          - path: /checkout/
+            mode: pow
+      blog.local:
+        remove: ["/admin/"]

@@ -675,6 +675,15 @@ e2e-docker:
 e2e-docker-down:
 	docker compose -f e2e/docker/docker-compose.yml down -v
 
+## e2e-multi-site - run the multi-site phase 1.5 scenario standalone (its own compose on :8444).
+# Used to iterate on the scenario without spinning up the full e2e stack.
+.PHONY: e2e-multi-site e2e-multi-site-down
+e2e-multi-site:
+	./e2e/scenarios/multi-site-basic/run.sh
+
+e2e-multi-site-down:
+	docker compose -f e2e/scenarios/multi-site-basic/docker-compose.yml down -v
+
 ## distro-check  - release-gate: e2e (docker) must pass, then run install matrix on hv1 VMs.
 # e2e covers admin / plugin behavior in isolation; install-test-official.sh exercises the
 # distribution path on real distros.  Both must pass before publishing.
