@@ -744,18 +744,18 @@ var dict = map[Lang]map[string]string{
 		"settings.branding.logo_current":                       "現在のロゴ",
 		"settings.branding.logo_clear":                         "削除して保存",
 		"settings.branding.logo_desc":                          "推奨サイズ: 横 240px × 高 60px 程度. SVG は upload 時に <code>&lt;script&gt;</code> / event handler / 外部 href を strip します. ファイル上限 ~4 MB.",
-		// per-site branding cards (= multi-site v2 phase 1)
-		"settings.branding.sites.section_title": "site 別 branding (= default を上書きする host)",
-		"settings.branding.sites.intro":         "<code>$host</code> 単位で branding を上書きする (= default に対して field 単位の継承は <strong>無し</strong>; entry を作るとその site は record 全体を持つ). entry の無い host は default をそのまま使う.",
-		"settings.branding.sites.empty":         "未登録. default branding が全 host に適用されます.",
-		"settings.branding.sites.add":           "+ site を追加",
-		"settings.branding.sites.edit":          "編集",
-		"settings.branding.sites.delete":        "×",
-		"settings.branding.sites.delete_confirm": "この site の branding を削除 (= default に戻す) しますか",
-		"settings.branding.sites.save":          "site を保存",
-		"settings.branding.sites.host_label":    "host (= $host. 例: shop.example.com)",
-		"settings.branding.sites.logo_set":      "logo あり",
-		"settings.branding.sites.logo_none":     "logo なし",
+		// Scope picker (= multi-site v2 step c).  Shared by theme + challenge
+		// tabs.  Toggles which BrandingValues / ChallengeValues record the
+		// form below reads + writes (= Default or Sites[<host>]).
+		"settings.scope.label":                    "編集対象",
+		"settings.scope.default":                  "default (= 全 host 共通)",
+		"settings.scope.add_new":                  "+ 新しい host を追加…",
+		"settings.scope.add_prompt":               "host 名を入力してください (例: shop.example.com)",
+		"settings.scope.banner_default":           "default を編集中 (= override のない全 host に適用)",
+		"settings.scope.banner_site":              "%s を編集中 (= この host だけに適用)",
+		"settings.scope.reset_confirm":            "%s の override を default に戻しますか",
+		"settings.scope.reset_branding_button":    "× branding を default に戻す",
+		"settings.scope.reset_challenge_button":   "× challenge を default に戻す",
 		"settings.notify.h":                                    "Webhook 通知 (= Slack / Discord / generic)",
 		"settings.notify.desc":                                 "honeypot 踏み や 大量 challenge 等の event を任意の webhook URL に POST.  運用 chat への通知 / SIEM 連携用.<br>無設定 (= URL 空) なら何も送らない.",
 		"settings.notify.intro":                                "<strong>Slack incoming webhook</strong> は <a href=\"https://api.slack.com/messaging/webhooks\" target=\"_blank\" rel=\"noopener\">api.slack.com</a> で発行. <strong>Discord</strong> は server settings → Integrations → Webhooks から URL を取得.<br><strong>generic</strong> は素直な JSON ({event, ip, ja4, ts, ...}) を投げるので自前 endpoint / SIEM (= Splunk HEC, Datadog 等) と連携しやすい.",
@@ -797,18 +797,6 @@ var dict = map[Lang]map[string]string{
 		"settings.challenge.show_credit":                       "unmask クレジット表記",
 		"settings.challenge.show_credit_label":                 "challenge ページ右下に <strong>「protected by unmask」</strong> を表示する",
 		"settings.challenge.show_credit_help":                  "OFF (= default) なら challenge ページに credit を出さない (= unmask が裏側にいることを visitor から隠す / self-hosted の理念に整合).  ON にすると右下に半透明 pill + icon で表示 (= ブランド露出. unmask 開発支援には嬉しい).  クレジット表記は必須ではないので site owner の判断で.",
-		// per-site challenge cards (= multi-site v2 phase 1)
-		"settings.challenge.sites.section_title":  "site 別 challenge (= default を上書きする host)",
-		"settings.challenge.sites.intro":          "<code>$host</code> 単位で PoW 難易度 / cookie window / theme / CAPTCHA 設定を上書き. default に対する field 単位継承は <strong>無し</strong> (= entry を作るとその host は record 全体を持つ).",
-		"settings.challenge.sites.empty":          "未登録. default challenge 設定が全 host に適用されます.",
-		"settings.challenge.sites.add":            "+ site を追加",
-		"settings.challenge.sites.delete":         "×",
-		"settings.challenge.sites.delete_confirm": "この site の challenge 設定を削除 (= default に戻す) しますか",
-		"settings.challenge.sites.save":           "site を保存",
-		"settings.challenge.sites.host_label":     "host (= $host. 例: shop.example.com)",
-		"settings.challenge.sites.credit_on":      "credit 表示",
-		"settings.challenge.sites.credit_off":     "credit 非表示",
-
 		// per-site rate-limit cards (= multi-site v2 phase 2)
 
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).
@@ -1909,18 +1897,18 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.branding.logo_current":                       "Current logo",
 		"settings.branding.logo_clear":                         "Remove on save",
 		"settings.branding.logo_desc":                          "Recommended size: ~240 × 60 px. SVGs are sanitised on upload (<code>&lt;script&gt;</code>, event handlers, external href stripped). Upload size limit ~4 MB.",
-		// per-site branding cards (= multi-site v2 phase 1)
-		"settings.branding.sites.section_title": "Site-specific branding (= hosts that override the default)",
-		"settings.branding.sites.intro":         "Override branding per <code>$host</code>.  No field-level inheritance — adding an entry pins the <strong>entire</strong> record for that host.  Hosts without an entry use the default verbatim.",
-		"settings.branding.sites.empty":         "No site-specific branding yet.  The default applies to every host.",
-		"settings.branding.sites.add":           "+ Add site",
-		"settings.branding.sites.edit":          "Edit",
-		"settings.branding.sites.delete":        "×",
-		"settings.branding.sites.delete_confirm": "Delete this site's branding (= revert to default)?",
-		"settings.branding.sites.save":          "Save site",
-		"settings.branding.sites.host_label":    "Host (= $host. e.g. shop.example.com)",
-		"settings.branding.sites.logo_set":      "logo set",
-		"settings.branding.sites.logo_none":     "no logo",
+		// Scope picker (= multi-site v2 step c).  Shared by theme + challenge
+		// tabs.  Toggles which BrandingValues / ChallengeValues record the
+		// form below reads + writes (= Default or Sites[<host>]).
+		"settings.scope.label":                    "Editing",
+		"settings.scope.default":                  "default (= all hosts)",
+		"settings.scope.add_new":                  "+ Add new host...",
+		"settings.scope.add_prompt":               "Enter a host name (e.g. shop.example.com)",
+		"settings.scope.banner_default":           "Editing default (= applies to every host without an override)",
+		"settings.scope.banner_site":              "Editing %s (= applies only to this host)",
+		"settings.scope.reset_confirm":            "Reset %s's override back to default?",
+		"settings.scope.reset_branding_button":    "× Reset branding to default",
+		"settings.scope.reset_challenge_button":   "× Reset challenge to default",
 		"settings.notify.h":                                    "Webhook notifications (Slack / Discord / generic)",
 		"settings.notify.desc":                                 "Send honeypot triggers, mass challenges, and similar events to any webhook URL. For ops chat alerts or SIEM integration.<br>If URL is empty, nothing is sent.",
 		"settings.notify.intro":                                "<strong>Slack incoming webhook</strong>: issue at <a href=\"https://api.slack.com/messaging/webhooks\" target=\"_blank\" rel=\"noopener\">api.slack.com</a>. <strong>Discord</strong>: server settings → Integrations → Webhooks.<br><strong>generic</strong> sends plain JSON ({event, ip, ja4, ts, ...}) — easy to wire to your own endpoint or a SIEM (Splunk HEC, Datadog, etc.).",
@@ -1956,18 +1944,6 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.challenge.show_credit":                       "unmask credit notice",
 		"settings.challenge.show_credit_label":                 "Show <strong>\"protected by unmask\"</strong> at the bottom-right of the challenge page",
 		"settings.challenge.show_credit_help":                  "OFF (= default) hides the credit on the challenge page (= keeps the fact that unmask sits behind the curtain hidden from visitors / matches the self-hosted ethos).  ON shows a translucent pill + icon at bottom-right (= brand exposure; helps unmask development).  The credit is not required — site owner's call.",
-		// per-site challenge cards (= multi-site v2 phase 1)
-		"settings.challenge.sites.section_title":  "Site-specific challenge (= hosts that override the default)",
-		"settings.challenge.sites.intro":          "Override PoW difficulty / cookie windows / theme / CAPTCHA per <code>$host</code>.  No field-level inheritance — an entry pins the <strong>entire</strong> record.",
-		"settings.challenge.sites.empty":          "No site-specific challenge yet.  The default applies to every host.",
-		"settings.challenge.sites.add":            "+ Add site",
-		"settings.challenge.sites.delete":         "×",
-		"settings.challenge.sites.delete_confirm": "Delete this site's challenge config (= revert to default)?",
-		"settings.challenge.sites.save":           "Save site",
-		"settings.challenge.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
-		"settings.challenge.sites.credit_on":      "credit on",
-		"settings.challenge.sites.credit_off":     "credit off",
-
 		// per-site rate-limit cards (= multi-site v2 phase 2)
 
 		// per-site honeypot scalar cards (= multi-site v2 phase 2).

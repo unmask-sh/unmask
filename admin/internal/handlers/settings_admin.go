@@ -20,6 +20,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -316,6 +317,47 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		rcancel()
 	}
 
+	// Scope picker (= theme / challenge tabs): one form, one save button,
+	// scope=<host> selects which BrandingValues / ChallengeValues record the
+	// form reads + writes.  Empty / "default" means cur.Branding.Default +
+	// cur.Challenge.Default.  An unknown host (= operator just typed it in
+	// the "+ Add new host" prompt) seeds from Default so the new entry can be
+	// saved with one click of [Save] -- the entry only gets created when the
+	// form is actually submitted to /admin/settings/branding/site/save?site=
+	// or /admin/settings/challenge/site/save?site=.
+	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
+	if scope == "default" {
+		scope = ""
+	}
+	snap := h.snapshotSettings()
+	scopeBranding := snap.Branding.Default
+	scopeChallenge := snap.Challenge.Default
+	scopeIsSite := false
+	if scope != "" {
+		scopeIsSite = true
+		if bv, ok := snap.Branding.Sites[scope]; ok {
+			scopeBranding = bv
+		}
+		if cv, ok := snap.Challenge.Sites[scope]; ok {
+			scopeChallenge = cv
+		}
+	}
+	// Sorted list of registered hosts across Branding + Challenge wrappers,
+	// powers the <select> in theme + challenge tabs.  Both wrappers may
+	// independently carry per-site overrides, so union the key sets.
+	scopeHostSet := map[string]bool{}
+	for h := range snap.Branding.Sites {
+		scopeHostSet[h] = true
+	}
+	for h := range snap.Challenge.Sites {
+		scopeHostSet[h] = true
+	}
+	scopeHosts := make([]string, 0, len(scopeHostSet))
+	for h := range scopeHostSet {
+		scopeHosts = append(scopeHosts, h)
+	}
+	sort.Strings(scopeHosts)
+
 	return map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
@@ -436,11 +478,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// default only.  Per-site captcha provider override is part of the
 		// per-site card UI on the challenge tab.
 		"Captcha": h.snapshotSettings().Challenge.Default.CaptchaProvider,
-		// Settings used by the challenge tab.  Passes the wrapper so the
-		// template can iterate .Challenge.Sites for the per-site card list;
-		// the default form reads .ChallengeValues for individual fields.
-		"Challenge":       h.snapshotSettings().Challenge,
-		"ChallengeValues": h.snapshotSettings().Challenge.Default,
+		// Settings used by the challenge tab.  The wrapper is still passed
+		// (= some helpers need .Challenge.Sites for the site pulldown) but
+		// .ChallengeValues now follows the scope picker: scope="" / "default"
+		// → cur.Challenge.Default; scope=<host> with an existing entry →
+		// cur.Challenge.Sites[host]; scope=<host> with no entry → Default
+		// (= seeds the new entry on first save).
+		"Challenge":       snap.Challenge,
+		"ChallengeValues": scopeChallenge,
 		// Settings used by the rate-limit tab (= default zone + named zones list).
 		"RateLimit": h.snapshotSettings().RateLimit,
 		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
@@ -452,10 +497,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GeoCountriesAll": ipgeo.CountriesSorted(),
 		"GeoCountryMap":   ipgeo.Countries,
 		// Challenge-page theme (= used by the theme tab; empty/invalid → "default").
-		// Reads the Default record; per-site theme override lives on the
-		// per-site card on the challenge tab.
+		// Follows the scope picker: scope=<host> reads the per-site Theme
+		// (= cur.Challenge.Sites[host].Theme) so the theme card preview shows
+		// the per-site selection.
 		"ChallengeTheme": func() string {
-			t := h.snapshotSettings().Challenge.Default.Theme
+			t := scopeChallenge.Theme
 			if !challengeThemes[t] {
 				return "default"
 			}
@@ -464,30 +510,32 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Theme list with a guaranteed display order (= map iteration is unordered).
 		// "default" first, then by mood (= calm → lively).
 		"ThemeOptions": []string{"default", "dark", "terminal", "paper", "cat"},
-		// Branding settings used by the theme tab's top section.  Passes the
-		// wrapper so the template can iterate .Branding.Sites for the per-site
-		// card list; the default form reads .BrandingValues for individual
-		// fields.  Visitor-facing copy presets are resolved client-side
-		// (challenge.js).
-		"Branding":       h.snapshotSettings().Branding,
-		"BrandingValues": h.snapshotSettings().Branding.Default,
-		// Whether the resolved Branding has a logo on disk.  Used to show
-		// the "current logo" thumbnail + the "remove logo" toggle.  Path is
-		// not shown to the operator (= internal detail).
+		// Branding settings used by the theme tab.  The wrapper is still
+		// passed (= site pulldown enumerates .Branding.Sites) but
+		// .BrandingValues follows the scope picker: scope="" / "default" →
+		// cur.Branding.Default; scope=<host> with an existing entry →
+		// cur.Branding.Sites[host]; scope=<host> with no entry → Default
+		// (= seeds the new entry on first save).  Visitor-facing copy
+		// presets are resolved client-side (challenge.js).
+		"Branding":       snap.Branding,
+		"BrandingValues": scopeBranding,
+		// Whether the scope-resolved Branding has a logo on disk.  Used to
+		// show the "current logo" thumbnail + the "remove logo" toggle.
+		// Path is not shown to the operator (= internal detail).
 		"BrandingHasLogo": func() bool {
-			b := h.snapshotSettings().Branding.Default
-			if strings.TrimSpace(b.LogoPath) == "" {
+			if strings.TrimSpace(scopeBranding.LogoPath) == "" {
 				return false
 			}
-			st, err := os.Stat(b.LogoPath)
+			st, err := os.Stat(scopeBranding.LogoPath)
 			return err == nil && !st.IsDir()
 		}(),
 		// Pre-computed admin-side logo URL with a cache-bust query so the
 		// preview thumbnail refreshes immediately after upload (= the
-		// /branding/logo.<ext> serve carries 5-min Cache-Control).
+		// /branding/logo.<ext> serve carries 5-min Cache-Control).  Reads
+		// the scope-resolved LogoPath so the operator sees the per-site
+		// logo when scope=<host> is selected.
 		"BrandingLogoURL": func() string {
-			b := h.snapshotSettings().Branding.Default
-			p := strings.TrimSpace(b.LogoPath)
+			p := strings.TrimSpace(scopeBranding.LogoPath)
 			if p == "" {
 				return ""
 			}
@@ -502,6 +550,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			}
 			return url
 		}(),
+		// Scope picker state for the theme + challenge tabs.  Scope is the
+		// host name when a per-site override is being edited, empty when the
+		// Default record is being edited.  ScopeHosts is the sorted union of
+		// hosts that already have an override (= used to populate the <select>
+		// dropdown).  ScopeIsSite signals "this is an override edit" so the
+		// template can show the [× Reset to default] button + the per-scope
+		// banner.
+		"Scope":       scope,
+		"ScopeIsSite": scopeIsSite,
+		"ScopeHosts":  scopeHosts,
 		"BrandingPresets": []string{settings.BrandingPresetFriendly, settings.BrandingPresetNeutral, settings.BrandingPresetMinimal},
 		// Notification webhook settings (= used by the notifications tab).
 		"Notifications": h.snapshotSettings().Notifications,
@@ -3159,12 +3217,42 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		}
 		// Seed from the existing entry so that an edit that does not touch
 		// the logo file preserves it (= applyBrandingForm leaves LogoPath
-		// alone when there is no upload).
+		// alone when there is no upload).  When a site is being created for
+		// the first time via the scope picker, the form arrives with the
+		// Default values pre-filled, so the new entry inherits Default's
+		// fields with whatever the operator changed.
 		bv := cur.Branding.Sites[site]
 		if err := applyBrandingForm(&bv, h.ConfigPath, r); err != nil {
 			return err
 		}
 		cur.Branding.Sites[site] = bv
+		// The theme tab form (= scope=<host>) also carries `theme` +
+		// `show_credit`, which belong on cur.Challenge.Sites[site] -- mirror
+		// the section=appearance behavior that writes both to Default in one
+		// click.  Without this branch the operator would have to switch to
+		// the challenge tab + same scope to commit those two fields.
+		if cur.Challenge.Sites == nil {
+			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
+		}
+		cv := cur.Challenge.Sites[site]
+		// Seed cookie windows + pow difficulty from Default if the site has
+		// no existing override -- the theme tab does not expose challenge
+		// numeric knobs, so without this seed the new override would carry
+		// zero values that the challenge engine then snaps to defaults.
+		if _, ok := cur.Challenge.Sites[site]; !ok {
+			cv = cur.Challenge.Default
+			// Theme + ShowCredit are about to be overwritten from the form,
+			// but everything else (= captcha + cookie windows + difficulty
+			// + debug rate + public test pages) should mirror Default until
+			// the operator visits the challenge tab.
+		}
+		t := strings.TrimSpace(r.FormValue("theme"))
+		if !challengeThemes[t] {
+			t = "default"
+		}
+		cv.Theme = t
+		cv.ShowCredit = r.FormValue("show_credit") == "1"
+		cur.Challenge.Sites[site] = cv
 		return nil
 	})
 }
@@ -3181,15 +3269,23 @@ func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request
 
 // AdminChallengeSiteSave: POST {base}/admin/settings/challenge/site/save
 //
-// Same shape as AdminBrandingSiteSave but for the challenge wrapper.  Carries
-// every challenge field (cookie windows / difficulty / captcha provider /
-// theme / show_credit / observe_only) as a complete record.
+// Persists cur.Challenge.Sites[<site>].  Targeted by the challenge tab when
+// the scope picker selects a host (= scope=<host>).  When the per-site entry
+// did not exist before, it is seeded from cur.Challenge.Default so fields the
+// challenge tab does not edit (= theme + show_credit, which live on the theme
+// tab) are not zeroed out.
 func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request) {
 	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
 		if cur.Challenge.Sites == nil {
 			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
 		}
-		cv := cur.Challenge.Sites[site]
+		cv, existed := cur.Challenge.Sites[site]
+		if !existed {
+			// First save for this site: seed from Default so theme +
+			// show_credit (= owned by the theme tab) survive.  The
+			// challenge tab will overwrite the fields it owns below.
+			cv = cur.Challenge.Default
+		}
 		if err := applyChallengeForm(&cv, r); err != nil {
 			return err
 		}
@@ -3242,8 +3338,16 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 		return
 	}
 	base := h.Settings.Server.BasePath
-	redirBack := func(msg string) {
+	// Carry scope back to the redirect so the operator lands on the same
+	// per-site form they just saved (= same picker option still selected).
+	// The deletes redirect to the Default form (= scope="") which is correct
+	// because the entry the operator just dropped no longer has a form.
+	site := normalizeSite(strings.TrimSpace(r.FormValue("site")))
+	redirBack := func(msg string, scopeHost string) {
 		dst := base + "/admin/settings/?tab=" + tab
+		if scopeHost != "" {
+			dst += "&scope=" + url.QueryEscape(scopeHost)
+		}
 		if msg == "" {
 			dst += "&saved=1"
 		} else {
@@ -3251,28 +3355,38 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
-	site := normalizeSite(strings.TrimSpace(r.FormValue("site")))
 	if site == "" {
-		redirBack("site is required")
+		redirBack("site is required", "")
 		return
 	}
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
 	cur, err := settings.Load(h.ConfigPath)
 	if err != nil {
-		redirBack("load: " + err.Error())
+		redirBack("load: "+err.Error(), site)
 		return
 	}
 	if err := mutate(&cur, site); err != nil {
-		redirBack(err.Error())
+		redirBack(err.Error(), site)
 		return
 	}
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		redirBack("save: " + err.Error())
+		redirBack("save: "+err.Error(), site)
 		return
 	}
 	h.Settings = cur
-	redirBack("")
+	// Deletes leave no entry to land on, so jump back to the Default form
+	// (= scope=""); saves stay on the just-saved entry so the operator can
+	// confirm the new values are persisted.
+	if _, stillExists := cur.Branding.Sites[site]; stillExists {
+		redirBack("", site)
+		return
+	}
+	if _, stillExists := cur.Challenge.Sites[site]; stillExists {
+		redirBack("", site)
+		return
+	}
+	redirBack("", "")
 }
 
 // applyRateLimitFormV2: top-level entry point for the rate-limit tab save.

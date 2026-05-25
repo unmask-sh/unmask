@@ -2161,7 +2161,37 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "challenge" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge">
+
+{{/* Scope picker (= multi-site v2 step c).  Same pattern as the theme tab.
+     Toggles which ChallengeValues record the form reads + writes:
+       - "default" → cur.Challenge.Default (= /admin/settings/save?section=challenge)
+       - "<host>"  → cur.Challenge.Sites[host] (= /admin/settings/challenge/site/save?site=<host>)
+     Switching the dropdown navigates to `?tab=challenge&scope=<value>`
+     which discards any unsaved edits.  The "+ Add new host..." option
+     opens a prompt for a fresh host name. */}}
+{{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
+<div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <select id="scope-select-challenge" class="scope-picker-select"
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(!h)return;h=h.trim();if(!h)return;location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
+    <option value="" {{ if $scopeDefault }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
+    {{ range $h := .ScopeHosts }}
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    {{ end }}
+    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
+  </select>
+  {{ if .ScopeIsSite }}
+  <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
+  {{ else }}
+  <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
+  {{ end }}
+</div>
+
+<form method="post"
+      action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
+  {{ if not $scopeDefault }}
+  <input type="hidden" name="site" value="{{ .Scope }}">
+  {{ end }}
   <div class="bcd-card">
 
     <div class="field">
@@ -2251,92 +2281,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
-{{/* ─── Site-specific challenge (v2 phase 1) ──────────────────────────
-     One card per host in Challenge.Sites.  Each entry is a complete
-     ChallengeValues record (cookie windows + difficulty + theme + captcha
-     provider + show_credit + observe_only); no field-level inheritance.
-     The "+ Add" form is seeded with the Default values so the operator
-     only changes what they want different. */}}
-<section class="bcd-card challenge-sites-card" style="margin-top:1.2rem">
-  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
-    {{ t .Lang "settings.challenge.sites.section_title" }}
-  </div>
-  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
-    {{ safeHTML (t .Lang "settings.challenge.sites.intro") }}
-  </p>
-  {{ if .Challenge.Sites }}
-  <div class="site-card-list">
-    {{ range $host, $cv := .Challenge.Sites }}
-    <div class="site-card">
-      <div class="site-card-head">
-        <strong>{{ $host }}</strong>
-        <span class="muted">
-          PoW {{ $cv.ResolvedPowDifficulty }} bit ·
-          {{ if $cv.Theme }}{{ $cv.Theme }}{{ else }}default{{ end }} ·
-          {{ if $cv.ShowCredit }}{{ t $.Lang "settings.challenge.sites.credit_on" }}{{ else }}{{ t $.Lang "settings.challenge.sites.credit_off" }}{{ end }}
-        </span>
-      </div>
-      <div class="site-card-actions">
-        <form method="post" style="display:inline"
-              action="{{ $.BasePath }}/admin/settings/challenge/site/delete"
-              onsubmit="return confirm('{{ t $.Lang "settings.challenge.sites.delete_confirm" }}: {{ $host }}')">
-          <input type="hidden" name="site" value="{{ $host }}">
-          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.challenge.sites.delete" }}</button>
-        </form>
-      </div>
-    </div>
-    {{ end }}
-  </div>
-  {{ else }}
-  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
-    {{ t .Lang "settings.challenge.sites.empty" }}
-  </p>
-  {{ end }}
-
-  <details class="site-add-block">
-    <summary class="btn-mini">{{ t .Lang "settings.challenge.sites.add" }}</summary>
-    <form method="post" action="{{ .BasePath }}/admin/settings/challenge/site/save"
-          class="site-add-form">
-      <div class="field">
-        <label>{{ t .Lang "settings.challenge.sites.host_label" }}</label>
-        <input type="text" name="site" required maxlength="253"
-               placeholder="shop.example.com"
-               pattern="[A-Za-z0-9.\-]+"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.challenge.pow_cookie_valid_seconds" }}</label>
-        <input type="number" name="pow_cookie_valid_seconds" min="60" max="31536000" step="60"
-               value="{{ if gt .ChallengeValues.PowCookieValidSeconds 0 }}{{ .ChallengeValues.PowCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}259200{{ end }}"
-               style="width:8rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.challenge.captcha_cookie_valid_seconds" }}</label>
-        <input type="number" name="captcha_cookie_valid_seconds" min="60" max="31536000" step="60"
-               value="{{ if gt .ChallengeValues.CaptchaCookieValidSeconds 0 }}{{ .ChallengeValues.CaptchaCookieValidSeconds }}{{ else if gt .ChallengeValues.CookieSeconds 0 }}{{ .ChallengeValues.CookieSeconds }}{{ else }}604800{{ end }}"
-               style="width:8rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
-        <input type="number" name="pow_difficulty" min="8" max="24" step="1"
-               value="{{ .ChallengeValues.ResolvedPowDifficulty }}" style="width:6rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.theme.h" }}</label>
-        <select name="theme" style="font-size:.9rem;padding:.25rem .4rem">
-          {{ range $opt := .ThemeOptions }}
-          <option value="{{ $opt }}" {{ if eq $.ChallengeTheme $opt }}selected{{ end }}>{{ t $.Lang (printf "settings.theme.option.%s" $opt) }}</option>
-          {{ end }}
-        </select>
-      </div>
-      <label style="font-size:.85rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem">
-        <input type="checkbox" name="show_credit" value="1" {{ if .ChallengeValues.ShowCredit }}checked{{ end }}>
-        {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
-      </label>
-      <button type="submit" class="btn">{{ t .Lang "settings.challenge.sites.save" }}</button>
-    </form>
-  </details>
-</section>
+{{ if .ScopeIsSite }}
+{{/* Reset to default: drops cur.Challenge.Sites[scope] so the host falls
+     back to the Default record verbatim on the next request.  Sits outside
+     the main form so it does not double-submit on Enter. */}}
+<div class="scope-reset-row">
+  <form method="post" style="display:inline"
+        action="{{ .BasePath }}/admin/settings/challenge/site/delete"
+        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
+    <input type="hidden" name="site" value="{{ .Scope }}">
+    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_challenge_button" }}</button>
+  </form>
+</div>
+{{ end }}
 
 <script>
 // human-readable display next to a seconds input (= 86400 -> "1 d", 3600 -> "1 h", etc.).
@@ -2774,14 +2731,47 @@ document.addEventListener("DOMContentLoaded", function(){
 
 {{ if eq .Tab "theme" }}
 
+{{/* Scope picker (= multi-site v2 step c).  Sits above the appearance form
+     and toggles which BrandingValues / ChallengeValues record the form
+     reads + writes:
+       - "default" → cur.Branding.Default + cur.Challenge.Default (= /admin/settings/save?section=appearance)
+       - "<host>"  → cur.Branding.Sites[host] + cur.Challenge.Sites[host] (= /admin/settings/branding/site/save?site=<host>)
+     Switching the dropdown navigates to `?tab=theme&scope=<value>` which
+     discards any unsaved edits (= same behavior as switching tabs).  The
+     "+ Add new host..." entry opens a prompt for a fresh host name. */}}
+{{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
+<div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <select id="scope-select-theme" class="scope-picker-select"
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(!h)return;h=h.trim();if(!h)return;location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
+    <option value="" {{ if $scopeDefault }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
+    {{ range $h := .ScopeHosts }}
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    {{ end }}
+    <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
+  </select>
+  {{ if .ScopeIsSite }}
+  <span class="scope-picker-banner">{{ tf .Lang "settings.scope.banner_site" .Scope }}</span>
+  {{ else }}
+  <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
+  {{ end }}
+</div>
+
 {{/* "Appearance" form: one form, one save button.  Holds three sub-cards:
      branding identity (logo / site name / footer) + copy template (preset
      radios + live preview link) + theme (look & feel cards).  Mixed into a
      single multipart POST so the operator never sees two save buttons on
      the same tab; the appearance save handler dispatches to the existing
-     applyBrandingForm + the theme allowlist clamp. */}}
+     applyBrandingForm + the theme allowlist clamp.  Form action follows
+     the scope picker (= Default → ?section=appearance; site → /branding/site/save). */}}
 <form method="post" enctype="multipart/form-data"
-      action="{{ .BasePath }}/admin/settings/save?section=appearance" id="appearance-form">
+      action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=appearance{{ else }}{{ .BasePath }}/admin/settings/branding/site/save?site={{ .Scope }}{{ end }}" id="appearance-form">
+  {{ if not $scopeDefault }}
+  {{/* The site identifier travels in both the query string (= used by the
+       handler's `site` formvalue lookup) and a hidden field, so it survives
+       servers that strip the query string before form parsing. */}}
+  <input type="hidden" name="site" value="{{ .Scope }}">
+  {{ end }}
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
 
@@ -2964,98 +2954,29 @@ document.addEventListener("DOMContentLoaded", function(){
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
-{{/* ─── Site-specific branding (v2 phase 1) ───────────────────────────
-     One card per host in Branding.Sites.  Each entry is a complete
-     BrandingValues record (= no field-level inheritance from Default).
-     "+ Add" opens an inline form pre-seeded with the Default values;
-     "×" deletes the entry, returning the site to Default verbatim. */}}
-<section class="bcd-card branding-sites-card" style="margin-top:1.2rem">
-  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
-    {{ t .Lang "settings.branding.sites.section_title" }}
-  </div>
-  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
-    {{ safeHTML (t .Lang "settings.branding.sites.intro") }}
-  </p>
-  {{ if .Branding.Sites }}
-  <div class="site-card-list">
-    {{ range $host, $bv := .Branding.Sites }}
-    <div class="site-card">
-      <div class="site-card-head">
-        <strong>{{ $host }}</strong>
-        <span class="muted">
-          {{ if $bv.SiteName }}{{ $bv.SiteName }}{{ else }}—{{ end }} ·
-          {{ if $bv.LogoPath }}{{ t $.Lang "settings.branding.sites.logo_set" }}{{ else }}{{ t $.Lang "settings.branding.sites.logo_none" }}{{ end }} ·
-          {{ $bv.ResolvedCopyPreset }}
-        </span>
-      </div>
-      <div class="site-card-actions">
-        <button type="button" class="btn-mini" data-action="edit"
-                data-host="{{ $host }}"
-                data-site-name="{{ $bv.SiteName }}"
-                data-footer="{{ $bv.FooterText }}"
-                data-preset="{{ $bv.ResolvedCopyPreset }}">
-          {{ t $.Lang "settings.branding.sites.edit" }}
-        </button>
-        <form method="post" style="display:inline"
-              action="{{ $.BasePath }}/admin/settings/branding/site/delete"
-              onsubmit="return confirm('{{ t $.Lang "settings.branding.sites.delete_confirm" }}: {{ $host }}')">
-          <input type="hidden" name="site" value="{{ $host }}">
-          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.branding.sites.delete" }}</button>
-        </form>
-      </div>
-    </div>
-    {{ end }}
-  </div>
-  {{ else }}
-  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
-    {{ t .Lang "settings.branding.sites.empty" }}
-  </p>
-  {{ end }}
-
-  <details class="site-add-block">
-    <summary class="btn-mini">{{ t .Lang "settings.branding.sites.add" }}</summary>
-    <form method="post" enctype="multipart/form-data"
-          action="{{ .BasePath }}/admin/settings/branding/site/save"
-          class="site-add-form">
-      <div class="field">
-        <label>{{ t .Lang "settings.branding.sites.host_label" }}</label>
-        <input type="text" name="site" required maxlength="253"
-               placeholder="shop.example.com"
-               pattern="[A-Za-z0-9.\-]+"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.branding.site_name_label" }}</label>
-        <input type="text" name="branding_site_name" maxlength="80"
-               value="{{ .BrandingValues.SiteName }}"
-               placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.branding.footer_label" }}</label>
-        <input type="text" name="branding_footer_text" maxlength="160"
-               value="{{ .BrandingValues.FooterText }}"
-               placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
-               style="width:100%;max-width:24rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.branding.logo_label" }}</label>
-        <input type="file" name="branding_logo_file"
-               accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
-               style="font-size:.85rem">
-      </div>
-      <div class="field">
-        <label>{{ t .Lang "settings.branding.template_heading" }}</label>
-        <select name="branding_copy_preset" style="font-size:.9rem;padding:.25rem .4rem">
-          {{ range $p := .BrandingPresets }}
-          <option value="{{ $p }}" {{ if eq $.BrandingValues.CopyPreset $p }}selected{{ end }}>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</option>
-          {{ end }}
-        </select>
-      </div>
-      <button type="submit" class="btn">{{ t .Lang "settings.branding.sites.save" }}</button>
-    </form>
-  </details>
-</section>
+{{ if .ScopeIsSite }}
+{{/* Reset to default: drops cur.Branding.Sites[scope] + cur.Challenge.Sites[scope]
+     so the host falls back to the Default record verbatim on the next
+     request.  Outside of the appearance form so it cannot double-submit on
+     Enter.  Each delete endpoint runs against one wrapper only, so the
+     theme tab exposes both buttons -- one for branding-only reset, one for
+     challenge-only (= helpful when the operator wants to keep the per-site
+     branding but drop a stale challenge override, or vice versa). */}}
+<div class="scope-reset-row">
+  <form method="post" style="display:inline"
+        action="{{ .BasePath }}/admin/settings/branding/site/delete"
+        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
+    <input type="hidden" name="site" value="{{ .Scope }}">
+    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_branding_button" }}</button>
+  </form>
+  <form method="post" style="display:inline"
+        action="{{ .BasePath }}/admin/settings/challenge/site/delete"
+        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
+    <input type="hidden" name="site" value="{{ .Scope }}">
+    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_challenge_button" }}</button>
+  </form>
+</div>
+{{ end }}
 
 <style>
 .branding-grid{display:grid;grid-template-columns:1fr;gap:.9rem;margin-top:.6rem}
@@ -3109,22 +3030,22 @@ document.addEventListener("DOMContentLoaded", function(){
    rows, and the operator wants to scroll to verify the bottom.  Click-to-
    select is still possible via the head bar (= radio + name) above. */
 .theme-preview-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:auto}
-/* per-site cards (= multi-site v2 phase 1) */
-.branding-sites-card,.challenge-sites-card{padding:.9rem 1rem;border:1px solid #e2e8f0;border-radius:.4rem;background:#fff}
-.site-card-list{display:flex;flex-direction:column;gap:.35rem;margin:.2rem 0 .8rem}
-.site-card{display:flex;align-items:center;justify-content:space-between;gap:.7rem;padding:.55rem .8rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#f8fafc}
-.site-card-head{display:flex;flex-direction:column;gap:.15rem;font-size:.9rem;color:#0f172a;min-width:0;flex:1}
-.site-card-head .muted{color:#64748b;font-size:.78rem}
-.site-card-actions{display:flex;gap:.35rem;flex-shrink:0}
+/* Small mini-button used by the [× Reset to default] action below the
+   appearance / challenge forms. */
 .btn-mini{font-size:.78rem;padding:.25rem .65rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
 .btn-mini:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
 .btn-mini.btn-danger{color:#b91c1c;border-color:#fecaca}
 .btn-mini.btn-danger:hover{background:#fef2f2;border-color:#f87171}
-.site-add-block{margin-top:.5rem}
-.site-add-block summary{display:inline-block;list-style:none;cursor:pointer}
-.site-add-block summary::-webkit-details-marker{display:none}
-.site-add-form{display:flex;flex-direction:column;gap:.55rem;margin-top:.7rem;padding:.8rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem}
-.site-add-form .field label{display:block;font-size:.82rem;font-weight:500;color:#475569;margin-bottom:.2rem}
+/* Scope picker row (= multi-site v2 step c).  Sits above the appearance /
+   challenge form and toggles which BrandingValues / ChallengeValues record
+   the form reads + writes.  Banner makes the active scope obvious so the
+   operator does not save against the wrong record by mistake. */
+.scope-picker-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.55rem .8rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.35rem}
+.scope-picker-label{font-size:.82rem;font-weight:600;color:#334155;flex:0 0 auto}
+.scope-picker-select{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;min-width:14rem}
+.scope-picker-banner{font-size:.78rem;color:#0f172a;padding:.15rem .5rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.25rem}
+.scope-picker-banner.scope-default{background:#dcfce7;border-color:#86efac;color:#166534}
+.scope-reset-row{display:flex;gap:.45rem;margin:.9rem 0 0;flex-wrap:wrap}
 </style>
 <script>
 (function(){
