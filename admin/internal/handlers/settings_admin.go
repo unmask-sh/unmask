@@ -386,6 +386,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			scopeHostSet[h] = true
 		}
 	}
+	// Operator-declared sites (= Settings.Sites.Defined).  These are the
+	// hosts the operator explicitly listed on the Sites tab and they should
+	// stay visible in the scope picker even when no traffic has hit them
+	// yet -- otherwise a brand new vhost the operator just declared would
+	// not show up as a candidate until the first request lands.
+	for _, host := range h.Settings.Sites.Defined {
+		if host != "" {
+			scopeHostSet[host] = true
+		}
+	}
 	scopeHosts := make([]string, 0, len(scopeHostSet))
 	for h := range scopeHostSet {
 		scopeHosts = append(scopeHosts, h)
