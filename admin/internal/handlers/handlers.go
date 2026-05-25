@@ -675,8 +675,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	if forceReason == "protected" {
 		// Protected-path default (= per-path preset/extra dispatch wired
-		// up later).  Falls through to ChallengeTargets if not set.
-		if act := strings.TrimSpace(h.Settings.Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		// up later).  Resolve(site) honours the per-site DefaultAction
+		// override before falling through to ChallengeTargets.
+		ppResolved := h.Settings.Nginx.ProtectedPaths.Resolve(site)
+		if act := strings.TrimSpace(ppResolved.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		} else if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act

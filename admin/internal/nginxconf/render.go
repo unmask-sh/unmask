@@ -453,20 +453,22 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
 	}
-	for i, p := range s.Nginx.ProtectedPaths.Extra {
-		if i < len(s.Nginx.ProtectedPaths.ExtraDisabled) && s.Nginx.ProtectedPaths.ExtraDisabled[i] {
+	// TODO(multi-site phase 2): emit per-site `map $host $unmask_protected_<site>`
+	// blocks so a per-site Overrides[site].Append / Remove changes the nginx
+	// runtime list as well.  Phase 1.2 renders only the default Paths so the
+	// admin UI overrides are stored but not yet honoured by nginx.
+	for _, e := range s.Nginx.ProtectedPaths.Paths {
+		if e.Disabled {
 			continue
 		}
-		p = trimSpaceAndQuotes(p)
+		p := trimSpaceAndQuotes(e.Path)
 		if p == "" || ppSeen[p] {
 			continue
 		}
 		ppSeen[p] = true
-		mode := ProtectedModeCaptcha
-		if i < len(s.Nginx.ProtectedPaths.ExtraMode) {
-			if m := s.Nginx.ProtectedPaths.ExtraMode[i]; IsValidProtectedMode(m) {
-				mode = m
-			}
+		mode := e.Mode
+		if !IsValidProtectedMode(mode) {
+			mode = ProtectedModeCaptcha
 		}
 		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode})
 	}
@@ -502,24 +504,26 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			bp = append(bp, BypassPathRule{Pattern: r.Pattern, Site: r.Site})
 		}
 	}
-	for i, p := range s.Nginx.BypassPaths.Extra {
-		if i < len(s.Nginx.BypassPaths.ExtraDisabled) && s.Nginx.BypassPaths.ExtraDisabled[i] {
+	// TODO(multi-site phase 2): per-site Overrides[site] reflection.  The
+	// per-row Site column is gone; site scoping is expressed through
+	// BypassPathsConfig.Overrides.  Phase 1.2 renders only the default Paths
+	// (every entry hits the global path map) so admin-side overrides round-
+	// trip through yaml but don't reach nginx yet.  Phase 2 will resolve per
+	// host into the per-host maps splitBypassPathsForRender already builds.
+	for _, e := range s.Nginx.BypassPaths.Paths {
+		if e.Disabled {
 			continue
 		}
-		p = trimSpaceAndQuotes(p)
+		p := trimSpaceAndQuotes(e.Path)
 		if p == "" {
 			continue
 		}
-		site := ""
-		if i < len(s.Nginx.BypassPaths.ExtraSite) {
-			site = trimSpaceAndQuotes(s.Nginx.BypassPaths.ExtraSite[i])
-		}
-		key := site + "|" + p
+		key := "|" + p
 		if bpSeen[key] {
 			continue
 		}
 		bpSeen[key] = true
-		bp = append(bp, BypassPathRule{Pattern: p, Site: site})
+		bp = append(bp, BypassPathRule{Pattern: p, Site: ""})
 	}
 	sort.Slice(bp, func(i, j int) bool {
 		if bp[i].Site != bp[j].Site {

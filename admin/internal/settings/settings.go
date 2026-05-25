@@ -502,21 +502,51 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 //   - protected paths → passthrough
 //   - rate limit (= not counted in the $rate_limit_key map)
 //
-// site column: empty = applies to all sites. A string = applies only when
-// `$host` equals that value (= in multi-site setups you can scope
-// "bypass /api/ only for site=foo").
+// Multi-site model: Paths + EnabledPresets define the default that every site
+// inherits.  Overrides[site] adds / removes / replaces per Host.  See
+// doc/MULTI-SITE-DESIGN.md for the broader schema; the previous "extra_site"
+// column is replaced by the override map so the diff against the default is
+// explicit (= a missing Remove never silently drops a default entry for one
+// site).
 type BypassPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled" (= matches the
 	// "All OFF by default" docstring on BypassPathPresetGroups).  Operators
 	// add an ID here to turn that preset's path patterns into bypass entries.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	// 5 parallel arrays: path / title / disabled / updated_at / site
-	Extra          []string `yaml:"extra,omitempty"`
-	ExtraTitle     []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"`
-	ExtraSite      []string `yaml:"extra_site,omitempty"`
+	// Paths: the default list of bypass-path rules every site inherits.
+	// Replaces the old Extra / ExtraTitle / ExtraDisabled / ExtraUpdatedAt /
+	// ExtraSite parallel arrays; per-site scoping is now expressed via
+	// Overrides[site] rather than a per-row Site column.
+	Paths []BypassPath `yaml:"paths,omitempty"`
+	// Overrides: per-site override map, keyed by the normalised Host
+	// (= lowercase + trailing dot stripped, same as Branding.Overrides).
+	// Resolve(site) consults this map; an undeclared / empty entry behaves
+	// like the default verbatim.
+	Overrides map[string]BypassPathsOverride `yaml:"overrides,omitempty"`
+}
+
+// BypassPath: one bypass-path entry (default list or per-site append list).
+//
+// Pattern convention matches the old Extra column: a path-anchored PCRE regex
+// evaluated against $request_uri.  Disabled rules stay in yaml for the row
+// UI but are skipped at evaluation / render time.
+type BypassPath struct {
+	Path      string `yaml:"path"`
+	Title     string `yaml:"title,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+}
+
+// BypassPathsOverride: a site's overrides relative to the default.  Append
+// adds rows that only this site sees; Remove drops default rows by exact
+// path-string match (regex / glob is a v0.3+ upgrade).  EnabledPresets uses
+// a *[]string so the yaml can distinguish "inherit the default" (= nil) from
+// "explicitly empty" (= empty slice, = every preset OFF for this site).
+type BypassPathsOverride struct {
+	Append         []BypassPath `yaml:"append,omitempty"`
+	Remove         []string     `yaml:"remove,omitempty"`
+	EnabledPresets *[]string    `yaml:"enabled_presets,omitempty"`
 }
 
 // ProtectedPathsConfig: protected-paths feature. Forces CAPTCHA / PoW / strict
@@ -528,8 +558,9 @@ type BypassPathsConfig struct {
 //	                 path is affected"
 //
 // Designed for real human admins to pass via CAPTCHA (= transparent admin
-// gate / important-path protection). The mode column is parallel to the path
-// list as part of the 5 parallel arrays.
+// gate / important-path protection).  Per-site scoping uses Overrides[site]
+// (= same shape as BypassPathsConfig) rather than a per-row Site column so
+// the diff against the default is always explicit.
 type ProtectedPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
@@ -537,11 +568,13 @@ type ProtectedPathsConfig struct {
 	// turning them on inserts a CAPTCHA before admin login -- always a
 	// deliberate operator choice, never a default.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	Extra          []string `yaml:"extra,omitempty"`
-	ExtraTitle      []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
-	ExtraMode       []string `yaml:"extra_mode,omitempty"` // "captcha" | "pow" | "strict"
+	// Paths: the default list of protected-path rules.  Replaces the old
+	// Extra / ExtraTitle / ExtraDisabled / ExtraUpdatedAt / ExtraMode /
+	// ExtraAction parallel arrays.
+	Paths []ProtectedPath `yaml:"paths,omitempty"`
+	// Overrides: per-site override map (= same key normalisation as
+	// Branding / BypassPaths).
+	Overrides map[string]ProtectedPathsOverride `yaml:"overrides,omitempty"`
 	// DefaultAction: chain to run when a request hits a protected path and
 	// challenge fires (= chMode used by challenge.html JS).  Empty =
 	// inherit ChallengeTargets.DefaultAction → RateLimit.Default.
@@ -549,9 +582,127 @@ type ProtectedPathsConfig struct {
 	// PresetAction: per-preset chMode override (preset ID → chain).  Stored
 	// now; path-based dispatch wiring is a follow-up.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
-	// ExtraAction: per-custom-row chMode override, aligned by index with
-	// Extra.  Same "stored now, wired later" caveat.
-	ExtraAction []string `yaml:"extra_action,omitempty"`
+}
+
+// ProtectedPath: one protected-path entry.  Mode is the legacy capture /
+// pow / strict knob retained for yaml back-compat; Action is the chMode
+// override that supersedes it in the runtime decision chain.
+type ProtectedPath struct {
+	Path      string `yaml:"path"`
+	Title     string `yaml:"title,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	Mode      string `yaml:"mode,omitempty"`   // captcha | pow | strict (legacy; kept for the row UI)
+	Action    string `yaml:"action,omitempty"` // chMode override (= pow_only / captcha_only / pow_then_captcha / deny)
+}
+
+// ProtectedPathsOverride: a site's overrides relative to the default.  Same
+// shape as BypassPathsOverride; DefaultAction is the only per-site scalar
+// (= an empty string inherits the default's DefaultAction so an operator can
+// drop the override without leaving a stale value behind).
+type ProtectedPathsOverride struct {
+	Append         []ProtectedPath `yaml:"append,omitempty"`
+	Remove         []string        `yaml:"remove,omitempty"`
+	EnabledPresets *[]string       `yaml:"enabled_presets,omitempty"`
+	DefaultAction  string          `yaml:"default_action,omitempty"`
+}
+
+// Resolve: effective bypass-paths config for the given site.  Returns a value
+// copy with Overrides cleared so callers can pass the result around without
+// re-resolving.  Resolution rules:
+//
+//   - Paths: copy of the default's Paths slice minus entries whose Path
+//     matches any string in Overrides[site].Remove (= exact string match,
+//     regex / glob is a v0.3 upgrade), then append Overrides[site].Append.
+//     Disabled rows stay in the slice (= the row UI still shows them as
+//     toggled OFF); evaluation paths skip Disabled rules separately.
+//   - EnabledPresets: if Overrides[site].EnabledPresets is non-nil, replace
+//     the default verbatim (= empty slice means "every preset OFF for this
+//     site"); nil inherits the default unchanged.
+//
+// site == "" returns the default unchanged.  Sites without an overrides entry
+// also return the default verbatim.  Receiver is the value type so callers
+// invoke as `cfg.Nginx.BypassPaths.Resolve(site)`.
+func (b BypassPathsConfig) Resolve(site string) BypassPathsConfig {
+	out := BypassPathsConfig{
+		EnabledPresets: b.EnabledPresets,
+		Paths:          b.Paths,
+	}
+	if site == "" {
+		return out
+	}
+	ov, ok := b.Overrides[site]
+	if !ok {
+		return out
+	}
+	if ov.EnabledPresets != nil {
+		out.EnabledPresets = *ov.EnabledPresets
+	}
+	if len(ov.Remove) > 0 || len(ov.Append) > 0 {
+		removed := make(map[string]bool, len(ov.Remove))
+		for _, p := range ov.Remove {
+			if p == "" {
+				continue
+			}
+			removed[p] = true
+		}
+		kept := make([]BypassPath, 0, len(b.Paths)+len(ov.Append))
+		for _, p := range b.Paths {
+			if removed[p.Path] {
+				continue
+			}
+			kept = append(kept, p)
+		}
+		kept = append(kept, ov.Append...)
+		out.Paths = kept
+	}
+	return out
+}
+
+// Resolve: effective protected-paths config for the given site.  Same rules
+// as BypassPathsConfig.Resolve; additionally an empty Override.DefaultAction
+// inherits the default's DefaultAction (= matches Branding's empty-string
+// inherit semantics so the operator can blank out an override field without
+// leaving a stale value).
+func (p ProtectedPathsConfig) Resolve(site string) ProtectedPathsConfig {
+	out := ProtectedPathsConfig{
+		EnabledPresets: p.EnabledPresets,
+		Paths:          p.Paths,
+		DefaultAction:  p.DefaultAction,
+		PresetAction:   p.PresetAction,
+	}
+	if site == "" {
+		return out
+	}
+	ov, ok := p.Overrides[site]
+	if !ok {
+		return out
+	}
+	if ov.EnabledPresets != nil {
+		out.EnabledPresets = *ov.EnabledPresets
+	}
+	if ov.DefaultAction != "" {
+		out.DefaultAction = ov.DefaultAction
+	}
+	if len(ov.Remove) > 0 || len(ov.Append) > 0 {
+		removed := make(map[string]bool, len(ov.Remove))
+		for _, s := range ov.Remove {
+			if s == "" {
+				continue
+			}
+			removed[s] = true
+		}
+		kept := make([]ProtectedPath, 0, len(p.Paths)+len(ov.Append))
+		for _, pp := range p.Paths {
+			if removed[pp.Path] {
+				continue
+			}
+			kept = append(kept, pp)
+		}
+		kept = append(kept, ov.Append...)
+		out.Paths = kept
+	}
+	return out
 }
 
 // HoneypotConfig: honeypot path configuration + persistent BAN list management.

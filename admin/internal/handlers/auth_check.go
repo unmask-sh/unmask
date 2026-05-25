@@ -32,7 +32,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -172,7 +171,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	matchers := h.bypassMatchers(cfg.Nginx)
+	matchers := h.bypassMatchers(cfg.Nginx, site)
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
 
 	action := "pass"
@@ -697,20 +696,15 @@ type siteRegex struct {
 	re   *regexp.Regexp
 }
 
-// bypassMatchersCache: reused until the settings identity changes.
-var (
-	matchersMu     sync.Mutex
-	cachedNginxPtr *settings.Nginx
-	cachedMatchers pathMatchers
-)
-
-// bypassMatchers: build the regex list from settings.  Reuse the cache for the same pointer.
-func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
-	matchersMu.Lock()
-	defer matchersMu.Unlock()
-	if cachedNginxPtr == &n { // normally false (= a local copy has a different pointer)
-		return cachedMatchers
-	}
+// bypassMatchers: build the regex list from the request's effective config
+// (= default + site overrides resolved via {BypassPaths,ProtectedPaths}.
+// Resolve(site)).  The previous &n-pointer cache was a no-op (= every caller
+// passed a settings.Nginx value, so &n differed on every call); now that the
+// per-request site mutates the resolved Paths/EnabledPresets we drop the
+// cache entirely and rely on the per-call recompile.  Re-introducing a
+// (site, settings-snapshot) keyed cache is a follow-up if profiling shows
+// regex compile pressure on a hot path.
+func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	pm := pathMatchers{}
 
 	// bypass paths: enabled presets + enabled extras.
@@ -722,8 +716,11 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 	//
 	// Preset opt-in: only IDs in EnabledPresets activate, matching the
 	// renderer so admin's in-memory check agrees with the nginx config it
-	// produced.
-	enabledBP := toSet(n.BypassPaths.EnabledPresets)
+	// produced.  Resolve(site) merges per-site EnabledPresets / Paths on top
+	// of the default so a site that disables every preset only sees its own
+	// allowlist here.
+	bypass := n.BypassPaths.Resolve(site)
+	enabledBP := toSet(bypass.EnabledPresets)
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		if !enabledBP[g.ID] {
 			continue
@@ -734,16 +731,17 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 			}
 		}
 	}
-	for i, p := range n.BypassPaths.Extra {
-		if i < len(n.BypassPaths.ExtraDisabled) && n.BypassPaths.ExtraDisabled[i] {
+	for _, p := range bypass.Paths {
+		if p.Disabled || p.Path == "" {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + p); err == nil {
-			site := ""
-			if i < len(n.BypassPaths.ExtraSite) {
-				site = n.BypassPaths.ExtraSite[i]
-			}
-			pm.bypass = append(pm.bypass, siteRegex{site: site, re: re})
+		if re, err := regexp.Compile("(?i)" + p.Path); err == nil {
+			// Per-site bypass scoping now lives in the Overrides map, not
+			// a per-row column, so every resolved Paths entry applies to
+			// every site (= the requested site is already factored into
+			// the slice the resolver returned).  Keep the siteRegex zero
+			// value so matchPath's existing all-sites branch is taken.
+			pm.bypass = append(pm.bypass, siteRegex{re: re})
 		}
 	}
 
@@ -765,9 +763,11 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 		}
 	}
 
-	// protected paths: presets + extras.  No site concept.
-	// Preset opt-in: only IDs in EnabledPresets activate.
-	enabledPP := toSet(n.ProtectedPaths.EnabledPresets)
+	// protected paths: presets + extras.
+	// Preset opt-in: only IDs in EnabledPresets activate.  Same Resolve(site)
+	// pattern as bypass paths above.
+	protected := n.ProtectedPaths.Resolve(site)
+	enabledPP := toSet(protected.EnabledPresets)
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		if !enabledPP[g.ID] {
 			continue
@@ -778,17 +778,15 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 			}
 		}
 	}
-	for i, p := range n.ProtectedPaths.Extra {
-		if i < len(n.ProtectedPaths.ExtraDisabled) && n.ProtectedPaths.ExtraDisabled[i] {
+	for _, p := range protected.Paths {
+		if p.Disabled || p.Path == "" {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + p); err == nil {
+		if re, err := regexp.Compile("(?i)" + p.Path); err == nil {
 			pm.protected = append(pm.protected, re)
 		}
 	}
 
-	cachedNginxPtr = &n
-	cachedMatchers = pm
 	return pm
 }
 
