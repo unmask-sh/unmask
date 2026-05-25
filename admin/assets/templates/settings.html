@@ -4170,6 +4170,20 @@ document.addEventListener('keydown', function(e){
     e.preventDefault();
   }
 });
+
+// Override-toggle initial sync.  The checkbox's onchange disables every
+// input in its form when the box is off, but onchange does not fire on
+// page load -- so an unchecked initial state arrived with every field
+// fully editable.  Walk every .override-toggle once at DOMContentLoaded
+// and dispatch the change event so the disabled / .override-off classes
+// land before the operator can interact.
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.override-toggle').forEach(function(cb){
+    if (!cb.checked) {
+      cb.dispatchEvent(new Event('change'));
+    }
+  });
+});
 </script>
 
 </body>
