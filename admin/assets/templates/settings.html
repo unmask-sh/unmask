@@ -431,11 +431,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{/* Multi-site scope hint for tabs that have no per-site override yet (= phase
-     1.4 only ships Branding overrides; the rest still read / write the global
-     baseline regardless of scope).  Skip on tabs whose entire body is a
-     non-editable landing (top) or where the message would duplicate inline
-     content (theme tab carries its own per-card scope hints). */}}
-{{ if and .Scope (not (or (eq .Tab "top") (eq .Tab "theme"))) }}
+     1.4 ships Branding overrides; phase 1.4b adds protected / bypass-paths;
+     the rest still read / write the global baseline regardless of scope).
+     Skip on tabs whose entire body is a non-editable landing (top), where the
+     message would duplicate inline content (theme / protected / bypass-paths
+     tabs carry their own per-card scope banners). */}}
+{{ if and .Scope (not (or (eq .Tab "top") (eq .Tab "theme") (eq .Tab "protected") (eq .Tab "bypass-paths"))) }}
 <div class="banner banner-scope-hint">
   <strong>{{ t .Lang "settings.branding.scope.global_only_tag" }}</strong>
   — {{ t .Lang "settings.scope.tab_no_override_hint" }}
@@ -1008,17 +1009,48 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "bypass-paths" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
+  {{ if .Scope }}
+  {{/* Phase 1.4b: per-site editor for bypass-paths.  Three blocks:
+       1. Inherited from default (each row carries a "remove for this site"
+          checkbox; checking it tells the save handler to add the path to
+          Override.Remove)
+       2. Additional for this site (= Override.Append rows, same custom-row
+          UI as the default scope)
+       3. Removed from default (= Override.Remove summary)
+       The preset list above is still rendered for visibility but disabled
+       in site scope; the per-site preset override UI lands in a later
+       phase along with the protected-paths preset override. */}}
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.bypass.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.bypass.scope.banner" }}
+    </p>
+    <button type="submit" name="reset_bypass_paths" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.bypass.scope.reset_confirm" }})">
+      {{ t .Lang "settings.bypass.scope.reset_btn" }}
+    </button>
+  </div>
+  {{ end }}
+
   <div class="bcd-card">
     <h2>
       {{ t .Lang "settings.bypass_paths.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bp-preset-help" aria-label="?">?</button>
       <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script>
     </h2>
+    {{ if .Scope }}
+    <p class="note" style="margin:.1rem 0 .55rem;color:#94a3b8;font-size:.78rem">
+      {{ t .Lang "settings.bypass.scope.preset_global_only_hint" }}
+    </p>
+    {{ end }}
     <div class="ua-section">
       {{ range .BypassPathGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
-        <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
+        <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}"{{ if $.Scope }} disabled{{ end }}>
         <label for="bp-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
@@ -1028,14 +1060,68 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
   </div>
 
+  {{ if .Scope }}
+  {{/* Block 1: Inherited from default.  Each row has a "remove for this
+       site" checkbox whose VALUE is the path string; only ticked rows
+       submit a `bp_remove` field, which the save handler folds into
+       Override.Remove (rebuilt from scratch each save -- unticking a box
+       drops the remove). */}}
+  <div class="bcd-card">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.bypass.scope.inherited_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.bypass.scope.inherited_count" (len .BypassPathsInheritedRows) }})
+      </span>
+    </h2>
+    {{ if .BypassPathsInheritedRows }}
+    <table class="bp-inherit-table">
+      <thead>
+        <tr>
+          <th>{{ t .Lang "settings.bypass.scope.col_remove" }}</th>
+          <th>{{ t .Lang "settings.bypass.scope.col_title" }}</th>
+          <th>{{ t .Lang "settings.bypass.scope.col_pattern" }}</th>
+          <th>{{ t .Lang "settings.bypass.scope.col_default_state" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .BypassPathsInheritedRows }}
+        <tr{{ if .Removed }} class="bp-inherit-removed"{{ end }}>
+          <td class="bp-inherit-cell-remove">
+            <label class="bp-inherit-remove-label">
+              <input type="checkbox" name="bp_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
+              {{ t $.Lang "settings.bypass.scope.remove_label" }}
+            </label>
+          </td>
+          <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="muted" style="color:#94a3b8">{{ t $.Lang "settings.ua.empty_title" }}</span>{{ end }}</td>
+          <td><code>{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</code></td>
+          <td>
+            {{ if .Enabled }}<span class="bp-state-on">{{ t $.Lang "settings.bypass.scope.state_on" }}</span>{{ else }}<span class="bp-state-off">{{ t $.Lang "settings.bypass.scope.state_off" }}</span>{{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
+      {{ t .Lang "settings.bypass.scope.inherited_empty" }}
+    </p>
+    {{ end }}
+  </div>
+
+  {{/* Block 2: Additional for this site (= Override.Append).  Reuses the
+       default-scope row UI so the per-row edit JS works without branching. */}}
   <div class="bcd-card">
     <h2>
-      {{ t .Lang "settings.bypass_paths.title" }}
-      <button type="button" class="ua-help-trigger" data-help-target="bp-custom-help" aria-label="?">?</button>
-      <script type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
+      {{ t .Lang "settings.bypass.scope.additional_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.bypass.scope.additional_count" (len .BypassPathsAppendRows) }})
+      </span>
     </h2>
+    <p class="note" style="margin:.1rem 0 .55rem;color:#64748b;font-size:.78rem">
+      {{ t .Lang "settings.bypass.scope.additional_hint" }}
+    </p>
     <div class="rule-list" data-rule-name="bp_pat">
-      {{ range .BypassPathsRules }}
+      {{ range .BypassPathsAppendRows }}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
@@ -1047,7 +1133,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-        {{/* multi-site phase 1.2: per-row site scoping moved to BypassPaths.Overrides[site]; phase 1.4 brings the scope-picker UI back */}}
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1067,7 +1152,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-          {{/* multi-site phase 1.2: per-row bp_site dropped; site scoping landed in BypassPaths.Overrides[site] */}}
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1079,9 +1163,102 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
     <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
   </div>
-  {{/* multi-site phase 1.2: bp-site-candidates datalist dropped along with the per-row Site column; per-site editing returns with the scope picker in phase 1.4 */}}
+
+  {{/* Block 3: Removed from default for this site -- a flat summary of
+       Override.Remove so the operator can scan removals separately from
+       the inherit-block checkboxes.  Read-only here; unchecking a row in
+       block 1 above is the way to undo a remove. */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.bypass.scope.removed_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.bypass.scope.removed_count" (len .BypassPathsRemoveStrings) }})
+      </span>
+    </h2>
+    {{ if .BypassPathsRemoveStrings }}
+    <ul class="bp-remove-list">
+      {{ range .BypassPathsRemoveStrings }}<li><code>{{ . }}</code></li>{{ end }}
+    </ul>
+    <p class="note" style="margin:.45rem 0 0;color:#94a3b8;font-size:.78rem">
+      {{ t .Lang "settings.bypass.scope.removed_hint" }}
+    </p>
+    {{ else }}
+    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
+      {{ t .Lang "settings.bypass.scope.removed_empty" }}
+    </p>
+    {{ end }}
+  </div>
+  {{ else }}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.bypass_paths.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="bp-custom-help" aria-label="?">?</button>
+      <script type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
+    </h2>
+    <div class="rule-list" data-rule-name="bp_pat">
+      {{ range .BypassPathsRules }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+        {{/* phase 1.4b: default-scope view stays add-only.  The "remove"
+             column is exposed only in site scope (see the inherit block
+             above) per the add-only invariant on the shared baseline. */}}
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="bp_enabled" value="1">
+          <input type="hidden" name="bp_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+  </div>
+  {{ end }}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+<style>
+.bp-inherit-table{width:100%;border-collapse:collapse;margin:.4rem 0 0;font-size:.82rem}
+.bp-inherit-table thead{background:#f8fafc}
+.bp-inherit-table th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem}
+.bp-inherit-table td{padding:.4rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.bp-inherit-table tr.bp-inherit-removed td{background:#fef2f2}
+.bp-inherit-table tr.bp-inherit-removed td code{text-decoration:line-through;color:#9ca3af}
+.bp-inherit-cell-remove{white-space:nowrap}
+.bp-inherit-remove-label{display:inline-flex;align-items:center;gap:.3rem;color:#9a3412;font-size:.78rem;cursor:pointer}
+.bp-state-on{color:#0f766e;font-size:.78rem;font-weight:600}
+.bp-state-off{color:#94a3b8;font-size:.78rem}
+.bp-remove-list{margin:.3rem 0 0;padding-left:1.2rem;font-size:.85rem}
+.bp-remove-list li{margin:.15rem 0;color:#7c2d12}
+.bp-remove-list code{background:#fef2f2;padding:.05rem .3rem;border-radius:.2rem;border:1px solid #fecaca}
+</style>
 {{ end }}
 
 {{ if eq .Tab "global" }}
@@ -1975,7 +2152,28 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "protected" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected">
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
+  {{ if .Scope }}
+  {{/* Phase 1.4b: per-site editor for protected-paths.  Three blocks
+       analogous to bypass-paths plus a per-site DefaultAction override
+       (= chain to run when a protected path fires on this site).  Preset
+       toggles are rendered read-only in site scope until the per-preset
+       override UI ships in a later phase. */}}
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.protected.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.protected.scope.banner" }}
+    </p>
+    <button type="submit" name="reset_protected" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.protected.scope.reset_confirm" }})">
+      {{ t .Lang "settings.protected.scope.reset_btn" }}
+    </button>
+  </div>
+  {{ end }}
+
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.protected.preset.title" }}
@@ -1989,6 +2187,23 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ t .Lang "settings.protected.action_h" }}
         <button type="button" class="ua-help-trigger" data-help-target="protected-action-help" aria-label="?">?</button>
       </div>
+      {{ if .Scope }}
+      {{/* In site scope the select carries an explicit "inherit" sentinel
+           so the operator can blank the override without leaving a stale
+           value.  Selected entry is the site's Override.DefaultAction
+           (= ProtectedDefaultActionOv), empty/inherit = inherit the default
+           scope's DefaultAction. */}}
+      {{ $defPcm := .ProtectedPaths.DefaultAction }}
+      {{ if eq $defPcm "" }}{{ $defPcm = "pow_then_captcha" }}{{ end }}
+      {{ $ovPcm := .ProtectedDefaultActionOv }}
+      <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value="inherit"          {{ if eq $ovPcm "" }}selected{{ end }}>{{ t .Lang "settings.protected.scope.action_inherit" }} ({{ $defPcm }})</option>
+        <option value="pow_only"         {{ if eq $ovPcm "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="pow_then_captcha" {{ if eq $ovPcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="captcha_only"     {{ if eq $ovPcm "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="deny"             {{ if eq $ovPcm "deny" }}selected{{ end }}>deny</option>
+      </select>
+      {{ else }}
       {{ $pcm := .ProtectedPaths.DefaultAction }}
       {{ if eq $pcm "" }}{{ $pcm = "pow_then_captcha" }}{{ end }}
       <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
@@ -1997,6 +2212,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="deny"             {{ if eq $pcm "deny" }}selected{{ end }}>deny</option>
       </select>
+      {{ end }}
     </div>
     <script type="text/html" id="protected-action-help">
       <div><strong>{{ t .Lang "settings.protected.action_h" }}</strong></div>
@@ -2009,16 +2225,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </ul>
     </script>
 
+    {{ if .Scope }}
+    <p class="note" style="margin:.1rem 0 .55rem;color:#94a3b8;font-size:.78rem">
+      {{ t .Lang "settings.protected.scope.preset_global_only_hint" }}
+    </p>
+    {{ end }}
     <div class="ua-section">
       {{ range .ProtectedPresetGroups }}
       {{ $ppa := index $.ProtectedPresetAction .ID }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
-        <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}">
+        <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}"{{ if $.Scope }} disabled{{ end }}>
         <label for="pp-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ end }}</div>
         </label>
-        <select class="preset-action-sel" name="protected_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
+        <select class="preset-action-sel" name="protected_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if or (not .Enabled) $.Scope }} disabled{{ end }}>
           <option value="inherit" {{ if eq $ppa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
           <option value="pow_only"         {{ if eq $ppa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $ppa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2042,6 +2263,149 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
+  {{ if .Scope }}
+  {{/* Block 1: Inherited from default.  Each row carries the "remove for
+       this site" checkbox; ticking writes the path string into the
+       protected_remove form field (= folded into Override.Remove). */}}
+  <div class="bcd-card">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.protected.scope.inherited_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.protected.scope.inherited_count" (len .ProtectedInheritedRows) }})
+      </span>
+    </h2>
+    {{ if .ProtectedInheritedRows }}
+    <table class="bp-inherit-table">
+      <thead>
+        <tr>
+          <th>{{ t .Lang "settings.protected.scope.col_remove" }}</th>
+          <th>{{ t .Lang "settings.protected.scope.col_title" }}</th>
+          <th>{{ t .Lang "settings.protected.scope.col_pattern" }}</th>
+          <th>{{ t .Lang "settings.protected.scope.col_mode" }}</th>
+          <th>{{ t .Lang "settings.protected.scope.col_default_state" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .ProtectedInheritedRows }}
+        <tr{{ if .Removed }} class="bp-inherit-removed"{{ end }}>
+          <td class="bp-inherit-cell-remove">
+            <label class="bp-inherit-remove-label">
+              <input type="checkbox" name="protected_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
+              {{ t $.Lang "settings.protected.scope.remove_label" }}
+            </label>
+          </td>
+          <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="muted" style="color:#94a3b8">{{ t $.Lang "settings.ua.empty_title" }}</span>{{ end }}</td>
+          <td><code>{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</code></td>
+          <td><span class="action-pill action-{{ .Mode }}">{{ .Mode }}</span>{{ if .Action }} <span class="muted" style="color:#94a3b8;font-size:.75rem">({{ .Action }})</span>{{ end }}</td>
+          <td>
+            {{ if .Enabled }}<span class="bp-state-on">{{ t $.Lang "settings.bypass.scope.state_on" }}</span>{{ else }}<span class="bp-state-off">{{ t $.Lang "settings.bypass.scope.state_off" }}</span>{{ end }}
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    {{ else }}
+    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
+      {{ t .Lang "settings.protected.scope.inherited_empty" }}
+    </p>
+    {{ end }}
+  </div>
+
+  {{/* Block 2: Additional for this site (= Override.Append).  Reuses the
+       default-scope row UI; field names are identical so the per-row JS
+       keeps working. */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.protected.scope.additional_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.protected.scope.additional_count" (len .ProtectedAppendRows) }})
+      </span>
+    </h2>
+    <p class="note" style="margin:.1rem 0 .55rem;color:#64748b;font-size:.78rem">
+      {{ t .Lang "settings.protected.scope.additional_hint" }}
+    </p>
+    <div class="ua-section">
+      <div class="rule-list" data-rule-name="protected_pat">
+      {{ range $i, $r := .ProtectedAppendRows }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+        <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="protected_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+        <select name="protected_extra_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="inherit" selected>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only">pow_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="captcha_only">captcha_only</option>
+          <option value="deny">deny</option>
+        </select>
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="protected_enabled" value="1">
+          <input type="hidden" name="protected_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="protected_pat" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+          <select name="protected_extra_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
+            <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
+            <option value="pow_only">pow_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="deny">deny</option>
+          </select>
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+      </div>
+      <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+    </div>
+  </div>
+
+  {{/* Block 3: Removed from default for this site. */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.protected.scope.removed_title" }}
+      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
+        ({{ tf .Lang "settings.protected.scope.removed_count" (len .ProtectedRemoveStrings) }})
+      </span>
+    </h2>
+    {{ if .ProtectedRemoveStrings }}
+    <ul class="bp-remove-list">
+      {{ range .ProtectedRemoveStrings }}<li><code>{{ . }}</code></li>{{ end }}
+    </ul>
+    <p class="note" style="margin:.45rem 0 0;color:#94a3b8;font-size:.78rem">
+      {{ t .Lang "settings.protected.scope.removed_hint" }}
+    </p>
+    {{ else }}
+    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
+      {{ t .Lang "settings.protected.scope.removed_empty" }}
+    </p>
+    {{ end }}
+  </div>
+  {{ else }}
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.protected.h" }}
@@ -2110,6 +2474,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
     </div>
   </div>
+  {{ end }}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}

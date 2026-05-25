@@ -151,17 +151,68 @@ func brandingOverrideFieldCount(b settings.Branding) int {
 	return n
 }
 
+// bypassPathsOverrideCount: counts override knobs the site has set in a
+// BypassPathsOverride entry.  Each appended row counts as 1, each remove
+// entry counts as 1, and an explicit EnabledPresets override (= non-nil)
+// counts as 1.  Drives the per-site override badge in the scope picker for
+// the bypass-paths section.
+func bypassPathsOverrideCount(ov settings.BypassPathsOverride) int {
+	n := 0
+	for _, p := range ov.Append {
+		if strings.TrimSpace(p.Path) != "" {
+			n++
+		}
+	}
+	for _, s := range ov.Remove {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	if ov.EnabledPresets != nil {
+		n++
+	}
+	return n
+}
+
+// protectedPathsOverrideCount: counts override knobs in a ProtectedPathsOverride
+// entry.  Same counting as bypassPathsOverrideCount plus DefaultAction.
+func protectedPathsOverrideCount(ov settings.ProtectedPathsOverride) int {
+	n := 0
+	for _, p := range ov.Append {
+		if strings.TrimSpace(p.Path) != "" {
+			n++
+		}
+	}
+	for _, s := range ov.Remove {
+		if strings.TrimSpace(s) != "" {
+			n++
+		}
+	}
+	if ov.EnabledPresets != nil {
+		n++
+	}
+	if strings.TrimSpace(ov.DefaultAction) != "" {
+		n++
+	}
+	return n
+}
+
 // buildScopeOptions: stitches the picker rows from the site picker source
 // (= same list that addMeToData feeds into SitePickerOptions) plus the
-// Branding.Overrides keys.  Sites that have overrides but no longer appear
-// in the picker (= traffic decayed) stay listed so the operator can reach
-// "Reset this site to default".
+// override map keys (across all override-aware sections).  Sites that have
+// overrides but no longer appear in the picker (= traffic decayed) stay
+// listed so the operator can reach "Reset this site to default".  The badge
+// count is the union of every section's override knobs the site has set
+// (= Branding + BypassPaths + ProtectedPaths in phase 1.4b).
 func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scopeOption {
 	current := strings.ToLower(strings.TrimSpace(currentScope))
 	seen := map[string]bool{}
 	opts := []scopeOption{{Site: "", IsDefault: true, IsCurrent: current == ""}}
 
-	branding := h.snapshotSettings().Branding
+	snap := h.snapshotSettings()
+	branding := snap.Branding
+	bypass := snap.Nginx.BypassPaths
+	protected := snap.Nginx.ProtectedPaths
 	addSite := func(site string) {
 		site = strings.ToLower(strings.TrimSpace(site))
 		if site == "" || seen[site] {
@@ -169,6 +220,8 @@ func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scop
 		}
 		seen[site] = true
 		count := brandingOverrideFieldCount(branding.Overrides[site])
+		count += bypassPathsOverrideCount(bypass.Overrides[site])
+		count += protectedPathsOverrideCount(protected.Overrides[site])
 		opts = append(opts, scopeOption{
 			Site:          site,
 			OverrideCount: count,
@@ -191,8 +244,16 @@ func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scop
 	}
 	// Sites with override entries that no longer match the picker source
 	// (e.g. ghost sites in defined mode, decayed sites in auto mode) stay
-	// reachable so the operator can still reset them.
+	// reachable so the operator can still reset them.  Walk every override-
+	// aware section so a path-only override is reachable even when the site
+	// has no Branding override.
 	for site := range branding.Overrides {
+		addSite(site)
+	}
+	for site := range bypass.Overrides {
+		addSite(site)
+	}
+	for site := range protected.Overrides {
 		addSite(site)
 	}
 	// A scope cookie pinned to a freshly named site that has no overrides
@@ -477,6 +538,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Scope":                      resolveSettingsScope(r),
 		"ScopeOptions":               h.buildScopeOptions(r, resolveSettingsScope(r)),
 		"ScopeBrandingOverrideCount": brandingOverrideFieldCount(h.snapshotSettings().Branding.Overrides[resolveSettingsScope(r)]),
+		// Phase 1.4b: per-site override counts for the protected / bypass-paths
+		// tabs.  Used by the page-top scope banner so the operator can see at
+		// a glance how many knobs this site overrides without scrolling into
+		// each tab.  Default scope (= scope == "") returns 0 because the map
+		// lookup yields the zero value and every helper returns 0 for it.
+		"ScopeBypassPathsOverrideCount":    bypassPathsOverrideCount(h.snapshotSettings().Nginx.BypassPaths.Overrides[resolveSettingsScope(r)]),
+		"ScopeProtectedPathsOverrideCount": protectedPathsOverrideCount(h.snapshotSettings().Nginx.ProtectedPaths.Overrides[resolveSettingsScope(r)]),
 		"Cur":                   cur,
 		"Global":                h.snapshotSettings().Global,
 		"IPGeoMMDBPath":         ipgeoCur.MMDBPath,
@@ -544,6 +612,20 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// per-row chain lives on the row struct rather than a parallel array.
 		"ProtectedExtraAction": collectProtectedActions(cur.ProtectedPaths.Paths),
 		"BypassPathsRules":     pairBypassPathRules(cur.BypassPaths.Paths),
+		// Phase 1.4b scope-aware view rows for the protected / bypass-paths
+		// tabs.  In default scope these are empty (template falls back to the
+		// existing default editor).  In site scope they expose three lists:
+		// the inherited default rows (= each carries a "remove for this site"
+		// toggle pre-checked when the site already removed that path), the
+		// per-site appended rows, and the site's current Remove list as raw
+		// strings for the "currently removed" summary block.
+		"ProtectedInheritedRows":   buildProtectedInheritedRows(cur.ProtectedPaths, resolveSettingsScope(r)),
+		"ProtectedAppendRows":      buildProtectedAppendRows(cur.ProtectedPaths, resolveSettingsScope(r)),
+		"ProtectedRemoveStrings":   collectProtectedRemove(cur.ProtectedPaths, resolveSettingsScope(r)),
+		"ProtectedDefaultActionOv": protectedDefaultActionOverride(cur.ProtectedPaths, resolveSettingsScope(r)),
+		"BypassPathsInheritedRows": buildBypassPathsInheritedRows(cur.BypassPaths, resolveSettingsScope(r)),
+		"BypassPathsAppendRows":    buildBypassPathsAppendRows(cur.BypassPaths, resolveSettingsScope(r)),
+		"BypassPathsRemoveStrings": collectBypassPathsRemove(cur.BypassPaths, resolveSettingsScope(r)),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --
@@ -883,8 +965,17 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.Settings.Server.BasePath
+	// Preserve the editing scope across the post-save redirect so the
+	// operator stays in the per-site view after saving an override.  Cookie
+	// also carries the scope, but the explicit query keeps deep links honest
+	// (= clicking a flash banner won't silently jump back to default scope
+	// even if the cookie is missing).
+	scopeQ := strings.TrimSpace(resolveSettingsScope(r))
 	redirBack := func(msg string) {
 		dst := base + "/admin/settings/?tab=" + tabForSection(section)
+		if scopeQ != "" {
+			dst += "&scope=" + scopeQ
+		}
 		if msg == "" {
 			dst += "&saved=1"
 		} else {
@@ -965,12 +1056,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "protected":
-		if err := applyProtectedForm(&cur.Nginx, r, lang); err != nil {
+		if err := applyProtectedFormScoped(&cur.Nginx, r, lang, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
 	case "bypass-paths":
-		if err := applyBypassPathsForm(&cur.Nginx, r, lang); err != nil {
+		if err := applyBypassPathsFormScoped(&cur.Nginx, r, lang, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -2544,6 +2635,426 @@ func pairBypassPathRules(paths []settings.BypassPath) []bypassPathRule {
 		}
 	}
 	return out
+}
+
+// protectedInheritedRow: row-UI struct for the per-site protected-paths
+// editor's "Inherited from default" block.  Each row carries the canonical
+// default-scope row plus a Removed flag indicating whether the current site
+// has dropped this path via its Remove override.  Disabled is the row's own
+// disabled state on the default scope -- the template renders it as a muted
+// hint so the operator sees the underlying state but cannot edit it
+// (= disabling a row only makes sense on the default scope).
+type protectedInheritedRow struct {
+	Pattern   string
+	Title     string
+	Mode      string
+	Action    string
+	Enabled   bool
+	UpdatedAt int64
+	Removed   bool
+}
+
+// buildProtectedInheritedRows: returns the default-scope ProtectedPath slice
+// projected into per-site editor rows.  Removed is true when the site's
+// Override.Remove contains the row's Path (= exact string match, matching
+// Resolve's removal semantics).  Default scope (= site == "") returns nil
+// so the template falls back to the legacy editor without rendering an
+// inheritance block.
+func buildProtectedInheritedRows(p settings.ProtectedPathsConfig, site string) []protectedInheritedRow {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	removed := map[string]bool{}
+	if ov, ok := p.Overrides[site]; ok {
+		for _, s := range ov.Remove {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			removed[s] = true
+		}
+	}
+	out := make([]protectedInheritedRow, 0, len(p.Paths))
+	for _, row := range p.Paths {
+		mode := row.Mode
+		if !nginxconf.IsValidProtectedMode(mode) {
+			mode = nginxconf.ProtectedModeCaptcha
+		}
+		out = append(out, protectedInheritedRow{
+			Pattern:   row.Path,
+			Title:     row.Title,
+			Mode:      mode,
+			Action:    row.Action,
+			Enabled:   !row.Disabled,
+			UpdatedAt: row.UpdatedAt,
+			Removed:   removed[row.Path],
+		})
+	}
+	return out
+}
+
+// buildProtectedAppendRows: returns the site's Override.Append rows
+// projected into the same protectedExtraRule shape the default-scope custom
+// list already uses.  Default scope returns nil.
+func buildProtectedAppendRows(p settings.ProtectedPathsConfig, site string) []protectedExtraRule {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := p.Overrides[site]
+	if !ok {
+		return nil
+	}
+	return pairProtectedRules(ov.Append)
+}
+
+// collectProtectedRemove: returns the site's Override.Remove list verbatim
+// for the "currently removed" summary block.  Default scope returns nil.
+func collectProtectedRemove(p settings.ProtectedPathsConfig, site string) []string {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := p.Overrides[site]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(ov.Remove))
+	for _, s := range ov.Remove {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// protectedDefaultActionOverride: returns the site's per-scope DefaultAction
+// override (= what the operator typed for THIS site, separate from the
+// inherited default).  Empty string means "inherit the default scope's
+// DefaultAction".  Default scope (= site == "") returns "" (the template
+// reads the underlying ProtectedPaths.DefaultAction directly there).
+func protectedDefaultActionOverride(p settings.ProtectedPathsConfig, site string) string {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return ""
+	}
+	if ov, ok := p.Overrides[site]; ok {
+		return ov.DefaultAction
+	}
+	return ""
+}
+
+// bypassPathsInheritedRow: row-UI struct for the per-site bypass-paths
+// editor's "Inherited from default" block.  Same shape as the protected
+// variant minus the chain-mode column (bypass paths skip all gates by
+// definition).
+type bypassPathsInheritedRow struct {
+	Pattern   string
+	Title     string
+	Enabled   bool
+	UpdatedAt int64
+	Removed   bool
+}
+
+// buildBypassPathsInheritedRows: see buildProtectedInheritedRows; same logic
+// for the bypass-paths section.
+func buildBypassPathsInheritedRows(b settings.BypassPathsConfig, site string) []bypassPathsInheritedRow {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	removed := map[string]bool{}
+	if ov, ok := b.Overrides[site]; ok {
+		for _, s := range ov.Remove {
+			s = strings.TrimSpace(s)
+			if s == "" {
+				continue
+			}
+			removed[s] = true
+		}
+	}
+	out := make([]bypassPathsInheritedRow, 0, len(b.Paths))
+	for _, row := range b.Paths {
+		out = append(out, bypassPathsInheritedRow{
+			Pattern:   row.Path,
+			Title:     row.Title,
+			Enabled:   !row.Disabled,
+			UpdatedAt: row.UpdatedAt,
+			Removed:   removed[row.Path],
+		})
+	}
+	return out
+}
+
+// buildBypassPathsAppendRows: returns the site's Override.Append rows in the
+// same bypassPathRule shape the default-scope custom list uses.
+func buildBypassPathsAppendRows(b settings.BypassPathsConfig, site string) []bypassPathRule {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := b.Overrides[site]
+	if !ok {
+		return nil
+	}
+	return pairBypassPathRules(ov.Append)
+}
+
+// collectBypassPathsRemove: see collectProtectedRemove; same shape for the
+// bypass-paths section.
+func collectBypassPathsRemove(b settings.BypassPathsConfig, site string) []string {
+	site = strings.ToLower(strings.TrimSpace(site))
+	if site == "" {
+		return nil
+	}
+	ov, ok := b.Overrides[site]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(ov.Remove))
+	for _, s := range ov.Remove {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+// applyProtectedFormScoped dispatches the protected-paths form into either
+// the shared baseline (scope == "") or the per-site Overrides map.  Default
+// scope behaves identically to the legacy applyProtectedForm.  Site scope
+// reads the new Append + Remove form fields and writes the resulting
+// ProtectedPathsOverride into n.ProtectedPaths.Overrides[scope].  An entry
+// that ends up empty (= no append rows + empty remove list + no DefaultAction
+// + EnabledPresets nil) is deleted from the map so the YAML stays compact.
+//
+// reset_protected=1 short-circuits with a delete of the site's entry.  In
+// the default scope this flag is ignored (= add-only invariant; the legacy
+// applyProtectedForm has no notion of an override to reset).
+//
+// The default-scope `remove` field is ignored (= the baseline cannot
+// "remove" from itself; only site scopes carry a Remove list).
+func applyProtectedFormScoped(n *settings.Nginx, r *http.Request, lang i18n.Lang, scope string) error {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return applyProtectedForm(n, r, lang)
+	}
+	if r.FormValue("reset_protected") == "1" {
+		delete(n.ProtectedPaths.Overrides, scope)
+		return nil
+	}
+
+	// Append list -- mirrors the default-scope row decoder but writes into
+	// the override's Append slice instead of the baseline's Paths.  The form
+	// fields use the same names so the per-row edit JS does not need to
+	// branch on scope.
+	pats := r.Form["protected_pat"]
+	titles := r.Form["protected_title"]
+	enabledArr := r.Form["protected_enabled"]
+	upds := r.Form["protected_updated_at"]
+	chains := r.Form["protected_extra_action"]
+	maxLen := len(pats)
+	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(chains)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	appendOut := make([]settings.ProtectedPath, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var p, t, action string
+		isEnabled := true
+		var ts int64
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.TrimSpace(titles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		if i < len(enabledArr) {
+			isEnabled = enabledArr[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
+				action = v
+			}
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.protected_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		appendOut = append(appendOut, settings.ProtectedPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Mode:      nginxconf.ProtectedModeCaptcha,
+			Action:    action,
+		})
+	}
+
+	// Remove list -- the inherit-block checkboxes post the path string in
+	// `protected_remove` for each "remove for this site" checkbox the
+	// operator ticked.  Duplicates / blanks are de-duplicated; only paths
+	// that actually appear in the default-scope canonical list are kept so
+	// stale removes do not silently grow when the operator unticks a row
+	// (= unticked checkboxes don't submit; the remove list is rebuilt
+	// from-scratch from the ticked ones, matching the default-scope row UI).
+	defaultPaths := map[string]bool{}
+	for _, p := range n.ProtectedPaths.Paths {
+		defaultPaths[p.Path] = true
+	}
+	removeSeen := map[string]bool{}
+	removeOut := []string{}
+	for _, s := range r.Form["protected_remove"] {
+		s = strings.TrimSpace(s)
+		if s == "" || removeSeen[s] {
+			continue
+		}
+		if !defaultPaths[s] {
+			continue
+		}
+		removeSeen[s] = true
+		removeOut = append(removeOut, s)
+	}
+
+	// DefaultAction override.  Empty / "inherit" / invalid -> empty (inherit
+	// the default scope's DefaultAction).  This matches Branding.CopyPreset's
+	// "default" sentinel and Resolve's empty-string-inherits semantics.
+	defAct := ""
+	if v := strings.TrimSpace(r.FormValue("protected_default_action")); v != "" && v != "inherit" {
+		if settings.IsValidRateChallengeMode(v) {
+			defAct = v
+		}
+	}
+
+	override := n.ProtectedPaths.Overrides[scope]
+	override.Append = appendOut
+	override.Remove = removeOut
+	override.DefaultAction = defAct
+	// EnabledPresets override is not exposed in the row UI yet (= the preset
+	// list is rendered read-only in site scope until the per-preset toggle UI
+	// lands).  Leave whatever the YAML carried so a future hand-edit survives
+	// a round-trip through the form.  The override count helper still counts
+	// it correctly when set.
+
+	count := protectedPathsOverrideCount(override)
+	if count == 0 {
+		delete(n.ProtectedPaths.Overrides, scope)
+		return nil
+	}
+	if n.ProtectedPaths.Overrides == nil {
+		n.ProtectedPaths.Overrides = map[string]settings.ProtectedPathsOverride{}
+	}
+	n.ProtectedPaths.Overrides[scope] = override
+	return nil
+}
+
+// applyBypassPathsFormScoped: same pattern as applyProtectedFormScoped for
+// the bypass-paths section.  No DefaultAction column (= bypass paths skip
+// every gate so there is no chain to choose).
+func applyBypassPathsFormScoped(n *settings.Nginx, r *http.Request, lang i18n.Lang, scope string) error {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return applyBypassPathsForm(n, r, lang)
+	}
+	if r.FormValue("reset_bypass_paths") == "1" {
+		delete(n.BypassPaths.Overrides, scope)
+		return nil
+	}
+
+	pats := r.Form["bp_pat"]
+	titles := r.Form["bp_title"]
+	rowEnabled := r.Form["bp_enabled"]
+	upds := r.Form["bp_updated_at"]
+	maxLen := len(pats)
+	for _, l := range []int{len(titles), len(rowEnabled), len(upds)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	appendOut := make([]settings.BypassPath, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var p, t string
+		isEnabled := true
+		var ts int64
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.TrimSpace(titles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		if i < len(rowEnabled) {
+			isEnabled = rowEnabled[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_path_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		appendOut = append(appendOut, settings.BypassPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+		})
+	}
+
+	defaultPaths := map[string]bool{}
+	for _, p := range n.BypassPaths.Paths {
+		defaultPaths[p.Path] = true
+	}
+	removeSeen := map[string]bool{}
+	removeOut := []string{}
+	for _, s := range r.Form["bp_remove"] {
+		s = strings.TrimSpace(s)
+		if s == "" || removeSeen[s] {
+			continue
+		}
+		if !defaultPaths[s] {
+			continue
+		}
+		removeSeen[s] = true
+		removeOut = append(removeOut, s)
+	}
+
+	override := n.BypassPaths.Overrides[scope]
+	override.Append = appendOut
+	override.Remove = removeOut
+	count := bypassPathsOverrideCount(override)
+	if count == 0 {
+		delete(n.BypassPaths.Overrides, scope)
+		return nil
+	}
+	if n.BypassPaths.Overrides == nil {
+		n.BypassPaths.Overrides = map[string]settings.BypassPathsOverride{}
+	}
+	n.BypassPaths.Overrides[scope] = override
+	return nil
 }
 
 // applyCaptchaForm: receive the captcha tab form. Reads the provider radio +
