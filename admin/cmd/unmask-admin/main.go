@@ -265,6 +265,9 @@ func cmdServe(args []string) error {
 		nlog.SetHoneypotCallback(banMgr.Add)
 		// crawler funnel: classify each access-log UA into AI/crawler buckets.
 		nlog.SetCrawlerClassifier(classify.AICategory)
+		// country breakdown for the 30-day chart: per-packet IP -> country
+		// lookup, folded into unmask_traffic_country_hourly on the hour flush.
+		nlog.SetIPGeo(gip)
 	}
 
 	// External webhook notifications (optional).  Safe no-op even when URL is empty.

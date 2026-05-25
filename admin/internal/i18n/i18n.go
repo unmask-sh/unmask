@@ -460,8 +460,9 @@ var dict = map[Lang]map[string]string{
 		"chart.no_data_serve":      "no data (= phase=serve が直近 30 日でゼロ)",
 		"chart.no_data_access_log": "no data (= access_log が直近 30 日で 1 件もなし)",
 		"chart.popover.total":      "合計",
-		"chart.country_heading":    "国別 (上位 15) 期間合計",
-		"chart.country_count":      "IP geo: %d 国観測 / phase=serve 集計",
+		"chart.country_heading":     "国別 (上位 15) 期間合計",
+		"chart.country_all_heading": "国別 (上位 15) 全リクエスト",
+		"chart.country_count":       "IP geo: %d 国観測 / phase=serve 集計",
 
 		// dashboard 内 残り desc / no-data / chart 補助 string
 		"dashboard.funnel.desc": `<strong>JA4 verdict</strong> 別に <code>serve → load → (pow_pass) → captcha → bv_*</code> の遷移を段階別件数で集計したファネル(challenge 配信から最終通過まで)。<br><br><strong>終端列</strong>(= 認証完了)は <code>challenge_mode</code> 経路ごとに 3 列:<br>・<code>bv_pow_only</code>: PoW のみで <code>_bv</code> 発行<br>・<code>bv_captcha_only</code>: CAPTCHA のみで <code>_bv</code> 発行<br>・<code>bv_pow_then_captcha</code>: PoW + CAPTCHA chain で <code>_bv</code> 発行<br><br><strong>pow_pass</strong> は chain mode の中継 (= PoW solve したがまだ <code>_bv</code> 未発行). 後続の <code>captcha</code> → <code>bv_pow_then_captcha</code> 行とペアになる。<br><br><strong>rate_limit</strong> 行は ja4_verdict 横断の疑似 verdict(rate-limit 閾値超過 IP の挙動を IP-join で集計)。<br><strong>TOTAL</strong> 行は ja4 verdict 別の合算(rate_limit 重複除外)。<br><br><strong>silent</strong>(= serve − load)= challenge 配信されたが JS が起動しなかった(Cookie 拒否 / 古い browser / HEAD method / scraper)。`,
@@ -1617,8 +1618,9 @@ match した access は <strong>BAN list に追加</strong>され、 BAN 後の�
 		"chart.no_data_serve":      "no data (no phase=serve in the last 30 days)",
 		"chart.no_data_access_log": "no data (no access_log entries in the last 30 days)",
 		"chart.popover.total":      "Total",
-		"chart.country_heading":    "By country (top 15, period total)",
-		"chart.country_count":      "IP geo: %d countries / phase=serve",
+		"chart.country_heading":     "By country (top 15, period total)",
+		"chart.country_all_heading": "By country (top 15, all requests)",
+		"chart.country_count":       "IP geo: %d countries / phase=serve",
 
 		"dashboard.funnel.desc": `Per-verdict transition: <code>serve → load → (pow_pass) → captcha → bv_*</code>. The terminal columns split by <code>challenge_mode</code>:<br>
 • <code>bv_pow_only</code>: <code>_bv</code> issued via PoW only<br>

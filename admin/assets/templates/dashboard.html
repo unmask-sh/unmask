@@ -577,20 +577,27 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:start">
+  <div style="display:grid;grid-template-columns:1fr auto auto;gap:1rem;align-items:start">
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_white_pow_not" }}</h6>
       <canvas id="chart" height="280"></canvas>
       <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
     </div>
+    {{if .IPGeoLoaded}}
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_all_heading" }}</h6>
+      <div id="country-chart-all" class="country-chart"></div>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .CountriesAll) }}</p>
+    </div>
+    {{end}}
     <div>
       {{if .DailyTotal}}
       <div style="border:1px solid #e2e8f0;border-radius:.4rem">
         <table class="bcd-table" style="margin:0;white-space:nowrap">
-          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th></tr></thead>
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
           <tbody>
             {{range firstN 10 (reverse .DailyTotal)}}
-            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td></tr>
+            <tr><td>{{.Date}}</td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{if .UniqIPs}}{{comma .UniqIPs}}{{else}}-{{end}}</td></tr>
             {{end}}
           </tbody>
         </table>
@@ -993,18 +1000,21 @@ renderStackedBarChart({
   noDataMsg: {{ t .Lang "chart.no_data_serve" }},
 });
 
-// per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag)
+// per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag).
+// Shared helper drives both #country-chart (= phase=serve traffic, 11b) and
+// #country-chart-all (= all requests over the same 30-day window, 11a).
 {{if .IPGeoLoaded}}
 const countries = {{.CountriesJSON}};
+const countriesAll = {{.CountriesAllJSON}};
 {{end}}
-(function(){
-  const wrap = document.getElementById('country-chart');
+function renderCountryChart(wrapId, data){
+  const wrap = document.getElementById(wrapId);
   if (!wrap) return;
-  if (typeof countries === 'undefined' || !countries || !countries.length){
+  if (!data || !data.length){
     wrap.innerHTML = '<div style="color:#94a3b8;font-size:.85rem;padding:.6rem 0">no data</div>';
     return;
   }
-  const max = Math.max(1, ...countries.map(c => c.Req));
+  const max = Math.max(1, ...data.map(c => c.Req));
   const flagBase = '{{.BasePath}}/static/flags/';
   function flagSrc(cc){
     if (!cc) return flagBase + 'unknown.png';
@@ -1012,7 +1022,6 @@ const countries = {{.CountriesJSON}};
     if (!/^[a-z]{2}$/.test(lc)) return flagBase + 'unknown.png';
     return flagBase + lc + '.png';
   }
-  // country code -> full country name (= Intl.DisplayNames picks locale automatically).  Unsupported browsers fall back to cc.
   const countryNameOf = (function(){
     try {
       const lang = (document.documentElement.lang || 'ja').split('-')[0];
@@ -1023,7 +1032,7 @@ const countries = {{.CountriesJSON}};
       };
     } catch(e){ return cc => cc || ''; }
   })();
-  const rows = countries.map(row => {
+  const rows = data.map(row => {
     const safeCC = String(row.CountryCode || '').replace(/[^A-Za-z0-9-]/g, '');
     const pct = (row.Req / max) * 100;
     return '<div class="country-row" data-cc="' + safeCC + '">' +
@@ -1037,8 +1046,6 @@ const countries = {{.CountriesJSON}};
   }).join('');
   wrap.innerHTML = rows;
 
-  // hover shows the country-name popover, click pins it.  Reuses the shared help-popover.
-  // popover element + popoverPin helper live further down in the document, so bind after parse completes.
   function bindCountryPopovers(){
     const popEl = document.getElementById('help-popover');
     if (!popEl || !window.popoverPin) return;
@@ -1071,7 +1078,9 @@ const countries = {{.CountriesJSON}};
   } else {
     bindCountryPopovers();
   }
-})();
+}
+renderCountryChart('country-chart',     typeof countries    !== 'undefined' ? countries    : []);
+renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? countriesAll : []);
 </script>
 
 <div id="help-popover" data-popover="help"></div>

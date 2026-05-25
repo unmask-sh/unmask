@@ -2059,6 +2059,148 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	return daily, totals, nil
 }
 
+// DailyCountryBucket: per-(date × country × kind) request count for the
+// 30-day chart's country breakdown.  Same kind catalogue as DailyKindBucket
+// so the read side can render both with the same stack semantics.
+type DailyCountryBucket struct {
+	Date    string
+	Country string // ISO 2-letter; "" = unmappable (rendered as "Unknown")
+	Kind    int    // KindWhitePass / KindCaptchaPass / KindPoWPass / KindNotPass
+	Req     int
+}
+
+// DailyUniq: per-day unique-IP estimate.
+type DailyUniq struct {
+	Date    string
+	UniqIPs int64
+}
+
+// DailyPassByCountry: same axis as DailyPassByDay but split by client country.
+// Returns one row per (date, country, kind) tuple; country="" carries requests
+// that ipgeo could not resolve (= no mmdb, or private IP).
+//
+// Data source: unmask_traffic_country_hourly (= written by nginxlog.Reader on
+// each hour flush, with country resolved per-packet through ipgeo).  When the
+// nginxlog pipeline is not running, this table stays empty and the function
+// returns an empty slice — callers should treat that as "country breakdown
+// unavailable" and fall back to DailyPassByDay's totals.
+func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int) ([]DailyCountryBucket, error) {
+	cutoffHour := ""
+	dateExpr := ""
+	if d.Driver == db.DriverSQLite {
+		cutoffHour = fmt.Sprintf("(strftime('%%s', 'now', '-%d days') / 3600)", days)
+		dateExpr = `DATE(bucket_hour * 3600, 'unixepoch', 'localtime')`
+	} else {
+		cutoffHour = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d DAY)) DIV 3600)", days)
+		dateExpr = `DATE(FROM_UNIXTIME(bucket_hour * 3600))`
+	}
+	cond := ""
+	if site != "" {
+		cond = " AND site = '" + site + "'"
+	}
+	stmt := fmt.Sprintf(`
+        SELECT %s AS d, country,
+               COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
+        FROM unmask_traffic_country_hourly
+        WHERE bucket_hour > %s%s
+        GROUP BY d, country
+        ORDER BY d, country`, dateExpr, cutoffHour, cond)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DailyCountryBucket{}
+	for rows.Next() {
+		var dRaw any
+		var cc sql.NullString
+		var total, bv, bp, fc int
+		if err := rows.Scan(&dRaw, &cc, &total, &bv, &bp, &fc); err != nil {
+			return nil, err
+		}
+		date := scalarString(dRaw)
+		country := ""
+		if cc.Valid {
+			country = cc.String
+		}
+		notPass := fc
+		white := total - bv - bp - notPass
+		if white < 0 {
+			white = 0
+		}
+		if white > 0 {
+			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindWhitePass, Req: white})
+		}
+		if bv > 0 {
+			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindCaptchaPass, Req: bv})
+		}
+		if bp > 0 {
+			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindPoWPass, Req: bp})
+		}
+		if notPass > 0 {
+			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindNotPass, Req: notPass})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DailyUniqueIPs: per-day unique client-IP estimate.  Computed by merging the
+// per-minute HLL sketches in unmask_traffic_hll(kind='ip') across each day's
+// 1440 minute buckets and reading the cardinality off the merged sketch.
+//
+// Data source: unmask_traffic_hll, written by nginxlog.Reader.  When the
+// pipeline is not running, the table is empty and the function returns an
+// empty slice.  Days are bucketed using the server-local TZ so the labels
+// align with DailyPassByDay's DATE() output.
+func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int) ([]DailyUniq, error) {
+	cutoffMin := time.Now().Unix()/60 - int64(days)*1440
+	args := []any{cutoffMin}
+	cond := ""
+	if site != "" {
+		cond = " AND site = ?"
+		args = append(args, site)
+	}
+	stmt := `SELECT bucket_min, sketch FROM unmask_traffic_hll
+        WHERE bucket_min >= ? AND kind = 'ip'` + cond
+	rows, err := d.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	by := map[string]*hll{}
+	var order []string
+	for rows.Next() {
+		var bm int64
+		var blob []byte
+		if err := rows.Scan(&bm, &blob); err != nil {
+			return nil, err
+		}
+		date := time.Unix(bm*60, 0).Local().Format("2006-01-02")
+		s, ok := by[date]
+		if !ok {
+			s = &hll{}
+			by[date] = s
+			order = append(order, date)
+		}
+		s.merge(loadHLL(blob))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Strings(order)
+	out := make([]DailyUniq, 0, len(order))
+	for _, d := range order {
+		out = append(out, DailyUniq{Date: d, UniqIPs: int64(by[d].estimate())})
+	}
+	return out, nil
+}
+
 // CountriesByServe: aggregate phase='serve' per IP → ipgeo lookup → return
 // per-country req / uniq IP aggregates. Returns an empty list when ipgeo.Reader
 // is empty (= mmdb not configured / failed to load), so callers know not to

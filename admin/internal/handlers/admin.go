@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -733,6 +734,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dailyServeKind  []dashboard.DailyKindBucket
 		dailyServeTotal []dashboard.DailyTotal
 		countries       []dashboard.CountryRow
+		dailyCountry    []dashboard.DailyCountryBucket
+		dailyUniq       []dashboard.DailyUniq
 	)
 	qStart := time.Now()
 	var wg sync.WaitGroup
@@ -789,6 +792,28 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		}
 	})
 	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
+	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
+	// rolled up with a country dimension).  Empty when nginxlog or ipgeo is off.
+	run(func() {
+		dcctx, dccancel := queryCtx(15 * time.Second)
+		defer dccancel()
+		var derr error
+		dailyCountry, derr = dashboard.DailyPassByCountry(dcctx, h.DB, site, 30)
+		if derr != nil {
+			log.Printf("daily pass by country: %v", derr)
+		}
+	})
+	// Per-day unique-IP estimate over the same 30-day window (= HLL merge of
+	// unmask_traffic_hll(kind='ip')).  Empty when nginxlog is off.
+	run(func() {
+		dunCtx, dunCancel := queryCtx(15 * time.Second)
+		defer dunCancel()
+		var derr error
+		dailyUniq, derr = dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30)
+		if derr != nil {
+			log.Printf("daily unique ips: %v", derr)
+		}
+	})
 	wg.Wait()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
@@ -869,6 +894,42 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	}
 	dailyServeKindJSON, _ := json.Marshal(servePts)
 
+	// Per-day unique-IP merge into the existing DailyTotal slice so the
+	// table renders day + req + uniq alongside one another.  Keys match
+	// because both queries use server-local DATE() bucketing.
+	uniqByDate := make(map[string]int64, len(dailyUniq))
+	for _, u := range dailyUniq {
+		uniqByDate[u.Date] = u.UniqIPs
+	}
+	for i := range dailyTotal {
+		if v, ok := uniqByDate[dailyTotal[i].Date]; ok {
+			dailyTotal[i].UniqIPs = int(v)
+		}
+	}
+
+	// Country ranking for ALL requests over the last 30 days.  Built by
+	// summing dailyCountry's per-day kind=total rows; mirrors the shape
+	// of dashboard.CountryRow so the same horizontal-bar partial renders
+	// it.  When ipgeo / nginxlog is off, dailyCountry is empty and this
+	// list is empty too -- the template hides the card in that case.
+	countryAllReq := make(map[string]int)
+	for _, b := range dailyCountry {
+		countryAllReq[b.Country] += b.Req
+	}
+	type countryAllRow struct {
+		CountryCode string `json:"CountryCode"`
+		Req         int    `json:"Req"`
+	}
+	countriesAll := make([]countryAllRow, 0, len(countryAllReq))
+	for cc, n := range countryAllReq {
+		countriesAll = append(countriesAll, countryAllRow{CountryCode: cc, Req: n})
+	}
+	sort.Slice(countriesAll, func(i, j int) bool { return countriesAll[i].Req > countriesAll[j].Req })
+	if len(countriesAll) > 15 {
+		countriesAll = countriesAll[:15]
+	}
+	countriesAllJSON, _ := json.Marshal(countriesAll)
+
 	now := time.Now()
 	rangeStart := now.Add(-time.Duration(hours) * time.Hour)
 
@@ -906,6 +967,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"DailyServeTotal":    dailyServeTotal,
 		"Countries":          countries,
 		"CountriesJSON":      template.JS(countriesJSON),
+		"CountriesAll":       countriesAll,
+		"CountriesAllJSON":   template.JS(countriesAllJSON),
 		"IPGeoLoaded":        h.IPGeo != nil && h.IPGeo.Loaded(),
 		// The persistent BAN list section was removed from the dashboard (the
 		// /admin/bans/ tab retains all that functionality).
