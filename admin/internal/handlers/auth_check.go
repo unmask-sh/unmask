@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -668,6 +669,24 @@ func schemeFromRequest(r *http.Request) string {
 		return "https"
 	}
 	return ""
+}
+
+// portFromRequest returns the listener port from X-Forwarded-Port (= set
+// server-side by the nginx-rendered admin upstream so the client cannot
+// influence it).  Falls back to the Host header's :port for direct-to-admin
+// requests.  0 = unknown.
+func portFromRequest(r *http.Request) int {
+	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Port")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 65535 {
+			return n
+		}
+	}
+	if _, p, err := net.SplitHostPort(r.Host); err == nil {
+		if n, err := strconv.Atoi(p); err == nil && n > 0 && n <= 65535 {
+			return n
+		}
+	}
+	return 0
 }
 
 // siteFromRequest derives the site identifier for an event.  The site is the

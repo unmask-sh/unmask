@@ -76,6 +76,7 @@ type Event struct {
 	Site         string // "" -> "default" on INSERT
 	Host         string // own host id (resolved at startup from settings.Server.HostID > os.Hostname()).  "" -> "default"
 	Scheme       string // "http" / "https" — captured server-side from X-Forwarded-Proto (= the nginx-rendered config overrides any client-sent value).  "" = unknown / pre-migration row.
+	Port         int    // listener port captured server-side from X-Forwarded-Port.  0 = unknown / pre-migration row.
 	IPPacked     []byte
 	UserAgent    string
 	JA4          string
@@ -194,9 +195,9 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 
 // insertStmt is shared between batch and single-row inserts.
 const insertStmt = `INSERT INTO unmask_event
-        (site, host, scheme, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id, phase, flags, reload_count,
+        (site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id, phase, flags, reload_count,
          cookie_bv, cookie_br, payload_json, date_created)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // prepareInsertArgs expands an Event into a SQL bind args slice.  Shared
 // between batch and single-row paths.  Returns nil for an invalid phase
@@ -247,8 +248,12 @@ func prepareInsertArgs(e *Event) []any {
 	if scheme != "http" && scheme != "https" {
 		scheme = "" // stored as empty string for unknown / pre-X-Forwarded-Proto setups
 	}
+	port := e.Port
+	if port < 0 || port > 65535 {
+		port = 0
+	}
 	return []any{
-		site, host, scheme, e.IPPacked, sqlStr(ua), ja4, verdict, verdictID, e.Phase,
+		site, host, scheme, port, e.IPPacked, sqlStr(ua), ja4, verdict, verdictID, e.Phase,
 		e.Flags, e.ReloadCount, cookieBV, cookieBR, payloadText,
 		occurred.UTC().Format(eventTimeFormat),
 	}
@@ -284,6 +289,7 @@ type Row struct {
 	Site        string `json:"site"`
 	Host        string `json:"host,omitempty"` // identifies "which machine produced this row" on a shared DB.  Omitted on single-host installs.
 	Scheme      string `json:"scheme,omitempty"` // "http" / "https" -- server-side captured from X-Forwarded-Proto so the URL popover can build a real address.  Empty for rows ingested before migration 0010.
+	Port        int    `json:"port,omitempty"`   // listener port captured server-side from X-Forwarded-Port.  0 = unknown / pre-migration.
 	IP          string `json:"ip"`
 	UA          string `json:"ua,omitempty"`
 	JA4         string `json:"ja4,omitempty"`
@@ -455,7 +461,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 	} else if limit > 500 {
 		limit = 500
 	}
-	stmt := `SELECT id, date_created, site, host, scheme, ip_address, user_agent, ja4, ja4_verdict,
+	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
 	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
 	         FROM unmask_event WHERE id > ?`
 	args := []any{sinceID}
@@ -488,18 +494,19 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 			dateStr              sql.NullString
 			site_, host_, phase_ string
 			scheme_              sql.NullString
+			port_                sql.NullInt64
 			ipBytes              []byte
 			ua, ja4, verdict     sql.NullString
 			cBV, cBR, payload    sql.NullString
 		)
 		// SQLite returns TEXT as string; MariaDB returns DATETIME as time.Time.  Handle both.
 		if d.Driver == db.DriverSQLite {
-			if err := rows.Scan(&id, &dateStr, &site_, &host_, &scheme_, &ipBytes, &ua, &ja4, &verdict,
+			if err := rows.Scan(&id, &dateStr, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
 				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := rows.Scan(&id, &date, &site_, &host_, &scheme_, &ipBytes, &ua, &ja4, &verdict,
+			if err := rows.Scan(&id, &date, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
 				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
 				return nil, err
 			}
@@ -513,6 +520,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 			Site:        site_,
 			Host:        host_,
 			Scheme:      scheme_.String,
+			Port:        int(port_.Int64),
 			IP:          unpackIP(ipBytes),
 			UA:          ua.String,
 			JA4:         ja4.String,
@@ -552,7 +560,7 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 	if offset < 0 || offset > 100000 {
 		offset = 0
 	}
-	stmt := `SELECT id, date_created, site, host, scheme, ip_address, user_agent, ja4, ja4_verdict,
+	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
 	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
 	         FROM unmask_event WHERE 1=1`
 	args := []any{}
@@ -603,24 +611,25 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 			dateStr              sql.NullString
 			site_, host_, phase_ string
 			scheme_              sql.NullString
+			port_                sql.NullInt64
 			ipBytes              []byte
 			ua, ja4, verdict     sql.NullString
 			cBV, cBR, payload    sql.NullString
 		)
 		if d.Driver == db.DriverSQLite {
-			if err := rows.Scan(&id, &dateStr, &site_, &host_, &scheme_, &ipBytes, &ua, &ja4, &verdict,
+			if err := rows.Scan(&id, &dateStr, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
 				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
 				return nil, err
 			}
 		} else {
-			if err := rows.Scan(&id, &date, &site_, &host_, &scheme_, &ipBytes, &ua, &ja4, &verdict,
+			if err := rows.Scan(&id, &date, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
 				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
 				return nil, err
 			}
 		}
 		dStr, ts, tsMs := normalizeEventTime(date, dateStr)
 		row := Row{
-			ID: id, Date: dStr, Ts: ts, TsMs: tsMs, Site: site_, Host: host_, Scheme: scheme_.String, IP: unpackIP(ipBytes),
+			ID: id, Date: dStr, Ts: ts, TsMs: tsMs, Site: site_, Host: host_, Scheme: scheme_.String, Port: int(port_.Int64), IP: unpackIP(ipBytes),
 			UA: ua.String, JA4: ja4.String, Verdict: verdict.String,
 			Phase: phase_, Flags: int(flags), ReloadCount: int(rcount),
 			CookieBV: cBV.String, CookieBR: cBR.String, Payload: payload.String,

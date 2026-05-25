@@ -45,6 +45,7 @@ func newTestHandler(t *testing.T) *Handler {
             cookie_br VARCHAR(8),
             payload_json TEXT,
             scheme VARCHAR(8) NOT NULL DEFAULT '',
+            port INTEGER NOT NULL DEFAULT 0,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX idx_e_phase ON unmask_event(phase, date_created);
         CREATE INDEX idx_e_site ON unmask_event(site, date_created);

@@ -57,7 +57,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
       <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -316,12 +316,12 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   }
   function fullURL(el, val){
-    // val is a path ("/foo?bar=1"); the row's data-site is the host without
-    // port.  Reject anything that isn't a leading-slash path so we never
-    // build a bogus URL on a non-URL cellpop cell.  The scheme is read from
-    // data-scheme (= server-side captured via X-Forwarded-Proto at ingest);
-    // rows ingested before that column existed have an empty value so fall
-    // back to https.
+    // Build "<scheme>://<site>[:port]<path>" from the row's data-* attrs.
+    // scheme + port were captured server-side at ingest (X-Forwarded-Proto /
+    // X-Forwarded-Port, both pinned by the nginx-rendered config) so the
+    // client cannot poison them.  Rows ingested before that column existed
+    // have empty values; we fall back to https / no port so the URL still
+    // works for the common case.
     if (!val || val[0] !== '/') return '';
     var tr = el.closest('tr');
     if (!tr) return '';
@@ -329,10 +329,21 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!site) return '';
     var scheme = (tr.getAttribute('data-scheme') || '').toLowerCase();
     if (scheme !== 'http' && scheme !== 'https') scheme = 'https';
-    return scheme + '://' + site + val;
+    var port = parseInt(tr.getAttribute('data-port') || '0', 10);
+    var portStr = '';
+    if (port > 0 &&
+        !(scheme === 'http'  && port === 80) &&
+        !(scheme === 'https' && port === 443)) {
+      portStr = ':' + port;
+    }
+    return scheme + '://' + site + portStr + val;
   }
   function popHtml(val, url){
-    var body = '<code class="cellpop-val">' + esc(val) + '</code>';
+    // For URL cells the full address (= scheme://site[:port]path) is the more
+    // useful thing to display + copy, so show it in place of the raw path.
+    // Other columns keep showing the value verbatim.
+    var display = url || val;
+    var body = '<code class="cellpop-val">' + esc(display) + '</code>';
     if (url){
       body += '<div class="cellpop-actions">' +
         '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
