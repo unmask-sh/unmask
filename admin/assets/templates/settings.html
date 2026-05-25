@@ -326,6 +326,35 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </header>
 <main class="unmask-main">
 
+{{/* Multi-site override scope: select whether the per-section editors below
+     write to the shared baseline (= "default") or into a per-site overrides
+     entry.  Lives at the page top so the choice is visible regardless of
+     which tab the operator opens.  See doc/MULTI-SITE-DESIGN.md.
+     Phase 1.4 wires this through the Branding section only; the rest still
+     write to the baseline and ignore the scope -- a muted hint surfaces
+     that on those tabs when the scope is not default. */}}
+<div class="settings-scope-bar">
+  {{ template "scope_picker" . }}
+  {{ if .Scope }}
+  <span class="settings-scope-current">
+    {{ tf .Lang "settings.scope.currently_editing" .Scope }}
+    {{ if eq .ScopeBrandingOverrideCount 0 }}
+      <span class="settings-scope-count">({{ t .Lang "settings.scope.no_overrides_yet" }})</span>
+    {{ else if eq .ScopeBrandingOverrideCount 1 }}
+      <span class="settings-scope-count">(1 {{ t .Lang "settings.scope.override_unit" }})</span>
+    {{ else }}
+      <span class="settings-scope-count">({{ .ScopeBrandingOverrideCount }} {{ t .Lang "settings.scope.overrides_unit" }})</span>
+    {{ end }}
+  </span>
+  {{ end }}
+</div>
+<style>
+.settings-scope-bar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.5rem .7rem;margin:0 0 .8rem;background:#fefce8;border:1px solid #fde68a;border-radius:.35rem}
+.settings-scope-bar .scope-picker{flex:0 0 auto}
+.settings-scope-current{font-size:.82rem;color:#7c2d12;font-weight:600}
+.settings-scope-current .settings-scope-count{font-weight:400;color:#92400e;font-size:.78rem}
+</style>
+
 {{/* Page-top "設定" h1 was retired; the per-tab settings-tab-title in the
      right pane now plays the role of the page heading (= same y as the
      left-nav first <h3> entry). */}}
@@ -399,6 +428,22 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 {{ if .Error }}
 <div class="banner bad">{{ t .Lang "settings.error_prefix" }}{{ .Error }}</div>
+{{ end }}
+
+{{/* Multi-site scope hint for tabs that have no per-site override yet (= phase
+     1.4 only ships Branding overrides; the rest still read / write the global
+     baseline regardless of scope).  Skip on tabs whose entire body is a
+     non-editable landing (top) or where the message would duplicate inline
+     content (theme tab carries its own per-card scope hints). */}}
+{{ if and .Scope (not (or (eq .Tab "top") (eq .Tab "theme"))) }}
+<div class="banner banner-scope-hint">
+  <strong>{{ t .Lang "settings.branding.scope.global_only_tag" }}</strong>
+  — {{ t .Lang "settings.scope.tab_no_override_hint" }}
+</div>
+<style>
+.banner.banner-scope-hint{background:#f1f5f9;border-color:#cbd5e1;color:#475569;font-size:.8rem}
+.banner.banner-scope-hint strong{color:#0f172a;text-transform:uppercase;font-size:.7rem;letter-spacing:.04em;background:#e2e8f0;padding:.05rem .35rem;border-radius:.2rem;margin-right:.3rem}
+</style>
 {{ end }}
 
 {{ if eq .Tab "top" }}
@@ -997,12 +1042,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-        <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        {{/* multi-site phase 1.2: per-row site scoping moved to BypassPaths.Overrides[site]; phase 1.4 brings the scope-picker UI back */}}
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1022,7 +1067,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-          <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          {{/* multi-site phase 1.2: per-row bp_site dropped; site scoping landed in BypassPaths.Overrides[site] */}}
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1034,9 +1079,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
     <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
   </div>
-  <datalist id="bp-site-candidates">
-    {{ range .Sites }}<option value="{{ . }}">{{ end }}
-  </datalist>
+  {{/* multi-site phase 1.2: bp-site-candidates datalist dropped along with the per-row Site column; per-site editing returns with the scope picker in phase 1.4 */}}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -2670,11 +2713,32 @@ document.addEventListener("DOMContentLoaded", function(){
      radios + live preview link) + theme (look & feel cards).  Mixed into a
      single multipart POST so the operator never sees two save buttons on
      the same tab; the appearance save handler dispatches to the existing
-     applyBrandingForm + the theme allowlist clamp. */}}
+     applyBrandingForm + the theme allowlist clamp.
+
+     Phase 1.4: in a site scope the Branding sub-cards render an override
+     editor (= `default: X` annotations + Reset button); the Theme / Show-
+     credit sub-cards are read-only and carry a muted hint that they have
+     no per-site overrides yet (= they apply globally). */}}
 <form method="post" enctype="multipart/form-data"
-      action="{{ .BasePath }}/admin/settings/save?section=appearance" id="appearance-form">
+      action="{{ .BasePath }}/admin/settings/save?section=appearance{{ if .Scope }}&scope={{ .Scope }}{{ end }}" id="appearance-form">
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
+
+  {{ if .Scope }}
+  <div class="bcd-card branding-scope-card">
+    <div class="branding-scope-head">
+      <span class="branding-scope-icon">📢</span>
+      <strong>{{ tf .Lang "settings.branding.scope.currently_editing" .Scope }}</strong>
+    </div>
+    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
+      {{ t .Lang "settings.branding.scope.inherit_hint" }}
+    </p>
+    <button type="submit" name="branding_reset" value="1" class="btn secondary branding-reset-btn"
+            onclick="return confirm({{ t .Lang "settings.branding.scope.reset_confirm" }})">
+      {{ t .Lang "settings.branding.scope.reset_btn" }}
+    </button>
+  </div>
+  {{ end }}
 
   <div class="bcd-card" style="margin-top:.4rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
@@ -2684,17 +2748,33 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="branding-grid">
       <div class="field">
         <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>
-        <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
-               value="{{ .Branding.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
-               style="width:100%;max-width:24rem">
+        <div class="branding-field-row">
+          <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
+                 value="{{ .Branding.SiteName }}" placeholder="{{ if .Scope }}{{ t .Lang "settings.branding.scope.input_inherit_placeholder" }}{{ else }}{{ t .Lang "settings.branding.site_name_placeholder" }}{{ end }}"
+                 style="width:100%;max-width:24rem">
+          {{ if .Scope }}
+          <span class="branding-default-hint" title="{{ t .Lang "settings.branding.scope.default_hint_title" }}">
+            {{ t .Lang "settings.branding.scope.default_label" }}:
+            {{ if .BrandingDefault.SiteName }}{{ .BrandingDefault.SiteName }}{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
+          </span>
+          {{ end }}
+        </div>
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.site_name_desc" }}</p>
       </div>
 
       <div class="field">
         <label for="branding-footer-text">{{ t .Lang "settings.branding.footer_label" }}</label>
-        <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
-               value="{{ .Branding.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
-               style="width:100%;max-width:24rem">
+        <div class="branding-field-row">
+          <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
+                 value="{{ .Branding.FooterText }}" placeholder="{{ if .Scope }}{{ t .Lang "settings.branding.scope.input_inherit_placeholder" }}{{ else }}{{ t .Lang "settings.branding.footer_placeholder" }}{{ end }}"
+                 style="width:100%;max-width:24rem">
+          {{ if .Scope }}
+          <span class="branding-default-hint" title="{{ t .Lang "settings.branding.scope.default_hint_title" }}">
+            {{ t .Lang "settings.branding.scope.default_label" }}:
+            {{ if .BrandingDefault.FooterText }}{{ .BrandingDefault.FooterText }}{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
+          </span>
+          {{ end }}
+        </div>
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
       </div>
 
@@ -2713,6 +2793,12 @@ document.addEventListener("DOMContentLoaded", function(){
         {{ end }}
         <input type="file" name="branding_logo_file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
                style="font-size:.85rem">
+        {{ if .Scope }}
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">
+          {{ t .Lang "settings.branding.scope.default_label" }}:
+          {{ if .BrandingDefaultHasLogo }}<em>{{ t .Lang "settings.branding.scope.logo_default_set" }}</em>{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
+        </p>
+        {{ end }}
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.logo_desc") }}</p>
       </div>
 
@@ -2722,10 +2808,18 @@ document.addEventListener("DOMContentLoaded", function(){
           <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
         </div>
         <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
+        {{ if .Scope }}
+        <p class="note" style="margin:.1rem 0 0;color:#94a3b8;font-size:.78rem">
+          {{ t .Lang "settings.branding.scope.global_only_hint" }}
+          ({{ t .Lang "settings.branding.scope.default_label" }}:
+           {{ if .Challenge.ShowCredit }}{{ t .Lang "settings.branding.scope.show_credit_on" }}{{ else }}{{ t .Lang "settings.branding.scope.show_credit_off" }}{{ end }})
+        </p>
+        {{ else }}
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
           <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
+        {{ end }}
       </div>
     </div>
   </div>
@@ -2741,12 +2835,32 @@ document.addEventListener("DOMContentLoaded", function(){
     {{/* Per-preset row: name + 1-line desc on top, the actual verify text
          (with {site_name} substituted) below.  Operators reading the row
          can see exactly what the visitor will read for each preset, instead
-         of guessing from "friendly / neutral / minimal" labels. */}}
+         of guessing from "friendly / neutral / minimal" labels.
+
+         Site scope adds a "default (inherit)" sentinel row at the top.  The
+         sentinel's value is the literal string "default"; the save handler
+         strips it back to an empty override (= no preset on this site,
+         falls back to the baseline). */}}
     <div class="branding-preset-list">
       {{ $subject := $.Branding.SiteName }}
+      {{ if and (eq $subject "") .Scope }}{{ $subject = $.BrandingDefault.SiteName }}{{ end }}
       {{ if eq $subject "" }}{{ $subject = t $.Lang "settings.branding.fallback_subject" }}{{ end }}
+      {{ if .Scope }}
+      {{ $sel := eq $.Branding.CopyPreset "" }}
+      <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
+        <input type="radio" name="branding_copy_preset" value="default" {{ if $sel }}checked{{ end }}>
+        <div class="branding-preset-text">
+          <div class="branding-preset-head">
+            <strong>{{ t $.Lang "settings.branding.scope.preset_inherit_label" }}</strong>
+            <span class="muted">— {{ tf $.Lang "settings.branding.scope.preset_inherit_desc" (or $.BrandingDefault.CopyPreset "friendly") }}</span>
+          </div>
+        </div>
+      </label>
+      {{ end }}
       {{ range $p := .BrandingPresets }}
-      {{ $sel := or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}
+      {{ $sel := false }}
+      {{ if $.Scope }}{{ $sel = eq $.Branding.CopyPreset $p }}
+      {{ else }}{{ $sel = or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}{{ end }}
       {{ $sampleTpl := t $.Lang (printf "settings.branding.preset.%s_sample" $p) }}
       <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
         <input type="radio" name="branding_copy_preset" value="{{ $p }}" {{ if $sel }}checked{{ end }}>
@@ -2754,6 +2868,9 @@ document.addEventListener("DOMContentLoaded", function(){
           <div class="branding-preset-head">
             <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
             <span class="muted">— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
+            {{ if and $.Scope (eq $.BrandingDefault.CopyPreset $p) }}
+            <span class="branding-default-pill" title="{{ t $.Lang "settings.branding.scope.default_hint_title" }}">{{ t $.Lang "settings.branding.scope.default_pill" }}</span>
+            {{ end }}
           </div>
           <div class="branding-preset-sample" data-sample-template="{{ $sampleTpl }}">
             「{{ replace $sampleTpl "{site_name}" $subject }}」
@@ -2772,7 +2889,14 @@ document.addEventListener("DOMContentLoaded", function(){
   <div class="bcd-card" style="margin-top:.4rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
       {{ t .Lang "settings.theme.h" }}
+      {{ if .Scope }}<span class="branding-global-only-pill">{{ t .Lang "settings.branding.scope.global_only_tag" }}</span>{{ end }}
     </div>
+    {{ if .Scope }}
+    <p class="note" style="margin:.1rem 0 .6rem;color:#92400e;font-size:.78rem;line-height:1.5;background:#fefce8;border:1px solid #fde68a;border-radius:.3rem;padding:.4rem .6rem">
+      {{ t .Lang "settings.branding.scope.theme_global_hint" }}
+      ({{ t .Lang "settings.branding.scope.default_label" }}: <code>{{ .ChallengeTheme }}</code>)
+    </p>
+    {{ end }}
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
 
     {{/* PoW spinner floor picker (= preview-only).  Same buttons + same
@@ -2906,6 +3030,19 @@ document.addEventListener("DOMContentLoaded", function(){
    rows, and the operator wants to scroll to verify the bottom.  Click-to-
    select is still possible via the head bar (= radio + name) above. */
 .theme-preview-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:auto}
+/* Site-scope editor extras (= "currently editing" banner + Reset btn + per-
+ * field "default: X" hint + default-value pill on a preset row).  Yellow
+ * tint so the operator instantly sees "this is NOT the shared baseline". */
+.branding-scope-card{background:#fefce8;border-color:#fde68a;padding:.85rem 1rem;margin-top:.4rem}
+.branding-scope-head{display:flex;align-items:center;gap:.45rem;color:#7c2d12;font-size:.95rem}
+.branding-scope-icon{font-size:1rem}
+.branding-reset-btn{font-size:.78rem;padding:.3rem .75rem;color:#7c2d12;background:#fff;border:1px solid #f59e0b}
+.branding-reset-btn:hover{background:#fef3c7}
+.branding-field-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
+.branding-default-hint{font-size:.72rem;color:#94a3b8;font-style:italic;line-height:1.3}
+.branding-default-hint em{font-style:normal;color:#cbd5e1}
+.branding-default-pill{display:inline-block;font-size:.62rem;background:#f1f5f9;color:#475569;padding:.05rem .35rem;border-radius:.2rem;margin-left:.3rem;font-weight:600;letter-spacing:.02em;vertical-align:middle}
+.branding-global-only-pill{display:inline-block;font-size:.65rem;background:#fef3c7;color:#92400e;padding:.05rem .4rem;border-radius:.2rem;margin-left:.4rem;font-weight:600;letter-spacing:.02em;vertical-align:middle;border:1px solid #fcd34d}
 </style>
 <script>
 (function(){

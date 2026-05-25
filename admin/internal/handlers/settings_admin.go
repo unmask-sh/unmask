@@ -62,6 +62,33 @@ func humanSize(n int64) string {
 // settingsMu: serializes Handler.Settings swaps. GET races are tolerated (= read-only).
 var settingsMu sync.Mutex
 
+// scopeCookieName: name of the per-section override scope cookie.  Value is
+// either "default" / "" (= shared baseline editor) or a site identifier from
+// the site picker (= "shop.example.com").  Lives only on settings pages, so
+// it does not collide with the unmask_site filter cookie used elsewhere.
+const scopeCookieName = "unmask_settings_scope"
+
+// resolveSettingsScope: returns the override scope the operator is currently
+// editing.  Precedence mirrors resolveSiteFilter: ?scope= query wins over the
+// cookie so deep-link reset URLs can override the cookie.  Empty / "default"
+// → default scope (= the shared baseline).
+func resolveSettingsScope(r *http.Request) string {
+	if v := strings.TrimSpace(r.URL.Query().Get("scope")); v != "" {
+		if v == "default" {
+			return ""
+		}
+		return v
+	}
+	if c, err := r.Cookie(scopeCookieName); err == nil {
+		v := strings.TrimSpace(decodeCookieValue(c.Value))
+		if v == "" || v == "default" {
+			return ""
+		}
+		return v
+	}
+	return ""
+}
+
 // AdminSettingsIndex: GET {base}/admin/settings/ — renders the tabbed UI.
 //
 // The "tab" query selects one of network / search-bots / ja4-verdicts / sites.
@@ -89,6 +116,94 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	if err := tmpl.ExecuteTemplate(w, "settings.html", data); err != nil {
 		log.Printf("settings render: %v", err)
 	}
+}
+
+// scopeOption: one row in the settings-page scope picker.  Site == "" means
+// the "default" pseudo-entry (= edit the shared baseline).  OverrideCount
+// counts how many top-level Branding fields the site has set (= shown as
+// `(N overrides)` in the picker label).  Limited to Branding in phase 1.4;
+// when more sections gain overrides this counts the union across sections.
+type scopeOption struct {
+	Site          string
+	IsDefault     bool
+	OverrideCount int
+	IsCurrent     bool
+}
+
+// brandingOverrideFieldCount: counts non-empty top-level fields in a Branding
+// override entry.  Drives the per-site override badge in the scope picker.
+// LogoPath presence counts the same as a text field (= a logo-only override
+// is still one "override" the operator made).
+func brandingOverrideFieldCount(b settings.Branding) int {
+	n := 0
+	if strings.TrimSpace(b.LogoPath) != "" {
+		n++
+	}
+	if strings.TrimSpace(b.SiteName) != "" {
+		n++
+	}
+	if strings.TrimSpace(b.FooterText) != "" {
+		n++
+	}
+	if strings.TrimSpace(b.CopyPreset) != "" {
+		n++
+	}
+	return n
+}
+
+// buildScopeOptions: stitches the picker rows from the site picker source
+// (= same list that addMeToData feeds into SitePickerOptions) plus the
+// Branding.Overrides keys.  Sites that have overrides but no longer appear
+// in the picker (= traffic decayed) stay listed so the operator can reach
+// "Reset this site to default".
+func (h *Handler) buildScopeOptions(r *http.Request, currentScope string) []scopeOption {
+	current := strings.ToLower(strings.TrimSpace(currentScope))
+	seen := map[string]bool{}
+	opts := []scopeOption{{Site: "", IsDefault: true, IsCurrent: current == ""}}
+
+	branding := h.snapshotSettings().Branding
+	addSite := func(site string) {
+		site = strings.ToLower(strings.TrimSpace(site))
+		if site == "" || seen[site] {
+			return
+		}
+		seen[site] = true
+		count := brandingOverrideFieldCount(branding.Overrides[site])
+		opts = append(opts, scopeOption{
+			Site:          site,
+			OverrideCount: count,
+			IsCurrent:     current == site,
+		})
+	}
+
+	definedMode := h.Settings.Sites.ResolvedMode() == settings.SiteModeDefined
+	if definedMode {
+		for _, s := range h.Settings.Sites.Defined {
+			addSite(s)
+		}
+	} else {
+		// addMeToData reads DistinctSites for the picker; reuse the same
+		// query so a site visible in the site picker is also pickable here.
+		sites, _ := events.DistinctSites(r.Context(), h.DB)
+		for _, s := range sites {
+			addSite(s)
+		}
+	}
+	// Sites with override entries that no longer match the picker source
+	// (e.g. ghost sites in defined mode, decayed sites in auto mode) stay
+	// reachable so the operator can still reset them.
+	for site := range branding.Overrides {
+		addSite(site)
+	}
+	// A scope cookie pinned to a freshly named site that has no overrides
+	// yet and is not in the picker source must remain visible -- otherwise
+	// the picker would silently fall back to "default" on re-render.
+	if current != "" && !seen[current] {
+		addSite(current)
+	}
+	// Stable order: default first, then sites alphabetically.
+	sort.SliceStable(opts[1:], func(i, j int) bool { return opts[1+i].Site < opts[1+j].Site })
+	return opts
 }
 
 // settingsViewData: passes the per-tab data needed by the template.
@@ -354,6 +469,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"TabHelpKey":            tabHelpKey(tab),
 		"Saved":                 r.URL.Query().Get("saved") != "",
 		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		// Multi-site override scope.  "" = the shared baseline; non-empty
+		// = a Host header from the site picker (= edit Overrides[scope]).
+		// ScopeOptions is the picker rows (default + each site + override
+		// count badge).  ScopeBrandingOverrideCount lets the "currently
+		// editing" banner show the same count without re-walking the map.
+		"Scope":                      resolveSettingsScope(r),
+		"ScopeOptions":               h.buildScopeOptions(r, resolveSettingsScope(r)),
+		"ScopeBrandingOverrideCount": brandingOverrideFieldCount(h.snapshotSettings().Branding.Overrides[resolveSettingsScope(r)]),
 		"Cur":                   cur,
 		"Global":                h.snapshotSettings().Global,
 		"IPGeoMMDBPath":         ipgeoCur.MMDBPath,
@@ -410,25 +533,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotExtraAction":   padToLen(cur.Honeypot.ExtraAction, len(cur.Honeypot.Extra)),
 		"BypassIPsRules":        pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":    bypassPresetGroups,
-		"ProtectedRules": pairProtectedRules(
-			cur.ProtectedPaths.Extra,
-			cur.ProtectedPaths.ExtraTitle,
-			cur.ProtectedPaths.ExtraDisabled,
-			cur.ProtectedPaths.ExtraUpdatedAt,
-			cur.ProtectedPaths.ExtraMode,
-		),
+		"ProtectedRules":        pairProtectedRules(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":      bypassPathGroups,
 		"ProtectedPresetGroups": protectedPresetGroups,
 		"ProtectedPaths":        cur.ProtectedPaths,
 		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
-		"ProtectedExtraAction":  padToLen(cur.ProtectedPaths.ExtraAction, len(cur.ProtectedPaths.Extra)),
-		"BypassPathsRules": pairBypassPathRules(
-			cur.BypassPaths.Extra,
-			cur.BypassPaths.ExtraTitle,
-			cur.BypassPaths.ExtraDisabled,
-			cur.BypassPaths.ExtraUpdatedAt,
-			cur.BypassPaths.ExtraSite,
-		),
+		// ProtectedExtraAction: per-row chMode override slice, aligned with the
+		// canonical Paths slice for template `index $.ProtectedExtraAction $i`
+		// access.  Sourced directly from each ProtectedPath.Action now that the
+		// per-row chain lives on the row struct rather than a parallel array.
+		"ProtectedExtraAction": collectProtectedActions(cur.ProtectedPaths.Paths),
+		"BypassPathsRules":     pairBypassPathRules(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --
@@ -473,11 +588,55 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Branding settings used by the theme tab's top section.  The view
 		// only needs the four operator-editable fields; visitor-facing copy
 		// presets are resolved client-side (challenge.js).
-		"Branding": h.snapshotSettings().Branding,
+		//
+		// Multi-site phase 1.4: the template needs two distinct values --
+		// the "current input value" (= what populates each <input>) and the
+		// "default annotation" (= what `default: X` shows on a per-site row).
+		// In default scope they're the same shape (= no annotation).  In a
+		// site scope, `Branding` carries the override value (sparse: empty
+		// = inherit) so the input shows the operator's per-site choice
+		// verbatim, and `BrandingDefault` carries the baseline so the
+		// annotation can read it.
+		"Branding": func() settings.Branding {
+			b := h.snapshotSettings().Branding
+			if scope := resolveSettingsScope(r); scope != "" {
+				ov := b.Overrides[scope]
+				ov.Overrides = nil
+				return ov
+			}
+			return b
+		}(),
+		"BrandingDefault": func() settings.Branding {
+			b := h.snapshotSettings().Branding
+			b.Overrides = nil
+			return b
+		}(),
 		// Whether the resolved Branding has a logo on disk.  Used to show
 		// the "current logo" thumbnail + the "remove logo" toggle.  Path is
 		// not shown to the operator (= internal detail).
+		//
+		// Multi-site: in site scope `HasLogo` reflects the override's own
+		// logo (= empty if the site has not uploaded one), while the
+		// default-scope logo is exposed separately via `BrandingDefaultHasLogo`
+		// so the annotation can show "default: (set)" / "(none)" without
+		// confusing the site's own state.
 		"BrandingHasLogo": func() bool {
+			b := h.snapshotSettings().Branding
+			if scope := resolveSettingsScope(r); scope != "" {
+				ov := b.Overrides[scope]
+				if strings.TrimSpace(ov.LogoPath) == "" {
+					return false
+				}
+				st, err := os.Stat(ov.LogoPath)
+				return err == nil && !st.IsDir()
+			}
+			if strings.TrimSpace(b.LogoPath) == "" {
+				return false
+			}
+			st, err := os.Stat(b.LogoPath)
+			return err == nil && !st.IsDir()
+		}(),
+		"BrandingDefaultHasLogo": func() bool {
 			b := h.snapshotSettings().Branding
 			if strings.TrimSpace(b.LogoPath) == "" {
 				return false
@@ -848,7 +1007,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// Brand identity shown on the challenge page (= logo + name +
 		// footer + copy preset).  See settings.Branding for the data shape
 		// and handlers.go ServeBrandingLogo for the logo serve path.
-		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+		if err := applyBrandingFormScoped(&cur.Branding, h.ConfigPath, r, resolveSettingsScope(r)); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -857,19 +1016,27 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// + theme card + "show credit" badge.  Multiple forms with multiple
 		// save buttons on the same page confused operators; appearance
 		// dispatches them all from one button press.
-		if err := applyBrandingForm(&cur.Branding, h.ConfigPath, r); err != nil {
+		scope := resolveSettingsScope(r)
+		if err := applyBrandingFormScoped(&cur.Branding, h.ConfigPath, r, scope); err != nil {
 			redirBack(err.Error())
 			return
 		}
-		t := strings.TrimSpace(r.FormValue("theme"))
-		if !challengeThemes[t] {
-			t = "default"
+		// Theme + show_credit are global-only in phase 1.4 (= no per-site
+		// overrides yet).  Default scope edits them; in a site scope the
+		// fields are read-only in the UI and the form omits them, so
+		// touching them here would be a no-op anyway -- but we still skip
+		// the write to be explicit and avoid clobbering on a stray submit.
+		if scope == "" {
+			t := strings.TrimSpace(r.FormValue("theme"))
+			if !challengeThemes[t] {
+				t = "default"
+			}
+			cur.Challenge.Theme = t
+			// show_credit was previously on the challenge tab; now lives next
+			// to the theme cards so the operator sees the live preview toggle
+			// alongside it.  Plain checkbox -> bool.
+			cur.Challenge.ShowCredit = r.FormValue("show_credit") == "1"
 		}
-		cur.Challenge.Theme = t
-		// show_credit was previously on the challenge tab; now lives next
-		// to the theme cards so the operator sees the live preview toggle
-		// alongside it.  Plain checkbox -> bool.
-		cur.Challenge.ShowCredit = r.FormValue("show_credit") == "1"
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -2110,31 +2277,32 @@ func toSet(xs []string) map[string]bool {
 	return m
 }
 
-// applyProtectedForm: receive the protected-paths tab form. Zip 4 parallel
-// arrays (= path / title / disabled / updated_at) and save them. The old
-// `mode` column (= captcha/pow/strict) was retired in favor of the
-// per-axis chain action (= pow_only / pow_then_captcha / captcha_only /
-// deny) wired through protected_default_action + protected_extra_action;
-// ExtraMode is kept full of "captcha" for yaml back-compat.
+// applyProtectedForm: receive the protected-paths tab form and write the
+// posted row set into n.ProtectedPaths.Paths.  Per-row Mode is preserved at
+// the legacy "captcha" default (= the per-axis chain action via Action
+// supersedes it).  Multi-site phase 1.2 keeps this on the default scope only;
+// per-site Append / Remove writes land in phase 1.4 once the scope picker is
+// wired up.
+//
+// TODO(multi-site phase 1.4): switch to scope-aware write that updates
+// n.ProtectedPaths.Overrides[site] when the request carries a non-default
+// scope.
 func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	pats := r.Form["protected_pat"]
 	titles := r.Form["protected_title"]
 	enabledArr := r.Form["protected_enabled"]
 	upds := r.Form["protected_updated_at"]
+	chains := r.Form["protected_extra_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabledArr), len(upds)} {
+	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(chains)} {
 		if l > maxLen {
 			maxLen = l
 		}
 	}
-	outPat := make([]string, 0, maxLen)
-	outTitle := make([]string, 0, maxLen)
-	outDisabled := make([]bool, 0, maxLen)
-	outUpd := make([]int64, 0, maxLen)
-	outMode := make([]string, 0, maxLen)
+	out := make([]settings.ProtectedPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t string
+		var p, t, action string
 		isEnabled := true
 		var ts int64
 		if i < len(pats) {
@@ -2150,6 +2318,12 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
 		}
+		if i < len(chains) {
+			v := strings.TrimSpace(chains[i])
+			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
+				action = v
+			}
+		}
 		if p == "" {
 			continue
 		}
@@ -2159,17 +2333,16 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if ts <= 0 {
 			ts = now
 		}
-		outPat = append(outPat, p)
-		outTitle = append(outTitle, t)
-		outDisabled = append(outDisabled, !isEnabled)
-		outUpd = append(outUpd, ts)
-		outMode = append(outMode, nginxconf.ProtectedModeCaptcha)
+		out = append(out, settings.ProtectedPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Mode:      nginxconf.ProtectedModeCaptcha,
+			Action:    action,
+		})
 	}
-	n.ProtectedPaths.Extra = outPat
-	n.ProtectedPaths.ExtraTitle = outTitle
-	n.ProtectedPaths.ExtraDisabled = outDisabled
-	n.ProtectedPaths.ExtraUpdatedAt = outUpd
-	n.ProtectedPaths.ExtraMode = outMode
+	n.ProtectedPaths.Paths = out
 
 	// Receive presets: "protected_preset_enabled" carries the list of checked
 	// IDs and is written directly to EnabledPresets.  Unknown IDs (= form
@@ -2214,27 +2387,6 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	} else {
 		n.ProtectedPaths.PresetAction = presetActions
 	}
-	// per-extra action (index-aligned with Extra)
-	chains := r.Form["protected_extra_action"]
-	outChains := make([]string, len(n.ProtectedPaths.Extra))
-	for i := range outChains {
-		if i < len(chains) {
-			v := strings.TrimSpace(chains[i])
-			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
-				outChains[i] = ""
-			} else {
-				outChains[i] = v
-			}
-		}
-	}
-	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
-		outChains = outChains[:len(outChains)-1]
-	}
-	if len(outChains) == 0 {
-		n.ProtectedPaths.ExtraAction = nil
-	} else {
-		n.ProtectedPaths.ExtraAction = outChains
-	}
 	return nil
 }
 
@@ -2264,36 +2416,48 @@ func padToLen(s []string, n int) []string {
 	return out
 }
 
-// pairProtectedRules: zip 5 parallel slices.
-func pairProtectedRules(extras, titles []string, disabled []bool, updatedAt []int64, modes []string) []protectedExtraRule {
-	out := make([]protectedExtraRule, len(extras))
-	for i, e := range extras {
-		var t, mode string
-		if i < len(titles) {
-			t = titles[i]
-		}
-		isDisabled := false
-		if i < len(disabled) {
-			isDisabled = disabled[i]
-		}
-		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
-		}
-		if i < len(modes) {
-			mode = modes[i]
-		}
+// pairProtectedRules: project the canonical ProtectedPath slice into the
+// template-facing row struct.  Mode falls back to the captcha default when
+// the stored value drifted out of the allowlist (= old yaml / form
+// tampering).
+func pairProtectedRules(paths []settings.ProtectedPath) []protectedExtraRule {
+	out := make([]protectedExtraRule, len(paths))
+	for i, p := range paths {
+		mode := p.Mode
 		if !nginxconf.IsValidProtectedMode(mode) {
 			mode = nginxconf.ProtectedModeCaptcha
 		}
 		out[i] = protectedExtraRule{
-			Pattern: e, Title: t, Mode: mode, Enabled: !isDisabled, UpdatedAt: ts,
+			Pattern:   p.Path,
+			Title:     p.Title,
+			Mode:      mode,
+			Enabled:   !p.Disabled,
+			UpdatedAt: p.UpdatedAt,
 		}
 	}
 	return out
 }
 
-// applyBypassPathsForm: receive the bypass-paths tab form. 5 parallel arrays + presets.
+// collectProtectedActions: extract per-row Action into a parallel []string so
+// the existing template `index $.ProtectedExtraAction $i` access keeps
+// working without reshaping the template loop.
+func collectProtectedActions(paths []settings.ProtectedPath) []string {
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = p.Action
+	}
+	return out
+}
+
+// applyBypassPathsForm: receive the bypass-paths tab form and write the
+// posted row set into n.BypassPaths.Paths.  Multi-site phase 1.2 keeps this
+// on the default scope only; per-site Append / Remove writes land in phase
+// 1.4 once the scope picker is wired up.
+//
+// TODO(multi-site phase 1.4): switch to scope-aware write that updates
+// n.BypassPaths.Overrides[site] when the request carries a non-default scope.
+// The legacy per-row "site" form field is dropped (= per-row site scoping is
+// expressed via Overrides[site].Append, not a Site column).
 func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// Preset checkboxes go straight to EnabledPresets (= opt-in list).  Unknown
 	// IDs (= form tampering) are dropped silently.
@@ -2314,21 +2478,16 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	titles := r.Form["bp_title"]
 	rowEnabled := r.Form["bp_enabled"]
 	upds := r.Form["bp_updated_at"]
-	sites := r.Form["bp_site"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
+	for _, l := range []int{len(titles), len(rowEnabled), len(upds)} {
 		if l > maxLen {
 			maxLen = l
 		}
 	}
-	outPat := make([]string, 0, maxLen)
-	outTitle := make([]string, 0, maxLen)
-	outDisabled := make([]bool, 0, maxLen)
-	outUpd := make([]int64, 0, maxLen)
-	outSite := make([]string, 0, maxLen)
+	out := make([]settings.BypassPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t, site string
+		var p, t string
 		isEnabled := true
 		var ts int64
 		if i < len(pats) {
@@ -2344,9 +2503,6 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
 		}
-		if i < len(sites) {
-			site = strings.TrimSpace(sites[i])
-		}
 		if p == "" {
 			continue
 		}
@@ -2356,48 +2512,36 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if ts <= 0 {
 			ts = now
 		}
-		outPat = append(outPat, p)
-		outTitle = append(outTitle, t)
-		outDisabled = append(outDisabled, !isEnabled)
-		outUpd = append(outUpd, ts)
-		outSite = append(outSite, site)
+		out = append(out, settings.BypassPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+		})
 	}
-	n.BypassPaths.Extra = outPat
-	n.BypassPaths.ExtraTitle = outTitle
-	n.BypassPaths.ExtraDisabled = outDisabled
-	n.BypassPaths.ExtraUpdatedAt = outUpd
-	n.BypassPaths.ExtraSite = outSite
+	n.BypassPaths.Paths = out
 	return nil
 }
 
-// bypassPathRule: row-UI struct (= 5 parallel zip).
+// bypassPathRule: row-UI struct for the bypass-paths tab.  The legacy Site
+// column is dropped because per-site scoping moved to Overrides[site];
+// per-site editing lands in phase 1.4 with the scope picker UI.
 type bypassPathRule struct {
 	Pattern   string
 	Title     string
-	Site      string
 	Enabled   bool
 	UpdatedAt int64
 }
 
-func pairBypassPathRules(extras, titles []string, disabled []bool, updatedAt []int64, sites []string) []bypassPathRule {
-	out := make([]bypassPathRule, len(extras))
-	for i, e := range extras {
-		var t, site string
-		if i < len(titles) {
-			t = titles[i]
+func pairBypassPathRules(paths []settings.BypassPath) []bypassPathRule {
+	out := make([]bypassPathRule, len(paths))
+	for i, p := range paths {
+		out[i] = bypassPathRule{
+			Pattern:   p.Path,
+			Title:     p.Title,
+			Enabled:   !p.Disabled,
+			UpdatedAt: p.UpdatedAt,
 		}
-		isDisabled := false
-		if i < len(disabled) {
-			isDisabled = disabled[i]
-		}
-		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
-		}
-		if i < len(sites) {
-			site = sites[i]
-		}
-		out[i] = bypassPathRule{Pattern: e, Title: t, Site: site, Enabled: !isDisabled, UpdatedAt: ts}
 	}
 	return out
 }
@@ -3046,6 +3190,154 @@ var (
 	svgStripOnAttr = regexp.MustCompile(`(?i)\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
 	svgStripJSHref = regexp.MustCompile(`(?i)\s(?:xlink:)?href\s*=\s*("(?:javascript|data:text/html)[^"]*"|'(?:javascript|data:text/html)[^']*'|(?:javascript|data:text/html)[^\s>]*)`)
 )
+
+// applyBrandingFormScoped dispatches the branding form into either the
+// shared baseline (scope=="") or the per-site override map
+// (scope=="<host>").  Default scope behaves identically to the legacy
+// applyBrandingForm (= mutates cur in place).  Site scope writes into
+// cur.Overrides[scope] and applies the inheritance semantics defined in
+// doc/MULTI-SITE-DESIGN.md:
+//
+//   - empty input  -> the field is removed from the override (inherit default)
+//   - non-empty    -> the field replaces the default for this site only
+//   - branding_reset=1 -> drop the site's override entry entirely
+//   - all fields empty + no logo -> drop the site's override entry
+//
+// Logo handling in site scope: an upload writes
+// <configDir>/branding/overrides/<site>/logo.<ext>; branding_logo_clear=1
+// (or an empty FormFile when an override existed) clears the override's
+// logo file.  The default-scope logo on disk is never touched from a
+// site-scope save.
+func applyBrandingFormScoped(cur *settings.Branding, configPath string, r *http.Request, scope string) error {
+	if scope == "" {
+		return applyBrandingForm(cur, configPath, r)
+	}
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	if scope == "" {
+		return nil
+	}
+	// Reset wins over every other field: drop the override entry + remove
+	// the override-scope logo file.  Operators that "want to revert this
+	// site" should not have their text fields submitted accidentally
+	// re-create the entry.
+	if r.FormValue("branding_reset") == "1" {
+		if ov, ok := cur.Overrides[scope]; ok {
+			if ov.LogoPath != "" {
+				_ = os.Remove(ov.LogoPath)
+			}
+			delete(cur.Overrides, scope)
+		}
+		return nil
+	}
+	// Start from the current override (= a re-save preserves the on-disk
+	// logo when the operator only edited a text field).  A missing entry
+	// is treated as an empty Branding value.
+	override := cur.Overrides[scope]
+	override.Overrides = nil // safety: nested overrides are ignored by Resolve
+
+	// Text fields.  TrimSpace + length cap mirrors applyBrandingForm.
+	siteName := strings.TrimSpace(r.FormValue("branding_site_name"))
+	if n := len([]rune(siteName)); n > 80 {
+		siteName = string([]rune(siteName)[:80])
+	}
+	override.SiteName = siteName
+	footer := strings.TrimSpace(r.FormValue("branding_footer_text"))
+	if n := len([]rune(footer)); n > 160 {
+		footer = string([]rune(footer)[:160])
+	}
+	override.FooterText = footer
+	preset := strings.TrimSpace(r.FormValue("branding_copy_preset"))
+	if preset == "default" || !settings.IsValidBrandingPreset(preset) {
+		// In site scope, "no preset chosen" must inherit -- never silently
+		// snap to friendly the way the default-scope form does.  The site
+		// editor exposes this with a sentinel "default" radio that maps
+		// to an empty override here.
+		preset = ""
+	}
+	override.CopyPreset = preset
+
+	// Logo handling for site scope.  Logo lives under
+	// <configDir>/branding/overrides/<site>/logo.<ext> so default + per-site
+	// logos coexist without filename collision.
+	if r.FormValue("branding_logo_clear") == "1" {
+		if override.LogoPath != "" {
+			_ = os.Remove(override.LogoPath)
+		}
+		override.LogoPath = ""
+	} else {
+		f, fh, err := r.FormFile("branding_logo_file")
+		if err == nil && f != nil {
+			defer f.Close()
+			ext, ok := pickLogoExt(fh.Filename)
+			if !ok {
+				return fmt.Errorf("logo: unsupported extension (allowed: png, jpg, jpeg, svg, webp, gif)")
+			}
+			data, err := io.ReadAll(io.LimitReader(f, 4<<20))
+			if err != nil {
+				return fmt.Errorf("logo: read failed: %w", err)
+			}
+			if ext == ".svg" {
+				data = sanitizeSVG(data)
+			}
+			// safe-site: forbid path separators / control chars / "..".  The
+			// site picker only emits Host header strings which are domain-
+			// safe, but we double-check at the filesystem boundary.
+			if !overrideSiteSafe(scope) {
+				return fmt.Errorf("logo: invalid site identifier %q", scope)
+			}
+			dir := filepath.Join(filepath.Dir(configPath), "branding", "overrides", scope)
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				return fmt.Errorf("logo: mkdir failed: %w", err)
+			}
+			if override.LogoPath != "" && strings.ToLower(filepath.Ext(override.LogoPath)) != ext {
+				_ = os.Remove(override.LogoPath)
+			}
+			path := filepath.Join(dir, "logo"+ext)
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				return fmt.Errorf("logo: write failed: %w", err)
+			}
+			override.LogoPath = path
+		} else if err != nil && err != http.ErrMissingFile {
+			return fmt.Errorf("logo: read upload: %w", err)
+		}
+		// No new upload + no clear: keep the existing override.LogoPath.
+	}
+
+	// If nothing remains in the override, drop the entry entirely so the
+	// YAML stays clean (= no empty `overrides: { shop.example.com: {} }`
+	// leftovers).  Logo presence keeps the entry alive even when text
+	// fields are blank (= site might want only a logo override).
+	if brandingOverrideFieldCount(override) == 0 {
+		delete(cur.Overrides, scope)
+	} else {
+		if cur.Overrides == nil {
+			cur.Overrides = map[string]settings.Branding{}
+		}
+		cur.Overrides[scope] = override
+	}
+	return nil
+}
+
+// overrideSiteSafe: filesystem-side guard for the per-site logo dir.  Allows
+// the conservative subset of characters that a Host header would carry --
+// letters, digits, dot, hyphen.  Empty / path-separator / dot-only inputs
+// are rejected.  resolveSettingsScope already lowercases + trims; this is
+// the secondary boundary so a bug there cannot reach mkdir.
+func overrideSiteSafe(site string) bool {
+	if site == "" || site == "." || site == ".." {
+		return false
+	}
+	for _, r := range site {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // applyBrandingForm mutates cur in place with the values from the branding
 // form (= section=branding).  configPath is the path to the active
