@@ -604,12 +604,20 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Scope":       scope,
 		"ScopeIsSite": scopeIsSite,
 		"ScopeHosts":  scopeHosts,
-		// Per-site override state: true when the host already carries an entry
-		// in the corresponding Sites map.  The theme + challenge tabs use this
-		// to seed the "override on" checkbox -- unchecked means the host
-		// inherits Default verbatim, checked means save will persist a full
-		// override record.
+		// Per-site override state.  HasEntry = "an entry exists" (= form is
+		// pre-filled with the saved values); HasOverride = "an entry exists
+		// AND is not Disabled" (= the toggle should ship checked + form
+		// values are actually applied).  The split means the operator can
+		// un-check + save without destroying the stored record, then re-
+		// check later and find their previous edits intact.
 		"BrandingHasOverride": func() bool {
+			if !scopeIsSite {
+				return false
+			}
+			v, ok := snap.Branding.Sites[scope]
+			return ok && !v.Disabled
+		}(),
+		"BrandingHasEntry": func() bool {
 			if !scopeIsSite {
 				return false
 			}
@@ -617,6 +625,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			return ok
 		}(),
 		"ChallengeHasOverride": func() bool {
+			if !scopeIsSite {
+				return false
+			}
+			v, ok := snap.Challenge.Sites[scope]
+			return ok && !v.Disabled
+		}(),
+		"ChallengeHasEntry": func() bool {
 			if !scopeIsSite {
 				return false
 			}
@@ -3282,13 +3297,25 @@ func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error 
 // where the per-site card section lives.
 func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) {
 	h.adminScalarSiteSave(w, r, "theme", func(cur *settings.Settings, site string) error {
-		// "Override on" checkbox: when the operator leaves the box
-		// unchecked, treat the submit as a delete -- the host returns to
-		// Default verbatim on the next render.  No silent saving of a
-		// half-edited record while the override is still off.
-		if r.FormValue("use_site_override") != "1" {
-			delete(cur.Branding.Sites, site)
-			delete(cur.Challenge.Sites, site)
+		// "Override on" checkbox.  Off → flip the existing entry's Disabled
+		// flag so Resolve falls back to Default but the carefully-edited
+		// values stay around for next time.  No entry yet + off = no-op (=
+		// nothing to remember).  This avoids the destructive "save erases
+		// the override" path the operator hit when toggling the checkbox.
+		overrideOn := r.FormValue("use_site_override") == "1"
+		if !overrideOn {
+			if cur.Branding.Sites != nil {
+				if v, ok := cur.Branding.Sites[site]; ok {
+					v.Disabled = true
+					cur.Branding.Sites[site] = v
+				}
+			}
+			if cur.Challenge.Sites != nil {
+				if v, ok := cur.Challenge.Sites[site]; ok {
+					v.Disabled = true
+					cur.Challenge.Sites[site] = v
+				}
+			}
 			return nil
 		}
 		if cur.Branding.Sites == nil {
@@ -3304,6 +3331,7 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		if err := applyBrandingForm(&bv, h.ConfigPath, r); err != nil {
 			return err
 		}
+		bv.Disabled = false
 		cur.Branding.Sites[site] = bv
 		// The theme tab form (= scope=<host>) also carries `theme` +
 		// `show_credit`, which belong on cur.Challenge.Sites[site] -- mirror
@@ -3331,6 +3359,7 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		}
 		cv.Theme = t
 		cv.ShowCredit = r.FormValue("show_credit") == "1"
+		cv.Disabled = false
 		cur.Challenge.Sites[site] = cv
 		return nil
 	})
@@ -3355,10 +3384,17 @@ func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request
 // tab) are not zeroed out.
 func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request) {
 	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
-		// "Override on" checkbox: same shape as the theme tab.  Unchecked =
-		// delete the per-site entry; the host falls back to Default verbatim.
-		if r.FormValue("use_site_override") != "1" {
-			delete(cur.Challenge.Sites, site)
+		// "Override on" checkbox.  Off → flip Disabled on the existing entry
+		// (= values stay for next time, Resolve falls back to Default).
+		// First-time off with no entry yet is a no-op.
+		overrideOn := r.FormValue("use_site_override") == "1"
+		if !overrideOn {
+			if cur.Challenge.Sites != nil {
+				if v, ok := cur.Challenge.Sites[site]; ok {
+					v.Disabled = true
+					cur.Challenge.Sites[site] = v
+				}
+			}
 			return nil
 		}
 		if cur.Challenge.Sites == nil {
@@ -3386,6 +3422,7 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 			}
 			cv.Theme = t
 		}
+		cv.Disabled = false
 		cur.Challenge.Sites[site] = cv
 		return nil
 	})

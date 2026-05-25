@@ -83,7 +83,7 @@ type ChallengeConfig struct {
 // even if a field is the zero value -- that's intentional per the v2 design).
 // Otherwise Default is returned verbatim.
 func (c ChallengeConfig) Resolve(site string) ChallengeValues {
-	if v, ok := c.Sites[site]; ok {
+	if v, ok := c.Sites[site]; ok && !v.Disabled {
 		return v
 	}
 	return c.Default
@@ -151,6 +151,12 @@ type ChallengeValues struct {
 	// Toggle with `unmask-admin apply-preset monitor` (= ObserveOnly=true).
 	// Reset back to false when switching to strict / balanced.
 	ObserveOnly bool `yaml:"observe_only,omitempty"`
+	// Disabled: when true on a Sites[<host>] entry, Resolve(site) returns
+	// Default instead of this record.  Used by the admin UI's override
+	// toggle so the operator can flip an override off without losing the
+	// carefully-edited values stored in the entry.  Default zero (= override
+	// enabled) keeps pre-existing per-site entries effective.
+	Disabled bool `yaml:"disabled,omitempty"`
 }
 
 // ResolvedPowDifficulty: returns default 18 when 0 / out of range.
@@ -183,7 +189,7 @@ type Branding struct {
 // entry in Sites the entry is returned verbatim (no merge with Default).
 // Otherwise Default is returned verbatim.
 func (b Branding) Resolve(site string) BrandingValues {
-	if v, ok := b.Sites[site]; ok {
+	if v, ok := b.Sites[site]; ok && !v.Disabled {
 		return v
 	}
 	return b.Default
@@ -211,6 +217,12 @@ type BrandingValues struct {
 	// "friendly" (= default / 不安解消寄り) | "neutral" (= 現状互換) |
 	// "minimal" (= 短文). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
+	// Disabled: when true, Resolve(site) returns the Default record even
+	// though this entry exists.  Used to express "operator turned override
+	// off but wants the carefully-edited values kept for next time" so the
+	// admin UI's checkbox toggle does not destroy work.  Default zero
+	// (= override enabled) keeps pre-existing per-site entries effective.
+	Disabled bool `yaml:"disabled,omitempty"`
 }
 
 // CopyPreset values (= the allowlist).
