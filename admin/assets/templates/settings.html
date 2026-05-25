@@ -2193,10 +2193,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   {{ end }}
 </div>
 
-<form method="post"
+<form method="post" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
   {{ if not $scopeDefault }}
   <input type="hidden" name="site" value="{{ .Scope }}">
+  {{/* Override toggle: when unchecked, save handler drops Sites[scope]
+       entry (= host inherits Default).  The JS below greys out + disables
+       every input inside this form when the box is off so the form's
+       visual state matches what the save will persist. */}}
+  <label class="override-toggle-row">
+    <input type="checkbox" name="use_site_override" value="1" class="override-toggle"
+           {{ if .ChallengeHasOverride }}checked{{ end }}
+           onchange="(function(cb){var form=cb.closest('form');form.querySelectorAll('input,select,textarea,button').forEach(function(el){if(el===cb||el.type==='submit')return;el.disabled=!cb.checked;});form.classList.toggle('override-off',!cb.checked);})(this)">
+    <span>{{ t .Lang "settings.scope.override_label" }}</span>
+    <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
+  </label>
   {{ end }}
   <div class="bcd-card">
 
@@ -2287,19 +2298,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
-{{ if .ScopeIsSite }}
-{{/* Reset to default: drops cur.Challenge.Sites[scope] so the host falls
-     back to the Default record verbatim on the next request.  Sits outside
-     the main form so it does not double-submit on Enter. */}}
-<div class="scope-reset-row">
-  <form method="post" style="display:inline"
-        action="{{ .BasePath }}/admin/settings/challenge/site/delete"
-        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
-    <input type="hidden" name="site" value="{{ .Scope }}">
-    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_challenge_button" }}</button>
-  </form>
-</div>
-{{ end }}
+{{/* "Override on" toggle moved into the form below as a checkbox; reset
+     is now expressed as "save with the checkbox unchecked" (= drop the
+     Sites entry on the save handler side). */}}
 
 <script>
 // human-readable display next to a seconds input (= 86400 -> "1 d", 3600 -> "1 h", etc.).
@@ -2780,13 +2781,22 @@ document.addEventListener("DOMContentLoaded", function(){
      the same tab; the appearance save handler dispatches to the existing
      applyBrandingForm + the theme allowlist clamp.  Form action follows
      the scope picker (= Default → ?section=appearance; site → /branding/site/save). */}}
-<form method="post" enctype="multipart/form-data"
+<form method="post" enctype="multipart/form-data" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=appearance{{ else }}{{ .BasePath }}/admin/settings/branding/site/save?site={{ .Scope }}{{ end }}" id="appearance-form">
   {{ if not $scopeDefault }}
   {{/* The site identifier travels in both the query string (= used by the
        handler's `site` formvalue lookup) and a hidden field, so it survives
        servers that strip the query string before form parsing. */}}
   <input type="hidden" name="site" value="{{ .Scope }}">
+  {{/* Override toggle: same shape as the challenge tab.  Unchecked save =
+       drop the Sites entry; checked save = persist the full record. */}}
+  <label class="override-toggle-row">
+    <input type="checkbox" name="use_site_override" value="1" class="override-toggle"
+           {{ if .BrandingHasOverride }}checked{{ end }}
+           onchange="(function(cb){var form=cb.closest('form');form.querySelectorAll('input,select,textarea,button').forEach(function(el){if(el===cb||el.type==='submit')return;el.disabled=!cb.checked;});form.classList.toggle('override-off',!cb.checked);})(this)">
+    <span>{{ t .Lang "settings.scope.override_label" }}</span>
+    <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
+  </label>
   {{ end }}
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
@@ -2970,22 +2980,9 @@ document.addEventListener("DOMContentLoaded", function(){
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 
-{{ if .ScopeIsSite }}
-{{/* Reset to default: drops cur.Branding.Sites[scope] + cur.Challenge.Sites[scope]
-     so the host falls back to the Default record verbatim on the next
-     request.  Outside of the appearance form so it cannot double-submit on
-     Enter.  Theme tab edits Branding only; the challenge-reset button
-     lives on the challenge tab so each tab carries the reset for the
-     section the operator is actually looking at. */}}
-<div class="scope-reset-row">
-  <form method="post" style="display:inline"
-        action="{{ .BasePath }}/admin/settings/branding/site/delete"
-        onsubmit="return confirm('{{ tf .Lang "settings.scope.reset_confirm" .Scope }}')">
-    <input type="hidden" name="site" value="{{ .Scope }}">
-    <button type="submit" class="btn-mini btn-danger">{{ t .Lang "settings.scope.reset_branding_button" }}</button>
-  </form>
-</div>
-{{ end }}
+{{/* "Override on" toggle is now an in-form checkbox; the dedicated reset
+     button is gone -- unchecking the toggle + saving drops the Sites
+     entry in the handler. */}}
 
 <style>
 .branding-grid{display:grid;grid-template-columns:1fr;gap:.9rem;margin-top:.6rem}
@@ -3056,6 +3053,15 @@ document.addEventListener("DOMContentLoaded", function(){
 .scope-picker-banner{font-size:.78rem;color:#0f172a;padding:.15rem .5rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.25rem}
 .scope-picker-banner.scope-default{background:#dcfce7;border-color:#86efac;color:#166534}
 .scope-reset-row{display:flex;gap:.45rem;margin:.9rem 0 0;flex-wrap:wrap}
+.override-toggle-row{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;padding:.5rem .7rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.3rem;color:#92400e;font-size:.85rem;font-weight:500}
+.override-toggle-row input[type=checkbox]{margin:0}
+.override-toggle-row .override-hint{color:#78350f;font-weight:normal;font-size:.78rem;margin-left:auto}
+.scope-aware-form.override-off .bcd-card,
+.scope-aware-form.override-off .branding-grid,
+.scope-aware-form.override-off .field{opacity:.55}
+.scope-aware-form.override-off input:not([type=checkbox]):not([type=submit]):not([type=hidden]),
+.scope-aware-form.override-off select,
+.scope-aware-form.override-off textarea{background:#f1f5f9;color:#94a3b8;cursor:not-allowed}
 </style>
 <script>
 (function(){

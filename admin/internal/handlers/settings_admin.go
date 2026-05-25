@@ -604,6 +604,25 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Scope":       scope,
 		"ScopeIsSite": scopeIsSite,
 		"ScopeHosts":  scopeHosts,
+		// Per-site override state: true when the host already carries an entry
+		// in the corresponding Sites map.  The theme + challenge tabs use this
+		// to seed the "override on" checkbox -- unchecked means the host
+		// inherits Default verbatim, checked means save will persist a full
+		// override record.
+		"BrandingHasOverride": func() bool {
+			if !scopeIsSite {
+				return false
+			}
+			_, ok := snap.Branding.Sites[scope]
+			return ok
+		}(),
+		"ChallengeHasOverride": func() bool {
+			if !scopeIsSite {
+				return false
+			}
+			_, ok := snap.Challenge.Sites[scope]
+			return ok
+		}(),
 		"BrandingPresets": []string{settings.BrandingPresetFriendly, settings.BrandingPresetNeutral, settings.BrandingPresetMinimal},
 		// Notification webhook settings (= used by the notifications tab).
 		"Notifications": h.snapshotSettings().Notifications,
@@ -3263,6 +3282,15 @@ func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error 
 // where the per-site card section lives.
 func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) {
 	h.adminScalarSiteSave(w, r, "theme", func(cur *settings.Settings, site string) error {
+		// "Override on" checkbox: when the operator leaves the box
+		// unchecked, treat the submit as a delete -- the host returns to
+		// Default verbatim on the next render.  No silent saving of a
+		// half-edited record while the override is still off.
+		if r.FormValue("use_site_override") != "1" {
+			delete(cur.Branding.Sites, site)
+			delete(cur.Challenge.Sites, site)
+			return nil
+		}
 		if cur.Branding.Sites == nil {
 			cur.Branding.Sites = map[string]settings.BrandingValues{}
 		}
@@ -3327,6 +3355,12 @@ func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request
 // tab) are not zeroed out.
 func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request) {
 	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
+		// "Override on" checkbox: same shape as the theme tab.  Unchecked =
+		// delete the per-site entry; the host falls back to Default verbatim.
+		if r.FormValue("use_site_override") != "1" {
+			delete(cur.Challenge.Sites, site)
+			return nil
+		}
 		if cur.Challenge.Sites == nil {
 			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
 		}
