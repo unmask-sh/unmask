@@ -234,6 +234,34 @@ document.addEventListener('DOMContentLoaded', function(){
       pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
     });
   });
+  // Page-boundary session fragment marker.  Hunt paginates via
+  // ORDER BY id DESC LIMIT 50, so a session whose events straddle a page
+  // boundary leaves a single row inside this page -- the session-view
+  // pass above skipped that row (grp.length < 2) and left a bare phase
+  // pill.  A bare 'serve' / 'load' / 'pow' / 'captcha' / 'pow_pass' /
+  // 'check' pill reads as "this session only had 1 event" which is
+  // misleading; the rest live on an adjacent page.  Prepend a muted '…'
+  // glyph + hover hint so the user can tell a fragment from a one-event
+  // session that legitimately terminated.  Raw rows stay verbatim (=
+  // memory feedback_raw_event_fidelity); we only annotate, never hide.
+  var FRAGMENT_PHASES = {serve:1, load:1, pow:1, pow_pass:1, captcha:1, check:1};
+  rows.forEach(function(tr){
+    if (tr.style.display === 'none') return;
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    if (!groups[bt] || groups[bt].length !== 1) return;
+    var ph = tr.getAttribute('data-phase');
+    if (!FRAGMENT_PHASES[ph]) return;
+    var phaseCell = tr.querySelector('td:nth-child(5)');
+    if (!phaseCell) return;
+    if (phaseCell.querySelector('.session-fragment-hint')) return; // idempotent
+    var hint = document.createElement('span');
+    hint.className = 'session-arrow session-fragment-hint';
+    hint.textContent = '…';
+    hint.title = 'session fragment (= other phases of this session are on an adjacent page)';
+    phaseCell.insertBefore(document.createTextNode(' '), phaseCell.firstChild);
+    phaseCell.insertBefore(hint, phaseCell.firstChild);
+  });
   // Optional client-side hard cap on visible sessions (= overview card caps
   // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
   // keep the partial parameterless.
