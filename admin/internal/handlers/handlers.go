@@ -223,7 +223,8 @@ func brandingInjectJSON(b settings.Branding, basePath string) string {
 // mismatch (e.g. visitor asks for .png but operator stored .svg) is also a
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	b := h.snapshotSettings().Branding
+	site := siteFromRequest(r)
+	b := h.snapshotSettings().Branding.Resolve(site)
 	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
 		return
@@ -611,7 +612,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
-		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding, h.basePath())))
+		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding.Resolve(site), h.basePath())))
 	// Cache-bust the challenge.js URL with the admin's start-time epoch so
 	// every restart forces visitors to re-fetch the script.  Without this
 	// the public-side max-age=600 keeps stale JS in browsers for up to 10

@@ -167,6 +167,49 @@ type Branding struct {
 	// "friendly" (= default / 不安解消寄り) | "neutral" (= 現状互換) |
 	// "minimal" (= 短文). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
+	// Overrides: per-site overrides keyed by the Host header (lowercase, no
+	// trailing dot -- siteFromRequest normalises both before the lookup).
+	// Field-level override: an empty string in the override leaves the default
+	// in place; a non-empty value replaces it for that site only.  See
+	// doc/MULTI-SITE-DESIGN.md for the broader schema.  Only present on the
+	// top-level Branding; nested Overrides on an override entry is ignored.
+	Overrides map[string]Branding `yaml:"overrides,omitempty"`
+}
+
+// Resolve: branding values applied for the given site (= Host header already
+// normalised by siteFromRequest).  Falls back to the default for every field
+// the site override does not set.  Returns a value copy with the Overrides
+// map cleared so callers can pass the result around without accidentally
+// re-resolving.
+//
+// site == "" returns the default unchanged.  Sites without an overrides entry
+// also return the default; an empty entry behaves the same as no entry.
+//
+// Receiver is the value type (= caller `s.Branding.Resolve(site)`) so it
+// works against settings snapshots returned by value from snapshotSettings.
+func (b Branding) Resolve(site string) Branding {
+	out := b
+	out.Overrides = nil
+	if site == "" {
+		return out
+	}
+	ov, ok := b.Overrides[site]
+	if !ok {
+		return out
+	}
+	if ov.LogoPath != "" {
+		out.LogoPath = ov.LogoPath
+	}
+	if ov.SiteName != "" {
+		out.SiteName = ov.SiteName
+	}
+	if ov.FooterText != "" {
+		out.FooterText = ov.FooterText
+	}
+	if ov.CopyPreset != "" {
+		out.CopyPreset = ov.CopyPreset
+	}
+	return out
 }
 
 // CopyPreset values (= the allowlist).

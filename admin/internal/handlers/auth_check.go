@@ -628,6 +628,10 @@ func normalizeSite(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
+	// Strip the trailing FQDN dot (= "shop.example.com." -> "shop.example.com")
+	// so multi-site override lookups don't get two slots for the same logical
+	// site depending on whether the resolver included the dot.
+	host = strings.TrimRight(host, ".")
 	host = strings.ToLower(strings.Trim(host, "[]"))
 	// Keep only hostname-safe characters (a-z 0-9 . - _ and : for IPv6
 	// literals).  Bounds the value so it is safe to interpolate into the site
