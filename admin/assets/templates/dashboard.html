@@ -577,7 +577,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:1rem;align-items:start">
+  <div style="display:grid;grid-template-columns:3fr 1fr auto;gap:1rem;align-items:start">
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_white_pow_not" }}</h6>
       <canvas id="chart" height="280"></canvas>
@@ -612,7 +612,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 11b) 30-day trend (= phase=serve grouped by classify.IsBot kind as a stacked bar.  Breakdown of challenge displays) -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.trend_serve" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_serve.desc") }}</span></span></h2>
-  <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:1rem;align-items:start">
+  <div style="display:grid;grid-template-columns:3fr 1fr auto;gap:1rem;align-items:start">
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_isbot" }}</h6>
       <canvas id="chart-serve" height="280"></canvas>
