@@ -59,6 +59,11 @@ location ^~ /unmask/ {
     proxy_pass         http://unmask_admin;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;
+    # Server-side scheme injection.  Always overwrites any client-sent value so
+    # the admin can trust X-Forwarded-Proto when building public URLs (= the
+    # hunt page's "open / copy" buttons).  $scheme is decided by nginx from
+    # the actual listener, so the client cannot influence it.
+    proxy_set_header   X-Forwarded-Proto $scheme;
     proxy_set_header   X-Client-JA4     $effective_ja4;
     proxy_set_header   X-JA4-Verdict    $ja4_verdict;
     proxy_set_header   X-JA4-Action     $ja4_action;

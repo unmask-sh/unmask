@@ -651,6 +651,25 @@ func normalizeSite(host string) string {
 	return host
 }
 
+// schemeFromRequest derives the request scheme ("http" / "https") server-
+// side.  Trusts X-Forwarded-Proto because the nginx-rendered admin upstream
+// sets it via `proxy_set_header X-Forwarded-Proto $scheme;` unconditionally
+// (= the value reflects what nginx itself terminated on and the client cannot
+// influence it).  Falls back to r.TLS for direct-to-admin requests (= dev
+// mode without nginx in front).  Returns "" only when neither is available.
+func schemeFromRequest(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); v != "" {
+		v = strings.ToLower(v)
+		if v == "https" || v == "http" {
+			return v
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return ""
+}
+
 // siteFromRequest derives the site identifier for an event.  The site is the
 // visitor's request Host (= the vhost they reached), so a host serving many
 // vhosts splits cleanly in the dashboard with no per-site config.  The

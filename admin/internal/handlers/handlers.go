@@ -469,6 +469,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
 			IPPacked:     pkt,
 			UserAgent:    r.Header.Get("User-Agent"),
 			JA4:          safeJA4(ja4),
@@ -850,6 +851,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
 			IPPacked:     pkt,
 			UserAgent:    r.Header.Get("User-Agent"),
 			JA4:          safeJA4(ja4),
@@ -912,6 +914,7 @@ func (h *Handler) serveObserveOnlyRedirect(w http.ResponseWriter, r *http.Reques
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
 			IPPacked:     pkt,
 			UserAgent:    r.Header.Get("User-Agent"),
 			JA4:          safeJA4(ja4),
@@ -1489,6 +1492,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	_ = events.Insert(r.Context(), h.DB, &events.Event{
 		Site:         site,
 		Host:         h.HostID,
+		Scheme:       schemeFromRequest(r),
 		IPPacked:     pkt,
 		UserAgent:    r.Header.Get("User-Agent"),
 		JA4:          ja4,
