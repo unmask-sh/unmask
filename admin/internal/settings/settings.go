@@ -127,70 +127,6 @@ type Challenge struct {
 	// Toggle with `unmask-admin apply-preset monitor` (= ObserveOnly=true).
 	// Reset back to false when switching to strict / balanced.
 	ObserveOnly bool `yaml:"observe_only,omitempty"`
-	// Overrides: per-site challenge overrides keyed by the normalised Host
-	// (= same key shape as Branding.Overrides).  An undeclared site, or an
-	// entry whose field is zero-valued, inherits the default; a non-zero
-	// field replaces the default for that site only.  Scalar-only -- the
-	// nested Captcha provider, PublicTestPages, ObserveOnly, cookie TTLs
-	// and ChallengeHTMLPath are intentionally global because they're
-	// install-wide behaviours rather than per-site presentation knobs.
-	// See doc/MULTI-SITE-DESIGN.md.
-	Overrides map[string]ChallengeOverride `yaml:"overrides,omitempty"`
-}
-
-// ChallengeOverride: scalar challenge knobs a site can override.  Every
-// field is optional; a zero value (= empty string, zero int, false bool)
-// inherits the default.  PowDifficulty 0 is treated as "inherit" because
-// the valid range is 8..24 (= 0 is never a meaningful PoW target; operators
-// that want to skip PoW for one site pick captcha_only via the chMode
-// instead, see Branding's chain pickers).
-type ChallengeOverride struct {
-	// Theme: per-site challenge-page theme.  Empty = inherit default.
-	Theme string `yaml:"theme,omitempty"`
-	// PowDifficulty: per-site PoW leading-zero-bits target.  0 = inherit;
-	// non-zero is range-clamped at evaluation time the same way the default
-	// is (= ResolvedPowDifficulty).
-	PowDifficulty int `yaml:"pow_difficulty,omitempty"`
-	// ShowCredit: per-site override for the "protected by unmask" credit
-	// badge.  Boolean overrides cannot express "inherit" through the zero
-	// value alone, so this honours the partner ShowCreditSet flag.  When
-	// ShowCreditSet is false, ShowCredit is ignored and the default wins.
-	ShowCredit    bool `yaml:"show_credit,omitempty"`
-	ShowCreditSet bool `yaml:"show_credit_set,omitempty"`
-}
-
-// Resolve: effective Challenge values applied for the given site.  Returns a
-// value copy with Overrides cleared so callers can pass the result around
-// without re-resolving.  Empty site or no override entry returns the default
-// verbatim.  Receiver is the value type (= caller `cfg.Challenge.Resolve(site)`)
-// so it matches the snapshotSettings-by-value flow.
-//
-// Inheritance rules:
-//   - Theme: empty in override -> inherit
-//   - PowDifficulty: 0 in override -> inherit (= 0 is not a valid PoW target)
-//   - ShowCredit: honoured only when ShowCreditSet is true; otherwise inherit
-//   - Captcha / cookie TTLs / observe_only / public_test_pages: always inherit
-//     (= no per-site surface exposed, install-wide behaviours)
-func (c Challenge) Resolve(site string) Challenge {
-	out := c
-	out.Overrides = nil
-	if site == "" {
-		return out
-	}
-	ov, ok := c.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.Theme != "" {
-		out.Theme = ov.Theme
-	}
-	if ov.PowDifficulty != 0 {
-		out.PowDifficulty = ov.PowDifficulty
-	}
-	if ov.ShowCreditSet {
-		out.ShowCredit = ov.ShowCredit
-	}
-	return out
 }
 
 // ResolvedPowDifficulty: returns default 18 when 0 / out of range.
@@ -231,49 +167,6 @@ type Branding struct {
 	// "friendly" (= default / 不安解消寄り) | "neutral" (= 現状互換) |
 	// "minimal" (= 短文). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
-	// Overrides: per-site overrides keyed by the Host header (lowercase, no
-	// trailing dot -- siteFromRequest normalises both before the lookup).
-	// Field-level override: an empty string in the override leaves the default
-	// in place; a non-empty value replaces it for that site only.  See
-	// doc/MULTI-SITE-DESIGN.md for the broader schema.  Only present on the
-	// top-level Branding; nested Overrides on an override entry is ignored.
-	Overrides map[string]Branding `yaml:"overrides,omitempty"`
-}
-
-// Resolve: branding values applied for the given site (= Host header already
-// normalised by siteFromRequest).  Falls back to the default for every field
-// the site override does not set.  Returns a value copy with the Overrides
-// map cleared so callers can pass the result around without accidentally
-// re-resolving.
-//
-// site == "" returns the default unchanged.  Sites without an overrides entry
-// also return the default; an empty entry behaves the same as no entry.
-//
-// Receiver is the value type (= caller `s.Branding.Resolve(site)`) so it
-// works against settings snapshots returned by value from snapshotSettings.
-func (b Branding) Resolve(site string) Branding {
-	out := b
-	out.Overrides = nil
-	if site == "" {
-		return out
-	}
-	ov, ok := b.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.LogoPath != "" {
-		out.LogoPath = ov.LogoPath
-	}
-	if ov.SiteName != "" {
-		out.SiteName = ov.SiteName
-	}
-	if ov.FooterText != "" {
-		out.FooterText = ov.FooterText
-	}
-	if ov.CopyPreset != "" {
-		out.CopyPreset = ov.CopyPreset
-	}
-	return out
 }
 
 // CopyPreset values (= the allowlist).
@@ -566,51 +459,21 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 //   - protected paths → passthrough
 //   - rate limit (= not counted in the $rate_limit_key map)
 //
-// Multi-site model: Paths + EnabledPresets define the default that every site
-// inherits.  Overrides[site] adds / removes / replaces per Host.  See
-// doc/MULTI-SITE-DESIGN.md for the broader schema; the previous "extra_site"
-// column is replaced by the override map so the diff against the default is
-// explicit (= a missing Remove never silently drops a default entry for one
-// site).
+// site column: empty = applies to all sites. A string = applies only when
+// `$host` equals that value (= in multi-site setups you can scope
+// "bypass /api/ only for site=foo").
 type BypassPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled" (= matches the
 	// "All OFF by default" docstring on BypassPathPresetGroups).  Operators
 	// add an ID here to turn that preset's path patterns into bypass entries.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	// Paths: the default list of bypass-path rules every site inherits.
-	// Replaces the old Extra / ExtraTitle / ExtraDisabled / ExtraUpdatedAt /
-	// ExtraSite parallel arrays; per-site scoping is now expressed via
-	// Overrides[site] rather than a per-row Site column.
-	Paths []BypassPath `yaml:"paths,omitempty"`
-	// Overrides: per-site override map, keyed by the normalised Host
-	// (= lowercase + trailing dot stripped, same as Branding.Overrides).
-	// Resolve(site) consults this map; an undeclared / empty entry behaves
-	// like the default verbatim.
-	Overrides map[string]BypassPathsOverride `yaml:"overrides,omitempty"`
-}
-
-// BypassPath: one bypass-path entry (default list or per-site append list).
-//
-// Pattern convention matches the old Extra column: a path-anchored PCRE regex
-// evaluated against $request_uri.  Disabled rules stay in yaml for the row
-// UI but are skipped at evaluation / render time.
-type BypassPath struct {
-	Path      string `yaml:"path"`
-	Title     string `yaml:"title,omitempty"`
-	Disabled  bool   `yaml:"disabled,omitempty"`
-	UpdatedAt int64  `yaml:"updated_at,omitempty"`
-}
-
-// BypassPathsOverride: a site's overrides relative to the default.  Append
-// adds rows that only this site sees; Remove drops default rows by exact
-// path-string match (regex / glob is a v0.3+ upgrade).  EnabledPresets uses
-// a *[]string so the yaml can distinguish "inherit the default" (= nil) from
-// "explicitly empty" (= empty slice, = every preset OFF for this site).
-type BypassPathsOverride struct {
-	Append         []BypassPath `yaml:"append,omitempty"`
-	Remove         []string     `yaml:"remove,omitempty"`
-	EnabledPresets *[]string    `yaml:"enabled_presets,omitempty"`
+	// 5 parallel arrays: path / title / disabled / updated_at / site
+	Extra          []string `yaml:"extra,omitempty"`
+	ExtraTitle     []string `yaml:"extra_title,omitempty"`
+	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
+	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"`
+	ExtraSite      []string `yaml:"extra_site,omitempty"`
 }
 
 // ProtectedPathsConfig: protected-paths feature. Forces CAPTCHA / PoW / strict
@@ -622,9 +485,8 @@ type BypassPathsOverride struct {
 //	                 path is affected"
 //
 // Designed for real human admins to pass via CAPTCHA (= transparent admin
-// gate / important-path protection).  Per-site scoping uses Overrides[site]
-// (= same shape as BypassPathsConfig) rather than a per-row Site column so
-// the diff against the default is always explicit.
+// gate / important-path protection). The mode column is parallel to the path
+// list as part of the 5 parallel arrays.
 type ProtectedPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
@@ -632,13 +494,11 @@ type ProtectedPathsConfig struct {
 	// turning them on inserts a CAPTCHA before admin login -- always a
 	// deliberate operator choice, never a default.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	// Paths: the default list of protected-path rules.  Replaces the old
-	// Extra / ExtraTitle / ExtraDisabled / ExtraUpdatedAt / ExtraMode /
-	// ExtraAction parallel arrays.
-	Paths []ProtectedPath `yaml:"paths,omitempty"`
-	// Overrides: per-site override map (= same key normalisation as
-	// Branding / BypassPaths).
-	Overrides map[string]ProtectedPathsOverride `yaml:"overrides,omitempty"`
+	Extra          []string `yaml:"extra,omitempty"`
+	ExtraTitle      []string `yaml:"extra_title,omitempty"`
+	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
+	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
+	ExtraMode       []string `yaml:"extra_mode,omitempty"` // "captcha" | "pow" | "strict"
 	// DefaultAction: chain to run when a request hits a protected path and
 	// challenge fires (= chMode used by challenge.html JS).  Empty =
 	// inherit ChallengeTargets.DefaultAction → RateLimit.Default.
@@ -646,127 +506,9 @@ type ProtectedPathsConfig struct {
 	// PresetAction: per-preset chMode override (preset ID → chain).  Stored
 	// now; path-based dispatch wiring is a follow-up.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
-}
-
-// ProtectedPath: one protected-path entry.  Mode is the legacy capture /
-// pow / strict knob retained for yaml back-compat; Action is the chMode
-// override that supersedes it in the runtime decision chain.
-type ProtectedPath struct {
-	Path      string `yaml:"path"`
-	Title     string `yaml:"title,omitempty"`
-	Disabled  bool   `yaml:"disabled,omitempty"`
-	UpdatedAt int64  `yaml:"updated_at,omitempty"`
-	Mode      string `yaml:"mode,omitempty"`   // captcha | pow | strict (legacy; kept for the row UI)
-	Action    string `yaml:"action,omitempty"` // chMode override (= pow_only / captcha_only / pow_then_captcha / deny)
-}
-
-// ProtectedPathsOverride: a site's overrides relative to the default.  Same
-// shape as BypassPathsOverride; DefaultAction is the only per-site scalar
-// (= an empty string inherits the default's DefaultAction so an operator can
-// drop the override without leaving a stale value behind).
-type ProtectedPathsOverride struct {
-	Append         []ProtectedPath `yaml:"append,omitempty"`
-	Remove         []string        `yaml:"remove,omitempty"`
-	EnabledPresets *[]string       `yaml:"enabled_presets,omitempty"`
-	DefaultAction  string          `yaml:"default_action,omitempty"`
-}
-
-// Resolve: effective bypass-paths config for the given site.  Returns a value
-// copy with Overrides cleared so callers can pass the result around without
-// re-resolving.  Resolution rules:
-//
-//   - Paths: copy of the default's Paths slice minus entries whose Path
-//     matches any string in Overrides[site].Remove (= exact string match,
-//     regex / glob is a v0.3 upgrade), then append Overrides[site].Append.
-//     Disabled rows stay in the slice (= the row UI still shows them as
-//     toggled OFF); evaluation paths skip Disabled rules separately.
-//   - EnabledPresets: if Overrides[site].EnabledPresets is non-nil, replace
-//     the default verbatim (= empty slice means "every preset OFF for this
-//     site"); nil inherits the default unchanged.
-//
-// site == "" returns the default unchanged.  Sites without an overrides entry
-// also return the default verbatim.  Receiver is the value type so callers
-// invoke as `cfg.Nginx.BypassPaths.Resolve(site)`.
-func (b BypassPathsConfig) Resolve(site string) BypassPathsConfig {
-	out := BypassPathsConfig{
-		EnabledPresets: b.EnabledPresets,
-		Paths:          b.Paths,
-	}
-	if site == "" {
-		return out
-	}
-	ov, ok := b.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.EnabledPresets != nil {
-		out.EnabledPresets = *ov.EnabledPresets
-	}
-	if len(ov.Remove) > 0 || len(ov.Append) > 0 {
-		removed := make(map[string]bool, len(ov.Remove))
-		for _, p := range ov.Remove {
-			if p == "" {
-				continue
-			}
-			removed[p] = true
-		}
-		kept := make([]BypassPath, 0, len(b.Paths)+len(ov.Append))
-		for _, p := range b.Paths {
-			if removed[p.Path] {
-				continue
-			}
-			kept = append(kept, p)
-		}
-		kept = append(kept, ov.Append...)
-		out.Paths = kept
-	}
-	return out
-}
-
-// Resolve: effective protected-paths config for the given site.  Same rules
-// as BypassPathsConfig.Resolve; additionally an empty Override.DefaultAction
-// inherits the default's DefaultAction (= matches Branding's empty-string
-// inherit semantics so the operator can blank out an override field without
-// leaving a stale value).
-func (p ProtectedPathsConfig) Resolve(site string) ProtectedPathsConfig {
-	out := ProtectedPathsConfig{
-		EnabledPresets: p.EnabledPresets,
-		Paths:          p.Paths,
-		DefaultAction:  p.DefaultAction,
-		PresetAction:   p.PresetAction,
-	}
-	if site == "" {
-		return out
-	}
-	ov, ok := p.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.EnabledPresets != nil {
-		out.EnabledPresets = *ov.EnabledPresets
-	}
-	if ov.DefaultAction != "" {
-		out.DefaultAction = ov.DefaultAction
-	}
-	if len(ov.Remove) > 0 || len(ov.Append) > 0 {
-		removed := make(map[string]bool, len(ov.Remove))
-		for _, s := range ov.Remove {
-			if s == "" {
-				continue
-			}
-			removed[s] = true
-		}
-		kept := make([]ProtectedPath, 0, len(p.Paths)+len(ov.Append))
-		for _, pp := range p.Paths {
-			if removed[pp.Path] {
-				continue
-			}
-			kept = append(kept, pp)
-		}
-		kept = append(kept, ov.Append...)
-		out.Paths = kept
-	}
-	return out
+	// ExtraAction: per-custom-row chMode override, aligned by index with
+	// Extra.  Same "stored now, wired later" caveat.
+	ExtraAction []string `yaml:"extra_action,omitempty"`
 }
 
 // HoneypotConfig: honeypot path configuration + persistent BAN list management.
@@ -804,150 +546,6 @@ type HoneypotConfig struct {
 	// ExtraAction: per-custom-row action override, aligned by index with
 	// Extra.  Same "stored now, wired later" caveat.
 	ExtraAction []string `yaml:"extra_action,omitempty"`
-	// Overrides: per-site honeypot deltas, keyed by normalised Host.  Same
-	// append / remove shape as BypassPathsOverride for the Extra rows, plus
-	// scalar DefaultAction / BanDuration / DisabledPresets overrides.  See
-	// doc/MULTI-SITE-DESIGN.md.
-	Overrides map[string]HoneypotOverride `yaml:"overrides,omitempty"`
-}
-
-// HoneypotOverride: a site's honeypot deltas relative to the default.
-// Append adds rows that only this site sees (= aligned tuple of pattern /
-// title / disabled / updated_at / action -- index-aligned parallel arrays
-// matching the default-scope row UI).  Remove drops default Extra rows by
-// exact pattern-string match.  DisabledPresets uses a *[]string so the yaml
-// can distinguish "inherit the default" (= nil) from "explicitly empty"
-// (= empty slice, = every preset ON for this site).  DefaultAction empty
-// inherits; BanDuration uses BanDurationSet so 0 (= permanent) is
-// distinguishable from "inherit".
-type HoneypotOverride struct {
-	// Append rows: same parallel-array shape as Extra / ExtraTitle / ...
-	// at the default scope.  An index that runs past the end of a sibling
-	// slice is treated as the zero value of that field (= matches the
-	// applyHoneypotForm decoder).
-	AppendExtra          []string `yaml:"append_extra,omitempty"`
-	AppendExtraTitle     []string `yaml:"append_extra_title,omitempty"`
-	AppendExtraDisabled  []bool   `yaml:"append_extra_disabled,omitempty"`
-	AppendExtraUpdatedAt []int64  `yaml:"append_extra_updated_at,omitempty"`
-	AppendExtraAction    []string `yaml:"append_extra_action,omitempty"`
-	// Remove: default-scope Extra patterns to drop for this site (= exact
-	// string match against Extra[i]).
-	Remove []string `yaml:"remove,omitempty"`
-	// DisabledPresets: nil = inherit; non-nil = replace.  Empty slice means
-	// "every preset enabled" (= the inverse of the default scope's
-	// DisabledPresets list).
-	DisabledPresets *[]string `yaml:"disabled_presets,omitempty"`
-	// DefaultAction: chMode override.  Empty = inherit.
-	DefaultAction string `yaml:"default_action,omitempty"`
-	// BanDuration: per-site TTL override (seconds).  Honoured only when
-	// BanDurationSet is true so 0 (= permanent) is distinguishable from
-	// "inherit".
-	BanDuration    int  `yaml:"ban_duration,omitempty"`
-	BanDurationSet bool `yaml:"ban_duration_set,omitempty"`
-}
-
-// Resolve: effective honeypot config for the given site.  Returns a value
-// copy with Overrides cleared so callers can pass the result around without
-// re-resolving.  Receiver is the value type to match the snapshot flow.
-//
-// Resolution:
-//   - Extra rows: copy default's parallel arrays minus rows whose pattern
-//     matches any string in Overrides[site].Remove, then append the
-//     override's Append* parallel slices (zero-padded to the longest
-//     slice in the append set so the indices remain aligned).
-//   - DisabledPresets: nil override -> inherit default; non-nil -> replace
-//   - DefaultAction:   empty override -> inherit
-//   - BanDuration:     BanDurationSet=false -> inherit; true -> use the override value
-//   - BanFilePath / PresetAction / ExtraAction: inherited verbatim (no
-//     per-site surface in v0.1 -- the ban file and preset / per-extra
-//     action lookups are install-wide signals).
-//
-// site == "" returns the default unchanged; sites without an overrides
-// entry also return the default verbatim.
-func (h HoneypotConfig) Resolve(site string) HoneypotConfig {
-	out := h
-	out.Overrides = nil
-	if site == "" {
-		return out
-	}
-	ov, ok := h.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.DisabledPresets != nil {
-		out.DisabledPresets = *ov.DisabledPresets
-	}
-	if ov.DefaultAction != "" {
-		out.DefaultAction = ov.DefaultAction
-	}
-	if ov.BanDurationSet {
-		out.BanDuration = ov.BanDuration
-	}
-	if len(ov.Remove) > 0 || len(ov.AppendExtra) > 0 {
-		removed := make(map[string]bool, len(ov.Remove))
-		for _, p := range ov.Remove {
-			if p == "" {
-				continue
-			}
-			removed[p] = true
-		}
-		// Filter default's parallel arrays by Remove.  The four sibling
-		// slices (Title / Disabled / UpdatedAt / ExtraAction) are
-		// index-aligned with Extra; preserve that alignment when filtering.
-		keptExtra := make([]string, 0, len(h.Extra)+len(ov.AppendExtra))
-		keptTitle := make([]string, 0, len(h.Extra)+len(ov.AppendExtra))
-		keptDisabled := make([]bool, 0, len(h.Extra)+len(ov.AppendExtra))
-		keptUpd := make([]int64, 0, len(h.Extra)+len(ov.AppendExtra))
-		keptAction := make([]string, 0, len(h.Extra)+len(ov.AppendExtra))
-		for i, p := range h.Extra {
-			if removed[p] {
-				continue
-			}
-			keptExtra = append(keptExtra, p)
-			keptTitle = append(keptTitle, sliceAt(h.ExtraTitle, i))
-			keptDisabled = append(keptDisabled, sliceBoolAt(h.ExtraDisabled, i))
-			keptUpd = append(keptUpd, sliceInt64At(h.ExtraUpdatedAt, i))
-			keptAction = append(keptAction, sliceAt(h.ExtraAction, i))
-		}
-		// Append per-site rows.  Pad missing sibling slots with zero values
-		// so the parallel-array invariant survives the merge.
-		for i, p := range ov.AppendExtra {
-			keptExtra = append(keptExtra, p)
-			keptTitle = append(keptTitle, sliceAt(ov.AppendExtraTitle, i))
-			keptDisabled = append(keptDisabled, sliceBoolAt(ov.AppendExtraDisabled, i))
-			keptUpd = append(keptUpd, sliceInt64At(ov.AppendExtraUpdatedAt, i))
-			keptAction = append(keptAction, sliceAt(ov.AppendExtraAction, i))
-		}
-		out.Extra = keptExtra
-		out.ExtraTitle = keptTitle
-		out.ExtraDisabled = keptDisabled
-		out.ExtraUpdatedAt = keptUpd
-		out.ExtraAction = keptAction
-	}
-	return out
-}
-
-// sliceAt: safe index into a []string, returning "" past the end.  Inline
-// helpers like this keep Resolve readable without sprinkling len() guards.
-func sliceAt(s []string, i int) string {
-	if i < 0 || i >= len(s) {
-		return ""
-	}
-	return s[i]
-}
-
-func sliceBoolAt(s []bool, i int) bool {
-	if i < 0 || i >= len(s) {
-		return false
-	}
-	return s[i]
-}
-
-func sliceInt64At(s []int64, i int) int64 {
-	if i < 0 || i >= len(s) {
-		return 0
-	}
-	return s[i]
 }
 
 // ChallengeTargetsConfig: which UAs receive a challenge when bot signals fire.
@@ -1427,63 +1025,6 @@ type RateLimitConfig struct {
 	//              one NAT IP are counted separately)
 	// Empty -> "ip" (= back-compat with installs that pre-date this field).
 	Key string `yaml:"key,omitempty"`
-	// Overrides: per-site rate-limit knobs keyed by the normalised Host.
-	// Only the Default zone is overridable per-site -- the Zones list and
-	// the Key kind are install-wide.  Named zones are a v0.2+ surface so
-	// the per-site editor stays focused on the high-traffic knobs operators
-	// actually care about (= burst / rpm / window / chMode).
-	Overrides map[string]RateLimitOverride `yaml:"overrides,omitempty"`
-}
-
-// RateLimitOverride: per-site rate-limit overrides.  Zero / empty values
-// inherit the default; non-zero / non-empty replace.  Only the Default-zone
-// knobs are surfaced; named Zones and Key stay install-wide.
-type RateLimitOverride struct {
-	RequestsPerMin int    `yaml:"requests_per_min,omitempty"`
-	Burst          int    `yaml:"burst,omitempty"`
-	WindowSec      int    `yaml:"window_sec,omitempty"`
-	ChallengeMode  string `yaml:"challenge_mode,omitempty"`
-	// BurstSet distinguishes "inherit" from "explicit 0" for Burst, which
-	// is the one zone knob where 0 is a meaningful value (= no bursting on
-	// top of the steady rate).  Without this flag a site that wants
-	// Burst=0 could not override the default's 50 / would silently inherit.
-	BurstSet bool `yaml:"burst_set,omitempty"`
-}
-
-// Resolve: effective RateLimitConfig for the given site.  Returns a value
-// copy with Overrides cleared so callers can pass the result around without
-// re-resolving.  Only Default-zone knobs are merged; Zones / Key are
-// inherited verbatim.  Receiver is the value type to match the snapshot
-// flow.
-//
-// Inheritance:
-//   - RequestsPerMin: 0 -> inherit
-//   - Burst:          honoured only when BurstSet is true; otherwise inherit
-//   - WindowSec:      0 -> inherit
-//   - ChallengeMode:  empty -> inherit
-func (c RateLimitConfig) Resolve(site string) RateLimitConfig {
-	out := c
-	out.Overrides = nil
-	if site == "" {
-		return out
-	}
-	ov, ok := c.Overrides[site]
-	if !ok {
-		return out
-	}
-	if ov.RequestsPerMin > 0 {
-		out.Default.RequestsPerMin = ov.RequestsPerMin
-	}
-	if ov.BurstSet {
-		out.Default.Burst = ov.Burst
-	}
-	if ov.WindowSec > 0 {
-		out.Default.WindowSec = ov.WindowSec
-	}
-	if ov.ChallengeMode != "" {
-		out.Default.ChallengeMode = ov.ChallengeMode
-	}
-	return out
 }
 
 // Rate-limit key kinds.

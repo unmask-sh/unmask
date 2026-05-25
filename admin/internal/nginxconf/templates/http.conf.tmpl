@@ -279,7 +279,7 @@ map $request_uri $serve_bot_challenge {
 }
 
 # -----------------------------------------------------------------------------
-# Protected paths ($protected_mode) -- per-site Overrides[site] reflected
+# Protected paths ($protected_mode)
 # -----------------------------------------------------------------------------
 # Force CAPTCHA / PoW / strict on specific paths (admin panel / critical form /
 # API key entry etc.).  Difference from honeypot: "visitors reaching this path
@@ -287,102 +287,11 @@ map $request_uri $serve_bot_challenge {
 #   - captcha : skip PoW -> CAPTCHA directly -> _bv (default; medium UX)
 #   - pow     : issue _bv with PoW only (lightweight)
 #   - strict  : PoW -> CAPTCHA chain (in v0.1 equivalent to captcha; chained in v0.2)
-#
-# Multi-site phase 2.2 layout (mirrors the bypass-paths split below):
-#
-#   Stage A: $protected_mode_global -- the default rules every site inherits.
-#   Stage B: per-host Append map(s) -- one per site that registered Append rows.
-#   Stage C: per-host Remove disable map(s) -- one per site that registered
-#            Remove rows; surfaces "1" when $request_uri matches the removed
-#            path so the dispatcher can subtract the global match.
-#   Stage D: host dispatchers (= map $host) select which per-host result to
-#            surface for the current request.
-#   Stage E: final $protected_mode = if disable=1 -> "", elif perhost != "" ->
-#            perhost, else global.
-
-# Stage A: default rules.
-map $request_uri $protected_mode_global {
+map $request_uri $protected_mode {
     default "";
-{{- range .ProtectedPathsGlobal }}
+{{- range .ProtectedPaths }}
     "~*{{ .Pattern }}" "{{ .Mode }}";
 {{- end }}
-}
-
-{{- if .ProtectedPathsPerHost }}
-
-# Stage B: per-host Append rules.  Each site contributes a path-only map
-# whose value is the per-rule Mode ("captcha" / "pow" / "strict").
-{{- range .ProtectedPathsPerHost }}
-map $request_uri $protected_mode_host_{{ .VarName }} {
-    default "";
-{{- range .Rules }}
-    "~*{{ .Pattern }}" "{{ .Mode }}";
-{{- end }}
-}
-{{- end }}
-
-# Stage C: dispatcher for per-host Append.  Unknown hosts pin to "" so they
-# fall through to the global map.
-map $host $protected_mode_perhost {
-    default "";
-{{- range .ProtectedPathsPerHost }}
-    "{{ .Host }}" $protected_mode_host_{{ .VarName }};
-{{- end }}
-}
-{{- else }}
-
-# No per-host Append rules.
-map $host $protected_mode_perhost {
-    default "";
-}
-{{- end }}
-
-{{- if .ProtectedPathsDisablePerHost }}
-
-# Stage C': per-host Remove (= disable) rules.  Each site contributes a
-# path-only map that returns "1" when the URI matches a removed default path.
-{{- range .ProtectedPathsDisablePerHost }}
-map $request_uri $protected_mode_disable_host_{{ .VarName }} {
-    default "0";
-{{- range .Patterns }}
-    "~*{{ . }}" "1";
-{{- end }}
-}
-{{- end }}
-
-# Dispatcher for the disable signal.  Unknown hosts pin to "0".
-map $host $protected_mode_disable {
-    default "0";
-{{- range .ProtectedPathsDisablePerHost }}
-    "{{ .Host }}" $protected_mode_disable_host_{{ .VarName }};
-{{- end }}
-}
-{{- else }}
-
-# No per-host Remove rules.
-map $host $protected_mode_disable {
-    default "0";
-}
-{{- end }}
-
-# Stage D: pick global vs perhost (= Append wins when present).  Output is
-# either the perhost value, the global value, or "" when neither matches.
-map "$protected_mode_perhost::$protected_mode_global" $protected_mode_pre {
-    default                       "";
-    "~^captcha::"                 "captcha";   # perhost Append captcha
-    "~^pow::"                     "pow";       # perhost Append pow
-    "~^strict::"                  "strict";    # perhost Append strict
-    "~^::captcha$"                "captcha";   # fall through to global captcha
-    "~^::pow$"                    "pow";
-    "~^::strict$"                 "strict";
-}
-
-# Stage E: apply per-host disable (= Remove diff).  When disable=1 for the
-# current $host AND the path matches a default-global rule the site removed,
-# blank $protected_mode so the request isn't gated for that site.
-map "$protected_mode_disable:$protected_mode_pre" $protected_mode {
-    default              $protected_mode_pre;
-    "~^1:"               "";   # site explicitly opted out of this default match
 }
 
 {{- if .SharedFeedSubscribe }}

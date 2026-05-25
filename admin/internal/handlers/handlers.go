@@ -223,8 +223,7 @@ func brandingInjectJSON(b settings.Branding, basePath string) string {
 // mismatch (e.g. visitor asks for .png but operator stored .svg) is also a
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	site := siteFromRequest(r)
-	b := h.snapshotSettings().Branding.Resolve(site)
+	b := h.snapshotSettings().Branding
 	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
 		return
@@ -606,19 +605,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__CAPTCHA_FORCE__*/"`+forceReason+`"`))
 	body = bytes.ReplaceAll(body, []byte(challengeProbe),
 		[]byte("<!--probe=ON force_reason="+forceReason+"-->"))
-	// Resolve per-site Challenge knobs once for this serve so the captcha
-	// provider / theme / PoW difficulty / show-credit all see the same
-	// snapshot.  CaptchaProvider stays install-wide (= secret material
-	// belongs at the install boundary), but Theme / PowDifficulty /
-	// ShowCredit honour the per-site override.  See settings.ChallengeOverride.
-	chRes := h.Settings.Challenge.Resolve(site)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
-		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(chRes.CaptchaProvider)))
-	theme := pickChallengeTheme(r, chRes.Theme)
+		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(h.Settings.Challenge.CaptchaProvider)))
+	theme := pickChallengeTheme(r, h.Settings.Challenge.Theme)
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
-		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding.Resolve(site), h.basePath())))
+		[]byte("/*__BRANDING__*/"+brandingInjectJSON(h.Settings.Branding, h.basePath())))
 	// Cache-bust the challenge.js URL with the admin's start-time epoch so
 	// every restart forces visitors to re-fetch the script.  Without this
 	// the public-side max-age=600 keeps stale JS in browsers for up to 10
@@ -655,15 +648,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve per-site RateLimit + Honeypot knobs alongside Challenge.  Both
-	// feed the chMode fallback ladder below, so a per-site override on rpm /
-	// burst / honeypot DefaultAction takes effect on the rendered challenge
-	// page without an admin restart.  Values are install-wide for the named
-	// Zones[] list (= per-site override surface intentionally limited to
-	// Default-zone knobs in v0.1).
-	rlRes := h.Settings.RateLimit.Resolve(site)
-	hpRes := h.Settings.Nginx.Honeypot.Resolve(site)
-	chMode := rlRes.Default.ResolvedChallengeMode()
+	chMode := h.Settings.RateLimit.Default.ResolvedChallengeMode()
 	if forceReason == "none" {
 		// "no-match" path: split the chain by whether the UA looks like
 		// a real browser.  Falls back to the legacy DefaultAction field
@@ -689,19 +674,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	if forceReason == "protected" {
 		// Protected-path default (= per-path preset/extra dispatch wired
-		// up later).  Resolve(site) honours the per-site DefaultAction
-		// override before falling through to ChallengeTargets.
-		ppResolved := h.Settings.Nginx.ProtectedPaths.Resolve(site)
-		if act := strings.TrimSpace(ppResolved.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		// up later).  Falls through to ChallengeTargets if not set.
+		if act := strings.TrimSpace(h.Settings.Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		} else if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "honeypot" {
 		// Honeypot trip default (= preset/custom path-based override
-		// wiring is a follow-up).  Per-site honeypot DefaultAction
-		// override takes priority via Resolve(site).
-		if act := strings.TrimSpace(hpRes.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		// wiring is a follow-up).
+		if act := strings.TrimSpace(h.Settings.Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {
@@ -761,10 +743,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__CHMODE__*/"`+chMode+`"`))
 
 	// PoW difficulty (settings.Challenge.PowDifficulty; the target
-	// leading-zero-bits used by challenge.js's SHA-256 hashcash).  Honours
-	// the per-site Challenge override resolved at the top of the handler.
+	// leading-zero-bits used by challenge.js's SHA-256 hashcash).
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
-		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", chRes.ResolvedPowDifficulty())))
+		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", h.Settings.Challenge.ResolvedPowDifficulty())))
 
 	// PoW spinner floor.  Production sees no floor (real PoW timing); the
 	// /unmask/test/ pages opt into a slowdown via `?_pow_display=N` so an
@@ -827,7 +808,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// the aside body.  Operator-side previews (= /admin/test/ or ?_preview=1)
 	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
 	// reflects the toggle live without saving.
-	showCredit := chRes.ShowCredit
+	showCredit := h.Settings.Challenge.ShowCredit
 	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
 		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
 			showCredit = true

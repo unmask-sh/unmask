@@ -326,35 +326,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </header>
 <main class="unmask-main">
 
-{{/* Multi-site override scope: select whether the per-section editors below
-     write to the shared baseline (= "default") or into a per-site overrides
-     entry.  Lives at the page top so the choice is visible regardless of
-     which tab the operator opens.  See doc/MULTI-SITE-DESIGN.md.
-     Phase 1.4 wires this through the Branding section only; the rest still
-     write to the baseline and ignore the scope -- a muted hint surfaces
-     that on those tabs when the scope is not default. */}}
-<div class="settings-scope-bar">
-  {{ template "scope_picker" . }}
-  {{ if .Scope }}
-  <span class="settings-scope-current">
-    {{ tf .Lang "settings.scope.currently_editing" .Scope }}
-    {{ if eq .ScopeBrandingOverrideCount 0 }}
-      <span class="settings-scope-count">({{ t .Lang "settings.scope.no_overrides_yet" }})</span>
-    {{ else if eq .ScopeBrandingOverrideCount 1 }}
-      <span class="settings-scope-count">(1 {{ t .Lang "settings.scope.override_unit" }})</span>
-    {{ else }}
-      <span class="settings-scope-count">({{ .ScopeBrandingOverrideCount }} {{ t .Lang "settings.scope.overrides_unit" }})</span>
-    {{ end }}
-  </span>
-  {{ end }}
-</div>
-<style>
-.settings-scope-bar{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;padding:.5rem .7rem;margin:0 0 .8rem;background:#fefce8;border:1px solid #fde68a;border-radius:.35rem}
-.settings-scope-bar .scope-picker{flex:0 0 auto}
-.settings-scope-current{font-size:.82rem;color:#7c2d12;font-weight:600}
-.settings-scope-current .settings-scope-count{font-weight:400;color:#92400e;font-size:.78rem}
-</style>
-
 {{/* Page-top "設定" h1 was retired; the per-tab settings-tab-title in the
      right pane now plays the role of the page heading (= same y as the
      left-nav first <h3> entry). */}}
@@ -428,23 +399,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 {{ if .Error }}
 <div class="banner bad">{{ t .Lang "settings.error_prefix" }}{{ .Error }}</div>
-{{ end }}
-
-{{/* Multi-site scope hint for tabs that have no per-site override yet (= phase
-     1.4 ships Branding overrides; phase 1.4b adds protected / bypass-paths;
-     the rest still read / write the global baseline regardless of scope).
-     Skip on tabs whose entire body is a non-editable landing (top), where the
-     message would duplicate inline content (theme / protected / bypass-paths
-     tabs carry their own per-card scope banners). */}}
-{{ if and .Scope (not (or (eq .Tab "top") (eq .Tab "theme") (eq .Tab "protected") (eq .Tab "bypass-paths"))) }}
-<div class="banner banner-scope-hint">
-  <strong>{{ t .Lang "settings.branding.scope.global_only_tag" }}</strong>
-  — {{ t .Lang "settings.scope.tab_no_override_hint" }}
-</div>
-<style>
-.banner.banner-scope-hint{background:#f1f5f9;border-color:#cbd5e1;color:#475569;font-size:.8rem}
-.banner.banner-scope-hint strong{color:#0f172a;text-transform:uppercase;font-size:.7rem;letter-spacing:.04em;background:#e2e8f0;padding:.05rem .35rem;border-radius:.2rem;margin-right:.3rem}
-</style>
 {{ end }}
 
 {{ if eq .Tab "top" }}
@@ -1009,48 +963,17 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "bypass-paths" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
-  {{ if .Scope }}
-  {{/* Phase 1.4b: per-site editor for bypass-paths.  Three blocks:
-       1. Inherited from default (each row carries a "remove for this site"
-          checkbox; checking it tells the save handler to add the path to
-          Override.Remove)
-       2. Additional for this site (= Override.Append rows, same custom-row
-          UI as the default scope)
-       3. Removed from default (= Override.Remove summary)
-       The preset list above is still rendered for visibility but disabled
-       in site scope; the per-site preset override UI lands in a later
-       phase along with the protected-paths preset override. */}}
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.bypass.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.bypass.scope.banner" }}
-    </p>
-    <button type="submit" name="reset_bypass_paths" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.bypass.scope.reset_confirm" }})">
-      {{ t .Lang "settings.bypass.scope.reset_btn" }}
-    </button>
-  </div>
-  {{ end }}
-
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bypass-paths">
   <div class="bcd-card">
     <h2>
       {{ t .Lang "settings.bypass_paths.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bp-preset-help" aria-label="?">?</button>
       <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script>
     </h2>
-    {{ if .Scope }}
-    <p class="note" style="margin:.1rem 0 .55rem;color:#94a3b8;font-size:.78rem">
-      {{ t .Lang "settings.bypass.scope.preset_global_only_hint" }}
-    </p>
-    {{ end }}
     <div class="ua-section">
       {{ range .BypassPathGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
-        <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}"{{ if $.Scope }} disabled{{ end }}>
+        <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
         <label for="bp-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
@@ -1060,135 +983,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
   </div>
 
-  {{ if .Scope }}
-  {{/* Block 1: Inherited from default.  Each row has a "remove for this
-       site" checkbox whose VALUE is the path string; only ticked rows
-       submit a `bp_remove` field, which the save handler folds into
-       Override.Remove (rebuilt from scratch each save -- unticking a box
-       drops the remove). */}}
-  <div class="bcd-card">
-    <h2 style="display:flex;align-items:center;gap:.6rem">
-      {{ t .Lang "settings.bypass.scope.inherited_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.bypass.scope.inherited_count" (len .BypassPathsInheritedRows) }})
-      </span>
-    </h2>
-    {{ if .BypassPathsInheritedRows }}
-    <table class="bp-inherit-table">
-      <thead>
-        <tr>
-          <th>{{ t .Lang "settings.bypass.scope.col_remove" }}</th>
-          <th>{{ t .Lang "settings.bypass.scope.col_title" }}</th>
-          <th>{{ t .Lang "settings.bypass.scope.col_pattern" }}</th>
-          <th>{{ t .Lang "settings.bypass.scope.col_default_state" }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ range .BypassPathsInheritedRows }}
-        <tr{{ if .Removed }} class="bp-inherit-removed"{{ end }}>
-          <td class="bp-inherit-cell-remove">
-            <label class="bp-inherit-remove-label">
-              <input type="checkbox" name="bp_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
-              {{ t $.Lang "settings.bypass.scope.remove_label" }}
-            </label>
-          </td>
-          <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="muted" style="color:#94a3b8">{{ t $.Lang "settings.ua.empty_title" }}</span>{{ end }}</td>
-          <td><code>{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</code></td>
-          <td>
-            {{ if .Enabled }}<span class="bp-state-on">{{ t $.Lang "settings.bypass.scope.state_on" }}</span>{{ else }}<span class="bp-state-off">{{ t $.Lang "settings.bypass.scope.state_off" }}</span>{{ end }}
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    {{ else }}
-    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
-      {{ t .Lang "settings.bypass.scope.inherited_empty" }}
-    </p>
-    {{ end }}
-  </div>
-
-  {{/* Block 2: Additional for this site (= Override.Append).  Reuses the
-       default-scope row UI so the per-row edit JS works without branching. */}}
-  <div class="bcd-card">
-    <h2>
-      {{ t .Lang "settings.bypass.scope.additional_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.bypass.scope.additional_count" (len .BypassPathsAppendRows) }})
-      </span>
-    </h2>
-    <p class="note" style="margin:.1rem 0 .55rem;color:#64748b;font-size:.78rem">
-      {{ t .Lang "settings.bypass.scope.additional_hint" }}
-    </p>
-    <div class="rule-list" data-rule-name="bp_pat">
-      {{ range .BypassPathsAppendRows }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
-        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
-        <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
-        <span class="rule-view">
-          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
-        </span>
-        <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
-      </div>
-      {{ end }}
-      <template class="rule-row-template">
-        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
-          <input type="checkbox" class="rule-toggle" checked>
-          <input type="hidden" name="bp_enabled" value="1">
-          <input type="hidden" name="bp_updated_at" value="0">
-          <span class="rule-view">
-            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
-            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
-          </span>
-          <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
-        </div>
-      </template>
-    </div>
-    <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
-  </div>
-
-  {{/* Block 3: Removed from default for this site -- a flat summary of
-       Override.Remove so the operator can scan removals separately from
-       the inherit-block checkboxes.  Read-only here; unchecking a row in
-       block 1 above is the way to undo a remove. */}}
-  <div class="bcd-card">
-    <h2>
-      {{ t .Lang "settings.bypass.scope.removed_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.bypass.scope.removed_count" (len .BypassPathsRemoveStrings) }})
-      </span>
-    </h2>
-    {{ if .BypassPathsRemoveStrings }}
-    <ul class="bp-remove-list">
-      {{ range .BypassPathsRemoveStrings }}<li><code>{{ . }}</code></li>{{ end }}
-    </ul>
-    <p class="note" style="margin:.45rem 0 0;color:#94a3b8;font-size:.78rem">
-      {{ t .Lang "settings.bypass.scope.removed_hint" }}
-    </p>
-    {{ else }}
-    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
-      {{ t .Lang "settings.bypass.scope.removed_empty" }}
-    </p>
-    {{ end }}
-  </div>
-  {{ else }}
   <div class="bcd-card">
     <h2>
       {{ t .Lang "settings.bypass_paths.title" }}
@@ -1203,14 +997,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
-        {{/* phase 1.4b: default-scope view stays add-only.  The "remove"
-             column is exposed only in site scope (see the inherit block
-             above) per the add-only invariant on the shared baseline. */}}
+        <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1230,6 +1022,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1241,24 +1034,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
     <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
   </div>
-  {{ end }}
+  <datalist id="bp-site-candidates">
+    {{ range .Sites }}<option value="{{ . }}">{{ end }}
+  </datalist>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<style>
-.bp-inherit-table{width:100%;border-collapse:collapse;margin:.4rem 0 0;font-size:.82rem}
-.bp-inherit-table thead{background:#f8fafc}
-.bp-inherit-table th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem}
-.bp-inherit-table td{padding:.4rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
-.bp-inherit-table tr.bp-inherit-removed td{background:#fef2f2}
-.bp-inherit-table tr.bp-inherit-removed td code{text-decoration:line-through;color:#9ca3af}
-.bp-inherit-cell-remove{white-space:nowrap}
-.bp-inherit-remove-label{display:inline-flex;align-items:center;gap:.3rem;color:#9a3412;font-size:.78rem;cursor:pointer}
-.bp-state-on{color:#0f766e;font-size:.78rem;font-weight:600}
-.bp-state-off{color:#94a3b8;font-size:.78rem}
-.bp-remove-list{margin:.3rem 0 0;padding-left:1.2rem;font-size:.85rem}
-.bp-remove-list li{margin:.15rem 0;color:#7c2d12}
-.bp-remove-list code{background:#fef2f2;padding:.05rem .3rem;border-radius:.2rem;border:1px solid #fecaca}
-</style>
 {{ end }}
 
 {{ if eq .Tab "global" }}
@@ -2005,157 +1785,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "honeypot" }}
-{{ if .Scope }}
-{{/* Phase 2.1: per-site editor for honeypot.  Three blocks (= Inherited from
-     default / Per-site additions / Per-site removals) mirror the protected /
-     bypass-paths editors, plus scalar overrides for DefaultAction and
-     BanDuration.  Preset toggles render read-only in site scope until the
-     per-preset surface ships in a later phase. */}}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot&scope={{ .Scope }}">
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.honeypot.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.honeypot.scope.banner" }}
-    </p>
-    <button type="submit" name="reset_honeypot" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.honeypot.scope.reset_confirm" }})">
-      {{ t .Lang "settings.honeypot.scope.reset_btn" }}
-    </button>
-  </div>
-
-  <div class="bcd-card">
-    {{/* ban_duration override -- explicit checkbox so "0 = permanent" is
-         distinguishable from "inherit default". */}}
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.honeypot.ban_duration_h" }}</label>
-      <input type="checkbox" id="hp-ban-dur-set" name="ban_duration_override_set" value="1" {{ if .HoneypotOverride.BanDurationSet }}checked{{ end }}
-             onchange="document.getElementById('hp-ban-dur-ov').disabled = !this.checked">
-      <label for="hp-ban-dur-set" style="font-weight:normal;margin-right:.6rem">{{ t .Lang "settings.honeypot.scope.override_explicit" }}</label>
-      <input type="number" id="hp-ban-dur-ov" name="ban_duration" min="0" max="2592000" step="60"
-             value="{{ if .HoneypotOverride.BanDurationSet }}{{ .HoneypotOverride.BanDuration }}{{ end }}"
-             placeholder="{{ .HoneypotResolved.BanDuration }}"
-             style="width:8rem"
-             {{ if not .HoneypotOverride.BanDurationSet }}disabled{{ end }}>
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.honeypot.scope.default_v" .HoneypotResolved.BanDuration }}</span>
-    </div>
-
-    {{/* DefaultAction override.  Inherit sentinel surfaces the resolved
-         default so the operator sees what they would inherit if they
-         cleared the override. */}}
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569">{{ t .Lang "settings.honeypot.action_h" }}</div>
-      {{ $hovcm := .HoneypotOverride.DefaultAction }}
-      <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="inherit"          {{ if eq $hovcm "" }}selected{{ end }}>{{ tf .Lang "settings.honeypot.scope.inherit_default_v" .HoneypotResolved.DefaultAction }}</option>
-        <option value="pow_only"         {{ if eq $hovcm "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $hovcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $hovcm "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $hovcm "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-  </div>
-
-  {{/* Inherited block: each default-scope row carries a "remove for this
-       site" checkbox.  Pre-checked when the site already has the path in
-       Override.Remove. */}}
-  <div class="bcd-card">
-    <h3 style="font-size:.95rem;margin:0 0 .4rem">{{ t .Lang "settings.honeypot.scope.inherited_h" }}</h3>
-    <p class="note" style="margin:0 0 .6rem;font-size:.8rem">{{ t .Lang "settings.honeypot.scope.inherited_help" }}</p>
-    {{ if .HoneypotInheritedRows }}
-    <table style="width:100%;border-collapse:collapse;font-size:.85rem">
-      <thead style="background:#f8fafc;color:#475569">
-        <tr>
-          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_pattern" }}</th>
-          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_title" }}</th>
-          <th style="text-align:center;padding:.4rem .5rem">{{ t .Lang "settings.honeypot.scope.col_remove" }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ range .HoneypotInheritedRows }}
-        <tr style="border-top:1px solid #e2e8f0;{{ if .Removed }}opacity:.5;text-decoration:line-through{{ end }}">
-          <td style="padding:.3rem .5rem;font-family:ui-monospace,Menlo,monospace">{{ .Pattern }}</td>
-          <td style="padding:.3rem .5rem;color:#475569">{{ .Title }}{{ if not .Enabled }} <span style="color:#94a3b8;font-size:.75rem">({{ t $.Lang "settings.honeypot.scope.row_disabled" }})</span>{{ end }}</td>
-          <td style="padding:.3rem .5rem;text-align:center">
-            <input type="checkbox" name="honeypot_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    {{ else }}
-    <p class="note" style="font-size:.8rem;color:#94a3b8">{{ t .Lang "settings.honeypot.scope.no_inherited" }}</p>
-    {{ end }}
-  </div>
-
-  {{/* Per-site additions.  Mirrors the default-scope custom row UI shape
-       (= the same form field names, so the existing JS row-add /
-       delete handlers work without branching on scope). */}}
-  <div class="bcd-card">
-    <h3 style="font-size:.95rem;margin:0 0 .4rem">{{ t .Lang "settings.honeypot.scope.append_h" }}</h3>
-    <p class="note" style="margin:0 0 .6rem;font-size:.8rem">{{ t .Lang "settings.honeypot.scope.append_help" }}</p>
-    <div class="rule-list" data-rule-name="honeypot_pat">
-    {{ range $i, $r := .HoneypotAppendRows }}
-    <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
-      <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
-      <input type="hidden" name="honeypot_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-      <input type="hidden" name="honeypot_updated_at" value="{{ $r.UpdatedAt }}">
-      <span class="rule-view">
-        <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-        <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
-      </span>
-      <input type="text" name="honeypot_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-      <input type="text" name="honeypot_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
-      <select name="honeypot_extra_action" class="extra-action-sel">
-        <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-        <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
-      </select>
-      <button type="button" class="rule-up">↑</button>
-      <button type="button" class="rule-down">↓</button>
-      <button type="button" class="rule-edit">✏️</button>
-      <button type="button" class="rule-save">✓</button>
-      <button type="button" class="rule-del">🗑</button>
-      <button type="button" class="rule-add">＋</button>
-    </div>
-    {{ end }}
-    <template class="rule-row-template">
-      <div class="rule-row editing" data-orig-pat="" data-orig-title="">
-        <input type="checkbox" class="rule-toggle" checked>
-        <input type="hidden" name="honeypot_enabled" value="1">
-        <input type="hidden" name="honeypot_updated_at" value="0">
-        <span class="rule-view">
-          <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
-          <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
-        </span>
-        <input type="text" name="honeypot_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="honeypot_pat" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
-        <select name="honeypot_extra_action" class="extra-action-sel">
-          <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
-          <option value="pow_only">pow_only</option>
-          <option value="pow_then_captcha">pow_then_captcha</option>
-          <option value="captcha_only">captcha_only</option>
-          <option value="deny">deny</option>
-        </select>
-        <button type="button" class="rule-up">↑</button>
-        <button type="button" class="rule-down">↓</button>
-        <button type="button" class="rule-edit">✏️</button>
-        <button type="button" class="rule-save">✓</button>
-        <button type="button" class="rule-del">🗑</button>
-        <button type="button" class="rule-add">＋</button>
-      </div>
-    </template>
-    </div>
-    <button type="button" class="rule-add-bottom" data-target-list="honeypot_pat">{{ t .Lang "settings.ua.add_new" }}</button>
-  </div>
-
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
-{{ else }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot">
   <div class="bcd-card">
     <!-- ban_duration: TTL of BANs auto-added when a honeypot is tripped -->
@@ -2301,31 +1930,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
-{{ end }}
 
 {{ if eq .Tab "protected" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
-  {{ if .Scope }}
-  {{/* Phase 1.4b: per-site editor for protected-paths.  Three blocks
-       analogous to bypass-paths plus a per-site DefaultAction override
-       (= chain to run when a protected path fires on this site).  Preset
-       toggles are rendered read-only in site scope until the per-preset
-       override UI ships in a later phase. */}}
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.protected.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.protected.scope.banner" }}
-    </p>
-    <button type="submit" name="reset_protected" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.protected.scope.reset_confirm" }})">
-      {{ t .Lang "settings.protected.scope.reset_btn" }}
-    </button>
-  </div>
-  {{ end }}
-
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected">
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.protected.preset.title" }}
@@ -2339,23 +1946,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ t .Lang "settings.protected.action_h" }}
         <button type="button" class="ua-help-trigger" data-help-target="protected-action-help" aria-label="?">?</button>
       </div>
-      {{ if .Scope }}
-      {{/* In site scope the select carries an explicit "inherit" sentinel
-           so the operator can blank the override without leaving a stale
-           value.  Selected entry is the site's Override.DefaultAction
-           (= ProtectedDefaultActionOv), empty/inherit = inherit the default
-           scope's DefaultAction. */}}
-      {{ $defPcm := .ProtectedPaths.DefaultAction }}
-      {{ if eq $defPcm "" }}{{ $defPcm = "pow_then_captcha" }}{{ end }}
-      {{ $ovPcm := .ProtectedDefaultActionOv }}
-      <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="inherit"          {{ if eq $ovPcm "" }}selected{{ end }}>{{ t .Lang "settings.protected.scope.action_inherit" }} ({{ $defPcm }})</option>
-        <option value="pow_only"         {{ if eq $ovPcm "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $ovPcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $ovPcm "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $ovPcm "deny" }}selected{{ end }}>deny</option>
-      </select>
-      {{ else }}
       {{ $pcm := .ProtectedPaths.DefaultAction }}
       {{ if eq $pcm "" }}{{ $pcm = "pow_then_captcha" }}{{ end }}
       <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
@@ -2364,7 +1954,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="deny"             {{ if eq $pcm "deny" }}selected{{ end }}>deny</option>
       </select>
-      {{ end }}
     </div>
     <script type="text/html" id="protected-action-help">
       <div><strong>{{ t .Lang "settings.protected.action_h" }}</strong></div>
@@ -2377,21 +1966,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </ul>
     </script>
 
-    {{ if .Scope }}
-    <p class="note" style="margin:.1rem 0 .55rem;color:#94a3b8;font-size:.78rem">
-      {{ t .Lang "settings.protected.scope.preset_global_only_hint" }}
-    </p>
-    {{ end }}
     <div class="ua-section">
       {{ range .ProtectedPresetGroups }}
       {{ $ppa := index $.ProtectedPresetAction .ID }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
-        <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}"{{ if $.Scope }} disabled{{ end }}>
+        <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}">
         <label for="pp-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ end }}</div>
         </label>
-        <select class="preset-action-sel" name="protected_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if or (not .Enabled) $.Scope }} disabled{{ end }}>
+        <select class="preset-action-sel" name="protected_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
           <option value="inherit" {{ if eq $ppa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
           <option value="pow_only"         {{ if eq $ppa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $ppa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2415,149 +1999,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
-  {{ if .Scope }}
-  {{/* Block 1: Inherited from default.  Each row carries the "remove for
-       this site" checkbox; ticking writes the path string into the
-       protected_remove form field (= folded into Override.Remove). */}}
-  <div class="bcd-card">
-    <h2 style="display:flex;align-items:center;gap:.6rem">
-      {{ t .Lang "settings.protected.scope.inherited_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.protected.scope.inherited_count" (len .ProtectedInheritedRows) }})
-      </span>
-    </h2>
-    {{ if .ProtectedInheritedRows }}
-    <table class="bp-inherit-table">
-      <thead>
-        <tr>
-          <th>{{ t .Lang "settings.protected.scope.col_remove" }}</th>
-          <th>{{ t .Lang "settings.protected.scope.col_title" }}</th>
-          <th>{{ t .Lang "settings.protected.scope.col_pattern" }}</th>
-          <th>{{ t .Lang "settings.protected.scope.col_mode" }}</th>
-          <th>{{ t .Lang "settings.protected.scope.col_default_state" }}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {{ range .ProtectedInheritedRows }}
-        <tr{{ if .Removed }} class="bp-inherit-removed"{{ end }}>
-          <td class="bp-inherit-cell-remove">
-            <label class="bp-inherit-remove-label">
-              <input type="checkbox" name="protected_remove" value="{{ .Pattern }}" {{ if .Removed }}checked{{ end }}>
-              {{ t $.Lang "settings.protected.scope.remove_label" }}
-            </label>
-          </td>
-          <td>{{ if .Title }}{{ .Title }}{{ else }}<span class="muted" style="color:#94a3b8">{{ t $.Lang "settings.ua.empty_title" }}</span>{{ end }}</td>
-          <td><code>{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</code></td>
-          <td><span class="action-pill action-{{ .Mode }}">{{ .Mode }}</span>{{ if .Action }} <span class="muted" style="color:#94a3b8;font-size:.75rem">({{ .Action }})</span>{{ end }}</td>
-          <td>
-            {{ if .Enabled }}<span class="bp-state-on">{{ t $.Lang "settings.bypass.scope.state_on" }}</span>{{ else }}<span class="bp-state-off">{{ t $.Lang "settings.bypass.scope.state_off" }}</span>{{ end }}
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    {{ else }}
-    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
-      {{ t .Lang "settings.protected.scope.inherited_empty" }}
-    </p>
-    {{ end }}
-  </div>
-
-  {{/* Block 2: Additional for this site (= Override.Append).  Reuses the
-       default-scope row UI; field names are identical so the per-row JS
-       keeps working. */}}
-  <div class="bcd-card">
-    <h2>
-      {{ t .Lang "settings.protected.scope.additional_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.protected.scope.additional_count" (len .ProtectedAppendRows) }})
-      </span>
-    </h2>
-    <p class="note" style="margin:.1rem 0 .55rem;color:#64748b;font-size:.78rem">
-      {{ t .Lang "settings.protected.scope.additional_hint" }}
-    </p>
-    <div class="ua-section">
-      <div class="rule-list" data-rule-name="protected_pat">
-      {{ range $i, $r := .ProtectedAppendRows }}
-      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
-        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
-        <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
-        <span class="rule-view">
-          <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
-          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
-        </span>
-        <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="protected_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
-        <select name="protected_extra_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" selected>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-          <option value="pow_only">pow_only</option>
-          <option value="pow_then_captcha">pow_then_captcha</option>
-          <option value="captcha_only">captcha_only</option>
-          <option value="deny">deny</option>
-        </select>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
-      </div>
-      {{ end }}
-      <template class="rule-row-template">
-        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
-          <input type="checkbox" class="rule-toggle" checked>
-          <input type="hidden" name="protected_enabled" value="1">
-          <input type="hidden" name="protected_updated_at" value="0">
-          <span class="rule-view">
-            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
-            <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
-          </span>
-          <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="protected_pat" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
-          <select name="protected_extra_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
-            <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
-            <option value="pow_only">pow_only</option>
-            <option value="pow_then_captcha">pow_then_captcha</option>
-            <option value="captcha_only">captcha_only</option>
-            <option value="deny">deny</option>
-          </select>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
-        </div>
-      </template>
-      </div>
-      <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
-    </div>
-  </div>
-
-  {{/* Block 3: Removed from default for this site. */}}
-  <div class="bcd-card">
-    <h2>
-      {{ t .Lang "settings.protected.scope.removed_title" }}
-      <span class="muted" style="font-weight:400;color:#64748b;font-size:.78rem">
-        ({{ tf .Lang "settings.protected.scope.removed_count" (len .ProtectedRemoveStrings) }})
-      </span>
-    </h2>
-    {{ if .ProtectedRemoveStrings }}
-    <ul class="bp-remove-list">
-      {{ range .ProtectedRemoveStrings }}<li><code>{{ . }}</code></li>{{ end }}
-    </ul>
-    <p class="note" style="margin:.45rem 0 0;color:#94a3b8;font-size:.78rem">
-      {{ t .Lang "settings.protected.scope.removed_hint" }}
-    </p>
-    {{ else }}
-    <p class="note" style="margin:.4rem 0;color:#94a3b8;font-size:.82rem">
-      {{ t .Lang "settings.protected.scope.removed_empty" }}
-    </p>
-    {{ end }}
-  </div>
-  {{ else }}
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.protected.h" }}
@@ -2626,7 +2067,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
     </div>
   </div>
-  {{ end }}
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -2704,70 +2144,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "challenge" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge{{ if .Scope }}&scope={{ .Scope }}{{ end }}">
-  {{ if .Scope }}
-  {{/* Phase 2.1: per-site editor for the challenge tab.  Only the scalars
-       defined in settings.ChallengeOverride are surfaced (= Theme /
-       PowDifficulty / ShowCredit).  The install-wide knobs (cookie TTLs /
-       public test pages / debug rate-limit / CAPTCHA provider) are
-       intentionally hidden in site scope -- editing them belongs at the
-       default scope only. */}}
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.challenge.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.challenge.scope.banner" }}
-    </p>
-    <button type="submit" name="reset_challenge" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.challenge.scope.reset_confirm" }})">
-      {{ t .Lang "settings.challenge.scope.reset_btn" }}
-    </button>
-  </div>
-
-  <div class="bcd-card">
-    {{/* per-site Challenge editor: Theme + PoW difficulty + ShowCredit.
-         The select carries an explicit "inherit" sentinel for each so the
-         operator can blank an override without leaving a stale value. */}}
-    <div class="field">
-      <label class="field-label" for="ch-theme-ov">{{ t .Lang "settings.challenge.scope.theme" }}</label>
-      <select id="ch-theme-ov" name="theme" style="width:14rem">
-        <option value="inherit" {{ if eq .ChallengeOverride.Theme "" }}selected{{ end }}>{{ tf .Lang "settings.challenge.scope.inherit_default_v" .ChallengeResolved.Theme }}</option>
-        <option value="default" {{ if eq .ChallengeOverride.Theme "default" }}selected{{ end }}>default</option>
-        <option value="cat" {{ if eq .ChallengeOverride.Theme "cat" }}selected{{ end }}>cat</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label class="field-label" for="ch-pow-diff-ov">{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
-      <input type="number" id="ch-pow-diff-ov" name="pow_difficulty" min="8" max="24" step="1"
-             value="{{ if gt .ChallengeOverride.PowDifficulty 0 }}{{ .ChallengeOverride.PowDifficulty }}{{ end }}"
-             placeholder="{{ .ChallengeResolved.ResolvedPowDifficulty }}"
-             style="width:6rem">
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.challenge.scope.default_v" .ChallengeResolved.ResolvedPowDifficulty }}</span>
-    </div>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.challenge.scope.show_credit" }}</label>
-      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
-        {{ $shc := "" }}
-        {{ if .ChallengeOverride.ShowCreditSet }}
-          {{ if .ChallengeOverride.ShowCredit }}{{ $shc = "on" }}{{ else }}{{ $shc = "off" }}{{ end }}
-        {{ end }}
-        <label><input type="radio" name="show_credit_override" value="inherit" {{ if eq $shc "" }}checked{{ end }}>
-          {{ tf .Lang "settings.challenge.scope.inherit_default_v" (printf "%t" .ChallengeResolved.ShowCredit) }}</label>
-        <label><input type="radio" name="show_credit_override" value="on" {{ if eq $shc "on" }}checked{{ end }}>
-          {{ t .Lang "settings.challenge.scope.show_credit_on" }}</label>
-        <label><input type="radio" name="show_credit_override" value="off" {{ if eq $shc "off" }}checked{{ end }}>
-          {{ t .Lang "settings.challenge.scope.show_credit_off" }}</label>
-      </div>
-    </div>
-  </div>
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
-{{ else }}
-{{/* default scope: legacy install-wide editor.  Unchanged from phase 1. */}}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=challenge">
   <div class="bcd-card">
 
     <div class="field">
@@ -2879,86 +2256,8 @@ document.addEventListener("DOMContentLoaded", function(){
 });
 </script>
 {{ end }}
-{{ end }}
 
 {{ if eq .Tab "rate-limit" }}
-{{ if .Scope }}
-{{/* Phase 2.1: per-site editor for the rate-limit Default zone.  Only the
-     Default-zone scalars are surfaced (rpm / burst / window / chMode); the
-     named Zones[] list and the Key kind stay install-wide and are not
-     editable here.  Each field carries an "inherit" sentinel so the
-     operator can clear an override without leaving a stale value. */}}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit&scope={{ .Scope }}">
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.rate_limit.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.rate_limit.scope.banner" }}
-    </p>
-    <button type="submit" name="reset_rate_limit" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.rate_limit.scope.reset_confirm" }})">
-      {{ t .Lang "settings.rate_limit.scope.reset_btn" }}
-    </button>
-  </div>
-
-  <div class="bcd-card">
-    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
-      <input type="number" name="default_requests_per_min" min="1" max="100000" step="1"
-             value="{{ if gt .RateLimitOverride.RequestsPerMin 0 }}{{ .RateLimitOverride.RequestsPerMin }}{{ end }}"
-             placeholder="{{ .RateLimitResolved.Default.RequestsPerMin }}"
-             style="width:8rem">
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.RequestsPerMin }}</span>
-    </div>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.burst" }}</label>
-      {{/* Burst takes a hidden sentinel so 0 is distinguishable from "inherit".
-           Empty input = inherit; explicit number (including 0) = explicit. */}}
-      <input type="checkbox" id="rl-burst-set" name="burst_override_set" value="1" {{ if .RateLimitOverride.BurstSet }}checked{{ end }}
-             onchange="document.getElementById('rl-burst-ov').disabled = !this.checked">
-      <label for="rl-burst-set" style="font-weight:normal;margin-right:.6rem">{{ t .Lang "settings.rate_limit.scope.override_explicit" }}</label>
-      <input type="number" id="rl-burst-ov" name="default_burst" min="0" max="100000" step="1"
-             value="{{ if .RateLimitOverride.BurstSet }}{{ .RateLimitOverride.Burst }}{{ end }}"
-             placeholder="{{ .RateLimitResolved.Default.Burst }}"
-             style="width:8rem"
-             {{ if not .RateLimitOverride.BurstSet }}disabled{{ end }}>
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.Burst }}</span>
-    </div>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.window_sec" }}</label>
-      <input type="number" name="default_window_sec" min="1" max="3600" step="1"
-             value="{{ if gt .RateLimitOverride.WindowSec 0 }}{{ .RateLimitOverride.WindowSec }}{{ end }}"
-             placeholder="{{ .RateLimitResolved.Default.WindowSec }}"
-             style="width:6rem">
-      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ tf .Lang "settings.rate_limit.scope.default_v" .RateLimitResolved.Default.WindowSec }}</span>
-    </div>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
-      {{ $ovcm := .RateLimitOverride.ChallengeMode }}
-      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
-        <label><input type="radio" name="default_challenge_mode" value="inherit" {{ if eq $ovcm "" }}checked{{ end }}>
-          {{ tf .Lang "settings.rate_limit.scope.inherit_default_v" .RateLimitResolved.Default.ChallengeMode }}</label>
-        <label><input type="radio" name="default_challenge_mode" value="captcha_only" {{ if eq $ovcm "captcha_only" }}checked{{ end }}>
-          <strong>captcha_only</strong></label>
-        <label><input type="radio" name="default_challenge_mode" value="pow_only" {{ if eq $ovcm "pow_only" }}checked{{ end }}>
-          <strong>pow_only</strong></label>
-        <label><input type="radio" name="default_challenge_mode" value="pow_then_captcha" {{ if eq $ovcm "pow_then_captcha" }}checked{{ end }}>
-          <strong>pow_then_captcha</strong></label>
-        <label><input type="radio" name="default_challenge_mode" value="deny" {{ if eq $ovcm "deny" }}checked{{ end }}>
-          <strong>deny</strong></label>
-      </div>
-    </div>
-  </div>
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
-{{ else }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit">
   <div class="bcd-card">
 
@@ -3106,7 +2405,6 @@ document.addEventListener("DOMContentLoaded", function(){
   };
 })();
 </script>
-{{ end }}
 {{ end }}
 
 {{ if eq .Tab "geo" }}
@@ -3372,32 +2670,11 @@ document.addEventListener("DOMContentLoaded", function(){
      radios + live preview link) + theme (look & feel cards).  Mixed into a
      single multipart POST so the operator never sees two save buttons on
      the same tab; the appearance save handler dispatches to the existing
-     applyBrandingForm + the theme allowlist clamp.
-
-     Phase 1.4: in a site scope the Branding sub-cards render an override
-     editor (= `default: X` annotations + Reset button); the Theme / Show-
-     credit sub-cards are read-only and carry a muted hint that they have
-     no per-site overrides yet (= they apply globally). */}}
+     applyBrandingForm + the theme allowlist clamp. */}}
 <form method="post" enctype="multipart/form-data"
-      action="{{ .BasePath }}/admin/settings/save?section=appearance{{ if .Scope }}&scope={{ .Scope }}{{ end }}" id="appearance-form">
+      action="{{ .BasePath }}/admin/settings/save?section=appearance" id="appearance-form">
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
-
-  {{ if .Scope }}
-  <div class="bcd-card branding-scope-card">
-    <div class="branding-scope-head">
-      <span class="branding-scope-icon">📢</span>
-      <strong>{{ tf .Lang "settings.branding.scope.currently_editing" .Scope }}</strong>
-    </div>
-    <p class="note" style="margin:.3rem 0 .5rem;color:#7c2d12;font-size:.78rem">
-      {{ t .Lang "settings.branding.scope.inherit_hint" }}
-    </p>
-    <button type="submit" name="branding_reset" value="1" class="btn secondary branding-reset-btn"
-            onclick="return confirm({{ t .Lang "settings.branding.scope.reset_confirm" }})">
-      {{ t .Lang "settings.branding.scope.reset_btn" }}
-    </button>
-  </div>
-  {{ end }}
 
   <div class="bcd-card" style="margin-top:.4rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
@@ -3407,33 +2684,17 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="branding-grid">
       <div class="field">
         <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>
-        <div class="branding-field-row">
-          <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
-                 value="{{ .Branding.SiteName }}" placeholder="{{ if .Scope }}{{ t .Lang "settings.branding.scope.input_inherit_placeholder" }}{{ else }}{{ t .Lang "settings.branding.site_name_placeholder" }}{{ end }}"
-                 style="width:100%;max-width:24rem">
-          {{ if .Scope }}
-          <span class="branding-default-hint" title="{{ t .Lang "settings.branding.scope.default_hint_title" }}">
-            {{ t .Lang "settings.branding.scope.default_label" }}:
-            {{ if .BrandingDefault.SiteName }}{{ .BrandingDefault.SiteName }}{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
-          </span>
-          {{ end }}
-        </div>
+        <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
+               value="{{ .Branding.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
+               style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.site_name_desc" }}</p>
       </div>
 
       <div class="field">
         <label for="branding-footer-text">{{ t .Lang "settings.branding.footer_label" }}</label>
-        <div class="branding-field-row">
-          <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
-                 value="{{ .Branding.FooterText }}" placeholder="{{ if .Scope }}{{ t .Lang "settings.branding.scope.input_inherit_placeholder" }}{{ else }}{{ t .Lang "settings.branding.footer_placeholder" }}{{ end }}"
-                 style="width:100%;max-width:24rem">
-          {{ if .Scope }}
-          <span class="branding-default-hint" title="{{ t .Lang "settings.branding.scope.default_hint_title" }}">
-            {{ t .Lang "settings.branding.scope.default_label" }}:
-            {{ if .BrandingDefault.FooterText }}{{ .BrandingDefault.FooterText }}{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
-          </span>
-          {{ end }}
-        </div>
+        <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
+               value="{{ .Branding.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
+               style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
       </div>
 
@@ -3452,12 +2713,6 @@ document.addEventListener("DOMContentLoaded", function(){
         {{ end }}
         <input type="file" name="branding_logo_file" accept=".png,.jpg,.jpeg,.svg,.webp,.gif,image/png,image/jpeg,image/svg+xml,image/webp,image/gif"
                style="font-size:.85rem">
-        {{ if .Scope }}
-        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">
-          {{ t .Lang "settings.branding.scope.default_label" }}:
-          {{ if .BrandingDefaultHasLogo }}<em>{{ t .Lang "settings.branding.scope.logo_default_set" }}</em>{{ else }}<em>{{ t .Lang "settings.branding.scope.default_none" }}</em>{{ end }}
-        </p>
-        {{ end }}
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.logo_desc") }}</p>
       </div>
 
@@ -3467,18 +2722,10 @@ document.addEventListener("DOMContentLoaded", function(){
           <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
         </div>
         <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
-        {{ if .Scope }}
-        <p class="note" style="margin:.1rem 0 0;color:#94a3b8;font-size:.78rem">
-          {{ t .Lang "settings.branding.scope.global_only_hint" }}
-          ({{ t .Lang "settings.branding.scope.default_label" }}:
-           {{ if .Challenge.ShowCredit }}{{ t .Lang "settings.branding.scope.show_credit_on" }}{{ else }}{{ t .Lang "settings.branding.scope.show_credit_off" }}{{ end }})
-        </p>
-        {{ else }}
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
           <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .Challenge.ShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
-        {{ end }}
       </div>
     </div>
   </div>
@@ -3494,32 +2741,12 @@ document.addEventListener("DOMContentLoaded", function(){
     {{/* Per-preset row: name + 1-line desc on top, the actual verify text
          (with {site_name} substituted) below.  Operators reading the row
          can see exactly what the visitor will read for each preset, instead
-         of guessing from "friendly / neutral / minimal" labels.
-
-         Site scope adds a "default (inherit)" sentinel row at the top.  The
-         sentinel's value is the literal string "default"; the save handler
-         strips it back to an empty override (= no preset on this site,
-         falls back to the baseline). */}}
+         of guessing from "friendly / neutral / minimal" labels. */}}
     <div class="branding-preset-list">
       {{ $subject := $.Branding.SiteName }}
-      {{ if and (eq $subject "") .Scope }}{{ $subject = $.BrandingDefault.SiteName }}{{ end }}
       {{ if eq $subject "" }}{{ $subject = t $.Lang "settings.branding.fallback_subject" }}{{ end }}
-      {{ if .Scope }}
-      {{ $sel := eq $.Branding.CopyPreset "" }}
-      <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
-        <input type="radio" name="branding_copy_preset" value="default" {{ if $sel }}checked{{ end }}>
-        <div class="branding-preset-text">
-          <div class="branding-preset-head">
-            <strong>{{ t $.Lang "settings.branding.scope.preset_inherit_label" }}</strong>
-            <span class="muted">— {{ tf $.Lang "settings.branding.scope.preset_inherit_desc" (or $.BrandingDefault.CopyPreset "friendly") }}</span>
-          </div>
-        </div>
-      </label>
-      {{ end }}
       {{ range $p := .BrandingPresets }}
-      {{ $sel := false }}
-      {{ if $.Scope }}{{ $sel = eq $.Branding.CopyPreset $p }}
-      {{ else }}{{ $sel = or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}{{ end }}
+      {{ $sel := or (eq $.Branding.CopyPreset $p) (and (eq $.Branding.CopyPreset "") (eq $p "friendly")) }}
       {{ $sampleTpl := t $.Lang (printf "settings.branding.preset.%s_sample" $p) }}
       <label class="branding-preset-row{{ if $sel }} selected{{ end }}">
         <input type="radio" name="branding_copy_preset" value="{{ $p }}" {{ if $sel }}checked{{ end }}>
@@ -3527,9 +2754,6 @@ document.addEventListener("DOMContentLoaded", function(){
           <div class="branding-preset-head">
             <strong>{{ t $.Lang (printf "settings.branding.preset.%s" $p) }}</strong>
             <span class="muted">— {{ t $.Lang (printf "settings.branding.preset.%s_desc" $p) }}</span>
-            {{ if and $.Scope (eq $.BrandingDefault.CopyPreset $p) }}
-            <span class="branding-default-pill" title="{{ t $.Lang "settings.branding.scope.default_hint_title" }}">{{ t $.Lang "settings.branding.scope.default_pill" }}</span>
-            {{ end }}
           </div>
           <div class="branding-preset-sample" data-sample-template="{{ $sampleTpl }}">
             「{{ replace $sampleTpl "{site_name}" $subject }}」
@@ -3548,14 +2772,7 @@ document.addEventListener("DOMContentLoaded", function(){
   <div class="bcd-card" style="margin-top:.4rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
       {{ t .Lang "settings.theme.h" }}
-      {{ if .Scope }}<span class="branding-global-only-pill">{{ t .Lang "settings.branding.scope.global_only_tag" }}</span>{{ end }}
     </div>
-    {{ if .Scope }}
-    <p class="note" style="margin:.1rem 0 .6rem;color:#92400e;font-size:.78rem;line-height:1.5;background:#fefce8;border:1px solid #fde68a;border-radius:.3rem;padding:.4rem .6rem">
-      {{ t .Lang "settings.branding.scope.theme_global_hint" }}
-      ({{ t .Lang "settings.branding.scope.default_label" }}: <code>{{ .ChallengeTheme }}</code>)
-    </p>
-    {{ end }}
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
 
     {{/* PoW spinner floor picker (= preview-only).  Same buttons + same
@@ -3689,19 +2906,6 @@ document.addEventListener("DOMContentLoaded", function(){
    rows, and the operator wants to scroll to verify the bottom.  Click-to-
    select is still possible via the head bar (= radio + name) above. */
 .theme-preview-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:auto}
-/* Site-scope editor extras (= "currently editing" banner + Reset btn + per-
- * field "default: X" hint + default-value pill on a preset row).  Yellow
- * tint so the operator instantly sees "this is NOT the shared baseline". */
-.branding-scope-card{background:#fefce8;border-color:#fde68a;padding:.85rem 1rem;margin-top:.4rem}
-.branding-scope-head{display:flex;align-items:center;gap:.45rem;color:#7c2d12;font-size:.95rem}
-.branding-scope-icon{font-size:1rem}
-.branding-reset-btn{font-size:.78rem;padding:.3rem .75rem;color:#7c2d12;background:#fff;border:1px solid #f59e0b}
-.branding-reset-btn:hover{background:#fef3c7}
-.branding-field-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap}
-.branding-default-hint{font-size:.72rem;color:#94a3b8;font-style:italic;line-height:1.3}
-.branding-default-hint em{font-style:normal;color:#cbd5e1}
-.branding-default-pill{display:inline-block;font-size:.62rem;background:#f1f5f9;color:#475569;padding:.05rem .35rem;border-radius:.2rem;margin-left:.3rem;font-weight:600;letter-spacing:.02em;vertical-align:middle}
-.branding-global-only-pill{display:inline-block;font-size:.65rem;background:#fef3c7;color:#92400e;padding:.05rem .4rem;border-radius:.2rem;margin-left:.4rem;font-weight:600;letter-spacing:.02em;vertical-align:middle;border:1px solid #fcd34d}
 </style>
 <script>
 (function(){

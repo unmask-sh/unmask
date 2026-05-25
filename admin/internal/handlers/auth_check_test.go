@@ -170,7 +170,7 @@ func TestBanDecideFromSource(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d, ok := banDecideFromSource(c.src, c.cfg, "")
+			d, ok := banDecideFromSource(c.src, c.cfg)
 			if !ok {
 				t.Fatalf("ok=false, want true")
 			}
@@ -228,19 +228,19 @@ func TestProtectedDecide(t *testing.T) {
 	}}
 
 	t.Run("non-matching uri -> silent", func(t *testing.T) {
-		_, ok := protectedDecide("/public/", matchers, cfgCaptcha, "")
+		_, ok := protectedDecide("/public/", matchers, cfgCaptcha)
 		if ok {
 			t.Error("expected silent for non-matching uri")
 		}
 	})
 	t.Run("/admin/ + chMode=captcha", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgCaptcha, "")
+		d, ok := protectedDecide("/admin/dashboard", matchers, cfgCaptcha)
 		if !ok || d.sev != sevCaptchaOnly || d.chMode != settings.RateChallengeCaptchaOnly {
 			t.Errorf("got %+v ok=%v, want captcha", d, ok)
 		}
 	})
 	t.Run("/admin/ + chMode=deny -> deny severity", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgDeny, "")
+		d, ok := protectedDecide("/admin/dashboard", matchers, cfgDeny)
 		if !ok || d.sev != sevDeny {
 			t.Errorf("got %+v ok=%v, want deny", d, ok)
 		}

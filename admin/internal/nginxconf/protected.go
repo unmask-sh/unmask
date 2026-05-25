@@ -11,8 +11,6 @@
 //     (= the chain JS state machine ships in v0.2).  The yml schema carries all 3 from the start.
 package nginxconf
 
-import "sort"
-
 const (
 	ProtectedModeCaptcha = "captcha"
 	ProtectedModePoW     = "pow"
@@ -25,65 +23,9 @@ func IsValidProtectedMode(m string) bool {
 }
 
 // ProtectedPathRule: render-time struct that maps to one row in the UI.
-// Site != "" scopes the rule to that exact host (= per-site overrides come in
-// via ProtectedPathsConfig.Overrides[site].Append / Remove).
 type ProtectedPathRule struct {
 	Pattern string // nginx regex (= without ~^)
 	Mode    string // "captcha" | "pow" | "strict"
-	Site    string // empty = global (= every host); else exact host match
-}
-
-// ProtectedPathHostMaps describes the per-host protected-path map that the
-// http.conf.tmpl renders for one host with non-empty Site rules.  Same shape
-// as BypassPathHostMaps but with per-rule Mode preserved so the rendered
-// `map $request_uri ...` block can set $protected_mode_host_<varname> to the
-// mode string (= "captcha" / "pow" / "strict") rather than a binary 1/0.
-type ProtectedPathHostMaps struct {
-	Host    string              // exact host string (= dispatcher map key)
-	VarName string              // nginx-variable-safe identifier derived from Host
-	Rules   []ProtectedPathRule // path + mode list, evaluated against $request_uri
-}
-
-// ProtectedPathDisableHostMaps describes the per-host "Remove" set: paths
-// the site opts out of the default global protected-path list.  Renders into
-// a `map $request_uri $protected_mode_disable_host_<varname> { ... "1"; }`
-// block; the dispatcher OR's the per-host disable signal and the global
-// $protected_mode is suppressed when the matched host's disable=1.
-type ProtectedPathDisableHostMaps struct {
-	Host     string   // exact host string
-	VarName  string   // nginx-variable-safe identifier
-	Patterns []string // path-anchored regex list (= paths to suppress)
-}
-
-// splitProtectedPathsForRender separates merged rules into:
-//   - globals: rules with Site == "" (= apply to every host)
-//   - perHost: one ProtectedPathHostMaps per unique non-empty Site
-//
-// Same deterministic ordering as splitBypassPathsForRender (= globals follow
-// input order, perHost groups are sorted by Host so the rendered text is
-// stable across runs).
-func splitProtectedPathsForRender(rules []ProtectedPathRule) (globals []ProtectedPathRule, perHost []ProtectedPathHostMaps) {
-	byHost := map[string][]ProtectedPathRule{}
-	hostOrder := []string{}
-	for _, r := range rules {
-		if r.Site == "" {
-			globals = append(globals, r)
-			continue
-		}
-		if _, seen := byHost[r.Site]; !seen {
-			hostOrder = append(hostOrder, r.Site)
-		}
-		byHost[r.Site] = append(byHost[r.Site], r)
-	}
-	sort.Strings(hostOrder)
-	for _, host := range hostOrder {
-		perHost = append(perHost, ProtectedPathHostMaps{
-			Host:    host,
-			VarName: hostToNginxVarSegment(host),
-			Rules:   byHost[host],
-		})
-	}
-	return
 }
 
 // ProtectedPathPresetGroup: a preset group of protected paths.  Rules inside
