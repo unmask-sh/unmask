@@ -656,7 +656,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chMode := h.Settings.RateLimit.Default.ResolvedChallengeMode()
+	chMode := h.Settings.RateLimit.Resolve(site).ResolvedChallengeMode()
 	if forceReason == "none" {
 		// "no-match" path: split the chain by whether the UA looks like
 		// a real browser.  Falls back to the legacy DefaultAction field

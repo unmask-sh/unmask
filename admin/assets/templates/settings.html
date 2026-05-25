@@ -989,7 +989,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="ua-help-trigger" data-help-target="bp-custom-help" aria-label="?">?</button>
       <script type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
     </h2>
-    <div class="rule-list" data-rule-name="bp_pat">
+    <div class="rule-list" data-rule-name="bp_path">
       {{ range .BypassPathsRules }}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
@@ -1001,7 +1001,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="bp_pat"   value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+        <input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
         <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -1021,7 +1021,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
           </span>
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="bp_pat"   value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="bp_path"  value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
           <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -1032,7 +1032,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
       </template>
     </div>
-    <button type="button" class="rule-add-bottom" data-target-list="bp_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+    <button type="button" class="rule-add-bottom" data-target-list="bp_path">{{ t .Lang "settings.ua.add_new" }}</button>
   </div>
   <datalist id="bp-site-candidates">
     {{ range .Sites }}<option value="{{ . }}">{{ end }}
@@ -1787,15 +1787,17 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "honeypot" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=honeypot">
   <div class="bcd-card">
-    <!-- ban_duration: TTL of BANs auto-added when a honeypot is tripped -->
+    <!-- Default ban duration: TTL of BANs auto-added when a honeypot is
+         tripped.  Per-site overrides live in the Site-specific card list
+         below; this default applies to every site without an entry. -->
     <div class="field">
       <div class="field-label field-label-row">
         <label for="hp-ban-duration">{{ t .Lang "settings.honeypot.ban_duration_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="hp-ban-duration-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="hp-ban-duration-help">{{ safeHTML (t .Lang "settings.honeypot.ban_duration_desc") }}</script>
-      <input type="number" id="hp-ban-duration" name="ban_duration" min="0" max="2592000" step="60"
-             value="{{ .HoneypotBanDuration }}" style="width:8rem">
+      <input type="number" id="hp-ban-duration" name="honeypot_default_ban_duration_sec" min="0" max="2592000" step="60"
+             value="{{ .HoneypotDefaultBanDuration }}" style="width:8rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.honeypot.ban_duration_unit" }}</span>
     </div>
 
@@ -1867,26 +1869,26 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="ua-section">
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
       <p class="desc">{{ safeHTML (t .Lang "settings.honeypot.extra_desc") }}</p>
-      <div class="rule-list" data-rule-name="honeypot_pat">
+      <div class="rule-list" data-rule-name="honeypot_url_path">
       {{ range $i, $r := .HoneypotRules }}
-      {{ $hea := index $.HoneypotExtraAction $i }}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
-        <input type="hidden" name="honeypot_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="honeypot_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="honeypot_url_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
-        <input type="text" name="honeypot_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="honeypot_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
-        <select name="honeypot_extra_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $hea "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-          <option value="pow_only"         {{ if eq $hea "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $hea "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $hea "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $hea "deny" }}selected{{ end }}>deny</option>
+        <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+        <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
+        <select name="honeypot_url_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
         </select>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -1899,15 +1901,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
-          <input type="hidden" name="honeypot_enabled" value="1">
-          <input type="hidden" name="honeypot_updated_at" value="0">
+          <input type="hidden" name="honeypot_url_enabled" value="1">
+          <input type="hidden" name="honeypot_url_updated_at" value="0">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
           </span>
-          <input type="text" name="honeypot_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="honeypot_pat" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
-          <select name="honeypot_extra_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
+          <input type="text" name="honeypot_url_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="honeypot_url_path" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="" placeholder="{{ t .Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
+          <select name="honeypot_url_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
             <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
             <option value="pow_only">pow_only</option>
             <option value="pow_then_captcha">pow_then_captcha</option>
@@ -1923,12 +1926,80 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
       </template>
       </div>
-      <button type="button" class="rule-add-bottom" data-target-list="honeypot_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+      <datalist id="honeypot-site-candidates">
+        {{ range .Sites }}<option value="{{ . }}">{{ end }}
+      </datalist>
+      <button type="button" class="rule-add-bottom" data-target-list="honeypot_url_path">{{ t .Lang "settings.ua.add_new" }}</button>
     </div>
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+
+{{/* ─── Site-specific honeypot scalars (v2 phase 2) ──────────────────
+     One card per host in Honeypot.Sites.  Each entry replaces Default
+     verbatim (= no field-level inheritance).  Today the only scalar is
+     BanDurationSec, so the card UI is intentionally small; URL rows live
+     in the flat table above, where the per-row "site" column scopes them
+     per-host. */}}
+<section class="bcd-card honeypot-sites-card" style="margin-top:1.2rem">
+  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
+    {{ t .Lang "settings.honeypot.sites.section_title" }}
+  </div>
+  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
+    {{ safeHTML (t .Lang "settings.honeypot.sites.intro") }}
+  </p>
+  {{ if .HoneypotSites }}
+  <div class="site-card-list">
+    {{ range $host, $hv := .HoneypotSites }}
+    <div class="site-card">
+      <div class="site-card-head">
+        <strong>{{ $host }}</strong>
+        <span class="muted">
+          {{ t $.Lang "settings.honeypot.ban_duration_h" }}:
+          {{ if gt $hv.BanDurationSec 0 }}{{ $hv.BanDurationSec }}s{{ else }}{{ t $.Lang "settings.honeypot.sites.ban_inherit" }}{{ end }}
+        </span>
+      </div>
+      <div class="site-card-actions">
+        <form method="post" style="display:inline"
+              action="{{ $.BasePath }}/admin/settings/honeypot/site/delete"
+              onsubmit="return confirm('{{ t $.Lang "settings.honeypot.sites.delete_confirm" }}: {{ $host }}')">
+          <input type="hidden" name="site" value="{{ $host }}">
+          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.honeypot.sites.delete" }}</button>
+        </form>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
+    {{ t .Lang "settings.honeypot.sites.empty" }}
+  </p>
+  {{ end }}
+
+  <details class="site-add-block">
+    <summary class="btn-mini">{{ t .Lang "settings.honeypot.sites.add" }}</summary>
+    <form method="post"
+          action="{{ .BasePath }}/admin/settings/honeypot/site/save"
+          class="site-add-form">
+      <div class="field">
+        <label>{{ t .Lang "settings.honeypot.sites.host_label" }}</label>
+        <input type="text" name="site" required maxlength="253"
+               placeholder="shop.example.com"
+               pattern="[A-Za-z0-9.\-]+"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.honeypot.ban_duration_h" }}
+          <span style="color:#64748b;font-weight:normal;font-size:.78rem">({{ t .Lang "settings.honeypot.ban_duration_unit" }})</span>
+        </label>
+        <input type="number" name="honeypot_default_ban_duration_sec" min="0" max="2592000" step="60"
+               value="{{ .HoneypotDefaultBanDuration }}" style="width:8rem">
+      </div>
+      <button type="submit" class="btn">{{ t .Lang "settings.honeypot.sites.save" }}</button>
+    </form>
+  </details>
+</section>
 {{ end }}
 
 {{ if eq .Tab "protected" }}
@@ -2008,26 +2079,27 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <div class="ua-section">
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
-      <div class="rule-list" data-rule-name="protected_pat">
+      <div class="rule-list" data-rule-name="protected_path">
       {{ range $i, $r := .ProtectedRules }}
-      {{ $pea := index $.ProtectedExtraAction $i }}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="protected_mode" value="{{ $r.Mode }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="protected_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
-        <select name="protected_extra_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $pea "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-          <option value="pow_only"         {{ if eq $pea "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $pea "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $pea "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $pea "deny" }}selected{{ end }}>deny</option>
+        <input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+        <input type="text" name="protected_site" list="protected-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
+        <select name="protected_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
         </select>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -2042,13 +2114,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="protected_enabled" value="1">
           <input type="hidden" name="protected_updated_at" value="0">
+          <input type="hidden" name="protected_mode" value="captcha">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
           </span>
           <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="protected_pat" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
-          <select name="protected_extra_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
+          <input type="text" name="protected_path" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+          <input type="text" name="protected_site" list="protected-site-candidates" value="" placeholder="{{ t .Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
+          <select name="protected_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
             <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
             <option value="pow_only">pow_only</option>
             <option value="pow_then_captcha">pow_then_captcha</option>
@@ -2064,7 +2138,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
       </template>
       </div>
-      <button type="button" class="rule-add-bottom" data-target-list="protected_pat">{{ t .Lang "settings.ua.add_new" }}</button>
+      <datalist id="protected-site-candidates">
+        {{ range .Sites }}<option value="{{ . }}">{{ end }}
+      </datalist>
+      <button type="button" class="rule-add-bottom" data-target-list="protected_path">{{ t .Lang "settings.ua.add_new" }}</button>
     </div>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
@@ -2493,6 +2570,92 @@ document.addEventListener("DOMContentLoaded", function(){
   };
 })();
 </script>
+
+{{/* ─── Site-specific rate-limit scalars (v2 phase 2) ────────────────
+     One card per host in RateLimit.Sites.  Each entry is a complete
+     RateLimitValues record (= no field-level inheritance from Default).
+     Zones (= the per-path table above) stay install-wide -- the visitor's
+     site does not affect which zone the path falls into. */}}
+<section class="bcd-card rate-limit-sites-card" style="margin-top:1.2rem">
+  <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.3rem">
+    {{ t .Lang "settings.rate_limit.sites.section_title" }}
+  </div>
+  <p class="note" style="margin:0 0 .8rem;color:#64748b;font-size:.78rem;line-height:1.5">
+    {{ safeHTML (t .Lang "settings.rate_limit.sites.intro") }}
+  </p>
+  {{ if .RateLimit.Sites }}
+  <div class="site-card-list">
+    {{ range $host, $rv := .RateLimit.Sites }}
+    <div class="site-card">
+      <div class="site-card-head">
+        <strong>{{ $host }}</strong>
+        <span class="muted">
+          {{ if gt $rv.RequestsPerMin 0 }}{{ $rv.RequestsPerMin }} r/min{{ else }}—{{ end }} ·
+          burst {{ if gt $rv.Burst 0 }}{{ $rv.Burst }}{{ else }}—{{ end }} ·
+          {{ if $rv.ChallengeMode }}{{ $rv.ChallengeMode }}{{ else }}{{ t $.Lang "settings.rate_limit.sites.chmode_inherit" }}{{ end }}
+        </span>
+      </div>
+      <div class="site-card-actions">
+        <form method="post" style="display:inline"
+              action="{{ $.BasePath }}/admin/settings/rate_limit/site/delete"
+              onsubmit="return confirm('{{ t $.Lang "settings.rate_limit.sites.delete_confirm" }}: {{ $host }}')">
+          <input type="hidden" name="site" value="{{ $host }}">
+          <button type="submit" class="btn-mini btn-danger">{{ t $.Lang "settings.rate_limit.sites.delete" }}</button>
+        </form>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 .8rem">
+    {{ t .Lang "settings.rate_limit.sites.empty" }}
+  </p>
+  {{ end }}
+
+  <details class="site-add-block">
+    <summary class="btn-mini">{{ t .Lang "settings.rate_limit.sites.add" }}</summary>
+    <form method="post"
+          action="{{ .BasePath }}/admin/settings/rate_limit/site/save"
+          class="site-add-form">
+      <div class="field">
+        <label>{{ t .Lang "settings.rate_limit.sites.host_label" }}</label>
+        <input type="text" name="site" required maxlength="253"
+               placeholder="shop.example.com"
+               pattern="[A-Za-z0-9.\-]+"
+               style="width:100%;max-width:24rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
+        <input type="number" name="default_requests_per_min" min="1" max="100000" step="1"
+               value="{{ if gt .RateLimit.Default.RequestsPerMin 0 }}{{ .RateLimit.Default.RequestsPerMin }}{{ else }}100{{ end }}"
+               style="width:8rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.rate_limit.burst" }}</label>
+        <input type="number" name="default_burst" min="0" max="100000" step="1"
+               value="{{ if gt .RateLimit.Default.Burst 0 }}{{ .RateLimit.Default.Burst }}{{ else }}50{{ end }}"
+               style="width:8rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.rate_limit.window_sec" }}</label>
+        <input type="number" name="default_window_sec" min="1" max="3600" step="1"
+               value="{{ if gt .RateLimit.Default.WindowSec 0 }}{{ .RateLimit.Default.WindowSec }}{{ else }}60{{ end }}"
+               style="width:6rem">
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
+        {{ $cmd := .RateLimit.Default.ChallengeMode }}{{ if eq $cmd "" }}{{ $cmd = "pow_then_captcha" }}{{ end }}
+        <select name="default_challenge_mode" style="font-size:.85rem;padding:.25rem .4rem">
+          <option value="pow_only"         {{ if eq $cmd "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $cmd "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $cmd "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $cmd "deny" }}selected{{ end }}>deny</option>
+        </select>
+      </div>
+      <button type="submit" class="btn">{{ t .Lang "settings.rate_limit.sites.save" }}</button>
+    </form>
+  </details>
+</section>
 {{ end }}
 
 {{ if eq .Tab "geo" }}

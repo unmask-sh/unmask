@@ -503,21 +503,44 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 //   - protected paths → passthrough
 //   - rate limit (= not counted in the $rate_limit_key map)
 //
-// site column: empty = applies to all sites. A string = applies only when
-// `$host` equals that value (= in multi-site setups you can scope
-// "bypass /api/ only for site=foo").
+// v2 layout (= multi-site phase 2): Paths is a flat struct slice; each row
+// carries an optional `site` filter -- empty applies to all sites, a string
+// applies only when the visitor's `$host` equals that value.  Replaces the
+// pre-v2 parallel-array form (Extra / ExtraTitle / ExtraDisabled /
+// ExtraUpdatedAt / ExtraSite).
 type BypassPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled" (= matches the
 	// "All OFF by default" docstring on BypassPathPresetGroups).  Operators
 	// add an ID here to turn that preset's path patterns into bypass entries.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	// 5 parallel arrays: path / title / disabled / updated_at / site
-	Extra          []string `yaml:"extra,omitempty"`
-	ExtraTitle     []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"`
-	ExtraSite      []string `yaml:"extra_site,omitempty"`
+	// Paths: per-row custom bypass entries.  Order is preserved (= operator-
+	// edited).  See BypassPath for the per-row fields.
+	Paths []BypassPath `yaml:"paths,omitempty"`
+}
+
+// BypassPath: one custom bypass row.  Site is the v2 multi-site filter:
+// empty = applies to all sites, a host string = applies only when the
+// request's normalized site equals that value.
+type BypassPath struct {
+	Path      string `yaml:"path"`
+	Title     string `yaml:"title,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	Site      string `yaml:"site,omitempty"`
+}
+
+// ResolvePaths returns the BypassPath rows whose Site matches the requested
+// site identifier.  Empty Site matches every site (= the "all sites" rule);
+// otherwise only the exact match is returned.  Order is preserved.
+func (b BypassPathsConfig) ResolvePaths(site string) []BypassPath {
+	out := make([]BypassPath, 0, len(b.Paths))
+	for _, p := range b.Paths {
+		if p.Site == "" || p.Site == site {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // ProtectedPathsConfig: protected-paths feature. Forces CAPTCHA / PoW / strict
@@ -529,8 +552,8 @@ type BypassPathsConfig struct {
 //	                 path is affected"
 //
 // Designed for real human admins to pass via CAPTCHA (= transparent admin
-// gate / important-path protection). The mode column is parallel to the path
-// list as part of the 5 parallel arrays.
+// gate / important-path protection).  v2 stores rows as a flat struct slice
+// with a per-row Site filter; Mode / chMode override stay on the row.
 type ProtectedPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
@@ -538,11 +561,9 @@ type ProtectedPathsConfig struct {
 	// turning them on inserts a CAPTCHA before admin login -- always a
 	// deliberate operator choice, never a default.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
-	Extra          []string `yaml:"extra,omitempty"`
-	ExtraTitle      []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
-	ExtraMode       []string `yaml:"extra_mode,omitempty"` // "captcha" | "pow" | "strict"
+	// Paths: per-row custom protected entries.  See ProtectedPath for the
+	// per-row fields.
+	Paths []ProtectedPath `yaml:"paths,omitempty"`
 	// DefaultAction: chain to run when a request hits a protected path and
 	// challenge fires (= chMode used by challenge.html JS).  Empty =
 	// inherit ChallengeTargets.DefaultAction → RateLimit.Default.
@@ -550,9 +571,31 @@ type ProtectedPathsConfig struct {
 	// PresetAction: per-preset chMode override (preset ID → chain).  Stored
 	// now; path-based dispatch wiring is a follow-up.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
-	// ExtraAction: per-custom-row chMode override, aligned by index with
-	// Extra.  Same "stored now, wired later" caveat.
-	ExtraAction []string `yaml:"extra_action,omitempty"`
+}
+
+// ProtectedPath: one custom protected-path row.  Mode is the rule's match
+// mode ("captcha" / "pow" / "strict").  Action is the chain override (= same
+// chMode strings as RateChallenge*); empty -> inherit DefaultAction.
+type ProtectedPath struct {
+	Path      string `yaml:"path"`
+	Title     string `yaml:"title,omitempty"`
+	Mode      string `yaml:"mode,omitempty"`
+	Action    string `yaml:"action,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	Site      string `yaml:"site,omitempty"`
+}
+
+// ResolvePaths returns ProtectedPath rows whose Site matches `site`.
+// Same semantics as BypassPathsConfig.ResolvePaths.
+func (p ProtectedPathsConfig) ResolvePaths(site string) []ProtectedPath {
+	out := make([]ProtectedPath, 0, len(p.Paths))
+	for _, r := range p.Paths {
+		if r.Site == "" || r.Site == site {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // HoneypotConfig: honeypot path configuration + persistent BAN list management.
@@ -567,18 +610,22 @@ type ProtectedPathsConfig struct {
 //     `if ($unmask_banned = 1) { rewrite ^ /unmask/challenge/ last; }`
 //     (= force CAPTCHA) or `return 403;` (= hard ban). The behavior is the
 //     conf's responsibility (= unmask only exposes the variable)
+//
+// v2 layout: list-style URLs are stored as []HoneypotURL with a per-row site
+// filter.  Per-site scalar parameters (= BanDurationSec etc.) live in
+// Default + Sites map, mirroring Branding / Challenge.  Install-wide knobs
+// (= BanFilePath / DefaultAction / PresetAction) stay on the parent struct.
 type HoneypotConfig struct {
-	// Disabled preset groups (= same shape as search-bots etc.).
+	// DisabledPresets: preset groups that are kept OFF (= same shape as
+	// search-bots etc.).
 	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
-	// Row-UI 4 parallel slices (= path / title / disabled / updated_at).
-	// Honeypot fires BAN on hit with fixed behavior, so there is no mode column.
-	// For "force CAPTCHA / PoW" use the separate "protected paths" tab.
-	Extra          []string `yaml:"extra,omitempty"`
-	ExtraTitle     []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"`
-	BanDuration    int      `yaml:"ban_duration"`  // seconds. 0 = permanent. default 86400 (= 24h)
-	BanFilePath    string   `yaml:"ban_file_path"` // output path for the ban list (= honeypot / manual / all sources). default /etc/unmask/banned.txt
+	// URLs: custom honeypot path rows.  Honeypot fires BAN on hit with
+	// fixed behavior, so there is no per-row mode column.  For "force
+	// CAPTCHA / PoW" use the separate protected-paths tab.
+	URLs []HoneypotURL `yaml:"urls,omitempty"`
+	// BanFilePath: output path for the ban list (= honeypot / manual / all
+	// sources).  Install-wide; default /etc/unmask/banned.txt.
+	BanFilePath string `yaml:"ban_file_path,omitempty"`
 	// DefaultAction: chain to run when a honeypot trip results in a
 	// challenge (= chMode used by challenge.html JS).  Empty = inherit
 	// ChallengeTargets.DefaultAction → RateLimit.Default.
@@ -587,9 +634,62 @@ type HoneypotConfig struct {
 	// Path-level resolution (= which preset was tripped) is wired up in a
 	// follow-up; the field is stored now so the UI is round-trippable.
 	PresetAction map[string]string `yaml:"preset_action,omitempty"`
-	// ExtraAction: per-custom-row action override, aligned by index with
-	// Extra.  Same "stored now, wired later" caveat.
-	ExtraAction []string `yaml:"extra_action,omitempty"`
+	// Default: per-site scalar parameters that apply to every site by
+	// default (= ban duration etc.).  See HoneypotValues.
+	Default HoneypotValues `yaml:"default"`
+	// Sites: per-site overrides for the scalar parameters.  A site with no
+	// entry inherits Default verbatim; an entry replaces Default entirely.
+	Sites map[string]HoneypotValues `yaml:"sites,omitempty"`
+}
+
+// HoneypotURL: one custom honeypot path row.  No Mode column (= honeypot
+// behavior is uniform).  Action overrides the chain when present.
+type HoneypotURL struct {
+	Path      string `yaml:"path"`
+	Title     string `yaml:"title,omitempty"`
+	Action    string `yaml:"action,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	Site      string `yaml:"site,omitempty"`
+}
+
+// HoneypotValues: per-site honeypot scalar parameters.  BanDurationSec is
+// the ban TTL in seconds; 0 = permanent.  Adding more knobs later (= per-
+// site BanFilePath etc.) keeps install-wide values on HoneypotConfig.
+type HoneypotValues struct {
+	BanDurationSec int `yaml:"ban_duration_sec,omitempty"`
+}
+
+// ResolveURLs: filter URLs by site (same shape as BypassPathsConfig.ResolvePaths).
+func (h HoneypotConfig) ResolveURLs(site string) []HoneypotURL {
+	out := make([]HoneypotURL, 0, len(h.URLs))
+	for _, u := range h.URLs {
+		if u.Site == "" || u.Site == site {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// ResolveParams returns the scalar HoneypotValues for the given site.  When
+// site has an entry in Sites the entry is returned verbatim (= no field-
+// level merge); otherwise Default is returned verbatim.  Mirrors the v2
+// scalar contract used by Branding / Challenge.
+func (h HoneypotConfig) ResolveParams(site string) HoneypotValues {
+	if v, ok := h.Sites[site]; ok {
+		return v
+	}
+	return h.Default
+}
+
+// ResolvedBanDurationSec returns BanDurationSec when set; otherwise the
+// canonical 24h default so an empty entry does not flip the ban to
+// "permanent" by accident.
+func (h HoneypotValues) ResolvedBanDurationSec() int {
+	if h.BanDurationSec > 0 {
+		return h.BanDurationSec
+	}
+	return 86400
 }
 
 // ChallengeTargetsConfig: which UAs receive a challenge when bot signals fire.
@@ -1058,9 +1158,20 @@ type Notifications struct {
 //   - "pow_then_captcha"  : escalate to CAPTCHA on PoW failure. Chain in late v0.1.
 //   - "deny"              : no challenge; immediately 403 block (= for API /
 //     paths dedicated to known bots)
+//
+// v2 layout (= multi-site phase 2): the per-site scalar parameters
+// (= requests_per_min / burst / window_sec / challenge_mode) live in
+// Default + Sites, the same shape used by Branding / Challenge.  Install-
+// wide knobs (= Zones path-list / Key fingerprint kind) stay on the parent
+// struct.  Resolve(site) returns Sites[site] verbatim if present, else
+// Default; from there the existing helpers (ResolvedWindowSec etc.) apply.
 type RateLimitConfig struct {
-	Default RateZone   `yaml:"default"`
-	Zones   []RateZone `yaml:"zones,omitempty"`
+	Default RateLimitValues            `yaml:"default"`
+	Sites   map[string]RateLimitValues `yaml:"sites,omitempty"`
+	// Zones: optional named zones with per-path overrides.  Install-wide
+	// (= the visitor's site does not change the zone match), so they keep
+	// their pre-v2 shape rather than going under the per-site wrapper.
+	Zones []RateZone `yaml:"zones,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
 	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
@@ -1069,6 +1180,48 @@ type RateLimitConfig struct {
 	//              one NAT IP are counted separately)
 	// Empty -> "ip" (= back-compat with installs that pre-date this field).
 	Key string `yaml:"key,omitempty"`
+}
+
+// RateLimitValues: per-site rate-limit scalar parameters.  Matches the
+// historical RateZone fields that make sense per-site (zone Name lives on
+// the install-wide side because nginx limit_req_zone is global).
+type RateLimitValues struct {
+	// Name: nginx `limit_req_zone` zone name (alnum + "_").  Default may be
+	// empty; render falls back to "unmask_rate".
+	Name string `yaml:"name,omitempty"`
+	// RequestsPerMin / Burst / WindowSec: the actual rate-limit triple.
+	RequestsPerMin int `yaml:"requests_per_min"`
+	Burst          int `yaml:"burst"`
+	WindowSec      int `yaml:"window_sec,omitempty"`
+	// ChallengeMode: behaviour for clients over the threshold.  Empty -> the
+	// "pow_then_captcha" recommended chain.
+	ChallengeMode string `yaml:"challenge_mode,omitempty"`
+}
+
+// Resolve returns the RateLimitValues for the given site.  Sites[site] is
+// returned verbatim when present (= the v2 "complete record" contract);
+// otherwise Default is returned verbatim.
+func (c RateLimitConfig) Resolve(site string) RateLimitValues {
+	if v, ok := c.Sites[site]; ok {
+		return v
+	}
+	return c.Default
+}
+
+// ResolvedWindowSec: 0 -> 60 (= 1-minute window default).
+func (v RateLimitValues) ResolvedWindowSec() int {
+	if v.WindowSec <= 0 {
+		return 60
+	}
+	return v.WindowSec
+}
+
+// ResolvedChallengeMode: empty / invalid -> pow_then_captcha.
+func (v RateLimitValues) ResolvedChallengeMode() string {
+	if !IsValidRateChallengeMode(v.ChallengeMode) {
+		return RateChallengePoWThenCaptcha
+	}
+	return v.ChallengeMode
 }
 
 // Rate-limit key kinds.
@@ -1095,16 +1248,20 @@ func (rl RateLimitConfig) ResolvedKey() string {
 	return rl.Key
 }
 
-// RateZone: definition of a single rate-limit zone.
+// RateZone: definition of one named path-scoped rate-limit zone.  Zones
+// are install-wide (= no per-site overlay) -- the visitor's site does not
+// influence which zone the path falls into.  Per-site scalar parameters
+// live in RateLimitValues.
 //
-// Name: nginx `limit_req_zone` name syntax (= alnum + "_"). Default zone
-// may be empty.
+// Name: nginx `limit_req_zone` name syntax (= alnum + "_").
 // PathPatterns: simple prefix match. e.g. "/api/" matches "/api/foo".
-//   - empty list = applies to all paths (= meant for use as Default).
+//   - empty list = applies to all paths (= unusual; normally a path zone
+//     carries at least one pattern, otherwise it would swallow every
+//     request before the default kicks in).
 //   - multiple entries: a match against any one selects this zone.
 //
 // WindowSec: 0 → 60 (= 1-minute window).
-// ChallengeMode: empty → parent (= settings-wide) default "captcha_only".
+// ChallengeMode: empty → "pow_then_captcha" (= recommended chain).
 type RateZone struct {
 	Name           string   `yaml:"name,omitempty"`
 	RequestsPerMin int      `yaml:"requests_per_min"`
@@ -1164,16 +1321,30 @@ func (z RateZone) MatchPath(path string) bool {
 	return false
 }
 
-// ResolveZone: returns the zone that corresponds to path. Scans Zones in
-// order and returns the first one whose PathPatterns match. Falls back to
-// Default if none match.
-func (c RateLimitConfig) ResolveZone(path string) RateZone {
+// ResolveZone returns the effective rate-limit triple for the (path, site)
+// pair as a RateLimitValues.  Resolution order:
+//  1. Scan Zones in index order.  The first zone whose PathPatterns match
+//     wins; zones are install-wide and not site-scoped (they represent
+//     "/api/ traffic always burns the api zone" semantics).
+//  2. Otherwise return the per-site default (= Sites[site] verbatim if
+//     present, else Default).
+//
+// Pre-v2 callers used to pass only `path` and receive a RateZone; the v2
+// signature adds `site` and returns a RateLimitValues so the per-site
+// scalar wrapper is honored without leaking the install-wide PathPatterns.
+func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 	for _, z := range c.Zones {
 		if z.MatchPath(path) {
-			return z
+			return RateLimitValues{
+				Name:           z.Name,
+				RequestsPerMin: z.RequestsPerMin,
+				Burst:          z.Burst,
+				WindowSec:      z.WindowSec,
+				ChallengeMode:  z.ChallengeMode,
+			}
 		}
 	}
-	return c.Default
+	return c.Resolve(site)
 }
 
 func defaults() Settings {
@@ -1218,11 +1389,11 @@ func defaults() Settings {
 			},
 		},
 		RateLimit: RateLimitConfig{
-			// The Default zone is path-agnostic / applies to all traffic.
-			// 100r/m + burst 50. Challenge mode is pow_then_captcha
-			// (= recommended chain): stall with PoW + verify with CAPTCHA.
-			// Legitimate users typically only need PoW.
-			Default: RateZone{
+			// The Default record applies to every site that has no entry in
+			// RateLimit.Sites.  100r/m + burst 50.  Challenge mode is
+			// pow_then_captcha (= recommended chain): stall with PoW + verify
+			// with CAPTCHA.  Legitimate users typically only need PoW.
+			Default: RateLimitValues{
 				Name:           "unmask_rate",
 				RequestsPerMin: 100,
 				Burst:          50,
@@ -1304,11 +1475,13 @@ func defaults() Settings {
 				DisabledPresets: []string{
 					"wordpress", "secrets", "cms-admin", "shell", "cgi-tomcat", "scan-paths",
 				},
-				BanDuration: 86400, // 24h
 				BanFilePath: "/etc/unmask/banned.txt",
 				// DefaultAction left empty -> inherits the same fallback as
 				// the rate-limit default (pow_then_captcha).  Keeps the
 				// chain choice consistent across axes.
+				Default: HoneypotValues{
+					BanDurationSec: 86400, // 24h
+				},
 			},
 			ProtectedPaths: ProtectedPathsConfig{
 				// "unmask" preset enabled by default: covers /unmask/admin/

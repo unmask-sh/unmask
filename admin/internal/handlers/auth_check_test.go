@@ -221,26 +221,26 @@ func TestProtectedDecide(t *testing.T) {
 		protected: []*regexp.Regexp{regexp.MustCompile(`^/admin/`)},
 	}
 	cfgCaptcha := settings.Settings{RateLimit: settings.RateLimitConfig{
-		Default: settings.RateZone{ChallengeMode: settings.RateChallengeCaptchaOnly},
+		Default: settings.RateLimitValues{ChallengeMode: settings.RateChallengeCaptchaOnly},
 	}}
 	cfgDeny := settings.Settings{RateLimit: settings.RateLimitConfig{
-		Default: settings.RateZone{ChallengeMode: settings.RateChallengeDeny},
+		Default: settings.RateLimitValues{ChallengeMode: settings.RateChallengeDeny},
 	}}
 
 	t.Run("non-matching uri -> silent", func(t *testing.T) {
-		_, ok := protectedDecide("/public/", matchers, cfgCaptcha)
+		_, ok := protectedDecide("/public/", matchers, cfgCaptcha, "")
 		if ok {
 			t.Error("expected silent for non-matching uri")
 		}
 	})
 	t.Run("/admin/ + chMode=captcha", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgCaptcha)
+		d, ok := protectedDecide("/admin/dashboard", matchers, cfgCaptcha, "")
 		if !ok || d.sev != sevCaptchaOnly || d.chMode != settings.RateChallengeCaptchaOnly {
 			t.Errorf("got %+v ok=%v, want captcha", d, ok)
 		}
 	})
 	t.Run("/admin/ + chMode=deny -> deny severity", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgDeny)
+		d, ok := protectedDecide("/admin/dashboard", matchers, cfgDeny, "")
 		if !ok || d.sev != sevDeny {
 			t.Errorf("got %+v ok=%v, want deny", d, ok)
 		}

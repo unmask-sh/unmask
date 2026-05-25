@@ -172,7 +172,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	matchers := h.bypassMatchers(cfg.Nginx)
+	matchers := h.bypassMatchers(cfg.Nginx, site)
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
 
 	action := "pass"
@@ -200,7 +200,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case isBypassIP(ip, cfg.Nginx.BypassIPs):
 		action, reason, status = "pass", "bypass:ip", http.StatusOK
-	case matchPath(uri, site, matchers.bypass):
+	case matchPath(uri, matchers.bypass):
 		action, reason, status = "pass", "bypass:path", http.StatusOK
 	case bvOK:
 		// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
@@ -221,7 +221,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
 			decisions = append(decisions, d)
 		}
-		if d, ok := protectedDecide(uri, matchers, cfg); ok {
+		if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
 			decisions = append(decisions, d)
 		}
 		if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
@@ -268,7 +268,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// final block).  Otherwise count, and on threshold exceedance,
 	// promote to challenge + emit the zone / challenge_mode in response
 	// headers so nginx can transfer them into the error_page query.
-	zone := cfg.RateLimit.ResolveZone(uri)
+	zone := cfg.RateLimit.ResolveZone(uri, site)
 	chMode := zone.ResolvedChallengeMode()
 	rlHit := false
 	rlCount := 0
@@ -476,7 +476,7 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 // is the visible verdict).
 func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
 	banMgr *ban.Manager, ctx context.Context, ip string) (axisDecision, bool) {
-	if !matchPathSimple(uri, matchers.honeypot) {
+	if !matchPath(uri, matchers.honeypot) {
 		return axisDecision{}, false
 	}
 	if banMgr != nil {
@@ -530,14 +530,15 @@ func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool)
 
 // protectedDecide fires when the URI matches a protected-paths regex.
 // The chain is the rate-limit challenge mode default (= "pow_then_captcha"
-// fallback when unset).
-func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings) (axisDecision, bool) {
-	if !matchPathSimple(uri, matchers.protected) {
+// fallback when unset).  site selects the per-site rate-limit record so a
+// site that overrides ChallengeMode is honored.
+func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, site string) (axisDecision, bool) {
+	if !matchPath(uri, matchers.protected) {
 		return axisDecision{}, false
 	}
 	// Reuse the rate-limit chain mode as the protected-path default since
 	// the protected tab does not yet expose its own chMode picker.
-	act := strings.TrimSpace(cfg.RateLimit.Default.ChallengeMode)
+	act := strings.TrimSpace(cfg.RateLimit.Resolve(site).ChallengeMode)
 	if !settings.IsValidRateChallengeMode(act) {
 		act = settings.RateChallengePoWThenCaptcha
 	}
@@ -681,35 +682,34 @@ func isBypassIP(ip string, list []string) bool {
 // --- Regex matcher cache (= recompile only when settings change) ---
 
 type pathMatchers struct {
-	// bypass: site-restricted variant.  site == "" matches every site;
-	// otherwise only when site equals.
-	bypass    []siteRegex
+	bypass    []*regexp.Regexp
 	honeypot  []*regexp.Regexp
 	protected []*regexp.Regexp
 }
 
-type siteRegex struct {
-	site string // "" = every site
-	re   *regexp.Regexp
-}
-
-// bypassMatchersCache: reused until the settings identity changes.
+// bypassMatchersCache: reused until the (settings pointer, site) pair
+// changes.  site is part of the key so swapping vhosts mid-process does
+// not return a cached compile that was filtered for a different host.
 var (
-	matchersMu     sync.Mutex
-	cachedNginxPtr *settings.Nginx
-	cachedMatchers pathMatchers
+	matchersMu      sync.Mutex
+	cachedNginxPtr  *settings.Nginx
+	cachedSite      string
+	cachedMatchers  pathMatchers
 )
 
-// bypassMatchers: build the regex list from settings.  Reuse the cache for the same pointer.
-func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
+// bypassMatchers: build the per-site regex list from settings.  Uses
+// BypassPathsConfig.ResolvePaths(site) / ProtectedPathsConfig.ResolvePaths /
+// HoneypotConfig.ResolveURLs so a row's Site filter is honored once, here,
+// and the downstream matchers stay site-agnostic.
+func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	matchersMu.Lock()
 	defer matchersMu.Unlock()
-	if cachedNginxPtr == &n { // normally false (= a local copy has a different pointer)
+	if cachedNginxPtr == &n && cachedSite == site { // normally false (= a local copy has a different pointer)
 		return cachedMatchers
 	}
 	pm := pathMatchers{}
 
-	// bypass paths: enabled presets + enabled extras.
+	// bypass paths: enabled presets + per-site rows from ResolvePaths.
 	//
 	// Pattern convention: BypassPathRule.Pattern is a **path-anchored** PCRE
 	// regex evaluated against the URI directly (e.g., `^/api/`).  We compile
@@ -725,25 +725,24 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 			continue
 		}
 		for _, r := range g.Rules {
+			if r.Site != "" && r.Site != site {
+				continue
+			}
 			if re, err := regexp.Compile("(?i)" + r.Pattern); err == nil {
-				pm.bypass = append(pm.bypass, siteRegex{site: r.Site, re: re})
+				pm.bypass = append(pm.bypass, re)
 			}
 		}
 	}
-	for i, p := range n.BypassPaths.Extra {
-		if i < len(n.BypassPaths.ExtraDisabled) && n.BypassPaths.ExtraDisabled[i] {
+	for _, row := range n.BypassPaths.ResolvePaths(site) {
+		if row.Disabled {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + p); err == nil {
-			site := ""
-			if i < len(n.BypassPaths.ExtraSite) {
-				site = n.BypassPaths.ExtraSite[i]
-			}
-			pm.bypass = append(pm.bypass, siteRegex{site: site, re: re})
+		if re, err := regexp.Compile("(?i)" + row.Path); err == nil {
+			pm.bypass = append(pm.bypass, re)
 		}
 	}
 
-	// honeypot: enabled presets + extras.  No site concept.
+	// honeypot: enabled presets + per-site URLs.
 	disabledHP := toSet(n.Honeypot.DisabledPresets)
 	for _, g := range nginxconf.HoneypotPresetGroups {
 		if disabledHP[g.ID] {
@@ -755,14 +754,16 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 			}
 		}
 	}
-	for _, p := range n.Honeypot.Extra {
-		if re, err := regexp.Compile("(?i)" + p); err == nil {
+	for _, u := range n.Honeypot.ResolveURLs(site) {
+		if u.Disabled {
+			continue
+		}
+		if re, err := regexp.Compile("(?i)" + u.Path); err == nil {
 			pm.honeypot = append(pm.honeypot, re)
 		}
 	}
 
-	// protected paths: presets + extras.  No site concept.
-	// Preset opt-in: only IDs in EnabledPresets activate.
+	// protected paths: presets + per-site rows.
 	enabledPP := toSet(n.ProtectedPaths.EnabledPresets)
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		if !enabledPP[g.ID] {
@@ -774,33 +775,24 @@ func (h *Handler) bypassMatchers(n settings.Nginx) pathMatchers {
 			}
 		}
 	}
-	for i, p := range n.ProtectedPaths.Extra {
-		if i < len(n.ProtectedPaths.ExtraDisabled) && n.ProtectedPaths.ExtraDisabled[i] {
+	for _, row := range n.ProtectedPaths.ResolvePaths(site) {
+		if row.Disabled {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + p); err == nil {
+		if re, err := regexp.Compile("(?i)" + row.Path); err == nil {
 			pm.protected = append(pm.protected, re)
 		}
 	}
 
 	cachedNginxPtr = &n
+	cachedSite = site
 	cachedMatchers = pm
 	return pm
 }
 
-func matchPath(uri, site string, list []siteRegex) bool {
-	for _, sr := range list {
-		if sr.site != "" && sr.site != site {
-			continue
-		}
-		if sr.re.MatchString(uri) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchPathSimple(uri string, list []*regexp.Regexp) bool {
+// matchPath reports whether the URI hits any of the compiled bypass regex.
+// site filtering happened once in bypassMatchers, so this is a flat scan.
+func matchPath(uri string, list []*regexp.Regexp) bool {
 	for _, re := range list {
 		if re.MatchString(uri) {
 			return true

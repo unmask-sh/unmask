@@ -402,33 +402,21 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
 		"ChallengeTargets":      cur.ChallengeTargets,
 		"ChallengePresetAction": cur.ChallengeTargets.PresetAction,
-		"HoneypotGroups":        honeypotGroups,
-		"HoneypotRules":         pairRules(cur.Honeypot.Extra, cur.Honeypot.ExtraTitle, cur.Honeypot.ExtraDisabled, cur.Honeypot.ExtraUpdatedAt),
-		"HoneypotBanDuration":   cur.Honeypot.BanDuration,
-		"Honeypot":              cur.Honeypot,
-		"HoneypotPresetAction":  cur.Honeypot.PresetAction,
-		"HoneypotExtraAction":   padToLen(cur.Honeypot.ExtraAction, len(cur.Honeypot.Extra)),
-		"BypassIPsRules":        pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
-		"BypassPresetGroups":    bypassPresetGroups,
-		"ProtectedRules": pairProtectedRules(
-			cur.ProtectedPaths.Extra,
-			cur.ProtectedPaths.ExtraTitle,
-			cur.ProtectedPaths.ExtraDisabled,
-			cur.ProtectedPaths.ExtraUpdatedAt,
-			cur.ProtectedPaths.ExtraMode,
-		),
-		"BypassPathGroups":      bypassPathGroups,
-		"ProtectedPresetGroups": protectedPresetGroups,
-		"ProtectedPaths":        cur.ProtectedPaths,
-		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
-		"ProtectedExtraAction":  padToLen(cur.ProtectedPaths.ExtraAction, len(cur.ProtectedPaths.Extra)),
-		"BypassPathsRules": pairBypassPathRules(
-			cur.BypassPaths.Extra,
-			cur.BypassPaths.ExtraTitle,
-			cur.BypassPaths.ExtraDisabled,
-			cur.BypassPaths.ExtraUpdatedAt,
-			cur.BypassPaths.ExtraSite,
-		),
+		"HoneypotGroups":             honeypotGroups,
+		"HoneypotRules":              honeypotURLRows(cur.Honeypot.URLs),
+		"HoneypotDefaultBanDuration": cur.Honeypot.Default.BanDurationSec,
+		"Honeypot":                   cur.Honeypot,
+		"HoneypotDefault":            cur.Honeypot.Default,
+		"HoneypotSites":              cur.Honeypot.Sites,
+		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
+		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
+		"BypassPresetGroups":         bypassPresetGroups,
+		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
+		"BypassPathGroups":           bypassPathGroups,
+		"ProtectedPresetGroups":      protectedPresetGroups,
+		"ProtectedPaths":             cur.ProtectedPaths,
+		"ProtectedPresetAction":      cur.ProtectedPaths.PresetAction,
+		"BypassPathsRules":           bypassPathRows(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --
@@ -1722,20 +1710,21 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	return nil
 }
 
-// applyHoneypotForm: receive the honeypot tab form. Same shape as search-bots etc.
+// applyHoneypotForm: receive the honeypot tab form (v2 = flat URLs slice).
 //
-//	ban_duration: TTL (seconds) for BANs from honeypot hits. 0 = permanent.
-//	honeypot_preset_enabled[]: list of preset-group IDs to enable (= checkbox)
-//	honeypot_pat / _title / _enabled / _updated_at: 4 parallel arrays from the row UI
+//	honeypot_default_ban_duration_sec: TTL (seconds) for BANs from honeypot hits.
+//	    Lives on Default; per-site overrides go through AdminHoneypotSiteSave.
+//	honeypot_preset_enabled[]: list of preset-group IDs to enable (= checkbox).
+//	honeypot_url_path / _title / _enabled / _updated_at / _site / _action:
+//	    parallel arrays for the row UI -- zipped here into HoneypotURL slice.
 func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	// ban_duration: numeric + range check. Keep current value if the field is
-	// absent (= safety net for forms that don't include it; current UI always sends it).
-	if raw := strings.TrimSpace(r.FormValue("ban_duration")); raw != "" {
+	// Default ban duration: numeric + range check.
+	if raw := strings.TrimSpace(r.FormValue("honeypot_default_ban_duration_sec")); raw != "" {
 		v, err := strconv.Atoi(raw)
 		if err != nil || v < 0 || v > 2592000 {
-			return fmt.Errorf("ban_duration: invalid value %q (= 0..2592000)", raw)
+			return fmt.Errorf("ban_duration_sec: invalid value %q (= 0..2592000)", raw)
 		}
-		n.Honeypot.BanDuration = v
+		n.Honeypot.Default.BanDurationSec = v
 	}
 
 	// Collect disabled preset groups.
@@ -1751,24 +1740,23 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 	}
 	n.Honeypot.DisabledPresets = disabledOut
 
-	// Row UI 4 parallel arrays → zip. Patterns are regex-compile validated.
-	pats := r.Form["honeypot_pat"]
-	titles := r.Form["honeypot_title"]
-	enabled := r.Form["honeypot_enabled"]
-	upds := r.Form["honeypot_updated_at"]
+	// Row UI parallel arrays → zip into HoneypotURL slice.
+	pats := r.Form["honeypot_url_path"]
+	titles := r.Form["honeypot_url_title"]
+	enabled := r.Form["honeypot_url_enabled"]
+	upds := r.Form["honeypot_url_updated_at"]
+	sites := r.Form["honeypot_url_site"]
+	actions := r.Form["honeypot_url_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabled), len(upds)} {
+	for _, l := range []int{len(titles), len(enabled), len(upds), len(sites), len(actions)} {
 		if l > maxLen {
 			maxLen = l
 		}
 	}
-	outPat := make([]string, 0, maxLen)
-	outTitle := make([]string, 0, maxLen)
-	outDisabled := make([]bool, 0, maxLen)
-	outUpd := make([]int64, 0, maxLen)
+	urls := make([]settings.HoneypotURL, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t string
+		var p, t, site, action string
 		isEnabled := true
 		var ts int64
 		if i < len(pats) {
@@ -1784,6 +1772,15 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
 		}
+		if i < len(sites) {
+			site = strings.TrimSpace(sites[i])
+		}
+		if i < len(actions) {
+			v := strings.TrimSpace(actions[i])
+			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
+				action = v
+			}
+		}
 		if p == "" {
 			continue
 		}
@@ -1793,23 +1790,24 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if ts <= 0 {
 			ts = now
 		}
-		outPat = append(outPat, p)
-		outTitle = append(outTitle, t)
-		outDisabled = append(outDisabled, !isEnabled)
-		outUpd = append(outUpd, ts)
+		urls = append(urls, settings.HoneypotURL{
+			Path:      p,
+			Title:     t,
+			Action:    action,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Site:      site,
+		})
 	}
-	n.Honeypot.Extra = outPat
-	n.Honeypot.ExtraTitle = outTitle
-	n.Honeypot.ExtraDisabled = outDisabled
-	n.Honeypot.ExtraUpdatedAt = outUpd
+	n.Honeypot.URLs = urls
 
-	// honeypot default action
+	// honeypot default action (= chain for trips).
 	if v := strings.TrimSpace(r.FormValue("honeypot_default_action")); v != "" {
 		if settings.IsValidRateChallengeMode(v) {
 			n.Honeypot.DefaultAction = v
 		}
 	}
-	// per-preset action override
+	// per-preset action override.
 	presetActions := map[string]string{}
 	for k, vals := range r.Form {
 		if !strings.HasPrefix(k, "honeypot_preset_action__") {
@@ -1829,27 +1827,6 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		n.Honeypot.PresetAction = nil
 	} else {
 		n.Honeypot.PresetAction = presetActions
-	}
-	// per-extra action (index-aligned with Extra)
-	chains := r.Form["honeypot_extra_action"]
-	outChains := make([]string, len(outPat))
-	for i := range outChains {
-		if i < len(chains) {
-			v := strings.TrimSpace(chains[i])
-			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
-				outChains[i] = ""
-			} else {
-				outChains[i] = v
-			}
-		}
-	}
-	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
-		outChains = outChains[:len(outChains)-1]
-	}
-	if len(outChains) == 0 {
-		n.Honeypot.ExtraAction = nil
-	} else {
-		n.Honeypot.ExtraAction = outChains
 	}
 	return nil
 }
@@ -2133,26 +2110,27 @@ func toSet(xs []string) map[string]bool {
 // `mode` column (= captcha/pow/strict) was retired in favor of the
 // per-axis chain action (= pow_only / pow_then_captcha / captcha_only /
 // deny) wired through protected_default_action + protected_extra_action;
-// ExtraMode is kept full of "captcha" for yaml back-compat.
+// applyProtectedForm receives the protected-paths tab form (v2 = flat
+// ProtectedPath slice).  Form fields: protected_path / _title / _enabled /
+// _updated_at / _mode / _site / _action -- zipped into ProtectedPath.
 func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	pats := r.Form["protected_pat"]
+	pats := r.Form["protected_path"]
 	titles := r.Form["protected_title"]
 	enabledArr := r.Form["protected_enabled"]
 	upds := r.Form["protected_updated_at"]
+	modes := r.Form["protected_mode"]
+	sites := r.Form["protected_site"]
+	actions := r.Form["protected_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabledArr), len(upds)} {
+	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(modes), len(sites), len(actions)} {
 		if l > maxLen {
 			maxLen = l
 		}
 	}
-	outPat := make([]string, 0, maxLen)
-	outTitle := make([]string, 0, maxLen)
-	outDisabled := make([]bool, 0, maxLen)
-	outUpd := make([]int64, 0, maxLen)
-	outMode := make([]string, 0, maxLen)
+	rows := make([]settings.ProtectedPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t string
+		var p, t, mode, site, action string
 		isEnabled := true
 		var ts int64
 		if i < len(pats) {
@@ -2168,6 +2146,21 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(upds) {
 			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
 		}
+		if i < len(modes) {
+			mode = strings.TrimSpace(modes[i])
+		}
+		if !nginxconf.IsValidProtectedMode(mode) {
+			mode = nginxconf.ProtectedModeCaptcha
+		}
+		if i < len(sites) {
+			site = strings.TrimSpace(sites[i])
+		}
+		if i < len(actions) {
+			v := strings.TrimSpace(actions[i])
+			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
+				action = v
+			}
+		}
 		if p == "" {
 			continue
 		}
@@ -2177,17 +2170,17 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if ts <= 0 {
 			ts = now
 		}
-		outPat = append(outPat, p)
-		outTitle = append(outTitle, t)
-		outDisabled = append(outDisabled, !isEnabled)
-		outUpd = append(outUpd, ts)
-		outMode = append(outMode, nginxconf.ProtectedModeCaptcha)
+		rows = append(rows, settings.ProtectedPath{
+			Path:      p,
+			Title:     t,
+			Mode:      mode,
+			Action:    action,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Site:      site,
+		})
 	}
-	n.ProtectedPaths.Extra = outPat
-	n.ProtectedPaths.ExtraTitle = outTitle
-	n.ProtectedPaths.ExtraDisabled = outDisabled
-	n.ProtectedPaths.ExtraUpdatedAt = outUpd
-	n.ProtectedPaths.ExtraMode = outMode
+	n.ProtectedPaths.Paths = rows
 
 	// Receive presets: "protected_preset_enabled" carries the list of checked
 	// IDs and is written directly to EnabledPresets.  Unknown IDs (= form
@@ -2205,13 +2198,13 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	}
 	n.ProtectedPaths.EnabledPresets = enabled
 
-	// Protected default action
+	// Protected default action.
 	if v := strings.TrimSpace(r.FormValue("protected_default_action")); v != "" {
 		if settings.IsValidRateChallengeMode(v) {
 			n.ProtectedPaths.DefaultAction = v
 		}
 	}
-	// per-preset action override
+	// per-preset action override.
 	presetActions := map[string]string{}
 	for k, vals := range r.Form {
 		if !strings.HasPrefix(k, "protected_preset_action__") {
@@ -2232,27 +2225,6 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	} else {
 		n.ProtectedPaths.PresetAction = presetActions
 	}
-	// per-extra action (index-aligned with Extra)
-	chains := r.Form["protected_extra_action"]
-	outChains := make([]string, len(n.ProtectedPaths.Extra))
-	for i := range outChains {
-		if i < len(chains) {
-			v := strings.TrimSpace(chains[i])
-			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
-				outChains[i] = ""
-			} else {
-				outChains[i] = v
-			}
-		}
-	}
-	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
-		outChains = outChains[:len(outChains)-1]
-	}
-	if len(outChains) == 0 {
-		n.ProtectedPaths.ExtraAction = nil
-	} else {
-		n.ProtectedPaths.ExtraAction = outChains
-	}
 	return nil
 }
 
@@ -2261,6 +2233,8 @@ type protectedExtraRule struct {
 	Pattern   string
 	Title     string
 	Mode      string
+	Action    string
+	Site      string
 	Enabled   bool
 	UpdatedAt int64
 }
@@ -2282,36 +2256,77 @@ func padToLen(s []string, n int) []string {
 	return out
 }
 
-// pairProtectedRules: zip 5 parallel slices.
-func pairProtectedRules(extras, titles []string, disabled []bool, updatedAt []int64, modes []string) []protectedExtraRule {
-	out := make([]protectedExtraRule, len(extras))
-	for i, e := range extras {
-		var t, mode string
-		if i < len(titles) {
-			t = titles[i]
-		}
-		isDisabled := false
-		if i < len(disabled) {
-			isDisabled = disabled[i]
-		}
-		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
-		}
-		if i < len(modes) {
-			mode = modes[i]
-		}
+// protectedPathRows: surface ProtectedPath rows in the template's row-UI
+// shape.  Mode defaults to "captcha" so a freshly-added row renders with a
+// pre-selected dropdown.
+func protectedPathRows(rows []settings.ProtectedPath) []protectedExtraRule {
+	out := make([]protectedExtraRule, len(rows))
+	for i, r := range rows {
+		mode := r.Mode
 		if !nginxconf.IsValidProtectedMode(mode) {
 			mode = nginxconf.ProtectedModeCaptcha
 		}
 		out[i] = protectedExtraRule{
-			Pattern: e, Title: t, Mode: mode, Enabled: !isDisabled, UpdatedAt: ts,
+			Pattern:   r.Path,
+			Title:     r.Title,
+			Mode:      mode,
+			Action:    r.Action,
+			Site:      r.Site,
+			Enabled:   !r.Disabled,
+			UpdatedAt: r.UpdatedAt,
 		}
 	}
 	return out
 }
 
-// applyBypassPathsForm: receive the bypass-paths tab form. 5 parallel arrays + presets.
+// bypassPathRows: surface BypassPath rows in the row-UI shape used by the
+// settings template (= booleans the template can branch on directly).
+func bypassPathRows(rows []settings.BypassPath) []bypassPathRule {
+	out := make([]bypassPathRule, len(rows))
+	for i, r := range rows {
+		out[i] = bypassPathRule{
+			Pattern:   r.Path,
+			Title:     r.Title,
+			Site:      r.Site,
+			Enabled:   !r.Disabled,
+			UpdatedAt: r.UpdatedAt,
+		}
+	}
+	return out
+}
+
+// honeypotURLRow: row-UI struct surfaced to the settings template.  Mirrors
+// settings.HoneypotURL but flips Disabled into Enabled so the templates can
+// keep using `if .Enabled`.
+type honeypotURLRow struct {
+	Pattern   string
+	Title     string
+	Action    string
+	Site      string
+	Enabled   bool
+	UpdatedAt int64
+}
+
+// honeypotURLRows: turn the persisted HoneypotURL slice into the row-UI
+// shape for rendering.
+func honeypotURLRows(rows []settings.HoneypotURL) []honeypotURLRow {
+	out := make([]honeypotURLRow, len(rows))
+	for i, r := range rows {
+		out[i] = honeypotURLRow{
+			Pattern:   r.Path,
+			Title:     r.Title,
+			Action:    r.Action,
+			Site:      r.Site,
+			Enabled:   !r.Disabled,
+			UpdatedAt: r.UpdatedAt,
+		}
+	}
+	return out
+}
+
+// applyBypassPathsForm: receive the bypass-paths tab form (v2 = flat
+// BypassPath slice).  Form fields: bp_path / _title / _enabled /
+// _updated_at / _site -- zipped into BypassPath.
 func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// Preset checkboxes go straight to EnabledPresets (= opt-in list).  Unknown
 	// IDs (= form tampering) are dropped silently.
@@ -2328,7 +2343,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	}
 	n.BypassPaths.EnabledPresets = enabled
 
-	pats := r.Form["bp_pat"]
+	pats := r.Form["bp_path"]
 	titles := r.Form["bp_title"]
 	rowEnabled := r.Form["bp_enabled"]
 	upds := r.Form["bp_updated_at"]
@@ -2339,11 +2354,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			maxLen = l
 		}
 	}
-	outPat := make([]string, 0, maxLen)
-	outTitle := make([]string, 0, maxLen)
-	outDisabled := make([]bool, 0, maxLen)
-	outUpd := make([]int64, 0, maxLen)
-	outSite := make([]string, 0, maxLen)
+	rows := make([]settings.BypassPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
 		var p, t, site string
@@ -2374,50 +2385,27 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if ts <= 0 {
 			ts = now
 		}
-		outPat = append(outPat, p)
-		outTitle = append(outTitle, t)
-		outDisabled = append(outDisabled, !isEnabled)
-		outUpd = append(outUpd, ts)
-		outSite = append(outSite, site)
+		rows = append(rows, settings.BypassPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Site:      site,
+		})
 	}
-	n.BypassPaths.Extra = outPat
-	n.BypassPaths.ExtraTitle = outTitle
-	n.BypassPaths.ExtraDisabled = outDisabled
-	n.BypassPaths.ExtraUpdatedAt = outUpd
-	n.BypassPaths.ExtraSite = outSite
+	n.BypassPaths.Paths = rows
 	return nil
 }
 
-// bypassPathRule: row-UI struct (= 5 parallel zip).
+// bypassPathRule: row-UI struct surfaced to the template renderer.  Mirrors
+// the underlying settings.BypassPath but uses booleans the template can
+// branch on directly.
 type bypassPathRule struct {
 	Pattern   string
 	Title     string
 	Site      string
 	Enabled   bool
 	UpdatedAt int64
-}
-
-func pairBypassPathRules(extras, titles []string, disabled []bool, updatedAt []int64, sites []string) []bypassPathRule {
-	out := make([]bypassPathRule, len(extras))
-	for i, e := range extras {
-		var t, site string
-		if i < len(titles) {
-			t = titles[i]
-		}
-		isDisabled := false
-		if i < len(disabled) {
-			isDisabled = disabled[i]
-		}
-		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
-		}
-		if i < len(sites) {
-			site = sites[i]
-		}
-		out[i] = bypassPathRule{Pattern: e, Title: t, Site: site, Enabled: !isDisabled, UpdatedAt: ts}
-	}
-	return out
 }
 
 // applyCaptchaForm: receive the captcha tab form. Reads the provider radio +
@@ -3287,4 +3275,118 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 	}
 	h.Settings = cur
 	redirBack("")
+}
+
+// applyRateLimitFormV2: top-level entry point for the rate-limit tab save.
+// Edits the Default record only; per-site cards have their own endpoints.
+// Also receives the install-wide Key + Zones from the same form.
+func applyRateLimitFormV2(cur *settings.RateLimitConfig, r *http.Request) error {
+	return applyRateLimitForm(cur, r)
+}
+
+// applyRateLimitValuesForm mutates a single RateLimitValues record from the
+// form fields shared by the default form and per-site cards.  Field names:
+// default_requests_per_min / default_burst / default_window_sec /
+// default_challenge_mode -- matches applyRateLimitForm so a per-site card
+// can reuse the same UI.
+func applyRateLimitValuesForm(v *settings.RateLimitValues, r *http.Request) error {
+	if raw := strings.TrimSpace(r.FormValue("default_requests_per_min")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100000 {
+			return fmt.Errorf("requests_per_min must be an integer in 1-100000 (got %q)", raw)
+		}
+		v.RequestsPerMin = n
+	}
+	if raw := strings.TrimSpace(r.FormValue("default_burst")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 100000 {
+			return fmt.Errorf("burst must be an integer in 0-100000 (got %q)", raw)
+		}
+		v.Burst = n
+	}
+	if raw := strings.TrimSpace(r.FormValue("default_window_sec")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 3600 {
+			return fmt.Errorf("window_sec must be an integer in 1-3600 (got %q)", raw)
+		}
+		v.WindowSec = n
+	}
+	if raw := strings.TrimSpace(r.FormValue("default_challenge_mode")); raw != "" {
+		if !settings.IsValidRateChallengeMode(raw) {
+			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha / deny (got %q)", raw)
+		}
+		v.ChallengeMode = raw
+	}
+	if v.Name == "" {
+		v.Name = "unmask_rate"
+	}
+	return nil
+}
+
+// AdminRateLimitSiteSave: POST {base}/admin/settings/rate_limit/site/save
+//
+// Persists one Sites[<host>] entry for the rate-limit wrapper.  Same shape
+// as AdminBrandingSiteSave: the form field names are shared with the
+// default form so the per-site card can reuse the same UI.
+func (h *Handler) AdminRateLimitSiteSave(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "rate_limit", func(cur *settings.Settings, site string) error {
+		if cur.RateLimit.Sites == nil {
+			cur.RateLimit.Sites = map[string]settings.RateLimitValues{}
+		}
+		v := cur.RateLimit.Sites[site]
+		if err := applyRateLimitValuesForm(&v, r); err != nil {
+			return err
+		}
+		cur.RateLimit.Sites[site] = v
+		return nil
+	})
+}
+
+// AdminRateLimitSiteDelete: POST {base}/admin/settings/rate_limit/site/delete
+func (h *Handler) AdminRateLimitSiteDelete(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "rate_limit", func(cur *settings.Settings, site string) error {
+		delete(cur.RateLimit.Sites, site)
+		return nil
+	})
+}
+
+// applyHoneypotValuesForm mutates a single HoneypotValues record from the
+// form fields shared by the default form and per-site cards.  Field name:
+// honeypot_default_ban_duration_sec.
+func applyHoneypotValuesForm(v *settings.HoneypotValues, r *http.Request) error {
+	if raw := strings.TrimSpace(r.FormValue("honeypot_default_ban_duration_sec")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 0 || n > 2592000 {
+			return fmt.Errorf("ban_duration_sec: invalid value %q (= 0..2592000)", raw)
+		}
+		v.BanDurationSec = n
+	}
+	return nil
+}
+
+// AdminHoneypotSiteSave: POST {base}/admin/settings/honeypot/site/save
+//
+// Persists one Sites[<host>] entry for the honeypot scalar wrapper.
+// URL rows (= the list section with per-row site filter) are persisted as
+// part of the normal honeypot tab save.
+func (h *Handler) AdminHoneypotSiteSave(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "honeypot", func(cur *settings.Settings, site string) error {
+		if cur.Nginx.Honeypot.Sites == nil {
+			cur.Nginx.Honeypot.Sites = map[string]settings.HoneypotValues{}
+		}
+		v := cur.Nginx.Honeypot.Sites[site]
+		if err := applyHoneypotValuesForm(&v, r); err != nil {
+			return err
+		}
+		cur.Nginx.Honeypot.Sites[site] = v
+		return nil
+	})
+}
+
+// AdminHoneypotSiteDelete: POST {base}/admin/settings/honeypot/site/delete
+func (h *Handler) AdminHoneypotSiteDelete(w http.ResponseWriter, r *http.Request) {
+	h.adminScalarSiteSave(w, r, "honeypot", func(cur *settings.Settings, site string) error {
+		delete(cur.Nginx.Honeypot.Sites, site)
+		return nil
+	})
 }

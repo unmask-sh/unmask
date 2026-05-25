@@ -809,6 +809,35 @@ var dict = map[Lang]map[string]string{
 		"settings.challenge.sites.credit_on":      "credit 表示",
 		"settings.challenge.sites.credit_off":     "credit 非表示",
 
+		// per-site rate-limit cards (= multi-site v2 phase 2)
+		"settings.rate_limit.sites.section_title":  "site 別 rate-limit (= default を上書きする host)",
+		"settings.rate_limit.sites.intro":          "<code>$host</code> 単位で rate / burst / window / challenge mode を上書きする (= default に対する field 単位継承は <strong>無し</strong>; entry を作るとその site は record 全体を持つ). entry の無い host は default をそのまま使う. zones (= 上の path 別 table) は install-wide で site 別 override の対象外.",
+		"settings.rate_limit.sites.empty":          "未登録. default rate-limit が全 host に適用されます.",
+		"settings.rate_limit.sites.add":            "+ site を追加",
+		"settings.rate_limit.sites.delete":         "×",
+		"settings.rate_limit.sites.delete_confirm": "この site の rate-limit を削除 (= default に戻す) しますか",
+		"settings.rate_limit.sites.save":           "site を保存",
+		"settings.rate_limit.sites.host_label":     "host (= $host. 例: shop.example.com)",
+		"settings.rate_limit.sites.chmode_inherit": "(default 継承)",
+
+		// per-site honeypot scalar cards (= multi-site v2 phase 2).
+		// URL rows live in the flat table on the same tab; the cards
+		// only override BanDurationSec today (= the only per-site scalar).
+		"settings.honeypot.sites.section_title":  "site 別 honeypot scalar (= default を上書きする host)",
+		"settings.honeypot.sites.intro":          "<code>$host</code> 単位で BAN duration を上書きする. URL 行 (= 上の table) は行ごとの site 列で別管理. entry の無い host は default ban duration をそのまま使う.",
+		"settings.honeypot.sites.empty":          "未登録. default ban duration が全 host に適用されます.",
+		"settings.honeypot.sites.add":            "+ site を追加",
+		"settings.honeypot.sites.delete":         "×",
+		"settings.honeypot.sites.delete_confirm": "この site の honeypot scalar を削除 (= default に戻す) しますか",
+		"settings.honeypot.sites.save":           "site を保存",
+		"settings.honeypot.sites.host_label":     "host (= $host. 例: shop.example.com)",
+		"settings.honeypot.sites.ban_inherit":    "(default 継承)",
+
+		// per-row "site" column placeholders for the list-style tabs
+		// (= same shape as the existing settings.bypass_paths.site_all).
+		"settings.honeypot.site_all":  "(全 site)",
+		"settings.protected.site_all": "(全 site)",
+
 		"settings.rate_limit.h":                          "rate-limit 設定",
 		"settings.rate_limit.intro":                      "<strong>動作</strong>: native mode (= nginx + unmask-plugin-nginx) では http {} に <code>limit_req_zone</code> を auto-render し, user の保護 location は <code>include nginx-rendered-protect.inc;</code> 1 行で発火. auth_request / forward-auth mode は admin 内 sliding-window counter で計数 + 閾値超過時に challenge へ格上げ (= IP × JA4 × zone 単位).<br><br>保存後は <strong>nginx -s reload</strong> で http {} の zone 定義を反映.  admin counter (= auth_request 系) は restart 不要で即時反映.",
 		"settings.rate_limit.default_h":                  "default zone (= 全 path 対象)",
@@ -1956,6 +1985,36 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.challenge.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
 		"settings.challenge.sites.credit_on":      "credit on",
 		"settings.challenge.sites.credit_off":     "credit off",
+
+		// per-site rate-limit cards (= multi-site v2 phase 2)
+		"settings.rate_limit.sites.section_title":  "Site-specific rate-limit (= hosts that override the default)",
+		"settings.rate_limit.sites.intro":          "Override rate / burst / window / challenge mode per <code>$host</code>.  No field-level inheritance — adding an entry pins the <strong>entire</strong> record for that host.  Hosts without an entry use the default verbatim.  Zones (= the per-path table above) stay install-wide; the visitor's site does not affect zone resolution.",
+		"settings.rate_limit.sites.empty":          "No site-specific rate-limit yet.  The default applies to every host.",
+		"settings.rate_limit.sites.add":            "+ Add site",
+		"settings.rate_limit.sites.delete":         "×",
+		"settings.rate_limit.sites.delete_confirm": "Delete this site's rate-limit (= revert to default)?",
+		"settings.rate_limit.sites.save":           "Save site",
+		"settings.rate_limit.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
+		"settings.rate_limit.sites.chmode_inherit": "(inherit default)",
+
+		// per-site honeypot scalar cards (= multi-site v2 phase 2).
+		// URL rows live in the flat table on the same tab; the cards
+		// only override BanDurationSec today (= the only per-site scalar).
+		"settings.honeypot.sites.section_title":  "Site-specific honeypot scalars (= hosts that override the default)",
+		"settings.honeypot.sites.intro":          "Override the BAN duration per <code>$host</code>.  URL rows (= the flat table above) carry their own per-row site filter and are unaffected by this section.  Hosts without an entry use the default ban duration.",
+		"settings.honeypot.sites.empty":          "No site-specific honeypot scalars yet.  The default ban duration applies to every host.",
+		"settings.honeypot.sites.add":            "+ Add site",
+		"settings.honeypot.sites.delete":         "×",
+		"settings.honeypot.sites.delete_confirm": "Delete this site's honeypot scalars (= revert to default)?",
+		"settings.honeypot.sites.save":           "Save site",
+		"settings.honeypot.sites.host_label":     "Host (= $host. e.g. shop.example.com)",
+		"settings.honeypot.sites.ban_inherit":    "(inherit default)",
+
+		// per-row "site" column placeholders for the list-style tabs
+		// (= same shape as the existing settings.bypass_paths.site_all).
+		"settings.honeypot.site_all":  "(all sites)",
+		"settings.protected.site_all": "(all sites)",
+
 		"settings.challenge.public_test_pages":                 "Public test pages",
 		"settings.challenge.public_test_pages_label":           "Expose <code>/unmask/test/</code> (cookie reset / force-PoW / force-CAPTCHA debug pages)",
 		"settings.challenge.test_link_admin":                   "Open admin test page",

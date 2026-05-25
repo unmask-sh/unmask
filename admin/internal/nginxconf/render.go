@@ -403,7 +403,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		})
 	}
 
-	// honeypot: enabled preset groups + extras (= skip ExtraDisabled[i]=true).
+	// honeypot: enabled preset groups + custom URLs (= skip Disabled rows).
+	// TODO(phase 3): emit per-site honeypot URL maps so the visitor's $host
+	// scopes a row with row.Site == "<host>".  Today rows are flattened
+	// regardless of site; phase 3 is responsible for the nginx wire-up.
 	honeypotSet := map[string]bool{}
 	disabledHP := toSet(s.Nginx.Honeypot.DisabledPresets)
 	for _, g := range HoneypotPresetGroups {
@@ -417,11 +420,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			honeypotSet[p] = true
 		}
 	}
-	for i, p := range s.Nginx.Honeypot.Extra {
-		if i < len(s.Nginx.Honeypot.ExtraDisabled) && s.Nginx.Honeypot.ExtraDisabled[i] {
+	for _, u := range s.Nginx.Honeypot.URLs {
+		if u.Disabled {
 			continue
 		}
-		if p = trimSpaceAndQuotes(p); p != "" {
+		if p := trimSpaceAndQuotes(u.Path); p != "" {
 			honeypotSet[p] = true
 		}
 	}
@@ -458,20 +461,21 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
 	}
-	for i, p := range s.Nginx.ProtectedPaths.Extra {
-		if i < len(s.Nginx.ProtectedPaths.ExtraDisabled) && s.Nginx.ProtectedPaths.ExtraDisabled[i] {
+	// TODO(phase 3): emit per-site protected-path maps so the visitor's
+	// $host scopes a row with row.Site == "<host>".  Today rows are
+	// flattened regardless of site; phase 3 is responsible for the wire-up.
+	for _, r := range s.Nginx.ProtectedPaths.Paths {
+		if r.Disabled {
 			continue
 		}
-		p = trimSpaceAndQuotes(p)
+		p := trimSpaceAndQuotes(r.Path)
 		if p == "" || ppSeen[p] {
 			continue
 		}
 		ppSeen[p] = true
 		mode := ProtectedModeCaptcha
-		if i < len(s.Nginx.ProtectedPaths.ExtraMode) {
-			if m := s.Nginx.ProtectedPaths.ExtraMode[i]; IsValidProtectedMode(m) {
-				mode = m
-			}
+		if IsValidProtectedMode(r.Mode) {
+			mode = r.Mode
 		}
 		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode})
 	}
@@ -507,18 +511,19 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			bp = append(bp, BypassPathRule{Pattern: r.Pattern, Site: r.Site})
 		}
 	}
-	for i, p := range s.Nginx.BypassPaths.Extra {
-		if i < len(s.Nginx.BypassPaths.ExtraDisabled) && s.Nginx.BypassPaths.ExtraDisabled[i] {
+	// Custom rows: per-row Site filter is already part of BypassPath, so
+	// splitBypassPathsForRender keeps emitting per-host maps for non-empty
+	// sites.  TODO(phase 3): unify with the per-site protected/honeypot
+	// map wire so all three lists share a single $host dispatcher.
+	for _, r := range s.Nginx.BypassPaths.Paths {
+		if r.Disabled {
 			continue
 		}
-		p = trimSpaceAndQuotes(p)
+		p := trimSpaceAndQuotes(r.Path)
 		if p == "" {
 			continue
 		}
-		site := ""
-		if i < len(s.Nginx.BypassPaths.ExtraSite) {
-			site = trimSpaceAndQuotes(s.Nginx.BypassPaths.ExtraSite[i])
-		}
+		site := trimSpaceAndQuotes(r.Site)
 		key := site + "|" + p
 		if bpSeen[key] {
 			continue

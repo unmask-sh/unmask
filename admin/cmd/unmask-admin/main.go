@@ -254,7 +254,11 @@ func cmdServe(args []string) error {
 		}
 		nlog = nginxlog.Start(nlogSock, conn)
 		defer nlog.Close()
-		banDur := time.Duration(s.Nginx.Honeypot.BanDuration) * time.Second
+		// Honeypot ban duration is per-site in v2; the ban manager is a
+		// single shared writer so we seed it with the install-wide default.
+		// Per-site overrides apply when the honeypot trip fires, mutating
+		// the row TTL through ban.Manager (= follow-up wire).
+		banDur := time.Duration(s.Nginx.Honeypot.Default.ResolvedBanDurationSec()) * time.Second
 		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur, s.Nginx.BypassIPs)
 		banMgr.Start()
 		defer banMgr.Close()
@@ -719,6 +723,19 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminChallengeSiteSave)))
 	mux.HandleFunc("POST "+base+"/admin/settings/challenge/site/delete",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminChallengeSiteDelete)))
+	// rate_limit / honeypot scalar wrappers (= v2 phase 2).  Same shape:
+	// one Sites[<host>] entry per save / delete.  The list-style tabs
+	// (= bypass_paths / protected_paths / honeypot URLs) parse all rows
+	// in the main settings save, so they have no /site/ endpoint of their
+	// own.
+	mux.HandleFunc("POST "+base+"/admin/settings/rate_limit/site/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteSave)))
+	mux.HandleFunc("POST "+base+"/admin/settings/rate_limit/site/delete",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRateLimitSiteDelete)))
+	mux.HandleFunc("POST "+base+"/admin/settings/honeypot/site/save",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHoneypotSiteSave)))
+	mux.HandleFunc("POST "+base+"/admin/settings/honeypot/site/delete",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHoneypotSiteDelete)))
 	// webhook test send (notifications tab's "send test" button)
 	mux.HandleFunc("POST "+base+"/admin/api/notify/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))
