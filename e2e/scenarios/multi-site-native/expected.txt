@@ -1,0 +1,11 @@
+# expected output for ./run.sh -- when every override lands on the native
+# module path as designed.  Hand-maintained reference; divergence flags a
+# regression in the multi-site phase 2.2 render pipeline.
+
+PASS  1 shop /admin/ -> challenge fired (default protected_paths)
+PASS  2 shop /checkout/ -> challenge fired (per-site Append)
+PASS  3 blog /admin/ -> no challenge (Remove override honored via disable map)
+PASS  4 blog /anything/ -> 200 pass-through
+PASS  5 default /admin/ -> challenge fired (default inherited)
+PASS  6 default /checkout/ -> 200 pass-through (shop's Append is host-scoped)
+PASS  multi-site-native: all 6 assertions PASS

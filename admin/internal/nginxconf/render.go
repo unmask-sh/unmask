@@ -196,7 +196,7 @@ type renderData struct {
 	SearchBotPatterns       []string // flatten of enabled presets + extras
 	JA4Verdicts             []JA4VerdictRule
 	HoneypotPatterns        []string            // OR list of honeypot path patterns
-	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode}
+	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode, Site}
 	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site} (= source-of-truth list)
 	// BypassPathsGlobal / BypassPathsPerHost are the rendered split:
 	// global rules feed a `map $request_uri ...` block directly, while per-host
@@ -205,6 +205,19 @@ type renderData struct {
 	// no anchor stripping needed because no map ever concatenates host + uri.
 	BypassPathsGlobal  []string             // patterns from rules with Site == ""
 	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
+	// ProtectedPathsGlobal / ProtectedPathsPerHost are the rendered split for
+	// the protected-paths `map $request_uri $protected_mode` blocks.  Phase 2.2
+	// adds per-host scoping: the default rules feed a global map and each site
+	// with an Overrides[site] entry gets its own path-only map plus a dispatcher
+	// `map $host $protected_mode_perhost` that picks which per-host map's value
+	// to surface, identical layering to BypassPathsPerHost above.
+	ProtectedPathsGlobal  []ProtectedPathRule          // rules with Site == ""
+	ProtectedPathsPerHost []ProtectedPathHostMaps      // one entry per unique non-empty Site
+	// ProtectedPathsDisablePerHost: paths the site explicitly Removes from the
+	// default global list.  Phase 2.2's dispatcher reads this to subtract a
+	// matched global rule for that host (= blog.local removing /admin/ blanks
+	// $protected_mode for blog.local even though the global map matches).
+	ProtectedPathsDisablePerHost []ProtectedPathDisableHostMaps
 	ChallengeAll            bool                // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string            // OR list of UA patterns evaluated when false
 
@@ -282,6 +295,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Version:               version,
 		OutputDir:             outDir,
 		BVSecret:              s.Secret.BVSecret,
+		// TODO(multi-site phase 2.2 nginx wire): the Challenge scalars below
+		// (BV PoW / CAPTCHA cookie windows, PoW difficulty) are install-wide
+		// in the rendered nginx output; the per-site Challenge.Overrides
+		// (= Theme / PowDifficulty / ShowCredit) take effect today only via
+		// the admin-side ServeChallenge path which calls
+		// Challenge.Resolve(site).  PowDifficulty is the only one of the
+		// three that flows into nginx render output; routing it per-site
+		// would require a map $host $unmask_pow_difficulty + plugin support
+		// for reading the variable.  Until that lands, native-module sites
+		// fall back to the default PoW difficulty.
 		BVPowValidSeconds:     s.Challenge.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.ResolvedPowDifficulty(),
@@ -399,6 +422,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	}
 
 	// honeypot: enabled preset groups + extras (= skip ExtraDisabled[i]=true).
+	//
+	// TODO(multi-site phase 2.2 nginx wire): emit a per-site honeypot map so
+	// the resolved Extra patterns for each Honeypot.Overrides[site] (= default
+	// list minus Override.Remove + AppendExtra rows) gate $serve_bot_challenge
+	// by Host header in native nginx mode.  Current render only walks the
+	// default scope, matching phase 2.1 admin-only override behaviour; the
+	// per-site append / remove is honoured today only via auth_request mode
+	// (= AuthCheck calls HoneypotConfig.Resolve(site)).  Wiring path: walk
+	// gatherSites(s.Nginx.Honeypot.Overrides) and emit one map $host block
+	// per site with the resolved Extra patterns joined into a regex group,
+	// then OR them into $serve_bot_challenge alongside the default map.
 	honeypotSet := map[string]bool{}
 	disabledHP := toSet(s.Nginx.Honeypot.DisabledPresets)
 	for _, g := range HoneypotPresetGroups {
@@ -428,11 +462,19 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HoneypotPatterns = hp
 
 	// Protected paths: presets (= enabled / preset carries {Pattern, Mode}) +
-	// extras (= skip ExtraDisabled[i]=true).
+	// per-site resolved Paths via Overrides[site].
 	// DisabledPresets == nil means an existing yml where the protected
 	// tab was never saved.  In that case every preset is OFF
 	// (= compat-first: don't silently start protecting new paths in
 	// existing deploys).
+	//
+	// Multi-site phase 2.2: BypassPaths / ProtectedPaths use the
+	// Overrides[site] map for per-host scoping (replaces the old per-row
+	// Site column).  buildPerSiteProtectedPaths resolves the default
+	// (= Site == "") plus one set per Overrides key, dedupes against the
+	// default, and rolls everything into ProtectedPathRule{Pattern, Mode, Site}.
+	// splitProtectedPathsForRender then splits the merged list into the
+	// global map + per-host map shape http.conf.tmpl renders.
 	pp := []ProtectedPathRule{}
 	ppSeen := map[string]bool{}
 	enabledPP := toSet(s.Nginx.ProtectedPaths.EnabledPresets)
@@ -442,10 +484,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		for _, r := range g.Rules {
 			pat := trimSpaceAndQuotes(r.Pattern)
-			if pat == "" || ppSeen[pat] {
+			key := "|" + pat
+			if pat == "" || ppSeen[key] {
 				continue
 			}
-			ppSeen[pat] = true
+			ppSeen[key] = true
 			mode := r.Mode
 			if !IsValidProtectedMode(mode) {
 				mode = ProtectedModeCaptcha
@@ -453,29 +496,97 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
 	}
-	// TODO(multi-site phase 2): emit per-site `map $host $unmask_protected_<site>`
-	// blocks so a per-site Overrides[site].Append / Remove changes the nginx
-	// runtime list as well.  Phase 1.2 renders only the default Paths so the
-	// admin UI overrides are stored but not yet honoured by nginx.
 	for _, e := range s.Nginx.ProtectedPaths.Paths {
 		if e.Disabled {
 			continue
 		}
 		p := trimSpaceAndQuotes(e.Path)
-		if p == "" || ppSeen[p] {
+		key := "|" + p
+		if p == "" || ppSeen[key] {
 			continue
 		}
-		ppSeen[p] = true
+		ppSeen[key] = true
 		mode := e.Mode
 		if !IsValidProtectedMode(mode) {
 			mode = ProtectedModeCaptcha
 		}
 		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode})
 	}
-	sort.Slice(pp, func(i, j int) bool { return pp[i].Pattern < pp[j].Pattern })
+	// Per-site Overrides walk.  Each site that declares an Overrides[site]
+	// entry contributes the diff against the default:
+	//   - Append rows -> emitted as Site-scoped ProtectedPathRule
+	//     (= nginx side puts them in the per-host map only).
+	//   - Remove rows -> emitted into ProtectedPathsDisablePerHost so the
+	//     dispatcher map can subtract the default-matched path for that
+	//     specific host (= blog.local removing /admin/ blanks
+	//     $protected_mode for blog.local while leaving the global map
+	//     untouched for the other sites).
+	//   - Replaced EnabledPresets -> preset-level diff is a v0.3 follow-up;
+	//     the row-level diff already covers the common-case append/remove
+	//     flow exercised by e2e multi-site-basic.
+	//
+	// Resolve(site) returns the merged Paths slice with Remove already
+	// applied + Append concatenated.  Diff vs the default Paths set gives
+	// (Append, Remove) pairs to emit per-host.
+	defaultProtectedPathSet := protectedDefaultPathSet(s.Nginx.ProtectedPaths)
+	for _, site := range gatherSites(s.Nginx.ProtectedPaths.Overrides) {
+		resolved := s.Nginx.ProtectedPaths.Resolve(site)
+		siteSeen := map[string]bool{}
+		resolvedSet := map[string]bool{}
+		// Append diff: any non-default row in resolved.Paths is a site Append.
+		for _, e := range resolved.Paths {
+			if e.Disabled {
+				continue
+			}
+			p := trimSpaceAndQuotes(e.Path)
+			if p == "" {
+				continue
+			}
+			resolvedSet[p] = true
+			if defaultProtectedPathSet[p] {
+				continue // covered by the default global map already
+			}
+			if siteSeen[p] {
+				continue
+			}
+			siteSeen[p] = true
+			mode := e.Mode
+			if !IsValidProtectedMode(mode) {
+				mode = ProtectedModeCaptcha
+			}
+			pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode, Site: site})
+		}
+		// Remove diff: any default path missing from resolved -> emit into
+		// the disable map so the dispatcher subtracts the global match.
+		removed := []string{}
+		for p := range defaultProtectedPathSet {
+			if !resolvedSet[p] {
+				removed = append(removed, p)
+			}
+		}
+		if len(removed) > 0 {
+			sort.Strings(removed)
+			d.ProtectedPathsDisablePerHost = append(d.ProtectedPathsDisablePerHost,
+				ProtectedPathDisableHostMaps{
+					Host:     site,
+					VarName:  hostToNginxVarSegment(site),
+					Patterns: removed,
+				})
+		}
+	}
+	sort.Slice(d.ProtectedPathsDisablePerHost, func(i, j int) bool {
+		return d.ProtectedPathsDisablePerHost[i].Host < d.ProtectedPathsDisablePerHost[j].Host
+	})
+	sort.Slice(pp, func(i, j int) bool {
+		if pp[i].Site != pp[j].Site {
+			return pp[i].Site < pp[j].Site
+		}
+		return pp[i].Pattern < pp[j].Pattern
+	})
 	d.ProtectedPaths = pp
+	d.ProtectedPathsGlobal, d.ProtectedPathsPerHost = splitProtectedPathsForRender(pp)
 
-	// Whitelist paths: enabled presets + extras (= skip ExtraDisabled[i]=true).
+	// Whitelist paths: enabled presets + per-site resolved Paths.
 	//
 	// Patterns are stored as path-anchored PCRE (e.g., `^/api/`) and are
 	// evaluated against `$request_uri` in the rendered nginx map -- no host
@@ -485,6 +596,18 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	//
 	// Preset opt-in: only IDs explicitly listed in EnabledPresets render.
 	// Matches the "All OFF by default" docstring on BypassPathPresetGroups.
+	//
+	// Multi-site phase 2.2: BypassPathsConfig.Overrides[site].Append rows are
+	// resolved via Resolve(site) and emitted as Site-scoped BypassPathRule
+	// entries so splitBypassPathsForRender groups them into the per-host map.
+	// Remove rows simply omit the path from the per-host map -- bypass is a
+	// passthrough, so "host had it removed" naturally degrades to "no bypass"
+	// (= no need for a separate disable map; the global rule for that path
+	// has already been emitted under "" Site so the host inherits it unless
+	// it explicitly opted out, and the Remove diff handling is per-host only
+	// because BypassPath rules in the default global map are always desired
+	// site-wide -- a future v0.3 may add per-host Remove of a global bypass
+	// when an operator wants to gate /api/ on one site only).
 	bp := []BypassPathRule{}
 	bpSeen := map[string]bool{}
 	enabledBPath := toSet(s.Nginx.BypassPaths.EnabledPresets)
@@ -504,12 +627,6 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			bp = append(bp, BypassPathRule{Pattern: r.Pattern, Site: r.Site})
 		}
 	}
-	// TODO(multi-site phase 2): per-site Overrides[site] reflection.  The
-	// per-row Site column is gone; site scoping is expressed through
-	// BypassPathsConfig.Overrides.  Phase 1.2 renders only the default Paths
-	// (every entry hits the global path map) so admin-side overrides round-
-	// trip through yaml but don't reach nginx yet.  Phase 2 will resolve per
-	// host into the per-host maps splitBypassPathsForRender already builds.
 	for _, e := range s.Nginx.BypassPaths.Paths {
 		if e.Disabled {
 			continue
@@ -524,6 +641,39 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		bpSeen[key] = true
 		bp = append(bp, BypassPathRule{Pattern: p, Site: ""})
+	}
+	// Per-site Overrides walk: emit Append rows as Site-scoped BypassPathRule.
+	// Removes are silently honored by not re-emitting the global row for that
+	// site -- bypass paths are additive, so a per-host omission means "no
+	// bypass for this host" which is the default state anyway (= the global
+	// row still applies; per-host Remove of a global bypass is a v0.3 follow-
+	// up that would mirror the protected-paths disable map).
+	defaultBypassPathSet := bypassDefaultPathSet(s.Nginx.BypassPaths)
+	for _, site := range gatherSites(s.Nginx.BypassPaths.Overrides) {
+		resolved := s.Nginx.BypassPaths.Resolve(site)
+		siteSeen := map[string]bool{}
+		for _, e := range resolved.Paths {
+			if e.Disabled {
+				continue
+			}
+			p := trimSpaceAndQuotes(e.Path)
+			if p == "" {
+				continue
+			}
+			if defaultBypassPathSet[p] {
+				continue // already covered by the global path map
+			}
+			if siteSeen[p] {
+				continue
+			}
+			siteSeen[p] = true
+			key := site + "|" + p
+			if bpSeen[key] {
+				continue
+			}
+			bpSeen[key] = true
+			bp = append(bp, BypassPathRule{Pattern: p, Site: site})
+		}
 	}
 	sort.Slice(bp, func(i, j int) bool {
 		if bp[i].Site != bp[j].Site {
@@ -544,6 +694,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// protect.inc and existing install examples).  RequestsPerMin/Burst
 	// should be filled in by settings.defaults() to 100/50 when 0, but
 	// we apply a safe fallback here too.
+	//
+	// TODO(multi-site phase 2.2 nginx wire): emit per-site limit_req_zone
+	// blocks so each Host gets its own bucket sized by the resolved
+	// RateLimit.Overrides[site].Default-zone knobs (rpm / burst / window).
+	// Today this renders only the default-scope zone -- per-site rpm / burst
+	// overrides are honoured today only via auth_request mode (= AuthCheck
+	// calls RateLimitConfig.Resolve(site) before counting).  Wiring path:
+	// walk gatherSites(s.RateLimit.Overrides), name the per-site zone
+	// "<defaultName>_<sitehash>", and select via map $host $rate_limit_zone.
+	// Key kind stays install-wide so the counter expression doesn't fork
+	// per site.
 	defaultName := strings.TrimSpace(s.RateLimit.Default.Name)
 	if defaultName == "" {
 		defaultName = "unmask_rate"
@@ -792,6 +953,67 @@ func resolveGlobalAction(axis, fallback string) string {
 		return fallback
 	}
 	return "pow_only"
+}
+
+// gatherSites returns the deterministic list of site keys to walk for a
+// per-site Overrides map.  The default scope ("" / "default") is intentionally
+// excluded -- the default is handled separately by the global path map.  The
+// returned slice is sorted so render output stays byte-stable across runs;
+// empty / whitespace-only keys are dropped (defensive against yaml typos).
+//
+// Multi-site phase 2.2 helper used by both bypass-paths and protected-paths
+// per-site renderers.  Generic on the override value type so the same helper
+// works for {Bypass,Protected}PathsOverride (and for future
+// {Challenge,RateLimit,Honeypot}Override maps when phase 2.1 schema lands).
+func gatherSites[V any](overrides map[string]V) []string {
+	if len(overrides) == 0 {
+		return nil
+	}
+	sites := make([]string, 0, len(overrides))
+	for k := range overrides {
+		k = strings.TrimSpace(k)
+		if k == "" || k == "default" {
+			continue
+		}
+		sites = append(sites, k)
+	}
+	sort.Strings(sites)
+	return sites
+}
+
+// bypassDefaultPathSet: set of (trimmed, non-empty, non-disabled) Path strings
+// in the default BypassPaths list.  Used by the per-site walk to dedupe
+// Append rows against the default global map (= avoids emitting the same row
+// once per site).
+func bypassDefaultPathSet(c settings.BypassPathsConfig) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range c.Paths {
+		if e.Disabled {
+			continue
+		}
+		p := trimSpaceAndQuotes(e.Path)
+		if p == "" {
+			continue
+		}
+		out[p] = true
+	}
+	return out
+}
+
+// protectedDefaultPathSet: same as bypassDefaultPathSet for ProtectedPaths.
+func protectedDefaultPathSet(c settings.ProtectedPathsConfig) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range c.Paths {
+		if e.Disabled {
+			continue
+		}
+		p := trimSpaceAndQuotes(e.Path)
+		if p == "" {
+			continue
+		}
+		out[p] = true
+	}
+	return out
 }
 
 var controlChars = regexp.MustCompile(`[\x00-\x1f"]`)
