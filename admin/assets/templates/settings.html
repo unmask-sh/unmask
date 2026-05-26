@@ -2323,6 +2323,22 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeValues.PublicTestPages }}checked{{ end }}>
         <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
       </label>
+      {{/* Optional Basic Auth password gate for the public pages.  Hidden
+           when the checkbox above is OFF (= the gate value is irrelevant
+           when the pages already return 404); the input value still
+           round-trips through the form so toggling the checkbox back on
+           does not silently drop the saved password. */}}
+      <div style="margin-top:.6rem;padding-left:1.4rem;font-size:.85rem;color:#475569">
+        <label style="display:flex;align-items:center;gap:.5rem">
+          <span style="min-width:11rem">{{ t .Lang "settings.challenge.public_test_pages_password_label" }}</span>
+          <input type="text" name="public_test_pages_password"
+                 value="{{ .ChallengeValues.PublicTestPagesPassword }}"
+                 autocomplete="off" spellcheck="false"
+                 placeholder="{{ t .Lang "settings.challenge.public_test_pages_password_placeholder" }}"
+                 style="flex:1;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace">
+        </label>
+        <p class="desc" style="margin:.3rem 0 0;font-size:.78rem">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_password_hint") }}</p>
+      </div>
       {{/* Quick links to the actual test pages.  Admin side is always
            available to logged-in users; public side returns 404 until
            the checkbox above is enabled. */}}

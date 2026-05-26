@@ -167,6 +167,13 @@ type ChallengeValues struct {
 	// access ON exposes cookie-clear / PoW / CAPTCHA test pages to anyone,
 	// so it should be enabled only for demos or CI smoke tests.
 	PublicTestPages bool `yaml:"public_test_pages,omitempty"`
+	// PublicTestPagesPassword: optional shared password that gates the public
+	// test pages via HTTP Basic Auth.  When PublicTestPages is true and this
+	// is non-empty, /unmask/test/* requires Basic Auth (= the visitor's
+	// browser pops the standard "site requests authentication" dialog).
+	// Any username is accepted; only the password is checked.  Empty value
+	// (= default) leaves the pages open to anyone once PublicTestPages is on.
+	PublicTestPagesPassword string `yaml:"public_test_pages_password,omitempty"`
 	// CAPTCHA provider: "builtin" (= unmask's standard behavioral) | "turnstile" |
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
 	CaptchaProvider Captcha `yaml:"captcha,omitempty"`

@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1027,13 +1028,26 @@ func (h *Handler) ForcePoWThenCaptcha(w http.ResponseWriter, r *http.Request) {
 }
 
 // PublicTestGate: gate for the public side (/unmask/test/*).  Returns 404
-// unless settings.Challenge.PublicTestPages is true.  Not used on the admin
-// side (/unmask/admin/test/*).
+// unless settings.Challenge.PublicTestPages is true.  When the per-site
+// PublicTestPagesPassword is also set, the request must additionally carry
+// HTTP Basic Auth whose password matches (username is ignored).  Not used
+// on the admin side (/unmask/admin/test/*).
 func (h *Handler) PublicTestGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !h.snapshotSettings().Challenge.Resolve(siteFromRequest(r)).PublicTestPages {
+		ch := h.snapshotSettings().Challenge.Resolve(siteFromRequest(r))
+		if !ch.PublicTestPages {
 			http.NotFound(w, r)
 			return
+		}
+		if pw := strings.TrimSpace(ch.PublicTestPagesPassword); pw != "" {
+			_, got, ok := r.BasicAuth()
+			// Constant-time compare so a remote attacker cannot probe the
+			// password length one byte at a time by timing responses.
+			if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(pw)) != 1 {
+				w.Header().Set("WWW-Authenticate", `Basic realm="unmask test pages", charset="UTF-8"`)
+				http.Error(w, "auth required", http.StatusUnauthorized)
+				return
+			}
 		}
 		next(w, r)
 	}

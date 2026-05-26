@@ -2701,6 +2701,10 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	// If the marker is missing, we do not touch the value.
 	if r.FormValue("public_test_pages_present") != "" {
 		c.PublicTestPages = r.FormValue("public_test_pages") == "1"
+		// Optional Basic Auth password.  Only honored when PublicTestPages
+		// is on, but persist the value regardless so toggling the checkbox
+		// back on doesn't silently lose what the operator typed.
+		c.PublicTestPagesPassword = strings.TrimSpace(r.FormValue("public_test_pages_password"))
 	}
 	// show_credit: also belongs to the challenge tab; handle it here.
 	c.ShowCredit = r.FormValue("show_credit") == "1"
