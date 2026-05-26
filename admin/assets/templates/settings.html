@@ -2224,9 +2224,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
   <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
-  <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <button type="button" class="ua-help-trigger" data-help-target="scope-help-challenge" aria-label="?">?</button>
   <script type="text/html" id="scope-help-challenge">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
+  <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-challenge" class="scope-picker-select"
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
@@ -2824,9 +2824,9 @@ document.addEventListener("DOMContentLoaded", function(){
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
   <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
-  <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <button type="button" class="ua-help-trigger" data-help-target="scope-help-theme" aria-label="?">?</button>
   <script type="text/html" id="scope-help-theme">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
+  <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-theme" class="scope-picker-select"
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
