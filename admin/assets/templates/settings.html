@@ -309,6 +309,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    global <style> block so every tab that opts into the scope picker gets
    the same banner styling (not just the theme tab where it originated). */
 .scope-picker-row{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.55rem .8rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.35rem}
+.scope-picker-title{font-size:.78rem;font-weight:700;color:#1e293b;letter-spacing:.02em;padding-right:.55rem;margin-right:.2rem;border-right:1px solid #cbd5e1;flex:0 0 auto}
 .scope-picker-label{font-size:.82rem;font-weight:600;color:#334155;flex:0 0 auto}
 .scope-picker-select{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;min-width:14rem}
 .scope-picker-input{font-size:.86rem;padding:.25rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;width:18rem}
@@ -2222,7 +2223,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
   <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <button type="button" class="ua-help-trigger" data-help-target="scope-help-challenge" aria-label="?">?</button>
+  <script type="text/html" id="scope-help-challenge">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   <select id="scope-select-challenge" class="scope-picker-select"
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
@@ -2819,7 +2823,10 @@ document.addEventListener("DOMContentLoaded", function(){
      "+ Add new host..." entry opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
 <div class="scope-picker-row" role="group" aria-label="{{ t .Lang "settings.scope.label" }}">
+  <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
   <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
+  <button type="button" class="ua-help-trigger" data-help-target="scope-help-theme" aria-label="?">?</button>
+  <script type="text/html" id="scope-help-theme">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   <select id="scope-select-theme" class="scope-picker-select"
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
