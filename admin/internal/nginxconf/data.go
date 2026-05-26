@@ -425,4 +425,36 @@ var HoneypotPresetGroups = []HoneypotGroup{
 			`/actuator/(env|heapdump|trace)`,
 		},
 	},
+	// SQL injection signatures: high-confidence query-string patterns that
+	// almost never appear in legitimate browser traffic.  Trip = persistent
+	// BAN like any other honeypot.  Default OFF -- site-search endpoints can
+	// legitimately echo SQL keywords ("?q=order by date") and the operator
+	// should grep their access_log for the patterns below first.  Patterns
+	// are evaluated against $request_uri so they cover both the path and the
+	// query string in one shot; the case-insensitive `~*` flag on the
+	// rendered map absorbs UNION / Union / union variations.
+	{
+		ID:    "sql-injection",
+		Label: "SQL injection signatures (sqlmap / probes; OFF by default -- audit site search before enabling)",
+		Patterns: []string{
+			// Classic boolean-based: ' OR '1'='1 / ' OR 1=1
+			`'\s*or\s+'?1'?\s*=\s*'?1`,
+			// UNION SELECT (= URLs almost never need this verbatim)
+			`union\s+select`,
+			// sqlmap reconnaissance
+			`information_schema\.(tables|columns)`,
+			`concat\(0x[0-9a-f]+`,
+			// MSSQL timing / RCE
+			`waitfor\s+delay`,
+			`xp_cmdshell`,
+			// MySQL timing / file access
+			`sleep\(\s*\d+\s*\)`,
+			`benchmark\(\s*\d+\s*,`,
+			`into\s+outfile`,
+			`load_file\(`,
+			// Destructive
+			`;\s*drop\s+(table|database)`,
+		},
+		AddedIn: "v0.1.0",
+	},
 }
