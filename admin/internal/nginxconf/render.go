@@ -624,13 +624,28 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	default:
 		d.RateLimitKeyExpr = "$binary_remote_addr"
 	}
+	// Zone naming: per-site zones get a "<site-fragment>__" prefix on the
+	// rendered nginx zone name so an identical "shop_api" zone configured for
+	// two different vhosts emits as two distinct limit_req_zone declarations
+	// (= nginx requires globally unique zone names).  Operators reference the
+	// rendered name in their vhost server block; the global default zone
+	// keeps its plain name so the canonical protect.inc snippet stays valid
+	// without any vhost-side override.
 	zoneNamesSeen := map[string]bool{defaultName: true}
 	for _, z := range s.RateLimit.Zones {
 		name := strings.TrimSpace(z.Name)
-		if name == "" || zoneNamesSeen[name] {
+		if name == "" {
 			continue
 		}
-		zoneNamesSeen[name] = true
+		site := strings.TrimSpace(z.Site)
+		rendered := name
+		if site != "" {
+			rendered = hostToNginxVarSegment(site) + "__" + name
+		}
+		if zoneNamesSeen[rendered] {
+			continue
+		}
+		zoneNamesSeen[rendered] = true
 		rpm := z.RequestsPerMin
 		if rpm <= 0 {
 			rpm = defaultRPM
@@ -640,7 +655,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			burst = defaultBurst
 		}
 		d.RateZones = append(d.RateZones, RateZoneRender{
-			Name:           name,
+			Name:           rendered,
 			RequestsPerMin: rpm,
 			Burst:          burst,
 		})
