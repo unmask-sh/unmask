@@ -186,8 +186,26 @@ document.addEventListener('DOMContentLoaded', function(){
     phaseCell.innerHTML = '';
     var chain = document.createElement('span');
     chain.className = 'session-chain';
+    // Page-boundary fragment marker for multi-phase sessions.  When hunt's
+    // ORDER BY id DESC LIMIT cut the session in half, the serve (= oldest
+    // event) lands on the previous page and this page only sees the tail
+    // (= e.g. 'load → bv_pow').  Without an indicator the chain reads as a
+    // session that simply skipped serve, which is misleading.  Prepend a
+    // muted '…' glyph + a hover title so operators can tell the chain is
+    // truncated at the head.  The matching grp.length === 1 single-fragment
+    // case is handled separately further below.
+    var hasServe = dedupedChain.some(function(tr){
+      return tr.getAttribute('data-phase') === 'serve';
+    });
+    if (!hasServe){
+      var headHint = document.createElement('span');
+      headHint.className = 'session-arrow session-fragment-hint';
+      headHint.textContent = '…';
+      headHint.title = 'session fragment (= the serve event for this session is on a previous page)';
+      chain.appendChild(headHint);
+    }
     dedupedChain.forEach(function(tr, i){
-      if (i > 0){
+      if (i > 0 || !hasServe){
         var arrow = document.createElement('span');
         arrow.className = 'session-arrow';
         arrow.textContent = '›';
