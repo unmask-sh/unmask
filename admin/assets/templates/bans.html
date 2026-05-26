@@ -122,8 +122,10 @@ table.feed tbody tr:hover{background:#f8fafc}
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
-<h1>{{ t .Lang "bans.title" }}</h1>
-<p class="meta">{{ safeHTML (t .Lang "bans.subtitle") }}</p>
+<h1 style="display:flex;align-items:center;gap:.5rem">
+  {{ t .Lang "bans.title" }}
+  <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.subtitle") }}</span></span>
+</h1>
 
 {{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
