@@ -120,19 +120,12 @@ nginx:
       - path: "^/login/"
         mode: "captcha"
 
-  # Bypass-paths Extra rule used by scenario 18 to verify that a natural
+  # Bypass-paths custom row used by scenario 18 to verify that a natural
   # path-anchored regex (`^/e2e-bypass-only/`) is rendered into the nginx
   # map exactly as written (= no double-anchor wart) and that the bypass
   # actually takes effect.  enabled_presets omitted -> no preset bypass,
-  # leaving the extra entry as the only thing in the bypass map.
+  # leaving this single row as the only thing in the bypass map.
   bypass_paths:
-    extra:
-      - "^/e2e-bypass-only/"
-    extra_title:
-      - "scenario 18 fixture"
-    extra_disabled:
-      - false
-    extra_updated_at:
-      - 1779559200
-    extra_site:
-      - ""
+    paths:
+      - path: "^/e2e-bypass-only/"
+        title: "scenario 18 fixture"
