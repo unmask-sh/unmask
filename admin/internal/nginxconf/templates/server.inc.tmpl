@@ -35,6 +35,19 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}
 
+# Persistent BAN application.  The native plugin reads the ban file and the
+# http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
+# native/http.inc) blanks out /unmask/* so the challenge HTML still loads.
+# Mirrors the forward-auth banDecideFromSource path so a manual / honeypot /
+# shared_feed ban produces the same response in both modes (= settings.Bans
+# + Honeypot.DefaultAction resolved at ban-file flush time).
+if ($unmask_ban_action_effective = "deny") {
+    return 403;
+}
+if ($unmask_banned_effective = "1") {
+    rewrite ^ /unmask/challenge/ last;
+}
+
 # @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
 # in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
 # admin serves as a challenge page (= "you're going too fast, prove you're

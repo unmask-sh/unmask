@@ -635,7 +635,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{if .DailyServeTotal}}
       <div style="border:1px solid #e2e8f0;border-radius:.4rem">
         <table class="bcd-table" style="margin:0;white-space:nowrap">
-          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }} <span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.2rem;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.uniq_ip.event_caveat") }}</span></span></th></tr></thead>
           <tbody>
             {{range firstN 10 (reverse .DailyServeTotal)}}
             <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>

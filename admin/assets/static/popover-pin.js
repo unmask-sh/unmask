@@ -201,6 +201,11 @@ window.popoverPin = window.popoverPin || (function(){
     var tools = document.createElement('div');
     tools.className = 'popover-tools';
     attachDragToBar(tools, clone);
+    var icon = document.createElement('span');
+    icon.className = 'popover-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = 'ⓘ';
+    tools.appendChild(icon);
     if (title){
       var t = document.createElement('span');
       t.className = 'popover-title';
@@ -442,6 +447,11 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         if (typeof window._popoverAttachDragToBar === 'function'){
           window._popoverAttachDragToBar(t, clone);
         }
+        var icon = document.createElement('span');
+        icon.className = 'popover-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = 'ⓘ';
+        t.appendChild(icon);
         // Title from the nearest labelling context -- same precedence as the
         // popoverPin flavor so stacked pins behave identically.
         var anchor = tip.closest && tip.closest(

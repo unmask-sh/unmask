@@ -285,13 +285,33 @@ map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 map "" $unmask_chmode { default ""; }
 
 # -----------------------------------------------------------------------------
+# Persistent BAN dispatch ($unmask_banned / $unmask_ban_action)
+# -----------------------------------------------------------------------------
+# The native plugin exposes $unmask_banned (0/1) and $unmask_ban_action
+# (= the chain mode written by admin into the ban file: deny / pow_only /
+# pow_then_captcha / captcha_only).  server.inc switches on
+# $unmask_ban_action_effective so the operator's choice on the bans tab
+# (= manual / shared_feed) or the honeypot tab takes effect with zero
+# hand-written nginx.conf branches.  /unmask/* is masked off so a banned
+# visitor can still fetch the challenge HTML and clear the BAN -- without
+# this guard the rewrite would loop on each challenge asset request.
+map $request_uri $unmask_ban_action_effective {
+    default      $unmask_ban_action;
+    "~^/unmask/" "";
+}
+map $request_uri $unmask_banned_effective {
+    default      $unmask_banned;
+    "~^/unmask/" "0";
+}
+
+# -----------------------------------------------------------------------------
 # Honeypot path detection ($serve_bot_challenge)
 # -----------------------------------------------------------------------------
 # Detects access to trap paths registered in unmask settings.  On match, the
 # nginx access_log hp=1 routes through admin, which adds IP+JA4 to the
-# persistent BAN list.  Subsequent behavior (403 / forced CAPTCHA) is decided
-# by the user's nginx.conf via the $unmask_banned variable.  To force
-# CAPTCHA / PoW per path, use the separate "protected paths" feature.
+# persistent BAN list.  Banned visitors get the configured action (= 403 /
+# challenge) applied automatically by the BAN dispatch map above.  Per-path
+# "force CAPTCHA / PoW" is a separate feature ("protected paths").
 #
 # Per-host honeypots go through the four-stage layout (= same as Bypass /
 # Protected): global path map + per-host path maps + host dispatcher + OR

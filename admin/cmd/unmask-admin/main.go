@@ -350,6 +350,17 @@ func cmdServe(args []string) error {
 		RateLimiter: limiter,
 	}
 
+	// Wire the ban file's per-source action resolver to live settings so a
+	// honeypot/manual/shared_feed knob change picks up on the next 60s flush
+	// without restarting the admin (= h.SnapshotSettings reads the latest
+	// in-memory copy after any AdminSettingsSave).
+	if banMgr != nil {
+		banMgr.SetActionResolver(func(source string) string {
+			cur := h.SnapshotSettings()
+			return cur.Nginx.Bans.ResolveAction(source, cur.Nginx.Honeypot.DefaultAction)
+		})
+	}
+
 	// Shared feed client: pass SettingsGetter / SettingsUpdate through Handler.
 	// The Run() goroutine handles register + periodic pull only when submit or
 	// subscribe is ON.  Without ConfigPath we can't persist, so don't build the

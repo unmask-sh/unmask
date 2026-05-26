@@ -456,9 +456,43 @@ type Nginx struct {
 	JA4Verdicts      JA4VerdictsConfig      `yaml:"ja4_verdicts"`
 	ChallengeTargets ChallengeTargetsConfig `yaml:"challenge_targets"`
 	Honeypot         HoneypotConfig         `yaml:"honeypot"`
+	Bans             BansConfig             `yaml:"bans,omitempty"`
 	ProtectedPaths   ProtectedPathsConfig   `yaml:"protected_paths"`
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
+}
+
+// BansConfig: per-source default action for entries on the ban list.  The
+// "honeypot" source defers to HoneypotConfig.DefaultAction (= keeps the
+// existing knob untouched).  Other sources (= "manual" / "shared_feed")
+// consult this struct.  Values follow the rate-limit chain modes:
+// deny / pow_only / pow_then_captcha / captcha_only.  Empty = "deny".
+type BansConfig struct {
+	ManualDefaultAction     string `yaml:"manual_default_action,omitempty"`
+	SharedFeedDefaultAction string `yaml:"shared_feed_default_action,omitempty"`
+}
+
+// ResolveAction returns the effective action for a given ban source.
+// "honeypot" defers to honeypotDefault (= HoneypotConfig.DefaultAction)
+// so the operator's pick on the honeypot tab keeps working.  Empty fields
+// fall back to "deny" (= the safest hard ban).
+func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
+	resolve := func(v, fallback string) string {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return fallback
+		}
+		return v
+	}
+	switch source {
+	case "honeypot":
+		return resolve(honeypotDefault, RateChallengeDeny)
+	case "manual":
+		return resolve(b.ManualDefaultAction, RateChallengeDeny)
+	case "shared_feed":
+		return resolve(b.SharedFeedDefaultAction, RateChallengeDeny)
+	}
+	return RateChallengeDeny
 }
 
 // GeoConfig: country-based decision axis, applied in both forward-auth mode

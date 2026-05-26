@@ -504,23 +504,23 @@ func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Se
 	return banDecideFromSource(src, cfg)
 }
 
-// banDecideFromSource: pure decision given a ban source string.  Honeypot-
-// derived bans honor Honeypot.DefaultAction (= the operator chose challenge-
-// or-deny semantics on that tab); other ban sources are hard 403.
+// banDecideFromSource: pure decision given a ban source string.  Each
+// source (= "honeypot" / "manual" / "shared_feed") picks its action from
+// settings via BansConfig.ResolveAction (= honeypot defers to
+// Honeypot.DefaultAction; the others read Bans.ManualDefaultAction /
+// Bans.SharedFeedDefaultAction).  Unknown sources hard-deny so a future
+// source never silently falls through.
 func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool) {
-	if src == "honeypot" {
-		act := strings.TrimSpace(cfg.Nginx.Honeypot.DefaultAction)
-		if act == settings.RateChallengeDeny {
-			return axisDecision{sev: sevDeny, reason: "ban:honeypot:deny"}, true
-		}
-		if !settings.IsValidRateChallengeMode(act) {
-			// Mirror honeypotDecide -- inherit the rate-limit chain default.
-			act = settings.RateChallengePoWThenCaptcha
-		}
-		s := severityFromAction(act)
-		return axisDecision{sev: s, reason: "ban:honeypot:" + act, chMode: chModeFromSeverity(s)}, true
+	act := cfg.Nginx.Bans.ResolveAction(src, cfg.Nginx.Honeypot.DefaultAction)
+	if act == settings.RateChallengeDeny {
+		return axisDecision{sev: sevDeny, reason: "ban:" + src + ":deny"}, true
 	}
-	return axisDecision{sev: sevDeny, reason: "ban:" + src}, true
+	if !settings.IsValidRateChallengeMode(act) {
+		// Mirror honeypotDecide -- inherit the rate-limit chain default.
+		act = settings.RateChallengePoWThenCaptcha
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: "ban:" + src + ":" + act, chMode: chModeFromSeverity(s)}, true
 }
 
 // protectedDecide fires when the URI matches a protected-paths regex.

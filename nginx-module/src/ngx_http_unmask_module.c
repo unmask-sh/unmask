@@ -83,11 +83,15 @@ typedef struct {
     ngx_str_t   ban_file_path;
 } ngx_http_ja4_main_conf_t;
 
-/* ban list entry: "<ip>|<ja4>" sorted ASC for binary search.
- * worker scope (= re-loaded on mtime change). */
+/* ban list entry: "<ip>|<ja4>|<source>|<action>" sorted ASC by the ip|ja4
+ * prefix for binary search.  worker scope (= re-loaded on mtime change).
+ * keys[i] points at "ip|ja4" (= NUL-terminated in-place where '|' before
+ * source used to be).  actions[i] points at the action token after that
+ * NUL ("deny" / "pow_only" / "pow_then_captcha" / "captcha_only"). */
 typedef struct {
     char    *buf;       /* malloc'd, contains keys + NULs */
     char   **keys;      /* pointers into buf */
+    char   **actions;   /* parallel array, same length as keys */
     size_t   nkeys;
     time_t   mtime;     /* last seen mtime to skip reloads */
 } ngx_unmask_banlist_t;
@@ -110,6 +114,8 @@ static ngx_int_t ngx_http_unmask_bv_captcha_valid_variable(ngx_http_request_t *r
 static ngx_int_t ngx_http_unmask_bv_pow_valid_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_ja4_commands[] = {
@@ -186,6 +192,8 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     /* unmask_bv_pow_valid: 1 if $bv_kind == "pow". */
     { ngx_string("unmask_bv_pow_valid"), NULL, ngx_http_unmask_bv_pow_valid_variable, 0,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    { ngx_string("unmask_ban_action"), NULL, ngx_http_unmask_ban_action_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     { ngx_string("unmask_banned"), NULL, ngx_http_unmask_banned_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
@@ -1040,16 +1048,24 @@ ngx_http_unmask_bv_pow_valid_variable(ngx_http_request_t *r,
 
 
 /* ============================================================================
- * $unmask_banned: ban file (= "<ip>|<ja4>" per line) lookup.
+ * $unmask_banned / $unmask_ban_action: ban file lookup.
  *
  * file format example:
  *   # comments and blank lines OK
- *   192.0.2.10|t13d3515h2_8daaf6152771_xxx
- *   2001:db8::1|t13d1517h2_yyy_zzz
+ *   192.0.2.10|t13d3515h2_8daaf6152771_xxx|honeypot|pow_then_captcha
+ *   2001:db8::1|t13d1517h2_yyy_zzz|manual|deny
+ *
+ * Four pipe-separated fields per line: ip | ja4 | source | action.
+ * Lines with only two fields (legacy ip|ja4) are treated as action="deny"
+ * so an unmigrated file degrades safely.
+ *
+ * $unmask_banned is "1" on hit, "0" otherwise.
+ * $unmask_ban_action is the action token on hit, "" otherwise -- the
+ * server-block render switches on it (= return 403 vs rewrite challenge).
  *
  * mtime watch: each variable evaluation calls stat() and reloads if mtime changed.
  * stat() per request adds ~1-2us; small enough vs proxy_pass cost.
- * Sorted ASC; lookup is bsearch O(log N).
+ * Sorted ASC by "ip|ja4"; lookup is bsearch O(log N).
  * ============================================================================ */
 
 #include <sys/stat.h>
@@ -1087,6 +1103,8 @@ static int ngx_unmask_load_banlist(const char *path) {
     for (long i = 0; i < size; i++) if (buf[i] == '\n') maxk++;
     char **keys = (char **)malloc((maxk + 1) * sizeof(char *));
     if (!keys) { free(buf); return -1; }
+    char **actions = (char **)malloc((maxk + 1) * sizeof(char *));
+    if (!actions) { free(keys); free(buf); return -1; }
     cap = maxk;
     (void)cap;
 
@@ -1104,36 +1122,105 @@ static int ngx_unmask_load_banlist(const char *path) {
         while (ln_start < ln_end && (*ln_start == ' ' || *ln_start == '\t')) ln_start++;
         if (ln_start < ln_end && *ln_start != '#') {
             *ln_end = '\0';
-            keys[nk++] = ln_start;
+            /* parse "ip|ja4|source|action".  Cut the line at the 2nd '|'
+             * so keys[i] is the "ip|ja4" bsearch handle, then walk one
+             * more '|' to reach the action field.  Two-field legacy
+             * lines (= ip|ja4) flush as action="deny" (= safe default). */
+            char *p1 = (char *)memchr(ln_start, '|', (size_t)(ln_end - ln_start));
+            const char *act = "deny";
+            if (p1 != NULL) {
+                char *p2 = (char *)memchr(p1 + 1, '|', (size_t)(ln_end - (p1 + 1)));
+                if (p2 != NULL) {
+                    *p2 = '\0';
+                    char *p3 = (char *)memchr(p2 + 1, '|', (size_t)(ln_end - (p2 + 1)));
+                    if (p3 != NULL && p3 + 1 < ln_end) {
+                        act = p3 + 1;
+                    }
+                }
+            }
+            keys[nk] = ln_start;
+            actions[nk] = (char *)act;
+            nk++;
         }
         if (nl == NULL) break;
         p = nl + 1;
     }
-    /* sort ASC */
-    qsort(keys, nk, sizeof(char *), unmask_strcmp_ptr);
+    /* sort ASC by key (= ip|ja4).  Keep actions[] aligned via an index
+     * permutation so the parallel array tracks the sort. */
+    {
+        size_t *idx = (size_t *)malloc(nk * sizeof(size_t));
+        if (idx) {
+            for (size_t i = 0; i < nk; i++) idx[i] = i;
+            /* simple insertion sort over idx -- nk is small for this
+             * file (= thousands at most) and we avoid an extra qsort
+             * trampoline.  For larger lists swap in a comparator-based
+             * qsort over a {key,action} struct array. */
+            for (size_t i = 1; i < nk; i++) {
+                size_t cur = idx[i];
+                size_t j = i;
+                while (j > 0 && strcmp(keys[idx[j-1]], keys[cur]) > 0) {
+                    idx[j] = idx[j-1];
+                    j--;
+                }
+                idx[j] = cur;
+            }
+            char **sk = (char **)malloc(nk * sizeof(char *));
+            char **sa = (char **)malloc(nk * sizeof(char *));
+            if (sk && sa) {
+                for (size_t i = 0; i < nk; i++) {
+                    sk[i] = keys[idx[i]];
+                    sa[i] = actions[idx[i]];
+                }
+                free(keys); free(actions);
+                keys = sk; actions = sa;
+            } else {
+                free(sk); free(sa);
+            }
+            free(idx);
+        } else {
+            /* fall back to qsort on keys alone (= actions[] may end up
+             * mis-aligned; better than leaving keys[] unsorted which
+             * would break bsearch). */
+            qsort(keys, nk, sizeof(char *), unmask_strcmp_ptr);
+        }
+    }
 
     /* swap into global */
     char *old_buf = ngx_unmask_banlist.buf;
     char **old_keys = ngx_unmask_banlist.keys;
+    char **old_actions = ngx_unmask_banlist.actions;
     ngx_unmask_banlist.buf = buf;
     ngx_unmask_banlist.keys = keys;
+    ngx_unmask_banlist.actions = actions;
     ngx_unmask_banlist.nkeys = nk;
     free(old_buf);
     free(old_keys);
+    free(old_actions);
     return 0;
 }
 
-/* binary search for "<ip>|<ja4>" in sorted keys[] */
-static int ngx_unmask_banlist_has(const char *key) {
+/* binary search for "<ip>|<ja4>" in sorted keys[].  On hit, returns 1
+ * and (when action_out != NULL) hands back the parallel action slot. */
+static int ngx_unmask_banlist_lookup(const char *key, const char **action_out) {
+    if (action_out) *action_out = "";
     if (ngx_unmask_banlist.nkeys == 0) return 0;
     size_t lo = 0, hi = ngx_unmask_banlist.nkeys;
     while (lo < hi) {
         size_t mid = (lo + hi) / 2;
         int c = strcmp(ngx_unmask_banlist.keys[mid], key);
-        if (c == 0) return 1;
+        if (c == 0) {
+            if (action_out && ngx_unmask_banlist.actions) {
+                *action_out = ngx_unmask_banlist.actions[mid];
+            }
+            return 1;
+        }
         if (c < 0) lo = mid + 1; else hi = mid;
     }
     return 0;
+}
+
+static int ngx_unmask_banlist_has(const char *key) {
+    return ngx_unmask_banlist_lookup(key, NULL);
 }
 
 /* lazy reload if mtime changed (= called per req but cheap stat()). */
@@ -1144,8 +1231,10 @@ static void ngx_unmask_maybe_reload_banlist(const char *path) {
         if (ngx_unmask_banlist.nkeys != 0) {
             free(ngx_unmask_banlist.buf);
             free(ngx_unmask_banlist.keys);
+            free(ngx_unmask_banlist.actions);
             ngx_unmask_banlist.buf = NULL;
             ngx_unmask_banlist.keys = NULL;
+            ngx_unmask_banlist.actions = NULL;
             ngx_unmask_banlist.nkeys = 0;
             ngx_unmask_banlist.mtime = 0;
         }
@@ -1215,6 +1304,73 @@ static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
     if (ngx_unmask_banlist_has(key)) {
         v->len = 1;
         v->data = (u_char *)one;
+    }
+    return NGX_OK;
+}
+
+/* $unmask_ban_action: returns the per-row action token on hit
+ * (= "deny" / "pow_only" / "pow_then_captcha" / "captcha_only") so the
+ * server-block render can switch the response (= return 403 vs rewrite
+ * to /unmask/challenge/).  Empty string when not banned. */
+static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    static const char empty[] = "";
+
+    (void)data;
+    v->len = 0;
+    v->data = (u_char *)empty;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+
+    ngx_http_ja4_main_conf_t *mcf = ngx_http_get_module_main_conf(r,
+        ngx_http_unmask_module);
+    if (!mcf || mcf->ban_file_path.len == 0) {
+        return NGX_OK;
+    }
+
+    char path[1024];
+    if (mcf->ban_file_path.len >= sizeof(path)) return NGX_OK;
+    ngx_memcpy(path, mcf->ban_file_path.data, mcf->ban_file_path.len);
+    path[mcf->ban_file_path.len] = '\0';
+
+    ngx_unmask_maybe_reload_banlist(path);
+    if (ngx_unmask_banlist.nkeys == 0) return NGX_OK;
+
+    const u_char *ip = r->connection->addr_text.data;
+    size_t iplen = r->connection->addr_text.len;
+    if (iplen == 0 || iplen > 80) return NGX_OK;
+
+    u_char *ja4_data = (u_char *)"";
+    size_t  ja4_len  = 0;
+    if (r->connection && r->connection->ssl) {
+        SSL *ssl_obj = r->connection->ssl->connection;
+        if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
+            ngx_http_ja4_ctx_t *jctx = SSL_get_ex_data(
+                ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
+            if (jctx && jctx->ja4.len > 0) {
+                ja4_data = jctx->ja4.data;
+                ja4_len  = jctx->ja4.len;
+            }
+        }
+    }
+
+    char key[256];
+    if (iplen + 1 + ja4_len + 1 > sizeof(key)) return NGX_OK;
+    ngx_memcpy(key, ip, iplen);
+    key[iplen] = '|';
+    if (ja4_len) ngx_memcpy(key + iplen + 1, ja4_data, ja4_len);
+    key[iplen + 1 + ja4_len] = '\0';
+
+    const char *action = "";
+    if (ngx_unmask_banlist_lookup(key, &action) && action && *action) {
+        size_t alen = strlen(action);
+        u_char *p = ngx_pnalloc(r->pool, alen);
+        if (!p) return NGX_OK;
+        ngx_memcpy(p, (const u_char *)action, alen);
+        v->data = p;
+        v->len = alen;
     }
     return NGX_OK;
 }

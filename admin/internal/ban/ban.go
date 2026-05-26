@@ -4,9 +4,11 @@
 //   - source of truth: the DB (= unmask_ban table).  Carries metadata
 //     (= source / reason / banned_by).  Used for admin UI listing, manual
 //     unban, and statistics.
-//   - nginx integration: write out a ban file (= "<ip>|<ja4>" per line).
-//     The unmask module watches mtime and reloads, exposing
-//     $unmask_banned as 1/0.
+//   - nginx integration: write out a ban file
+//     (= "<ip>|<ja4>|<source>|<action>" per line).  The unmask module
+//     watches mtime, reloads, and exposes $unmask_banned (= 0/1) plus
+//     $unmask_ban_action (= the chain mode for the ban source so the
+//     server-block render can return 403 / redirect to challenge).
 //
 // Positioned as the shared substrate used by multiple features:
 //   - source="honeypot" : tripped a honeypot path (= nginxlog hp=1 -> Add)
@@ -56,6 +58,15 @@ type Entry struct {
 	BannedBy  string    // username (= for manual) or empty (= automatic)
 }
 
+// ActionResolver maps a ban source (= "honeypot" / "manual" /
+// "shared_feed") to the chain mode written into the ban file
+// (= "deny" / "pow_only" / "pow_then_captcha" / "captcha_only").
+// The admin wires this to settings.BansConfig.ResolveAction so the
+// ban package keeps its zero-deps-on-settings boundary.  Nil = the
+// action column flushes as "deny" for every row (= the safe default
+// the nginx module treats as hard ban).
+type ActionResolver func(source string) string
+
 // Manager: ban management with the DB as the source of truth.  When
 // filePath is empty, file flushing is skipped (= used in tests where
 // nginx integration is unnecessary).
@@ -69,10 +80,23 @@ type Manager struct {
 	stopCh    chan struct{}
 	doneCh    chan struct{}
 
+	// actionResolver: per-source action picker injected by the admin.
+	// Read on every flush() so a settings change reflects on the next
+	// 60s tick without a manager restart.
+	actionResolver ActionResolver
+
 	// OnCreated: callback invoked when a ban is successfully added (= so
 	// notifier can stay decoupled).  Nil is fine.  Assigned by the caller
 	// (= so the ban package does not depend on notifier).
 	OnCreated func(ip, ja4, source, reason, bannedBy string)
+}
+
+// SetActionResolver installs the per-source action picker.  Safe to call
+// after Start (= reads happen on the flush goroutine).
+func (m *Manager) SetActionResolver(r ActionResolver) {
+	m.mu.Lock()
+	m.actionResolver = r
+	m.mu.Unlock()
 }
 
 // New: initialize the ban manager.  filePath="" disables file flush
@@ -401,21 +425,33 @@ func (m *Manager) flush() error {
 	if m.filePath == "" {
 		return nil
 	}
+	m.mu.Lock()
+	resolver := m.actionResolver
+	m.mu.Unlock()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT ip, ja4 FROM unmask_ban
+		`SELECT ip, ja4, source FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
 	if err != nil {
 		return err
 	}
-	type k struct{ ip, ja4 string }
+	type k struct{ ip, ja4, source, action string }
 	keys := []k{}
 	for rows.Next() {
 		var e k
-		if err := rows.Scan(&e.ip, &e.ja4); err != nil {
+		if err := rows.Scan(&e.ip, &e.ja4, &e.source); err != nil {
 			rows.Close()
 			return err
+		}
+		if resolver != nil {
+			e.action = resolver(e.source)
+		}
+		if strings.TrimSpace(e.action) == "" {
+			e.action = "deny"
+		}
+		if strings.TrimSpace(e.source) == "" {
+			e.source = "manual"
 		}
 		keys = append(keys, e)
 	}
@@ -432,13 +468,17 @@ func (m *Manager) flush() error {
 
 	var buf strings.Builder
 	buf.WriteString("# unmask ban list (= managed by unmask-admin; do not edit)\n")
-	buf.WriteString("# format: <ip>|<ja4> per line\n")
+	buf.WriteString("# format: <ip>|<ja4>|<source>|<action> per line\n")
 	buf.WriteString(fmt.Sprintf("# count: %d\n", len(keys)))
 	buf.WriteString(fmt.Sprintf("# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
 	for _, e := range keys {
 		buf.WriteString(e.ip)
 		buf.WriteByte('|')
 		buf.WriteString(e.ja4)
+		buf.WriteByte('|')
+		buf.WriteString(e.source)
+		buf.WriteByte('|')
+		buf.WriteString(e.action)
 		buf.WriteByte('\n')
 	}
 
