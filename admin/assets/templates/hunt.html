@@ -214,6 +214,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
 </div>
 
+{{/* Live tail + rank cards are 'now' surfaces -- relevant when the operator
+     is looking at the latest 50 rows.  Hide them on paginated views (= ?offset>0,
+     i.e. browsing older rows) so they don't pretend to belong to that older
+     range, and the events table gets the full height back. */}}
+{{ if not .Offset }}
 <div class="bcd-card">
   <h2>{{ t .Lang "hunt.live_h" }}</h2>
   <div class="live-bar" id="live-bar">
@@ -345,6 +350,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     </table>
   </div>
 </div>
+{{ end }}{{/* if not .Offset (= hide live tail + rank cards on paginated views) */}}
 
 <div class="bcd-card">
   <h2>{{ t .Lang "hunt.events_h" }}</h2>
@@ -577,6 +583,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   var btn = document.getElementById('live-toggle');
   var tail = document.getElementById('live-tail');
   var status = document.getElementById('live-status');
+  // Paginated views (= ?offset>0) drop the live-tail card from the markup
+  // entirely; bail out without wiring SSE so the IIFE doesn't crash on the
+  // missing elements.
+  if (!bar || !btn || !tail || !status) return;
   var startLabel = "{{ t .Lang "hunt.live.start" }}";
   var stopLabel  = "{{ t .Lang "hunt.live.stop"  }}";
   var streamingLabel = "{{ t .Lang "hunt.live.streaming" }}";
