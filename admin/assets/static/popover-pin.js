@@ -197,10 +197,6 @@ window.popoverPin = window.popoverPin || (function(){
     copy.type = 'button';
     copy.className = 'popover-copy';
     copy.setAttribute('aria-label', 'copy');
-    // title= surfaces the action as a browser-native tooltip on hover --
-    // aria-label alone is screen-reader-only, leaving sighted users to
-    // guess what the ⧉ glyph does.
-    copy.setAttribute('title', 'copy contents to clipboard');
     copy.textContent = '⧉';
     copy.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
@@ -213,7 +209,6 @@ window.popoverPin = window.popoverPin || (function(){
     col.type = 'button';
     col.className = 'popover-collapse';
     col.setAttribute('aria-label', 'collapse');
-    col.setAttribute('title', 'toggle one-line / full (double-click title bar also works)');
     col.textContent = '▾';
     function toggleCollapse(){
       // Freeze the rendered width on the way down so the bar doesn't snap
@@ -247,7 +242,6 @@ window.popoverPin = window.popoverPin || (function(){
     btn.type = 'button';
     btn.className = 'popover-close';
     btn.setAttribute('aria-label', 'close');
-    btn.setAttribute('title', 'close (ESC)');
     btn.textContent = '×';
     btn.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
@@ -452,14 +446,10 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           ti.textContent = titleText;
           t.appendChild(ti);
         }
-        function btn(cls, label, title, text, handler){
+        function btn(cls, label, _unused_title, text, handler){
           var b = document.createElement('button');
           b.type = 'button'; b.className = cls;
-          b.setAttribute('aria-label', label);
-          // Browser-native tooltip so the glyph's purpose surfaces on hover
-          // (aria-label is screen-reader-only).
-          if (title) b.setAttribute('title', title);
-          b.textContent = text;
+          b.setAttribute('aria-label', label); b.textContent = text;
           b.addEventListener('click', handler);
           return b;
         }
@@ -499,7 +489,7 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         });
         // close.  Defer to the shared _popoverUnpin callback so click and ESC
         // run the same teardown (= clone DOM remove + tip state reset).
-        var cl = btn('popover-close', 'close', 'close (ESC)', '×', function(e){
+        var cl = btn('popover-close', 'close', 'close', '×', function(e){
           e.preventDefault(); e.stopPropagation();
           if (typeof clone._popoverUnpin === 'function') clone._popoverUnpin();
         });
