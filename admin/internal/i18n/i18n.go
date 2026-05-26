@@ -327,7 +327,7 @@ var dict = map[Lang]map[string]string{
 		"crumb.settings": "設定",
 
 		// dashboard
-		"dashboard.title":        "bot challenge debug",
+		"dashboard.title":        "サイト統計",
 		"dashboard.range_24h":    "24h",
 		"dashboard.range_7d":     "7d",
 		"dashboard.range_30d":    "30d",
@@ -1509,7 +1509,7 @@ match した access は <strong>BAN list に追加</strong>され、 BAN 後の�
 		"audit.export_sub":               "for off-server backup (= git / other host)",
 		"audit.export_desc":              "Downloads the current config as <code>unmask-config.yml</code>.  No record is kept on the server (= not audited).  Use for migrating to another host or committing to git.",
 
-		"dashboard.title":        "bot challenge debug",
+		"dashboard.title":        "Site stats",
 		"dashboard.range_24h":    "24h",
 		"dashboard.range_7d":     "7d",
 		"dashboard.range_30d":    "30d",
