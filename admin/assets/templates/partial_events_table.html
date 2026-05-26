@@ -331,20 +331,10 @@ document.addEventListener('DOMContentLoaded', function(){
   if (!pop || !window.popoverPin) return;
   var pin = window.popoverPin.install(pop);
   var timer = null;
-  // hideTimer: when the cursor leaves the trigger cell we delay the
-  // primary-popover hide by ~200ms so the user has time to slide onto the
-  // popover itself.  Entering the popover cancels the timer, so as long as
-  // the cursor lands on it the popover stays open.  Leaving the popover
-  // re-arms the same hide.  Without this the Open / Copy buttons inside the
-  // URL popover are unreachable -- the popover vanishes the moment the
-  // cursor leaves the table cell.
-  var hideTimer = null;
-  function armHide(delay){
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(function(){ pin.hideHover(); }, delay || 200);
-  }
-  pop.addEventListener('mouseenter', function(){ clearTimeout(hideTimer); });
-  pop.addEventListener('mouseleave', function(){ armHide(150); });
+  // The hover popover hides on mouseleave with no grace period.  Clicking
+  // the trigger cell pins the popover to a body-level clone (= popoverPin's
+  // handleClick path), and only the pinned clone exposes interactive
+  // buttons -- the transient hover form is read-only by design.
   function esc(s){
     return String(s).replace(/[&<>"']/g, function(c){
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -429,17 +419,15 @@ document.addEventListener('DOMContentLoaded', function(){
     var url = isURL ? fullURL(el, val) : '';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
-      clearTimeout(hideTimer);
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y); }, 200);
     });
-    el.addEventListener('mouseleave', function(){ clearTimeout(timer); armHide(); });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);
-      clearTimeout(hideTimer);
       pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, val);
     });
   });
