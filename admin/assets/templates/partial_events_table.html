@@ -292,6 +292,13 @@ document.addEventListener('DOMContentLoaded', function(){
     var phaseCell = tr.querySelector('td:nth-child(5)');
     if (!phaseCell) return;
     if (phaseCell.querySelector('.session-fragment-hint')) return; // idempotent
+    // Replace the pill text with the same short form the chain pills use
+    // (= bv_pow_only -> bv_pow) so a fragment row reads consistently with
+    // the collapsed chain rows above it.  Other phases keep their text.
+    var pill = phaseCell.querySelector('.phase-pill');
+    if (pill && PHASE_SHORT[ph]) {
+      pill.textContent = PHASE_SHORT[ph];
+    }
     var hint = document.createElement('span');
     hint.className = 'session-arrow session-fragment-hint';
     hint.textContent = '…';
