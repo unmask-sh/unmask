@@ -185,7 +185,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <main class="unmask-main">
 
 <h1>{{ t .Lang "dashboard.title" }}
+  {{- if .Site }}
   <span style="font-size:.85rem;color:#64748b;font-weight:normal">— <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  {{- end }}
 </h1>
 <p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }} / {{ t .Lang "dashboard.driver" }} = {{.Driver}}</p>
 
