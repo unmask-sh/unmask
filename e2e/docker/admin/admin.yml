@@ -101,6 +101,16 @@ nginx:
   honeypot:
     disabled_presets: []
 
+  # Per-site protected_paths fixture used by scenario 19.  A single rule
+  # scoped to shop.example.com so the same path triggers a challenge there
+  # but stays untouched on every other vhost (= proves the render-time host
+  # dispatcher in http.conf.tmpl branches on $host correctly).
+  protected_paths:
+    paths:
+      - path: "^/admin-shop/"
+        mode: "captcha"
+        site: "shop.example.com"
+
   # Bypass-paths Extra rule used by scenario 18 to verify that a natural
   # path-anchored regex (`^/e2e-bypass-only/`) is rendered into the nginx
   # map exactly as written (= no double-anchor wart) and that the bypass
