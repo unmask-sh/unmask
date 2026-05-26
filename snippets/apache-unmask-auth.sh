@@ -33,6 +33,12 @@ IP="${REMOTE_ADDR:-}"
 UA="${HTTP_USER_AGENT:-}"
 HOST="${HTTP_HOST:-}"
 COOKIE="${HTTP_COOKIE:-}"
+# Client JA4 (forward-auth mode). Apache exports request headers as HTTP_*
+# env vars, so X-Client-JA4 -> HTTP_X_CLIENT_JA4. Carries a value only when a
+# JA4-aware front layer set it. Same spoof caveat as the lua handler: strip a
+# client-supplied X-Client-JA4 in the Apache config unless a trusted front
+# layer sets it. unmask-admin honors it only with challenge.ja4_source=header.
+JA4="${HTTP_X_CLIENT_JA4:-}"
 
 # Pass /unmask/* / /_unmask/* to prevent self-loops.
 case "$URI" in
@@ -44,6 +50,7 @@ RESP=$(curl -sS -o /dev/null -w "%{http_code}|%header{x-unmask-action}|%header{x
     -H "X-Original-IP: $IP" \
     -H "X-Original-UA: $UA" \
     -H "X-Original-Host: $HOST" \
+    -H "X-Client-JA4: $JA4" \
     -H "Cookie: $COOKIE" \
     --max-time 2 \
     "$UNMASK_API" 2>/dev/null) || RESP="000||"

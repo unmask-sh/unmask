@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"testing"
 
@@ -258,4 +260,91 @@ func equalStrSlice(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestPeerIsTrustedProxy: r.RemoteAddr host vs the trusted-proxy CIDR list.
+// This is the trust anchor for forward-auth JA4 — it must match the proxy
+// connection, not the visitor.
+func TestPeerIsTrustedProxy(t *testing.T) {
+	loopback := []string{"127.0.0.0/8", "::1/128"}
+	cases := []struct {
+		name       string
+		remoteAddr string
+		cidrs      []string
+		want       bool
+	}{
+		{"loopback v4 in default", "127.0.0.1:54321", loopback, true},
+		{"loopback v6 in default", "[::1]:54321", loopback, true},
+		{"public v4 rejected", "203.0.113.7:443", loopback, false},
+		{"private v4 not in loopback set", "10.0.0.4:8080", loopback, false},
+		{"private v4 in explicit /8", "10.0.0.4:8080", []string{"10.0.0.0/8"}, true},
+		{"docker-range peer in /12", "172.18.0.5:9477", []string{"172.16.0.0/12"}, true},
+		{"no port still parses", "127.0.0.1", loopback, true},
+		{"garbage addr", "not-an-ip", loopback, false},
+		{"empty addr", "", loopback, false},
+		{"empty cidr list rejects all", "127.0.0.1:1", nil, false},
+		{"malformed cidr skipped, valid one still matches", "127.0.0.1:1", []string{"bogus", "127.0.0.0/8"}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := peerIsTrustedProxy(c.remoteAddr, c.cidrs); got != c.want {
+				t.Errorf("peerIsTrustedProxy(%q, %v) = %v, want %v", c.remoteAddr, c.cidrs, got, c.want)
+			}
+		})
+	}
+}
+
+// TestResolveForwardedJA4: the forward-auth JA4 trust gate. The header is
+// honored only when ja4_source=header AND the connection peer is trusted AND
+// the value is well-formed (safeJA4). Everything else yields "".
+func TestResolveForwardedJA4(t *testing.T) {
+	// alnum + underscore, within safeJA4RE's 8-40 length bound.
+	const goodJA4 = "t13d1516h2_e2etestfp01"
+	const fallbackJA4 = "t13other_fallback99"
+
+	mk := func(source string, proxies []string, remoteAddr, clientJA4, originalJA4 string) (*http.Request, settings.Settings) {
+		r := httptest.NewRequest(http.MethodGet, "/unmask/api/check", nil)
+		r.RemoteAddr = remoteAddr
+		if clientJA4 != "" {
+			r.Header.Set("X-Client-JA4", clientJA4)
+		}
+		if originalJA4 != "" {
+			r.Header.Set("X-Original-JA4", originalJA4)
+		}
+		cfg := settings.Settings{Challenge: settings.ChallengeConfig{
+			JA4Source:                 source,
+			TrustedForwardAuthProxies: proxies, // nil -> loopback default
+		}}
+		return r, cfg
+	}
+	cases := []struct {
+		name        string
+		source      string
+		proxies     []string
+		remoteAddr  string
+		clientJA4   string
+		originalJA4 string
+		want        string
+	}{
+		{"off ignores header from loopback", "off", nil, "127.0.0.1:5", goodJA4, "", ""},
+		{"empty source defaults to off", "", nil, "127.0.0.1:5", goodJA4, "", ""},
+		{"module ignores header", "module", nil, "127.0.0.1:5", goodJA4, "", ""},
+		{"header + loopback peer -> honored", "header", nil, "127.0.0.1:5", goodJA4, "", goodJA4},
+		{"header + v6 loopback peer -> honored", "header", nil, "[::1]:5", goodJA4, "", goodJA4},
+		{"header + public peer -> dropped", "header", nil, "203.0.113.9:5", goodJA4, "", ""},
+		{"header + explicit proxy CIDR -> honored", "header", []string{"172.16.0.0/12"}, "172.20.0.3:5", goodJA4, "", goodJA4},
+		{"header + explicit CIDR, peer outside -> dropped", "header", []string{"172.16.0.0/12"}, "127.0.0.1:5", goodJA4, "", ""},
+		{"header + no header -> empty", "header", nil, "127.0.0.1:5", "", "", ""},
+		{"header + malformed JA4 -> empty", "header", nil, "127.0.0.1:5", "'; DROP TABLE", "", ""},
+		{"header + X-Original-JA4 fallback", "header", nil, "127.0.0.1:5", "", goodJA4, goodJA4},
+		{"header + X-Client-JA4 wins over fallback", "header", nil, "127.0.0.1:5", goodJA4, fallbackJA4, goodJA4},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r, cfg := mk(c.source, c.proxies, c.remoteAddr, c.clientJA4, c.originalJA4)
+			if got := resolveForwardedJA4(r, cfg); got != c.want {
+				t.Errorf("resolveForwardedJA4 = %q, want %q", got, c.want)
+			}
+		})
+	}
 }

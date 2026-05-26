@@ -52,6 +52,15 @@ function handle_request(r)
             ["X-Original-UA"]   = r.headers_in["User-Agent"] or "",
             ["X-Original-Host"] = r.headers_in["Host"] or r.hostname or "",
             ["Cookie"]          = r.headers_in["Cookie"] or "",
+            -- Client JA4 (forward-auth mode). Apache cannot read the TLS
+            -- handshake, so this carries a value only when a JA4-aware layer
+            -- in front of Apache already set the X-Client-JA4 request header.
+            -- ANTI-SPOOF: r.headers_in returns whatever the client sent, so a
+            -- directly-reachable Apache lets a client forge this. Neutralize
+            -- it in apache-forward-auth.conf unless a trusted front layer
+            -- guarantees it. unmask-admin also honors it only with
+            -- challenge.ja4_source=header from a trusted peer.
+            ["X-Client-JA4"]    = r.headers_in["X-Client-JA4"] or "",
         },
         -- The verdict is carried by the status code + headers; the response
         -- body is not needed, so it is discarded.
