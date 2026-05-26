@@ -1,4 +1,4 @@
-// Core of auth_request mode.
+// Core of forward-auth mode.
 //
 // Flow:
 //
@@ -276,7 +276,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	if shouldCount {
 		// Compose the rate-limit counter key from the configured Key kind.
 		// Mirrors the nginx side's $rate_limit_key map so a request is
-		// counted the same way regardless of native vs auth_request mode.
+		// counted the same way regardless of native vs forward-auth mode.
 		var keyBase string
 		switch cfg.RateLimit.ResolvedKey() {
 		case settings.RateLimitKeyJA4:
@@ -326,7 +326,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	wouldBeReason := reason
 
 	// 3. Record the event (= flow into dashboard / bot-hunt tab).
-	// Insert with phase=check for every action.  In auth_request mode
+	// Insert with phase=check for every action.  In forward-auth mode
 	// "every request must be visible" is an operational requirement,
 	// so leave a check event even for challenge.  In native mode
 	// AuthCheck itself is not called so there's no duplicate
@@ -382,7 +382,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			kind = "challenge_served"
 		}
 		h.NginxLog.Bump(site, kind)
-		// Crawler funnel: in auth_request mode no access-log line is emitted,
+		// Crawler funnel: in forward-auth mode no access-log line is emitted,
 		// so feed the crawler aggregate here.  served = the request did not
 		// pass straight through.
 		h.NginxLog.BumpCrawler(ua, action != "pass")
@@ -994,7 +994,7 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 	// render side already pushes these into the $is_challenge_target map; this
 	// branch keeps the admin's auth_request decision symmetric (otherwise
 	// curl / python-requests / Headless variants would 401 in native mode but
-	// 200 in auth_request mode).
+	// 200 in forward-auth mode).
 	upstreamDisabled := map[string]bool{}
 	for _, p := range n.SearchBots.UpstreamDisabled {
 		upstreamDisabled[strings.TrimSpace(p)] = true

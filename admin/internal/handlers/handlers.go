@@ -92,7 +92,7 @@ type Handler struct {
 	UserRepo    *user.Repository   // internal user management (login / users tab / audit hook)
 	Notifier    *notifier.Notifier // optional, may be nil (notification URL unset)
 	Mailer      *mail.Mailer       // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter *ratelimit.Limiter // sliding-window counter for auth_request mode.  nil disables counting.
+	RateLimiter *ratelimit.Limiter // sliding-window counter for forward-auth mode.  nil disables counting.
 	SharedFeed  *sharedfeed.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 }
 
@@ -513,7 +513,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	forceQuery := strings.TrimSpace(r.URL.Query().Get("_force"))
 	// monitor mode: don't serve a challenge, redirect immediately.  Keep the
 	// event with phase=serve (preserves dashboard aggregation continuity).
-	// In auth_request mode AuthCheck has already returned pass, so this path
+	// In forward-auth mode AuthCheck has already returned pass, so this path
 	// is not reached.  Reached via native mode (nginx plugin sends straight
 	// to the challenge route).
 	if forceQuery == "" && h.snapshotSettings().Challenge.Resolve(site).ObserveOnly {
