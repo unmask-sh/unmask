@@ -292,11 +292,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Version:               version,
 		OutputDir:             outDir,
 		BVSecret:              s.Secret.BVSecret,
-		// nginx render currently emits a single global secret/window/difficulty
-		// (= no `map $host` block yet).  Use Default directly; per-site
-		// rendering lands in v2 phase 3.
-		// TODO(multi-site v2 phase 3): walk s.Challenge.Sites and emit
-		// `map $host` blocks for PowDifficulty / cookie windows.
+		// _bv HMAC validation runs in nginx with one shared secret + cookie
+		// window; per-site challenge fields (PowDifficulty, theme, branding
+		// etc.) are resolved in admin's serve handler via Challenge.Resolve(site)
+		// instead, so the nginx side only needs the defaults here.
 		BVPowValidSeconds:     s.Challenge.Default.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.Default.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.Default.ResolvedPowDifficulty(),
