@@ -914,7 +914,7 @@ var dict = map[Lang]map[string]string{
 		"settings.tab.honeypot":                          "honeypot",
 		"settings.save":                                  "保存",
 		"settings.preview_challenge_cta":                 "実画面で確認 ↗",
-		"settings.saved_banner":                          "✓ 保存しました.  反映するには  %s  を実行 (= unmask-admin 自身は restart 不要).",
+		"settings.saved_banner":                          "✓ 保存しました.  反映方法は構成によって異なる:<br>・<strong>nginx native module mode</strong>: <code>sudo nginx -s reload</code> (= http {} の map / zone 再 load)<br>・<strong>forward-auth mode</strong> (= nginx auth_request / Apache mod_lua / Caddy forward_auth / Traefik): <strong>操作不要</strong>. admin が即時 hot-reload するので <code>/api/check</code> が新設定で動く<br>・<strong>Apache mod_lua の snippet 自体を入れ替えた</strong>場合のみ <code>sudo systemctl reload apache2</code> (or <code>httpd</code>) が必要 (= 設定変更だけならこちらも不要)<br><br>(= unmask-admin 自身は restart 不要)",
 		"settings.error_prefix":                          "エラー: ",
 		"settings.foot_msg":                              "user 編集対象は <code>config.yml</code> 1 個のみ. 保存すると <code>/etc/unmask/nginx-rendered*.conf</code> も自動再生成、 <code>sudo nginx -s reload</code> で反映できます (= unmask-admin 自身は restart 不要).<br><br>config.yml の bootstrap 値 (= <code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) は web 編集対象外. 必要なら <code>%s</code> を直接編集して <code>systemctl restart unmask-admin</code>.",
 
@@ -2094,7 +2094,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.tab.honeypot":                          "Honeypot",
 		"settings.save":                                  "Save",
 		"settings.preview_challenge_cta":                 "Live preview ↗",
-		"settings.saved_banner":                          "✓ Saved. Run %s to apply (unmask-admin itself does not need a restart).",
+		"settings.saved_banner":                          "✓ Saved. How to apply depends on your setup:<br>&bull; <strong>nginx native module mode</strong>: <code>sudo nginx -s reload</code> (= reload the http {} maps / zones)<br>&bull; <strong>forward-auth mode</strong> (nginx auth_request / Apache mod_lua / Caddy forward_auth / Traefik): <strong>no action needed</strong>. admin hot-reloads its snapshot, so <code>/api/check</code> serves the new values immediately<br>&bull; Only required when you also <strong>swap the Apache mod_lua snippet file</strong> itself: <code>sudo systemctl reload apache2</code> (or <code>httpd</code>) -- a settings change alone never needs it<br><br>(unmask-admin itself does not need a restart)",
 		"settings.error_prefix":                          "Error: ",
 		"settings.foot_msg":                              "Only <code>config.yml</code> is user-editable. On save, <code>/etc/unmask/nginx-rendered*.conf</code> is regenerated automatically; run <code>sudo nginx -s reload</code> to apply (unmask-admin itself does not need a restart).<br><br>Bootstrap values in config.yml (<code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) are not editable from the web. Edit <code>%s</code> directly and run <code>systemctl restart unmask-admin</code>.",
 

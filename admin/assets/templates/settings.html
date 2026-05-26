@@ -429,7 +429,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </h1>
 
 {{ if .Saved }}
-<div class="banner ok">{{ safeHTML (tf .Lang "settings.saved_banner" "<code>sudo nginx -s reload</code>") }}</div>
+<div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner") }}</div>
 {{ end }}
 {{ if .Error }}
 <div class="banner bad">{{ t .Lang "settings.error_prefix" }}{{ .Error }}</div>
