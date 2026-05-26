@@ -100,8 +100,8 @@ func TestSplitBypassPathsForRender_GlobalOnly(t *testing.T) {
 func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 	rules := []BypassPathRule{
 		{Pattern: `^/api/`},                          // global
-		{Pattern: `^/admin/`, Site: "uic.jp"},        // per-host
-		{Pattern: `^/internal/`, Site: "uic.jp"},     // per-host (same host)
+		{Pattern: `^/admin/`, Site: "shop.example"},        // per-host
+		{Pattern: `^/internal/`, Site: "shop.example"},     // per-host (same host)
 		{Pattern: `^/secret/`, Site: "example.com"},  // per-host (different host)
 	}
 	globals, perHost := splitBypassPathsForRender(rules)
@@ -111,7 +111,7 @@ func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 	if len(perHost) != 2 {
 		t.Fatalf("perHost groups: got %d want 2 (%+v)", len(perHost), perHost)
 	}
-	// Sorted by host -> example.com first, uic.jp second.
+	// Sorted by host -> example.com first, shop.example second.
 	if perHost[0].Host != "example.com" {
 		t.Errorf("perHost[0].Host: got %q want example.com", perHost[0].Host)
 	}
@@ -121,8 +121,8 @@ func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 	if len(perHost[0].Patterns) != 1 || perHost[0].Patterns[0] != `^/secret/` {
 		t.Errorf("perHost[0].Patterns: got %v want [^/secret/]", perHost[0].Patterns)
 	}
-	if perHost[1].Host != "uic.jp" || perHost[1].VarName != "uic_jp" {
-		t.Errorf("perHost[1]: got %+v want host=uic.jp varname=uic_jp", perHost[1])
+	if perHost[1].Host != "shop.example" || perHost[1].VarName != "shop_example" {
+		t.Errorf("perHost[1]: got %+v want host=shop.example varname=shop_example", perHost[1])
 	}
 	if len(perHost[1].Patterns) != 2 {
 		t.Errorf("perHost[1].Patterns: got %d want 2 (%v)", len(perHost[1].Patterns), perHost[1].Patterns)
@@ -133,7 +133,7 @@ func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 // variable names from host strings.  Dots / hyphens / colons turn into `_`.
 func TestHostToNginxVarSegment(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"uic.jp", "uic_jp"},
+		{"shop.example", "shop_example"},
 		{"tool-jp.example.com", "tool_jp_example_com"},
 		{"", "default"},
 		{"plain", "plain"},

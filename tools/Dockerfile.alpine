@@ -1,6 +1,6 @@
 # tools/Dockerfile.alpine — Alpine image used by `make repo-apk` to regenerate
 # the apk repository index (APKINDEX.tar.gz) on a host that does not have
-# apk-tools / abuild installed (e.g. Rocky 9 dev2).
+# apk-tools / abuild installed (e.g. RHEL / Rocky / Debian build boxes).
 #
 # The container is intentionally minimal: it only installs the toolchain
 # needed by build-repo.sh's apk stage (apk index + abuild-sign).  No keys

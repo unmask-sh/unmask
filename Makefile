@@ -317,8 +317,9 @@ repo:
 	./tools/build-repo.sh
 
 ## repo-apk - regenerate the apk repo index (APKINDEX.tar.gz) inside an
-# Alpine 3.20 container.  The build host (Rocky 9 dev2) lacks apk-tools /
-# abuild, so the apk stage of `make repo` is otherwise skipped and the
+# Alpine 3.20 container.  A non-Alpine build host (e.g. Rocky 9) lacks
+# apk-tools / abuild, so the apk stage of `make repo` is otherwise skipped
+# and the
 # `../unmask-dl-build/apk/` tree goes stale.  This target:
 #   1. Builds (or reuses) the unmask-alpine-builder image from tools/Dockerfile.alpine
 #   2. Mounts the repo + the sibling keys/ and unmask-dl-build/ into /work,
@@ -675,14 +676,18 @@ e2e-docker:
 e2e-docker-down:
 	docker compose -f e2e/docker/docker-compose.yml down -v
 
-## distro-check  - release-gate: e2e (docker) must pass, then run install matrix on hv1 VMs.
-# e2e covers admin / plugin behavior in isolation; install-test-official.sh exercises the
-# distribution path on real distros.  Both must pass before publishing.
+## distro-check  - release-gate: e2e (docker) + install matrix on a VM lab.
+# Maintainer-only target.  e2e covers admin / plugin behavior in isolation;
+# install-test-official.sh exercises the distribution path on real distros
+# via a private sibling repo (../distro-verify/e2e/) which spins up KVM
+# guests.  Both must pass before publishing.  Outside contributors run
+# `make e2e-docker` instead; the install matrix run is reserved for the
+# release maintainer.
 .PHONY: distro-check
 distro-check:
 	@echo '=== gate 1/2: e2e (docker compose) ==='
 	$(MAKE) e2e-docker
-	@echo '=== gate 2/2: install matrix (hv1 8 distros) ==='
+	@echo '=== gate 2/2: install matrix (8 distros) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
 	@echo '=== release gate PASSED — e2e + 8-distro install matrix green ==='

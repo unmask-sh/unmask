@@ -11,7 +11,7 @@
 #                       artefacts.  Does not touch corpus/ or new-corpus/.
 #
 # Requires: clang (= ships with libFuzzer; gcc has no libFuzzer support).
-# On dev2 / RHEL 9: `dnf install clang` (= 17.0.6 from AppStream).
+# On RHEL 9 / Rocky 9: `dnf install clang` (= 17.0.6 from AppStream).
 
 SRC_DIR  ?= ../../src
 HARNESS  := ja4_parser_fuzz.c

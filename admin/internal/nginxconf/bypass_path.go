@@ -156,10 +156,10 @@ func splitBypassPathsForRender(rules []BypassPathRule) (globals []string, perHos
 
 // hostToNginxVarSegment converts a hostname into a fragment safe for use
 // inside an nginx variable name.  nginx accepts `[A-Za-z0-9_]` for variable
-// names, so dots and hyphens are replaced with `_` (= "uic.jp" -> "uic_jp",
-// "tool-jp.example" -> "tool_jp_example").  Mixed-case is preserved because
-// nginx variables are case-sensitive.  Empty input maps to "default" so the
-// rendered identifier is always non-empty.
+// names, so dots and hyphens are replaced with `_` (= "shop.example" ->
+// "shop_example", "blog-edge.example" -> "blog_edge_example").  Mixed-case
+// is preserved because nginx variables are case-sensitive.  Empty input
+// maps to "default" so the rendered identifier is always non-empty.
 func hostToNginxVarSegment(host string) string {
 	if host == "" {
 		return "default"
