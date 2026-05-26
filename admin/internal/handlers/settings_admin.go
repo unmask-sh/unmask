@@ -609,6 +609,27 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Scope":       scope,
 		"ScopeIsSite": scopeIsSite,
 		"ScopeHosts":  scopeHosts,
+		// Per-host override state surfaced to the scope <select> options so
+		// each entry can show whether it carries an own record or inherits
+		// the Default verbatim.  Keys are host strings from ScopeHosts; the
+		// bool is true when an active (non-Disabled) entry exists for that
+		// host in the matching section.
+		"BrandingOverrideHosts": func() map[string]bool {
+			out := make(map[string]bool, len(scopeHosts))
+			for _, h := range scopeHosts {
+				v, ok := snap.Branding.Sites[h]
+				out[h] = ok && !v.Disabled
+			}
+			return out
+		}(),
+		"ChallengeOverrideHosts": func() map[string]bool {
+			out := make(map[string]bool, len(scopeHosts))
+			for _, h := range scopeHosts {
+				v, ok := snap.Challenge.Sites[h]
+				out[h] = ok && !v.Disabled
+			}
+			return out
+		}(),
 		// Per-site override state.  HasEntry = "an entry exists" (= form is
 		// pre-filled with the saved values); HasOverride = "an entry exists
 		// AND is not Disabled" (= the toggle should ship checked + form

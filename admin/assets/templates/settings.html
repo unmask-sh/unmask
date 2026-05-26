@@ -2227,7 +2227,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
-    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.ChallengeOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
     {{ end }}
     <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
   </select>
@@ -2824,7 +2824,7 @@ document.addEventListener("DOMContentLoaded", function(){
           onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
-    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }}</option>
+    <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.BrandingOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
     {{ end }}
     <option value="__add__">{{ t .Lang "settings.scope.add_new" }}</option>
   </select>
