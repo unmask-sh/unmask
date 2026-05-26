@@ -122,7 +122,6 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"Version":                h.Version,
 		"Entries":                banRows,
 		"BanFilePath":            h.Settings.Nginx.Honeypot.BanFilePath,
-		"Bans":                   h.Settings.Nginx.Bans,
 		"Saved":                  r.URL.Query().Get("saved") != "",
 		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"SubscribeEnabled":       cur.SharedFeed.SubscribeEnabled,
@@ -221,40 +220,6 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "ban_remove",
 				strconv.FormatInt(id, 10), "")
-		}
-		redir("")
-		return
-
-	case "save-defaults":
-		// Bans-page-inline editor for the per-source default action.  Lives on
-		// /admin/bans/ alongside the BAN list so operators don't have to dig
-		// into the honeypot tab to set "manual / shared_feed default".
-		manualAct := strings.TrimSpace(r.FormValue("bans_manual_default_action"))
-		sharedAct := strings.TrimSpace(r.FormValue("bans_shared_feed_default_action"))
-		cur, err := settings.Load(h.ConfigPath)
-		if err != nil {
-			redir("load: " + err.Error())
-			return
-		}
-		if manualAct != "" && !settings.IsValidRateChallengeMode(manualAct) {
-			manualAct = ""
-		}
-		if sharedAct != "" && !settings.IsValidRateChallengeMode(sharedAct) {
-			sharedAct = ""
-		}
-		cur.Nginx.Bans.ManualDefaultAction = manualAct
-		cur.Nginx.Bans.SharedFeedDefaultAction = sharedAct
-		cur.Nginx.SeenVersion = "v" + h.Version
-		if err := settings.Save(cur, h.ConfigPath); err != nil {
-			redir("save: " + err.Error())
-			return
-		}
-		settingsMu.Lock()
-		h.Settings = cur
-		settingsMu.Unlock()
-		if h.UserRepo != nil {
-			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
-				"", fmt.Sprintf(`{"manual":%q,"shared_feed":%q}`, manualAct, sharedAct))
 		}
 		redir("")
 		return

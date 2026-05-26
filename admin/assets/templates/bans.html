@@ -177,41 +177,6 @@ table.feed tbody tr:hover{background:#f8fafc}
 </div>
 
 <div class="bcd-card">
-  <h2>{{ t .Lang "bans.defaults_h" }}</h2>
-  <form method="POST" action="{{ .BasePath }}/admin/bans/save">
-    <input type="hidden" name="op" value="save-defaults">
-    <div class="add-grid">
-      <div>
-        <label>{{ t .Lang "settings.bans.manual_action_h" }}</label>
-        {{ $bma := .Bans.ManualDefaultAction }}
-        {{ if eq $bma "" }}{{ $bma = "deny" }}{{ end }}
-        <select name="bans_manual_default_action">
-          <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $bma "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $bma "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
-      <div>
-        <label>{{ t .Lang "settings.bans.shared_feed_action_h" }}</label>
-        {{ $bsa := .Bans.SharedFeedDefaultAction }}
-        {{ if eq $bsa "" }}{{ $bsa = "deny" }}{{ end }}
-        <select name="bans_shared_feed_default_action">
-          <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $bsa "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
-      <div>
-        <button type="submit" class="btn">{{ t .Lang "bans.btn.save_defaults" }}</button>
-      </div>
-    </div>
-    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "bans.defaults_note") }}</div>
-  </form>
-</div>
-
-<div class="bcd-card">
   <h2>{{ t .Lang "bans.add_h" }}</h2>
   <form method="POST" action="{{ .BasePath }}/admin/bans/save">
     <input type="hidden" name="op" value="add">
