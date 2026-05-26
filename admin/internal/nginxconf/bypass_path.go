@@ -48,21 +48,46 @@ type BypassPathRule struct {
 var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:    "static-assets",
-		Label: "Static assets (= /static/ /assets/ /favicon.ico /robots.txt)",
+		Label: "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/static/`},
 			{Pattern: `^/assets/`},
 			{Pattern: `^/favicon\.ico$`},
 			{Pattern: `^/robots\.txt$`},
 			{Pattern: `^/sitemap\.xml$`},
+			// IAB ads ecosystem (= ad crawlers always fetch these).
+			{Pattern: `^/ads\.txt$`},
+			{Pattern: `^/app-ads\.txt$`},
+			// Site / author metadata (= curious crawlers + browser extensions).
+			{Pattern: `^/humans\.txt$`},
 		},
 	},
 	{
 		ID:    "well-known",
-		Label: "/.well-known/ (= ACME / OIDC discovery etc.)",
+		Label: "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/\.well-known/`},
 		},
+	},
+	{
+		ID:    "browser-metadata",
+		Label: "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
+		Rules: []BypassPathRule{
+			// PWA manifests (= both naming conventions).
+			{Pattern: `^/manifest\.json$`},
+			{Pattern: `^/manifest\.webmanifest$`},
+			// Microsoft IE / Edge tile config.
+			{Pattern: `^/browserconfig\.xml$`},
+			// iOS / iPadOS home-screen icons (= every size variant Safari probes).
+			{Pattern: `^/apple-touch-icon(?:-\d+x\d+)?(?:-precomposed)?\.png$`},
+			// Service workers -- /service-worker.js is the de-facto name,
+			// /sw.js is the popular short alias.  Disable this preset and
+			// add the path manually under bypass_paths.paths if your app
+			// happens to occupy /sw.js for a different purpose.
+			{Pattern: `^/service-worker\.js$`},
+			{Pattern: `^/sw\.js$`},
+		},
+		AddedIn: "v0.1.0",
 	},
 	{
 		ID:    "health",
