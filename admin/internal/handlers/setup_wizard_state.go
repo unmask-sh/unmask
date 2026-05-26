@@ -29,7 +29,7 @@ type wizardState struct {
 
 // step returns the next-step name based on what's been collected so far.
 // Order: db -> user -> review.  Each step is "missing" until its Set flag
-// flips true.  The bot-detection posture is configured later in the 動作モード
+// flips true.  The bot-detection posture is configured later in the Operating mode
 // tab so the wizard stays narrowly focused on "make admin reachable".
 func (w *wizardState) step() string {
 	if !w.DBSet {

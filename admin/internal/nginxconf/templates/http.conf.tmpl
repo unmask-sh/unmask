@@ -229,7 +229,7 @@ map $http_user_agent $is_challenge_target {
 # -----------------------------------------------------------------------------
 # When none of the upstream axes (search bot rescue / bypass / protected /
 # challenge-target UA blacklist) match, the request falls into the "no-match"
-# bucket.  unmask's 動作モード tab splits that bucket by UA shape:
+# bucket.  unmask's Operating mode tab splits that bucket by UA shape:
 #
 #   $is_known_browser=1  → Chrome / Safari / Firefox / Edge / Opera UA prefix
 #   $is_known_browser=0  → everything else (= curl / library / unknown SaaS)

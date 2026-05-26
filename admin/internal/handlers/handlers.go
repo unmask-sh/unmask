@@ -639,7 +639,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//      don't yet have default_action set continue to behave as before.
 	//   3) ?chm= explicit override from the auth_request wrapper.
 	//   4) ?_force= debug override (via /unmask/force-pow / -captcha).
-	// Monitoring mode (= 全アクセスを通す).  When ON we short-circuit the
+	// Monitoring mode (= let every request through).  When ON we short-circuit the
 	// challenge: log the signal in events, then bounce the visitor to the
 	// original URL without showing PoW / CAPTCHA.
 	if forceQuery == "" && h.Settings.Global.Passthrough {
@@ -664,7 +664,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// "no-match" path: split the chain by whether the UA looks like
 		// a real browser.  Falls back to the legacy DefaultAction field
 		// when the new per-bucket fields are unset (= existing yamls).
-		// Empty (= fresh install, never touched the 動作モード tab) means
+		// Empty (= fresh install, never touched the Operating mode tab) means
 		// "strict" — the historical default protection posture.
 		ua := r.Header.Get("User-Agent")
 		var pick string

@@ -158,7 +158,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-05-23) **README + LP product tone sweep**: dropped "handled when
   time permits" hedge in README status; LP TOP use case 03 rewritten to
-  "SaaS-non-委託"; competitor product names removed across LP / docs;
+  "SaaS-non-outsourced"; competitor product names removed across LP / docs;
   "nginx" generalised to "httpd" where the message applies to multiple
   HTTP servers.
 

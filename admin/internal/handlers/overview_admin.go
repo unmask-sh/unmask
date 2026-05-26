@@ -156,7 +156,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the
 		// same recent slice under those keys.  EventsCap=5 caps the client-side
 		// visible-session count after the session-collapse pass so the card
-		// honours its "直近 5 件" heading even though we pre-fetched 20 raw rows.
+		// honours its "5 most recent" heading even though we pre-fetched 20 raw rows.
 		"Rows":      recent,
 		"EventsCap": 5,
 		"Range":     "",

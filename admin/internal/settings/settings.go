@@ -268,8 +268,8 @@ type BrandingValues struct {
 	// "Operated by ACME"). Plain text; HTML-escaped at render time.
 	FooterText string `yaml:"footer_text,omitempty"`
 	// CopyPreset: which copy preset to apply to the challenge page strings.
-	// "friendly" (= default / 不安解消寄り) | "neutral" (= 現状互換) |
-	// "minimal" (= 短文). Empty / unknown → "friendly".
+	// "friendly" (= default / reassurance-leaning) | "neutral" (= status-quo
+	// compatible) | "minimal" (= short text). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
 	// Disabled: when true, Resolve(site) returns the Default record even
 	// though this entry exists.  Used to express "operator turned override
@@ -797,7 +797,7 @@ type SearchBotsConfig struct {
 	// crawler-user-agents.json auto-rescue.  Patterns listed here will not
 	// be auto-passed via the search_ai branch, even if they match a
 	// search-engine / ai-crawler / advertising tag.  Edited via the
-	// "詳細" modal on the settings UI.
+	// "details" modal on the settings UI.
 	UpstreamDisabled []string `yaml:"upstream_disabled,omitempty"`
 	// UpstreamGroupMode: per-group override mapping that places a category
 	// into "white" (auto-pass), "black" (challenge-target), or "none"
@@ -884,7 +884,7 @@ type SiteConfig struct {
 
 // GlobalConfig: settings-wide knobs that cross axis boundaries (= UA /
 // JA4 / honeypot / protected paths).  Lives at the root of settings so the
-// "動作モード" tab can drive them without dragging other tabs into shared
+// "Operating mode" tab can drive them without dragging other tabs into shared
 // state.
 type GlobalConfig struct {
 	// Passthrough = monitoring mode.  When true, the admin's serveBotChallenge
@@ -1510,7 +1510,7 @@ func defaults() Settings {
 			MetricsAllowFrom: nil,
 			// All shipped crawler IP-range presets are ON by default -- this is
 			// the "search bot rescue" safety net required by the CLAUDE.md
-			// design principle "検索 bot は絶対通す".  Operators uncheck a row
+			// design principle: always let search bots through.  Operators uncheck a row
 			// in the UI to drop its ID from this list.  When a new preset is
 			// added in a later release it ships with isNew=true and stays OFF
 			// until the operator opts in (= SeenVersion gate).

@@ -202,7 +202,7 @@
  *   .info-popup-flip-x : anchor right (= right edge would overflow viewport)
  *   .info-popup-flip-y : anchor above (= bottom edge would overflow viewport)
  * max-width = viewport - 1rem keeps the popup from forcing a horizontal scrollbar
- * even on narrow screens, which is the other source of "ガクガク" layout jitter. */
+ * even on narrow screens, which is the other source of layout jitter. */
 .info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.7rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);text-transform:none;letter-spacing:0;white-space:normal}
 .info-popup a{color:#1d4ed8;text-decoration:underline}
 .info-popup code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}

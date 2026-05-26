@@ -238,7 +238,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	if step == "review" && wstate != nil {
 		// Final summary screen renders driver + admin for confirmation.
-		// Bot-detection posture is configured later in the 動作モード tab so
+		// Bot-detection posture is configured later in the Operating mode tab so
 		// the wizard stays narrowly focused on "make admin reachable".
 		data["ReviewDriver"] = wstate.DB.Driver
 		data["ReviewSQLitePath"] = wstate.DB.SQLitePath

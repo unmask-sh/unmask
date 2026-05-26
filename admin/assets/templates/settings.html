@@ -238,7 +238,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
 .picker select option{color:#0f172a;background:#fff}
 
-/* 動作モード tab numbered badges + preset recipe card */
+/* Operating mode tab numbered badges + preset recipe card */
 .preset-mode{margin:.9rem 0;padding:.7rem .9rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.35rem}
 .preset-mode h3{margin:0 0 .35rem;font-size:1rem;color:#0f172a}
 .preset-mode h3 .muted{font-weight:400;color:#64748b;font-size:.82rem}
@@ -355,7 +355,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </header>
 <main class="unmask-main">
 
-{{/* Page-top "設定" h1 was retired; the per-tab settings-tab-title in the
+{{/* Page-top "Settings" h1 was retired; the per-tab settings-tab-title in the
      right pane now plays the role of the page heading (= same y as the
      left-nav first <h3> entry). */}}
 <div class="settings-shell">
@@ -367,7 +367,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <ul>
     <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
     <li><a href="?tab=sites"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
-    {{/* SMTP / notifications tabs hidden until post-v0.1 (= 機能自体は残るが UI 入口は閉じる). */}}
+    {{/* SMTP / notifications tabs hidden until post-v0.1 (= feature still ships but the UI entry point is closed). */}}
     <li><a href="?tab=retention"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
@@ -683,7 +683,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
     </div>
 
-    {{/* ASN Mode C: none (= 任意なので無効化を選べる) */}}
+    {{/* ASN Mode C: none (= optional, so disabling is allowed) */}}
     <div class="field ipgeo-mode-row">
       <label class="ipgeo-mode-label">
         <input type="radio" name="ipgeo_asn_mode" value="none" {{ if eq $asnMode "none" }}checked{{ end }} data-target="ipgeo-asn-mode-none">
@@ -1129,7 +1129,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.known_browser_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
       <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= 何もしない)</option>
+        <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $kba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $kba "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -1141,7 +1141,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.unknown_ua_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
       <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= 何もしない)</option>
+        <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $uua "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $uua "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -1324,10 +1324,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2 style="color:#b91c1c">✗ {{ t .Lang "settings.ua.black_h" }}</h2>
     <p class="desc">{{ t .Lang "settings.ua.black_desc" }}</p>
 
-    <!-- The legacy "全 access challenge" checkbox moved to the
-         "動作モード" tab (= settings.global) so cross-axis behaviour stays
-         out of the UA-filter view.  Existing config.yml's challenge_targets.all
-         is still honoured on the back end. -->
+    <!-- The legacy "challenge every access" checkbox moved to the
+         "Operating mode" tab (= settings.global) so cross-axis behaviour
+         stays out of the UA-filter view.  Existing config.yml's
+         challenge_targets.all is still honoured on the back end. -->
 
     <!-- default action for black-list match.  Independent from
          rate_limit.default.challenge_mode (= each axis has its own field). -->
@@ -1693,8 +1693,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=ja4-verdicts">
   <!-- parent card: JA4 verdict (= contains preset + custom) -->
   <div class="bcd-card" style="border-left:.25rem solid #6366f1">
-    <!-- ja4 bot 経路の default action.  Independent from ChallengeTargets
-         and RateLimit defaults so each axis has its own knob. -->
+    <!-- Default action for the ja4 bot path.  Independent from
+         ChallengeTargets and RateLimit defaults so each axis has its own knob. -->
     <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
         {{ t .Lang "settings.ja4.action_h" }}
@@ -2609,7 +2609,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
       <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
         <select name="geo_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
-          <option value="skip"             {{ if eq $gda "skip"             }}selected{{ end }}>skip (= 国別判定なし)</option>
+          <option value="skip"             {{ if eq $gda "skip"             }}selected{{ end }}>skip (= no country-based decision)</option>
           <option value="pow_only"         {{ if eq $gda "pow_only"         }}selected{{ end }}>pow_only</option>
           <option value="captcha_only"     {{ if eq $gda "captcha_only"     }}selected{{ end }}>captcha_only</option>
           <option value="pow_then_captcha" {{ if eq $gda "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2708,7 +2708,8 @@ document.addEventListener("DOMContentLoaded", function(){
   var bulkBtn   = document.getElementById('geo-bulk-apply');
 
   // Country master for client-side validation + name display.  Datalist
-  // option text format: "JP — Japan (日本)", so we slice off the code prefix.
+  // option text format: "JP - Japan (native name)", so we slice off the
+  // code prefix.
   var COUNTRIES = {};
   document.querySelectorAll('#geo-country-datalist option').forEach(function(o){
     var label = o.textContent || '';
@@ -3218,8 +3219,8 @@ document.addEventListener("DOMContentLoaded", function(){
   }
   // Substitute {site_name} in the per-preset sample text so the operator can
   // read what the visitor will see for the current site name -- no need to
-  // save first.  Fallback subject ("サイト" / "this site") matches the
-  // visitor-side behavior when site name is blank.
+  // save first.  Fallback subject matches the visitor-side behavior when
+  // the site name is blank (= localized "this site" string per UI language).
   function updatePresetSamples(){
     var docLang = (document.documentElement.lang || 'en').toLowerCase();
     var fallback = docLang.indexOf('ja') === 0 ? 'サイト' : 'this site';
@@ -4195,7 +4196,7 @@ document.addEventListener('DOMContentLoaded', function(){
 // Suppress implicit form submission on Enter inside settings inputs.
 //
 // Every settings tab is a single form with many text / number / select
-// fields and a "保存" button at the bottom.  Hitting Enter while a field
+// fields and a "Save" button at the bottom.  Hitting Enter while a field
 // has focus would otherwise pick the first submit-capable button and save
 // the whole tab -- accidental, easy to do, hard to undo (= overwrites
 // every other field on the tab with the form's current values).
@@ -4208,7 +4209,7 @@ document.addEventListener('DOMContentLoaded', function(){
 //   - <input type="submit|button">  : same reasoning
 //
 // Everything else (text / number / search / email / password / etc.)
-// swallows Enter so the operator has to scroll down and click 保存.
+// swallows Enter so the operator has to scroll down and click Save.
 document.addEventListener('keydown', function(e){
   if (e.key !== 'Enter') return;
   var t = e.target;

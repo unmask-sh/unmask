@@ -319,7 +319,7 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 // the challenge HTML when a bot signal trips.
 //
 // Philosophy:
-//   - The 動作モード tab covers the "known browser / unknown UA" split for
+//   - The Operating mode tab covers the "known browser / unknown UA" split for
 //     the no-match path, so a `known_browser` preset here is gone — it
 //     would double-dip with the Global axis and confuse the resolution
 //     order.

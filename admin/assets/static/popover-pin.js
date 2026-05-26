@@ -128,7 +128,7 @@ window.popoverPin = window.popoverPin || (function(){
   // broader containers.  Most forms in settings.html wrap the label + `?`
   // pair in a small `.field-label` row separate from the input + unit hint,
   // so checking that class before `.field` keeps the title focused on the
-  // label and out of the "秒 (= 0 で永久, ...)" hint text that lives below it.
+  // label and out of the "seconds (= 0 for forever, ...)" hint text that lives below it.
   function titleFromTrigger(trigger){
     if (!trigger || !trigger.closest) return '';
     var anchor = trigger.closest(
