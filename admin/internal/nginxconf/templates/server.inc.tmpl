@@ -40,7 +40,7 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # admin serves as a challenge page (= "you're going too fast, prove you're
 # human").  Native mode previously left this undefined → 429 fell through to
 # nginx's default 500 page.  /unmask/_rl is also handled by admin in the
-# auth_request mode (server.inc) under the same name, so the path stays
+# forward-auth mode (server.inc) under the same name, so the path stays
 # consistent across modes.
 location @unmask_rate_challenge {
     rewrite ^ /unmask/_rl$request_uri last;
@@ -53,7 +53,7 @@ location @unmask_rate_challenge {
 # self-contained: a vhost only needs `include native/server.inc;` here plus
 # `include native/protect.inc;` in protected locations — no hand-written
 # /unmask/ block and no auth_request/server.inc (= that richer per-path bundle
-# is for auth_request mode, and mixing it in duplicates this location).
+# is for forward-auth mode, and mixing it in duplicates this location).
 # The upstream `unmask_admin` is declared in /etc/unmask/upstream.conf.
 location ^~ /unmask/ {
     proxy_pass         http://unmask_admin;

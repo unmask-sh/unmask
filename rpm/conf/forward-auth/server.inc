@@ -1,7 +1,7 @@
-# /etc/unmask/auth_request/server.inc — auth_request mode server-scope snippet.
+# /etc/unmask/forward-auth/server.inc — forward-auth mode server-scope snippet.
 #
 # Usage: include from directly inside an existing server block via
-# `include /etc/unmask/auth_request/server.inc;`.
+# `include /etc/unmask/forward-auth/server.inc;`.
 # That makes https://<your-host>/unmask/admin/ (= admin UI) and
 # /unmask/challenge/ etc. reachable on that vhost.  To actually **protect**
 # user paths (= fire the challenge), include protect.inc separately at
@@ -16,7 +16,7 @@
 #   /unmask/_rl/        → rate-limit-triggered challenge
 #   /unmask/healthz     → 200 health
 #   /unmask/metrics     → Prometheus metrics (= localhost only)
-#   /_unmask/check      → internal subrequest (= for auth_request mode)
+#   /_unmask/check      → internal subrequest (= for forward-auth mode)
 #   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_admin_down
 #
 # Each /unmask/* location carries `auth_request off;` to avoid a self-loop if
@@ -32,7 +32,7 @@
 # The variables referenced in native mode (= when ngx_http_unmask_module is
 # used) — $effective_ja4 / $ja4_verdict / $ja4_action / $serve_bot_challenge
 # / $protected_mode / $unmask_banned — are satisfied by including
-# /etc/unmask/native/http.inc in http {}.  In auth-request mode, nginx treats
+# /etc/unmask/native/http.inc in http {}.  In forward-auth mode, nginx treats
 # unresolved variables as empty and falls through (= nginx v1.6+ treats
 # undefined variables as empty strings, so it does not error out).
 
@@ -158,7 +158,7 @@ location ^~ /unmask/test/ {
     proxy_set_header  X-JA4-Action     $ja4_action;
 }
 
-# /_unmask/check  — internal subrequest endpoint for auth_request mode.
+# /_unmask/check  — internal subrequest endpoint for forward-auth mode.
 # External direct access is forbidden.  Harmless to keep even when running native mode.
 location = /_unmask/check {
     internal;

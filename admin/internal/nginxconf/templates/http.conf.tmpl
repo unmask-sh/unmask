@@ -253,7 +253,7 @@ map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 # $unmask_chmode — challenge-mode hint
 # -----------------------------------------------------------------------------
 # auth_request/server.inc's @unmask_to_challenge forwards this to
-# /unmask/challenge/?chm=<mode>.  In auth_request mode the value is filled
+# /unmask/challenge/?chm=<mode>.  In forward-auth mode the value is filled
 # per-request by `auth_request_set $unmask_chmode $upstream_http_x_unmask_chmode;`
 # (auth_request/protect.inc).  Native mode has no auth_request_set, so without
 # a definition here nginx aborts with `unknown "unmask_chmode" variable` the
@@ -407,7 +407,7 @@ map $protected_mode $protected_mode_eff {
 # Geo.Rules.Enabled are emitted, so the geo block stays small even with
 # a 6 MB mmdb.  Native plugin mode reads $unmask_country / $unmask_geo_action
 # from these maps without needing libmaxminddb at runtime.
-# auth_request mode keeps doing live mmdb lookups via admin /authcheck.
+# forward-auth mode keeps doing live mmdb lookups via admin /authcheck.
 #
 # Actions: skip / pow_only / captcha_only / pow_then_captcha / deny.
 # "skip" (= the no-op default) is named skip rather than pass so operators

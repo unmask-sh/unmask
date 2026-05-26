@@ -63,7 +63,7 @@ if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
 fi
 
 # SELinux: nginx defaults to the httpd_t domain on RHEL-family distros, where
-# auth_request / proxy_pass to 127.0.0.1:9477 is kernel-blocked unless the
+# the nginx auth_request directive / proxy_pass to 127.0.0.1:9477 is kernel-blocked unless the
 # httpd_can_network_connect bool is on.  Without this the bot challenge never
 # fires -- the visitor lands on the backend as if unmask were absent.  Auto-
 # enable so install-and-go works; opt out by setting UNMASK_SKIP_SETSEBOOL=1
@@ -118,7 +118,7 @@ echo ""
 echo "  [1] Recommended — add 1 line to your existing nginx vhost"
 echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
 echo ""
-echo "            include /etc/unmask/auth_request/server.inc;"
+echo "            include /etc/unmask/forward-auth/server.inc;"
 echo ""
 echo "        (native mode with unmask-plugin-nginx: use /etc/unmask/native/server.inc)"
 echo "        then:  sudo nginx -t && sudo nginx -s reload"
@@ -134,7 +134,7 @@ echo "        \$ ssh -L 9477:127.0.0.1:9477 ${host} -N &"
 echo "        open:  http://localhost:9477/unmask/admin/setup/"
 echo ""
 echo "  After setup, add protection to your location { } block:"
-echo "        include /etc/unmask/auth_request/protect.inc;  # fires the bot challenge"
+echo "        include /etc/unmask/forward-auth/protect.inc;  # fires the bot challenge"
 echo ""
 if [ ! -r "$TOKEN_FILE" ]; then
     echo "     The setup token is at /etc/unmask/.setup-token (= view with sudo cat)."

@@ -201,7 +201,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		close(r.doneB)
 		return r
 	}
-	// Even when socket path is unset (= auth_request mode etc.), run
+	// Even when socket path is unset (= forward-auth mode etc.), run
 	// the DB flush goroutine.  recvLoop is unnecessary (= buckets are
 	// incremented externally via Bump()).
 	if socketPath == "" {
@@ -381,7 +381,7 @@ func (r *Reader) onLine(line string) {
 }
 
 // Bump: increment the minute bucket by 1 from outside
-// (= auth_request mode in /api/check).  site == "" is treated as
+// (= forward-auth mode in /api/check).  site == "" is treated as
 // "default".  kind == "" only +1s total (= records the "no cookie"
 // case).
 //
@@ -494,7 +494,7 @@ func (r *Reader) bumpCrawler(ua string, served bool) {
 	r.mu.Unlock()
 }
 
-// BumpCrawler: exported entry point for auth_request mode (= /api/check has
+// BumpCrawler: exported entry point for forward-auth mode (= /api/check has
 // the UA but emits no access-log line of its own).  nil-safe.
 func (r *Reader) BumpCrawler(ua string, served bool) {
 	if r == nil {

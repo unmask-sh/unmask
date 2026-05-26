@@ -5,7 +5,7 @@
 # (= /usr/sbin/unmask-admin) listens on localhost; this package wires
 # nginx ↔ unmask-admin together.
 #
-# default mode = auth_request (= lightweight mode that does not require JA4
+# default mode = forward-auth (= lightweight mode that does not require JA4
 # fingerprinting; all features work, but only the JA4-granular verdict
 # degrades to "(none)").
 #
@@ -23,7 +23,7 @@ maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   nginx web integration for unmask (= conf.d snippet).
   Drops a config in /etc/nginx/conf.d/ so /unmask/admin/, /unmask/challenge/
-  and the auth_request gateway are reachable through your existing nginx.
+  and the forward-auth gateway are reachable through your existing nginx.
   After install, reload nginx and open https://your-host/unmask/admin/.
 vendor: unmask
 homepage: https://github.com/unmask-sh/unmask
@@ -48,20 +48,20 @@ depends:
   - nginx
 
 contents:
-  # auth_request mode: server-scope snippet (= the /unmask/* location set)
-  - src: ./conf/auth_request/server.inc
-    dst: /etc/unmask/auth_request/server.inc
+  # forward-auth mode: server-scope snippet (= the /unmask/* location set)
+  - src: ./conf/forward-auth/server.inc
+    dst: /etc/unmask/forward-auth/server.inc
     type: config|noreplace
     file_info:
       mode: 0644
-  # auth_request mode: location-scope protection trigger (= auth_request directive)
-  - src: ./conf/auth_request/protect.inc
-    dst: /etc/unmask/auth_request/protect.inc
+  # forward-auth mode: location-scope protection trigger (= nginx auth_request directive)
+  - src: ./conf/forward-auth/protect.inc
+    dst: /etc/unmask/forward-auth/protect.inc
     type: config|noreplace
     file_info:
       mode: 0644
   # Note: the shipped server block (= the old unmask-web.conf default_server)
-  # has been removed.  Users add `include /etc/unmask/{native,auth_request}/server.inc;`
+  # has been removed.  Users add `include /etc/unmask/{native,forward-auth}/server.inc;`
   # to their own vhost as a one-liner.  The upstream block (= resolves
   # proxy_pass http://unmask_admin) is auto-loaded by postinstall via the
   # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.

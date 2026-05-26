@@ -55,7 +55,7 @@ layer.  Install gcompat and rerun the unmask-plugin-nginx install:
 `apk add unmask-plugin-nginx` should already pull it in -- this branch
 fires only when gcompat was explicitly excluded.)
 
-Alternatively, run unmask in auth_request mode -- the main `unmask`
+Alternatively, run unmask in forward-auth mode -- the main `unmask`
 package alone is enough; nginx subrequests the admin daemon.  See
 https://unmask.sh/install/  ->  pick "nginx · auth_request".
 
@@ -177,7 +177,7 @@ Mitigations:
   2) Build from source on another host:
        make build-module NGINX_VERSION=${HOST_VER}
        cp dist/ngx_http_unmask_module-linux-*.so /usr/lib/nginx/modules/
-  3) Skip the plugin and run in auth_request mode (= main package alone is enough).
+  3) Skip the plugin and run in forward-auth mode (= main package alone is enough).
 ================================================================
 EOF
     exit 0

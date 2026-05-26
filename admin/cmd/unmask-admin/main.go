@@ -751,7 +751,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	mux.HandleFunc("POST "+base+"/admin/api/playground/eval",
 		h.AuthMiddleware(h.AdminPlaygroundEval))
 
-	// auth_request mode endpoint (called by all of nginx auth_request /
+	// forward-auth mode endpoint (called by all of nginx auth_request /
 	// Apache forward-auth / Caddy forward_auth / Envoy ext_authz).
 	// No auth (the HTTP server's subrequest).  Supports both GET / POST.
 	mux.HandleFunc("GET "+base+"/api/check", h.AuthCheck)

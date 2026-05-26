@@ -195,7 +195,7 @@ type ChallengeValues struct {
 	// observation phase).
 	//
 	// Behavior:
-	//   - auth_request mode: even when auth_check returns action=challenge/block,
+	//   - forward-auth mode: even when auth_check returns action=challenge/block,
 	//     the response ends up action=pass. event payload retains observe_only=1.
 	//   - native mode: for requests nginx forwards to the challenge route,
 	//     the admin's ServeChallenge skips PoW/CAPTCHA and returns HTML that
@@ -461,16 +461,16 @@ type Nginx struct {
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 }
 
-// GeoConfig: country-based decision axis, applied in both auth_request mode
+// GeoConfig: country-based decision axis, applied in both forward-auth mode
 // (= admin /authcheck does the lookup live) and native nginx-plugin mode
 // (= render-time mmdb walk emits a `geo $remote_addr $unmask_country` block
 // into http.inc).  Either way the plugin / module itself does not link
 // libmaxminddb — admin is the only consumer of the mmdb file.
 //
 // Requires IPGeo.MMDBPath to be configured (= mmdb loaded at startup for
-// auth_request mode, walked at render time for native mode).  Rule / mmdb
+// forward-auth mode, walked at render time for native mode).  Rule / mmdb
 // changes take effect after `unmask-admin render-nginx && nginx -s reload`
-// in native mode; auth_request mode reloads the mmdb on settings save.
+// in native mode; forward-auth mode reloads the mmdb on settings save.
 //
 // Model: one rule per country.  Default action for unmatched countries (= the
 // long-tail of the world) is `DefaultAction`.  Each rule may also opt the

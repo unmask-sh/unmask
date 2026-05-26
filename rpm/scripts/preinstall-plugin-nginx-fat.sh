@@ -20,6 +20,6 @@ if [ -z "$nginx_path" ]; then
     echo "  (rpm -e + rpm -ivh) so postinstall detects nginx and places the" >&2
     echo "  module in the right path." >&2
     echo "" >&2
-    echo "  (= If running auth_request mode with only the unmask main package, the plugin is not needed.)" >&2
+    echo "  (= If running forward-auth mode with only the unmask main package, the plugin is not needed.)" >&2
 fi
 exit 0

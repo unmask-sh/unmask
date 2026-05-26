@@ -346,10 +346,10 @@ func extractBeaconToken(payload string) string {
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
-//   - phase=check (auth_request mode): "uri" (X-Original-URI or RequestURI)
+//   - phase=check (forward-auth mode): "uri" (X-Original-URI or RequestURI)
 //   - phase=serve (challenge HTML served, e.g. via rate-limit hit): "orig_path"
 //   - phase=load / pow / captcha / verify_ok / verify_ng / etc: "url" sent by
-//     the client (location.href).  In auth_request mode nginx dispatches
+//     the client (location.href).  In forward-auth mode nginx dispatches
 //     internally via error_page, so the original URL stays in the URL bar
 //     and challenge.js sends it through.  Native mode rewrites to
 //     /unmask/challenge/..., so we prefer "orig_path" sent via
@@ -375,7 +375,7 @@ func extractPath(payload string) string {
 // If there is no scheme/host (already a path), return as-is.  The challenge
 // HTML URL itself (/unmask/challenge/...) is expected to be excluded by the
 // caller (relevant phases prefer orig_path, so this only fires under
-// auth_request mode where the URL bar still holds the original URL).
+// forward-auth mode where the URL bar still holds the original URL).
 func urlToPath(u string) string {
 	if u == "" {
 		return ""

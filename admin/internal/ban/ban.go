@@ -259,7 +259,7 @@ func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, ba
 
 // IsBanned: returns whether the (ip, ja4) tuple is banned.  ja4 == "" is
 // an IP-only check (= fallback for when JA4 is not available in
-// auth_request mode).  Fast path that runs a single indexed query.
+// forward-auth mode).  Fast path that runs a single indexed query.
 // Expired entries are treated as false.
 func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 	if m == nil || ip == "" {
@@ -278,7 +278,7 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 		}
 		return n > 0
 	}
-	// JA4 absent (= e.g. auth_request mode): decide by IP only.
+	// JA4 absent (= e.g. forward-auth mode): decide by IP only.
 	err := m.DB.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM unmask_ban
 		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)`,

@@ -7,7 +7,7 @@
 //   - native/protect.inc    location/server scope: limit_req + final_challenge rewrite
 //   - upstream.conf         upstream block (= stays at /etc/unmask/upstream.conf)
 //
-// The auth_request-mode static snippets (= /etc/unmask/auth_request/{server,protect}.inc)
+// The forward-auth-mode static snippets (= /etc/unmask/forward-auth/{server,protect}.inc)
 // are placed by the unmask-web-nginx package (= this code does not touch them).
 //
 // Callers:
@@ -672,7 +672,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// `geo $binary_remote_addr $unmask_country { ... }` block listing only
 	// the CIDRs of countries the operator has rules for.  The plugin can
 	// then route on $unmask_country without needing libmaxminddb.
-	// auth_request mode keeps doing live lookups via the admin /authcheck
+	// forward-auth mode keeps doing live lookups via the admin /authcheck
 	// handler so behavior matches across the two modes.
 	d.GeoDefaultAction = s.Nginx.Geo.ResolvedDefaultAction()
 	geoCountrySet := map[string]bool{}

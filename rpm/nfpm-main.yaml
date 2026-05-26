@@ -1,6 +1,6 @@
 # unmask main package — admin binary + all distribution payloads (= challenge HTML / snippets / etc).
 #
-# The nginx-module .so is **not** included.  Defaults to auth_request mode,
+# The nginx-module .so is **not** included.  Defaults to forward-auth mode,
 # which can sit in front of any HTTP server (= nginx / Apache / Caddy /
 # Traefik / Envoy / HAProxy).
 #
@@ -22,7 +22,7 @@ description: |
   unmask — JA4 TLS-fingerprint based bot challenge.
   Admin server (Go static binary), challenge HTML/JS, configuration UI,
   and integration snippets for nginx / Apache / Caddy / Traefik / HAProxy.
-  By default operates in auth_request mode (= HTTP-server-agnostic).
+  By default operates in forward-auth mode (= HTTP-server-agnostic).
   Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
 vendor: unmask
 homepage: https://github.com/unmask-sh/unmask
@@ -54,10 +54,10 @@ contents:
     file_info:
       mode: 0755
 
-  # auth_request mode snippets (= one per HTTP server).
+  # forward-auth mode snippets (= one per HTTP server).
   # Intended to be manually included from /etc/<server>/conf.d/ etc.
-  - src: ../snippets/nginx-auth-request.conf
-    dst: /usr/share/unmask/snippets/nginx-auth-request.conf
+  - src: ../snippets/nginx-forward-auth.conf
+    dst: /usr/share/unmask/snippets/nginx-forward-auth.conf
   - src: ../snippets/apache-forward-auth.conf
     dst: /usr/share/unmask/snippets/apache-forward-auth.conf
   - src: ../snippets/apache-unmask.lua

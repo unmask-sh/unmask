@@ -90,7 +90,7 @@ var headerAcronyms = map[string]string{
 // trusted LB list.  Evaluates the merge of the presets (= vendors enabled
 // via TrustedLBPresets) and extras.
 //
-// Use case: the IP filter on the auth_request mode handler side
+// Use case: the IP filter on the forward-auth mode handler side
 // (= decides whether to trust X-Client-JA4).  Prevents header spoofing
 // from a direct-access (= non-LB) request.
 //

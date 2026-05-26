@@ -25,7 +25,7 @@ unmask-plugin-nginx is the plugin that loads a dynamic module into the
 nginx binary.  Install it only on hosts where nginx is already present.
 
 (= the plugin is not required if you run only the unmask main package in
-auth_request mode)
+forward-auth mode)
 
 ================================================================
 EOF
@@ -58,7 +58,7 @@ How to fix:
        make build-module      NGINX_VERSION=${ACTUAL}
        make package-plugin-nginx NGINX_VERSION=${ACTUAL}
 
-  (3) Give up the plugin and run in auth_request mode (= unmask main
+  (3) Give up the plugin and run in forward-auth mode (= unmask main
       package alone is enough).  You lose the JA4 fingerprint, but every
       other feature still works.
 
