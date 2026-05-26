@@ -271,7 +271,17 @@ document.addEventListener('DOMContentLoaded', function(){
   // and never executed the JS, so no later event ever existed.  Marking
   // serve as a fragment would obscure the silent-bot signal which is one
   // of the main things this view is supposed to surface.
-  var FRAGMENT_PHASES = {load:1, pow:1, pow_pass:1, captcha:1, check:1};
+  //
+  // The bv_* terminals are deliberately included: a session that fires
+  // bv_pow_only / bv_captcha_only / bv_pow_then_captcha must have gone
+  // through at least serve + load on the way (= /api/verify rejects an
+  // unsigned beacon_token, so the terminal event cannot exist without
+  // its serve), so a lone bv_* on this page can only mean the older
+  // events were paginated off.
+  var FRAGMENT_PHASES = {
+    load:1, pow:1, pow_pass:1, captcha:1, check:1,
+    bv_pow_only:1, bv_captcha_only:1, bv_pow_then_captcha:1,
+  };
   rows.forEach(function(tr){
     if (tr.style.display === 'none') return;
     var bt = tr.getAttribute('data-bt');
