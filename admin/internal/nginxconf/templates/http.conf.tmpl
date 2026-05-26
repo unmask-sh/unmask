@@ -287,12 +287,61 @@ map $request_uri $serve_bot_challenge {
 #   - captcha : skip PoW -> CAPTCHA directly -> _bv (default; medium UX)
 #   - pow     : issue _bv with PoW only (lightweight)
 #   - strict  : PoW -> CAPTCHA chain (in v0.1 equivalent to captcha; chained in v0.2)
-map $request_uri $protected_mode {
+#
+# Per-host rules go through the same four-stage pattern as Bypass paths:
+# stage A emits the global path map, stage B emits one path map per unique
+# Site, stage C dispatches by $host, and stage D picks per-host first with
+# fall-back to global (= map values can reference variables in nginx so the
+# dispatcher reads through to the actual per-host map's result).
+
+# Stage A: global rules (= rule.Site == "").  Applied to every host.
+map $request_uri $unmask_pp_global {
     default "";
-{{- range .ProtectedPaths }}
+{{- range .ProtectedPathsGlobal }}
     "~*{{ .Pattern }}" "{{ .Mode }}";
 {{- end }}
 }
+
+{{- if .ProtectedPathsPerHost }}
+
+# Stage B: per-host rules.  One map per unique host string; the value is the
+# protected mode literal so per-host rules can carry a different mode than
+# the global pattern would.
+{{- range .ProtectedPathsPerHost }}
+map $request_uri $unmask_pp_host_{{ .VarName }} {
+    default "";
+{{- range .Rules }}
+    "~*{{ .Pattern }}" "{{ .Mode }}";
+{{- end }}
+}
+{{- end }}
+
+# Stage C: host dispatcher.  Selects the per-host map's value for the
+# current $host; unknown hosts pin to "" so they fall through to global.
+map $host $unmask_pp_per_host {
+    default "";
+{{- range .ProtectedPathsPerHost }}
+    "{{ .Host }}" $unmask_pp_host_{{ .VarName }};
+{{- end }}
+}
+
+# Stage D: per-host wins.  Empty per-host result -> use global.
+map $unmask_pp_per_host $protected_mode {
+    default $unmask_pp_global;
+    "captcha" "captcha";
+    "pow"     "pow";
+    "strict"  "strict";
+}
+{{- else }}
+
+# No per-host rules configured -- global map is the canonical signal directly.
+map $unmask_pp_global $protected_mode {
+    default "";
+    "captcha" "captcha";
+    "pow"     "pow";
+    "strict"  "strict";
+}
+{{- end }}
 
 {{- if .SharedFeedSubscribe }}
 # A shared feed hit is treated equivalently to protected_mode=captcha (forced

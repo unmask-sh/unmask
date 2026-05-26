@@ -196,7 +196,12 @@ type renderData struct {
 	SearchBotPatterns       []string // flatten of enabled presets + extras
 	JA4Verdicts             []JA4VerdictRule
 	HoneypotPatterns        []string            // OR list of honeypot path patterns
-	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode}
+	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode, Site} (= source-of-truth list)
+	// ProtectedPathsGlobal / ProtectedPathsPerHost are the rendered split:
+	// global rules emit one path -> mode map; per-host rules emit one path
+	// map per unique Site plus a host dispatcher (= same pattern as bypass).
+	ProtectedPathsGlobal  []ProtectedPathRule     // rules with Site == ""
+	ProtectedPathsPerHost []ProtectedPathHostMaps // one entry per unique non-empty Site
 	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site} (= source-of-truth list)
 	// BypassPathsGlobal / BypassPathsPerHost are the rendered split:
 	// global rules feed a `map $request_uri ...` block directly, while per-host
@@ -442,6 +447,8 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// (= compat-first: don't silently start protecting new paths in
 	// existing deploys).
 	pp := []ProtectedPathRule{}
+	// Dedup key is (site, pattern) so a path can carry different modes per
+	// host without one row silently shadowing the other.
 	ppSeen := map[string]bool{}
 	enabledPP := toSet(s.Nginx.ProtectedPaths.EnabledPresets)
 	for _, g := range ProtectedPathPresetGroups {
@@ -450,10 +457,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		for _, r := range g.Rules {
 			pat := trimSpaceAndQuotes(r.Pattern)
-			if pat == "" || ppSeen[pat] {
+			if pat == "" {
 				continue
 			}
-			ppSeen[pat] = true
+			key := "|" + pat // preset rules are always global (Site="")
+			if ppSeen[key] {
+				continue
+			}
+			ppSeen[key] = true
 			mode := r.Mode
 			if !IsValidProtectedMode(mode) {
 				mode = ProtectedModeCaptcha
@@ -461,26 +472,37 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
 	}
-	// TODO(phase 3): emit per-site protected-path maps so the visitor's
-	// $host scopes a row with row.Site == "<host>".  Today rows are
-	// flattened regardless of site; phase 3 is responsible for the wire-up.
+	// Custom rows carry a per-row Site (= empty = global, non-empty = only
+	// for that $host).  The render side splits them below into a global map
+	// + per-host maps so a $host-specific rule fires only on that vhost.
 	for _, r := range s.Nginx.ProtectedPaths.Paths {
 		if r.Disabled {
 			continue
 		}
 		p := trimSpaceAndQuotes(r.Path)
-		if p == "" || ppSeen[p] {
+		site := trimSpaceAndQuotes(r.Site)
+		// Per-pattern dedup is keyed on (site, pattern) so the same path
+		// can carry different modes on different hosts without one row
+		// shadowing the other.
+		key := site + "|" + p
+		if p == "" || ppSeen[key] {
 			continue
 		}
-		ppSeen[p] = true
+		ppSeen[key] = true
 		mode := ProtectedModeCaptcha
 		if IsValidProtectedMode(r.Mode) {
 			mode = r.Mode
 		}
-		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode})
+		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode, Site: site})
 	}
-	sort.Slice(pp, func(i, j int) bool { return pp[i].Pattern < pp[j].Pattern })
+	sort.Slice(pp, func(i, j int) bool {
+		if pp[i].Site != pp[j].Site {
+			return pp[i].Site < pp[j].Site
+		}
+		return pp[i].Pattern < pp[j].Pattern
+	})
 	d.ProtectedPaths = pp
+	d.ProtectedPathsGlobal, d.ProtectedPathsPerHost = splitProtectedPathsForRender(pp)
 
 	// Whitelist paths: enabled presets + extras (= skip ExtraDisabled[i]=true).
 	//

@@ -23,9 +23,16 @@ func IsValidProtectedMode(m string) bool {
 }
 
 // ProtectedPathRule: render-time struct that maps to one row in the UI.
+//
+// Site is the per-row site override: empty = applies to every host (= preset
+// rules always come through with Site=""), non-empty = only fires when the
+// request's $host equals that value.  The render side splits the slice into
+// a global path map + one per-host map and dispatches through $host (same
+// pattern as BypassPath).
 type ProtectedPathRule struct {
 	Pattern string // nginx regex (= without ~^)
 	Mode    string // "captcha" | "pow" | "strict"
+	Site    string // empty = global; non-empty = exact $host match
 }
 
 // ProtectedPathPresetGroup: a preset group of protected paths.  Rules inside
