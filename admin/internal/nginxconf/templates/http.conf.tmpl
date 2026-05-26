@@ -30,6 +30,27 @@ unmask_ban_file "{{ .BanFilePath }}";
 {{- end }}
 
 # -----------------------------------------------------------------------------
+# Forwarded scheme / port for the admin upstream
+# -----------------------------------------------------------------------------
+# server.inc forwards X-Forwarded-Proto / X-Forwarded-Port to the admin
+# upstream so the hunt page can build https://host:port/path links.  When TLS
+# terminates on this nginx the local $scheme / $server_port are correct; when
+# an LB / CDN terminated TLS and forwarded the visitor, this nginx is on plain
+# http and $scheme would always be "http".  Map prefers the upstream header
+# (= the LB knows what the visitor used) and falls back to the local value.
+# Empty / non-http(s) header values fall back too, so a malformed input never
+# ends up in the recorded URL.
+map $http_x_forwarded_proto $unmask_forwarded_proto {
+    default $scheme;
+    https   https;
+    http    http;
+}
+map $http_x_forwarded_port $unmask_forwarded_port {
+    default       $server_port;
+    "~^[1-9][0-9]{0,4}$" $http_x_forwarded_port;
+}
+
+# -----------------------------------------------------------------------------
 # Search / AI / Ads bot UA — exempt from challenge (avoid ranking accidents)
 # -----------------------------------------------------------------------------
 map $http_user_agent $is_search_bot {

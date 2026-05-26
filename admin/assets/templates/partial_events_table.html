@@ -331,9 +331,12 @@ document.addEventListener('DOMContentLoaded', function(){
     if (scheme !== 'http' && scheme !== 'https') scheme = 'https';
     var port = parseInt(tr.getAttribute('data-port') || '0', 10);
     var portStr = '';
-    if (port > 0 &&
-        !(scheme === 'http'  && port === 80) &&
-        !(scheme === 'https' && port === 443)) {
+    // Treat both 80 and 443 as default for either scheme.  In an LB-fronted
+    // setup the backend's $server_port is 80 (the LB terminated TLS) yet the
+    // visitor's scheme is https; without this, the URL ends up as
+    // 'https://host:80/...' which is wrong.  Non-standard ports (8080,
+    // 8443, ...) still surface explicitly.
+    if (port > 0 && port !== 80 && port !== 443) {
       portStr = ':' + port;
     }
     return scheme + '://' + site + portStr + val;
