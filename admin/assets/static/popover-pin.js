@@ -155,9 +155,24 @@ window.popoverPin = window.popoverPin || (function(){
       var prev = btn.textContent;
       btn.textContent = '✓';
       btn.classList.add('popover-copy-ok');
+      // In addition to the icon swap, float a small "copied" chip below the
+      // title bar so the action is confirmed in plain words for visitors who
+      // don't recognise the ⧉ → ✓ glyph swap.  Anchored to the clone so the
+      // pill follows the popover if dragged mid-fade.
+      var existing = clone.querySelector('.popover-copied-toast');
+      if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+      var toast = clone.ownerDocument.createElement('span');
+      toast.className = 'popover-copied-toast';
+      toast.textContent = 'copied';
+      clone.appendChild(toast);
+      requestAnimationFrame(function(){ toast.classList.add('is-visible'); });
       setTimeout(function(){
         btn.textContent = prev;
         btn.classList.remove('popover-copy-ok');
+        toast.classList.remove('is-visible');
+        setTimeout(function(){
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 200);
       }, 900);
     }
     if (navigator.clipboard && navigator.clipboard.writeText){

@@ -155,6 +155,30 @@
 .popover-tools .popover-copy.popover-copy-ok,
 .popover-tools .popover-copy.popover-copy-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
 
+/* "copied" chip that floats just below the title bar after a successful copy,
+ * complementing the ⧉ → ✓ icon swap with plain-language confirmation.  The
+ * pill fades in via .is-visible (= JS toggles it next frame) and fades out at
+ * the same 900ms mark as the icon revert.  pointer-events:none so it never
+ * intercepts clicks meant for the popover body underneath. */
+.popover-copied-toast{
+  position:absolute;
+  top:1.95rem;
+  right:.5rem;
+  background:#16a34a;
+  color:#fff;
+  font-size:.7rem;
+  font-weight:600;
+  padding:.15rem .45rem;
+  border-radius:.25rem;
+  letter-spacing:.04em;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-.3rem);
+  transition:opacity .15s ease,transform .15s ease;
+  z-index:500;
+}
+.popover-copied-toast.is-visible{opacity:1;transform:translateY(0)}
+
 /* Collapsed mode = title bar only.  Hide the body and the bottom hint
  * (= ESC to close / click to pin).  Keep the popover's padding-top so the
  * absolutely-positioned title bar still has room above the (now empty)
