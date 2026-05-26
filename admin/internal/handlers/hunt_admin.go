@@ -281,7 +281,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		if v := strings.TrimSpace(r.FormValue("reason")); v != "" {
 			reason = v
 		}
-		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, durSec); err != nil {
+		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, "", durSec); err != nil {
 			redir("ban: " + err.Error())
 			return
 		}

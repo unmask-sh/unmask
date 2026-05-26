@@ -44,6 +44,9 @@ func Migrate(conn *DB) error {
 	if err := ensureCookieMinuteKind(conn); err != nil {
 		return fmt.Errorf("ensure cookie_minute kind/cnt schema: %w", err)
 	}
+	if err := ensureBanActionColumn(conn); err != nil {
+		return fmt.Errorf("ensure ban action column: %w", err)
+	}
 	schema := schemaSQLite
 	if conn.Driver == DriverMariaDB {
 		schema = schemaMariaDB
@@ -64,6 +67,32 @@ func Migrate(conn *DB) error {
 	// numbered migration framework.  Apply the baseline marker + future deltas.
 	if err := RunMigrations(conn); err != nil {
 		return fmt.Errorf("run numbered migrations: %w", err)
+	}
+	return nil
+}
+
+// ensureBanActionColumn: ALTER an old-schema unmask_ban table (= no action
+// column) to add the per-row action override.  Empty string = the source's
+// default action resolved by settings.BansConfig.  Idempotent + no-op on a
+// fresh install where the new schema already includes the column.
+func ensureBanActionColumn(conn *DB) error {
+	hasTbl, err := hasTable(conn, "unmask_ban")
+	if err != nil {
+		return fmt.Errorf("introspect table: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	hasCol, err := hasColumn(conn, "unmask_ban", "action")
+	if err != nil {
+		return fmt.Errorf("introspect action column: %w", err)
+	}
+	if hasCol {
+		return nil
+	}
+	stmt := `ALTER TABLE unmask_ban ADD COLUMN action VARCHAR(32) NOT NULL DEFAULT ''`
+	if _, err := conn.Exec(stmt); err != nil {
+		return fmt.Errorf("add action column: %w", err)
 	}
 	return nil
 }
@@ -595,6 +624,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     banned_at   INTEGER NOT NULL,
     expires_at  INTEGER NOT NULL DEFAULT 0,
     banned_by   VARCHAR(64),
+    action      VARCHAR(32) NOT NULL DEFAULT '',
     UNIQUE (ip, ja4)
 );
 CREATE INDEX IF NOT EXISTS idx_ban_expires ON unmask_ban(expires_at);
@@ -694,6 +724,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     banned_at   BIGINT NOT NULL,
     expires_at  BIGINT NOT NULL DEFAULT 0,
     banned_by   VARCHAR(64),
+    action      VARCHAR(32) NOT NULL DEFAULT '',
     PRIMARY KEY (id),
     UNIQUE KEY uk_ip_ja4 (ip, ja4),
     KEY idx_expires (expires_at),

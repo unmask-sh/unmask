@@ -56,6 +56,7 @@ type Entry struct {
 	BannedAt  time.Time
 	ExpiresAt time.Time // zero = permanent
 	BannedBy  string    // username (= for manual) or empty (= automatic)
+	Action    string    // per-row override; empty = source default at flush time
 }
 
 // ActionResolver maps a ban source (= "honeypot" / "manual" /
@@ -179,7 +180,7 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 	if m.duration > 0 {
 		expires = now + int64(m.duration.Seconds())
 	}
-	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy); err != nil {
+	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, ""); err != nil {
 		log.Printf("ban upsert: %v", err)
 		return
 	}
@@ -194,7 +195,10 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 }
 
 // AddManual: manual BAN from the admin / CLI.  expiresSec=0 -> permanent.
-func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy string, expiresSec int64) error {
+// action="" defers to settings.Bans.ManualDefaultAction at flush time;
+// pass a valid chain mode (= deny / pow_only / pow_then_captcha /
+// captcha_only) to override per row.
+func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy, action string, expiresSec int64) error {
 	if m == nil {
 		return errors.New("manager nil")
 	}
@@ -211,7 +215,7 @@ func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy strin
 	if expiresSec > 0 {
 		expiresAt = now + expiresSec
 	}
-	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy); err != nil {
+	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy, strings.TrimSpace(action)); err != nil {
 		return err
 	}
 	m.markDirty()
@@ -252,31 +256,33 @@ func (m *Manager) markDirty() {
 
 // upsert: update on conflict by the unique key (ip + ja4).  Branches per
 // driver (= SQLite and MariaDB use different UPSERT syntax).
-func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy string) error {
+func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action string) error {
 	switch m.DB.Driver {
 	case db.DriverSQLite:
 		_, err := m.DB.ExecContext(ctx,
-			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(ip, ja4) DO UPDATE SET
 			   source     = excluded.source,
 			   reason     = excluded.reason,
 			   banned_at  = excluded.banned_at,
 			   expires_at = excluded.expires_at,
-			   banned_by  = excluded.banned_by`,
-			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy)
+			   banned_by  = excluded.banned_by,
+			   action     = excluded.action`,
+			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action)
 		return err
 	default: // MariaDB
 		_, err := m.DB.ExecContext(ctx,
-			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			 ON DUPLICATE KEY UPDATE
 			   source     = VALUES(source),
 			   reason     = VALUES(reason),
 			   banned_at  = VALUES(banned_at),
 			   expires_at = VALUES(expires_at),
-			   banned_by  = VALUES(banned_by)`,
-			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy)
+			   banned_by  = VALUES(banned_by),
+			   action     = VALUES(action)`,
+			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action)
 		return err
 	}
 }
@@ -355,7 +361,7 @@ func (m *Manager) Snapshot() []Entry {
 	ctx := context.Background()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(ctx,
-		`SELECT id, ip, ja4, source, COALESCE(reason,''), banned_at, expires_at, COALESCE(banned_by,'')
+		`SELECT id, ip, ja4, source, COALESCE(reason,''), banned_at, expires_at, COALESCE(banned_by,''), COALESCE(action,'')
 		 FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
@@ -368,7 +374,7 @@ func (m *Manager) Snapshot() []Entry {
 	for rows.Next() {
 		var e Entry
 		var bannedAt, expiresAt int64
-		if err := rows.Scan(&e.ID, &e.IP, &e.JA4, &e.Source, &e.Reason, &bannedAt, &expiresAt, &e.BannedBy); err != nil {
+		if err := rows.Scan(&e.ID, &e.IP, &e.JA4, &e.Source, &e.Reason, &bannedAt, &expiresAt, &e.BannedBy, &e.Action); err != nil {
 			log.Printf("ban scan: %v", err)
 			continue
 		}
@@ -430,7 +436,7 @@ func (m *Manager) flush() error {
 	m.mu.Unlock()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT ip, ja4, source FROM unmask_ban
+		`SELECT ip, ja4, source, action FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
 	if err != nil {
@@ -440,11 +446,14 @@ func (m *Manager) flush() error {
 	keys := []k{}
 	for rows.Next() {
 		var e k
-		if err := rows.Scan(&e.ip, &e.ja4, &e.source); err != nil {
+		if err := rows.Scan(&e.ip, &e.ja4, &e.source, &e.action); err != nil {
 			rows.Close()
 			return err
 		}
-		if resolver != nil {
+		// Per-row action wins; fall back to the source's default action
+		// via the resolver (= settings.Bans.ResolveAction).  Empty after
+		// both lookups means "deny" -- the safest hard ban.
+		if strings.TrimSpace(e.action) == "" && resolver != nil {
 			e.action = resolver(e.source)
 		}
 		if strings.TrimSpace(e.action) == "" {

@@ -183,11 +183,19 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		ja4 := strings.TrimSpace(r.FormValue("ja4"))
 		reason := strings.TrimSpace(r.FormValue("reason"))
 		durSec, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("duration_sec")), 10, 64)
+		// Per-row action override.  Empty / unknown drops back to
+		// settings.Bans.ManualDefaultAction at flush time.  Field name is
+		// "ban_action" (not "action") so it does not shadow the form's
+		// action property in the DOM, which other JS code may rely on.
+		action := strings.TrimSpace(r.FormValue("ban_action"))
+		if action != "" && !settings.IsValidRateChallengeMode(action) {
+			action = ""
+		}
 		if ip == "" {
 			redir("ip is required")
 			return
 		}
-		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, durSec); err != nil {
+		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, action, durSec); err != nil {
 			redir("add: " + err.Error())
 			return
 		}

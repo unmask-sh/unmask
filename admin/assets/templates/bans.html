@@ -136,6 +136,7 @@ table.feed tbody tr:hover{background:#f8fafc}
         <th>{{ t .Lang "bans.col.ip" }}</th>
         <th>{{ t .Lang "bans.col.ja4" }}</th>
         <th>{{ t .Lang "bans.col.source" }}</th>
+        <th>{{ t .Lang "bans.col.action" }}</th>
         <th>{{ t .Lang "bans.col.reason" }}</th>
         <th>{{ t .Lang "bans.col.banned_at" }}</th>
         <th>{{ t .Lang "bans.col.expires" }}</th>
@@ -149,6 +150,7 @@ table.feed tbody tr:hover{background:#f8fafc}
         <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">(any)</span>{{ end }}</td>
         <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
+        <td>{{ if .Action }}<code>{{ .Action }}</code>{{ else }}<span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}">({{ t $.Lang "bans.action.default" }})</span>{{ end }}</td>
         <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
         <td>
@@ -194,6 +196,16 @@ table.feed tbody tr:hover{background:#f8fafc}
       <div>
         <label>{{ t .Lang "bans.duration_sec" }}</label>
         <input type="number" name="duration_sec" value="0" min="0" max="2592000">
+      </div>
+      <div>
+        <label>{{ t .Lang "bans.col.action" }}</label>
+        <select name="ban_action">
+          <option value="">{{ t .Lang "bans.action.default" }}</option>
+          <option value="deny">deny</option>
+          <option value="pow_only">pow_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="captcha_only">captcha_only</option>
+        </select>
       </div>
       <div>
         <button type="submit" class="btn">{{ t .Lang "bans.btn.add" }}</button>
