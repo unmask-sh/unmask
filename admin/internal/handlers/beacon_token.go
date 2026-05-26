@@ -15,8 +15,13 @@ import (
 // POSTs to /api/debug and expired replays (= bots capturing an old beacon
 // payload and replaying it infinitely to inflate phase counts).
 //
-// format: "<issued_unix_b36>.<hmac16>"
-//   hmac16 = HMAC-SHA256("<issued_unix_b36>:<remote_ip>", CaptchaSecretBase) hex[:16]
+// format: "<issued_unix_nano_b36>.<hmac16>"
+//   hmac16 = HMAC-SHA256("<issued_unix_nano_b36>:<remote_ip>", CaptchaSecretBase) hex[:16]
+//
+// Nanosecond precision (= not seconds) so two challenges issued in the same
+// wall-clock second from the same IP get distinct tokens.  The hunt UI groups
+// rows by bt; a 1-second granularity collapsed unrelated challenges into one
+// pseudo-session and obscured how often a hot bot was actually re-served.
 //
 // IP binding: both the issuer (ServeChallenge) and verifier (DebugBeacon) use
 // clientIP() from the same admin handler, so there is no mismatch (= unlike
@@ -35,7 +40,7 @@ func beaconSig(secret, issued, ip string) string {
 
 // issueBeaconToken returns a fresh signed token bound to ip.
 func issueBeaconToken(secret, ip string) string {
-	issued := strconv.FormatInt(time.Now().Unix(), 36)
+	issued := strconv.FormatInt(time.Now().UnixNano(), 36)
 	return issued + "." + beaconSig(secret, issued, ip)
 }
 
@@ -54,10 +59,10 @@ func verifyBeaconToken(token, secret, ip string) bool {
 	if err != nil || issued <= 0 {
 		return false
 	}
-	now := time.Now().Unix()
+	now := time.Now().UnixNano()
 	// Future timestamps (= clock-skew abuse) tolerated only up to 60s.  Past
 	// timestamps allowed up to the TTL ceiling.
-	if issued > now+60 || now-issued > int64(beaconTokenTTL/time.Second) {
+	if issued > now+int64(60*time.Second) || now-issued > int64(beaconTokenTTL) {
 		return false
 	}
 	return hmac.Equal([]byte(sig), []byte(beaconSig(secret, issuedStr, ip)))
