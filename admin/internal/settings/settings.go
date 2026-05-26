@@ -683,8 +683,17 @@ func (p ProtectedPathsConfig) ResolvePaths(site string) []ProtectedPath {
 // (= BanFilePath / DefaultAction / PresetAction) stay on the parent struct.
 type HoneypotConfig struct {
 	// DisabledPresets: preset groups that are kept OFF (= same shape as
-	// search-bots etc.).
+	// search-bots etc.).  Only meaningful for groups whose HoneypotGroup.OptIn
+	// is false (= the historical on-by-default set: wordpress / secrets /
+	// cms-admin / shell / cgi-tomcat / scan-paths).
 	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
+	// EnabledPresets: explicit opt-in list for preset groups whose
+	// HoneypotGroup.OptIn is true (= patterns that need a human go-ahead
+	// because the trade-off is non-obvious -- e.g. sql-injection probes that
+	// could collide with a site-search query echoing SQL keywords).  Listed
+	// here = the group renders; absent = the group stays inactive even
+	// though the patterns ship in the binary.
+	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
 	// URLs: custom honeypot path rows.  Each row may bind to a single site
 	// via the Site field; an empty Site applies to every host.  Honeypot
 	// fires BAN on hit with fixed behavior, so there is no per-row mode

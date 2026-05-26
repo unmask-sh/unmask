@@ -364,6 +364,13 @@ type HoneypotGroup struct {
 	Label    string
 	Patterns []string
 	AddedIn  string
+	// OptIn: when true, the group ships disabled and only renders when the
+	// operator explicitly names it in settings.Honeypot.EnabledPresets.
+	// Reserved for patterns whose false-positive surface area is wider than
+	// pure scanner paths (= sql-injection, where a site search can echo SQL
+	// keywords by accident).  Default false matches the historical opt-out
+	// shape that the on-by-default presets already use.
+	OptIn bool
 }
 
 var HoneypotPresetGroups = []HoneypotGroup{
@@ -436,6 +443,7 @@ var HoneypotPresetGroups = []HoneypotGroup{
 	{
 		ID:    "sql-injection",
 		Label: "SQL injection signatures (sqlmap / probes; OFF by default -- audit site search before enabling)",
+		OptIn: true,
 		Patterns: []string{
 			// Classic boolean-based: ' OR '1'='1 / ' OR 1=1
 			`'\s*or\s+'?1'?\s*=\s*'?1`,

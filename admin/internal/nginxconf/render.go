@@ -418,8 +418,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	hpRules := []HoneypotPathRule{}
 	hpSeen := map[string]bool{} // dedup key = "site|pattern"
 	disabledHP := toSet(s.Nginx.Honeypot.DisabledPresets)
+	enabledHP := toSet(s.Nginx.Honeypot.EnabledPresets)
 	for _, g := range HoneypotPresetGroups {
-		if disabledHP[g.ID] {
+		// OptIn presets stay inactive unless the operator names them in
+		// EnabledPresets; the historical on-by-default groups (OptIn=false)
+		// keep using DisabledPresets for opt-out.
+		if g.OptIn {
+			if !enabledHP[g.ID] {
+				continue
+			}
+		} else if disabledHP[g.ID] {
 			continue
 		}
 		if VersionLess(seenVer, g.AddedIn) {
