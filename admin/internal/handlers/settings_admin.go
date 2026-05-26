@@ -439,6 +439,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Tab":                   tab,
 		"TabHelpKey":            tabHelpKey(tab),
 		"Saved":                 r.URL.Query().Get("saved") != "",
+		// SavedReload: whether the just-saved section ends up in the
+		// rendered http.inc.  Drives the post-save banner copy: true =
+		// "needs nginx -s reload on native mode"; false = "applies
+		// immediately on every mode" (= admin-only sections).
+		"SavedReload":           sectionNeedsNginxReload(r.URL.Query().Get("section")),
 		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":                   cur,
 		"Global":                h.snapshotSettings().Global,
@@ -886,7 +891,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	redirBack := func(msg string) {
 		dst := base + "/admin/settings/?tab=" + tabForSection(section)
 		if msg == "" {
-			dst += "&saved=1"
+			// Pass the section name through to the saved banner so the
+			// template can swap copy between "needs nginx -s reload" (=
+			// sections that touch the rendered http.inc) and "applies
+			// immediately" (= admin-only sections).
+			dst += "&saved=1&section=" + url.QueryEscape(section)
 		} else {
 			// Carry the error text in a flash cookie rather than the URL
 			// (= avoids long, URL-encoded messages cluttering the address bar).
@@ -1200,6 +1209,25 @@ func tabForSection(s string) string {
 		return "theme"
 	}
 	return s
+}
+
+// sectionNeedsNginxReload reports whether a saved section ends up in the
+// rendered http.inc and therefore requires `nginx -s reload` on the native
+// module path.  Sections not listed touch admin state only (= per-site
+// branding / challenge / theme / captcha provider / notifications / SMTP /
+// retention / sites inventory) and apply immediately on every mode.
+//
+// Accepts both ?section= IDs from the main save handler and tab names from
+// the site-scoped save handler (= branding / challenge / theme are
+// admin-only, so the per-site form also lands in the false branch).
+func sectionNeedsNginxReload(section string) bool {
+	switch section {
+	case "global", "ua-filter", "ja4-verdicts", "honeypot",
+		"bypass-ips", "bypass-paths", "protected",
+		"rate-limit", "rate_limit", "geo", "network", "shared-feed":
+		return true
+	}
+	return false
 }
 
 func (h *Handler) snapshotSettings() settings.Settings {
@@ -3530,7 +3558,11 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 			dst += "&scope=" + url.QueryEscape(scopeHost)
 		}
 		if msg == "" {
-			dst += "&saved=1"
+			// Pass the tab through as ?section= for the saved-banner
+			// router; per-site branding / challenge / theme are
+			// admin-only, so the false branch on sectionNeedsNginxReload
+			// triggers the "applies immediately" copy.
+			dst += "&saved=1&section=" + url.QueryEscape(tab)
 		} else {
 			setFlash(w, base, "err", msg)
 		}

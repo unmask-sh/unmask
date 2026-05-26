@@ -915,6 +915,7 @@ var dict = map[Lang]map[string]string{
 		"settings.save":                                  "保存",
 		"settings.preview_challenge_cta":                 "実画面で確認 ↗",
 		"settings.saved_banner":                          "✓ 保存しました.  反映方法は構成によって異なる:<br>・<strong>nginx native module mode</strong>: <code>sudo nginx -s reload</code><br>・<strong>forward-auth mode</strong> (= nginx auth_request / Apache mod_lua / Caddy forward_auth / Traefik): 操作不要で即時反映<br><br>(= unmask-admin 自身は restart 不要)",
+		"settings.saved_banner_noop":                     "✓ 保存しました.  この設定は admin 内で処理されるので、 構成 (native / forward-auth) を問わず <strong>操作不要で即時反映</strong>.",
 		"settings.error_prefix":                          "エラー: ",
 		"settings.foot_msg":                              "user 編集対象は <code>config.yml</code> 1 個のみ. 保存すると <code>/etc/unmask/nginx-rendered*.conf</code> も自動再生成、 <code>sudo nginx -s reload</code> で反映できます (= unmask-admin 自身は restart 不要).<br><br>config.yml の bootstrap 値 (= <code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) は web 編集対象外. 必要なら <code>%s</code> を直接編集して <code>systemctl restart unmask-admin</code>.",
 
@@ -2095,6 +2096,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.save":                                  "Save",
 		"settings.preview_challenge_cta":                 "Live preview ↗",
 		"settings.saved_banner":                          "✓ Saved. How to apply depends on your setup:<br>&bull; <strong>nginx native module mode</strong>: <code>sudo nginx -s reload</code><br>&bull; <strong>forward-auth mode</strong> (nginx auth_request / Apache mod_lua / Caddy forward_auth / Traefik): applies immediately, no action needed<br><br>(unmask-admin itself does not need a restart)",
+		"settings.saved_banner_noop":                     "✓ Saved. This setting is processed inside admin, so it <strong>applies immediately with no reload</strong> regardless of the front-end mode (native / forward-auth).",
 		"settings.error_prefix":                          "Error: ",
 		"settings.foot_msg":                              "Only <code>config.yml</code> is user-editable. On save, <code>/etc/unmask/nginx-rendered*.conf</code> is regenerated automatically; run <code>sudo nginx -s reload</code> to apply (unmask-admin itself does not need a restart).<br><br>Bootstrap values in config.yml (<code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) are not editable from the web. Edit <code>%s</code> directly and run <code>systemctl restart unmask-admin</code>.",
 
