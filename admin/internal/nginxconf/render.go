@@ -195,7 +195,12 @@ type renderData struct {
 
 	SearchBotPatterns       []string // flatten of enabled presets + extras
 	JA4Verdicts             []JA4VerdictRule
-	HoneypotPatterns        []string            // OR list of honeypot path patterns
+	HoneypotPatterns        []string            // OR list of honeypot path patterns (= deprecated; kept while callers migrate)
+	// HoneypotPatternsGlobal / HoneypotPatternsPerHost are the per-site
+	// render split: one global path map + one map per unique Site + a host
+	// dispatcher.  Same four-stage shape as Bypass paths.
+	HoneypotPatternsGlobal  []string           // patterns from rules with Site == ""
+	HoneypotPatternsPerHost []HoneypotHostMaps // one entry per unique non-empty Site
 	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode, Site} (= source-of-truth list)
 	// ProtectedPathsGlobal / ProtectedPathsPerHost are the rendered split:
 	// global rules emit one path -> mode map; per-host rules emit one path
@@ -409,10 +414,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	}
 
 	// honeypot: enabled preset groups + custom URLs (= skip Disabled rows).
-	// TODO(phase 3): emit per-site honeypot URL maps so the visitor's $host
-	// scopes a row with row.Site == "<host>".  Today rows are flattened
-	// regardless of site; phase 3 is responsible for the nginx wire-up.
-	honeypotSet := map[string]bool{}
+	// Custom URLs carry a per-row Site (= empty = global, non-empty = only
+	// fires when $host matches).  Preset rules are always global.
+	hpRules := []HoneypotPathRule{}
+	hpSeen := map[string]bool{} // dedup key = "site|pattern"
 	disabledHP := toSet(s.Nginx.Honeypot.DisabledPresets)
 	for _, g := range HoneypotPresetGroups {
 		if disabledHP[g.ID] {
@@ -422,23 +427,43 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			continue
 		}
 		for _, p := range g.Patterns {
-			honeypotSet[p] = true
+			key := "|" + p
+			if hpSeen[key] {
+				continue
+			}
+			hpSeen[key] = true
+			hpRules = append(hpRules, HoneypotPathRule{Pattern: p})
 		}
 	}
 	for _, u := range s.Nginx.Honeypot.URLs {
 		if u.Disabled {
 			continue
 		}
-		if p := trimSpaceAndQuotes(u.Path); p != "" {
-			honeypotSet[p] = true
+		p := trimSpaceAndQuotes(u.Path)
+		if p == "" {
+			continue
 		}
+		site := trimSpaceAndQuotes(u.Site)
+		key := site + "|" + p
+		if hpSeen[key] {
+			continue
+		}
+		hpSeen[key] = true
+		hpRules = append(hpRules, HoneypotPathRule{Pattern: p, Site: site})
 	}
-	hp := make([]string, 0, len(honeypotSet))
-	for p := range honeypotSet {
-		hp = append(hp, p)
+	sort.Slice(hpRules, func(i, j int) bool {
+		if hpRules[i].Site != hpRules[j].Site {
+			return hpRules[i].Site < hpRules[j].Site
+		}
+		return hpRules[i].Pattern < hpRules[j].Pattern
+	})
+	// Flat list kept for callers that haven't moved over to the per-site split.
+	hp := make([]string, 0, len(hpRules))
+	for _, r := range hpRules {
+		hp = append(hp, r.Pattern)
 	}
-	sort.Strings(hp)
 	d.HoneypotPatterns = hp
+	d.HoneypotPatternsGlobal, d.HoneypotPatternsPerHost = splitHoneypotPathsForRender(hpRules)
 
 	// Protected paths: presets (= enabled / preset carries {Pattern, Mode}) +
 	// extras (= skip ExtraDisabled[i]=true).

@@ -271,12 +271,53 @@ map "" $unmask_chmode { default ""; }
 # persistent BAN list.  Subsequent behavior (403 / forced CAPTCHA) is decided
 # by the user's nginx.conf via the $unmask_banned variable.  To force
 # CAPTCHA / PoW per path, use the separate "protected paths" feature.
-map $request_uri $serve_bot_challenge {
+#
+# Per-host honeypots go through the four-stage layout (= same as Bypass /
+# Protected): global path map + per-host path maps + host dispatcher + OR
+# merge.
+
+# Stage A: global rules (= rule.Site == "").  Applied to every host.
+map $request_uri $unmask_hp_global {
     default "0";
-{{- range .HoneypotPatterns }}
+{{- range .HoneypotPatternsGlobal }}
     "~*{{ . }}" "1";
 {{- end }}
 }
+
+{{- if .HoneypotPatternsPerHost }}
+
+# Stage B: per-host rules.  One map per unique host string.
+{{- range .HoneypotPatternsPerHost }}
+map $request_uri $unmask_hp_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~*{{ . }}" "1";
+{{- end }}
+}
+{{- end }}
+
+# Stage C: host dispatcher.  Pins to "0" for unknown hosts so they fall
+# through to global cleanly.
+map $host $unmask_hp_per_host {
+    default "0";
+{{- range .HoneypotPatternsPerHost }}
+    "{{ .Host }}" $unmask_hp_host_{{ .VarName }};
+{{- end }}
+}
+
+# Stage D: OR-combine global + per-host into the canonical signal.
+map "$unmask_hp_global$unmask_hp_per_host" $serve_bot_challenge {
+    default "0";
+    "~1" "1";
+}
+{{- else }}
+
+# No per-host rules configured -- global map is the canonical signal directly.
+map $unmask_hp_global $serve_bot_challenge {
+    default "0";
+    "1" "1";
+}
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # Protected paths ($protected_mode)
