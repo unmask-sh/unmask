@@ -106,6 +106,14 @@ nginx:
   # /wp-login.php expecting it to be a honeypot.
   honeypot:
     disabled_presets: []
+    # Per-site honeypot URL fixture used by scenario 21.  The host dispatcher
+    # in http.conf.tmpl is supposed to route this trap onto requests landing
+    # on shop.example.com only; the same path on blog.example.com must pass
+    # through clean.
+    urls:
+      - path: "^/shop-trap/"
+        title: "scenario 21 per-site honeypot (shop only)"
+        site: "shop.example.com"
 
   # Protected paths fixtures:
   #   - scenario 19: a per-site rule (^/admin-shop/) only fires on
@@ -129,3 +137,8 @@ nginx:
     paths:
       - path: "^/e2e-bypass-only/"
         title: "scenario 18 fixture"
+      # scenario 21: per-site bypass.  Same path on blog.example.com must
+      # still go through the challenge chain; shop.example.com bypasses.
+      - path: "^/e2e-shop-bypass/"
+        title: "scenario 21 per-site bypass (shop only)"
+        site: "shop.example.com"
