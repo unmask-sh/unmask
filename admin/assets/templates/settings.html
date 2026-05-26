@@ -1884,45 +1884,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </ul>
     </script>
 
-    <!-- bans tab: per-source default action for non-honeypot ban list entries -->
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.bans.manual_action_h" }}
-        <button type="button" class="ua-help-trigger" data-help-target="bans-manual-action-help" aria-label="?">?</button>
-      </div>
-      {{ $bma := .Bans.ManualDefaultAction }}
-      {{ if eq $bma "" }}{{ $bma = "deny" }}{{ end }}
-      <select name="bans_manual_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $bma "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $bma "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-    <script type="text/html" id="bans-manual-action-help">
-      <div><strong>{{ t .Lang "settings.bans.manual_action_h" }}</strong></div>
-      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.bans.manual_action_help") }}</p>
-    </script>
-
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.bans.shared_feed_action_h" }}
-        <button type="button" class="ua-help-trigger" data-help-target="bans-shared-feed-action-help" aria-label="?">?</button>
-      </div>
-      {{ $bsa := .Bans.SharedFeedDefaultAction }}
-      {{ if eq $bsa "" }}{{ $bsa = "deny" }}{{ end }}
-      <select name="bans_shared_feed_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $bsa "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-    <script type="text/html" id="bans-shared-feed-action-help">
-      <div><strong>{{ t .Lang "settings.bans.shared_feed_action_h" }}</strong></div>
-      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.bans.shared_feed_action_help") }}</p>
-    </script>
-
     <!-- preset sub-section -->
     <div class="ua-section">
       <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>

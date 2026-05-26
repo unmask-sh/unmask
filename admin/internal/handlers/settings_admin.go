@@ -498,7 +498,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
 		"Honeypot":                   cur.Honeypot,
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
-		"Bans":                       cur.Bans,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -2025,20 +2024,10 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 			n.Honeypot.DefaultAction = v
 		}
 	}
-	// bans: per-source default action for manual / shared_feed entries.  The
-	// "honeypot" source keeps using Honeypot.DefaultAction above.  Each field
-	// is independent; empty / invalid input drops the form value (= the
-	// stored "" later resolves to "deny" via BansConfig.ResolveAction).
-	if v := strings.TrimSpace(r.FormValue("bans_manual_default_action")); v != "" {
-		if settings.IsValidRateChallengeMode(v) {
-			n.Bans.ManualDefaultAction = v
-		}
-	}
-	if v := strings.TrimSpace(r.FormValue("bans_shared_feed_default_action")); v != "" {
-		if settings.IsValidRateChallengeMode(v) {
-			n.Bans.SharedFeedDefaultAction = v
-		}
-	}
+	// Bans.ManualDefaultAction / SharedFeedDefaultAction are edited on the
+	// bans page itself (= /admin/bans/, op=save-defaults).  Keeping them off
+	// the honeypot save path means a honeypot save doesn't reset bans-page
+	// inputs the operator may have just touched.
 	// per-preset action override.
 	presetActions := map[string]string{}
 	for k, vals := range r.Form {
