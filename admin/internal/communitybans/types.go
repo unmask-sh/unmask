@@ -57,14 +57,26 @@ type Comment struct {
 
 // FeedEntry: one row of the feed JSON.  Judgement is decided on the server
 // side; the client only routes into the right map based on match.
+//
+// v2 hub additions (= Score / Promoted / Reasoning / vote and comment counts /
+// Reports / Installs) are surfaced read-only in the UI; v1 entries default
+// the new fields to their zero values and are rendered with "—" placeholders.
 type FeedEntry struct {
-	Match      MatchKind `json:"match"`
-	IP         string    `json:"ip,omitempty"`
-	JA4        string    `json:"ja4,omitempty"`
-	Confidence float64   `json:"confidence,omitempty"`
-	Reason     string    `json:"reason,omitempty"`
-	Comments   []Comment `json:"comments,omitempty"`
-	ExpiresAt  int64     `json:"expires_at,omitempty"`
+	Match        MatchKind `json:"match"`
+	IP           string    `json:"ip,omitempty"`
+	JA4          string    `json:"ja4,omitempty"`
+	Confidence   float64   `json:"confidence,omitempty"`
+	Score        int       `json:"score,omitempty"`    // 1-5 trust tier
+	Promoted     bool      `json:"promoted,omitempty"` // true = part of banlist propagation
+	Reasoning    string    `json:"reasoning,omitempty"`
+	LikeCount    int       `json:"like_count,omitempty"`
+	BadCount     int       `json:"bad_count,omitempty"`
+	CommentCount int       `json:"comment_count,omitempty"`
+	Reports      int       `json:"reports,omitempty"`  // raw submission count
+	Installs     int       `json:"installs,omitempty"` // unique reporting installs
+	Reason       string    `json:"reason,omitempty"`
+	Comments     []Comment `json:"comments,omitempty"`
+	ExpiresAt    int64     `json:"expires_at,omitempty"`
 }
 
 // FeedDocument: the entire JSON returned by pull.

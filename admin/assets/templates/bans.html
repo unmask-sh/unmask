@@ -75,6 +75,17 @@ table.feed tbody tr:hover{background:#f8fafc}
 .match-ja4_only{background:#fef3c7;color:#92400e}
 .match-ip_only{background:#dbeafe;color:#1e3a8a}
 .confidence{display:inline-block;width:3.5rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.score-pill{display:inline-flex;align-items:center;gap:.25rem;padding:.05rem .45rem;border-radius:.2rem;font-size:.78rem;font-weight:600;cursor:help}
+.score-5{background:#fee2e2;color:#7f1d1d}
+.score-4{background:#fed7aa;color:#9a3412}
+.score-3{background:#fef3c7;color:#92400e}
+.score-2{background:#e0f2fe;color:#075985}
+.score-1{background:#f1f5f9;color:#475569}
+.score-0{color:#94a3b8;font-size:.85rem}
+.reports-badge{display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;margin-left:.35rem;font-family:ui-monospace,Menlo,monospace;cursor:help}
+.votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
+.votes-cell .like{color:#15803d}
+.votes-cell .bad{color:#b91c1c}
 .cmt{display:block;padding:.15rem .35rem;margin:.15rem 0;background:#f1f5f9;border-radius:.2rem;font-size:.78rem;word-break:break-word}
 .cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
 .note{color:#64748b;font-size:.85rem;line-height:1.6}
@@ -309,10 +320,11 @@ table.feed tbody tr:hover{background:#f8fafc}
   <table class="feed">
     <thead>
       <tr>
+        <th>{{ t .Lang "community_bans.col.score" }}</th>
         <th>{{ t .Lang "community_bans.col.match" }}</th>
         <th>IP</th>
         <th>JA4</th>
-        <th>conf.</th>
+        <th>{{ t .Lang "community_bans.col.votes" }}</th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
         <th>{{ t .Lang "community_bans.col.comments" }}</th>
         <th>{{ t .Lang "community_bans.col.expires" }}</th>
@@ -321,10 +333,26 @@ table.feed tbody tr:hover{background:#f8fafc}
     <tbody>
       {{ range .CommunityBansEntries }}
       <tr>
+        <td>
+          {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
+          {{ else if eq .Score 4 }}<span class="score-pill score-4" title="{{ t $.Lang "community_bans.score.4" }}">4 🚨</span>
+          {{ else if eq .Score 3 }}<span class="score-pill score-3" title="{{ t $.Lang "community_bans.score.3" }}">3 ⚠️</span>
+          {{ else if eq .Score 2 }}<span class="score-pill score-2" title="{{ t $.Lang "community_bans.score.2" }}">2 👀</span>
+          {{ else if eq .Score 1 }}<span class="score-pill score-1" title="{{ t $.Lang "community_bans.score.1" }}">1 🤷</span>
+          {{ else }}<span class="score-0" title="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
+          {{ end }}
+        </td>
         <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span></td>
-        <td class="mono{{ if .IP }} ipclick{{ end }}"{{ if .IP }} data-ip="{{ .IP }}"{{ end }}>{{ if .IP }}<img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono{{ if .IP }} ipclick{{ end }}"{{ if .IP }} data-ip="{{ .IP }}"{{ end }}>{{ if .IP }}<img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="confidence">{{ printf "%.2f" .Confidence }}</td>
+        <td>
+          {{ if or (gt .LikeCount 0) (gt .BadCount 0) }}
+          <span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}">
+            <span class="like">👍 {{ .LikeCount }}</span>
+            <span class="bad">👎 {{ .BadCount }}</span>
+          </span>
+          {{ else }}<span class="muted">-</span>{{ end }}
+        </td>
         <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
           {{ range .Comments }}
@@ -336,7 +364,7 @@ table.feed tbody tr:hover{background:#f8fafc}
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="7" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="8" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
