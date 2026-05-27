@@ -466,7 +466,10 @@ type Nginx struct {
 // "honeypot" source defers to HoneypotConfig.DefaultAction (= keeps the
 // existing knob untouched).  Other sources (= "manual" / "shared_feed")
 // consult this struct.  Values follow the rate-limit chain modes:
-// deny / pow_only / pow_then_captcha / captcha_only.  Empty = "deny".
+// deny / pow_only / pow_then_captcha / captcha_only.  Empty fields fall
+// back to "captcha_only" -- false positives on a manual entry or a
+// foreign-feed import recover when the visitor is actually human; the
+// operator can pick "deny" per row when certainty is high.
 type BansConfig struct {
 	ManualDefaultAction     string `yaml:"manual_default_action,omitempty"`
 	SharedFeedDefaultAction string `yaml:"shared_feed_default_action,omitempty"`
@@ -474,8 +477,9 @@ type BansConfig struct {
 
 // ResolveAction returns the effective action for a given ban source.
 // "honeypot" defers to honeypotDefault (= HoneypotConfig.DefaultAction)
-// so the operator's pick on the honeypot tab keeps working.  Empty fields
-// fall back to "deny" (= the safest hard ban).
+// so the operator's pick on the honeypot tab keeps working.
+// manual / shared_feed fall back to "captcha_only" so a human still
+// recovers from a mis-identified ban; unknown sources hard-deny.
 func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 	resolve := func(v, fallback string) string {
 		v = strings.TrimSpace(v)
@@ -486,11 +490,11 @@ func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 	}
 	switch source {
 	case "honeypot":
-		return resolve(honeypotDefault, RateChallengeDeny)
+		return resolve(honeypotDefault, RateChallengePoWThenCaptcha)
 	case "manual":
-		return resolve(b.ManualDefaultAction, RateChallengeDeny)
+		return resolve(b.ManualDefaultAction, RateChallengeCaptchaOnly)
 	case "shared_feed":
-		return resolve(b.SharedFeedDefaultAction, RateChallengeDeny)
+		return resolve(b.SharedFeedDefaultAction, RateChallengeCaptchaOnly)
 	}
 	return RateChallengeDeny
 }

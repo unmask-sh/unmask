@@ -1112,9 +1112,9 @@ var dict = map[Lang]map[string]string{
 		"settings.honeypot.action_h":    "honeypot 踏み時の default 挙動",
 		"settings.honeypot.action_help": "<strong>具体例</strong>: honeypot path を踏むと client (= IP+JA4) は BAN list 入り → 以降どの page も下で選んだ chain で gate される (default <code>pow_then_captcha</code> なら PoW + CAPTCHA 通過必須).  chain 通過後は <code>_bv</code> cookie 取得 → 以降は素通し (= AuthCheck が <code>_bv</code> 検証を BAN check より先に評価).<br><br>preset / custom 行ごとに override 保存可能 (= path 別の chain 切替は次フェーズで wiring).",
 		"settings.bans.manual_action_h":         "手動 BAN の default 挙動",
-		"settings.bans.manual_action_help":      "bans タブで <strong>admin が手動追加</strong> した entry に対して適用される action. <code>deny</code> = 即 403, <code>pow_only</code> / <code>pow_then_captcha</code> / <code>captcha_only</code> = challenge 経由で chain 通過要求. honeypot 由来 ban とは別管理.",
+		"settings.bans.manual_action_help":      "<strong>admin が手動追加</strong> した entry に対して適用される action. default は <code>captcha_only</code> (= 誤判定救済. 人間なら CAPTCHA で通れる). <strong>絶対 deny</strong> が必要な entry は bans page の個別 entry で <code>deny</code> 指定 (= per-row override).",
 		"settings.bans.shared_feed_action_h":    "shared_feed BAN の default 挙動",
-		"settings.bans.shared_feed_action_help": "<code>shared_feed</code> source で取り込んだ entry に対して適用される action. unmask.sh hub 等の外部 feed 由来 BAN は誤検知の可能性も含むので、 default は <code>deny</code> ではなく chain 通過 (= 人間なら通れる) を推奨.",
+		"settings.bans.shared_feed_action_help": "<code>shared_feed</code> source で取り込んだ entry に対して適用される action. unmask.sh hub 等の外部 feed 由来 BAN は誤検知の可能性も含むので、 default は <code>captcha_only</code> (= 人間なら通れる).",
 		"settings.honeypot.desc": `<strong>自社が運用していない</strong> CMS / 管理 path (= 例 WP 非運用 site の <code>/wp-login.php</code>) を trap として登録.  正規 user が踏むことは絶対に無いので、 hit = bot scanner 確定として扱う.<br>
 match した access は <strong>BAN list に追加</strong>され、 BAN 後の挙動は下の<strong>「踏んだ後の default 挙動」</strong>で選ぶ (詳細は同欄の <code>?</code>).<br>
 <strong>preset は default 全 OFF</strong>: 自社が運用していない CMS の group だけ手動で ON にする (= 実際に運用中の path を honeypot 化すると正規 user を巻き込むため).`,
@@ -2304,9 +2304,9 @@ If neither matches, the request passes through (no challenge).`,
 		"settings.honeypot.action_h":    "Honeypot trip default action",
 		"settings.honeypot.action_help": "<strong>Concrete example</strong>: a client (IP+JA4) that trips a honeypot path lands on the BAN list, and every subsequent page is gated by the chain selected below (default <code>pow_then_captcha</code> = PoW + CAPTCHA both required).  After the chain is cleared the client gets a <code>_bv</code> cookie and goes back to passing transparently (AuthCheck verifies <code>_bv</code> before the BAN lookup).<br><br>Per-preset / per-row overrides are saved (path-specific chain switching is wired in a later phase).",
 		"settings.bans.manual_action_h":         "Manual BAN default action",
-		"settings.bans.manual_action_help":      "Applied to entries the operator <strong>added manually</strong> from the bans tab. <code>deny</code> hard-403s the visitor; <code>pow_only</code> / <code>pow_then_captcha</code> / <code>captcha_only</code> route the request through the chain so a real human can still recover. Independent of honeypot-derived bans.",
+		"settings.bans.manual_action_help":      "Applied to entries the operator <strong>added manually</strong>. Default is <code>captcha_only</code> (= human recovers via the captcha when a manual ban is a false positive). Pick <code>deny</code> per row on the bans page when the operator is certain.",
 		"settings.bans.shared_feed_action_h":    "shared_feed BAN default action",
-		"settings.bans.shared_feed_action_help": "Applied to entries imported via the <code>shared_feed</code> source (= unmask.sh hub etc.). Because external feeds can carry false positives, the recommended default is a chain action (= a real human still gets through) rather than <code>deny</code>.",
+		"settings.bans.shared_feed_action_help": "Applied to entries imported via the <code>shared_feed</code> source (= unmask.sh hub etc.). Because external feeds can carry false positives, the default is <code>captcha_only</code> (= a real human still gets through).",
 		"settings.honeypot.desc": `Register CMS / admin paths your site <strong>does NOT run</strong> (e.g. <code>/wp-login.php</code> on a non-WP site) as traps.  Legitimate users will never hit them, so any match is a confirmed bot scanner.<br>
 Matching requests are <strong>added to the BAN list</strong>; what happens after the BAN is configured in <strong>"Action on trip"</strong> below (see its <code>?</code> for the chain options).<br>
 <strong>All presets are OFF by default</strong>: enable only the groups that match CMS stacks you don't actually run (turning an in-use path into a honeypot would CAPTCHA legitimate users).`,

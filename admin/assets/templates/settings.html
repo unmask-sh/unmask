@@ -2012,7 +2012,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem">{{ safeHTML (t .Lang "settings.bans.manual_action_help") }}</p>
       {{ $bma := .Bans.ManualDefaultAction }}
-      {{ if eq $bma "" }}{{ $bma = "deny" }}{{ end }}
+      {{ if eq $bma "" }}{{ $bma = "captcha_only" }}{{ end }}
       <select name="bans_manual_default_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2027,7 +2027,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem">{{ safeHTML (t .Lang "settings.bans.shared_feed_action_help") }}</p>
       {{ $bsa := .Bans.SharedFeedDefaultAction }}
-      {{ if eq $bsa "" }}{{ $bsa = "deny" }}{{ end }}
+      {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
       <select name="bans_shared_feed_default_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
