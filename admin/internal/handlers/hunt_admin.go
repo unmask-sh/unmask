@@ -26,7 +26,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 )
 
 // AdminHuntIndex: GET /admin/hunt/ — ranking + raw log + live tail.
@@ -217,10 +217,10 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Saved":      q.Get("saved") != "",
 		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
-		// SharedFeedActive: whether to show the shared row in the BAN
+		// CommunityBansActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the
 		// terms have been accepted.  false -> the dialog is a plain confirm.
-		"SharedFeedActive": h.snapshotSettings().SharedFeed.SubmitActive(),
+		"CommunityBansActive": h.snapshotSettings().CommunityBans.SubmitActive(),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -290,47 +290,47 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("%s|%s", ip, ja4),
 				fmt.Sprintf(`{"reason":%q,"duration_sec":%d}`, reason, durSec))
 		}
-		// submit to shared feed (= async if the share checkbox is ON and a
-		// SharedFeed client exists).  If the submit fails, the BAN itself
+		// submit to community bans (= async if the share checkbox is ON and a
+		// CommunityBans client exists).  If the submit fails, the BAN itself
 		// still succeeds.
-		if h.SharedFeed != nil && strings.TrimSpace(r.FormValue("share")) == "1" {
+		if h.CommunityBans != nil && strings.TrimSpace(r.FormValue("share")) == "1" {
 			comment := r.FormValue("comment")
 			// accept_terms=1: case where the user accepted the terms and shared
 			// from inside the dialog while previously opted out.  Flip
-			// settings.SharedFeed's SubmitEnabled + TermsAcceptedAt here so
+			// settings.CommunityBans's SubmitEnabled + TermsAcceptedAt here so
 			// that subsequent shares are enabled (= the user can revoke from
 			// the settings tab).
 			if strings.TrimSpace(r.FormValue("accept_terms")) == "1" {
 				if cur, err := settings.Load(h.ConfigPath); err == nil {
-					if !cur.SharedFeed.SubmitActive() {
-						cur.SharedFeed.SubmitEnabled = true
-						if cur.SharedFeed.TermsAcceptedAt == 0 {
-							cur.SharedFeed.TermsAcceptedAt = time.Now().Unix()
+					if !cur.CommunityBans.SubmitActive() {
+						cur.CommunityBans.SubmitEnabled = true
+						if cur.CommunityBans.TermsAcceptedAt == 0 {
+							cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
 						}
 						cur.Nginx.SeenVersion = "v" + h.Version
 						if err := settings.Save(cur, h.ConfigPath); err != nil {
-							log.Printf("sharedfeed: accept_terms save: %v", err)
+							log.Printf("communitybans: accept_terms save: %v", err)
 						} else {
 							settingsMu.Lock()
 							h.Settings = cur
 							settingsMu.Unlock()
 							if h.UserRepo != nil {
-								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "shared_feed_accept_terms",
+								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
 									"", `{"from":"hunt_ban_dialog"}`)
 							}
 						}
 					}
 				} else {
-					log.Printf("sharedfeed: accept_terms load: %v", err)
+					log.Printf("communitybans: accept_terms load: %v", err)
 				}
 			}
 			go func(ip, ja4, reason, comment string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
-				if err := h.SharedFeed.Submit(ctx, sharedfeed.SubmitRequest{
+				if err := h.CommunityBans.Submit(ctx, communitybans.SubmitRequest{
 					IP: ip, JA4: ja4, Reason: reason, Comment: comment,
 				}); err != nil {
-					log.Printf("sharedfeed: submit ban %s|%s: %v", ip, ja4, err)
+					log.Printf("communitybans: submit ban %s|%s: %v", ip, ja4, err)
 				}
 			}(ip, ja4, reason, comment)
 		}

@@ -464,7 +464,7 @@ type Nginx struct {
 
 // BansConfig: per-source default action for entries on the ban list.  The
 // "honeypot" source defers to HoneypotConfig.DefaultAction (= keeps the
-// existing knob untouched).  Other sources (= "manual" / "shared_feed")
+// existing knob untouched).  Other sources (= "manual" / "community_bans")
 // consult this struct.  Values follow the rate-limit chain modes:
 // deny / pow_only / pow_then_captcha / captcha_only.  Empty fields fall
 // back to "captcha_only" -- false positives on a manual entry or a
@@ -472,13 +472,13 @@ type Nginx struct {
 // operator can pick "deny" per row when certainty is high.
 type BansConfig struct {
 	ManualDefaultAction     string `yaml:"manual_default_action,omitempty"`
-	SharedFeedDefaultAction string `yaml:"shared_feed_default_action,omitempty"`
+	CommunityBansDefaultAction string `yaml:"community_bans_default_action,omitempty"`
 }
 
 // ResolveAction returns the effective action for a given ban source.
 // "honeypot" defers to honeypotDefault (= HoneypotConfig.DefaultAction)
 // so the operator's pick on the honeypot tab keeps working.
-// manual / shared_feed fall back to "captcha_only" so a human still
+// manual / community_bans fall back to "captcha_only" so a human still
 // recovers from a mis-identified ban; unknown sources hard-deny.
 func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 	resolve := func(v, fallback string) string {
@@ -493,8 +493,8 @@ func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 		return resolve(honeypotDefault, RateChallengePoWThenCaptcha)
 	case "manual":
 		return resolve(b.ManualDefaultAction, RateChallengeCaptchaOnly)
-	case "shared_feed":
-		return resolve(b.SharedFeedDefaultAction, RateChallengeCaptchaOnly)
+	case "community_bans":
+		return resolve(b.CommunityBansDefaultAction, RateChallengeCaptchaOnly)
 	}
 	return RateChallengeDeny
 }
@@ -1018,7 +1018,7 @@ type Settings struct {
 	NginxLog      NginxLog             `yaml:"nginx_log"`
 	Nginx         Nginx                `yaml:"nginx"`
 	RateLimit     RateLimitConfig      `yaml:"rate_limit"`
-	SharedFeed    SharedFeed           `yaml:"shared_feed,omitempty"`
+	CommunityBans    CommunityBans           `yaml:"community_bans,omitempty"`
 	FeedServer    FeedServer           `yaml:"feed_server,omitempty"`
 	Notifications Notifications        `yaml:"notifications,omitempty"`
 	SMTP          SMTP                 `yaml:"smtp,omitempty"`
@@ -1064,15 +1064,15 @@ type SMTP struct {
 	InsecureSkipVerify bool   `yaml:"insecure_skip_verify,omitempty"` // for SMTP relays using self-signed certs
 }
 
-// SharedFeed: shared BAN feed (= submit / subscribe mechanism for the
+// CommunityBans: shared BAN feed (= submit / subscribe mechanism for the
 // unmask.sh central hub).
 //
 // Overview:
 //   - When submit_enabled is true, the BAN button on the hunt page, with
 //     "share" checked, POSTs ip / ja4 / reason / comment to unmask.sh.
 //   - When subscribe_enabled is true, feed_url is pulled hourly and
-//     /etc/unmask/shared-feed-*.map (= 3 files) is regenerated. It feeds
-//     into `$shared_feed_hit` in nginx-rendered.conf; on hit the response
+//     /etc/unmask/community-bans-*.map (= 3 files) is regenerated. It feeds
+//     into `$community_bans_hit` in nginx-rendered.conf; on hit the response
 //     is fixed to CAPTCHA (= cannot block).
 //   - The token is obtained from the register endpoint on first startup and
 //     persisted in settings. It's sent as a header on submit
@@ -1086,7 +1086,7 @@ type SMTP struct {
 //   - Feed entries are always CAPTCHA (= regardless of the central server's
 //     judgment, the client does not BAN). Accepts false positives + reduces
 //     legal liability.
-type SharedFeed struct {
+type CommunityBans struct {
 	SubmitEnabled    bool   `yaml:"submit_enabled"`
 	SubscribeEnabled bool   `yaml:"subscribe_enabled"`
 	Token            string `yaml:"token,omitempty"`
@@ -1096,44 +1096,44 @@ type SharedFeed struct {
 	LastPulledAt     int64  `yaml:"last_pulled_at,omitempty"`
 	Entries          int    `yaml:"entries,omitempty"`
 	TermsAcceptedAt  int64  `yaml:"terms_accepted_at,omitempty"`
-	// MapDir: output dir for shared-feed-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
+	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
 }
 
-// DefaultSharedFeed*: unmask.sh hub URLs. Overridable (= for running a
+// DefaultCommunityBans*: unmask.sh hub URLs. Overridable (= for running a
 // private hub or pointing test environments at a different endpoint).
 const (
-	DefaultSharedFeedRegisterURL = "https://unmask.sh/api/feed/register"
-	DefaultSharedFeedSubmitURL   = "https://unmask.sh/api/feed/submit"
-	DefaultSharedFeedFeedURL     = "https://unmask.sh/dl/feed/banlist.json"
+	DefaultCommunityBansRegisterURL = "https://unmask.sh/api/feed/register"
+	DefaultCommunityBansSubmitURL   = "https://unmask.sh/api/feed/submit"
+	DefaultCommunityBansFeedURL     = "https://unmask.sh/dl/feed/banlist.json"
 )
 
 // ResolvedRegisterURL: returns the default when empty.
-func (s SharedFeed) ResolvedRegisterURL() string {
+func (s CommunityBans) ResolvedRegisterURL() string {
 	if s.RegisterURL == "" {
-		return DefaultSharedFeedRegisterURL
+		return DefaultCommunityBansRegisterURL
 	}
 	return s.RegisterURL
 }
 
 // ResolvedSubmitURL: returns the default when empty.
-func (s SharedFeed) ResolvedSubmitURL() string {
+func (s CommunityBans) ResolvedSubmitURL() string {
 	if s.SubmitURL == "" {
-		return DefaultSharedFeedSubmitURL
+		return DefaultCommunityBansSubmitURL
 	}
 	return s.SubmitURL
 }
 
 // ResolvedFeedURL: returns the default when empty.
-func (s SharedFeed) ResolvedFeedURL() string {
+func (s CommunityBans) ResolvedFeedURL() string {
 	if s.FeedURL == "" {
-		return DefaultSharedFeedFeedURL
+		return DefaultCommunityBansFeedURL
 	}
 	return s.FeedURL
 }
 
 // SubmitActive: submission is allowed only when submit_enabled && terms accepted.
-func (s SharedFeed) SubmitActive() bool {
+func (s CommunityBans) SubmitActive() bool {
 	return s.SubmitEnabled && s.TermsAcceptedAt > 0
 }
 
@@ -1143,7 +1143,7 @@ func (s SharedFeed) SubmitActive() bool {
 // regenerate feed.json via cron.
 //
 // Roles:
-//   - client (default)   : sharedfeed.Client just submits / pulls to an external hub
+//   - client (default)   : communitybans.Client just submits / pulls to an external hub
 //   - hub  (Enabled=true): feedserver.Server exposes register / submit endpoints
 //   - cron aggregates submissions and writes feed.json
 type FeedServer struct {
@@ -1529,12 +1529,12 @@ func defaults() Settings {
 			// pick "none" get this cleared on save.
 			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
 		},
-		SharedFeed: SharedFeed{
+		CommunityBans: CommunityBans{
 			SubmitEnabled:    false,
 			SubscribeEnabled: false,
-			RegisterURL:      DefaultSharedFeedRegisterURL,
-			SubmitURL:        DefaultSharedFeedSubmitURL,
-			FeedURL:          DefaultSharedFeedFeedURL,
+			RegisterURL:      DefaultCommunityBansRegisterURL,
+			SubmitURL:        DefaultCommunityBansSubmitURL,
+			FeedURL:          DefaultCommunityBansFeedURL,
 		},
 		Nginx: Nginx{
 			OutputDir:    "/etc/unmask",

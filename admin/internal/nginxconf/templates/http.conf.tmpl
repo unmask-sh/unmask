@@ -291,7 +291,7 @@ map "" $unmask_chmode { default ""; }
 # (= the chain mode written by admin into the ban file: deny / pow_only /
 # pow_then_captcha / captcha_only).  server.inc switches on
 # $unmask_ban_action_effective so the operator's choice on the bans tab
-# (= manual / shared_feed) or the honeypot tab takes effect with zero
+# (= manual / community_bans) or the honeypot tab takes effect with zero
 # hand-written nginx.conf branches.  /unmask/* is masked off so a banned
 # visitor can still fetch the challenge HTML and clear the BAN -- without
 # this guard the rewrite would loop on each challenge asset request.
@@ -425,16 +425,16 @@ map $unmask_pp_global $protected_mode {
 }
 {{- end }}
 
-{{- if .SharedFeedSubscribe }}
-# A shared feed hit is treated equivalently to protected_mode=captcha (forced
+{{- if .CommunityBansSubscribe }}
+# A community bans hit is treated equivalently to protected_mode=captcha (forced
 # CAPTCHA, not a hard block).  If the original protected_mode is explicitly
 # set, respect that (site-side conf wins).
-map "$shared_feed_hit:$protected_mode" $protected_mode_eff {
+map "$community_bans_hit:$protected_mode" $protected_mode_eff {
     default $protected_mode;
     "~^1:$" "captcha";
 }
 {{- else }}
-# shared feed subscribe OFF: protected_mode_eff = passthrough of protected_mode.
+# community bans subscribe OFF: protected_mode_eff = passthrough of protected_mode.
 map $protected_mode $protected_mode_eff {
     default $protected_mode;
 }
@@ -475,34 +475,34 @@ map $unmask_geo_action $is_geo_challenge {
     "skip"  0;
 }
 
-{{- if .SharedFeedSubscribe }}
+{{- if .CommunityBansSubscribe }}
 
 # -----------------------------------------------------------------------------
-# Shared feed (unmask.sh community).  Forced CAPTCHA on hit (no hard block).
+# Community Bans (unmask.sh community).  Forced CAPTCHA on hit (no hard block).
 # -----------------------------------------------------------------------------
 # unmask-admin periodically pulls the aggregation hub
 # (https://unmask.sh/feed.json) and writes 3 map snippets
-# ({{ .SharedFeedMapDir }}/shared-feed-{ipja4,ja4,ip}.map).  Entries are
+# ({{ .CommunityBansMapDir }}/community-bans-{ipja4,ja4,ip}.map).  Entries are
 # classified server-side (unmask.sh) into 3 match types:
 #   ip_ja4 : matches "specific IP AND specific JA4" only (strictest)
 #   ja4_only: matches "any IP with the specific JA4" (mass JA4-budget bots)
 #   ip_only: matches "all traffic from the specific IP" (all JA4 from a bad host)
 # Each map is generated empty by unmask-admin when missing, so include always succeeds.
 
-map "$remote_addr:$effective_ja4" $shared_feed_hit_ipja4 {
+map "$remote_addr:$effective_ja4" $community_bans_hit_ipja4 {
     default 0;
-    include {{ .SharedFeedMapDir }}/shared-feed-ipja4.map;
+    include {{ .CommunityBansMapDir }}/community-bans-ipja4.map;
 }
-map $effective_ja4 $shared_feed_hit_ja4 {
+map $effective_ja4 $community_bans_hit_ja4 {
     default 0;
-    include {{ .SharedFeedMapDir }}/shared-feed-ja4.map;
+    include {{ .CommunityBansMapDir }}/community-bans-ja4.map;
 }
-map $remote_addr $shared_feed_hit_ip {
+map $remote_addr $community_bans_hit_ip {
     default 0;
-    include {{ .SharedFeedMapDir }}/shared-feed-ip.map;
+    include {{ .CommunityBansMapDir }}/community-bans-ip.map;
 }
 # 1 if any of them hits.
-map "$shared_feed_hit_ipja4$shared_feed_hit_ja4$shared_feed_hit_ip" $shared_feed_hit {
+map "$community_bans_hit_ipja4$community_bans_hit_ja4$community_bans_hit_ip" $community_bans_hit {
     default 0;
     "~1" 1;
 }

@@ -75,7 +75,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -675,15 +675,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// SMTP settings (= used by the smtp tab). Mask the password (= empty
 		// submit preserves the saved value).
 		"SMTP": maskedSMTP(h.snapshotSettings().SMTP),
-		// shared-feed tab. Mask the token (= not shown in UI; the admin issues
+		// community-bans tab. Mask the token (= not shown in UI; the admin issues
 		// the submit token via auto-register).
-		"SharedFeed": maskedSharedFeed(h.snapshotSettings().SharedFeed),
+		"CommunityBans": maskedCommunityBans(h.snapshotSettings().CommunityBans),
 	}
 }
 
-// maskedSharedFeed: display copy. Hide the token contents (= the template only
+// maskedCommunityBans: display copy. Hide the token contents (= the template only
 // needs to distinguish "configured" / "not configured").
-func maskedSharedFeed(s settings.SharedFeed) settings.SharedFeed {
+func maskedCommunityBans(s settings.CommunityBans) settings.CommunityBans {
 	if s.Token != "" {
 		s.Token = "***"
 	}
@@ -881,7 +881,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1050,8 +1050,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
 		applySMTPForm(&cur.SMTP, r)
-	case "shared-feed":
-		applySharedFeedForm(&cur.SharedFeed, r)
+	case "community-bans":
+		applyCommunityBansForm(&cur.CommunityBans, r)
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
@@ -1167,19 +1167,19 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Avoid "no token" right after enabling shared-feed and immediately BANning:
+	// Avoid "no token" right after enabling community-bans and immediately BANning:
 	// when terms accepted + submit_enabled / subscribe_enabled is set but no
 	// token exists yet, trigger an asynchronous register right after save.
 	// This is redundant with the synchronous register at submit time, but
 	// ensures the "save → BAN" flow from the settings page does not drop a row.
-	if section == "shared-feed" && h.SharedFeed != nil &&
-		(cur.SharedFeed.SubmitActive() || cur.SharedFeed.SubscribeEnabled) &&
-		strings.TrimSpace(cur.SharedFeed.Token) == "" {
+	if section == "community-bans" && h.CommunityBans != nil &&
+		(cur.CommunityBans.SubmitActive() || cur.CommunityBans.SubscribeEnabled) &&
+		strings.TrimSpace(cur.CommunityBans.Token) == "" {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			if err := h.SharedFeed.Register(ctx); err != nil {
-				log.Printf("sharedfeed: post-save register: %v", err)
+			if err := h.CommunityBans.Register(ctx); err != nil {
+				log.Printf("communitybans: post-save register: %v", err)
 			}
 		}()
 	}
@@ -1224,7 +1224,7 @@ func sectionNeedsNginxReload(section string) bool {
 	switch section {
 	case "global", "ua-filter", "ja4-verdicts", "honeypot",
 		"bypass-ips", "bypass-paths", "protected",
-		"rate-limit", "rate_limit", "geo", "network", "shared-feed":
+		"rate-limit", "rate_limit", "geo", "network", "community-bans":
 		return true
 	}
 	return false
@@ -1237,7 +1237,7 @@ func (h *Handler) snapshotSettings() settings.Settings {
 }
 
 // SnapshotSettings: exported version of snapshotSettings. Entry point for safe
-// access from non-handler packages (= sharedfeed's SettingsGetter callback etc.).
+// access from non-handler packages (= communitybans's SettingsGetter callback etc.).
 func (h *Handler) SnapshotSettings() settings.Settings { return h.snapshotSettings() }
 
 // UpdateSettings: atomically modify + persist + in-memory swap a settings.Settings.
@@ -1248,7 +1248,7 @@ func (h *Handler) SnapshotSettings() settings.Settings { return h.snapshotSettin
 //
 // Returns ErrNoConfigPath and does nothing if ConfigPath is empty.
 //
-// Use: sharedfeed package's SettingsUpdate callback (= server-driven write-back
+// Use: communitybans package's SettingsUpdate callback (= server-driven write-back
 // of token / last_pulled_at / entries). Distinct from the web UI write path,
 // but shares the same disk file + same in-memory state.
 func (h *Handler) UpdateSettings(mutate func(*settings.Settings)) error {
@@ -2024,7 +2024,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 			n.Honeypot.DefaultAction = v
 		}
 	}
-	// Bans.ManualDefaultAction / SharedFeedDefaultAction are edited on the
+	// Bans.ManualDefaultAction / CommunityBansDefaultAction are edited on the
 	// bans page itself (= /admin/bans/, op=save-defaults).  Keeping them off
 	// the honeypot save path means a honeypot save doesn't reset bans-page
 	// inputs the operator may have just touched.
@@ -3020,16 +3020,16 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
-// applySharedFeedForm: receive the shared-feed tab form.
+// applyCommunityBansForm: receive the community-bans tab form.
 //   - terms_accepted=1  → stamp TermsAcceptedAt with now (= record consent moment)
 //   - terms_accepted=0  → reset TermsAcceptedAt to 0 (= consent withdrawn)
 //   - submit_enabled    : "share to hub when BANning"
 //   - subscribe_enabled : "pull BANs from other installs and force CAPTCHA"
 //
-// The hub URLs live in defaults() (sharedfeed-package constants) and are not
+// The hub URLs live in defaults() (communitybans-package constants) and are not
 // edited from the UI; the unmask.sh hub is the only target until the feature
 // graduates beyond preview.
-func applySharedFeedForm(c *settings.SharedFeed, r *http.Request) {
+func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	c.SubmitEnabled = r.FormValue("submit_enabled") == "1"
 	c.SubscribeEnabled = r.FormValue("subscribe_enabled") == "1"
 	terms := r.FormValue("terms_accepted") == "1"
@@ -3148,8 +3148,8 @@ func tabHelpKey(tab string) string {
 		return "settings.challenge.intro"
 	case "theme":
 		return "settings.theme.intro"
-	case "shared-feed":
-		return "settings.shared_feed.intro"
+	case "community-bans":
+		return "settings.community_bans.intro"
 	case "sites":
 		return "settings.sites.intro"
 	}

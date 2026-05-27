@@ -9,7 +9,7 @@
 // unmask.sh production node by setting settings.FeedServer.Enabled=true + DBPath.
 package feedserver
 
-// SubmitRequest: same schema as sharedfeed.SubmitRequest (= JSON compatible).
+// SubmitRequest: same schema as communitybans.SubmitRequest (= JSON compatible).
 // Defined in a separate package so the hub does not depend on the client package.
 type SubmitRequest struct {
 	IP      string `json:"ip"`

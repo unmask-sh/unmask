@@ -20,7 +20,7 @@ type FeedComment struct {
 	SubmittedAt int64  `json:"submitted_at"`
 }
 
-// FeedEntry: one hit entry.  Same schema as sharedfeed.FeedEntry (= JSON compatible).
+// FeedEntry: one hit entry.  Same schema as communitybans.FeedEntry (= JSON compatible).
 type FeedEntry struct {
 	Match      string        `json:"match"`
 	IP         string        `json:"ip,omitempty"`

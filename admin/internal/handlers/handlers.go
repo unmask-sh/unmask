@@ -31,7 +31,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -93,7 +93,7 @@ type Handler struct {
 	Notifier    *notifier.Notifier // optional, may be nil (notification URL unset)
 	Mailer      *mail.Mailer       // optional, may be nil (SMTP unset).  Used by alert / password reset.
 	RateLimiter *ratelimit.Limiter // sliding-window counter for forward-auth mode.  nil disables counting.
-	SharedFeed  *sharedfeed.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	CommunityBans  *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.

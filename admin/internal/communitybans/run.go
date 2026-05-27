@@ -1,4 +1,4 @@
-package sharedfeed
+package communitybans
 
 import (
 	"context"
@@ -17,14 +17,14 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 	}
 	cur := c.SettingsGetter()
 	// register only when either submit or subscribe is ON
-	if cur.SharedFeed.SubmitEnabled || cur.SharedFeed.SubscribeEnabled {
+	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeEnabled {
 		if err := c.Register(ctx); err != nil {
-			c.logf("sharedfeed: register: %v", err)
+			c.logf("communitybans: register: %v", err)
 		}
 	}
 	// Initial pull (= only runs in earnest when subscribe is ON)
 	if _, err := c.Pull(ctx); err != nil {
-		c.logf("sharedfeed: initial pull: %v", err)
+		c.logf("communitybans: initial pull: %v", err)
 	}
 
 	t := time.NewTicker(interval)
@@ -36,13 +36,13 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			// Late register if settings flipped to ON
 			cur := c.SettingsGetter()
-			if (cur.SharedFeed.SubmitEnabled || cur.SharedFeed.SubscribeEnabled) && cur.SharedFeed.Token == "" {
+			if (cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeEnabled) && cur.CommunityBans.Token == "" {
 				if err := c.Register(ctx); err != nil {
-					c.logf("sharedfeed: register (later): %v", err)
+					c.logf("communitybans: register (later): %v", err)
 				}
 			}
 			if _, err := c.Pull(ctx); err != nil {
-				c.logf("sharedfeed: pull: %v", err)
+				c.logf("communitybans: pull: %v", err)
 			}
 		}
 	}

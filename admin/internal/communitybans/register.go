@@ -1,4 +1,4 @@
-package sharedfeed
+package communitybans
 
 import (
 	"bytes"
@@ -22,11 +22,11 @@ func (c *Client) Register(ctx context.Context) error {
 	defer c.mu.Unlock()
 
 	cur := c.SettingsGetter()
-	if strings.TrimSpace(cur.SharedFeed.Token) != "" {
+	if strings.TrimSpace(cur.CommunityBans.Token) != "" {
 		return nil // already have a token
 	}
 
-	url := cur.SharedFeed.ResolvedRegisterURL()
+	url := cur.CommunityBans.ResolvedRegisterURL()
 	body, err := json.Marshal(RegisterRequest{UnmaskVersion: cur.Nginx.SeenVersion})
 	if err != nil {
 		return fmt.Errorf("marshal register: %w", err)
@@ -59,10 +59,10 @@ func (c *Client) Register(ctx context.Context) error {
 	}
 
 	if err := c.SettingsUpdate(func(s *settings.Settings) {
-		s.SharedFeed.Token = tok
+		s.CommunityBans.Token = tok
 	}); err != nil {
 		return fmt.Errorf("save token: %w", err)
 	}
-	c.logf("sharedfeed: registered new token (len=%d)", len(tok))
+	c.logf("communitybans: registered new token (len=%d)", len(tok))
 	return nil
 }

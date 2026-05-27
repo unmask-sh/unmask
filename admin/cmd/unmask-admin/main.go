@@ -44,7 +44,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -351,7 +351,7 @@ func cmdServe(args []string) error {
 	}
 
 	// Wire the ban file's per-source action resolver to live settings so a
-	// honeypot/manual/shared_feed knob change picks up on the next 60s flush
+	// honeypot/manual/community_bans knob change picks up on the next 60s flush
 	// without restarting the admin (= h.SnapshotSettings reads the latest
 	// in-memory copy after any AdminSettingsSave).
 	if banMgr != nil {
@@ -361,17 +361,17 @@ func cmdServe(args []string) error {
 		})
 	}
 
-	// Shared feed client: pass SettingsGetter / SettingsUpdate through Handler.
+	// Community Bans client: pass SettingsGetter / SettingsUpdate through Handler.
 	// The Run() goroutine handles register + periodic pull only when submit or
 	// subscribe is ON.  Without ConfigPath we can't persist, so don't build the
-	// client at all (h.SharedFeed=nil also ignores the BAN button's share).
+	// client at all (h.CommunityBans=nil also ignores the BAN button's share).
 	if h.ConfigPath != "" {
-		h.SharedFeed = &sharedfeed.Client{
+		h.CommunityBans = &communitybans.Client{
 			UserAgent:      "unmask-admin/" + Version,
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
 		}
-		go h.SharedFeed.Run(context.Background(), time.Hour)
+		go h.CommunityBans.Run(context.Background(), time.Hour)
 	}
 
 	// feed-server (hub mode).  Only Active() in the unmask.sh production.
@@ -610,7 +610,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.S
 	//
 	// The paths are **not under** base_path (typically /unmask).  Clients
 	// default to `https://unmask.sh/api/feed/{register,submit}`
-	// (DefaultSharedFeed*URL in settings/SharedFeed).  base_path is reserved
+	// (DefaultCommunityBans*URL in settings/CommunityBans).  base_path is reserved
 	// for the admin UI.
 	if feedSrv != nil {
 		mux.HandleFunc("POST /api/feed/register", feedSrv.ServeRegister)

@@ -20,7 +20,7 @@ import (
 	"strings"
 )
 
-// MatchKind: feed entry match type.  Same string set as sharedfeed.MatchKind.
+// MatchKind: feed entry match type.  Same string set as communitybans.MatchKind.
 type MatchKind string
 
 const (

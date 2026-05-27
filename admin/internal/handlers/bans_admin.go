@@ -6,10 +6,10 @@
 //
 //	op=add              : manual add with ip + ja4 + reason + duration_sec
 //	op=delete           : unban by id
-//	op=subscribe-toggle : turn the shared feed subscribe (= pull) ON/OFF.  Top-right toggle only
+//	op=subscribe-toggle : turn the community bans subscribe (= pull) ON/OFF.  Top-right toggle only
 //
 // The honeypot-derived default TTL (= ban_duration) has been moved to settings/?tab=honeypot.
-// Detailed shared-feed settings (terms / submit / URL override etc.) live in settings/?tab=shared-feed.
+// Detailed community-bans settings (terms / submit / URL override etc.) live in settings/?tab=community-bans.
 // The bans page is intentionally a shortcut UX that triggers only **subscribe (= receive)**.
 package handlers
 
@@ -25,11 +25,11 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/sharedfeed"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
-// AdminBansIndex: GET /admin/bans/ — BAN list + manual-add form + shared-feed browse.
+// AdminBansIndex: GET /admin/bans/ — BAN list + manual-add form + community-bans browse.
 func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	if h.BanMgr == nil {
 		http.Error(w, "ban manager not configured", http.StatusInternalServerError)
@@ -77,25 +77,25 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		banRows = append(banRows, banRow{Entry: e, CountryCode: lookupCC(e.IP), ResolvedAction: resolved})
 	}
 
-	// === shared-feed browse: migrated from /admin/shared-feed/ ===
+	// === community-bans browse: migrated from /admin/community-bans/ ===
 	cur := h.snapshotSettings()
-	mapDir := strings.TrimSpace(cur.SharedFeed.MapDir)
+	mapDir := strings.TrimSpace(cur.CommunityBans.MapDir)
 	if mapDir == "" {
 		mapDir = strings.TrimSpace(cur.Nginx.OutputDir)
 	}
 	if mapDir == "" {
 		mapDir = "/etc/unmask"
 	}
-	doc, err := sharedfeed.ReadDocument(mapDir)
+	doc, err := communitybans.ReadDocument(mapDir)
 	if err != nil {
-		log.Printf("bans: shared-feed read doc: %v", err)
+		log.Printf("bans: community-bans read doc: %v", err)
 		// keep rendering (= treat as empty doc).
 	}
 	match := strings.TrimSpace(r.URL.Query().Get("match"))
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
 	// FeedEntry + CountryCode (= for the flag rendered to the left of the IP popover).
 	type feedRow struct {
-		sharedfeed.FeedEntry
+		communitybans.FeedEntry
 		CountryCode string
 	}
 	filtered := make([]feedRow, 0, len(doc.Entries))
@@ -117,11 +117,11 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	var countIPJA4, countJA4, countIP int
 	for _, e := range doc.Entries {
 		switch e.Match {
-		case sharedfeed.MatchIPJA4:
+		case communitybans.MatchIPJA4:
 			countIPJA4++
-		case sharedfeed.MatchJA4:
+		case communitybans.MatchJA4:
 			countJA4++
-		case sharedfeed.MatchIPOnly:
+		case communitybans.MatchIPOnly:
 			countIP++
 		}
 	}
@@ -136,19 +136,19 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"Bans":                   h.Settings.Nginx.Bans,
 		"Saved":                  r.URL.Query().Get("saved") != "",
 		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
-		"SubscribeEnabled":       cur.SharedFeed.SubscribeEnabled,
-		"SharedFeedLastPulledAt": cur.SharedFeed.LastPulledAt,
-		"SharedFeedGeneratedAt":  doc.GeneratedAt,
-		"SharedFeedVersion":      doc.Version,
-		"SharedFeedEntries":      filtered,
-		"SharedFeedTotalEntries": len(doc.Entries),
-		"SharedFeedFiltered":     len(filtered),
-		"SharedFeedCountIPJA4":   countIPJA4,
-		"SharedFeedCountJA4":     countJA4,
-		"SharedFeedCountIP":      countIP,
-		"SharedFeedMatch":        match,
-		"SharedFeedQuery":        q,
-		"SharedFeedMapDir":       mapDir,
+		"SubscribeEnabled":       cur.CommunityBans.SubscribeEnabled,
+		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
+		"CommunityBansGeneratedAt":  doc.GeneratedAt,
+		"CommunityBansVersion":      doc.Version,
+		"CommunityBansEntries":      filtered,
+		"CommunityBansTotalEntries": len(doc.Entries),
+		"CommunityBansFiltered":     len(filtered),
+		"CommunityBansCountIPJA4":   countIPJA4,
+		"CommunityBansCountJA4":     countJA4,
+		"CommunityBansCountIP":      countIP,
+		"CommunityBansMatch":        match,
+		"CommunityBansQuery":        q,
+		"CommunityBansMapDir":       mapDir,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -241,7 +241,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		// operator can adjust the deny / captcha_only knob from the same
 		// page that lists active BANs and exposes the add form.
 		manualAct := strings.TrimSpace(r.FormValue("bans_manual_default_action"))
-		sharedAct := strings.TrimSpace(r.FormValue("bans_shared_feed_default_action"))
+		sharedAct := strings.TrimSpace(r.FormValue("bans_community_bans_default_action"))
 		cur, err := settings.Load(h.ConfigPath)
 		if err != nil {
 			redir("load: " + err.Error())
@@ -254,7 +254,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 			sharedAct = ""
 		}
 		cur.Nginx.Bans.ManualDefaultAction = manualAct
-		cur.Nginx.Bans.SharedFeedDefaultAction = sharedAct
+		cur.Nginx.Bans.CommunityBansDefaultAction = sharedAct
 		cur.Nginx.SeenVersion = "v" + h.Version
 		if err := settings.Save(cur, h.ConfigPath); err != nil {
 			redir("save: " + err.Error())
@@ -265,21 +265,21 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		settingsMu.Unlock()
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
-				"", fmt.Sprintf(`{"manual":%q,"shared_feed":%q}`, manualAct, sharedAct))
+				"", fmt.Sprintf(`{"manual":%q,"community_bans":%q}`, manualAct, sharedAct))
 		}
 		redir("")
 		return
 
 	case "subscribe-toggle":
-		// Turn shared-feed subscribe (= pull) ON/OFF.  Top-right toggle only.
-		// terms / submit / URL override etc. live in settings/?tab=shared-feed.
+		// Turn community-bans subscribe (= pull) ON/OFF.  Top-right toggle only.
+		// terms / submit / URL override etc. live in settings/?tab=community-bans.
 		want := r.FormValue("subscribe_enabled") == "1"
 		cur, err := settings.Load(h.ConfigPath)
 		if err != nil {
 			redir("load: " + err.Error())
 			return
 		}
-		cur.SharedFeed.SubscribeEnabled = want
+		cur.CommunityBans.SubscribeEnabled = want
 		cur.Nginx.SeenVersion = "v" + h.Version
 		if err := settings.Save(cur, h.ConfigPath); err != nil {
 			redir("save: " + err.Error())
@@ -291,13 +291,13 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 
 		// To keep the first pull right after turning this ON from hitting "no
 		// token", trigger register asynchronously if no token is set yet
-		// (= sharedfeed.Submit has a sync retry too, but get it ahead of time here).
-		if want && h.SharedFeed != nil && strings.TrimSpace(cur.SharedFeed.Token) == "" {
+		// (= communitybans.Submit has a sync retry too, but get it ahead of time here).
+		if want && h.CommunityBans != nil && strings.TrimSpace(cur.CommunityBans.Token) == "" {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
-				if err := h.SharedFeed.Register(ctx); err != nil {
-					log.Printf("sharedfeed: subscribe-toggle register: %v", err)
+				if err := h.CommunityBans.Register(ctx); err != nil {
+					log.Printf("communitybans: subscribe-toggle register: %v", err)
 				}
 			}()
 		}

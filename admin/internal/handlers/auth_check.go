@@ -505,10 +505,10 @@ func banDecide(ctx context.Context, mgr *ban.Manager, ip string, cfg settings.Se
 }
 
 // banDecideFromSource: pure decision given a ban source string.  Each
-// source (= "honeypot" / "manual" / "shared_feed") picks its action from
+// source (= "honeypot" / "manual" / "community_bans") picks its action from
 // settings via BansConfig.ResolveAction (= honeypot defers to
 // Honeypot.DefaultAction; the others read Bans.ManualDefaultAction /
-// Bans.SharedFeedDefaultAction).  Unknown sources hard-deny so a future
+// Bans.CommunityBansDefaultAction).  Unknown sources hard-deny so a future
 // source never silently falls through.
 func banDecideFromSource(src string, cfg settings.Settings) (axisDecision, bool) {
 	act := cfg.Nginx.Bans.ResolveAction(src, cfg.Nginx.Honeypot.DefaultAction)

@@ -1,4 +1,4 @@
-package sharedfeed
+package communitybans
 
 import (
 	"context"
@@ -14,17 +14,17 @@ import (
 
 // Pull: fetches the feed JSON and regenerates the map file.  Skipped when
 // subscribe_enabled=false (= returns nil, nil).  On success, updates
-// settings.SharedFeed.LastPulledAt / Entries.
+// settings.CommunityBans.LastPulledAt / Entries.
 func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	cur := c.SettingsGetter()
-	if !cur.SharedFeed.SubscribeEnabled {
+	if !cur.CommunityBans.SubscribeEnabled {
 		return FeedDocument{}, nil
 	}
 
-	url := cur.SharedFeed.ResolvedFeedURL()
+	url := cur.CommunityBans.ResolvedFeedURL()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return FeedDocument{}, fmt.Errorf("new request: %w", err)
@@ -49,7 +49,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	// Resolve the output dir.  c.MapDir wins; if empty, fall back to settings.Nginx.OutputDir.
 	mapDir := c.MapDir
 	if mapDir == "" {
-		mapDir = cur.SharedFeed.MapDir
+		mapDir = cur.CommunityBans.MapDir
 	}
 	if mapDir == "" {
 		mapDir = cur.Nginx.OutputDir
@@ -64,18 +64,18 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	if err := WriteDocument(doc, mapDir); err != nil {
 		// A doc write failure only stales the browse page; it doesn't affect behavior
 		// (= the map itself is written, so CAPTCHA enforcement still works).  Warn only.
-		c.logf("sharedfeed: write doc: %v", err)
+		c.logf("communitybans: write doc: %v", err)
 	}
 
 	now := time.Now().Unix()
 	cnt := len(doc.Entries)
 	if err := c.SettingsUpdate(func(s *settings.Settings) {
-		s.SharedFeed.LastPulledAt = now
-		s.SharedFeed.Entries = cnt
+		s.CommunityBans.LastPulledAt = now
+		s.CommunityBans.Entries = cnt
 	}); err != nil {
-		c.logf("sharedfeed: persist pull state: %v", err)
+		c.logf("communitybans: persist pull state: %v", err)
 	}
-	c.logf("sharedfeed: pulled %d entries from %s", cnt, redactURL(url))
+	c.logf("communitybans: pulled %d entries from %s", cnt, redactURL(url))
 	return doc, nil
 }
 

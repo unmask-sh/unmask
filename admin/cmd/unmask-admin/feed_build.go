@@ -1,4 +1,4 @@
-// feed-build: cron entry that runs the shared-feed aggregation + feed.json
+// feed-build: cron entry that runs the community-bans aggregation + feed.json
 // generation exactly once.
 //
 //	unmask-admin feed-build                # run with feed_server settings from config.yml

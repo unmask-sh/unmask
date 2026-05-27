@@ -1,4 +1,4 @@
-package sharedfeed
+package communitybans
 
 import (
 	"bytes"
@@ -12,7 +12,7 @@ import (
 )
 
 // Submit: call asynchronously on BAN.  errors:
-//   - if settings.SharedFeed.SubmitActive() is false, skip (= return nil)
+//   - if settings.CommunityBans.SubmitActive() is false, skip (= return nil)
 //   - on empty token + failed inline register retry, return ErrNoToken (= retry later).
 //   - server 4xx / 5xx is returned with the status code embedded.
 //
@@ -26,16 +26,16 @@ import (
 // to submit.
 func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	cur := c.SettingsGetter()
-	if !cur.SharedFeed.SubmitActive() {
+	if !cur.CommunityBans.SubmitActive() {
 		return nil
 	}
-	tok := strings.TrimSpace(cur.SharedFeed.Token)
+	tok := strings.TrimSpace(cur.CommunityBans.Token)
 	if tok == "" {
 		if err := c.Register(ctx); err != nil {
 			return fmt.Errorf("submit: inline register: %w", err)
 		}
 		cur = c.SettingsGetter()
-		tok = strings.TrimSpace(cur.SharedFeed.Token)
+		tok = strings.TrimSpace(cur.CommunityBans.Token)
 		if tok == "" {
 			return ErrNoToken
 		}
@@ -51,7 +51,7 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	if err != nil {
 		return fmt.Errorf("marshal submit: %w", err)
 	}
-	url := cur.SharedFeed.ResolvedSubmitURL()
+	url := cur.CommunityBans.ResolvedSubmitURL()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
@@ -72,8 +72,8 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	return nil
 }
 
-// ErrNoToken: sentinel returned by Submit when settings.SharedFeed.Token is empty.
-var ErrNoToken = errors.New("sharedfeed: no token (= register first)")
+// ErrNoToken: sentinel returned by Submit when settings.CommunityBans.Token is empty.
+var ErrNoToken = errors.New("communitybans: no token (= register first)")
 
 func clampComment(s string, n int) string {
 	s = strings.TrimSpace(s)

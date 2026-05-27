@@ -392,9 +392,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 <div id="ip-popover" data-popover="ip"></div>
 <div id="cell-popover" data-popover="cell"></div>
 
-<!-- BAN confirmation modal (= with share / comment).  If SharedFeedActive=true,
+<!-- BAN confirmation modal (= with share / comment).  If CommunityBansActive=true,
      shows the share row.  Otherwise behaves like a simple confirm. -->
-<dialog id="ban-dialog" class="ban-dialog" data-feed-active="{{ if .SharedFeedActive }}1{{ else }}0{{ end }}">
+<dialog id="ban-dialog" class="ban-dialog" data-feed-active="{{ if .CommunityBansActive }}1{{ else }}0{{ end }}">
   <form method="dialog" class="ban-dialog-body">
     <h3>{{ t .Lang "hunt.ban.dialog_h" }}</h3>
     <p class="ban-dialog-target"><code id="ban-dialog-target"></code></p>
@@ -402,10 +402,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
          The BAN itself doesn't require consent (= the group is fully optional). */}}
     <div class="ban-dialog-share-group">
       <label class="ban-dialog-share">
-        <input type="checkbox" id="ban-dialog-share" {{ if .SharedFeedActive }}checked{{ else }}disabled{{ end }}>
+        <input type="checkbox" id="ban-dialog-share" {{ if .CommunityBansActive }}checked{{ else }}disabled{{ end }}>
         <span>{{ t .Lang "hunt.ban.share_label" }}</span>
       </label>
-      {{ if not .SharedFeedActive }}
+      {{ if not .CommunityBansActive }}
       {{/* no prior opt-in: complete terms consent + share within the dialog.  Checking the box flips submit_enabled + TermsAcceptedAt on the server */}}
       <div class="ban-dialog-terms-gate">
         <div class="ban-dialog-terms-gate-h">{{ t .Lang "hunt.ban.terms_gate_h" }}</div>
@@ -416,7 +416,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
         <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
       </div>
       {{ end }}
-      <div id="ban-dialog-comment-row" class="ban-dialog-comment"{{ if not .SharedFeedActive }} style="display:none"{{ end }}>
+      <div id="ban-dialog-comment-row" class="ban-dialog-comment"{{ if not .CommunityBansActive }} style="display:none"{{ end }}>
         <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
         <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
         <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
@@ -850,7 +850,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
 // BAN confirm dialog: preventDefault the form submit once -> show the dialog ->
 // on "BAN execute" copy share / comment into hidden inputs and submit.
-// With SharedFeedActive the dialog enables share checkbox + comment row;
+// With CommunityBansActive the dialog enables share checkbox + comment row;
 // otherwise it still acts as a simple confirm dialog (= equivalent to the legacy confirm()).
 (function(){
   var dlg = document.getElementById('ban-dialog');

@@ -205,10 +205,10 @@ table.feed tbody tr:hover{background:#f8fafc}
         </select>
       </div>
       <div>
-        <label>{{ t .Lang "settings.bans.shared_feed_action_h" }}</label>
-        {{ $bsa := .Bans.SharedFeedDefaultAction }}
+        <label>{{ t .Lang "settings.bans.community_bans_action_h" }}</label>
+        {{ $bsa := .Bans.CommunityBansDefaultAction }}
         {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
-        <select name="bans_shared_feed_default_action">
+        <select name="bans_community_bans_default_action">
           <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -267,8 +267,8 @@ table.feed tbody tr:hover{background:#f8fafc}
 <div class="bcd-card">
   <div class="card-h-row">
     <h2 style="display:flex;align-items:center;gap:.5rem">
-      {{ t .Lang "shared_feed.title" }}
-      <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "shared_feed.subtitle") }}</span></span>
+      {{ t .Lang "community_bans.title" }}
+      <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "community_bans.subtitle") }}</span></span>
     </h2>
     <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-toggle-form" style="margin:0">
       <input type="hidden" name="op" value="subscribe-toggle">
@@ -281,45 +281,45 @@ table.feed tbody tr:hover{background:#f8fafc}
   </div>
 
   <div class="counts">
-    <span class="pill"><strong>{{ .SharedFeedTotalEntries }}</strong> {{ t .Lang "shared_feed.total" }}</span>
-    <span class="pill">match=<span class="match-pill match-ip_ja4">ip_ja4</span> <strong>{{ .SharedFeedCountIPJA4 }}</strong></span>
-    <span class="pill">match=<span class="match-pill match-ja4_only">ja4_only</span> <strong>{{ .SharedFeedCountJA4 }}</strong></span>
-    <span class="pill">match=<span class="match-pill match-ip_only">ip_only</span> <strong>{{ .SharedFeedCountIP }}</strong></span>
-    {{ if gt .SharedFeedLastPulledAt 0 }}
-    <span class="pill">{{ t .Lang "shared_feed.last_pulled" }}: <time class="js-datetime" data-ts="{{ .SharedFeedLastPulledAt }}">{{ .SharedFeedLastPulledAt }}</time></span>
+    <span class="pill"><strong>{{ .CommunityBansTotalEntries }}</strong> {{ t .Lang "community_bans.total" }}</span>
+    <span class="pill">match=<span class="match-pill match-ip_ja4">ip_ja4</span> <strong>{{ .CommunityBansCountIPJA4 }}</strong></span>
+    <span class="pill">match=<span class="match-pill match-ja4_only">ja4_only</span> <strong>{{ .CommunityBansCountJA4 }}</strong></span>
+    <span class="pill">match=<span class="match-pill match-ip_only">ip_only</span> <strong>{{ .CommunityBansCountIP }}</strong></span>
+    {{ if gt .CommunityBansLastPulledAt 0 }}
+    <span class="pill">{{ t .Lang "community_bans.last_pulled" }}: <time class="js-datetime" data-ts="{{ .CommunityBansLastPulledAt }}">{{ .CommunityBansLastPulledAt }}</time></span>
     {{ else }}
-    <span class="pill muted">({{ t .Lang "shared_feed.never_pulled" }})</span>
+    <span class="pill muted">({{ t .Lang "community_bans.never_pulled" }})</span>
     {{ end }}
   </div>
 
   <form method="GET" class="filter-bar">
-    <input type="text" name="q" value="{{ .SharedFeedQuery }}" placeholder="{{ t .Lang "shared_feed.filter.q_placeholder" }}">
+    <input type="text" name="q" value="{{ .CommunityBansQuery }}" placeholder="{{ t .Lang "community_bans.filter.q_placeholder" }}">
     <select name="match">
-      <option value="" {{ if eq .SharedFeedMatch "" }}selected{{ end }}>{{ t .Lang "shared_feed.filter.all_matches" }}</option>
-      <option value="ip_ja4"   {{ if eq .SharedFeedMatch "ip_ja4"   }}selected{{ end }}>ip_ja4</option>
-      <option value="ja4_only" {{ if eq .SharedFeedMatch "ja4_only" }}selected{{ end }}>ja4_only</option>
-      <option value="ip_only"  {{ if eq .SharedFeedMatch "ip_only"  }}selected{{ end }}>ip_only</option>
+      <option value="" {{ if eq .CommunityBansMatch "" }}selected{{ end }}>{{ t .Lang "community_bans.filter.all_matches" }}</option>
+      <option value="ip_ja4"   {{ if eq .CommunityBansMatch "ip_ja4"   }}selected{{ end }}>ip_ja4</option>
+      <option value="ja4_only" {{ if eq .CommunityBansMatch "ja4_only" }}selected{{ end }}>ja4_only</option>
+      <option value="ip_only"  {{ if eq .CommunityBansMatch "ip_only"  }}selected{{ end }}>ip_only</option>
     </select>
-    <button type="submit">{{ t .Lang "shared_feed.filter.apply" }}</button>
-    {{ if or .SharedFeedMatch .SharedFeedQuery }}
-    <a href="?" class="reset">{{ t .Lang "shared_feed.filter.reset" }}</a>
+    <button type="submit">{{ t .Lang "community_bans.filter.apply" }}</button>
+    {{ if or .CommunityBansMatch .CommunityBansQuery }}
+    <a href="?" class="reset">{{ t .Lang "community_bans.filter.reset" }}</a>
     {{ end }}
   </form>
 
   <table class="feed">
     <thead>
       <tr>
-        <th>{{ t .Lang "shared_feed.col.match" }}</th>
+        <th>{{ t .Lang "community_bans.col.match" }}</th>
         <th>IP</th>
         <th>JA4</th>
         <th>conf.</th>
-        <th>{{ t .Lang "shared_feed.col.reason" }}</th>
-        <th>{{ t .Lang "shared_feed.col.comments" }}</th>
-        <th>{{ t .Lang "shared_feed.col.expires" }}</th>
+        <th>{{ t .Lang "community_bans.col.reason" }}</th>
+        <th>{{ t .Lang "community_bans.col.comments" }}</th>
+        <th>{{ t .Lang "community_bans.col.expires" }}</th>
       </tr>
     </thead>
     <tbody>
-      {{ range .SharedFeedEntries }}
+      {{ range .CommunityBansEntries }}
       <tr>
         <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span></td>
         <td class="mono{{ if .IP }} ipclick{{ end }}"{{ if .IP }} data-ip="{{ .IP }}"{{ end }}>{{ if .IP }}<img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -336,13 +336,13 @@ table.feed tbody tr:hover{background:#f8fafc}
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="7" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "shared_feed.empty" }}</td></tr>
+      <tr><td colspan="7" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
   <div class="note" style="margin-top:.6rem;font-size:.78rem">
-    {{ safeHTML (tf .Lang "shared_feed.foot" .SharedFeedMapDir) }}
-    {{ if gt .SharedFeedGeneratedAt 0 }}<br>{{ t .Lang "shared_feed.feed_generated_at" }}: <time class="js-datetime" data-ts="{{ .SharedFeedGeneratedAt }}">{{ .SharedFeedGeneratedAt }}</time> (feed schema v{{ .SharedFeedVersion }}){{ end }}
+    {{ safeHTML (tf .Lang "community_bans.foot" .CommunityBansMapDir) }}
+    {{ if gt .CommunityBansGeneratedAt 0 }}<br>{{ t .Lang "community_bans.feed_generated_at" }}: <time class="js-datetime" data-ts="{{ .CommunityBansGeneratedAt }}">{{ .CommunityBansGeneratedAt }}</time> (feed schema v{{ .CommunityBansVersion }}){{ end }}
   </div>
 </div>
 

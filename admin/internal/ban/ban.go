@@ -60,7 +60,7 @@ type Entry struct {
 }
 
 // ActionResolver maps a ban source (= "honeypot" / "manual" /
-// "shared_feed") to the chain mode written into the ban file
+// "community_bans") to the chain mode written into the ban file
 // (= "deny" / "pow_only" / "pow_then_captcha" / "captcha_only").
 // The admin wires this to settings.BansConfig.ResolveAction so the
 // ban package keeps its zero-deps-on-settings boundary.  Nil = the
@@ -320,7 +320,7 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 }
 
 // IsBannedSource: same as IsBanned but also returns the source string
-// of the matching entry (= "honeypot" | "manual" | "sharedfeed" etc.).
+// of the matching entry (= "honeypot" | "manual" | "communitybans" etc.).
 // When the IP has multiple live entries the first row wins; that's good
 // enough for the auth_request gate which just needs to know "is this a
 // honeypot-derived ban or something else."  Empty source on no match.

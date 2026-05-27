@@ -265,12 +265,12 @@ type renderData struct {
 	// long-tail of unlisted countries).  Mirrors settings.Geo.DefaultAction.
 	GeoDefaultAction string
 
-	// SharedFeed: the unmask.sh community feed (= submit + pull from the
+	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
 	// SubscribeEnabled=true.  MapDir is the base directory of the include
-	// (= sharedfeed.WriteMapFiles output destination).
-	SharedFeedSubscribe bool
-	SharedFeedMapDir    string
+	// (= communitybans.WriteMapFiles output destination).
+	CommunityBansSubscribe bool
+	CommunityBansMapDir    string
 }
 
 // RateZoneRender: zone values used to generate the nginx config.
@@ -708,18 +708,18 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// see the WARN in `unmask-admin doctor` (= mmdb path check).
 	}
 
-	// SharedFeed: render the 3 maps only when subscribe is ON.
-	// MapDir priority: SharedFeed.MapDir > Nginx.OutputDir > "/etc/unmask".
-	if s.SharedFeed.SubscribeEnabled {
-		d.SharedFeedSubscribe = true
-		md := strings.TrimSpace(s.SharedFeed.MapDir)
+	// CommunityBans: render the 3 maps only when subscribe is ON.
+	// MapDir priority: CommunityBans.MapDir > Nginx.OutputDir > "/etc/unmask".
+	if s.CommunityBans.SubscribeEnabled {
+		d.CommunityBansSubscribe = true
+		md := strings.TrimSpace(s.CommunityBans.MapDir)
 		if md == "" {
 			md = strings.TrimSpace(s.Nginx.OutputDir)
 		}
 		if md == "" {
 			md = "/etc/unmask"
 		}
-		d.SharedFeedMapDir = md
+		d.CommunityBansMapDir = md
 	}
 
 	return d, nil

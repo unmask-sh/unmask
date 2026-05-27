@@ -1,4 +1,4 @@
-package sharedfeed
+package communitybans
 
 import (
 	"log"
@@ -28,7 +28,7 @@ type Client struct {
 	// The closure is expected to perform settings.Save + handler.Settings swap.
 	SettingsUpdate func(func(*settings.Settings)) error
 
-	// MapDir: output dir for shared-feed-*.map.  Empty → settings.Nginx.OutputDir.
+	// MapDir: output dir for community-bans-*.map.  Empty → settings.Nginx.OutputDir.
 	MapDir string
 
 	// Logger: optional.  nil → log package default.

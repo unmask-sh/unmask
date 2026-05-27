@@ -1,12 +1,12 @@
-// Package sharedfeed: client for the shared BAN feed.
+// Package communitybans: client for the shared BAN feed.
 //
 // Role:
 //   - register: at startup, fetch a token from the unmask.sh register endpoint.
 //   - submit:   on BAN operations, if share=true POST (ip, ja4, reason, comment)
 //     to unmask.sh.  The BAN itself still succeeds if the post fails.
 //   - pull:     fetch the feed JSON every 1h and atomic-write
-//     /etc/unmask/shared-feed-*.map (= ipja4 / ja4 / ip).  nginx
-//     then derives $shared_feed_hit via include + map → on hit, lock
+//     /etc/unmask/community-bans-*.map (= ipja4 / ja4 / ip).  nginx
+//     then derives $community_bans_hit via include + map → on hit, lock
 //     to CAPTCHA.
 //
 // Design principles:
@@ -15,9 +15,9 @@
 //     only reads entry.Match.
 //   - submit / subscribe are **independent opt-ins**.  Either alone is valid.
 //   - Enforcement is always CAPTCHA (= reduces legal exposure + tolerates false positives).
-//   - Until terms are accepted (= settings.SharedFeed.TermsAcceptedAt > 0),
+//   - Until terms are accepted (= settings.CommunityBans.TermsAcceptedAt > 0),
 //     submit is forcibly disabled.
-package sharedfeed
+package communitybans
 
 // MatchKind: kind of match logic for a feed entry.
 type MatchKind string

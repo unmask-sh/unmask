@@ -33,10 +33,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-shell{display:grid;grid-template-columns:14rem 1fr;gap:1.5rem;align-items:start;margin-top:.5rem}
 /* Sticky anchored to the bottom edge.  The nav is taller than a typical
  * viewport, and top-sticky pinned the top items while permanently clipping
- * the last item (shared-feed).  bottom:0 means the nav moves with the page
- * as the operator scrolls down, until the bottom item (= shared-feed)
+ * the last item (community-bans).  bottom:0 means the nav moves with the page
+ * as the operator scrolls down, until the bottom item (= community-bans)
  * reaches the viewport bottom -- at that moment sticky engages and the nav
- * stops scrolling, keeping shared-feed visible while the right pane continues. */
+ * stops scrolling, keeping community-bans visible while the right pane continues. */
 .settings-nav{position:sticky;bottom:0;font-size:.875rem}
 .settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
 .settings-nav h3:first-child{margin-top:0}
@@ -398,7 +398,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </ul>
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <ul>
-    <li><a href="?tab=shared-feed" {{ if eq .Tab "shared-feed" }}class="active"{{ end }}>{{ t .Lang "settings.tab.shared_feed" }}</a></li>
+    <li><a href="?tab=community-bans" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
   </ul>
 </aside>
 <section class="settings-content">
@@ -474,7 +474,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.community" }}</h3>
-  <a class="sti" href="?tab=shared-feed"><b>{{ t .Lang "settings.tab.shared_feed" }}</b><span>{{ t .Lang "settings.top.desc.shared_feed" }}</span></a>
+  <a class="sti" href="?tab=community-bans"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
 </div>
 {{ end }}
 
@@ -3810,54 +3810,54 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 </style>
 {{ end }}
 
-{{ if eq .Tab "shared-feed" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=shared-feed">
+{{ if eq .Tab "community-bans" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=community-bans">
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.shared_feed.h" }}</h2>
-    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.shared_feed.intro") }}</div>
+    <h2>{{ t .Lang "settings.community_bans.h" }}</h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.community_bans.intro") }}</div>
 
-    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.shared_feed.terms_h" }}</h3>
-    <div class="note" style="margin-bottom:.5rem">{{ safeHTML (t .Lang "settings.shared_feed.terms_desc") }}</div>
+    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.community_bans.terms_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem">{{ safeHTML (t .Lang "settings.community_bans.terms_desc") }}</div>
     <label class="field" style="display:flex;align-items:flex-start;gap:.5rem">
-      <input type="checkbox" name="terms_accepted" value="1" id="sf-terms" {{ if gt .SharedFeed.TermsAcceptedAt 0 }}checked{{ end }} style="margin-top:.25rem">
-      <span>{{ safeHTML (t .Lang "settings.shared_feed.terms_label") }}</span>
+      <input type="checkbox" name="terms_accepted" value="1" id="sf-terms" {{ if gt .CommunityBans.TermsAcceptedAt 0 }}checked{{ end }} style="margin-top:.25rem">
+      <span>{{ safeHTML (t .Lang "settings.community_bans.terms_label") }}</span>
     </label>
-    {{ if gt .SharedFeed.TermsAcceptedAt 0 }}
+    {{ if gt .CommunityBans.TermsAcceptedAt 0 }}
     <div class="note" style="font-size:.78rem;color:#64748b;margin-top:.2rem">
-      {{ t .Lang "settings.shared_feed.terms_accepted_at" }}: <time class="js-datetime" data-ts="{{ .SharedFeed.TermsAcceptedAt }}">{{ .SharedFeed.TermsAcceptedAt }}</time>
+      {{ t .Lang "settings.community_bans.terms_accepted_at" }}: <time class="js-datetime" data-ts="{{ .CommunityBans.TermsAcceptedAt }}">{{ .CommunityBans.TermsAcceptedAt }}</time>
     </div>
     {{ end }}
 
-    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.shared_feed.toggles_h" }}</h3>
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.toggles_h" }}</h3>
     <div class="field">
       <label style="display:flex;align-items:flex-start;gap:.5rem">
-        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .SharedFeed.SubscribeEnabled }}checked{{ end }} style="margin-top:.25rem">
+        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .CommunityBans.SubscribeEnabled }}checked{{ end }} style="margin-top:.25rem">
         <span>
-          <strong>{{ t .Lang "settings.shared_feed.subscribe_label" }}</strong><br>
-          <span class="note">{{ safeHTML (t .Lang "settings.shared_feed.subscribe_desc") }}</span>
+          <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.community_bans.subscribe_desc") }}</span>
         </span>
       </label>
     </div>
     <div class="field">
       <label style="display:flex;align-items:flex-start;gap:.5rem">
-        <input type="checkbox" name="submit_enabled" value="1" id="sf-submit-enabled" {{ if .SharedFeed.SubmitEnabled }}checked{{ end }} style="margin-top:.25rem" {{ if eq .SharedFeed.TermsAcceptedAt 0 }}disabled{{ end }}>
+        <input type="checkbox" name="submit_enabled" value="1" id="sf-submit-enabled" {{ if .CommunityBans.SubmitEnabled }}checked{{ end }} style="margin-top:.25rem" {{ if eq .CommunityBans.TermsAcceptedAt 0 }}disabled{{ end }}>
         <span>
-          <strong>{{ t .Lang "settings.shared_feed.submit_label" }}</strong><br>
-          <span class="note">{{ safeHTML (t .Lang "settings.shared_feed.submit_desc") }}</span>
+          <strong>{{ t .Lang "settings.community_bans.submit_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.community_bans.submit_desc") }}</span>
         </span>
       </label>
-      <div id="sf-submit-warn" class="note" style="font-size:.78rem;color:#b45309;margin-top:.25rem{{ if gt .SharedFeed.TermsAcceptedAt 0 }};display:none{{ end }}">⚠ {{ t .Lang "settings.shared_feed.submit_needs_terms" }}</div>
+      <div id="sf-submit-warn" class="note" style="font-size:.78rem;color:#b45309;margin-top:.25rem{{ if gt .CommunityBans.TermsAcceptedAt 0 }};display:none{{ end }}">⚠ {{ t .Lang "settings.community_bans.submit_needs_terms" }}</div>
     </div>
 
-    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.shared_feed.status_h" }}</h3>
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.status_h" }}</h3>
     <table style="font-size:.85rem;border-collapse:collapse">
       <tr>
-        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.shared_feed.status_token" }}</td>
-        <td>{{ if .SharedFeed.Token }}<span style="color:#166534">●</span> {{ t .Lang "settings.shared_feed.status_token_ok" }}{{ else }}<span style="color:#94a3b8">○</span> {{ t .Lang "settings.shared_feed.status_token_none" }}{{ end }}</td>
+        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.community_bans.status_token" }}</td>
+        <td>{{ if .CommunityBans.Token }}<span style="color:#166534">●</span> {{ t .Lang "settings.community_bans.status_token_ok" }}{{ else }}<span style="color:#94a3b8">○</span> {{ t .Lang "settings.community_bans.status_token_none" }}{{ end }}</td>
       </tr>
       <tr>
-        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.shared_feed.status_last_pull" }}</td>
-        <td>{{ if gt .SharedFeed.LastPulledAt 0 }}<time class="js-datetime" data-ts="{{ .SharedFeed.LastPulledAt }}">{{ .SharedFeed.LastPulledAt }}</time>  ({{ .SharedFeed.Entries }} entries){{ else }}<span class="muted">{{ t .Lang "settings.shared_feed.status_never" }}</span>{{ end }}</td>
+        <td style="padding:.2rem .6rem .2rem 0;color:#64748b">{{ t .Lang "settings.community_bans.status_last_pull" }}</td>
+        <td>{{ if gt .CommunityBans.LastPulledAt 0 }}<time class="js-datetime" data-ts="{{ .CommunityBans.LastPulledAt }}">{{ .CommunityBans.LastPulledAt }}</time>  ({{ .CommunityBans.Entries }} entries){{ else }}<span class="muted">{{ t .Lang "settings.community_bans.status_never" }}</span>{{ end }}</td>
       </tr>
     </table>
 
@@ -4159,10 +4159,10 @@ document.addEventListener('DOMContentLoaded', function(){
 </script>
 
 <!-- Sticky-nav offset.  position:sticky;top:1rem leaves the bottom of a long
-     nav (= shared-feed under "community") clipped below the viewport.  Set
+     nav (= community-bans under "community") clipped below the viewport.  Set
      top dynamically so the nav scrolls in flow until its last item reaches
      the viewport bottom, at which point sticky engages and the nav locks
-     with shared-feed at the bottom edge.  Falls back to top:1rem (the CSS
+     with community-bans at the bottom edge.  Falls back to top:1rem (the CSS
      default) on viewports tall enough to hold the whole nav. -->
 <script>
 (function(){
@@ -4176,7 +4176,7 @@ document.addEventListener('DOMContentLoaded', function(){
     if (navH > vh - 16) {
       // Nav is taller than (viewport - 1rem).  Sticky kicks in once natural
       // top would be above (vh - navH); at that moment the bottom edge of the
-      // nav (= shared-feed) sits exactly at the viewport bottom.
+      // nav (= community-bans) sits exactly at the viewport bottom.
       nav.style.top = (vh - navH) + 'px';
     } else {
       // Nav fits — pin at the top with a 1rem inset (the original behavior).
