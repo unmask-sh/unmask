@@ -44,6 +44,7 @@ type RegisterRequest struct {
 // RegisterResponse: unmask.sh → client.
 type RegisterResponse struct {
 	Token string `json:"token"`
+	HN    string `json:"hn,omitempty"`
 }
 
 // Comment: collects multiple submitters' free-form comments inside a feed entry.

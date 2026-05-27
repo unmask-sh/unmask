@@ -1089,12 +1089,20 @@ type CommunityBans struct {
 	SubmitEnabled    bool   `yaml:"submit_enabled"`
 	SubscribeEnabled bool   `yaml:"subscribe_enabled"`
 	Token            string `yaml:"token,omitempty"`
-	RegisterURL      string `yaml:"register_url,omitempty"`
-	SubmitURL        string `yaml:"submit_url,omitempty"`
-	FeedURL          string `yaml:"feed_url,omitempty"`
-	LastPulledAt     int64  `yaml:"last_pulled_at,omitempty"`
-	Entries          int    `yaml:"entries,omitempty"`
-	TermsAcceptedAt  int64  `yaml:"terms_accepted_at,omitempty"`
+	// HN: handle name returned by the hub at register time, derived from the
+	// raw token (= "swift-otter-a3f7" style).  Cached here so the admin UI
+	// can show it without a hub round-trip.  HNOverride (= empty by default)
+	// lets the operator pick a custom display name; the hub keeps the
+	// derived HN as the canonical identity, override is presentation-only.
+	HN              string `yaml:"hn,omitempty"`
+	HNOverride      string `yaml:"hn_override,omitempty"`
+	PublishCountry  bool   `yaml:"publish_country,omitempty"`
+	RegisterURL     string `yaml:"register_url,omitempty"`
+	SubmitURL       string `yaml:"submit_url,omitempty"`
+	FeedURL         string `yaml:"feed_url,omitempty"`
+	LastPulledAt    int64  `yaml:"last_pulled_at,omitempty"`
+	Entries         int    `yaml:"entries,omitempty"`
+	TermsAcceptedAt int64  `yaml:"terms_accepted_at,omitempty"`
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
 }

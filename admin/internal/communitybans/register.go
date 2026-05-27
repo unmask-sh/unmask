@@ -58,11 +58,13 @@ func (c *Client) Register(ctx context.Context) error {
 		return errors.New("register: empty token in response")
 	}
 
+	hn := strings.TrimSpace(rr.HN)
 	if err := c.SettingsUpdate(func(s *settings.Settings) {
 		s.CommunityBans.Token = tok
+		s.CommunityBans.HN = hn
 	}); err != nil {
 		return fmt.Errorf("save token: %w", err)
 	}
-	c.logf("communitybans: registered new token (len=%d)", len(tok))
+	c.logf("communitybans: registered new token (len=%d, hn=%q)", len(tok), hn)
 	return nil
 }
