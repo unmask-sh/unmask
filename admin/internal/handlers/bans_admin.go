@@ -622,11 +622,13 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "save-defaults":
-		// Per-source default action editor inlined on /admin/bans/ so the
+		// Manual BAN default action editor inlined on /admin/bans/ so the
 		// operator can adjust the deny / captcha_only knob from the same
-		// page that lists active BANs and exposes the add form.
+		// page that lists active BANs and exposes the add form.  The
+		// shared-bans fallback lives on the "共有 BAN" settings tab now
+		// (= /admin/settings/?tab=community-bans) to keep all shared-bans
+		// preferences in one place.
 		manualAct := strings.TrimSpace(r.FormValue("bans_manual_default_action"))
-		sharedAct := strings.TrimSpace(r.FormValue("bans_community_bans_default_action"))
 		cur, err := settings.Load(h.ConfigPath)
 		if err != nil {
 			redir("load: " + err.Error())
@@ -635,11 +637,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		if manualAct != "" && !settings.IsValidRateChallengeMode(manualAct) {
 			manualAct = ""
 		}
-		if sharedAct != "" && !settings.IsValidRateChallengeMode(sharedAct) {
-			sharedAct = ""
-		}
 		cur.Nginx.Bans.ManualDefaultAction = manualAct
-		cur.Nginx.Bans.CommunityBansDefaultAction = sharedAct
 		cur.Nginx.SeenVersion = "v" + h.Version
 		if err := settings.Save(cur, h.ConfigPath); err != nil {
 			redir("save: " + err.Error())
@@ -650,7 +648,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		settingsMu.Unlock()
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
-				"", fmt.Sprintf(`{"manual":%q,"community_bans":%q}`, manualAct, sharedAct))
+				"", fmt.Sprintf(`{"manual":%q}`, manualAct))
 		}
 		redir("")
 		return

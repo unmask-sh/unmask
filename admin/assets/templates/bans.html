@@ -254,17 +254,6 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         </select>
       </div>
       <div>
-        <label>{{ t .Lang "settings.bans.community_bans_action_h" }}</label>
-        {{ $bsa := .Bans.CommunityBansDefaultAction }}
-        {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
-        <select name="bans_community_bans_default_action">
-          <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $bsa "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
-      <div>
         <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
       </div>
     </div>

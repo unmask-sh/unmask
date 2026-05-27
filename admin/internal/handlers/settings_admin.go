@@ -1052,6 +1052,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "community-bans":
 		applyCommunityBansForm(&cur.CommunityBans, r)
+		// Shared-BAN fallback action: lives on Nginx.Bans but its relevance is
+		// "what to do when a community_bans row in BanMgr has no per-row action",
+		// so the form field renders on this tab (= co-located with the related
+		// auto-BAN settings) rather than on /admin/bans/.
+		switch strings.TrimSpace(r.FormValue("bans_community_bans_default_action")) {
+		case "deny", "pow_only", "pow_then_captcha", "captcha_only":
+			cur.Nginx.Bans.CommunityBansDefaultAction = r.FormValue("bans_community_bans_default_action")
+		case "":
+			cur.Nginx.Bans.CommunityBansDefaultAction = ""
+		}
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
