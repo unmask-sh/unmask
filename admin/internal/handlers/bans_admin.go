@@ -227,6 +227,145 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// AdminCommunityBansIndex: GET /admin/community-bans/{$} — dedicated browse
+// page for the hub feed.  Was an inline card on /admin/bans/ until v2
+// landed; with 100+ rows expected per install, split into its own tab so
+// the BAN management table stays compact and the community list can
+// paginate / filter without crowding the rest of the page.
+//
+// Pagination: ?page=N, 50 entries per page.  Filtering (= ?q, ?match)
+// applies before pagination so navigating pages keeps the filter window.
+func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := loadDashboardTemplate()
+	if err != nil {
+		http.Error(w, "template: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	cur := h.snapshotSettings()
+	mapDir := strings.TrimSpace(cur.CommunityBans.MapDir)
+	if mapDir == "" {
+		mapDir = strings.TrimSpace(cur.Nginx.OutputDir)
+	}
+	if mapDir == "" {
+		mapDir = "/etc/unmask"
+	}
+	doc, err := communitybans.ReadDocument(mapDir)
+	if err != nil {
+		log.Printf("community-bans: read doc: %v", err)
+	}
+
+	ipCC := map[string]string{}
+	lookupCC := func(ip string) string {
+		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
+			return ""
+		}
+		if cc, ok := ipCC[ip]; ok {
+			return cc
+		}
+		cc := h.IPGeo.LookupInfo(ip).Country
+		ipCC[ip] = cc
+		return cc
+	}
+
+	match := strings.TrimSpace(r.URL.Query().Get("match"))
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	type feedRow struct {
+		communitybans.FeedEntry
+		CountryCode string
+	}
+	filtered := make([]feedRow, 0, len(doc.Entries))
+	for _, e := range doc.Entries {
+		if match != "" && string(e.Match) != match {
+			continue
+		}
+		if q != "" {
+			hay := e.IP + " " + e.JA4 + " " + e.Reason
+			for _, c := range e.Comments {
+				hay += " " + c.Text
+			}
+			if !strings.Contains(strings.ToLower(hay), strings.ToLower(q)) {
+				continue
+			}
+		}
+		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP)})
+	}
+
+	var countIPJA4, countJA4, countIP int
+	for _, e := range doc.Entries {
+		switch e.Match {
+		case communitybans.MatchIPJA4:
+			countIPJA4++
+		case communitybans.MatchJA4:
+			countJA4++
+		case communitybans.MatchIPOnly:
+			countIP++
+		}
+	}
+
+	// Pagination -- 50 rows per page, 1-indexed.  Out-of-range pages clamp
+	// to the last available page so a bookmarked URL still renders.
+	const perPage = 50
+	page := 1
+	if v, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("page"))); err == nil && v >= 1 {
+		page = v
+	}
+	total := len(filtered)
+	totalPages := (total + perPage - 1) / perPage
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	if page > totalPages {
+		page = totalPages
+	}
+	start := (page - 1) * perPage
+	end := start + perPage
+	if end > total {
+		end = total
+	}
+	pageRows := []feedRow{}
+	if start < total {
+		pageRows = filtered[start:end]
+	}
+
+	myHN := strings.TrimSpace(cur.CommunityBans.HNOverride)
+	if myHN == "" {
+		myHN = strings.TrimSpace(cur.CommunityBans.HN)
+	}
+
+	data := map[string]any{
+		"Lang":                         i18n.Resolve(r),
+		"TZ":                           resolveTZ(r),
+		"BasePath":                     h.Settings.Server.BasePath,
+		"Version":                      h.Version,
+		"SubscribeEnabled":             cur.CommunityBans.SubscribeEnabled,
+		"MyHN":                         myHN,
+		"CommunityBansEntries":         pageRows,
+		"CommunityBansTotalEntries":    len(doc.Entries),
+		"CommunityBansFiltered":        total,
+		"CommunityBansCountIPJA4":      countIPJA4,
+		"CommunityBansCountJA4":        countJA4,
+		"CommunityBansCountIP":         countIP,
+		"CommunityBansLastPulledAt":    cur.CommunityBans.LastPulledAt,
+		"CommunityBansGeneratedAt":     doc.GeneratedAt,
+		"CommunityBansVersion":         doc.Version,
+		"CommunityBansMatch":           match,
+		"CommunityBansQuery":           q,
+		"CommunityBansMapDir":          mapDir,
+		"Page":                         page,
+		"PageNext":                     page + 1,
+		"PagePrev":                     page - 1,
+		"TotalPages":                   totalPages,
+		"PerPage":                      perPage,
+		"PageStart":                    start + 1,
+		"PageEnd":                      end,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h.addMeToData(r, data)
+	if err := tmpl.ExecuteTemplate(w, "community_bans.html", data); err != nil {
+		log.Printf("community-bans render: %v", err)
+	}
+}
+
 // AdminCommunityBansDetail: GET /admin/api/community-bans/detail?ip=...&ja4=...
 //
 // Thin proxy to the hub's public /api/feed/aggregate endpoint.  The hub
