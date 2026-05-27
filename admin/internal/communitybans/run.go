@@ -22,6 +22,11 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 			c.logf("communitybans: register: %v", err)
 		}
 	}
+	// Backfill HN for pre-v2 tokens (= HN was empty before phase 1 derived it).
+	// No-op once cached.  Single POST per cold start.
+	if err := c.BackfillHN(ctx); err != nil {
+		c.logf("communitybans: hn backfill: %v", err)
+	}
 	// Initial pull (= only runs in earnest when subscribe is ON)
 	if _, err := c.Pull(ctx); err != nil {
 		c.logf("communitybans: initial pull: %v", err)
