@@ -384,7 +384,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
     <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
     <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
-    <li><a href="?tab=bans"         {{ if eq .Tab "bans"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.bans"         }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
@@ -1998,46 +1997,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      on IP+JA4, not on the visited host, so a per-host TTL did not have a
      coherent meaning.  URL rows above carry their own per-row site filter
      and remain per-host scoped. */}}
-{{ end }}
-
-{{ if eq .Tab "bans" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=bans">
-  <div class="bcd-card">
-    <h2>{{ t .Lang "bans.defaults_h" }}</h2>
-    <p class="muted" style="font-size:.85rem;margin:.2rem 0 .8rem">{{ safeHTML (t .Lang "bans.defaults_note") }}</p>
-
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569">
-        {{ t .Lang "settings.bans.manual_action_h" }}
-      </div>
-      <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem">{{ safeHTML (t .Lang "settings.bans.manual_action_help") }}</p>
-      {{ $bma := .Bans.ManualDefaultAction }}
-      {{ if eq $bma "" }}{{ $bma = "captcha_only" }}{{ end }}
-      <select name="bans_manual_default_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $bma "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $bma "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569">
-        {{ t .Lang "settings.bans.shared_feed_action_h" }}
-      </div>
-      <p class="muted" style="font-size:.78rem;margin:.2rem 0 .4rem">{{ safeHTML (t .Lang "settings.bans.shared_feed_action_help") }}</p>
-      {{ $bsa := .Bans.SharedFeedDefaultAction }}
-      {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
-      <select name="bans_shared_feed_default_action" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $bsa "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-  </div>
-  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-</form>
 {{ end }}
 
 {{ if eq .Tab "protected" }}

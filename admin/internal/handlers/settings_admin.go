@@ -75,7 +75,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bans", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -498,7 +498,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
 		"Honeypot":                   cur.Honeypot,
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
-		"Bans":                       cur.Bans,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -882,7 +881,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bans", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "shared-feed", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "shared-feed", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1053,19 +1052,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "shared-feed":
 		applySharedFeedForm(&cur.SharedFeed, r)
-	case "bans":
-		// Per-source default action for ban list entries (= manual /
-		// shared_feed). Honeypot keeps its own knob on the honeypot tab.
-		if v := strings.TrimSpace(r.FormValue("bans_manual_default_action")); v != "" {
-			if settings.IsValidRateChallengeMode(v) {
-				cur.Nginx.Bans.ManualDefaultAction = v
-			}
-		}
-		if v := strings.TrimSpace(r.FormValue("bans_shared_feed_default_action")); v != "" {
-			if settings.IsValidRateChallengeMode(v) {
-				cur.Nginx.Bans.SharedFeedDefaultAction = v
-			}
-		}
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
@@ -1236,7 +1222,7 @@ func tabForSection(s string) string {
 // admin-only, so the per-site form also lands in the false branch).
 func sectionNeedsNginxReload(section string) bool {
 	switch section {
-	case "global", "ua-filter", "ja4-verdicts", "honeypot", "bans",
+	case "global", "ua-filter", "ja4-verdicts", "honeypot",
 		"bypass-ips", "bypass-paths", "protected",
 		"rate-limit", "rate_limit", "geo", "network", "shared-feed":
 		return true
