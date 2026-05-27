@@ -128,6 +128,10 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	myHN := strings.TrimSpace(cur.CommunityBans.HN)
+	if myHN == "" {
+		myHN = strings.TrimSpace(cur.CommunityBans.HNOverride)
+	}
 	data := map[string]any{
 		"Lang":                   i18n.Resolve(r),
 		"TZ":                     resolveTZ(r),
@@ -139,6 +143,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"Saved":                  r.URL.Query().Get("saved") != "",
 		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"SubscribeEnabled":       cur.CommunityBans.SubscribeEnabled,
+		"MyHN":                   myHN,
 		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
 		"CommunityBansGeneratedAt":  doc.GeneratedAt,
 		"CommunityBansVersion":      doc.Version,
@@ -208,6 +213,120 @@ func (h *Handler) AdminCommunityBansDetail(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Cache-Control", "private, max-age=15")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// resolveHubAPIBase: derive the hub /api/feed/ base from the RegisterURL the
+// install is pinned to.  Stripping the last path segment lets the operator
+// keep one URL field for /api/feed/* and not maintain a parallel constant per
+// endpoint -- the hub always exposes vote / comment / submission siblings of
+// register on the same base.
+func resolveHubAPIBase(register string) string {
+	if i := strings.LastIndex(register, "/"); i > 0 {
+		return register[:i]
+	}
+	return register
+}
+
+// proxyToHub: forward an admin request to a hub URL with the install's bearer
+// token attached.  Body is copied verbatim; the response is streamed back so
+// the caller does not need to materialize the full payload.  Errors short-
+// circuit with 502 (= hub unreachable) or 401 (= no install token yet).
+func (h *Handler) proxyToHub(w http.ResponseWriter, r *http.Request, target string, withBody bool) {
+	cur := h.snapshotSettings()
+	token := strings.TrimSpace(cur.CommunityBans.Token)
+	if token == "" {
+		http.Error(w, "community-bans token not registered yet", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	var body io.Reader
+	if withBody {
+		body = http.MaxBytesReader(nil, r.Body, 16*1024) // 16 KiB hard cap
+	}
+	req, err := http.NewRequestWithContext(ctx, r.Method, target, body)
+	if err != nil {
+		http.Error(w, "build request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	if withBody {
+		ct := r.Header.Get("Content-Type")
+		if ct == "" {
+			ct = "application/json"
+		}
+		req.Header.Set("Content-Type", ct)
+	}
+	req.Header.Set("User-Agent", "unmask-admin/"+h.Version+" community-bans-proxy")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("bans: hub proxy %s: %v", target, err)
+		http.Error(w, "hub unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+// AdminCommunityBansVote: POST /admin/api/community-bans/vote
+//
+//	body: {"submission_id": int, "kind": "like" | "bad"}
+//
+// Forwards to the hub /api/feed/vote endpoint with the install's bearer
+// token.  Hub UPSERTs the vote (= switching like -> bad reuses the same row).
+func (h *Handler) AdminCommunityBansVote(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/vote", true)
+}
+
+// AdminCommunityBansVoteDelete: DELETE /admin/api/community-bans/vote/{id}
+func (h *Handler) AdminCommunityBansVoteDelete(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/vote/"+url.PathEscape(id), false)
+}
+
+// AdminCommunityBansComment: POST /admin/api/community-bans/comment
+//
+//	body: {"submission_id": int, "text": "..."}
+func (h *Handler) AdminCommunityBansComment(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/comment", true)
+}
+
+// AdminCommunityBansCommentDelete: DELETE /admin/api/community-bans/comment/{id}
+func (h *Handler) AdminCommunityBansCommentDelete(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/comment/"+url.PathEscape(id), false)
+}
+
+// AdminCommunityBansSubmissionDelete: DELETE /admin/api/community-bans/submission/{id}
+func (h *Handler) AdminCommunityBansSubmissionDelete(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/submission/"+url.PathEscape(id), false)
 }
 
 // AdminBansSave: POST /admin/bans/save — dispatch by op parameter.
