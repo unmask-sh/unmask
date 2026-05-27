@@ -1100,6 +1100,7 @@ type CommunityBans struct {
 	RegisterURL     string `yaml:"register_url,omitempty"`
 	SubmitURL       string `yaml:"submit_url,omitempty"`
 	FeedURL         string `yaml:"feed_url,omitempty"`
+	AggregateURL    string `yaml:"aggregate_url,omitempty"`
 	LastPulledAt    int64  `yaml:"last_pulled_at,omitempty"`
 	Entries         int    `yaml:"entries,omitempty"`
 	TermsAcceptedAt int64  `yaml:"terms_accepted_at,omitempty"`
@@ -1110,9 +1111,10 @@ type CommunityBans struct {
 // DefaultCommunityBans*: unmask.sh hub URLs. Overridable (= for running a
 // private hub or pointing test environments at a different endpoint).
 const (
-	DefaultCommunityBansRegisterURL = "https://unmask.sh/api/feed/register"
-	DefaultCommunityBansSubmitURL   = "https://unmask.sh/api/feed/submit"
-	DefaultCommunityBansFeedURL     = "https://unmask.sh/dl/feed/banlist.json"
+	DefaultCommunityBansRegisterURL  = "https://unmask.sh/api/feed/register"
+	DefaultCommunityBansSubmitURL    = "https://unmask.sh/api/feed/submit"
+	DefaultCommunityBansFeedURL      = "https://unmask.sh/dl/feed/banlist.json"
+	DefaultCommunityBansAggregateURL = "https://unmask.sh/api/feed/aggregate"
 )
 
 // ResolvedRegisterURL: returns the default when empty.
@@ -1137,6 +1139,16 @@ func (s CommunityBans) ResolvedFeedURL() string {
 		return DefaultCommunityBansFeedURL
 	}
 	return s.FeedURL
+}
+
+// ResolvedAggregateURL: returns the default when empty.  This endpoint is used
+// by the bans-page detail expand to fetch all submissions / votes / comments
+// for an (ip, ja4) pair without going through the local banlist cache.
+func (s CommunityBans) ResolvedAggregateURL() string {
+	if s.AggregateURL == "" {
+		return DefaultCommunityBansAggregateURL
+	}
+	return s.AggregateURL
 }
 
 // SubmitActive: submission is allowed only when submit_enabled && terms accepted.
@@ -1462,6 +1474,7 @@ func defaults() Settings {
 			RegisterURL:      DefaultCommunityBansRegisterURL,
 			SubmitURL:        DefaultCommunityBansSubmitURL,
 			FeedURL:          DefaultCommunityBansFeedURL,
+			AggregateURL:     DefaultCommunityBansAggregateURL,
 		},
 		Nginx: Nginx{
 			OutputDir:    "/etc/unmask",

@@ -677,6 +677,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminFunnelJSON))
 	mux.HandleFunc("GET "+base+"/admin/api/myip",
 		h.AuthMiddleware(h.AdminMyIP))
+	mux.HandleFunc("GET "+base+"/admin/api/community-bans/detail",
+		h.AuthMiddleware(h.AdminCommunityBansDetail))
 	mux.HandleFunc("GET "+base+"/admin/api/events/stream",
 		h.AuthMiddleware(h.AdminEventsStream))
 	// one-click promotion of a ghost site into settings.Sites.Defined (admin or above)

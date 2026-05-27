@@ -16,8 +16,10 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -155,6 +157,57 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	if err := tmpl.ExecuteTemplate(w, "bans.html", data); err != nil {
 		log.Printf("bans render: %v", err)
 	}
+}
+
+// AdminCommunityBansDetail: GET /admin/api/community-bans/detail?ip=...&ja4=...
+//
+// Thin proxy to the hub's public /api/feed/aggregate endpoint.  The hub
+// endpoint is open by design (= raw signals are intentionally public so users
+// can audit verdicts), but the admin still proxies it so:
+//
+//	1. the browser only talks to its own admin origin (= avoids a CORS round-trip)
+//	2. the operator can point CommunityBans.AggregateURL at a custom hub
+//	   without touching the front-end
+//	3. local debugging works behind networks that block the public hub
+//
+// Returns the hub JSON body verbatim with a short cache header so a busy
+// expand-collapse loop doesn't hammer the hub.
+func (h *Handler) AdminCommunityBansDetail(w http.ResponseWriter, r *http.Request) {
+	ip := strings.TrimSpace(r.URL.Query().Get("ip"))
+	ja4 := strings.TrimSpace(r.URL.Query().Get("ja4"))
+	if ip == "" && ja4 == "" {
+		http.Error(w, "ip or ja4 is required", http.StatusBadRequest)
+		return
+	}
+	cur := h.snapshotSettings()
+	base := strings.TrimRight(cur.CommunityBans.ResolvedAggregateURL(), "?&")
+	q := url.Values{}
+	if ip != "" {
+		q.Set("ip", ip)
+	}
+	if ja4 != "" {
+		q.Set("ja4", ja4)
+	}
+	target := base + "?" + q.Encode()
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		http.Error(w, "build request: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("User-Agent", "unmask-admin/"+h.Version+" community-bans-detail-proxy")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("bans: aggregate proxy: %v", err)
+		http.Error(w, "hub unreachable", http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "private, max-age=15")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 
 // AdminBansSave: POST /admin/bans/save — dispatch by op parameter.

@@ -86,6 +86,26 @@ table.feed tbody tr:hover{background:#f8fafc}
 .votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
+.detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
+.detail-toggle:hover{color:#0f172a}
+.detail-toggle.open{transform:rotate(90deg);color:#0f172a}
+.detail-row{background:#f8fafc}
+.detail-row td{padding:0!important;border-bottom:1px solid #e2e8f0!important}
+.detail-panel{padding:1rem 1.25rem;display:grid;gap:.9rem;font-size:.82rem;color:#334155}
+.detail-panel section{padding:.5rem .75rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem}
+.detail-panel h4{margin:0 0 .35rem;font-size:.78rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.04em}
+.detail-panel ul{margin:0;padding-left:1.1rem;line-height:1.55}
+.detail-panel ul.flat{list-style:none;padding-left:0}
+.detail-panel ul.flat li{display:flex;align-items:baseline;gap:.5rem;padding:.15rem 0;border-bottom:1px dotted #e2e8f0}
+.detail-panel ul.flat li:last-child{border-bottom:0}
+.detail-panel .hn{font-family:ui-monospace,Menlo,monospace;color:#0f172a;font-weight:600}
+.detail-panel .when{color:#94a3b8;font-size:.72rem;margin-left:auto}
+.detail-panel .reason-inline{color:#475569}
+.detail-panel .comment-text{color:#0f172a;line-height:1.55;word-break:break-word}
+.detail-panel .judge-line{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569;line-height:1.5;word-break:break-all}
+.detail-panel .empty{color:#94a3b8;font-style:italic}
+.detail-panel .loading{color:#94a3b8;font-style:italic}
+.detail-panel .err{color:#b91c1c;font-weight:600}
 .cmt{display:block;padding:.15rem .35rem;margin:.15rem 0;background:#f1f5f9;border-radius:.2rem;font-size:.78rem;word-break:break-word}
 .cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
 .note{color:#64748b;font-size:.85rem;line-height:1.6}
@@ -320,6 +340,7 @@ table.feed tbody tr:hover{background:#f8fafc}
   <table class="feed">
     <thead>
       <tr>
+        <th style="width:1.5rem"></th>
         <th>{{ t .Lang "community_bans.col.score" }}</th>
         <th>{{ t .Lang "community_bans.col.match" }}</th>
         <th>IP</th>
@@ -332,7 +353,8 @@ table.feed tbody tr:hover{background:#f8fafc}
     </thead>
     <tbody>
       {{ range .CommunityBansEntries }}
-      <tr>
+      <tr class="feed-row" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+        <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
           {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
           {{ else if eq .Score 4 }}<span class="score-pill score-4" title="{{ t $.Lang "community_bans.score.4" }}">4 🚨</span>
@@ -364,7 +386,7 @@ table.feed tbody tr:hover{background:#f8fafc}
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="8" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
@@ -467,6 +489,121 @@ document.addEventListener('DOMContentLoaded', function(){
       clearTimeout(timer);
       var x = e.pageX, y = e.pageY;
       fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+    });
+  });
+})();
+
+// Community Bans detail expand.  Each row has a ▶ toggle that lazily fetches
+// /admin/api/community-bans/detail and renders a nested panel with submitter
+// list / vote breakdown / comments / judge reasoning.  Cached per row.
+(function(){
+  var BASE = "{{.BasePath}}";
+  var t = {
+    judge: {{ t .Lang "community_bans.detail.judge_h" }},
+    submitters: {{ t .Lang "community_bans.detail.submitters_h" }},
+    likers: {{ t .Lang "community_bans.detail.likers_h" }},
+    bads: {{ t .Lang "community_bans.detail.bads_h" }},
+    comments: {{ t .Lang "community_bans.detail.comments_h" }},
+    none: {{ t .Lang "community_bans.detail.none" }},
+    loading: {{ t .Lang "community_bans.detail.loading" }},
+    err: {{ t .Lang "community_bans.detail.err_prefix" }},
+    scoreUnknown: {{ t .Lang "community_bans.detail.score_unknown" }}
+  };
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function flagImg(cc){
+    var lower = (cc && cc.length === 2) ? cc.toLowerCase() : 'unknown';
+    var label = (cc && cc.length === 2) ? cc : '??';
+    return '<img class="flag" src="' + BASE + '/static/flags/' + lower + '.png" alt="' + label + '" title="' + label + '" loading="lazy">';
+  }
+  function fmtTime(ts){
+    if (!ts) return '';
+    return new Date(ts * 1000).toLocaleString();
+  }
+  function scoreEmoji(n){
+    return n === 5 ? '🛑' : n === 4 ? '🚨' : n === 3 ? '⚠️' : n === 2 ? '👀' : n === 1 ? '🤷' : '—';
+  }
+  function renderPanel(d){
+    var subs = (d.submissions || []).map(function(s){
+      return '<li>' + flagImg(s.country_code) +
+             '<span class="hn">' + esc(s.hn) + '</span>' +
+             (s.reason ? '<span class="reason-inline">— ' + esc(s.reason) + '</span>' : '') +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var likers = (d.likers || []).map(function(v){
+      return '<li>' + flagImg(v.country_code) +
+             '<span class="hn">' + esc(v.hn) + '</span>' +
+             '<span class="when">' + fmtTime(v.created_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var bads = (d.bads || []).map(function(v){
+      return '<li>' + flagImg(v.country_code) +
+             '<span class="hn">' + esc(v.hn) + '</span>' +
+             '<span class="when">' + fmtTime(v.created_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var comments = (d.comments || []).map(function(c){
+      return '<li>' + flagImg(c.country_code) +
+             '<span class="hn">' + esc(c.hn) + '</span>' +
+             '<span class="comment-text">' + esc(c.text) + '</span>' +
+             '<span class="when">' + fmtTime(c.created_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var j = d.judge || {};
+    var jLine = (j.score > 0)
+      ? '<strong>' + scoreEmoji(j.score) + ' ' + esc(j.score) + '</strong>' +
+        (j.judge_mode ? ' <span class="muted">[' + esc(j.judge_mode) + ']</span>' : '') +
+        '<div class="judge-line">' + esc(j.reasoning || '') + '</div>'
+      : '<span class="empty">' + esc(t.scoreUnknown) + '</span>';
+    return '<div class="detail-panel">' +
+      '<section><h4>' + esc(t.judge) + '</h4>' + jLine + '</section>' +
+      '<section><h4>' + esc(t.submitters) + ' (' + ((d.submissions||[]).length) + ')</h4><ul class="flat">' + subs + '</ul></section>' +
+      '<section><h4>' + esc(t.likers) + ' (' + ((d.likers||[]).length) + ') · ' + esc(t.bads) + ' (' + ((d.bads||[]).length) + ')</h4>' +
+        '<ul class="flat">' + likers + '</ul>' +
+        ((d.bads||[]).length > 0 ? '<ul class="flat" style="margin-top:.4rem">' + bads + '</ul>' : '') +
+      '</section>' +
+      '<section><h4>' + esc(t.comments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul></section>' +
+    '</div>';
+  }
+  function ensureDetailRow(row){
+    var next = row.nextElementSibling;
+    if (next && next.classList.contains('detail-row')) return next;
+    var dr = document.createElement('tr');
+    dr.className = 'detail-row';
+    dr.style.display = 'none';
+    var dc = document.createElement('td');
+    dc.colSpan = 9;
+    dr.appendChild(dc);
+    row.parentNode.insertBefore(dr, next);
+    return dr;
+  }
+  document.querySelectorAll('table.feed tbody tr.feed-row').forEach(function(row){
+    var btn = row.querySelector('.detail-toggle');
+    if (!btn) return;
+    var loaded = false;
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var dr = ensureDetailRow(row);
+      var open = btn.classList.toggle('open');
+      btn.textContent = open ? '▼' : '▶';
+      dr.style.display = open ? '' : 'none';
+      if (open && !loaded){
+        var ip = row.dataset.ip || '';
+        var ja4 = row.dataset.ja4 || '';
+        var qp = new URLSearchParams();
+        if (ip) qp.set('ip', ip);
+        if (ja4) qp.set('ja4', ja4);
+        dr.firstElementChild.innerHTML = '<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>';
+        fetch(BASE + '/admin/api/community-bans/detail?' + qp.toString(), {credentials:'same-origin'})
+          .then(function(r){
+            if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+            return r.json();
+          })
+          .then(function(d){ dr.firstElementChild.innerHTML = renderPanel(d); loaded = true; })
+          .catch(function(err){
+            dr.firstElementChild.innerHTML = '<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>';
+          });
+      }
     });
   });
 })();
