@@ -46,6 +46,9 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	}
 	// Clamp comment to 280 chars.  Allow only single newlines (= server re-sanitizes).
 	req.Comment = clampComment(req.Comment, 280)
+	// Carry the install-wide country opt-in flag.  Default off so a fresh
+	// install never leaks country to the hub until the operator opts in.
+	req.PublishCountry = cur.CommunityBans.PublishCountry
 
 	body, err := json.Marshal(req)
 	if err != nil {

@@ -30,15 +30,17 @@ const (
 
 // SubmitRequest: client → unmask.sh submit payload.
 type SubmitRequest struct {
-	IP      string `json:"ip"`
-	JA4     string `json:"ja4,omitempty"`
-	Reason  string `json:"reason,omitempty"`
-	Comment string `json:"comment,omitempty"`
+	IP             string `json:"ip"`
+	JA4            string `json:"ja4,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	Comment        string `json:"comment,omitempty"`
+	PublishCountry bool   `json:"publish_country,omitempty"`
 }
 
 // RegisterRequest: client → unmask.sh register payload (= optional metadata).
 type RegisterRequest struct {
-	UnmaskVersion string `json:"unmask_version,omitempty"`
+	UnmaskVersion  string `json:"unmask_version,omitempty"`
+	PublishCountry bool   `json:"publish_country,omitempty"`
 }
 
 // RegisterResponse: unmask.sh → client.

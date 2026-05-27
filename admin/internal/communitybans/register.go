@@ -27,7 +27,10 @@ func (c *Client) Register(ctx context.Context) error {
 	}
 
 	url := cur.CommunityBans.ResolvedRegisterURL()
-	body, err := json.Marshal(RegisterRequest{UnmaskVersion: cur.Nginx.SeenVersion})
+	body, err := json.Marshal(RegisterRequest{
+		UnmaskVersion:  cur.Nginx.SeenVersion,
+		PublishCountry: cur.CommunityBans.PublishCountry,
+	})
 	if err != nil {
 		return fmt.Errorf("marshal register: %w", err)
 	}
