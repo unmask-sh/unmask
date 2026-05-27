@@ -81,8 +81,15 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 	now := time.Now().Unix()
 
 	var ipja4, ja4, ip []string
+	v2 := doc.Version >= 2
 	for _, e := range doc.Entries {
 		if e.ExpiresAt > 0 && e.ExpiresAt < now {
+			continue
+		}
+		// v2 feed carries Promoted: skip non-promoted entries (= score 1-2,
+		// browse-only) from the nginx map files.  v1 feeds have no Promoted
+		// field; treat every entry as enforceable for back-compat.
+		if v2 && !e.Promoted {
 			continue
 		}
 		ipv := strings.TrimSpace(e.IP)

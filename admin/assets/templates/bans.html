@@ -70,6 +70,8 @@ table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
 table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
 table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
 table.feed tbody tr:hover{background:#f8fafc}
+table.feed tbody tr.feed-row.not-promoted td:not(:first-child){opacity:.72}
+table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .match-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
 .match-ip_ja4{background:#fee2e2;color:#991b1b}
 .match-ja4_only{background:#fef3c7;color:#92400e}
@@ -353,7 +355,7 @@ table.feed tbody tr:hover{background:#f8fafc}
     </thead>
     <tbody>
       {{ range .CommunityBansEntries }}
-      <tr class="feed-row" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+      <tr class="feed-row{{ if not .Promoted }} not-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" title="{{ if .Promoted }}{{ t $.Lang "community_bans.row.promoted_title" }}{{ else }}{{ t $.Lang "community_bans.row.not_promoted_title" }}{{ end }}">
         <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
           {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
