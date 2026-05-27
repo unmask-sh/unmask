@@ -46,6 +46,7 @@ export NFPM_APK_KEY_FILE NFPM_APK_KEY_NAME
 
 DIST            = dist
 ADMIN_BIN       = $(DIST)/unmask-admin-$(GOOS)-$(GOARCH)
+HUB_BIN         = $(DIST)/unmask-hub-$(GOOS)-$(GOARCH)
 MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
 GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
@@ -67,6 +68,13 @@ build-admin:
 	mkdir -p $(DIST)
 	cd admin && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build $(GOFLAGS) -o ../$(ADMIN_BIN) ./cmd/unmask-admin
+
+## build-hub     - Go static Unmask Community Bans hub server (= unmask.sh side)
+build-hub:
+	mkdir -p $(DIST)
+	cd admin && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
+		go build $(GOFLAGS) -o ../$(HUB_BIN) ./cmd/unmask-hub
+	@echo "built $(HUB_BIN)"
 	@echo "built $(ADMIN_BIN)"
 
 ## build-module  - nginx dynamic module .so (downloads nginx source as needed)
@@ -393,6 +401,25 @@ package-deb: build-admin
 	$(call _nfpm_main,deb)
 package-apk: build-admin
 	$(call _nfpm_main,apk)
+
+# unmask-hub package -- shipped only to unmask.sh (= operator-side installs
+# never need to install it).  Build as a separate package so the main install
+# does not drag the hub binary along.
+define _nfpm_hub
+	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-hub.yaml > nfpm-hub.$(GOARCH).yaml && \
+		$(NFPM) pkg --config nfpm-hub.$(GOARCH).yaml --packager $(1) --target ../$(DIST) && \
+		rm -f nfpm-hub.$(GOARCH).yaml
+endef
+
+## package-hub   - unmask-hub.rpm / .deb / .apk (Unmask Community Bans hub)
+package-hub: package-hub-rpm package-hub-deb package-hub-apk
+package-hub-rpm: build-hub
+	$(call _nfpm_hub,rpm)
+package-hub-deb: build-hub
+	$(call _nfpm_hub,deb)
+package-hub-apk: build-hub
+	$(call _nfpm_hub,apk)
 
 ## package-plugin-nginx-fat - bundle .so for multiple nginx versions into one plugin.
 # Prereq: build-module-multi has generated .so for all versions (dist/multi-modules/<ver>/...).

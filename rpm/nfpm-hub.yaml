@@ -1,0 +1,57 @@
+# unmask-hub — Unmask Community Bans hub server.
+#
+# Intended for the unmask.sh production host only.  Operator-side installs
+# never need this package; running the hub on a private install is
+# supported but not the recommended deployment shape.
+#
+# multi-arch support:
+#   UNMASK_ARCH=amd64 UNMASK_VERSION=0.1.0 nfpm pkg --config nfpm-hub.yaml --packager rpm --target dist/
+#   UNMASK_ARCH=arm64 UNMASK_VERSION=0.1.0 nfpm pkg --config nfpm-hub.yaml --packager rpm --target dist/
+
+name: unmask-hub
+arch: ${UNMASK_ARCH}
+platform: linux
+version: ${UNMASK_VERSION}
+section: net
+priority: optional
+maintainer: unmask maintainers <oss@unmask.sh>
+description: |
+  unmask-hub — aggregation server for Unmask Community Bans.
+  Hub-side daemon that accepts /api/feed/register + /api/feed/submit
+  from operator-side unmask installs and republishes the aggregated
+  banlist.json for distribution.  Reuses /etc/unmask/config.yml
+  (= feed_server.* block).
+vendor: unmask
+homepage: https://github.com/unmask-sh/unmask
+license: Apache-2.0
+
+# Depend on the main unmask package so the unmask user/group + /var/lib/unmask
+# directory + config.yml all already exist (= avoids duplicating the preinstall
+# bootstrap logic).
+depends:
+  - unmask
+
+rpm:
+  group: System Environment/Daemons
+  signature:
+    key_file: ${NFPM_RPM_KEY_FILE:-}
+
+deb:
+  fields:
+    Vcs-Browser: https://github.com/unmask-sh/unmask
+
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}
+
+contents:
+  - src: ../dist/unmask-hub-linux-${UNMASK_ARCH}
+    dst: /usr/sbin/unmask-hub
+    file_info:
+      mode: 0755
+
+  - src: ./unmask-hub.service
+    dst: /usr/lib/systemd/system/unmask-hub.service
+    file_info:
+      mode: 0644

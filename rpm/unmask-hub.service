@@ -1,0 +1,47 @@
+[Unit]
+Description=unmask-hub (Unmask Community Bans hub server)
+Documentation=https://github.com/unmask-sh/unmask
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=unmask
+Group=unmask
+
+# Reuses the admin's config.yml (= same feed_server.* yaml block).
+# Override with -config / -addr at the ExecStart line if a single host
+# happens to run two hubs (uncommon -- the canonical hub is unmask.sh).
+Environment=UNMASK_CONFIG=/etc/unmask/config.yml
+ExecStart=/usr/sbin/unmask-hub serve -addr 127.0.0.1:8766
+
+# Hardening (= identical to unmask-admin.service; the binary is smaller
+# but the threat model is the same -- a public-facing aggregation
+# endpoint that accepts submissions from arbitrary installs).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+# /var/lib/unmask holds feed-server.sqlite + the generated feed.json.
+# /etc/unmask is read-only for the hub (= config only).
+ReadWritePaths=/var/lib/unmask
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
