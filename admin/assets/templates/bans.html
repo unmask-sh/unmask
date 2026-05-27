@@ -266,7 +266,10 @@ table.feed tbody tr:hover{background:#f8fafc}
 
 <div class="bcd-card">
   <div class="card-h-row">
-    <h2>{{ t .Lang "shared_feed.title" }}</h2>
+    <h2 style="display:flex;align-items:center;gap:.5rem">
+      {{ t .Lang "shared_feed.title" }}
+      <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "shared_feed.subtitle") }}</span></span>
+    </h2>
     <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-toggle-form" style="margin:0">
       <input type="hidden" name="op" value="subscribe-toggle">
       <label class="toggle-switch" title="{{ t .Lang "bans.subscribe_toggle_tooltip" }}">
@@ -276,7 +279,6 @@ table.feed tbody tr:hover{background:#f8fafc}
       </label>
     </form>
   </div>
-  <p class="note" style="margin:0 0 .75rem">{{ safeHTML (t .Lang "shared_feed.subtitle") }}</p>
 
   <div class="counts">
     <span class="pill"><strong>{{ .SharedFeedTotalEntries }}</strong> {{ t .Lang "shared_feed.total" }}</span>
