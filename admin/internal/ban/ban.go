@@ -194,6 +194,45 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 	}
 }
 
+// AddFromHub: auto-add a community_bans entry into the local BAN list.
+//
+//	expiresAt is a UNIX seconds timestamp, taken straight from the hub
+//	feed entry (= 0 means permanent, but hub entries always carry one).
+//	action overrides the default chain mode resolver (= use
+//	settings.CommunityBans.AutoBanAction, falls back to ResolveAction
+//	when empty).
+//
+// Skips whitelisted IPs and empty IP entries (= ja4_only feed rows have
+// no IP -- those keep their nginx-map enforcement only).
+func (m *Manager) AddFromHub(ctx context.Context, ip, ja4, reason, action string, expiresAt int64) {
+	if m == nil {
+		return
+	}
+	ip = strings.TrimSpace(ip)
+	ja4 = strings.TrimSpace(ja4)
+	if ip == "" {
+		return
+	}
+	if m.whitelist[ip] {
+		return
+	}
+	now := time.Now().Unix()
+	if expiresAt > 0 && expiresAt < now {
+		return // already expired -- skip
+	}
+	if err := m.upsert(ctx, ip, ja4, "community_bans", reason, now, expiresAt, "community_bans_auto", action); err != nil {
+		log.Printf("ban auto-add from community_bans hub: %v", err)
+		return
+	}
+	m.markDirty()
+	if m.filePath != "" {
+		_ = m.flush()
+	}
+	if m.OnCreated != nil {
+		m.OnCreated(ip, ja4, "community_bans", reason, "community_bans_auto")
+	}
+}
+
 // AddManual: manual BAN from the admin / CLI.  expiresSec=0 -> permanent.
 // action="" defers to settings.Bans.ManualDefaultAction at flush time;
 // pass a valid chain mode (= deny / pow_only / pow_then_captcha /

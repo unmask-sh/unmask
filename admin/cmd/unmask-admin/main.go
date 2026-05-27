@@ -370,6 +370,7 @@ func cmdServe(args []string) error {
 			UserAgent:      "unmask-admin/" + Version,
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
+			BanMgr:         banMgr,
 		}
 		go h.CommunityBans.Run(context.Background(), time.Hour)
 	}

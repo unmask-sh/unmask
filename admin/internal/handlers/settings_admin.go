@@ -3038,6 +3038,24 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// Flipping back to OFF stops emitting the flag on new requests; old rows
 	// keep whatever they recorded until they age out.
 	c.PublishCountry = r.FormValue("publish_country") == "1"
+	// AutoBanMinScore: 0 disables.  Anything outside 0-5 is clamped so a
+	// hand-edited form can't pass through a nonsense threshold.
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("auto_ban_min_score"))); err == nil {
+		switch {
+		case v <= 0:
+			c.AutoBanMinScore = 0
+		case v > 5:
+			c.AutoBanMinScore = 5
+		default:
+			c.AutoBanMinScore = v
+		}
+	}
+	switch strings.TrimSpace(r.FormValue("auto_ban_action")) {
+	case "deny", "pow_only", "pow_then_captcha", "captcha_only":
+		c.AutoBanAction = r.FormValue("auto_ban_action")
+	case "":
+		c.AutoBanAction = "" // defers to settings.Nginx.Bans.CommunityBansDefaultAction
+	}
 	terms := r.FormValue("terms_accepted") == "1"
 	if terms && c.TermsAcceptedAt == 0 {
 		c.TermsAcceptedAt = time.Now().Unix()

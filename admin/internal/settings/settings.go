@@ -1106,6 +1106,15 @@ type CommunityBans struct {
 	TermsAcceptedAt int64  `yaml:"terms_accepted_at,omitempty"`
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
+	// AutoBanMinScore: score threshold (1-5) above which a promoted hub entry
+	// gets auto-added to the local BanMgr.  0 disables (= map-only enforcement,
+	// no per-row BAN list rows from the hub).  Default 5 = "only the loudest
+	// signals get propagated into my BAN management view."
+	AutoBanMinScore int `yaml:"auto_ban_min_score,omitempty"`
+	// AutoBanAction: chain mode applied to auto-added rows.  Empty defers to
+	// settings.Nginx.Bans.CommunityBansDefaultAction.  Concrete values:
+	// deny / pow_only / pow_then_captcha / captcha_only.  Default captcha_only.
+	AutoBanAction string `yaml:"auto_ban_action,omitempty"`
 }
 
 // DefaultCommunityBans*: unmask.sh hub URLs. Overridable (= for running a
@@ -1481,6 +1490,8 @@ func defaults() Settings {
 			SubmitURL:        DefaultCommunityBansSubmitURL,
 			FeedURL:          DefaultCommunityBansFeedURL,
 			AggregateURL:     DefaultCommunityBansAggregateURL,
+			AutoBanMinScore:  5, // default: only the strongest tier auto-applies
+			AutoBanAction:    "captcha_only",
 		},
 		Nginx: Nginx{
 			OutputDir:    "/etc/unmask",

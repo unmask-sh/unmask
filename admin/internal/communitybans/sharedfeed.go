@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -30,6 +31,11 @@ type Client struct {
 
 	// MapDir: output dir for community-bans-*.map.  Empty → settings.Nginx.OutputDir.
 	MapDir string
+
+	// BanMgr: optional.  When set, Pull() auto-adds promoted entries scoring
+	// >= settings.CommunityBans.AutoBanMinScore into the local BAN list via
+	// BanMgr.AddFromHub.  nil = disabled (= map files are the only output).
+	BanMgr *ban.Manager
 
 	// Logger: optional.  nil → log package default.
 	Logger *log.Logger

@@ -67,6 +67,12 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		c.logf("communitybans: write doc: %v", err)
 	}
 
+	// Auto-apply: copy promoted high-score entries into the local BAN list so
+	// they show up on the bans page with source=community_bans and the
+	// operator can manage them like any other BAN.  Map files still enforce
+	// the rest; this is opt-in behavior controlled by AutoBanMinScore.
+	autoApplied := c.applyAutoBans(ctx, doc, cur.CommunityBans.AutoBanMinScore, cur.CommunityBans.AutoBanAction)
+
 	now := time.Now().Unix()
 	cnt := len(doc.Entries)
 	if err := c.SettingsUpdate(func(s *settings.Settings) {
@@ -75,8 +81,42 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	}); err != nil {
 		c.logf("communitybans: persist pull state: %v", err)
 	}
+	if autoApplied > 0 {
+		c.logf("communitybans: auto-applied %d promoted entr(ies) into local BAN list", autoApplied)
+	}
 	c.logf("communitybans: pulled %d entries from %s", cnt, redactURL(url))
 	return doc, nil
+}
+
+// applyAutoBans: walk promoted entries scoring >= minScore and copy them into
+// the local BAN list with source=community_bans.  Returns the count applied
+// (= for log output).  Skips when BanMgr is nil or minScore <= 0 (= the
+// operator has opted out of automatic local-list propagation).
+func (c *Client) applyAutoBans(ctx context.Context, doc FeedDocument, minScore int, action string) int {
+	if c.BanMgr == nil || minScore <= 0 {
+		return 0
+	}
+	if action == "" {
+		action = "captcha_only"
+	}
+	now := time.Now().Unix()
+	n := 0
+	for _, e := range doc.Entries {
+		if !e.Promoted || e.Score < minScore {
+			continue
+		}
+		if e.ExpiresAt > 0 && e.ExpiresAt < now {
+			continue
+		}
+		if e.IP == "" {
+			// ja4_only entries -- BanMgr is IP-keyed.  These keep map-only enforcement.
+			continue
+		}
+		reason := fmt.Sprintf("auto: community_bans hub (score=%d)", e.Score)
+		c.BanMgr.AddFromHub(ctx, e.IP, e.JA4, reason, action, e.ExpiresAt)
+		n++
+	}
+	return n
 }
 
 // redactURL: drops the query string for log output (= prevents token leaks).

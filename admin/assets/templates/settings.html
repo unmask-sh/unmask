@@ -3858,6 +3858,32 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </label>
     </div>
 
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.auto_apply_h" }}</h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.auto_apply_desc") }}</div>
+    <div class="field" style="display:flex;gap:1rem;align-items:flex-end">
+      <div>
+        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.auto_min_score_label" }}</label>
+        {{ $abs := .CommunityBans.AutoBanMinScore }}
+        <select name="auto_ban_min_score" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
+          <option value="0" {{ if eq $abs 0 }}selected{{ end }}>{{ t .Lang "settings.community_bans.auto_min_score_0" }}</option>
+          <option value="3" {{ if eq $abs 3 }}selected{{ end }}>3 ⚠️ {{ t .Lang "settings.community_bans.auto_min_score_3" }}</option>
+          <option value="4" {{ if eq $abs 4 }}selected{{ end }}>4 🚨 {{ t .Lang "settings.community_bans.auto_min_score_4" }}</option>
+          <option value="5" {{ if eq $abs 5 }}selected{{ end }}>5 🛑 {{ t .Lang "settings.community_bans.auto_min_score_5" }}</option>
+        </select>
+      </div>
+      <div>
+        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.auto_action_label" }}</label>
+        {{ $aba := .CommunityBans.AutoBanAction }}
+        {{ if eq $aba "" }}{{ $aba = "captcha_only" }}{{ end }}
+        <select name="auto_ban_action" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
+          <option value="captcha_only"     {{ if eq $aba "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $aba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="pow_only"         {{ if eq $aba "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="deny"             {{ if eq $aba "deny" }}selected{{ end }}>deny</option>
+        </select>
+      </div>
+    </div>
+
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.status_h" }}</h3>
     <table style="font-size:.85rem;border-collapse:collapse">
       <tr>
