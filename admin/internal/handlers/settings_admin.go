@@ -3061,11 +3061,17 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 		c.AutoBanAction = "" // defers to settings.Nginx.Bans.CommunityBansDefaultAction
 	}
 	terms := r.FormValue("terms_accepted") == "1"
-	if terms && c.TermsAcceptedAt == 0 {
-		c.TermsAcceptedAt = time.Now().Unix()
-	}
-	if !terms {
+	if terms {
+		// Stamp the moment + the version the operator is accepting against.
+		// Fresh accept and re-accept (= v1 -> v2 bump) both refresh the
+		// timestamp so audit logs show when v2 was actually read.
+		if c.TermsAcceptedAt == 0 || c.TermsAcceptedVersion < settings.CurrentCommunityBansTermsVersion {
+			c.TermsAcceptedAt = time.Now().Unix()
+		}
+		c.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
+	} else {
 		c.TermsAcceptedAt = 0
+		c.TermsAcceptedVersion = 0
 	}
 }
 

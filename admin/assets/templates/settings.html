@@ -3825,6 +3825,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     {{ if gt .CommunityBans.TermsAcceptedAt 0 }}
     <div class="note" style="font-size:.78rem;color:#64748b;margin-top:.2rem">
       {{ t .Lang "settings.community_bans.terms_accepted_at" }}: <time class="js-datetime" data-ts="{{ .CommunityBans.TermsAcceptedAt }}">{{ .CommunityBans.TermsAcceptedAt }}</time>
+      <span style="margin-left:.4rem">(v{{ if gt .CommunityBans.TermsAcceptedVersion 0 }}{{ .CommunityBans.TermsAcceptedVersion }}{{ else }}1{{ end }})</span>
+    </div>
+    {{ end }}
+    {{ if .CommunityBans.TermsStale }}
+    <div class="note" style="margin-top:.5rem;padding:.5rem .7rem;border:1px solid #fcd34d;background:#fef3c7;color:#92400e;border-radius:.3rem">
+      ⚠ {{ safeHTML (t .Lang "settings.community_bans.terms_stale_warning") }}
     </div>
     {{ end }}
 

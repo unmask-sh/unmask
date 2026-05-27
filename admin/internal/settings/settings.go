@@ -1103,7 +1103,8 @@ type CommunityBans struct {
 	AggregateURL    string `yaml:"aggregate_url,omitempty"`
 	LastPulledAt    int64  `yaml:"last_pulled_at,omitempty"`
 	Entries         int    `yaml:"entries,omitempty"`
-	TermsAcceptedAt int64  `yaml:"terms_accepted_at,omitempty"`
+	TermsAcceptedAt      int64 `yaml:"terms_accepted_at,omitempty"`
+	TermsAcceptedVersion int   `yaml:"terms_accepted_version,omitempty"`
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
 	// AutoBanMinScore: score threshold (1-5) above which a promoted hub entry
@@ -1166,9 +1167,27 @@ func (s CommunityBans) ResolvedAggregateURL() string {
 	return s.AggregateURL
 }
 
-// SubmitActive: submission is allowed only when submit_enabled && terms accepted.
+// CurrentCommunityBansTermsVersion: bump this any time the user-facing privacy
+// or terms wording changes materially.  Operators whose TermsAcceptedVersion
+// is below this value need to re-accept before SubmitActive() returns true.
+//
+// v2 = 2026-05-27 Community Bans relaunch (= comments / votes / HN / country
+// opt-in / 5-tier score / auto-apply).
+const CurrentCommunityBansTermsVersion = 2
+
+// SubmitActive: submission is allowed only when submit_enabled && terms
+// accepted at the current version.  Operators stuck on v1 see a banner +
+// the submit_enabled checkbox refusing to take effect until they re-accept.
 func (s CommunityBans) SubmitActive() bool {
-	return s.SubmitEnabled && s.TermsAcceptedAt > 0
+	return s.SubmitEnabled && s.TermsAcceptedAt > 0 && s.TermsAcceptedVersion >= CurrentCommunityBansTermsVersion
+}
+
+// TermsStale: TermsAccepted is non-zero but predates the current version
+// (= v1 acceptor that has not yet seen v2).  Used by the settings UI to
+// surface a "please re-accept" banner without forcing the operator to flip
+// submit_enabled off and on again.
+func (s CommunityBans) TermsStale() bool {
+	return s.TermsAcceptedAt > 0 && s.TermsAcceptedVersion < CurrentCommunityBansTermsVersion
 }
 
 // (= FeedServer struct moved to the private unmask-sh/unmask-hub repo so
