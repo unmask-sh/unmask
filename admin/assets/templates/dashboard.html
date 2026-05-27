@@ -175,7 +175,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <a href="/unmask/admin/stats/" class="active">{{ t .Lang "nav.stats" }}</a>
     <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}</a>
-      <a href="/unmask/admin/community-bans/">{{ t .Lang "nav.community_bans" }}</a>
+      <a href="/unmask/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="/unmask/admin/settings/">{{ t .Lang "nav.settings" }}</a>
     <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
     <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>

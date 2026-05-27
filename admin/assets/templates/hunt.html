@@ -193,7 +193,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
     <a href="{{.BasePath}}/admin/hunt/" class="active">{{ t .Lang "nav.hunt" }}</a>
     <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
-      <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}</a>
+      <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
     <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
     <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>

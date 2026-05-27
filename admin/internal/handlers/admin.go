@@ -403,6 +403,20 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 			}
 		}
 	}
+	// "共有 BAN" tab badge: count of source=community_bans rows in BanMgr so
+	// auto-applied entries don't go unnoticed across multiple sessions.
+	// Cheap: the live snapshot is already in memory.  0 = no badge.
+	if _, ok := data["NavCommunityBadge"]; !ok {
+		if h.BanMgr != nil {
+			n := 0
+			for _, e := range h.BanMgr.Snapshot() {
+				if e.Source == "community_bans" {
+					n++
+				}
+			}
+			data["NavCommunityBadge"] = n
+		}
+	}
 
 	// Host + site picker data for the shared header_tools partial (= the
 	// host / site filter pickers, rendered on every admin page).  Each key is
