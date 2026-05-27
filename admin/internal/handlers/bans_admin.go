@@ -48,6 +48,11 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	type banRow struct {
 		ban.Entry
 		CountryCode string
+		// ResolvedAction is the action that actually applies once
+		// Entry.Action falls back via BansConfig.ResolveAction.  Surfaced
+		// in the list view so "(default)" rows still tell the operator
+		// what's going to happen.
+		ResolvedAction string
 	}
 	ipCC := map[string]string{}
 	lookupCC := func(ip string) string {
@@ -62,8 +67,14 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		return cc
 	}
 	banRows := make([]banRow, 0, len(entries))
+	bansCfg := h.Settings.Nginx.Bans
+	honeyDefault := h.Settings.Nginx.Honeypot.DefaultAction
 	for _, e := range entries {
-		banRows = append(banRows, banRow{Entry: e, CountryCode: lookupCC(e.IP)})
+		resolved := strings.TrimSpace(e.Action)
+		if resolved == "" {
+			resolved = bansCfg.ResolveAction(e.Source, honeyDefault)
+		}
+		banRows = append(banRows, banRow{Entry: e, CountryCode: lookupCC(e.IP), ResolvedAction: resolved})
 	}
 
 	// === shared-feed browse: migrated from /admin/shared-feed/ ===

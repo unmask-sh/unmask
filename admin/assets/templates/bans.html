@@ -152,7 +152,14 @@ table.feed tbody tr:hover{background:#f8fafc}
         <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">(any)</span>{{ end }}</td>
         <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
-        <td>{{ if .Action }}<code>{{ .Action }}</code>{{ else }}<span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}">({{ t $.Lang "bans.action.default" }})</span>{{ end }}</td>
+        <td>
+          {{ if .Action }}
+            <code>{{ .Action }}</code>
+          {{ else }}
+            <code>{{ .ResolvedAction }}</code>
+            <span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}" style="font-size:.78em">(default)</span>
+          {{ end }}
+        </td>
         <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
         <td>
