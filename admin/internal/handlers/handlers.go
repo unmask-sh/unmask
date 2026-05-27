@@ -464,6 +464,15 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 			"non_html_client":  1,
 			"method":           r.Method,
 		}
+		// When the BAN hit reason wins, attach the originating BAN row's
+		// source so the dashboard can split community_bans vs honeypot vs
+		// manual without a nginx-side config change (= BanMgr already
+		// knows which source put the row in the map).
+		if reason == "banned" && h.BanMgr != nil {
+			if src, ok := h.BanMgr.IsBannedSource(r.Context(), ip, ja4); ok && src != "" {
+				payload["ban_source"] = src
+			}
+		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
 		}

@@ -680,6 +680,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminMyIP))
 	mux.HandleFunc("GET "+base+"/admin/api/community-bans/detail",
 		h.AuthMiddleware(h.AdminCommunityBansDetail))
+	mux.HandleFunc("GET "+base+"/admin/api/community-bans/me/submissions",
+		h.AuthMiddleware(h.AdminCommunityBansMySubmissions))
 	mux.HandleFunc("POST "+base+"/admin/api/community-bans/vote",
 		h.AuthMiddleware(h.AdminCommunityBansVote))
 	mux.HandleFunc("DELETE "+base+"/admin/api/community-bans/vote/{id}",

@@ -163,6 +163,34 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		sourcePills = append(sourcePills, sourcePill{Source: s, Count: n, Pct: pct})
 	}
+
+	// "Community Bans 効果": past-30d traffic hit count from unmask_event.
+	// Honors the dialect-specific JSON-extract syntax (= sqlite vs mariadb)
+	// via the same helper the dashboard queries use.  Failures fall through
+	// to zero counts so the card still renders even if the DB driver is
+	// momentarily unhappy.
+	var hitCount, hitUniqueIP int
+	if h.DB != nil {
+		var jsonExpr string
+		if h.DB.Driver == "sqlite" {
+			jsonExpr = `json_extract(payload_json, '$.ban_source')`
+		} else {
+			jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.ban_source'))`
+		}
+		var dateExpr string
+		if h.DB.Driver == "sqlite" {
+			dateExpr = `date_created >= datetime('now', '-30 days')`
+		} else {
+			dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+		}
+		row := h.DB.QueryRowContext(r.Context(),
+			`SELECT COUNT(*), COUNT(DISTINCT ip_address)
+			   FROM unmask_event
+			  WHERE phase = 'serve'
+			    AND `+jsonExpr+` = 'community_bans'
+			    AND `+dateExpr)
+		_ = row.Scan(&hitCount, &hitUniqueIP)
+	}
 	data := map[string]any{
 		"Lang":                   i18n.Resolve(r),
 		"TZ":                     resolveTZ(r),
@@ -177,6 +205,8 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"MyHN":                   myHN,
 		"SourcePills":            sourcePills,
 		"CommunityBansFromHub":   sourceCounts["community_bans"],
+		"CommunityBansHits30d":   hitCount,
+		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
 		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
 		"CommunityBansGeneratedAt":  doc.GeneratedAt,
 		"CommunityBansVersion":      doc.Version,
@@ -348,6 +378,17 @@ func (h *Handler) AdminCommunityBansCommentDelete(w http.ResponseWriter, r *http
 	}
 	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
 	h.proxyToHub(w, r, base+"/comment/"+url.PathEscape(id), false)
+}
+
+// AdminCommunityBansMySubmissions: GET /admin/api/community-bans/me/submissions
+//
+// Bearer-forwarded proxy that returns every row owned by this install's
+// token -- the operator's own BAN reports, comments, and votes.  Powers the
+// "自分の submit 一覧" panel on the bans page (= GDPR Art 15 surface).
+func (h *Handler) AdminCommunityBansMySubmissions(w http.ResponseWriter, r *http.Request) {
+	cur := h.snapshotSettings()
+	base := resolveHubAPIBase(cur.CommunityBans.ResolvedRegisterURL())
+	h.proxyToHub(w, r, base+"/me/submissions", false)
 }
 
 // AdminCommunityBansSubmissionDelete: DELETE /admin/api/community-bans/submission/{id}

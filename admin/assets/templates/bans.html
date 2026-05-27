@@ -352,6 +352,11 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     {{ if gt .CommunityBansFromHub 0 }}
     <span class="pill" title="{{ t .Lang "community_bans.impact_tip" }}">{{ t .Lang "community_bans.impact_auto_label" }} <strong>{{ .CommunityBansFromHub }}</strong></span>
     {{ end }}
+    {{ if gt .CommunityBansHits30d 0 }}
+    <span class="pill" title="{{ t .Lang "community_bans.hits30d_tip" }}" style="background:#dcfce7;border-color:#86efac;color:#166534">
+      {{ t .Lang "community_bans.hits30d_label" }} <strong>{{ .CommunityBansHits30d }}</strong> ({{ .CommunityBansHitsUniqueIP30d }} unique IP)
+    </span>
+    {{ end }}
   </div>
 
   <form method="GET" class="filter-bar">
@@ -367,6 +372,13 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <a href="?" class="reset">{{ t .Lang "community_bans.filter.reset" }}</a>
     {{ end }}
   </form>
+
+  <details id="my-subs-card" style="margin:.6rem 0;padding:.4rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
+    <summary style="cursor:pointer;font-weight:600;color:#0f172a;font-size:.9rem">{{ t .Lang "community_bans.my_submissions_h" }} <span id="my-subs-count" class="muted" style="font-weight:normal;font-size:.8rem">…</span></summary>
+    <div id="my-subs-body" style="padding:.5rem 0;font-size:.82rem">
+      <span class="muted">{{ t .Lang "community_bans.detail.loading" }}</span>
+    </div>
+  </details>
 
   <table class="feed">
     <thead>
@@ -767,6 +779,49 @@ document.addEventListener('DOMContentLoaded', function(){
         alert((t.err || 'error') + ' ' + (err.message || err));
       });
     });
+  });
+})();
+
+// "自分の submit 一覧" panel.  Lazy-loads /admin/api/community-bans/me/submissions
+// on first <details> expand.  Caches result for the page lifetime.
+(function(){
+  var card = document.getElementById('my-subs-card');
+  if (!card) return;
+  var loaded = false;
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function fmtTime(ts){ return ts ? new Date(ts*1000).toLocaleString() : ''; }
+  function render(d){
+    var subN = (d.submissions||[]).length;
+    var comN = (d.comments||[]).length;
+    var voteN = (d.votes||[]).length;
+    document.getElementById('my-subs-count').textContent =
+      '· ' + subN + ' submit / ' + comN + ' comment / ' + voteN + ' vote' +
+      (d.hn ? '  (HN: ' + d.hn + ')' : '');
+    var rows = (d.submissions||[]).map(function(s){
+      return '<tr><td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace">' + esc(s.ip||'') + '</td>' +
+             '<td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace;color:#475569">' + esc(s.ja4||'') + '</td>' +
+             '<td style="padding:.2rem .4rem">' + esc(s.reason||'') + '</td>' +
+             '<td style="padding:.2rem .4rem;color:#94a3b8;font-size:.78rem">' + fmtTime(s.submitted_at) + '</td></tr>';
+    }).join('');
+    if (!rows) rows = '<tr><td colspan="4" style="padding:.5rem;color:#94a3b8;font-style:italic">(none)</td></tr>';
+    document.getElementById('my-subs-body').innerHTML =
+      '<table style="width:100%;border-collapse:collapse;font-size:.82rem">' +
+        '<thead><tr style="text-align:left;color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em">' +
+        '<th style="padding:.2rem .4rem">IP</th><th style="padding:.2rem .4rem">JA4</th><th style="padding:.2rem .4rem">reason</th><th style="padding:.2rem .4rem">at</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table>';
+  }
+  card.addEventListener('toggle', function(){
+    if (!card.open || loaded) return;
+    fetch("{{.BasePath}}/admin/api/community-bans/me/submissions", {credentials:'same-origin', cache:'no-cache'})
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(d){ render(d); loaded = true; })
+      .catch(function(err){
+        document.getElementById('my-subs-body').innerHTML = '<span style="color:#b91c1c">' + esc(err.message || err) + '</span>';
+      });
   });
 })();
 </script>
