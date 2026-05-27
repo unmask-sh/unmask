@@ -3848,6 +3848,15 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </label>
       <div id="sf-submit-warn" class="note" style="font-size:.78rem;color:#b45309;margin-top:.25rem{{ if gt .CommunityBans.TermsAcceptedAt 0 }};display:none{{ end }}">⚠ {{ t .Lang "settings.community_bans.submit_needs_terms" }}</div>
     </div>
+    <div class="field">
+      <label style="display:flex;align-items:flex-start;gap:.5rem">
+        <input type="checkbox" name="publish_country" value="1" {{ if .CommunityBans.PublishCountry }}checked{{ end }} style="margin-top:.25rem">
+        <span>
+          <strong>{{ t .Lang "settings.community_bans.publish_country_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.community_bans.publish_country_desc") }}</span>
+        </span>
+      </label>
+    </div>
 
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.status_h" }}</h3>
     <table style="font-size:.85rem;border-collapse:collapse">

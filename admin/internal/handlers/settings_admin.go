@@ -3032,6 +3032,12 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	c.SubmitEnabled = r.FormValue("submit_enabled") == "1"
 	c.SubscribeEnabled = r.FormValue("subscribe_enabled") == "1"
+	// PublishCountry: install-wide opt-in (= default OFF).  When ON, future
+	// register / submit / vote / comment requests pass publish_country=true
+	// so the hub records the install's country code alongside the entry.
+	// Flipping back to OFF stops emitting the flag on new requests; old rows
+	// keep whatever they recorded until they age out.
+	c.PublishCountry = r.FormValue("publish_country") == "1"
 	terms := r.FormValue("terms_accepted") == "1"
 	if terms && c.TermsAcceptedAt == 0 {
 		c.TermsAcceptedAt = time.Now().Unix()
