@@ -340,6 +340,20 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     {{ end }}
   </div>
 
+  <div class="counts" style="margin-top:.4rem">
+    <span class="pill" style="background:#eef2ff;border-color:#c7d2fe;color:#3730a3">
+      <strong>{{ t .Lang "community_bans.impact_h" }}:</strong>
+      {{ range .SourcePills }}
+        <span class="source-pill src-{{ .Source }}" style="margin-left:.4rem">{{ .Source }}</span>
+        <strong>{{ .Count }}</strong>
+        <span class="muted" style="font-size:.7rem">({{ .Pct }}%)</span>
+      {{ end }}
+    </span>
+    {{ if gt .CommunityBansFromHub 0 }}
+    <span class="pill" title="{{ t .Lang "community_bans.impact_tip" }}">{{ t .Lang "community_bans.impact_auto_label" }} <strong>{{ .CommunityBansFromHub }}</strong></span>
+    {{ end }}
+  </div>
+
   <form method="GET" class="filter-bar">
     <input type="text" name="q" value="{{ .CommunityBansQuery }}" placeholder="{{ t .Lang "community_bans.filter.q_placeholder" }}">
     <select name="match">

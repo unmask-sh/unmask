@@ -132,6 +132,34 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	if myHN == "" {
 		myHN = strings.TrimSpace(cur.CommunityBans.HNOverride)
 	}
+
+	// BAN source breakdown -- powers the "Community Bans 効果" card.
+	// We compute from banRows (= the live snapshot) so the figures match
+	// what the operator sees in the BAN table directly above.
+	sourceCounts := make(map[string]int, 4)
+	for _, br := range banRows {
+		s := strings.TrimSpace(br.Entry.Source)
+		if s == "" {
+			s = "manual"
+		}
+		sourceCounts[s]++
+	}
+	type sourcePill struct {
+		Source string
+		Count  int
+		Pct    int
+	}
+	totalBans := len(banRows)
+	sourceOrder := []string{"community_bans", "honeypot", "manual"}
+	sourcePills := make([]sourcePill, 0, len(sourceOrder))
+	for _, s := range sourceOrder {
+		n := sourceCounts[s]
+		pct := 0
+		if totalBans > 0 {
+			pct = int((float64(n)*100 + 0.5) / float64(totalBans))
+		}
+		sourcePills = append(sourcePills, sourcePill{Source: s, Count: n, Pct: pct})
+	}
 	data := map[string]any{
 		"Lang":                   i18n.Resolve(r),
 		"TZ":                     resolveTZ(r),
@@ -144,6 +172,8 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"SubscribeEnabled":       cur.CommunityBans.SubscribeEnabled,
 		"MyHN":                   myHN,
+		"SourcePills":            sourcePills,
+		"CommunityBansFromHub":   sourceCounts["community_bans"],
 		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
 		"CommunityBansGeneratedAt":  doc.GeneratedAt,
 		"CommunityBansVersion":      doc.Version,
