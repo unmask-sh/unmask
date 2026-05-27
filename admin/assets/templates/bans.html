@@ -254,10 +254,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         </select>
       </div>
       <div>
-        <label style="display:flex;align-items:center;gap:.3rem">
-          {{ t .Lang "settings.bans.community_bans_action_h" }}
-          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "settings.bans.community_bans_action_help") }}</span></span>
-        </label>
+        <label>{{ t .Lang "settings.bans.community_bans_action_h" }}</label>
         {{ $bsa := .Bans.CommunityBansDefaultAction }}
         {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
         <select name="bans_community_bans_default_action">
