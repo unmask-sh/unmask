@@ -49,6 +49,11 @@ func (c *Client) Submit(ctx context.Context, req SubmitRequest) error {
 	// Carry the install-wide country opt-in flag.  Default off so a fresh
 	// install never leaks country to the hub until the operator opts in.
 	req.PublishCountry = cur.CommunityBans.PublishCountry
+	// Carry HN override so a settings change is picked up on the next BAN
+	// even before a re-register cycle.  Hub also accepts an explicit clear
+	// via /api/feed/me, but for the per-submit path we only push non-empty
+	// values (= empty here means "no opinion on this submit").
+	req.OverrideHN = strings.TrimSpace(cur.CommunityBans.HNOverride)
 
 	body, err := json.Marshal(req)
 	if err != nil {

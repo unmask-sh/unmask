@@ -128,9 +128,12 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	myHN := strings.TrimSpace(cur.CommunityBans.HN)
+	// Effective HN: override wins (= what other installs see), with cached
+	// derived hn as fallback.  Both are kept in settings so the user can
+	// drop the override and revert without re-registering.
+	myHN := strings.TrimSpace(cur.CommunityBans.HNOverride)
 	if myHN == "" {
-		myHN = strings.TrimSpace(cur.CommunityBans.HNOverride)
+		myHN = strings.TrimSpace(cur.CommunityBans.HN)
 	}
 
 	// BAN source breakdown -- powers the "Community Bans 効果" card.

@@ -3038,6 +3038,10 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// Flipping back to OFF stops emitting the flag on new requests; old rows
 	// keep whatever they recorded until they age out.
 	c.PublishCountry = r.FormValue("publish_country") == "1"
+	// HN override: trim + lowercase + clamp.  Strict validation lives on the
+	// hub side -- here we just normalize so the saved value matches what the
+	// hub will accept (= avoids "looks accepted in admin, rejected on hub").
+	c.HNOverride = normalizeHNOverride(r.FormValue("hn_override"))
 	// AutoBanMinScore: 0 disables.  Anything outside 0-5 is clamped so a
 	// hand-edited form can't pass through a nonsense threshold.
 	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("auto_ban_min_score"))); err == nil {
@@ -3068,6 +3072,35 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 // applySMTPForm: receive the SMTP tab form. Empty password submit preserves
 // current value (= matches the "***" placeholder UX where the value is
 // untouched). Port: 0 / invalid → 587.
+// normalizeHNOverride: client-side parity with the hub's validHN().  Empty
+// string clears the override.  Invalid input (= disallowed chars / length)
+// is also coerced to empty so the bad value never reaches the wire; the
+// hub silently re-validates on every register / submit.
+func normalizeHNOverride(in string) string {
+	s := strings.ToLower(strings.TrimSpace(in))
+	if s == "" {
+		return ""
+	}
+	if len(s) < 3 || len(s) > 32 {
+		return ""
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
+		if !ok {
+			return ""
+		}
+	}
+	// First / last must be alphanum so the result reads like the derived form.
+	isAlnum := func(c byte) bool {
+		return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+	}
+	if !isAlnum(s[0]) || !isAlnum(s[len(s)-1]) {
+		return ""
+	}
+	return s
+}
+
 func applySMTPForm(c *settings.SMTP, r *http.Request) {
 	c.Host = strings.TrimSpace(r.FormValue("host"))
 	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port"))); err == nil && v >= 0 && v <= 65535 {

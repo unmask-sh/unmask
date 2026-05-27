@@ -30,6 +30,7 @@ func (c *Client) Register(ctx context.Context) error {
 	body, err := json.Marshal(RegisterRequest{
 		UnmaskVersion:  cur.Nginx.SeenVersion,
 		PublishCountry: cur.CommunityBans.PublishCountry,
+		OverrideHN:     strings.TrimSpace(cur.CommunityBans.HNOverride),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal register: %w", err)

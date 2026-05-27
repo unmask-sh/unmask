@@ -3884,6 +3884,20 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
     </div>
 
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.identity_h" }}</h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.identity_desc") }}</div>
+    <div class="field" style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap">
+      <div>
+        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_derived_label" }}</label>
+        <code style="display:inline-block;padding:.35rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;color:#475569">{{ if .CommunityBans.HN }}{{ .CommunityBans.HN }}{{ else }}<span class="muted">(まだ register されていません)</span>{{ end }}</code>
+      </div>
+      <div style="flex:1;min-width:14rem">
+        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
+        <input type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" maxlength="32" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
+        <div class="note" style="margin-top:.25rem;font-size:.72rem">{{ t .Lang "settings.community_bans.hn_override_rules" }}</div>
+      </div>
+    </div>
+
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.status_h" }}</h3>
     <table style="font-size:.85rem;border-collapse:collapse">
       <tr>
