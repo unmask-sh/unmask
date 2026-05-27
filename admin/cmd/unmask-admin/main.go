@@ -34,7 +34,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
-	"github.com/unmask-sh/unmask/admin/internal/feedserver"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/logwriter"
@@ -84,8 +83,6 @@ func main() {
 		err = cmdDoctor(args)
 	case "install-ipgeo":
 		err = cmdInstallIPGeo(args)
-	case "feed-build":
-		err = cmdFeedBuild(args)
 	case "version", "-v", "--version":
 		fmt.Println("unmask-admin", Version)
 	case "help", "-h", "--help":
@@ -120,8 +117,11 @@ usage:
   unmask-admin user delete <username>
   unmask-admin doctor [-config PATH]
   unmask-admin install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
-  unmask-admin feed-build [-config PATH] [-dry-run]
   unmask-admin version
+
+note: the hub-server commands (= /api/feed/* on unmask.sh) moved to a
+separate binary "unmask-hub" so operator-side installs no longer carry
+the hub code.
 
 env:
   UNMASK_CONFIG   default config path (overridden by -config)
@@ -374,40 +374,15 @@ func cmdServe(args []string) error {
 		go h.CommunityBans.Run(context.Background(), time.Hour)
 	}
 
-	// feed-server (hub mode).  Only Active() in the unmask.sh production.
-	// Normal installs are no-op (ServeRegister / ServeSubmit handlers are not bound).
-	var feedSrv *feedserver.Server
+	// Hub-server endpoints (= /api/feed/register, /api/feed/submit) and the
+	// hourly feed.json build moved to the separate unmask-hub binary.  See
+	// admin/cmd/unmask-hub.  s.FeedServer is still parsed (= the yaml block
+	// stays in settings package) but admin no longer binds anything from it.
 	if s.FeedServer.Active() {
-		fs, err := feedserver.Open(s.FeedServer, nil)
-		if err != nil {
-			return fmt.Errorf("feedserver open: %w", err)
-		}
-		feedSrv = fs
-		defer fs.Close()
-		// BuildAndWrite + PruneExpired every hour.  Run once at startup as well.
-		go func() {
-			run := func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				if err := fs.BuildAndWrite(ctx); err != nil {
-					log.Printf("feedserver build: %v", err)
-				}
-				if n, err := fs.PruneExpired(ctx); err != nil {
-					log.Printf("feedserver prune: %v", err)
-				} else if n > 0 {
-					log.Printf("feedserver: pruned %d expired submissions", n)
-				}
-			}
-			run()
-			t := time.NewTicker(time.Hour)
-			defer t.Stop()
-			for range t.C {
-				run()
-			}
-		}()
+		log.Printf("note: feed_server.enabled=true in config.yml — admin ignores it; run unmask-hub serve to bind /api/feed/*")
 	}
 
-	mux := buildRouter(s, h, feedSrv)
+	mux := buildRouter(s, h)
 
 	// Prune old rows from unmask_event every 24h (those exceeding
 	// h.Settings.EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
@@ -600,22 +575,14 @@ func parseFileMode(s string, fallback os.FileMode) os.FileMode {
 	return os.FileMode(v)
 }
 
-func buildRouter(s settings.Settings, h *handlers.Handler, feedSrv *feedserver.Server) *http.ServeMux {
+func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux := http.NewServeMux()
 	base := strings.TrimRight(s.Server.BasePath, "/")
 
-	// Feed hub endpoints (bound only on unmask.sh when settings.FeedServer.Active()).
-	// Public endpoints, no auth.  register is per-IP rate-limited; submit
-	// uses Bearer token auth.  Not bound on normal installs.
-	//
-	// The paths are **not under** base_path (typically /unmask).  Clients
-	// default to `https://unmask.sh/api/feed/{register,submit}`
-	// (DefaultCommunityBans*URL in settings/CommunityBans).  base_path is reserved
-	// for the admin UI.
-	if feedSrv != nil {
-		mux.HandleFunc("POST /api/feed/register", feedSrv.ServeRegister)
-		mux.HandleFunc("POST /api/feed/submit", feedSrv.ServeSubmit)
-	}
+	// Hub endpoints (/api/feed/register, /api/feed/submit) live in the
+	// separate unmask-hub binary now.  Clients still default to
+	// https://unmask.sh/api/feed/{register,submit} (= DefaultCommunityBans*URL
+	// in settings/CommunityBans).
 
 	// Go 1.22 enhanced ServeMux.  {site} is a per-site path param.  Literal
 	// patterns are preferred as more specific, so the literal for the default
