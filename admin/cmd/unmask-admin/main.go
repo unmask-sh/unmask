@@ -374,13 +374,10 @@ func cmdServe(args []string) error {
 		go h.CommunityBans.Run(context.Background(), time.Hour)
 	}
 
-	// Hub-server endpoints (= /api/feed/register, /api/feed/submit) and the
-	// hourly feed.json build moved to the separate unmask-hub binary.  See
-	// admin/cmd/unmask-hub.  s.FeedServer is still parsed (= the yaml block
-	// stays in settings package) but admin no longer binds anything from it.
-	if s.FeedServer.Active() {
-		log.Printf("note: feed_server.enabled=true in config.yml — admin ignores it; run unmask-hub serve to bind /api/feed/*")
-	}
+	// Hub-server endpoints (= /api/feed/register, /api/feed/submit) moved
+	// to the separate unmask-sh/unmask-hub private repo + binary, deployed
+	// on unmask.sh only.  The legacy feed_server: yaml block is silently
+	// ignored here (= yaml.v3 drops unknown fields).
 
 	mux := buildRouter(s, h)
 
