@@ -20,7 +20,27 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	defer c.mu.Unlock()
 
 	cur := c.SettingsGetter()
-	if !cur.CommunityBans.SubscribeEnabled {
+	mode := cur.CommunityBans.ResolvedSubscribeMode()
+
+	// Resolve the output dir up front -- needed for both the off (= clear)
+	// and active (= write) paths.  c.MapDir wins; else settings fall-backs.
+	mapDir := c.MapDir
+	if mapDir == "" {
+		mapDir = cur.CommunityBans.MapDir
+	}
+	if mapDir == "" {
+		mapDir = cur.Nginx.OutputDir
+	}
+	if mapDir == "" {
+		mapDir = "/etc/unmask"
+	}
+
+	// off: stop pulling AND clear the map + doc so stale entries don't keep
+	// enforcing / showing.  Empty map files keep nginx's include valid.
+	if mode == settings.SubscribeOff {
+		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: 2}
+		_ = WriteMapFiles(empty, mapDir)
+		_ = WriteDocument(empty, mapDir)
 		return FeedDocument{}, nil
 	}
 
@@ -46,32 +66,28 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		return FeedDocument{}, fmt.Errorf("decode feed: %w", err)
 	}
 
-	// Resolve the output dir.  c.MapDir wins; if empty, fall back to settings.Nginx.OutputDir.
-	mapDir := c.MapDir
-	if mapDir == "" {
-		mapDir = cur.CommunityBans.MapDir
-	}
-	if mapDir == "" {
-		mapDir = cur.Nginx.OutputDir
-	}
-	if mapDir == "" {
-		mapDir = "/etc/unmask"
-	}
-
-	if err := WriteMapFiles(doc, mapDir); err != nil {
-		return doc, fmt.Errorf("write map files: %w", err)
-	}
+	// Always write the browse doc (= both fetch and fetch_apply show the list).
 	if err := WriteDocument(doc, mapDir); err != nil {
-		// A doc write failure only stales the browse page; it doesn't affect behavior
-		// (= the map itself is written, so CAPTCHA enforcement still works).  Warn only.
 		c.logf("communitybans: write doc: %v", err)
 	}
 
-	// Auto-apply: copy promoted high-score entries into the local BAN list so
-	// they show up on the bans page with source=community_bans and the
-	// operator can manage them like any other BAN.  Map files still enforce
-	// the rest; this is opt-in behavior controlled by AutoBanMinScore.
-	autoApplied := c.applyAutoBans(ctx, doc, cur.CommunityBans.AutoBanMinScore, cur.CommunityBans.AutoBanAction)
+	// Enforcement is fetch_apply-only.  In "fetch" mode the maps are written
+	// empty so nginx sees the entries for browsing (via the doc) but never
+	// challenges traffic, and a previous fetch_apply's maps are cleared.
+	autoApplied := 0
+	if cur.CommunityBans.ApplyActive() {
+		if err := WriteMapFiles(doc, mapDir); err != nil {
+			return doc, fmt.Errorf("write map files: %w", err)
+		}
+		// Auto-apply: copy promoted high-score entries into the local BAN
+		// list (opt-in via AutoBanMinScore).
+		autoApplied = c.applyAutoBans(ctx, doc, cur.CommunityBans.AutoBanMinScore, cur.CommunityBans.AutoBanAction)
+	} else {
+		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: doc.Version}
+		if err := WriteMapFiles(empty, mapDir); err != nil {
+			return doc, fmt.Errorf("clear map files: %w", err)
+		}
+	}
 
 	now := time.Now().Unix()
 	cnt := len(doc.Entries)

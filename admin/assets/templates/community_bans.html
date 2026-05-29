@@ -157,14 +157,15 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <h2 style="display:flex;align-items:center;gap:.5rem">
       {{ t .Lang "community_bans.list_h" }}
     </h2>
-    <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-toggle-form" style="margin:0">
+    <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-mode-form" style="margin:0;display:flex;align-items:center;gap:.4rem">
       <input type="hidden" name="op" value="subscribe-toggle">
       <input type="hidden" name="return_to" value="community-bans">
-      <label class="toggle-switch" title="{{ t .Lang "bans.subscribe_toggle_tooltip" }}">
-        <span class="lbl">{{ t .Lang "bans.subscribe_toggle_label" }}</span>
-        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .SubscribeEnabled }}checked{{ end }} onchange="this.form.submit()">
-        <span class="slider"></span>
-      </label>
+      <label class="lbl" for="subscribe-mode-sel" style="font-size:.85rem;color:#475569;font-weight:600">{{ t .Lang "community_bans.mode_label" }}</label>
+      <select id="subscribe-mode-sel" name="subscribe_mode" onchange="this.form.submit()" style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.85rem">
+        <option value="fetch_apply" {{ if eq .SubscribeMode "fetch_apply" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch_apply" }}</option>
+        <option value="fetch"       {{ if eq .SubscribeMode "fetch" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch" }}</option>
+        <option value="off"         {{ if eq .SubscribeMode "off" }}selected{{ end }}>{{ t .Lang "community_bans.mode.off" }}</option>
+      </select>
     </form>
   </div>
 

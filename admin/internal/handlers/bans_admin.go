@@ -201,7 +201,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"Bans":                   h.Settings.Nginx.Bans,
 		"Saved":                  r.URL.Query().Get("saved") != "",
 		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
-		"SubscribeEnabled":       cur.CommunityBans.SubscribeEnabled,
+		"SubscribeMode":          cur.CommunityBans.ResolvedSubscribeMode(),
 		"MyHN":                   myHN,
 		"SourcePills":            sourcePills,
 		"CommunityBansFromHub":   sourceCounts["community_bans"],
@@ -337,7 +337,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"TZ":                           resolveTZ(r),
 		"BasePath":                     h.Settings.Server.BasePath,
 		"Version":                      h.Version,
-		"SubscribeEnabled":             cur.CommunityBans.SubscribeEnabled,
+		"SubscribeMode":                cur.CommunityBans.ResolvedSubscribeMode(),
 		"MyHN":                         myHN,
 		"CommunityBansEntries":         pageRows,
 		"CommunityBansTotalEntries":    len(doc.Entries),
@@ -665,15 +665,26 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "subscribe-toggle":
-		// Turn community-bans subscribe (= pull) ON/OFF.  Top-right toggle only.
+		// Set the community-bans subscribe mode (off / fetch / fetch_apply).
 		// terms / submit / URL override etc. live in settings/?tab=community-bans.
-		want := r.FormValue("subscribe_enabled") == "1"
+		modeVal := strings.TrimSpace(r.FormValue("subscribe_mode"))
+		switch modeVal {
+		case settings.SubscribeOff, settings.SubscribeFetch, settings.SubscribeFetchApply:
+			// valid
+		default:
+			// Legacy checkbox fallback (= subscribe_enabled=1 → fetch_apply).
+			if r.FormValue("subscribe_enabled") == "1" {
+				modeVal = settings.SubscribeFetchApply
+			} else {
+				modeVal = settings.SubscribeOff
+			}
+		}
 		cur, err := settings.Load(h.ConfigPath)
 		if err != nil {
 			redir("load: " + err.Error())
 			return
 		}
-		cur.CommunityBans.SubscribeEnabled = want
+		cur.CommunityBans.SubscribeMode = modeVal
 		cur.Nginx.SeenVersion = "v" + h.Version
 		if err := settings.Save(cur, h.ConfigPath); err != nil {
 			redir("save: " + err.Error())
@@ -686,7 +697,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		// To keep the first pull right after turning this ON from hitting "no
 		// token", trigger register asynchronously if no token is set yet
 		// (= communitybans.Submit has a sync retry too, but get it ahead of time here).
-		if want && h.CommunityBans != nil && strings.TrimSpace(cur.CommunityBans.Token) == "" {
+		if modeVal != settings.SubscribeOff && h.CommunityBans != nil && strings.TrimSpace(cur.CommunityBans.Token) == "" {
 			go func() {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
@@ -697,7 +708,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "subscribe_toggle",
-				"", fmt.Sprintf(`{"enabled":%t}`, want))
+				"", fmt.Sprintf(`{"mode":%q}`, modeVal))
 		}
 		redir("")
 		return

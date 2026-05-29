@@ -3837,13 +3837,16 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.toggles_h" }}</h3>
     <div class="field">
-      <label style="display:flex;align-items:flex-start;gap:.5rem">
-        <input type="checkbox" name="subscribe_enabled" value="1" {{ if .CommunityBans.SubscribeEnabled }}checked{{ end }} style="margin-top:.25rem">
-        <span>
-          <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong><br>
-          <span class="note">{{ safeHTML (t .Lang "settings.community_bans.subscribe_desc") }}</span>
-        </span>
+      <label style="display:block;margin-bottom:.3rem">
+        <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong>
       </label>
+      {{ $sm := .CommunityBans.ResolvedSubscribeMode }}
+      <select name="subscribe_mode" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
+        <option value="fetch_apply" {{ if eq $sm "fetch_apply" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch_apply" }}</option>
+        <option value="fetch"       {{ if eq $sm "fetch" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch" }}</option>
+        <option value="off"         {{ if eq $sm "off" }}selected{{ end }}>{{ t .Lang "community_bans.mode.off" }}</option>
+      </select>
+      <div class="note" style="margin-top:.3rem">{{ safeHTML (t .Lang "settings.community_bans.subscribe_mode_desc") }}</div>
     </div>
     <div class="field">
       <label style="display:flex;align-items:flex-start;gap:.5rem">

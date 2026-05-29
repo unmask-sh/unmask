@@ -1086,9 +1086,17 @@ type SMTP struct {
 //     judgment, the client does not BAN). Accepts false positives + reduces
 //     legal liability.
 type CommunityBans struct {
-	SubmitEnabled    bool   `yaml:"submit_enabled"`
-	SubscribeEnabled bool   `yaml:"subscribe_enabled"`
-	Token            string `yaml:"token,omitempty"`
+	SubmitEnabled bool `yaml:"submit_enabled"`
+	// SubscribeEnabled is the legacy ON/OFF flag.  v2 splits subscribe into a
+	// 3-state SubscribeMode (off / fetch / fetch_apply).  Load() migrates a
+	// pre-v2 true → fetch_apply, false → off, then clears this field so it
+	// drops from the next save (omitempty).
+	SubscribeEnabled bool `yaml:"subscribe_enabled,omitempty"`
+	// SubscribeMode: "off" (= no pull, maps cleared), "fetch" (= pull for the
+	// browse list only, no enforcement, no auto-apply), "fetch_apply" (= pull
+	// + write nginx maps + auto-apply).  "" is treated as off after migration.
+	SubscribeMode string `yaml:"subscribe_mode,omitempty"`
+	Token         string `yaml:"token,omitempty"`
 	// HN: handle name returned by the hub at register time, derived from the
 	// raw token (= "swift-otter-a3f7" style).  Cached here so the admin UI
 	// can show it without a hub round-trip.  HNOverride (= empty by default)
@@ -1132,6 +1140,41 @@ const (
 	DefaultCommunityBansFeedURL      = "https://unmask.sh/api/feed/list.json"
 	DefaultCommunityBansAggregateURL = "https://unmask.sh/api/feed/aggregate"
 )
+
+// Subscribe mode values.
+const (
+	SubscribeOff        = "off"         // no pull; maps cleared so enforcement stops
+	SubscribeFetch      = "fetch"       // pull for the browse list only (no enforce, no auto-apply)
+	SubscribeFetchApply = "fetch_apply" // pull + nginx map enforce + auto-apply
+)
+
+// ResolvedSubscribeMode: canonical mode string, with legacy-bool fallback for
+// configs that predate the SubscribeMode field (= belt-and-suspenders; Load()
+// already migrates, but a hand-edited config without the field still resolves).
+func (s CommunityBans) ResolvedSubscribeMode() string {
+	switch s.SubscribeMode {
+	case SubscribeFetch, SubscribeFetchApply, SubscribeOff:
+		return s.SubscribeMode
+	}
+	if s.SubscribeEnabled {
+		return SubscribeFetchApply
+	}
+	return SubscribeOff
+}
+
+// SubscribeActive: true when the hub feed should be pulled (= fetch or
+// fetch_apply).  Replaces the old SubscribeEnabled bool at call sites that
+// gated "should we pull / register".
+func (s CommunityBans) SubscribeActive() bool {
+	return s.ResolvedSubscribeMode() != SubscribeOff
+}
+
+// ApplyActive: true when pulled entries should drive nginx map enforcement +
+// auto-apply (= fetch_apply only).  "fetch" pulls for browsing but never
+// enforces.
+func (s CommunityBans) ApplyActive() bool {
+	return s.ResolvedSubscribeMode() == SubscribeFetchApply
+}
 
 // ResolvedRegisterURL: returns the default when empty.
 func (s CommunityBans) ResolvedRegisterURL() string {
@@ -1504,7 +1547,7 @@ func defaults() Settings {
 		},
 		CommunityBans: CommunityBans{
 			SubmitEnabled:    false,
-			SubscribeEnabled: false,
+			SubscribeMode:    SubscribeOff,
 			RegisterURL:      DefaultCommunityBansRegisterURL,
 			SubmitURL:        DefaultCommunityBansSubmitURL,
 			FeedURL:          DefaultCommunityBansFeedURL,
@@ -1630,6 +1673,18 @@ func Load(path string) (Settings, error) {
 	}
 	// CookieDays is legacy. CookieSeconds is the sole canonical value. omitempty on save.
 	s.Challenge.Default.CookieDays = 0
+	// community_bans: migrate the legacy subscribe_enabled bool to the
+	// 3-state subscribe_mode once.  true → fetch_apply (= preserves the
+	// pre-v2 "pull + enforce" behavior), false → off.  Clearing the bool
+	// drops it from the next save (omitempty).
+	if s.CommunityBans.SubscribeMode == "" {
+		if s.CommunityBans.SubscribeEnabled {
+			s.CommunityBans.SubscribeMode = SubscribeFetchApply
+		} else {
+			s.CommunityBans.SubscribeMode = SubscribeOff
+		}
+	}
+	s.CommunityBans.SubscribeEnabled = false
 	BackfillExtraVerdictIDs(&s)
 	return s, nil
 }

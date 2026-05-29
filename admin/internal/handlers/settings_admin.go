@@ -1183,7 +1183,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// This is redundant with the synchronous register at submit time, but
 	// ensures the "save → BAN" flow from the settings page does not drop a row.
 	if section == "community-bans" && h.CommunityBans != nil &&
-		(cur.CommunityBans.SubmitActive() || cur.CommunityBans.SubscribeEnabled) &&
+		(cur.CommunityBans.SubmitActive() || cur.CommunityBans.SubscribeActive()) &&
 		strings.TrimSpace(cur.CommunityBans.Token) == "" {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -3041,7 +3041,19 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 // graduates beyond preview.
 func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	c.SubmitEnabled = r.FormValue("submit_enabled") == "1"
-	c.SubscribeEnabled = r.FormValue("subscribe_enabled") == "1"
+	// subscribe_mode: 3-state (off / fetch / fetch_apply).  Falls back to the
+	// legacy checkbox (subscribe_enabled=1 → fetch_apply) when the new field
+	// is absent, so an old form post still works.
+	switch strings.TrimSpace(r.FormValue("subscribe_mode")) {
+	case settings.SubscribeOff, settings.SubscribeFetch, settings.SubscribeFetchApply:
+		c.SubscribeMode = r.FormValue("subscribe_mode")
+	default:
+		if r.FormValue("subscribe_enabled") == "1" {
+			c.SubscribeMode = settings.SubscribeFetchApply
+		} else {
+			c.SubscribeMode = settings.SubscribeOff
+		}
+	}
 	// PublishCountry: install-wide opt-in (= default OFF).  When ON, future
 	// register / submit / vote / comment requests pass publish_country=true
 	// so the hub records the install's country code alongside the entry.

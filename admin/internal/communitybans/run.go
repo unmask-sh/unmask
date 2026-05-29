@@ -17,7 +17,7 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 	}
 	cur := c.SettingsGetter()
 	// register only when either submit or subscribe is ON
-	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeEnabled {
+	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive() {
 		if err := c.Register(ctx); err != nil {
 			c.logf("communitybans: register: %v", err)
 		}
@@ -41,7 +41,7 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 		case <-t.C:
 			// Late register if settings flipped to ON
 			cur := c.SettingsGetter()
-			if (cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeEnabled) && cur.CommunityBans.Token == "" {
+			if (cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive()) && cur.CommunityBans.Token == "" {
 				if err := c.Register(ctx); err != nil {
 					c.logf("communitybans: register (later): %v", err)
 				}

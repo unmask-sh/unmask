@@ -708,9 +708,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// see the WARN in `unmask-admin doctor` (= mmdb path check).
 	}
 
-	// CommunityBans: render the 3 maps only when subscribe is ON.
-	// MapDir priority: CommunityBans.MapDir > Nginx.OutputDir > "/etc/unmask".
-	if s.CommunityBans.SubscribeEnabled {
+	// CommunityBans: render the 3 map includes only in fetch_apply mode.
+	// "fetch" pulls for the browse list but never enforces, so it gets no
+	// nginx include; "off" likewise.  MapDir priority:
+	// CommunityBans.MapDir > Nginx.OutputDir > "/etc/unmask".
+	if s.CommunityBans.ApplyActive() {
 		d.CommunityBansSubscribe = true
 		md := strings.TrimSpace(s.CommunityBans.MapDir)
 		if md == "" {
