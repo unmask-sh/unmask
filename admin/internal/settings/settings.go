@@ -1214,9 +1214,11 @@ func (s CommunityBans) ResolvedAggregateURL() string {
 // or terms wording changes materially.  Operators whose TermsAcceptedVersion
 // is below this value need to re-accept before SubmitActive() returns true.
 //
-// v2 = 2026-05-27 Community Bans relaunch (= comments / votes / HN / country
-// opt-in / 5-tier score / auto-apply).
-const CurrentCommunityBansTermsVersion = 2
+// Held at 1 until GA.  Pre-GA there are no external acceptors to protect (=
+// only the dev / fleet installs), so forcing a v2 re-acceptance now just adds
+// friction.  The v2 re-accept gate is armed at GA flip by bumping this to 2
+// once the v2 terms are legally reviewed (= see doc/COMMUNITY-BANS-GA-CHECKLIST.md).
+const CurrentCommunityBansTermsVersion = 1
 
 // SubmitActive: submission is allowed only when submit_enabled && terms
 // accepted at the current version.  Operators stuck on v1 see a banner +
@@ -1685,6 +1687,12 @@ func Load(path string) (Settings, error) {
 		}
 	}
 	s.CommunityBans.SubscribeEnabled = false
+	// community_bans terms: a pre-version-field acceptance (= TermsAcceptedAt
+	// set, TermsAcceptedVersion 0) counts as v1.  Stamp it so SubmitActive
+	// passes and the stale banner stays hidden while CurrentVersion == 1.
+	if s.CommunityBans.TermsAcceptedAt > 0 && s.CommunityBans.TermsAcceptedVersion == 0 {
+		s.CommunityBans.TermsAcceptedVersion = 1
+	}
 	BackfillExtraVerdictIDs(&s)
 	return s, nil
 }
