@@ -85,7 +85,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .score-2{background:#e0f2fe;color:#075985}
 .score-1{background:#f1f5f9;color:#475569}
 .score-0{color:#94a3b8;font-size:.85rem}
-.reports-badge{display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;margin-left:.35rem;font-family:ui-monospace,Menlo,monospace;cursor:help}
+.votes-td{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.reports-badge{display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;cursor:help}
 .votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
@@ -277,16 +278,14 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           {{ end }}
         </td>
         <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if .Bypassed }} <span class="bypassed-badge" title="{{ t $.Lang "community_bans.bypassed_title" }}">🔍 {{ t $.Lang "community_bans.bypassed_label" }}</span>{{ else if not .Promoted }} <span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_title" }}">{{ t $.Lang "community_bans.reports_only_label" }}</span>{{ else if eq $.SubscribeMode "fetch_apply" }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ else }} <span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_title2" }}">{{ t $.Lang "community_bans.promoted_label" }}</span>{{ end }}</td>
-        <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
+        <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
-          {{ if or (gt .LikeCount 0) (gt .BadCount 0) (gt .CommentCount 0) }}
-          <span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}">
-            <span class="like">👍 {{ .LikeCount }}</span>
-            <span class="bad">👎 {{ .BadCount }}</span>
-            {{ if gt .CommentCount 0 }}<span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}
+          <span class="votes-td">
+          {{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}
+          {{ if or (gt .LikeCount 0) (gt .BadCount 0) (gt .CommentCount 0) }}<span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}"><span class="like">👍 {{ .LikeCount }}</span> <span class="bad">👎 {{ .BadCount }}</span>{{ if gt .CommentCount 0 }} <span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}</span>{{ end }}
+          {{ if and (le .Installs 0) (le .LikeCount 0) (le .BadCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
           </span>
-          {{ else }}<span class="muted">-</span>{{ end }}
         </td>
         <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
