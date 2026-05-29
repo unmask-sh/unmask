@@ -67,6 +67,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
+.votes-cell .cmt-count{color:#64748b}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
@@ -236,13 +237,14 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
           {{ end }}
         </td>
         <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span></td>
-        <td class="mono{{ if .IP }} ipclick{{ end }}"{{ if .IP }} data-ip="{{ .IP }}"{{ end }}>{{ if .IP }}<img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
+        <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
-          {{ if or (gt .LikeCount 0) (gt .BadCount 0) }}
+          {{ if or (gt .LikeCount 0) (gt .BadCount 0) (gt .CommentCount 0) }}
           <span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}">
             <span class="like">👍 {{ .LikeCount }}</span>
             <span class="bad">👎 {{ .BadCount }}</span>
+            {{ if gt .CommentCount 0 }}<span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}
           </span>
           {{ else }}<span class="muted">-</span>{{ end }}
         </td>
