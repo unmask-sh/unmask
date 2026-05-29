@@ -1070,16 +1070,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "community-bans":
 		applyCommunityBansForm(&cur.CommunityBans, r)
-		// Shared-BAN fallback action: lives on Nginx.Bans but its relevance is
-		// "what to do when a community_bans row in BanMgr has no per-row action",
-		// so the form field renders on this tab (= co-located with the related
-		// auto-BAN settings) rather than on /admin/bans/.
-		switch strings.TrimSpace(r.FormValue("bans_community_bans_default_action")) {
-		case "deny", "pow_only", "pow_then_captcha", "captcha_only":
-			cur.Nginx.Bans.CommunityBansDefaultAction = r.FormValue("bans_community_bans_default_action")
-		case "":
-			cur.Nginx.Bans.CommunityBansDefaultAction = ""
-		}
+		// (The shared-BAN fallback action field was removed from the UI: the
+		// "auto-BAN action" select writes a concrete action onto every
+		// auto-applied row, so a separate fallback never came into play.
+		// Nginx.Bans.CommunityBansDefaultAction stays in the struct for
+		// back-compat but is no longer edited here.)
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
@@ -3113,7 +3108,9 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	case "deny", "pow_only", "pow_then_captcha", "captcha_only":
 		c.AutoBanAction = r.FormValue("auto_ban_action")
 	case "":
-		c.AutoBanAction = "" // defers to settings.Nginx.Bans.CommunityBansDefaultAction
+		// The "defer to default" option was removed; an absent value just
+		// keeps the captcha_only default (applyAutoBans coerces "" anyway).
+		c.AutoBanAction = "captcha_only"
 	}
 	// terms acceptance is handled at the top via the unified report_enabled
 	// checkbox (= ticking it IS the acceptance).

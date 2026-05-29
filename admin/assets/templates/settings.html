@@ -3876,26 +3876,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         {{ $aba := .CommunityBans.AutoBanAction }}
         {{ if eq $aba "" }}{{ $aba = "captcha_only" }}{{ end }}
         <select name="auto_ban_action" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
-          <option value="">({{ t .Lang "settings.community_bans.auto_action_defer_to_default" }})</option>
           <option value="captcha_only"     {{ if eq $aba "captcha_only" }}selected{{ end }}>captcha_only</option>
           <option value="pow_then_captcha" {{ if eq $aba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="pow_only"         {{ if eq $aba "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="deny"             {{ if eq $aba "deny" }}selected{{ end }}>deny</option>
         </select>
       </div>
-      <div>
-        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.fallback_action_label" }}</label>
-        {{ $bsa := .Nginx.Bans.CommunityBansDefaultAction }}
-        {{ if eq $bsa "" }}{{ $bsa = "captcha_only" }}{{ end }}
-        <select name="bans_community_bans_default_action" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
-          <option value="captcha_only"     {{ if eq $bsa "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="pow_then_captcha" {{ if eq $bsa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="pow_only"         {{ if eq $bsa "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="deny"             {{ if eq $bsa "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
     </div>
-    <div class="note" style="margin-top:.4rem;font-size:.78rem">{{ safeHTML (t .Lang "settings.community_bans.fallback_action_desc") }}</div>
 
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.identity_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.identity_desc") }}</div>
