@@ -3040,7 +3040,31 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 // edited from the UI; the unmask.sh hub is the only target until the feature
 // graduates beyond preview.
 func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
-	c.SubmitEnabled = r.FormValue("submit_enabled") == "1"
+	// report_enabled is the unified clickwrap: one checkbox both enables
+	// submission AND records terms acceptance (= ticking it is the
+	// affirmative action).  Falls back to the legacy split fields
+	// (submit_enabled + terms_accepted) when an old form posts.
+	reportField, hasReport := r.Form["report_enabled"]
+	report := false
+	if hasReport {
+		report = len(reportField) > 0 && reportField[0] == "1"
+	} else {
+		report = r.FormValue("submit_enabled") == "1"
+	}
+	c.SubmitEnabled = report
+	if report {
+		// Ticking the box is the acceptance.  Stamp time + version on first
+		// accept or on a version bump (= re-accept after terms change).
+		if c.TermsAcceptedAt == 0 || c.TermsAcceptedVersion < settings.CurrentCommunityBansTermsVersion {
+			c.TermsAcceptedAt = time.Now().Unix()
+		}
+		c.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
+	}
+	// Unchecking report stops submission but keeps the acceptance record
+	// (= re-enabling later does not require re-reading the terms unless the
+	// version bumped in the meantime).  The legacy terms_accepted=0 reset
+	// path is dropped; see PublishCountry / auto-ban parsing below.
+	_ = reportField
 	// subscribe_mode: 3-state (off / fetch / fetch_apply).  Falls back to the
 	// legacy checkbox (subscribe_enabled=1 → fetch_apply) when the new field
 	// is absent, so an old form post still works.
@@ -3082,19 +3106,8 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	case "":
 		c.AutoBanAction = "" // defers to settings.Nginx.Bans.CommunityBansDefaultAction
 	}
-	terms := r.FormValue("terms_accepted") == "1"
-	if terms {
-		// Stamp the moment + the version the operator is accepting against.
-		// Fresh accept and re-accept (= v1 -> v2 bump) both refresh the
-		// timestamp so audit logs show when v2 was actually read.
-		if c.TermsAcceptedAt == 0 || c.TermsAcceptedVersion < settings.CurrentCommunityBansTermsVersion {
-			c.TermsAcceptedAt = time.Now().Unix()
-		}
-		c.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
-	} else {
-		c.TermsAcceptedAt = 0
-		c.TermsAcceptedVersion = 0
-	}
+	// terms acceptance is handled at the top via the unified report_enabled
+	// checkbox (= ticking it IS the acceptance).
 }
 
 // applySMTPForm: receive the SMTP tab form. Empty password submit preserves

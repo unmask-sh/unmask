@@ -307,6 +307,9 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 						if cur.CommunityBans.TermsAcceptedAt == 0 {
 							cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
 						}
+						// Stamp the version so SubmitActive()'s version gate is
+						// satisfied (= same as the settings-tab clickwrap path).
+						cur.CommunityBans.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
 						cur.Nginx.SeenVersion = "v" + h.Version
 						if err := settings.Save(cur, h.ConfigPath); err != nil {
 							log.Printf("communitybans: accept_terms save: %v", err)
