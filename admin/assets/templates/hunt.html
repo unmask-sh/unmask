@@ -418,7 +418,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       </div>
       {{ end }}
       <div id="ban-dialog-reason-row" class="ban-dialog-reason" style="display:none">
-        {{ t .Lang "hunt.ban.reason_shared_label" }} <code id="ban-dialog-reason"></code>
+        <label for="ban-dialog-reason">{{ t .Lang "hunt.ban.reason_shared_label" }}</label>
+        <textarea id="ban-dialog-reason" maxlength="200" rows="2" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}"></textarea>
       </div>
       <div id="ban-dialog-comment-row" class="ban-dialog-comment" style="display:none">
         <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
@@ -438,8 +439,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .ban-dialog-body{display:flex;flex-direction:column;gap:.6rem;padding:1rem 1.1rem;margin:0}
 .ban-dialog-body h3{margin:0;font-size:1rem}
 .ban-dialog-target{margin:0;font-size:.85rem;color:#475569;word-break:break-all}
-.ban-dialog-reason{font-size:.8rem;color:#475569;word-break:break-all}
-.ban-dialog-reason code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
+.ban-dialog-reason{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
+.ban-dialog-reason label{color:#475569;font-size:.78rem}
 .ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
 .ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem}
 .ban-dialog-share{display:flex;align-items:center;gap:.45rem;font-size:.875rem;cursor:pointer}
@@ -455,7 +456,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .ban-dialog-terms-note{font-size:.7rem;color:#64748b;margin:0 0 0 1.4rem;line-height:1.45}
 .ban-dialog-comment{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
 .ban-dialog-comment label{color:#475569;font-size:.78rem}
-.ban-dialog-comment textarea{width:100%;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem;resize:vertical}
+.ban-dialog-comment textarea,.ban-dialog-reason textarea{width:100%;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem;resize:vertical}
 .ban-dialog-counter{text-align:right;color:#94a3b8;font-size:.72rem}
 .ban-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.3rem}
 </style>
@@ -906,8 +907,14 @@ document.addEventListener('DOMContentLoaded', function(){
     var sIn = form.querySelector('input[name=share]');
     var cIn = form.querySelector('input[name=comment]');
     var aIn = form.querySelector('input[name=accept_terms]');
-    if (shareCb && sIn) sIn.value = shareCb.checked ? '1' : '';
-    if (cmtTa && cIn)   cIn.value = (shareCb && shareCb.checked) ? cmtTa.value : '';
+    var sharing = shareCb && shareCb.checked && !shareCb.disabled;
+    if (sIn) sIn.value = sharing ? '1' : '';
+    // editable reason overrides the auto default when sharing (empty = the
+    // operator chose to share without a reason); when not sharing, the hidden
+    // auto reason is kept as the local-BAN reason.
+    var rIn = form.querySelector('input[name=reason]');
+    if (rIn && reasonEl && sharing) rIn.value = reasonEl.value;
+    if (cmtTa && cIn) cIn.value = sharing ? cmtTa.value : '';
     // accept_terms is set only when the no-prior-opt-in state had terms checked
     if (aIn) aIn.value = (!feedActive && termsCb && termsCb.checked) ? '1' : '';
     // re-submit (= bypass the js-ban-form intercept)
@@ -924,9 +931,9 @@ document.addEventListener('DOMContentLoaded', function(){
       if (target) target.textContent = ja4 ? (ip + '  ·  ' + ja4) : ip;
       if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
       if (termsCb){ termsCb.checked = false; }
-      // Surface the reason that will be sent + published (= auto-generated
-      // for bot-hunt bans, so the operator can see it before sharing).
-      if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.textContent = rIn ? rIn.value : ''; }
+      // Seed the editable reason with the auto-generated default so the operator
+      // can review, tweak, or clear it before sharing.
+      if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.value = rIn ? rIn.value : ''; }
       if (shareCb){
         // Sharing is opt-in per BAN: start unchecked even when already opted in,
         // so a routine BAN never silently shares.  Enabled when opted in

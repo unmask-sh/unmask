@@ -277,18 +277,23 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 			redir("ban manager not configured")
 			return
 		}
-		reason := "bot hunt"
-		if v := strings.TrimSpace(r.FormValue("reason")); v != "" {
-			reason = v
+		// reason is operator-editable in the BAN dialog.  The local BAN always
+		// needs a reason, so fall back to the auto default when empty; the
+		// shared (hub) reason, however, is sent verbatim -- empty included (=
+		// the operator chose to share without a reason).
+		rawReason := strings.TrimSpace(r.FormValue("reason"))
+		banReason := rawReason
+		if banReason == "" {
+			banReason = "bot hunt"
 		}
-		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, "", durSec); err != nil {
+		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, banReason, meUsername, "", durSec); err != nil {
 			redir("ban: " + err.Error())
 			return
 		}
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "hunt_ban",
 				fmt.Sprintf("%s|%s", ip, ja4),
-				fmt.Sprintf(`{"reason":%q,"duration_sec":%d}`, reason, durSec))
+				fmt.Sprintf(`{"reason":%q,"duration_sec":%d}`, banReason, durSec))
 		}
 		// submit to community bans (= async if the share checkbox is ON and a
 		// CommunityBans client exists).  If the submit fails, the BAN itself
@@ -335,7 +340,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 				}); err != nil {
 					log.Printf("communitybans: submit ban %s|%s: %v", ip, ja4, err)
 				}
-			}(ip, ja4, reason, comment)
+			}(ip, ja4, rawReason, comment)
 		}
 		redir("")
 		return
