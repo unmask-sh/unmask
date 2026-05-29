@@ -303,10 +303,34 @@ window.popoverPin = window.popoverPin || (function(){
     var MINW = 180, MINH = 90;
     function onMove(ev){
       var dx = ev.clientX - sx, dy = ev.clientY - sy;
-      if (dir.indexOf('e') >= 0) clone.style.width = Math.max(MINW, sw + dx) + 'px';
-      if (dir.indexOf('w') >= 0){ var w = Math.max(MINW, sw - dx); clone.style.width = w + 'px'; clone.style.left = (sl + (sw - w)) + 'px'; }
-      if (dir.indexOf('s') >= 0) clone.style.height = Math.max(MINH, sh + dy) + 'px';
-      if (dir.indexOf('n') >= 0){ var hh = Math.max(MINH, sh - dy); clone.style.height = hh + 'px'; clone.style.top = (st + (sh - hh)) + 'px'; }
+      // Viewport bounds in document coordinates (clone is position:absolute).
+      // clientWidth/Height exclude the scrollbar so the popover can't be
+      // dragged under it.  A 4px margin keeps a sliver visible.
+      var M = 4;
+      var minLeft = window.scrollX + M;
+      var minTop = window.scrollY + M;
+      var maxRight = window.scrollX + document.documentElement.clientWidth - M;
+      var maxBottom = window.scrollY + document.documentElement.clientHeight - M;
+      if (dir.indexOf('e') >= 0){
+        clone.style.width = Math.max(MINW, Math.min(sw + dx, maxRight - sl)) + 'px';
+      }
+      if (dir.indexOf('w') >= 0){
+        var w = sw - dx, nl = sl + (sw - w);
+        if (nl < minLeft){ w -= (minLeft - nl); }       // clamp left edge to viewport
+        w = Math.max(MINW, w);
+        clone.style.width = w + 'px';
+        clone.style.left = (sl + sw - w) + 'px';
+      }
+      if (dir.indexOf('s') >= 0){
+        clone.style.height = Math.max(MINH, Math.min(sh + dy, maxBottom - st)) + 'px';
+      }
+      if (dir.indexOf('n') >= 0){
+        var h = sh - dy, nt = st + (sh - h);
+        if (nt < minTop){ h -= (minTop - nt); }          // clamp top edge to viewport
+        h = Math.max(MINH, h);
+        clone.style.height = h + 'px';
+        clone.style.top = (st + sh - h) + 'px';
+      }
     }
     function onUp(){
       document.removeEventListener('mousemove', onMove);
