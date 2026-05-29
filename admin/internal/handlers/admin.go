@@ -407,15 +407,19 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	// auto-applied entries don't go unnoticed across multiple sessions.
 	// Cheap: the live snapshot is already in memory.  0 = no badge.
 	if _, ok := data["NavCommunityBadge"]; !ok {
+		// Always set an int.  The nav partial runs `gt .NavCommunityBadge 0` on
+		// every admin page; a missing key makes that comparison error and abort
+		// the whole template mid-render (= silent 200 truncation).  BanMgr nil
+		// simply means a count of 0.
+		n := 0
 		if h.BanMgr != nil {
-			n := 0
 			for _, e := range h.BanMgr.Snapshot() {
 				if e.Source == "community_bans" {
 					n++
 				}
 			}
-			data["NavCommunityBadge"] = n
 		}
+		data["NavCommunityBadge"] = n
 	}
 
 	// Host + site picker data for the shared header_tools partial (= the

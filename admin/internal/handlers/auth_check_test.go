@@ -167,8 +167,9 @@ func TestBanDecideFromSource(t *testing.T) {
 		{"honeypot + DefaultAction=deny", "honeypot", cfgHpDeny, sevDeny, "ban:honeypot:deny"},
 		{"honeypot + DefaultAction=pow_then_captcha", "honeypot", cfgHpPoWCap, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
 		{"honeypot + empty -> default pow_then_captcha", "honeypot", cfgHpEmpty, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
-		{"manual ban source -> hard deny", "manual", cfgHpEmpty, sevDeny, "ban:manual"},
-		{"community_bans ban -> hard deny", "community_bans", cfgHpEmpty, sevDeny, "ban:community_bans"},
+		{"manual ban + empty default -> captcha_only", "manual", cfgHpEmpty, sevCaptchaOnly, "ban:manual:captcha_only"},
+		{"community_bans ban + empty default -> captcha_only", "community_bans", cfgHpEmpty, sevCaptchaOnly, "ban:community_bans:captcha_only"},
+		{"unknown source -> hard deny", "future_src", cfgHpEmpty, sevDeny, "ban:future_src:deny"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
