@@ -68,9 +68,12 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
 .votes-cell .cmt-count{color:#64748b}
-.enforced-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#dcfce7;color:#166534;cursor:help}
-.promoted-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:600;background:#dbeafe;color:#1e40af;cursor:help}
-.reports-only-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:600;background:#f1f5f9;color:#64748b;cursor:help}
+/* status badges sit on their own line under the match pill so a narrow
+ * match column doesn't wrap them mid-text. */
+.enforced-badge,.promoted-badge,.reports-only-badge{display:block;width:fit-content;margin:.2rem 0 0;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;cursor:help}
+.enforced-badge{font-weight:700;background:#dcfce7;color:#166534}
+.promoted-badge{font-weight:600;background:#dbeafe;color:#1e40af}
+.reports-only-badge{font-weight:600;background:#f1f5f9;color:#64748b}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
