@@ -167,6 +167,62 @@ func renderToFile(outDir, outName, tmplPath string, data any) error {
 	return nil
 }
 
+// renderToString: same template execute as renderToFile, returns the output
+// as a string instead of writing it.  Used by RenderSignature.
+func renderToString(tmplPath string, data any) (string, error) {
+	body, err := fs.ReadFile(templatesFS, tmplPath)
+	if err != nil {
+		return "", fmt.Errorf("read template %s: %w", tmplPath, err)
+	}
+	t, err := template.New(tmplPath).Parse(string(body))
+	if err != nil {
+		return "", fmt.Errorf("parse template %s: %w", tmplPath, err)
+	}
+	var b strings.Builder
+	if err := t.Execute(&b, data); err != nil {
+		return "", fmt.Errorf("exec template %s: %w", tmplPath, err)
+	}
+	return b.String(), nil
+}
+
+// RenderSignature: render all nginx fragments for the given settings and
+// return their concatenation.  Two settings snapshots produce identical
+// signatures iff the rendered nginx conf would be byte-identical -- so the
+// settings-save handler can compare before/after and prompt for a reload
+// ONLY when the conf actually changed.  No files are written.
+//
+// REQUIRES the render to be deterministic: every map iterated into the
+// output must be sorted first (= see collectUpstreamPatternsByMode).  The
+// volatile GeneratedAt timestamp is blanked here so identical settings match.
+func RenderSignature(s settings.Settings, outDir, version string) (string, error) {
+	if outDir == "" {
+		outDir = s.Nginx.OutputDir
+	}
+	if outDir == "" {
+		outDir = "/etc/unmask"
+	}
+	data, err := buildRenderData(s, outDir, version)
+	if err != nil {
+		return "", err
+	}
+	data.GeneratedAt = ""
+	var sig strings.Builder
+	for _, tmpl := range []string{
+		"templates/http.conf.tmpl",
+		"templates/upstream.conf.tmpl",
+		"templates/server.inc.tmpl",
+		"templates/protect.inc.tmpl",
+	} {
+		out, err := renderToString(tmpl, data)
+		if err != nil {
+			return "", err
+		}
+		sig.WriteString("\x00" + tmpl + "\x00")
+		sig.WriteString(out)
+	}
+	return sig.String(), nil
+}
+
 // renderData: flat struct passed to text/template.
 type renderData struct {
 	GeneratedAt           string
@@ -742,9 +798,20 @@ func toSet(xs []string) map[string]bool {
 // per-pattern OFF wins over the group default).
 func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet map[string]bool) (white, black []string) {
 	groups := classify.UpstreamRescueList()
+	// Iterate categories in sorted order: groups is a map, and Go map
+	// iteration is randomized, so ranging it directly makes the rendered
+	// pattern list non-deterministic (= the same settings produce different
+	// conf bytes each render).  Sorting the keys makes render deterministic,
+	// which the settings-save conf-diff relies on.
+	cats := make([]string, 0, len(groups))
+	for cat := range groups {
+		cats = append(cats, cat)
+	}
+	sort.Strings(cats)
 	whiteSeen := map[string]bool{}
 	blackSeen := map[string]bool{}
-	for cat, entries := range groups {
+	for _, cat := range cats {
+		entries := groups[cat]
 		mode := classify.ResolveGroupMode(cat, overrides)
 		switch mode {
 		case classify.GroupModeWhite:

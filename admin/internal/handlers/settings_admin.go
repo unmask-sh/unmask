@@ -443,11 +443,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// rendered http.inc.  Drives the post-save banner copy: true =
 		// "needs nginx -s reload on native mode"; false = "applies
 		// immediately on every mode" (= admin-only sections).
-		// SavedReload drives the post-save banner copy.  Most conf-affecting
-		// sections are flagged statically by sectionNeedsNginxReload; the
-		// community-bans tab is excluded there and instead appends &reload=1
-		// only when its enforcement toggle (subscribe_mode) actually changed.
-		"SavedReload":           sectionNeedsNginxReload(r.URL.Query().Get("section")) || r.URL.Query().Get("reload") == "1",
+		// SavedReload is driven purely by the conf diff the save handler
+		// computed (= reload=1 appended iff the rendered nginx conf changed).
+		// No per-section static list -- the deterministic renderer means any
+		// conf-affecting field, in any section, flips this automatically.
+		"SavedReload":           r.URL.Query().Get("reload") == "1",
 		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":                   cur,
 		"Global":                h.snapshotSettings().Global,
@@ -927,6 +927,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// snapshot (= the audit row is still written, just without rollback data).
 	beforeYAML, _ := settings.MarshalYAML(cur)
 
+	// Snapshot the rendered nginx conf before the form apply.  The renderer is
+	// deterministic (= all map outputs sorted), so an unchanged conf yields a
+	// byte-identical signature -- letting us reload-prompt ONLY when the save
+	// actually altered the conf, automatically across every section / field.
+	// A signature error falls back to a conservative "assume reload needed".
+	beforeSig, beforeSigErr := nginxconf.RenderSignature(cur, "", h.Version)
+
 	lang := i18n.Resolve(r)
 	switch section {
 	case "global":
@@ -1062,11 +1069,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "smtp":
 		applySMTPForm(&cur.SMTP, r)
 	case "community-bans":
-		// Enforcement on/off (= ApplyActive) is the only Community Bans setting
-		// that alters the rendered conf (= the nginx map include).  Diff it
-		// across the form apply so the reload prompt fires only for that, not
-		// for report opt-in / auto-ban / HN / country changes.
-		cbApplyBefore := cur.CommunityBans.ApplyActive()
 		applyCommunityBansForm(&cur.CommunityBans, r)
 		// Shared-BAN fallback action: lives on Nginx.Bans but its relevance is
 		// "what to do when a community_bans row in BanMgr has no per-row action",
@@ -1078,8 +1080,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		case "":
 			cur.Nginx.Bans.CommunityBansDefaultAction = ""
 		}
-		// Reload only when enforcement actually toggled (= the include changes).
-		nginxReloadNeeded = cur.CommunityBans.ApplyActive() != cbApplyBefore
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
@@ -1139,6 +1139,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// On the next render, presets with AddedIn newer than this are treated as
 	// new (= forced OFF + NEW badge).
 	cur.Nginx.SeenVersion = "v" + h.Version
+
+	// Conf diff: reload-prompt only when the rendered conf actually changed.
+	// Errors on either side conservatively assume a reload is needed.
+	if beforeSigErr != nil {
+		nginxReloadNeeded = true
+	} else if afterSig, sigErr := nginxconf.RenderSignature(cur, "", h.Version); sigErr != nil {
+		nginxReloadNeeded = true
+	} else {
+		nginxReloadNeeded = afterSig != beforeSig
+	}
 
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		redirBack("save: " + err.Error())
@@ -1237,30 +1247,6 @@ func tabForSection(s string) string {
 		return "theme"
 	}
 	return s
-}
-
-// sectionNeedsNginxReload reports whether a saved section ends up in the
-// rendered http.inc and therefore requires `nginx -s reload` on the native
-// module path.  Sections not listed touch admin state only (= per-site
-// branding / challenge / theme / captcha provider / notifications / SMTP /
-// retention / sites inventory) and apply immediately on every mode.
-//
-// Accepts both ?section= IDs from the main save handler and tab names from
-// the site-scoped save handler (= branding / challenge / theme are
-// admin-only, so the per-site form also lands in the false branch).
-func sectionNeedsNginxReload(section string) bool {
-	switch section {
-	case "global", "ua-filter", "ja4-verdicts", "honeypot",
-		"bypass-ips", "bypass-paths", "protected",
-		"rate-limit", "rate_limit", "geo", "network":
-		return true
-	}
-	// community-bans is intentionally NOT here: most of its settings (= report
-	// opt-in / auto-ban / HN / country) never touch the rendered conf, so the
-	// save banner stays "applies immediately".  The one exception -- a
-	// subscribe_mode change that flips enforcement on/off -- is signalled per
-	// save via an explicit &reload=1 redirect param instead.
-	return false
 }
 
 func (h *Handler) snapshotSettings() settings.Settings {
@@ -3683,10 +3669,11 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 			dst += "&scope=" + url.QueryEscape(scopeHost)
 		}
 		if msg == "" {
-			// Pass the tab through as ?section= for the saved-banner
-			// router; per-site branding / challenge / theme are
-			// admin-only, so the false branch on sectionNeedsNginxReload
-			// triggers the "applies immediately" copy.
+			// Per-site branding / challenge / theme are admin-only (= never
+			// touch the rendered conf), so no &reload=1 is appended and the
+			// banner shows "applies immediately".  If a per-site setting ever
+			// reaches the conf, add the same RenderSignature diff used by the
+			// main save handler here.
 			dst += "&saved=1&section=" + url.QueryEscape(tab)
 		} else {
 			setFlash(w, base, "err", msg)
