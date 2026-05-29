@@ -51,6 +51,28 @@ table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertica
 table.feed tbody tr:hover{background:#f8fafc}
 table.feed tbody tr.feed-row.not-promoted td:not(:first-child){opacity:.72}
 table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
+/* Row status colour-coding -- mirrors the match-cell badge so the table reads
+ * at a glance.  Coloured left edge + a faint tint; the badge stays for the
+ * exact wording and as a non-colour cue.  The legend above the table explains
+ * each colour. */
+table.feed tbody tr.feed-row td:first-child{border-left:3px solid transparent}
+table.feed tbody tr.row-enforced td:first-child{border-left-color:#16a34a}
+table.feed tbody tr.row-promoted td:first-child{border-left-color:#3b82f6}
+table.feed tbody tr.row-reports  td:first-child{border-left-color:#cbd5e1}
+table.feed tbody tr.row-bypassed td:first-child{border-left-color:#f59e0b}
+table.feed tbody tr.row-enforced{background:#f0fdf4}
+table.feed tbody tr.row-promoted{background:#eff6ff}
+table.feed tbody tr.row-bypassed{background:#fffbeb}
+table.feed tbody tr.row-enforced:hover{background:#dcfce7}
+table.feed tbody tr.row-promoted:hover{background:#dbeafe}
+table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
+/* row-reports keeps the neutral baseline (no tint) but a grey edge. */
+.status-legend{display:flex;flex-wrap:wrap;gap:.5rem;margin:.5rem 0 .75rem;font-size:.72rem}
+.status-legend .leg{display:inline-flex;align-items:center;padding:.1rem .5rem;border-radius:.2rem;border-left:3px solid transparent;color:#475569}
+.status-legend .leg-enforced{background:#f0fdf4;border-left-color:#16a34a}
+.status-legend .leg-promoted{background:#eff6ff;border-left-color:#3b82f6}
+.status-legend .leg-reports{background:#f8fafc;border-left-color:#cbd5e1}
+.status-legend .leg-bypassed{background:#fffbeb;border-left-color:#f59e0b}
 .match-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
 .match-ip_ja4{background:#fee2e2;color:#991b1b}
 .match-ja4_only{background:#fef3c7;color:#92400e}
@@ -219,6 +241,13 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
   </div>
   {{ end }}
 
+  <div class="status-legend" role="note" aria-label="{{ t .Lang "community_bans.legend.aria" }}">
+    <span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>
+    <span class="leg leg-promoted">{{ t .Lang "community_bans.legend.promoted" }}</span>
+    <span class="leg leg-reports">{{ t .Lang "community_bans.legend.reports" }}</span>
+    <span class="leg leg-bypassed">{{ t .Lang "community_bans.legend.bypassed" }}</span>
+  </div>
+
   <table class="feed">
     <thead>
       <tr>
@@ -236,7 +265,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     </thead>
     <tbody>
       {{ range .CommunityBansEntries }}
-      <tr class="feed-row{{ if not .Promoted }} not-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+      <tr class="feed-row {{ if .Bypassed }}row-bypassed{{ else if not .Promoted }}row-reports not-promoted{{ else if eq $.SubscribeMode "fetch_apply" }}row-enforced{{ else }}row-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
         <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
           {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
