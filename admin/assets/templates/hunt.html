@@ -402,20 +402,16 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     {{/* share group: share checkbox + (only when no prior opt-in) a nested terms gate beneath it.
          The BAN itself doesn't require consent (= the group is fully optional). */}}
     <div class="ban-dialog-share-group">
+      {{/* one unified clickwrap.  Not yet opted in: ticking share also accepts
+           the terms (the label carries the links), and the server flips
+           submit_enabled + TermsAcceptedAt via accept_terms=1.  Already opted
+           in: it's a plain per-BAN share toggle.  The BAN never needs consent. */}}
       <label class="ban-dialog-share">
-        <input type="checkbox" id="ban-dialog-share" {{ if not .CommunityBansActive }}disabled{{ end }}>
-        <span>{{ t .Lang "hunt.ban.share_label" }}</span>
+        <input type="checkbox" id="ban-dialog-share">
+        <span>{{ if .CommunityBansActive }}{{ t .Lang "hunt.ban.share_label" }}{{ else }}{{ safeHTML (t .Lang "hunt.ban.share_consent_label") }}{{ end }}</span>
       </label>
       {{ if not .CommunityBansActive }}
-      {{/* no prior opt-in: complete terms consent + share within the dialog.  Checking the box flips submit_enabled + TermsAcceptedAt on the server */}}
-      <div class="ban-dialog-terms-gate">
-        <div class="ban-dialog-terms-gate-h">{{ t .Lang "hunt.ban.terms_gate_h" }}</div>
-        <label class="ban-dialog-terms">
-          <input type="checkbox" id="ban-dialog-terms">
-          <span>{{ safeHTML (t .Lang "hunt.ban.terms_label") }}</span>
-        </label>
-        <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
-      </div>
+      <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
       {{ end }}
       <div id="ban-dialog-reason-row" class="ban-dialog-reason" style="display:none">
         <label for="ban-dialog-reason">{{ t .Lang "hunt.ban.reason_shared_label" }}</label>
@@ -443,17 +439,13 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .ban-dialog-reason label{color:#475569;font-size:.78rem}
 .ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
 .ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem}
-.ban-dialog-share{display:flex;align-items:center;gap:.45rem;font-size:.875rem;cursor:pointer}
+/* align-items:flex-start so the unified consent label (= terms links + share
+ * copy on no-prior-opt-in) wraps cleanly with the checkbox pinned to the top. */
+.ban-dialog-share{display:flex;align-items:flex-start;gap:.45rem;font-size:.875rem;cursor:pointer;line-height:1.4}
+.ban-dialog-share input{margin-top:.15rem}
 .ban-dialog-share input:disabled+span{color:#94a3b8;cursor:not-allowed}
-/* terms gate: a consent box nested beneath the share checkbox.  Left indent + tree
- * line visually convey "this is a prerequisite for sharing".  Placed as a fully optional
- * subordinate UI since BAN execution itself needs no consent. */
-.ban-dialog-terms-gate{margin-left:1.6rem;padding:.45rem .65rem;background:#f8fafc;border-left:.15rem solid #cbd5e1;border-radius:0 .25rem .25rem 0;display:flex;flex-direction:column;gap:.3rem}
-.ban-dialog-terms-gate-h{font-size:.72rem;color:#475569;font-weight:600;letter-spacing:.02em}
-.ban-dialog-terms{display:flex;align-items:flex-start;gap:.45rem;font-size:.8rem;cursor:pointer;margin:0}
-.ban-dialog-terms input{margin-top:.15rem}
-.ban-dialog-terms a{color:#1d4ed8;text-decoration:underline}
-.ban-dialog-terms-note{font-size:.7rem;color:#64748b;margin:0 0 0 1.4rem;line-height:1.45}
+.ban-dialog-share a{color:#1d4ed8;text-decoration:underline}
+.ban-dialog-terms-note{font-size:.7rem;color:#64748b;margin:.1rem 0 0 1.6rem;line-height:1.45}
 .ban-dialog-comment{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
 .ban-dialog-comment label{color:#475569;font-size:.78rem}
 .ban-dialog-comment textarea,.ban-dialog-reason input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem}
@@ -866,7 +858,6 @@ document.addEventListener('DOMContentLoaded', function(){
   var feedActive = dlg.dataset.feedActive === '1';
   var target  = document.getElementById('ban-dialog-target');
   var shareCb = document.getElementById('ban-dialog-share');
-  var termsCb = document.getElementById('ban-dialog-terms'); // exists only when there's no prior opt-in
   var cmtRow  = document.getElementById('ban-dialog-comment-row');
   var cmtTa   = document.getElementById('ban-dialog-comment');
   var cmtCnt  = document.getElementById('ban-dialog-counter');
@@ -891,16 +882,6 @@ document.addEventListener('DOMContentLoaded', function(){
       syncShareRows(shareCb.checked);
     });
   }
-  // terms checkbox: accepting only *enables* share -- consent is not auto-share,
-  // so the operator still ticks share deliberately.  Unchecking disables it again.
-  if (termsCb && shareCb){
-    termsCb.addEventListener('change', function(){
-      shareCb.disabled = !termsCb.checked;
-      if (!termsCb.checked) shareCb.checked = false;
-      syncShareRows(shareCb.checked && !shareCb.disabled);
-    });
-  }
-
   dlg.addEventListener('close', function(){
     if (!pending) return;
     var form = pending; pending = null;
@@ -916,8 +897,9 @@ document.addEventListener('DOMContentLoaded', function(){
     var rIn = form.querySelector('input[name=reason]');
     if (rIn && reasonEl && sharing) rIn.value = reasonEl.value;
     if (cmtTa && cIn) cIn.value = sharing ? cmtTa.value : '';
-    // accept_terms is set only when the no-prior-opt-in state had terms checked
-    if (aIn) aIn.value = (!feedActive && termsCb && termsCb.checked) ? '1' : '';
+    // accept_terms: ticking share while not yet opted in IS the consent (the
+    // unified clickwrap label carries the terms + privacy links).
+    if (aIn) aIn.value = (!feedActive && sharing) ? '1' : '';
     // re-submit (= bypass the js-ban-form intercept)
     form.dataset.confirmed = '1';
     form.submit();
@@ -931,16 +913,15 @@ document.addEventListener('DOMContentLoaded', function(){
       var ja4 = form.dataset.ja4 || '';
       if (target) target.textContent = ja4 ? (ip + '  ·  ' + ja4) : ip;
       if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
-      if (termsCb){ termsCb.checked = false; }
       // Seed the editable reason with the auto-generated default so the operator
       // can review, tweak, or clear it before sharing.
       if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.value = rIn ? rIn.value : ''; }
       if (shareCb){
-        // Sharing is opt-in per BAN: start unchecked even when already opted in,
-        // so a routine BAN never silently shares.  Enabled when opted in
-        // (feedActive); otherwise disabled until the terms gate is accepted.
+        // Sharing is opt-in per BAN: always start unchecked so a routine BAN
+        // never silently shares.  The box is always enabled now -- ticking it
+        // when not yet opted in doubles as the terms acceptance.
         shareCb.checked = false;
-        shareCb.disabled = !feedActive;
+        shareCb.disabled = false;
       }
       syncShareRows(false);
       pending = form;
