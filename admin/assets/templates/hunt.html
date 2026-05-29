@@ -403,7 +403,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
          The BAN itself doesn't require consent (= the group is fully optional). */}}
     <div class="ban-dialog-share-group">
       <label class="ban-dialog-share">
-        <input type="checkbox" id="ban-dialog-share" {{ if .CommunityBansActive }}checked{{ else }}disabled{{ end }}>
+        <input type="checkbox" id="ban-dialog-share" {{ if not .CommunityBansActive }}disabled{{ end }}>
         <span>{{ t .Lang "hunt.ban.share_label" }}</span>
       </label>
       {{ if not .CommunityBansActive }}
@@ -417,10 +417,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
         <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
       </div>
       {{ end }}
-      <div id="ban-dialog-reason-row" class="ban-dialog-reason"{{ if not .CommunityBansActive }} style="display:none"{{ end }}>
+      <div id="ban-dialog-reason-row" class="ban-dialog-reason" style="display:none">
         {{ t .Lang "hunt.ban.reason_shared_label" }} <code id="ban-dialog-reason"></code>
       </div>
-      <div id="ban-dialog-comment-row" class="ban-dialog-comment"{{ if not .CommunityBansActive }} style="display:none"{{ end }}>
+      <div id="ban-dialog-comment-row" class="ban-dialog-comment" style="display:none">
         <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
         <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
         <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
@@ -889,17 +889,13 @@ document.addEventListener('DOMContentLoaded', function(){
       syncShareRows(shareCb.checked);
     });
   }
-  // terms checkbox: checking it enables share + auto-checks it; unchecking it disables share too
+  // terms checkbox: accepting only *enables* share -- consent is not auto-share,
+  // so the operator still ticks share deliberately.  Unchecking disables it again.
   if (termsCb && shareCb){
     termsCb.addEventListener('change', function(){
-      if (termsCb.checked){
-        shareCb.disabled = false;
-        shareCb.checked = true;
-      } else {
-        shareCb.checked = false;
-        shareCb.disabled = true;
-      }
-      syncShareRows(shareCb.checked);
+      shareCb.disabled = !termsCb.checked;
+      if (!termsCb.checked) shareCb.checked = false;
+      syncShareRows(shareCb.checked && !shareCb.disabled);
     });
   }
 
@@ -932,11 +928,13 @@ document.addEventListener('DOMContentLoaded', function(){
       // for bot-hunt bans, so the operator can see it before sharing).
       if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.textContent = rIn ? rIn.value : ''; }
       if (shareCb){
-        // no prior opt-in: share starts disabled + unchecked (= terms consent enables it)
-        // already opted in: share stays checked (= default ON)
-        if (!feedActive){ shareCb.checked = false; shareCb.disabled = true; }
+        // Sharing is opt-in per BAN: start unchecked even when already opted in,
+        // so a routine BAN never silently shares.  Enabled when opted in
+        // (feedActive); otherwise disabled until the terms gate is accepted.
+        shareCb.checked = false;
+        shareCb.disabled = !feedActive;
       }
-      syncShareRows(shareCb && shareCb.checked && !shareCb.disabled);
+      syncShareRows(false);
       pending = form;
       dlg.returnValue = '';
       dlg.showModal();
