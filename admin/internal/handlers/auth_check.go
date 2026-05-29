@@ -193,7 +193,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	honeypotChMode := ""
 
 	switch {
-	case isBypassIP(ip, cfg.Nginx.BypassIPs):
+	case matchers.ipBypass.Match(ip):
 		action, reason, status = "pass", "bypass:ip", http.StatusOK
 	case matchPath(uri, matchers.bypass):
 		action, reason, status = "pass", "bypass:path", http.StatusOK
@@ -753,24 +753,13 @@ func peerIsTrustedProxy(remoteAddr string, cidrs []string) bool {
 	return false
 }
 
-func isBypassIP(ip string, list []string) bool {
-	if ip == "" {
-		return false
-	}
-	for _, s := range list {
-		if strings.TrimSpace(s) == ip {
-			return true
-		}
-	}
-	return false
-}
-
 // --- Regex matcher cache (= recompile only when settings change) ---
 
 type pathMatchers struct {
 	bypass    []*regexp.Regexp
 	honeypot  []*regexp.Regexp
 	protected []*regexp.Regexp
+	ipBypass  *nginxconf.IPBypassMatcher
 }
 
 // bypassMatchersCache: reused until the (settings pointer, site) pair
@@ -794,6 +783,12 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 		return cachedMatchers
 	}
 	pm := pathMatchers{}
+
+	// bypass IPs: preset ranges (Googlebot etc.) + enabled bypass_ips rows,
+	// CIDR-aware -- the same allowlist the native geo $is_bypass_ip block bakes
+	// in, so forward-auth never challenges a trusted crawler the native path
+	// would exempt.
+	pm.ipBypass = nginxconf.NewIPBypassMatcher(n)
 
 	// bypass paths: enabled presets + per-site rows from ResolvePaths.
 	//
