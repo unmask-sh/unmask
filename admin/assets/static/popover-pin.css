@@ -248,11 +248,12 @@
 .popover-resizable{overflow:visible!important;max-width:none!important;max-height:none!important}
 /* Body fills the card between the title bar and the pinned-footer hint, and
  * scrolls.  bottom is left clear for the "ESC to close" footer below. */
-.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:1.45rem;margin:0;padding:0 .9rem .35rem;overflow:auto}
+.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:1.55rem;margin:0;padding:0 .9rem .35rem;overflow:auto}
 /* Keep the "ESC to close" hint, pinned to the bottom edge (the JS no longer
- * lets it scroll away with the body).  Opaque background so scrolled content
- * doesn't bleed through. */
-.popover-resizable::after{position:absolute!important;left:0;right:0;bottom:0;margin:0!important;padding:.25rem .9rem!important;background:#fff;border-top:1px dashed #e2e8f0}
+ * lets it scroll away with the body).  Inset by the outline width (.125rem)
+ * and round the bottom corners so the opaque footer sits inside the blue
+ * frame instead of squaring off its rounded corners. */
+.popover-resizable::after{position:absolute!important;left:.125rem;right:.125rem;bottom:.125rem;margin:0!important;padding:.25rem .775rem!important;background:#fff;border-top:1px dashed #e2e8f0;border-radius:0 0 .3rem .3rem}
 .popover-rsz{position:absolute;z-index:5}
 .popover-rsz-n{top:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
 .popover-rsz-s{bottom:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
