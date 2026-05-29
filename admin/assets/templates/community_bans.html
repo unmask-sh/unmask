@@ -69,6 +69,8 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .votes-cell .bad{color:#b91c1c}
 .votes-cell .cmt-count{color:#64748b}
 .enforced-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#dcfce7;color:#166534;cursor:help}
+.promoted-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:600;background:#dbeafe;color:#1e40af;cursor:help}
+.reports-only-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:600;background:#f1f5f9;color:#64748b;cursor:help}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
@@ -227,7 +229,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     </thead>
     <tbody>
       {{ range .CommunityBansEntries }}
-      <tr class="feed-row{{ if not .Promoted }} not-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" title="{{ if .Promoted }}{{ t $.Lang "community_bans.row.promoted_title" }}{{ else }}{{ t $.Lang "community_bans.row.not_promoted_title" }}{{ end }}">
+      <tr class="feed-row{{ if not .Promoted }} not-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
         <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
           {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
@@ -238,7 +240,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
           {{ else }}<span class="score-0" title="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
           {{ end }}
         </td>
-        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if and (eq $.SubscribeMode "fetch_apply") .Promoted }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ end }}</td>
+        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if not .Promoted }} <span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_title" }}">{{ t $.Lang "community_bans.reports_only_label" }}</span>{{ else if eq $.SubscribeMode "fetch_apply" }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ else }} <span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_title2" }}">{{ t $.Lang "community_bans.promoted_label" }}</span>{{ end }}</td>
         <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
