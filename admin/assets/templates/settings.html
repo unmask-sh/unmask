@@ -3822,6 +3822,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div class="field">
       <label style="display:block;margin-bottom:.3rem">
         <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong>
+        <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}" style="margin-left:.35rem;font-size:.78rem;color:#b45309;cursor:help;font-weight:normal">⟳ {{ t .Lang "settings.reload_hint_label" }}</span>
       </label>
       {{ $sm := .CommunityBans.ResolvedSubscribeMode }}
       <select name="subscribe_mode" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">

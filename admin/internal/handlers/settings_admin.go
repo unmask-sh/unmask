@@ -443,9 +443,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// rendered http.inc.  Drives the post-save banner copy: true =
 		// "needs nginx -s reload on native mode"; false = "applies
 		// immediately on every mode" (= admin-only sections).
-		// reload=1 is an explicit override the save handler appends when a
-		// section that's normally admit-only DID touch the rendered conf this
-		// time (= community-bans only when subscribe_mode flips enforcement).
+		// SavedReload drives the post-save banner copy.  Most conf-affecting
+		// sections are flagged statically by sectionNeedsNginxReload; the
+		// community-bans tab is excluded there and instead appends &reload=1
+		// only when its enforcement toggle (subscribe_mode) actually changed.
 		"SavedReload":           sectionNeedsNginxReload(r.URL.Query().Get("section")) || r.URL.Query().Get("reload") == "1",
 		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":                   cur,
@@ -891,19 +892,19 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.Settings.Server.BasePath
-	// cbReloadNeeded: set true by the community-bans case when subscribe_mode
-	// flips enforcement on/off (= the rendered conf's community-bans include
-	// changes, so native mode needs a reload this one time).
-	cbReloadNeeded := false
+	// nginxReloadNeeded: set true after the form apply when the rendered nginx
+	// conf actually changed (= RenderSignature before != after).  This is the
+	// authoritative, per-save signal -- no per-section / per-field flags to
+	// maintain; any setting that reaches the rendered conf is covered, and
+	// admin-only settings never flip it.
+	nginxReloadNeeded := false
 	redirBack := func(msg string) {
 		dst := base + "/admin/settings/?tab=" + tabForSection(section)
 		if msg == "" {
-			// Pass the section name through to the saved banner so the
-			// template can swap copy between "needs nginx -s reload" (=
-			// sections that touch the rendered http.inc) and "applies
-			// immediately" (= admin-only sections).
+			// Pass the section name through to the saved banner; reload=1 tells
+			// the banner the conf changed and native mode needs nginx -s reload.
 			dst += "&saved=1&section=" + url.QueryEscape(section)
-			if cbReloadNeeded {
+			if nginxReloadNeeded {
 				dst += "&reload=1"
 			}
 		} else {
@@ -1061,9 +1062,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "smtp":
 		applySMTPForm(&cur.SMTP, r)
 	case "community-bans":
-		// Enforcement on/off (= ApplyActive) is the only Community Bans change
-		// that alters the rendered conf's include.  Diff it across the form
-		// apply so the banner only asks for a reload when it's actually needed.
+		// Enforcement on/off (= ApplyActive) is the only Community Bans setting
+		// that alters the rendered conf (= the nginx map include).  Diff it
+		// across the form apply so the reload prompt fires only for that, not
+		// for report opt-in / auto-ban / HN / country changes.
 		cbApplyBefore := cur.CommunityBans.ApplyActive()
 		applyCommunityBansForm(&cur.CommunityBans, r)
 		// Shared-BAN fallback action: lives on Nginx.Bans but its relevance is
@@ -1076,8 +1078,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		case "":
 			cur.Nginx.Bans.CommunityBansDefaultAction = ""
 		}
-		// Only ask for a reload if enforcement actually toggled.
-		cbReloadNeeded = cur.CommunityBans.ApplyActive() != cbApplyBefore
+		// Reload only when enforcement actually toggled (= the include changes).
+		nginxReloadNeeded = cur.CommunityBans.ApplyActive() != cbApplyBefore
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
