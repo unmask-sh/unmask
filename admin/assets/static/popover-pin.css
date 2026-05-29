@@ -246,8 +246,13 @@
  * the card below the title bar and scrolls; the handles live on the clone
  * (overflow:visible) so they stay anchored while the body scrolls. */
 .popover-resizable{overflow:visible!important;max-width:none!important;max-height:none!important}
-.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:0;margin:0;padding:0 .9rem .55rem;overflow:auto}
-.popover-resizable::after{display:none!important}
+/* Body fills the card between the title bar and the pinned-footer hint, and
+ * scrolls.  bottom is left clear for the "ESC to close" footer below. */
+.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:1.45rem;margin:0;padding:0 .9rem .35rem;overflow:auto}
+/* Keep the "ESC to close" hint, pinned to the bottom edge (the JS no longer
+ * lets it scroll away with the body).  Opaque background so scrolled content
+ * doesn't bleed through. */
+.popover-resizable::after{position:absolute!important;left:0;right:0;bottom:0;margin:0!important;padding:.25rem .9rem!important;background:#fff;border-top:1px dashed #e2e8f0}
 .popover-rsz{position:absolute;z-index:5}
 .popover-rsz-n{top:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
 .popover-rsz-s{bottom:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
