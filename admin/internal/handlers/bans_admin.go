@@ -99,7 +99,9 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	type feedRow struct {
 		communitybans.FeedEntry
 		CountryCode string
+		Bypassed    bool // IP sits in a bypass range -> exempt from enforcement
 	}
+	bypass := communitybans.NewBypassMatcher(cur)
 	filtered := make([]feedRow, 0, len(doc.Entries))
 	for _, e := range doc.Entries {
 		if match != "" && string(e.Match) != match {
@@ -114,7 +116,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 		}
-		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP)})
+		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP), Bypassed: bypass.Match(e.IP)})
 	}
 	var countIPJA4, countJA4, countIP int
 	for _, e := range doc.Entries {
@@ -272,7 +274,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	type feedRow struct {
 		communitybans.FeedEntry
 		CountryCode string
+		Bypassed    bool // IP sits in a bypass range -> exempt from enforcement
 	}
+	bypass := communitybans.NewBypassMatcher(cur)
 	filtered := make([]feedRow, 0, len(doc.Entries))
 	for _, e := range doc.Entries {
 		if match != "" && string(e.Match) != match {
@@ -287,7 +291,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 				continue
 			}
 		}
-		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP)})
+		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP), Bypassed: bypass.Match(e.IP)})
 	}
 
 	var countIPJA4, countJA4, countIP int

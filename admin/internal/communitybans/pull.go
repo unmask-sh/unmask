@@ -76,12 +76,25 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	// challenges traffic, and a previous fetch_apply's maps are cleared.
 	autoApplied := 0
 	if cur.CommunityBans.ApplyActive() {
-		if err := WriteMapFiles(doc, mapDir); err != nil {
+		// Whitelisted-crawler guard: never enforce a feed entry whose IP
+		// falls in a bypass preset / bypass-IP range (= Googlebot, Bingbot,
+		// GPTBot official ranges, internal LBs).  The challenge path already
+		// exempts $is_bypass_ip, but the auto-ban path writes into the local
+		// ban file, which the native plugin reads with no bypass awareness --
+		// so a community report on a search-engine IP would otherwise lock it
+		// to CAPTCHA.  Strip those entries before they reach the map files or
+		// the local ban list; the browse doc above keeps them for visibility.
+		enforce := doc
+		if kept, skipped := excludeBypassedEntries(doc.Entries, NewBypassMatcher(cur)); skipped > 0 {
+			enforce.Entries = kept
+			c.logf("communitybans: excluded %d whitelisted-crawler entr(ies) from enforcement (search-engine accident guard)", skipped)
+		}
+		if err := WriteMapFiles(enforce, mapDir); err != nil {
 			return doc, fmt.Errorf("write map files: %w", err)
 		}
 		// Auto-apply: copy promoted high-score entries into the local BAN
 		// list (opt-in via AutoBanMinScore).
-		autoApplied = c.applyAutoBans(ctx, doc, cur.CommunityBans.AutoBanMinScore, cur.CommunityBans.AutoBanAction)
+		autoApplied = c.applyAutoBans(ctx, enforce, cur.CommunityBans.AutoBanMinScore, cur.CommunityBans.AutoBanAction)
 	} else {
 		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: doc.Version}
 		if err := WriteMapFiles(empty, mapDir); err != nil {
