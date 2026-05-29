@@ -553,8 +553,19 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.Settings.Server.BasePath
+	// return_to lets a form posted from a different page (= the subscribe
+	// toggle lives on both /admin/bans/ and /admin/community-bans/) come
+	// back to where it was submitted.  Whitelist to known admin sub-paths
+	// so the field can't be turned into an open redirect.
+	returnTo := base + "/admin/bans/"
+	switch strings.TrimSpace(r.FormValue("return_to")) {
+	case "community-bans":
+		returnTo = base + "/admin/community-bans/"
+	case "bans", "":
+		returnTo = base + "/admin/bans/"
+	}
 	redir := func(msg string) {
-		dst := base + "/admin/bans/"
+		dst := returnTo
 		if msg == "" {
 			dst += "?saved=1"
 		} else {
