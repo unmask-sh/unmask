@@ -1117,8 +1117,9 @@ type CommunityBans struct {
 	MapDir string `yaml:"map_dir,omitempty"`
 	// AutoBanMinScore: score threshold (1-5) above which a promoted hub entry
 	// gets auto-added to the local BanMgr.  0 disables (= map-only enforcement,
-	// no per-row BAN list rows from the hub).  Default 5 = "only the loudest
-	// signals get propagated into my BAN management view."
+	// no per-row BAN list rows from the hub).  Default 3 = "everything the hub
+	// promotes (score >= 3) flows into my BAN list" -- safe because the default
+	// action is captcha_only, so a false positive still recovers via captcha.
 	AutoBanMinScore int `yaml:"auto_ban_min_score,omitempty"`
 	// AutoBanAction: chain mode applied to auto-added rows.  Empty defers to
 	// settings.Nginx.Bans.CommunityBansDefaultAction.  Concrete values:
@@ -1554,7 +1555,7 @@ func defaults() Settings {
 			SubmitURL:        DefaultCommunityBansSubmitURL,
 			FeedURL:          DefaultCommunityBansFeedURL,
 			AggregateURL:     DefaultCommunityBansAggregateURL,
-			AutoBanMinScore:  5, // default: only the strongest tier auto-applies
+			AutoBanMinScore:  3, // default: auto-apply everything the hub promotes (score >= 3); captcha_only action keeps false positives recoverable
 			AutoBanAction:    "captcha_only",
 		},
 		Nginx: Nginx{
