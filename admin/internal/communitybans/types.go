@@ -74,8 +74,9 @@ type FeedEntry struct {
 	LikeCount    int       `json:"like_count,omitempty"`
 	BadCount     int       `json:"bad_count,omitempty"`
 	CommentCount int       `json:"comment_count,omitempty"`
-	Reports      int       `json:"reports,omitempty"`  // raw submission count
-	Installs     int       `json:"installs,omitempty"` // unique reporting installs
+	Reports      int       `json:"reports,omitempty"`    // raw submission count
+	Installs     int       `json:"installs,omitempty"`   // unique reporting installs
+	FirstSeen    int64     `json:"first_seen,omitempty"` // earliest submission time for the pair
 	Reason       string    `json:"reason,omitempty"`
 	Comments     []Comment `json:"comments,omitempty"`
 	ExpiresAt    int64     `json:"expires_at,omitempty"`

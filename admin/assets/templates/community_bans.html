@@ -68,6 +68,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
 .votes-cell .cmt-count{color:#64748b}
+.enforced-badge{display:inline-block;margin-left:.35rem;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#dcfce7;color:#166534;cursor:help}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
@@ -220,6 +221,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         <th>{{ t .Lang "community_bans.col.votes" }}</th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
         <th>{{ t .Lang "community_bans.col.comments" }}</th>
+        <th>{{ t .Lang "community_bans.col.first_seen" }}</th>
         <th>{{ t .Lang "community_bans.col.expires" }}</th>
       </tr>
     </thead>
@@ -236,7 +238,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
           {{ else }}<span class="score-0" title="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
           {{ end }}
         </td>
-        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span></td>
+        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if and (eq $.SubscribeMode "fetch_apply") .Promoted }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ end }}</td>
         <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}{{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}</td>
         <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
@@ -256,10 +258,11 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
           <span class="muted">-</span>
           {{ end }}
         </td>
+        <td>{{ if gt .FirstSeen 0 }}<time class="js-datetime" data-ts="{{ .FirstSeen }}">{{ .FirstSeen }}</time>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
