@@ -239,3 +239,21 @@
 .info-popup-pinned{background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:1.85rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);max-height:calc(100vh - 2rem);overflow-y:auto;box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
 .info-popup-pinned a{color:#1d4ed8;text-decoration:underline}
 .info-popup-pinned code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+
+/* === resizable pinned popover ============================================
+ * JS adds .popover-resizable + a fixed px size once pinned, then 8 edge /
+ * corner handles let the user drag any side of the window.  The body fills
+ * the card below the title bar and scrolls; the handles live on the clone
+ * (overflow:visible) so they stay anchored while the body scrolls. */
+.popover-resizable{overflow:visible!important;max-width:none!important;max-height:none!important}
+.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:0;margin:0;padding:0 .9rem .55rem;overflow:auto}
+.popover-resizable::after{display:none!important}
+.popover-rsz{position:absolute;z-index:5}
+.popover-rsz-n{top:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
+.popover-rsz-s{bottom:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
+.popover-rsz-e{top:8px;bottom:8px;right:-3px;width:7px;cursor:ew-resize}
+.popover-rsz-w{top:8px;bottom:8px;left:-3px;width:7px;cursor:ew-resize}
+.popover-rsz-ne{top:-4px;right:-4px;width:13px;height:13px;cursor:nesw-resize}
+.popover-rsz-nw{top:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}
+.popover-rsz-se{bottom:-4px;right:-4px;width:13px;height:13px;cursor:nwse-resize}
+.popover-rsz-sw{bottom:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}

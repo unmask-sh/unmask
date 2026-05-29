@@ -274,6 +274,51 @@ window.popoverPin = window.popoverPin || (function(){
   window._popoverCopyCloneBody = copyCloneBody;
   // Exposed so installInfoTipPinning can reuse the same drag wiring.
   window._popoverAttachDragToBar = attachDragToBar;
+
+  // attachResize: make a pinned clone resizable from any edge / corner.
+  // Freezes the current size to px (so edge drags have a base), flips the
+  // body to fill-and-scroll via .popover-resizable, and adds 8 drag handles.
+  // Idempotent.  Shared by both pin flavors (data-popover + info-tip).
+  function attachResize(clone){
+    if (!clone || clone._resizeAttached) return;
+    clone._resizeAttached = true;
+    var r = clone.getBoundingClientRect();
+    clone.style.width = r.width + 'px';
+    clone.style.height = r.height + 'px';
+    clone.classList.add('popover-resizable');
+    ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].forEach(function(dir){
+      var h = document.createElement('div');
+      h.className = 'popover-rsz popover-rsz-' + dir;
+      h.addEventListener('mousedown', function(e){ startResize(e, clone, dir); });
+      clone.appendChild(h);
+    });
+  }
+  function startResize(e, clone, dir){
+    e.preventDefault();
+    e.stopPropagation();
+    var r = clone.getBoundingClientRect();
+    var sx = e.clientX, sy = e.clientY;
+    var sw = r.width, sh = r.height;
+    var sl = r.left + window.scrollX, st = r.top + window.scrollY;
+    var MINW = 180, MINH = 90;
+    function onMove(ev){
+      var dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (dir.indexOf('e') >= 0) clone.style.width = Math.max(MINW, sw + dx) + 'px';
+      if (dir.indexOf('w') >= 0){ var w = Math.max(MINW, sw - dx); clone.style.width = w + 'px'; clone.style.left = (sl + (sw - w)) + 'px'; }
+      if (dir.indexOf('s') >= 0) clone.style.height = Math.max(MINH, sh + dy) + 'px';
+      if (dir.indexOf('n') >= 0){ var hh = Math.max(MINH, sh - dy); clone.style.height = hh + 'px'; clone.style.top = (st + (sh - hh)) + 'px'; }
+    }
+    function onUp(){
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+    }
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+  window._popoverAttachResize = attachResize;
+
   var clampToViewport = window.popoverClampToViewport;
   function install(primary){
     var pins = new Map();
@@ -330,6 +375,7 @@ window.popoverPin = window.popoverPin || (function(){
       clone.style.left = pos.x + 'px';
       clone.style.top  = (pos.y - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
       clone.style.visibility = '';
+      attachResize(clone);
       return clone;
     }
     return {
@@ -546,6 +592,7 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         clone.style.left = pos.x + 'px';
         clone.style.top  = (pos.y - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
       }
+      if (typeof window._popoverAttachResize === 'function') window._popoverAttachResize(clone);
       tip._pinClone = clone;
       tip.classList.add('pinned');
     });
