@@ -256,4 +256,4 @@
 .popover-rsz-ne{top:-4px;right:-4px;width:13px;height:13px;cursor:nesw-resize}
 .popover-rsz-nw{top:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}
 .popover-rsz-se{bottom:-4px;right:-4px;width:13px;height:13px;cursor:nwse-resize}
-.popover-rsz-sw{bottom:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}
+.popover-rsz-sw{bottom:-4px;left:-4px;width:13px;height:13px;cursor:nesw-resize}
