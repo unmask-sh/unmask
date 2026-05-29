@@ -45,6 +45,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-nav a{display:block;padding:.4rem .7rem;border-radius:.3rem;color:#475569;text-decoration:none;font-weight:500;border-left:2px solid transparent;line-height:1.4}
 .settings-nav a:hover{background:#f8fafc;color:#0f172a}
 .settings-nav a.active{background:#eff6ff;color:#1e40af;border-left-color:#3b82f6;font-weight:600}
+.settings-nav .nav-reload{float:right;font-size:.8em;color:#d97706;cursor:help;opacity:.7}
+.settings-nav a:hover .nav-reload,.settings-nav a.active .nav-reload{opacity:1}
 .settings-content{min-width:0}
 .settings-tab-title{font-size:1.4rem;font-weight:700;color:#0f172a;margin:0 0 .6rem;display:flex;align-items:center;gap:.5rem;line-height:1}
 /* Live-preview link sits at the right side of the gate-tab title (= rate-
@@ -366,25 +368,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </ul>
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
   <ul>
-    <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
+    <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
     <li><a href="?tab=sites"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
     {{/* SMTP / notifications tabs hidden until post-v0.1 (= feature still ships but the UI entry point is closed). */}}
     <li><a href="?tab=retention"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
   <ul>
-    <li><a href="?tab=bypass-ips"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}</a></li>
-    <li><a href="?tab=bypass-paths" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}</a></li>
+    <li><a href="?tab=bypass-ips"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=bypass-paths" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
   <ul>
-    <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
-    <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
-    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
-    <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
-    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
-    <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
-    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
+    <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
+    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}<span class="nav-reload" title="{{ t .Lang "settings.reload_hint_title" }}">⟳</span></a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
