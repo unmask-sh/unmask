@@ -46,9 +46,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-nav a:hover{background:#f8fafc;color:#0f172a}
 .settings-nav a.active{background:#eff6ff;color:#1e40af;border-left-color:#3b82f6;font-weight:600}
 .settings-content{min-width:0}
-/* reload marker: a field/section hint (.reload-hint) when the setting is rendered into the nginx conf (= native mode needs
- * nginx -s reload after changing it; forward-auth applies live). */
-.reload-hint{display:inline-block;font-size:.72rem;color:#d97706;cursor:help;font-weight:normal;white-space:nowrap;margin-left:.35rem}
 .settings-tab-title{font-size:1.4rem;font-weight:700;color:#0f172a;margin:0 0 .6rem;display:flex;align-items:center;gap:.5rem;line-height:1}
 /* Live-preview link sits at the right side of the gate-tab title (= rate-
    limit / honeypot / protected / ua-filter / ja4-verdicts).  Subtle but
@@ -487,7 +484,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      with the multi-host section, and is now web-editable there). */}}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=network">
   <div class="bcd-card listen-card">
-    <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span> <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h2>
+    <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span></h2>
     <div class="listen-mode-row">
       <label class="listen-radio"><input type="radio" name="listen_mode" value="tcp" {{ if eq .ListenMode "tcp" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_tcp" }}</span></label>
       <label class="listen-radio"><input type="radio" name="listen_mode" value="socket" {{ if eq .ListenMode "socket" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_socket" }}</span></label>
@@ -933,8 +930,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>
       {{ t .Lang "settings.bypass.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bypass-preset-help" aria-label="?">?</button>
-      <script type="text/html" id="bypass-preset-help">{{ safeHTML (t .Lang "settings.bypass.preset.help") }}</script>
-     <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h2>
+      <script type="text/html" id="bypass-preset-help">{{ safeHTML (t .Lang "settings.bypass.preset.help") }}</script></h2>
     <table class="settings-preset">
       <thead>
         <tr>
@@ -1029,8 +1025,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>
       {{ t .Lang "settings.bypass_paths.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bp-preset-help" aria-label="?">?</button>
-      <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script>
-     <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h2>
+      <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script></h2>
     <div class="ua-section">
       {{ range .BypassPathGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
@@ -1119,7 +1114,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.global.no_match_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="global-default-help" aria-label="?">?</button>
-      <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span>
     </h2>
     <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
 
@@ -1180,8 +1174,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card" style="border-left:.25rem solid #6366f1">
     <h2 style="color:#4338ca">
       {{ t .Lang "settings.ua.badge.upstream" }}
-      <button type="button" class="ua-help-trigger" data-help-target="upstream-help" aria-label="?">?</button>
-     <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h2>
+      <button type="button" class="ua-help-trigger" data-help-target="upstream-help" aria-label="?">?</button></h2>
     <script type="text/html" id="upstream-help">
       <p style="margin:0 0 .5rem">{{ safeHTML (t .Lang "settings.ua.upstream_desc") }}</p>
       <p style="margin:0">{{ safeHTML (t .Lang "settings.ua.upstream.mode_legend") }}</p>
@@ -1727,7 +1720,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <!-- preset sub-section -->
     <div class="ua-section">
-      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span> <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h3>
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
       {{ range .JA4Groups }}
       {{ $jpa := index $.JA4PresetAction .ID }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
@@ -1891,7 +1884,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
     <!-- preset sub-section -->
     <div class="ua-section">
-      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span> <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h3>
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
       {{ range .HoneypotGroups }}
       {{ $hpa := index $.HoneypotPresetAction .ID }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
@@ -2009,8 +2002,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.protected.preset.title" }}
-      <button type="button" class="ua-help-trigger" data-help-target="protected-preset-help" aria-label="?">?</button>
-     <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h2>
+      <button type="button" class="ua-help-trigger" data-help-target="protected-preset-help" aria-label="?">?</button></h2>
     <script type="text/html" id="protected-preset-help">{{ safeHTML (t .Lang "settings.protected.preset.desc") }}</script>
 
     <!-- protected default action -->
@@ -2407,7 +2399,7 @@ document.addEventListener("DOMContentLoaded", function(){
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=rate_limit">
   <div class="bcd-card">
 
-    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }} <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h3>
+    <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
 
     <div class="field">
@@ -2607,7 +2599,7 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
     </div>
 
-    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }} <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}">⟳ {{ t .Lang "settings.reload_hint_label" }}</span></h3>
+    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.default_help") }}</div>
 
     {{ $gda := .Nginx.Geo.DefaultAction }}{{ if eq $gda "" }}{{ $gda = "skip" }}{{ end }}
@@ -3826,7 +3818,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div class="field">
       <label style="display:block;margin-bottom:.3rem">
         <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong>
-        <span class="reload-hint" title="{{ t .Lang "settings.reload_hint_title" }}" style="margin-left:.35rem;font-size:.78rem;color:#b45309;cursor:help;font-weight:normal">⟳ {{ t .Lang "settings.reload_hint_label" }}</span>
       </label>
       {{ $sm := .CommunityBans.ResolvedSubscribeMode }}
       <select name="subscribe_mode" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
