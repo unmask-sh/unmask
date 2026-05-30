@@ -1142,12 +1142,12 @@ type CommunityBans struct {
 const (
 	DefaultCommunityBansRegisterURL = "https://unmask.sh/api/feed/register"
 	DefaultCommunityBansSubmitURL   = "https://unmask.sh/api/feed/submit"
-	// FeedURL default is the v2 list endpoint -- it returns promoted + non-
-	// promoted entries so the browse page can show "報告のみ" rows (= score
-	// 1-2) alongside the propagated bans.  WriteMapFiles filters Promoted=true
-	// before writing the nginx map files so non-promoted entries stay browse-
-	// only.  Pin to banlist.json explicitly to suppress browse list (= pulls
-	// promoted entries only).
+	// FeedURL is the single hub endpoint that ships promoted + reports-only
+	// entries together.  WriteMapFiles filters Promoted=true before writing
+	// the nginx map files so non-promoted entries stay browse-only.  The
+	// local AutoBanMinScore threshold then narrows the propagated set further
+	// for auto-ban -- the hub no longer publishes a separate pre-filtered
+	// file for that.
 	DefaultCommunityBansFeedURL      = "https://unmask.sh/api/feed/list.json"
 	DefaultCommunityBansAggregateURL = "https://unmask.sh/api/feed/aggregate"
 )
