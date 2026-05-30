@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "removal_requests.title" }}</title>
+<link rel="icon" type="image/png" href="{{ .BasePath }}/static/icon.png">
+<link rel="apple-touch-icon" href="{{ .BasePath }}/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:1.5rem;padding-left:1.5rem;border-left:1px solid #334155}
+.unmask-header .nav a{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-header .spacer{flex:1}
+.unmask-main{padding:1.5rem 2rem;max-width:74rem;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.flash{padding:.55rem .85rem;border-radius:.3rem;margin:0 0 1rem;font-size:.9rem}
+.flash.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.flash.err{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.tabs{display:flex;gap:.4rem;margin:0 0 1rem;font-size:.85rem}
+.tabs a{display:inline-block;padding:.4rem .8rem;border-radius:.3rem;background:#fff;border:1px solid #e2e8f0;color:#475569;text-decoration:none}
+.tabs a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.tabs .count{margin-left:.35rem;font-size:.75rem;color:#94a3b8}
+.tabs a.active .count{color:#cbd5e1}
+table{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;overflow:hidden}
+th,td{padding:.55rem .7rem;border-bottom:1px solid #f1f5f9;text-align:left;font-size:.85rem;vertical-align:top}
+th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transform:uppercase;letter-spacing:.04em}
+.kind-pill{display:inline-block;padding:.05rem .5rem;border-radius:.2rem;font-size:.72rem;font-weight:600;background:#e0e7ff;color:#3730a3}
+.target{font-family:ui-monospace,Menlo,monospace;font-size:.85rem;word-break:break-all}
+.reason,.contact{font-size:.82rem;color:#475569;max-width:24rem}
+.actions{white-space:nowrap}
+.actions form{display:inline-block;margin:0}
+.actions button{font:inherit;font-size:.78rem;padding:.3rem .7rem;border-radius:.3rem;border:1px solid #cbd5e1;background:#fff;cursor:pointer;margin-left:.3rem}
+.actions button.done{background:#dcfce7;border-color:#86efac;color:#166534}
+.actions button.reject{background:#fee2e2;border-color:#fca5a5;color:#991b1b}
+.actions button:hover{filter:brightness(.95)}
+.empty{padding:1.5rem;text-align:center;color:#94a3b8;font-style:italic}
+.fetch-err{padding:.75rem 1rem;background:#fef9c3;border:1px solid #fde047;border-radius:.3rem;color:#713f12;font-size:.85rem;margin-bottom:1rem}
+.status-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
+.status-pending{background:#fef3c7;color:#854d0e}
+.status-done{background:#dcfce7;color:#166534}
+.status-rejected{background:#e2e8f0;color:#475569}
+</style>
+</head>
+<body>
+
+<header class="unmask-header">
+  <a href="{{ .BasePath }}/admin/" class="logo">
+    <img src="{{ .BasePath }}/static/icon.png" alt="" width="22" height="22">
+    <span>unmask</span>
+  </a>
+  <nav class="nav">
+    <a href="{{ .BasePath }}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{ .BasePath }}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}</a>
+    <a href="{{ .BasePath }}/admin/community-bans/removals" class="active">{{ t .Lang "removal_requests.nav" }}</a>
+    <a href="{{ .BasePath }}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+  </nav>
+  <div class="spacer"></div>
+</header>
+
+<main class="unmask-main">
+
+<h1>{{ t .Lang "removal_requests.h1" }}</h1>
+<p class="meta">{{ t .Lang "removal_requests.intro" }}</p>
+
+{{ if .Flash }}<div class="flash ok">{{ t .Lang "removal_requests.flash.updated" }}</div>{{ end }}
+{{ if .FlashErr }}<div class="flash err">{{ t .Lang "removal_requests.flash.failed" }}</div>{{ end }}
+
+<nav class="tabs">
+  <a href="?status=pending" class="{{ if eq .FilterStatus "pending" }}active{{ end }}">
+    {{ t .Lang "removal_requests.tab.pending" }} <span class="count">{{ .CountPending }}</span>
+  </a>
+  <a href="?status=done" class="{{ if eq .FilterStatus "done" }}active{{ end }}">
+    {{ t .Lang "removal_requests.tab.done" }} <span class="count">{{ .CountDone }}</span>
+  </a>
+  <a href="?status=rejected" class="{{ if eq .FilterStatus "rejected" }}active{{ end }}">
+    {{ t .Lang "removal_requests.tab.rejected" }} <span class="count">{{ .CountRejected }}</span>
+  </a>
+  <a href="?status=all" class="{{ if eq .FilterStatus "all" }}active{{ end }}">
+    {{ t .Lang "removal_requests.tab.all" }}
+  </a>
+</nav>
+
+{{ if .FetchErr }}<div class="fetch-err">{{ t .Lang "removal_requests.fetch_error" }}: {{ .FetchErr }}</div>{{ end }}
+
+{{ if .Rows }}
+<table>
+  <thead>
+    <tr>
+      <th>{{ t .Lang "removal_requests.col.kind" }}</th>
+      <th>{{ t .Lang "removal_requests.col.target" }}</th>
+      <th>{{ t .Lang "removal_requests.col.reason" }}</th>
+      <th>{{ t .Lang "removal_requests.col.contact" }}</th>
+      <th>{{ t .Lang "removal_requests.col.created" }}</th>
+      <th>{{ t .Lang "removal_requests.col.status" }}</th>
+      <th>{{ t .Lang "removal_requests.col.actions" }}</th>
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Rows }}
+    <tr>
+      <td><span class="kind-pill">{{ .TargetKind }}</span></td>
+      <td class="target">{{ .Target }}</td>
+      <td class="reason">{{ if .Reason }}{{ .Reason }}{{ else }}<span style="color:#94a3b8">—</span>{{ end }}</td>
+      <td class="contact">{{ if .Contact }}{{ .Contact }}{{ else }}<span style="color:#94a3b8">—</span>{{ end }}</td>
+      <td><time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time></td>
+      <td>
+        <span class="status-pill status-{{ .Status }}">{{ .Status }}</span>
+        {{ if gt .HandledAt 0 }}<div style="font-size:.7rem;color:#94a3b8;margin-top:.15rem"><time class="js-datetime" data-ts="{{ .HandledAt }}">{{ .HandledAt }}</time></div>{{ end }}
+      </td>
+      <td class="actions">
+        {{ if eq .Status "pending" }}
+        <form method="post" action="{{ $.BasePath }}/admin/community-bans/removals/{{ .ID }}">
+          <input type="hidden" name="status" value="done">
+          <button type="submit" class="done">{{ t $.Lang "removal_requests.btn.done" }}</button>
+        </form>
+        <form method="post" action="{{ $.BasePath }}/admin/community-bans/removals/{{ .ID }}">
+          <input type="hidden" name="status" value="rejected">
+          <button type="submit" class="reject">{{ t $.Lang "removal_requests.btn.reject" }}</button>
+        </form>
+        {{ else }}<span style="color:#94a3b8;font-size:.78rem">—</span>{{ end }}
+      </td>
+    </tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ else }}
+<div class="empty">{{ t .Lang "removal_requests.empty" }}</div>
+{{ end }}
+
+</main>
+</body>
+</html>

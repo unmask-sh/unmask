@@ -1125,6 +1125,16 @@ type CommunityBans struct {
 	// settings.Nginx.Bans.CommunityBansDefaultAction.  Concrete values:
 	// deny / pow_only / pow_then_captcha / captcha_only.  Default captcha_only.
 	AutoBanAction string `yaml:"auto_ban_action,omitempty"`
+
+	// OperatorEndpoint: base URL for the hub-operator API (= the endpoints
+	// behind GET/PATCH /api/feed/operator/*).  Only the operator running the
+	// hub itself sets this; left empty on every other install (= the operator
+	// review screen stays hidden).
+	OperatorEndpoint string `yaml:"operator_endpoint,omitempty"`
+	// OperatorTokenFile: path to a file containing the bearer token that
+	// authorizes the hub-operator API.  Read on each request so rotating the
+	// token does not require an admin restart.  Empty disables the screen.
+	OperatorTokenFile string `yaml:"operator_token_file,omitempty"`
 }
 
 // DefaultCommunityBans*: unmask.sh hub URLs. Overridable (= for running a
