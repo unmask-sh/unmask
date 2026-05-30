@@ -35,6 +35,8 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm/clause"
+
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
 
@@ -272,12 +274,11 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 	if m == nil {
 		return errors.New("manager nil")
 	}
-	res, err := m.DB.ExecContext(ctx, `DELETE FROM unmask_ban WHERE id = ?`, id)
-	if err != nil {
-		return err
+	res := m.DB.Gorm.WithContext(ctx).Where("id = ?", id).Delete(&db.Ban{})
+	if res.Error != nil {
+		return res.Error
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if res.RowsAffected == 0 {
 		return errors.New("not found")
 	}
 	m.markDirty()
@@ -293,37 +294,21 @@ func (m *Manager) markDirty() {
 	m.mu.Unlock()
 }
 
-// upsert: update on conflict by the unique key (ip + ja4).  Branches per
-// driver (= SQLite and MariaDB use different UPSERT syntax).
+// upsert: update on conflict by the unique key (ip + ja4).  clause.OnConflict
+// renders portably -- ON CONFLICT on sqlite, ON DUPLICATE KEY UPDATE on
+// mariadb -- so the prior two-branch driver switch collapses to one path.
 func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action string) error {
-	switch m.DB.Driver {
-	case db.DriverSQLite:
-		_, err := m.DB.ExecContext(ctx,
-			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			 ON CONFLICT(ip, ja4) DO UPDATE SET
-			   source     = excluded.source,
-			   reason     = excluded.reason,
-			   banned_at  = excluded.banned_at,
-			   expires_at = excluded.expires_at,
-			   banned_by  = excluded.banned_by,
-			   action     = excluded.action`,
-			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action)
-		return err
-	default: // MariaDB
-		_, err := m.DB.ExecContext(ctx,
-			`INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			 ON DUPLICATE KEY UPDATE
-			   source     = VALUES(source),
-			   reason     = VALUES(reason),
-			   banned_at  = VALUES(banned_at),
-			   expires_at = VALUES(expires_at),
-			   banned_by  = VALUES(banned_by),
-			   action     = VALUES(action)`,
-			ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action)
-		return err
+	row := db.Ban{
+		IP: ip, JA4: ja4, Source: source, Reason: reason,
+		BannedAt: bannedAt, ExpiresAt: expiresAt,
+		BannedBy: bannedBy, Action: action,
 	}
+	return m.DB.Gorm.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "ip"}, {Name: "ja4"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"source", "reason", "banned_at", "expires_at", "banned_by", "action",
+		}),
+	}).Create(&row).Error
 }
 
 // IsBanned: returns whether the (ip, ja4) tuple is banned.  ja4 == "" is
@@ -448,15 +433,14 @@ func (m *Manager) loop() {
 // prune: delete entries with expires_at <= now.  Returns the number deleted.
 func (m *Manager) prune() int {
 	ctx := context.Background()
-	res, err := m.DB.ExecContext(ctx,
-		`DELETE FROM unmask_ban WHERE expires_at > 0 AND expires_at <= ?`,
-		time.Now().Unix())
-	if err != nil {
-		log.Printf("ban prune: %v", err)
+	res := m.DB.Gorm.WithContext(ctx).
+		Where("expires_at > 0 AND expires_at <= ?", time.Now().Unix()).
+		Delete(&db.Ban{})
+	if res.Error != nil {
+		log.Printf("ban prune: %v", res.Error)
 		return 0
 	}
-	n, _ := res.RowsAffected()
-	return int(n)
+	return int(res.RowsAffected)
 }
 
 func (m *Manager) shouldFlush() bool {
