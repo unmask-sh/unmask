@@ -16,4 +16,4 @@ MAILTO=root
 SHELL=/bin/sh
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-17 3 3 * * unmask /usr/sbin/unmask-admin install-ipgeo -quiet
+17 3 3 * * unmask /usr/sbin/unmask install-ipgeo -quiet

@@ -355,10 +355,10 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           {{ if and (le .Installs 0) (le .LikeCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
           </span>
         </td>
-        <td class="clamp" title="{{ if .Reason }}{{ .Reason }}{{ else }}-{{ end }}">{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="clamp">
+        <td class="clamp"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="clamp"{{ if .Comments }} data-full="{{ range $i, $c := .Comments }}{{ if $i }}&#10;&#10;{{ end }}{{ $c.Text }}{{ end }}"{{ end }}>
           {{ range .Comments }}
-          <span class="cmt" title="{{ .Text }}">{{ .Text }}</span>
+          <span class="cmt">{{ .Text }}</span>
           {{ else }}
           <span class="muted">-</span>
           {{ end }}
@@ -395,6 +395,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 
 </main>
 <div id="ip-popover" data-popover="ip"></div>
+<div id="clamp-popover" data-popover="clamp"></div>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('time.js-datetime').forEach(function(el){
@@ -403,6 +404,44 @@ document.addEventListener('DOMContentLoaded', function(){
     el.textContent = new Date(ts * 1000).toLocaleString();
   });
 });
+
+// Clamp popover (= for reason / comment cells that overflow their width).
+// Behaviour: hover -> measure scrollWidth vs clientWidth.  Truncated -> show
+// the full text from data-full on the shared popover.  Not truncated -> stay
+// silent (no tooltip, no popover).  Click pins the popover same as IP one.
+(function(){
+  var pop = document.getElementById('clamp-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){ return ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]; });
+  }
+  function isTruncated(el){
+    // +1 to tolerate sub-pixel rounding on high-DPI displays.
+    return el.scrollWidth > el.clientWidth + 1;
+  }
+  function fmt(text){
+    // Preserve newlines that separated multiple comments in data-full.
+    return '<div style="white-space:pre-wrap;max-width:32rem;font-size:.85rem;line-height:1.5">' + esc(text) + '</div>';
+  }
+  document.querySelectorAll('table.feed td.clamp[data-full]').forEach(function(td){
+    td.style.cursor = 'default';
+    td.addEventListener('mouseenter', function(e){
+      if (pin.hasPinFor(td)) return;
+      if (!isTruncated(td)) return;
+      td.style.cursor = 'help';
+      pin.showHover(fmt(td.dataset.full), e.pageX, e.pageY);
+    });
+    td.addEventListener('mouseleave', function(){ pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      if (!isTruncated(td) && !pin.hasPinFor(td)) return;
+      e.preventDefault();
+      pin.handleClick(fmt(td.dataset.full), e.pageX, e.pageY, td);
+    });
+  });
+})();
 
 // IP popover (rDNS + IP-geo + ASN).
 (function(){

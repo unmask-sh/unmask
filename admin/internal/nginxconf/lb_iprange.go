@@ -14,7 +14,7 @@
 //
 // IP ranges are release snapshots (= updated manually).  The vendor's
 // official source is referenced from the Source field of each entry.
-// Automatic update is planned for a future `unmask-admin update-iprange`.
+// Automatic update is planned for a future `unmask update-iprange`.
 package nginxconf
 
 import (

@@ -4,7 +4,7 @@
 # like nginx's auth_request.
 #
 # Flow:
-#   client → Caddy → forward_auth (= subrequest to unmask-admin)
+#   client → Caddy → forward_auth (= subrequest to unmask)
 #                  ← 200 / 401 / 403
 #                  → 200 = pass / 401 = redirect to challenge / 403 = block
 #
@@ -32,7 +32,7 @@ example.com {
             # Client JA4 (forward-auth mode). Caddy cannot extract JA4 from
             # the handshake; this carries a value only when a JA4-aware layer
             # in front already set the X-Client-JA4 request header.
-            # unmask-admin honors it only with challenge.ja4_source=header. If
+            # unmask honors it only with challenge.ja4_source=header. If
             # no trusted front layer sets it, drop the client value first
             # (header_up -X-Client-JA4) so a client cannot forge it.
             header_up X-Client-JA4    {http.request.header.X-Client-JA4}

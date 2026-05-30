@@ -1,7 +1,7 @@
 // ipgeo_install_admin.go — web-UI handler for 1-click DB-IP Lite install
 // (= shared by the network tab's Country + ASN install buttons).
 //
-// Pairs with `unmask-admin install-ipgeo` CLI: both call the same
+// Pairs with `unmask install-ipgeo` CLI: both call the same
 // ipgeo.InstallDBIPLite library so behavior matches exactly.  The web-UI
 // path additionally reloads the in-process ipgeo Reader so the geo axis
 // picks up the new file immediately (= no SIGHUP / restart needed).

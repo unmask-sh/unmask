@@ -43,7 +43,7 @@ body:
     id: unmask-version
     attributes:
       label: unmask version
-      description: From `unmask-admin --version` or `rpm -q unmask` / `dpkg -l unmask` / `apk info -e unmask`.
+      description: From `unmask --version` or `rpm -q unmask` / `dpkg -l unmask` / `apk info -e unmask`.
       placeholder: '0.1.0'
     validations:
       required: true
@@ -78,8 +78,8 @@ body:
     attributes:
       label: Relevant log lines
       description: |
-        Output of `nginx -t`, `systemctl status unmask-admin`, `journalctl -u
-        unmask-admin -n 100`, contents of `/var/log/unmask/admin.log`, etc.
+        Output of `nginx -t`, `systemctl status unmask`, `journalctl -u
+        unmask -n 100`, contents of `/var/log/unmask/admin.log`, etc.
         Please redact tokens / secrets.
       render: shell
     validations:

@@ -49,8 +49,8 @@ apk:
 
 contents:
   # admin server
-  - src: ../dist/unmask-admin-linux-${UNMASK_ARCH}
-    dst: /usr/sbin/unmask-admin
+  - src: ../dist/unmask-linux-${UNMASK_ARCH}
+    dst: /usr/sbin/unmask
     file_info:
       mode: 0755
 
@@ -86,28 +86,24 @@ contents:
     dst: /usr/share/unmask/grafana/grafana-unmask.json
 
   # systemd unit (= RHEL 7+ / Debian 8+ / Alpine 3.7+)
-  - src: ./unmask-admin.service
-    dst: /usr/lib/systemd/system/unmask-admin.service
-  - src: ./unmask-aggregate.service
-    dst: /usr/lib/systemd/system/unmask-aggregate.service
-  - src: ./unmask-aggregate.timer
-    dst: /usr/lib/systemd/system/unmask-aggregate.timer
+  - src: ./unmask.service
+    dst: /usr/lib/systemd/system/unmask.service
 
   # init script: bundle both formats under /usr/share/unmask/init/.
-  # postinstall picks the OS and symlinks the right one to /etc/init.d/unmask-admin.
-  # systemd hosts do not need init.d (= they use unmask-admin.service).
-  - src: ./init.d/unmask-admin
-    dst: /usr/share/unmask/init/unmask-admin.sysv
+  # postinstall picks the OS and symlinks the right one to /etc/init.d/unmask.
+  # systemd hosts do not need init.d (= they use unmask.service).
+  - src: ./init.d/unmask
+    dst: /usr/share/unmask/init/unmask.sysv
     file_info:
       mode: 0755
-  - src: ./init.d/unmask-admin.openrc
-    dst: /usr/share/unmask/init/unmask-admin.openrc
+  - src: ./init.d/unmask.openrc
+    dst: /usr/share/unmask/init/unmask.openrc
     file_info:
       mode: 0755
 
   # logrotate
-  - src: ./unmask-admin.logrotate
-    dst: /etc/logrotate.d/unmask-admin
+  - src: ./unmask.logrotate
+    dst: /etc/logrotate.d/unmask
 
   # state directories
   - dst: /var/lib/unmask
@@ -116,7 +112,7 @@ contents:
       mode: 0750
       owner: unmask
       group: unmask
-  # mmdb dir (= where `unmask-admin install-ipgeo` writes DB-IP Country Lite)
+  # mmdb dir (= where `unmask install-ipgeo` writes DB-IP Country Lite)
   - dst: /var/lib/unmask/ipgeo
     type: dir
     file_info:
@@ -157,7 +153,7 @@ scripts:
 # - deb: adduser --system / addgroup --system
 # - apk: busybox addgroup/adduser.  shadow-utils is absent on alpine, so the
 #        top-level useradd/groupadd would fail.  That would skip post-install
-#        and leave /etc/init.d/unmask-admin without a symlink.
+#        and leave /etc/init.d/unmask without a symlink.
 overrides:
   deb:
     scripts:
@@ -168,7 +164,7 @@ overrides:
     # OpenRC is the alpine default, but minimal cloud / docker images
     # sometimes ship without it.  In that case, the postinstall OpenRC branch
     # fails to find `rc-service` and falls back to `init: manual`, which
-    # never installs the `/etc/init.d/unmask-admin` symlink.  Require openrc
+    # never installs the `/etc/init.d/unmask` symlink.  Require openrc
     # via apk depends so it auto-installs.
     depends:
       - openrc

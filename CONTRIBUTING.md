@@ -19,7 +19,7 @@ follow [SECURITY.md](SECURITY.md) (report privately to oss@unmask.sh).
 
 unmask is three components in one repo:
 
-- `admin/` — Go static binary (`unmask-admin`). Requires Go 1.25+.
+- `admin/` — Go static binary (`unmask`). Requires Go 1.25+.
 - `nginx-module/` — C plugin (`ngx_http_unmask_module`). Built against
   matching nginx source.
 - `admin/assets/static/challenge.{html,js}` — plain JavaScript challenge
@@ -27,7 +27,7 @@ unmask is three components in one repo:
 
 ```sh
 # admin binary
-cd admin && go build -o unmask-admin ./cmd/unmask-admin
+cd admin && go build -o unmask ./cmd/unmask
 
 # rpm/deb/apk packages (= nfpm)
 make package

@@ -1,10 +1,10 @@
 // user CLI sub-command:
 //
-//	unmask-admin user list
-//	unmask-admin user create <username> [-role superadmin|admin|viewer] [-password PASS]
-//	unmask-admin user reset-password <username> [-password PASS]
-//	unmask-admin user set-role <username> <role>
-//	unmask-admin user delete <username>
+//	unmask user list
+//	unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
+//	unmask user reset-password <username> [-password PASS]
+//	unmask user set-role <username> <role>
+//	unmask user delete <username>
 //
 // If password is omitted, prompts on stdin (= entered twice in the terminal).
 // Pass -password for non-interactive use, but note that it leaks into shell history.
@@ -28,7 +28,7 @@ import (
 
 func cmdUser(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: unmask-admin user <list|create|reset-password|set-role|delete> ...")
+		return errors.New("usage: unmask user <list|create|reset-password|set-role|delete> ...")
 	}
 	sub := args[0]
 	rest := args[1:]
@@ -96,7 +96,7 @@ func cmdUserCreate(args []string) error {
 	pos := parseMixed(fs, args)
 
 	if len(pos) < 1 {
-		return errors.New("usage: unmask-admin user create <username> [-role ...] [-password ...]")
+		return errors.New("usage: unmask user create <username> [-role ...] [-password ...]")
 	}
 	username := pos[0]
 	if !user.IsValidRole(*role) {
@@ -128,7 +128,7 @@ func cmdUserResetPassword(args []string) error {
 	pos := parseMixed(fs, args)
 
 	if len(pos) < 1 {
-		return errors.New("usage: unmask-admin user reset-password <username> [-password ...]")
+		return errors.New("usage: unmask user reset-password <username> [-password ...]")
 	}
 	username := pos[0]
 	pass, err := resolvePassword(*passwordFlag, true)
@@ -159,7 +159,7 @@ func cmdUserSetRole(args []string) error {
 	pos := parseMixed(fs, args)
 
 	if len(pos) < 2 {
-		return errors.New("usage: unmask-admin user set-role <username> <superadmin|admin|viewer>")
+		return errors.New("usage: unmask user set-role <username> <superadmin|admin|viewer>")
 	}
 	username := pos[0]
 	role := pos[1]
@@ -190,7 +190,7 @@ func cmdUserDelete(args []string) error {
 	pos := parseMixed(fs, args)
 
 	if len(pos) < 1 {
-		return errors.New("usage: unmask-admin user delete <username>")
+		return errors.New("usage: unmask user delete <username>")
 	}
 	username := pos[0]
 

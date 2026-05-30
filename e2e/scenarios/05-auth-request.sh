@@ -7,7 +7,7 @@
 #   bypass path: path in bypass list                 → 200 / X-Unmask-Reason: bypass:path
 #
 # Runs in parallel with nginx-module mode, so it hits demo's /unmask/api/check
-# directly.  Assumes nginx is already configured to proxy_pass /unmask/* to unmask-admin.
+# directly.  Assumes nginx is already configured to proxy_pass /unmask/* to unmask.
 
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"

@@ -11,7 +11,7 @@
 // are placed by the unmask-web-nginx package (= this code does not touch them).
 //
 // Callers:
-//   - CLI: `unmask-admin render-nginx [-config PATH] [-out-dir DIR]`
+//   - CLI: `unmask render-nginx [-config PATH] [-out-dir DIR]`
 //   - web: will be called from the handler after settings are saved
 //     (= no auto-reload, but render runs)
 package nginxconf
@@ -761,7 +761,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		// On error: silently leave GeoCIDRs empty.  The geo block then
 		// degrades to default "" → action map default action.  Operators
-		// see the WARN in `unmask-admin doctor` (= mmdb path check).
+		// see the WARN in `unmask doctor` (= mmdb path check).
 	}
 
 	// CommunityBans: render the 3 map includes only in fetch_apply mode.

@@ -1,12 +1,11 @@
-// unmask-admin: HTTP server + CLI sub-commands.
+// unmask: HTTP server + CLI sub-commands.
 //
 // usage:
 //
-//	unmask-admin serve          # start the HTTP server (FastAPI-style)
-//	unmask-admin migrate        # create the schema
-//	unmask-admin aggregate      # incremental aggregate (cron)
-//	unmask-admin config-init    # emit a config.yml with a random secret
-//	unmask-admin version
+//	unmask serve          # start the HTTP server (FastAPI-style)
+//	unmask migrate        # create the schema
+//	unmask config-init    # emit a config.yml with a random secret
+//	unmask version
 //
 // Every sub-command can override the config with -config <path>.
 package main
@@ -63,8 +62,6 @@ func main() {
 		err = cmdServe(args)
 	case "migrate":
 		err = cmdMigrate(args)
-	case "aggregate":
-		err = cmdAggregate(args)
 	case "config-init":
 		err = cmdConfigInit(args)
 	case "update-crawler-list":
@@ -84,7 +81,7 @@ func main() {
 	case "install-ipgeo":
 		err = cmdInstallIPGeo(args)
 	case "version", "-v", "--version":
-		fmt.Println("unmask-admin", Version)
+		fmt.Println("unmask", Version)
 	case "help", "-h", "--help":
 		usage()
 	default:
@@ -98,26 +95,25 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `unmask-admin — JA4 bot challenge admin server
+	fmt.Fprint(os.Stderr, `unmask — JA4 bot challenge admin server
 
 usage:
-  unmask-admin serve [-config PATH]
-  unmask-admin migrate [-config PATH]
-  unmask-admin aggregate [-config PATH] [-days N]
-  unmask-admin config-init [-out PATH]
-  unmask-admin update-crawler-list [-out PATH]
-  unmask-admin review-crawler-list [-url URL]
-  unmask-admin render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
-  unmask-admin events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
-  unmask-admin analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
-  unmask-admin user list [-config PATH]
-  unmask-admin user create <username> [-role superadmin|admin|viewer] [-password PASS]
-  unmask-admin user reset-password <username> [-password PASS]
-  unmask-admin user set-role <username> <role>
-  unmask-admin user delete <username>
-  unmask-admin doctor [-config PATH]
-  unmask-admin install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
-  unmask-admin version
+  unmask serve [-config PATH]
+  unmask migrate [-config PATH]
+  unmask config-init [-out PATH]
+  unmask update-crawler-list [-out PATH]
+  unmask review-crawler-list [-url URL]
+  unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
+  unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
+  unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
+  unmask user list [-config PATH]
+  unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
+  unmask user reset-password <username> [-password PASS]
+  unmask user set-role <username> <role>
+  unmask user delete <username>
+  unmask doctor [-config PATH]
+  unmask install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
+  unmask version
 
 note: the hub-server commands (= /api/feed/* on unmask.sh) moved to a
 separate binary "unmask-hub" so operator-side installs no longer carry
@@ -205,7 +201,7 @@ func cmdServe(args []string) error {
 		// break.  Serve continues on failure (don't disrupt existing
 		// operations; a UI warning surfaces it even when setup is unfinished).
 		if err := db.Migrate(conn); err != nil {
-			log.Printf("db: migrate failed at startup (continuing with old schema; recommend running `unmask-admin migrate` manually): %v", err)
+			log.Printf("db: migrate failed at startup (continuing with old schema; recommend running `unmask migrate` manually): %v", err)
 		}
 	}
 
@@ -216,7 +212,7 @@ func cmdServe(args []string) error {
 	// nextcloud).  Random password output to the log has been removed.
 	//
 	// CLI-oriented users can still bypass the wizard with
-	// `unmask-admin user create <name> -role superadmin -password <pw>`.
+	// `unmask user create <name> -role superadmin -password <pw>`.
 	var userRepo *user.Repository
 	if conn != nil {
 		userRepo = user.New(conn)
@@ -367,7 +363,7 @@ func cmdServe(args []string) error {
 	// client at all (h.CommunityBans=nil also ignores the BAN button's share).
 	if h.ConfigPath != "" {
 		h.CommunityBans = &communitybans.Client{
-			UserAgent:      "unmask-admin/" + Version,
+			UserAgent:      "unmask/" + Version,
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
 			BanMgr:         banMgr,
@@ -485,7 +481,7 @@ func cmdServe(args []string) error {
 		}
 	}()
 
-	log.Printf("unmask-admin %s listening on %s base=%s driver=%s",
+	log.Printf("unmask %s listening on %s base=%s driver=%s",
 		Version, listenDesc, s.Server.BasePath, conn.Driver)
 	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -736,7 +732,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/api/smtp/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSMTPTest)))
 	// 1-click DB-IP Lite install / refresh.  Calls the same library as
-	// `unmask-admin install-ipgeo` and reloads the in-process ipgeo Reader.
+	// `unmask install-ipgeo` and reloads the in-process ipgeo Reader.
 	// Accepts ?kind=country (default) or ?kind=asn.
 	mux.HandleFunc("POST "+base+"/admin/api/ipgeo/install",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminIPGeoInstall)))
@@ -886,23 +882,6 @@ func cmdMigrate(args []string) error {
 }
 
 // ----------------------------------------------------------------
-// aggregate: deprecated.  unmask_aggregate / AggregateServeKind were retired
-// in favour of the per-request raw scan that honours the operator's cookie TZ.
-// Hourly aggregates (= unmask_aggregate_hourly + _hll) are still kept up to
-// date by AggregateHourly inside the main service.  The subcommand is left as
-// a no-op so existing cron entries do not error.
-// ----------------------------------------------------------------
-
-func cmdAggregate(args []string) error {
-	fs := flag.NewFlagSet("aggregate", flag.ExitOnError)
-	_ = fs.String("config", "", "path to config.yml")
-	_ = fs.Int("days", 30, "how many days back to (re)aggregate")
-	_ = fs.Parse(args)
-	fmt.Println("aggregate: deprecated no-op (dashboard reads raw events directly; hourly rollups run from the service)")
-	return nil
-}
-
-// ----------------------------------------------------------------
 // events (tail -f style streaming of unmask_event; exit on SIGINT)
 // ----------------------------------------------------------------
 
@@ -995,7 +974,7 @@ func cmdConfigInit(args []string) error {
 
 	bv := randHex(24)
 	cb := randHex(24)
-	body := fmt.Sprintf(`# unmask config (generated by unmask-admin config-init)
+	body := fmt.Sprintf(`# unmask config (generated by unmask config-init)
 db:
   driver: sqlite
   sqlite_path: /var/lib/unmask/unmask.sqlite
@@ -1027,7 +1006,7 @@ server:
 
 # Authentication is the internal user DB.  At first start, an admin/superadmin
 # is auto-created and the random password is shown in the log exactly once.
-# CLI management: unmask-admin user create / reset-password / set-role / delete
+# CLI management: unmask user create / reset-password / set-role / delete
 `, bv, cb)
 
 	if *out == "-" {
@@ -1047,4 +1026,4 @@ func randHex(n int) string {
 
 // (bootstrapInitialAdmin was removed in v0.1.  Admin creation is now
 // unified to either the install wizard or the CLI sub-command
-// `unmask-admin user create`.)
+// `unmask user create`.)

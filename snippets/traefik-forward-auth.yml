@@ -18,7 +18,7 @@ http:
         #
         # Client JA4 (forward-auth mode): forwardAuth relays request headers
         # as-is, so an X-Client-JA4 set by a JA4-aware front layer reaches
-        # unmask-admin automatically (honored only with
+        # unmask automatically (honored only with
         # challenge.ja4_source=header). If no trusted front layer sets it,
         # strip a client-supplied X-Client-JA4 in your router / middleware so
         # a client cannot forge it.
@@ -32,9 +32,9 @@ http:
       tls: {}
 
     # /unmask/* (= challenge HTML / verify API) goes directly to admin.
-    unmask-admin:
+    unmask:
       rule: "Host(`example.com`) && PathPrefix(`/unmask/`)"
-      service: unmask-admin
+      service: unmask
       tls: {}
       priority: 100  # higher than your-app to win on /unmask/*
 
@@ -44,7 +44,7 @@ http:
         servers:
           - url: "http://127.0.0.1:8080"
 
-    unmask-admin:
+    unmask:
       loadBalancer:
         servers:
           - url: "http://127.0.0.1:9477"
@@ -54,6 +54,6 @@ http:
 # is redirected to /unmask/challenge/.
 #
 # For a hard block (= 403), forwardAuth returns 403 as-is.  The client sees
-# the 403 body emitted by unmask-admin.
+# the 403 body emitted by unmask.
 
 # Feature limit: only JA4 is unavailable.  All other features match native mode.

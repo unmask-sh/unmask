@@ -85,12 +85,12 @@ jobs:
           mkdir -p dist
           cd admin && CGO_ENABLED=0 \
             go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
-                     -o ../dist/unmask-admin-linux-${GOARCH} ./cmd/unmask-admin
-          file ../dist/unmask-admin-linux-${GOARCH}
+                     -o ../dist/unmask-linux-${GOARCH} ./cmd/unmask
+          file ../dist/unmask-linux-${GOARCH}
       - uses: actions/upload-artifact@v4
         with:
-          name: unmask-admin-linux-${{ matrix.goarch }}
-          path: dist/unmask-admin-linux-${{ matrix.goarch }}
+          name: unmask-linux-${{ matrix.goarch }}
+          path: dist/unmask-linux-${{ matrix.goarch }}
           retention-days: 14
 
   # --------------------------------------------------------------------

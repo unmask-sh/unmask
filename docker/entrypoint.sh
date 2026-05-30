@@ -1,10 +1,10 @@
 #!/bin/sh
-# unmask-admin docker entrypoint.
+# unmask docker entrypoint.
 #
 # Responsibilities:
 #   1. If /etc/unmask/admin.yml is missing, generate a minimal skeleton (= the
 #      install wizard then captures driver / DB connection info / admin user).
-#   2. Pass-through CMD to unmask-admin.
+#   2. Pass-through CMD to unmask.
 #
 # Skeleton values:
 #   - db.driver: sqlite, sqlite_path: /var/lib/unmask/unmask.sqlite
@@ -51,4 +51,4 @@ EOF
     echo "==> generated minimal $CFG (= visit /unmask/admin/ to start install wizard)"
 fi
 
-exec /usr/local/bin/unmask-admin "$@"
+exec /usr/local/bin/unmask "$@"

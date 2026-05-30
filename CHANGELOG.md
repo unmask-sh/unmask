@@ -118,7 +118,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-05-24) **SELinux blocked the auth_request subrequest on RHEL family**:
   postinstall-web-nginx now auto-applies `setsebool -P
   httpd_can_network_connect 1` when SELinux is Enforcing, so nginx can
-  proxy_pass to the unmask-admin loopback socket.  Opt out with
+  proxy_pass to the unmask loopback socket.  Opt out with
   `UNMASK_SKIP_SETSEBOOL=1`.  Fixes the "challenge silently does not fire"
   symptom on alma8 / alma9 / alma10 / centos7 (= the install-matrix run
   confirmed http=403 + challenge page on all 8 distros after the fix).
@@ -167,7 +167,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   one-click DB-IP Lite install, network-tab radio (DB-IP / custom / none),
   Country/City vs ASN section split, mmdb vendor detection badges
   (MaxMind / DB-IP / IP2Location / Unknown).<br>
-  - New CLI: `unmask-admin install-ipgeo [-kind country|asn] [-path PATH]`.<br>
+  - New CLI: `unmask install-ipgeo [-kind country|asn] [-path PATH]`.<br>
   - New endpoint: `POST /admin/api/ipgeo/install?kind=country|asn` (= 1-click
     web button, reuses the same library).<br>
   - Default path: `/var/lib/unmask/ipgeo/{dbip-country,dbip-asn}.mmdb`.<br>
@@ -395,7 +395,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   was removed (one less link is one less link).
 
 - (2026-05-07 20:30) Added an **install guide screen** (= /admin/install/).
-  A conversational doc for users whose unmask-admin is already running but
+  A conversational doc for users whose unmask is already running but
   who want to wire it into an HTTP server. Pick OS (RHEL/Rocky 9 / 8 / 6,
   Debian/Ubuntu, Alpine) and HTTP server (nginx native module / nginx
   auth_request / Apache forward-auth / Caddy forward_auth) from dropdowns,
@@ -495,7 +495,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - Without the token file (dev / docker / manual install), the step is
     skipped (open setup).<br>
   CLI users can still bypass the wizard:
-  <code>unmask-admin user create &lt;name&gt; -role superadmin -password
+  <code>unmask user create &lt;name&gt; -role superadmin -password
   &lt;pw&gt;</code>.<br>
   `postinstall.sh`'s automatic <code>migrate</code> invocation was also
   removed (migration runs at the wizard's DB step after driver selection).

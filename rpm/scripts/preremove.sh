@@ -2,22 +2,21 @@
 # systemd-based: stop+disable only on full remove.  Leave alone during upgrade.
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     if [ "${1:-}" = "0" ] || [ "${1:-}" = "remove" ]; then
-        systemctl disable --now unmask-aggregate.timer || true
-        systemctl disable --now unmask-admin.service || true
+        systemctl disable --now unmask.service || true
     fi
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
     # OpenRC (= Alpine).  On full remove: stop + rc-update del + delete symlink.
     if [ "${1:-}" = "0" ] || [ "${1:-}" = "remove" ]; then
-        rc-service unmask-admin stop 2>/dev/null || true
-        rc-update del unmask-admin default 2>/dev/null || true
-        rm -f /etc/init.d/unmask-admin
+        rc-service unmask stop 2>/dev/null || true
+        rc-update del unmask default 2>/dev/null || true
+        rm -f /etc/init.d/unmask
     fi
-elif command -v chkconfig >/dev/null 2>&1 && [ -x /etc/init.d/unmask-admin ]; then
+elif command -v chkconfig >/dev/null 2>&1 && [ -x /etc/init.d/unmask ]; then
     # SysVinit (= RHEL 6).  On full remove: stop + chkconfig --del + delete symlink.
     if [ "${1:-}" = "0" ]; then
-        service unmask-admin stop || true
-        chkconfig --del unmask-admin || true
-        rm -f /etc/init.d/unmask-admin
+        service unmask stop || true
+        chkconfig --del unmask || true
+        rm -f /etc/init.d/unmask
     fi
 fi
 

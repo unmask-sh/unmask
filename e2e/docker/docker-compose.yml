@@ -1,4 +1,4 @@
-# e2e docker compose: nginx + unmask-admin + shared unix socket volume.
+# e2e docker compose: nginx + unmask + shared unix socket volume.
 #
 # Start:
 #   make e2e-docker
@@ -24,12 +24,12 @@ services:
     # admin runs in order: migrate → render-nginx → serve.
     # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
     # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
-    # /usr/local/bin/unmask-admin, which would otherwise eat "sh" as a subcommand).
+    # /usr/local/bin/unmask, which would otherwise eat "sh" as a subcommand).
     entrypoint: []
     command: >
-      sh -c "/usr/local/bin/unmask-admin migrate     -config /etc/unmask/admin.yml &&
-             /usr/local/bin/unmask-admin render-nginx -config /etc/unmask/admin.yml &&
-             /usr/local/bin/unmask-admin serve       -config /etc/unmask/admin.yml"
+      sh -c "/usr/local/bin/unmask migrate     -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask serve       -config /etc/unmask/admin.yml"
     environment:
       # Test-only mmdb stand-in: seed the country lookup with fixture pairs
       # so scenario 12 can exercise the geo axis without bundling a real
@@ -44,7 +44,7 @@ services:
     # Expose admin's port to the host so the e2e suite can hit it directly,
     # bypassing nginx's X-Real-IP rewrite (= scenario 10 needs the same IP
     # source for /verify and /api/check so the _bv HMAC matches).
-    # Host-side 19477 to avoid colliding with a dev unmask-admin on 9477.
+    # Host-side 19477 to avoid colliding with a dev unmask on 9477.
     ports:
       - "19477:9477"
 

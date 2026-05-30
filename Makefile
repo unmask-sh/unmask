@@ -45,7 +45,7 @@ NFPM_APK_KEY_NAME ?= oss@unmask.sh-260509.rsa.pub
 export NFPM_APK_KEY_FILE NFPM_APK_KEY_NAME
 
 DIST            = dist
-ADMIN_BIN       = $(DIST)/unmask-admin-$(GOOS)-$(GOARCH)
+ADMIN_BIN       = $(DIST)/unmask-$(GOOS)-$(GOARCH)
 MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
 GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
@@ -66,7 +66,7 @@ build-all: build-admin build-module
 build-admin:
 	mkdir -p $(DIST)
 	cd admin && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
-		go build $(GOFLAGS) -o ../$(ADMIN_BIN) ./cmd/unmask-admin
+		go build $(GOFLAGS) -o ../$(ADMIN_BIN) ./cmd/unmask
 
 ## build-module  - nginx dynamic module .so (downloads nginx source as needed)
 # Note: must build with the same nginx version + same openssl ABI as the
@@ -561,7 +561,7 @@ package-all:
 	@if [ "$$(uname -m)" = "aarch64" ] || command -v aarch64-linux-gnu-gcc >/dev/null 2>&1; then \
 		echo ">> arm64 toolchain found, building arm64 packages"; \
 		$(MAKE) package GOARCH=arm64 CC=aarch64-linux-gnu-gcc; \
-	elif [ -f $(DIST)/ngx_http_unmask_module-linux-arm64.so ] && [ -f $(DIST)/unmask-admin-linux-arm64 ]; then \
+	elif [ -f $(DIST)/ngx_http_unmask_module-linux-arm64.so ] && [ -f $(DIST)/unmask-linux-arm64 ]; then \
 		echo ">> arm64 artifacts already present, packaging only"; \
 		$(MAKE) package-rpm GOARCH=arm64; \
 		$(MAKE) package-deb GOARCH=arm64; \
@@ -571,7 +571,7 @@ package-all:
 		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
 	fi
 
-## docker        - unmask-admin Docker image (host arch). tag: unmask/admin:$(UNMASK_VERSION)
+## docker        - unmask Docker image (host arch). tag: unmask/admin:$(UNMASK_VERSION)
 docker:
 	docker build -t unmask/admin:$(UNMASK_VERSION) -t unmask/admin:latest \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) .
@@ -610,7 +610,7 @@ release: clean
 	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64 || \
 		echo "!!! fat plugin build failed (continuing)"
 	@echo ">>> generating checksums.txt"
-	cd $(DIST) && sha256sum unmask-admin-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
+	cd $(DIST) && sha256sum unmask-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
 	@echo ">>> release artifacts in $(DIST)/:"
 	@ls -la $(DIST)/
 

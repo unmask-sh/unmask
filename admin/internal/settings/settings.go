@@ -32,7 +32,7 @@
 // Authentication uses the internal user DB (= unmask_user table). On first
 // startup an admin/superadmin user is auto-created and a random password is
 // printed to the log exactly once. The CLI can also manage users:
-// `unmask-admin user create / reset-password / set-role / delete`.
+// `unmask user create / reset-password / set-role / delete`.
 package settings
 
 import (
@@ -202,7 +202,7 @@ type ChallengeValues struct {
 	//     redirects to orig_path immediately (= one extra round-trip but
 	//     feels like passthrough).
 	//
-	// Toggle with `unmask-admin apply-preset monitor` (= ObserveOnly=true).
+	// Toggle with `unmask apply-preset monitor` (= ObserveOnly=true).
 	// Reset back to false when switching to strict / balanced.
 	ObserveOnly bool `yaml:"observe_only,omitempty"`
 	// Disabled: when true on a Sites[<host>] entry, Resolve(site) returns
@@ -356,7 +356,7 @@ type Server struct {
 	// filled automatically). In shared-DB setups where hostnames collide or
 	// change dynamically, pin a fixed name in config.
 	HostID string `yaml:"host_id,omitempty"`
-	// LogPath: log output destination for unmask-admin itself. Unset / empty
+	// LogPath: log output destination for unmask itself. Unset / empty
 	// → stderr. When combined with logrotate, send SIGHUP from postrotate
 	// and the admin re-opens the file fd (= writes to the post-rename inode).
 	// We do not use systemd unit StandardOutput=append: (= if systemd holds
@@ -374,7 +374,7 @@ type Server struct {
 //	mmdb_asn_path : ASN DB (GeoLite2-ASN.mmdb etc.). Unset → no ASN row.
 //	For GeoLite2 the MaxMind license prohibits bundling the binary, so the
 //	user downloads it themselves; DB-IP Lite (CC BY 4.0) can be auto-fetched
-//	via `unmask-admin install-ipgeo`.
+//	via `unmask install-ipgeo`.
 type IPGeo struct {
 	MMDBPath    string `yaml:"mmdb_path"`
 	MMDBASNPath string `yaml:"mmdb_asn_path"`
@@ -393,7 +393,7 @@ type NginxLog struct {
 	SocketPath string `yaml:"socket_path"`
 }
 
-// Nginx: input that `unmask-admin render-nginx` uses to generate the nginx config.
+// Nginx: input that `unmask render-nginx` uses to generate the nginx config.
 //
 // Users only need to edit config.yml's nginx.* — no per-file conf editing
 // (= no legacy search-bots.conf / honeypot.map / sites.map / secret.conf etc.).
@@ -507,7 +507,7 @@ func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 //
 // Requires IPGeo.MMDBPath to be configured (= mmdb loaded at startup for
 // forward-auth mode, walked at render time for native mode).  Rule / mmdb
-// changes take effect after `unmask-admin render-nginx && nginx -s reload`
+// changes take effect after `unmask render-nginx && nginx -s reload`
 // in native mode; forward-auth mode reloads the mmdb on settings save.
 //
 // Model: one rule per country.  Default action for unmatched countries (= the
@@ -1547,7 +1547,7 @@ func defaults() Settings {
 			SocketPath: "/run/unmask/log.sock",
 		},
 		// IPGeo default points at the unmask-scoped install path that
-		// `unmask-admin install-ipgeo` writes to.  The file is NOT bundled
+		// `unmask install-ipgeo` writes to.  The file is NOT bundled
 		// (= DB-IP Lite is dl on demand); if it doesn't exist, ipgeo.Reader
 		// quietly stays in "no DB" mode and the geo axis short-circuits to
 		// silent.  Once install-ipgeo runs, admin's next reload picks it up.
@@ -1809,7 +1809,7 @@ func Save(s Settings, path string) error {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
 	header := []byte(
-		"# unmask config (= managed by unmask-admin web UI; do not edit while admin running)\n" +
+		"# unmask config (= managed by unmask web UI; do not edit while admin running)\n" +
 			"# Comments authored right after install are lost when saved via the web.\n" +
 			"# Bootstrap values (= db/secret/server/...) are not web-editable; write them manually at install time only.\n\n",
 	)

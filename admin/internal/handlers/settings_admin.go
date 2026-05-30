@@ -1329,7 +1329,7 @@ func defStr(s, fallback string) string {
 //	socket_group : group owner name. Empty = keep current.
 //
 // The change is saved to config.yml but does not take effect on reload
-// (= listen-side change requires systemctl restart unmask-admin). The banner
+// (= listen-side change requires systemctl restart unmask). The banner
 // announces this.
 func applyServerListenForm(s *settings.Server, r *http.Request, lang i18n.Lang) error {
 	mode := strings.TrimSpace(r.FormValue("listen_mode"))

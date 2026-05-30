@@ -37,7 +37,7 @@ COOKIE="${HTTP_COOKIE:-}"
 # env vars, so X-Client-JA4 -> HTTP_X_CLIENT_JA4. Carries a value only when a
 # JA4-aware front layer set it. Same spoof caveat as the lua handler: strip a
 # client-supplied X-Client-JA4 in the Apache config unless a trusted front
-# layer sets it. unmask-admin honors it only with challenge.ja4_source=header.
+# layer sets it. unmask honors it only with challenge.ja4_source=header.
 JA4="${HTTP_X_CLIENT_JA4:-}"
 
 # Pass /unmask/* / /_unmask/* to prevent self-loops.

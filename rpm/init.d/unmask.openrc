@@ -1,21 +1,21 @@
 #!/sbin/openrc-run
-# unmask-admin OpenRC init script (= for Alpine 3.21+ / Gentoo / other OpenRC hosts).
+# unmask OpenRC init script (= for Alpine 3.21+ / Gentoo / other OpenRC hosts).
 #
-# SysVinit hosts like RHEL 6 / CentOS 6 use init.d/unmask-admin (= depends on the
-# functions library).  systemd hosts use rpm/unmask-admin.service.
+# SysVinit hosts like RHEL 6 / CentOS 6 use init.d/unmask (= depends on the
+# functions library).  systemd hosts use rpm/unmask.service.
 #
 # OpenRC controls daemons via openrc-run scripts.  command_background=true makes
 # nfpm fork the non-forking daemon and manage its pid file.
 
-name="unmask-admin"
+name="unmask"
 description="unmask admin server (JA4 bot challenge backend)"
 
-command="/usr/sbin/unmask-admin"
+command="/usr/sbin/unmask"
 command_args="serve -config /etc/unmask/config.yml"
 command_user="unmask:unmask"
 command_background=true
 
-pidfile="/var/run/unmask/unmask-admin.pid"
+pidfile="/var/run/unmask/unmask.pid"
 output_log="/var/log/unmask/admin.log"
 error_log="/var/log/unmask/admin.log"
 

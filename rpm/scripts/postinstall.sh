@@ -1,7 +1,7 @@
 #!/bin/sh
 # Runs after the first install / upgrade.
 #   - Fix permissions on /etc/unmask/ (= so the unmask user can write from the web)
-#   - Generate /etc/unmask/config.yml via `unmask-admin config-init`
+#   - Generate /etc/unmask/config.yml via `unmask config-init`
 #   - Apply the schema
 #   - Generate nginx-rendered*.conf
 #   - systemd reload + enable
@@ -10,7 +10,7 @@
 # (= even when one step fails we want to reach "next init system detection
 # + symlink installation").  In particular, apk-tools v3 hooks run inside
 # memfd + sanitized env + chroot, and any unexpected failure in an earlier
-# step like `unmask-admin config-init` can `set -e` abort the whole
+# step like `unmask config-init` can `set -e` abort the whole
 # script and prevent the OpenRC symlink from being created (= reported on
 # 2026-05-10 22:14 JST [B]).  Silence failures per-step with
 # `|| true` or `|| echo "WARNING"`.
@@ -25,8 +25,8 @@ chown -R unmask:unmask "$CONFIG_DIR" 2>/dev/null || true
 chmod 0755 "$CONFIG_DIR" 2>/dev/null || true
 
 if [ ! -f "$CONFIG" ]; then
-    /usr/sbin/unmask-admin config-init -out "$CONFIG" || \
-        echo "unmask: WARNING: config-init failed (= run sudo /usr/sbin/unmask-admin config-init -out $CONFIG manually later)"
+    /usr/sbin/unmask config-init -out "$CONFIG" || \
+        echo "unmask: WARNING: config-init failed (= run sudo /usr/sbin/unmask config-init -out $CONFIG manually later)"
     chown unmask:unmask "$CONFIG" 2>/dev/null || true
     chmod 0640 "$CONFIG" 2>/dev/null || true
     [ -f "$CONFIG" ] && echo "unmask: generated $CONFIG with random secrets"
@@ -75,20 +75,20 @@ fi
 # wizard**.  Don't migrate from this postinstall (= driver / connection
 # info are not yet known until the wizard).  CLI users running migration
 # manually after rpm install should do:
-#   sudo /usr/sbin/unmask-admin migrate -config $CONFIG
+#   sudo /usr/sbin/unmask migrate -config $CONFIG
 # before moving on to the user-create commands.
 
 # Generate nginx-rendered*.conf (= so `nginx -t` passes on first start).
 # Changes via the web auto-render, but the user hasn't opened the web yet
 # right after install, so do it once here.
-/usr/sbin/unmask-admin render-nginx -config "$CONFIG" || \
+/usr/sbin/unmask render-nginx -config "$CONFIG" || \
     echo "unmask: WARNING: render-nginx failed (= nginx-rendered.conf not generated. Please verify manually.)"
 chown unmask:unmask "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
 chmod 0644 "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
 
 # init system detection: systemd > OpenRC > SysVinit in that order.
-# init.d/unmask-admin is symlinked per OS (= the body is picked from
-# unmask-admin.sysv / unmask-admin.openrc shipped under
+# init.d/unmask is symlinked per OS (= the body is picked from
+# unmask.sysv / unmask.openrc shipped under
 # /usr/share/unmask/init/).
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     # systemd environment (= RHEL 7+ / Ubuntu 16.04+ / Debian 8+ / Arch / etc.)
@@ -104,7 +104,7 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     for grp in nginx www-data http httpd; do
         getent group "$grp" >/dev/null 2>&1 && NGINX_GROUP="$grp" && break
     done
-    DROP_IN=/etc/systemd/system/unmask-admin.service.d
+    DROP_IN=/etc/systemd/system/unmask.service.d
     mkdir -p "$DROP_IN"
     {
         echo "[Service]"
@@ -117,33 +117,38 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         fi
     } > "$DROP_IN/10-group.conf"
 
+    # Migration: the unmask-aggregate.timer / .service pair was retired in
+    # favour of an in-process goroutine in `unmask serve`.  Drop any stale
+    # unit symlinks left behind by older installs (= no-op on fresh install).
+    systemctl disable --now unmask-aggregate.timer 2>/dev/null || true
+    systemctl disable --now unmask-aggregate.service 2>/dev/null || true
+
     systemctl daemon-reload || true
     if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ]; then
-        systemctl enable --now unmask-admin.service || true
-        systemctl enable --now unmask-aggregate.timer || true
+        systemctl enable --now unmask.service || true
     else
-        systemctl try-restart unmask-admin.service || true
+        systemctl try-restart unmask.service || true
     fi
     INIT_KIND=systemd
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
-    # OpenRC (= Alpine 3.x / Gentoo).  symlink the OpenRC variant to /etc/init.d/unmask-admin.
-    ln -sf /usr/share/unmask/init/unmask-admin.openrc /etc/init.d/unmask-admin
-    rc-update add unmask-admin default 2>/dev/null || true
+    # OpenRC (= Alpine 3.x / Gentoo).  symlink the OpenRC variant to /etc/init.d/unmask.
+    ln -sf /usr/share/unmask/init/unmask.openrc /etc/init.d/unmask
+    rc-update add unmask default 2>/dev/null || true
     if [ "${1:-}" = "1" ]; then
-        rc-service unmask-admin start || true
+        rc-service unmask start || true
     else
-        rc-service unmask-admin restart || true
+        rc-service unmask restart || true
     fi
     INIT_KIND=openrc
 elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
     # SysVinit (= RHEL 6 / CentOS 6).  symlink the SysV variant that depends on the functions library.
-    ln -sf /usr/share/unmask/init/unmask-admin.sysv /etc/init.d/unmask-admin
-    chkconfig --add unmask-admin || true
-    chkconfig unmask-admin on || true
+    ln -sf /usr/share/unmask/init/unmask.sysv /etc/init.d/unmask
+    chkconfig --add unmask || true
+    chkconfig unmask on || true
     if [ "${1:-}" = "1" ]; then
-        service unmask-admin start || true
+        service unmask start || true
     else
-        service unmask-admin condrestart || true
+        service unmask condrestart || true
     fi
     INIT_KIND=sysvinit
 else
@@ -159,12 +164,12 @@ if [ "${UNMASK_AUTO_INSTALL_MMDB:-0}" = "1" ]; then
     echo "unmask: UNMASK_AUTO_INSTALL_MMDB=1 detected — fetching DB-IP Country Lite ..."
     install -d -o unmask -g unmask -m 0750 /var/lib/unmask/ipgeo 2>/dev/null || true
     if command -v runuser >/dev/null 2>&1; then
-        runuser -u unmask -- /usr/sbin/unmask-admin install-ipgeo -quiet 2>&1 \
-            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask-admin install-ipgeo\` later)"
+        runuser -u unmask -- /usr/sbin/unmask install-ipgeo -quiet 2>&1 \
+            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask install-ipgeo\` later)"
     else
         # Alpine / minimal systems may lack runuser; fall back to su.
-        su unmask -c "/usr/sbin/unmask-admin install-ipgeo -quiet" 2>&1 \
-            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask-admin install-ipgeo\` later)"
+        su unmask -c "/usr/sbin/unmask install-ipgeo -quiet" 2>&1 \
+            || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask install-ipgeo\` later)"
     fi
 fi
 
@@ -183,7 +188,7 @@ fi
 echo ""
 echo "  edit configuration from the web UI:  https://<your-host>/unmask/admin/settings/"
 if [ "$INIT_KIND" = "systemd" ]; then
-    echo "  after saving, run  systemctl reload nginx  to apply (= unmask-admin itself does not need a restart)."
+    echo "  after saving, run  systemctl reload nginx  to apply (= unmask itself does not need a restart)."
 elif [ "$INIT_KIND" = "sysvinit" ]; then
-    echo "  after saving, run  service nginx reload  to apply (= unmask-admin itself does not need a restart)."
+    echo "  after saving, run  service nginx reload  to apply (= unmask itself does not need a restart)."
 fi

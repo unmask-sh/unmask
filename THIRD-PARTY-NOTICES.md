@@ -10,7 +10,7 @@ requires reproduction.
 
 ----
 
-## Go runtime dependencies (= compiled into `unmask-admin`)
+## Go runtime dependencies (= compiled into `unmask`)
 
 ### Direct
 
@@ -88,7 +88,7 @@ THE SOFTWARE.
 
 ### DB-IP Lite (IP-geolocation database)
 
-`unmask-admin install-ipgeo` downloads DB-IP Lite (= `dbip-country.mmdb` /
+`unmask install-ipgeo` downloads DB-IP Lite (= `dbip-country.mmdb` /
 `dbip-asn.mmdb`) from db-ip.com to `/var/lib/unmask/ipgeo/`.
 
 License: **Creative Commons Attribution 4.0 International (CC BY 4.0)**.

@@ -17,7 +17,7 @@
 # TestGhostSites; it needs `sites.mode: defined` which the shared e2e config
 # does not set, so it is not exercised here.
 #
-# Verification reads the events back via `unmask-admin events`, which needs
+# Verification reads the events back via `unmask events`, which needs
 # `docker compose exec` into the admin container.  When that is unavailable
 # (= the suite is pointed at a remote BASE_URL) the scenario skips cleanly.
 
@@ -64,7 +64,7 @@ sleep 2
 
 # Tail the whole event table for ~4s and collect the lines.
 dump=$(timeout 4 docker compose -f "$COMPOSE" exec -T admin \
-    unmask-admin events -config /etc/unmask/admin.yml --since 0 --poll-ms 200 \
+    unmask events -config /etc/unmask/admin.yml --since 0 --poll-ms 200 \
     2>/dev/null || true)
 
 fails=0

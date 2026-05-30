@@ -128,7 +128,7 @@ func getCategoryREs() *categoryREs {
 	cacheOnce.Do(func() {
 		raw := assets.CrawlerUserAgentsJSON
 		// The UNMASK_CRAWLER_UA_JSON env var overrides the binary-embedded
-		// data.  This lets `unmask-admin update-crawler-list` apply the
+		// data.  This lets `unmask update-crawler-list` apply the
 		// latest JSON without a rebuild.
 		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
 			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {

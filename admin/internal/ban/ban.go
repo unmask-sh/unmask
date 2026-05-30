@@ -499,7 +499,7 @@ func (m *Manager) flush() error {
 	})
 
 	var buf strings.Builder
-	buf.WriteString("# unmask ban list (= managed by unmask-admin; do not edit)\n")
+	buf.WriteString("# unmask ban list (= managed by unmask; do not edit)\n")
 	buf.WriteString("# format: <ip>|<ja4>|<source>|<action> per line\n")
 	buf.WriteString(fmt.Sprintf("# count: %d\n", len(keys)))
 	buf.WriteString(fmt.Sprintf("# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339)))

@@ -1,4 +1,4 @@
-// install_ipgeo.go — `unmask-admin install-ipgeo` sub-command.
+// install_ipgeo.go — `unmask install-ipgeo` sub-command.
 //
 // Fetches the current month's DB-IP Country Lite mmdb (= CC BY 4.0)
 // and atomically installs it to /var/lib/unmask/mmdb/dbip-country.mmdb

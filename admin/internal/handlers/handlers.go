@@ -84,8 +84,8 @@ type Handler struct {
 	DB          *db.DB
 	Settings    settings.Settings
 	ConfigPath  string             // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
-	Version     string             // unmask-admin version (for display)
-	HostID      string             // host identifier of this unmask-admin instance.  Embedded in events for per-host aggregation on a shared DB.
+	Version     string             // unmask version (for display)
+	HostID      string             // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
 	IPGeo       *ipgeo.Reader      // optional, may be nil/empty (mmdb unset)
 	NginxLog    *nginxlog.Reader   // optional, may be nil/empty (access_log_path unset)
 	BanMgr      *ban.Manager       // optional, may be nil (ban_file_path unset)

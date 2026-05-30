@@ -2,7 +2,7 @@ IP geolocation data
 ====================
 
 unmask uses IP-to-country lookup tables fetched on demand via
-`unmask-admin install-ipgeo`.  The default source is DB-IP Lite, made
+`unmask install-ipgeo`.  The default source is DB-IP Lite, made
 available under the Creative Commons Attribution 4.0 International License
 (CC BY 4.0):
 

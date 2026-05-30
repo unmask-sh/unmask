@@ -7,6 +7,6 @@
     notifempty
     create 640 unmask unmask
     postrotate
-        systemctl kill -s HUP unmask-admin.service 2>/dev/null || true
+        systemctl kill -s HUP unmask.service 2>/dev/null || true
     endscript
 }

@@ -453,7 +453,7 @@ func (h *Handler) AdminCommunityBansDetail(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "build request: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-	req.Header.Set("User-Agent", "unmask-admin/"+h.Version+" community-bans-detail-proxy")
+	req.Header.Set("User-Agent", "unmask/"+h.Version+" community-bans-detail-proxy")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("bans: aggregate proxy: %v", err)
@@ -509,7 +509,7 @@ func (h *Handler) proxyToHub(w http.ResponseWriter, r *http.Request, target stri
 		}
 		req.Header.Set("Content-Type", ct)
 	}
-	req.Header.Set("User-Agent", "unmask-admin/"+h.Version+" community-bans-proxy")
+	req.Header.Set("User-Agent", "unmask/"+h.Version+" community-bans-proxy")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Printf("bans: hub proxy %s: %v", target, err)

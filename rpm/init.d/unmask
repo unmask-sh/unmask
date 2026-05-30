@@ -1,17 +1,17 @@
 #!/bin/sh
 #
-# unmask-admin — JA4 bot challenge admin server (SysVinit)
+# unmask — JA4 bot challenge admin server (SysVinit)
 #
 # Use: CentOS 6 / RHEL 6 / legacy SysVinit hosts.
-# On systemd hosts, rpm/unmask-admin.service is enabled instead.
+# On systemd hosts, rpm/unmask.service is enabled instead.
 #
 # chkconfig: 2345 86 14
 # description: unmask admin server (JA4 bot challenge backend)
-# processname: unmask-admin
-# pidfile: /var/run/unmask/unmask-admin.pid
+# processname: unmask
+# pidfile: /var/run/unmask/unmask.pid
 
 ### BEGIN INIT INFO
-# Provides:          unmask-admin
+# Provides:          unmask
 # Required-Start:    $local_fs $network $remote_fs
 # Required-Stop:     $local_fs $network $remote_fs
 # Default-Start:     2 3 4 5
@@ -23,7 +23,7 @@
 # CentOS 6-family function lib (= daemon, killproc, status, success, failure, etc.).
 . /etc/rc.d/init.d/functions
 
-NAME=unmask-admin
+NAME=unmask
 EXEC=/usr/sbin/${NAME}
 CONFIG=/etc/unmask/config.yml
 USER=unmask
@@ -82,7 +82,7 @@ restart() {
 }
 
 reload() {
-    # We want unmask-admin to hot-reload settings on SIGHUP, but currently
+    # We want unmask to hot-reload settings on SIGHUP, but currently
     # this is equivalent to restart.  Once SIGHUP is supported, send kill -HUP here.
     restart
 }

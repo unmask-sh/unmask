@@ -1,12 +1,12 @@
 // Package logwriter: append-mode writer for log files + SIGHUP reopen support.
 //
-// Purpose: open the log output file for unmask-admin ourselves, and reopen
+// Purpose: open the log output file for unmask ourselves, and reopen
 // the file fd when logrotate (or similar) sends SIGHUP after renaming /
 // truncating the file.
 //
 // Background:
 //   - systemd's StandardOutput=append:FILE holds the fd on the systemd side,
-//     so unmask-admin can't do anything for logrotate (= it keeps writing to
+//     so unmask can't do anything for logrotate (= it keeps writing to
 //     the old inode after rename).
 //   - Pointing Go's log package directly at the file and reopening on SIGHUP
 //     is the conventional daemon pattern.

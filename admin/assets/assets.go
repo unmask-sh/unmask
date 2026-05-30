@@ -1,5 +1,5 @@
 // Package assets: embed-only package for static resources baked into the
-// unmask-admin binary.
+// unmask binary.
 //
 // Contents:
 //   - crawler-user-agents.json   bot UA pattern source

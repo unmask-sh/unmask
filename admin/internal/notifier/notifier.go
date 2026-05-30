@@ -235,7 +235,7 @@ func (n *Notifier) TestSend(ctx context.Context) error {
 		return err
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "unmask-admin/0.1 (+webhook)")
+	req.Header.Set("User-Agent", "unmask/0.1 (+webhook)")
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return err
@@ -257,7 +257,7 @@ func (n *Notifier) send(cfg Config, event string, fields map[string]any, text st
 		return
 	}
 	req.Header.Set("Content-Type", contentType)
-	req.Header.Set("User-Agent", "unmask-admin/0.1 (+webhook)")
+	req.Header.Set("User-Agent", "unmask/0.1 (+webhook)")
 	resp, err := n.client.Do(req)
 	if err != nil {
 		log.Printf("notifier %s POST: %v", event, err)

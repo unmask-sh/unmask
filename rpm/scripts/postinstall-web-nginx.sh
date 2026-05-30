@@ -76,7 +76,7 @@ if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] \
     if getsebool httpd_can_network_connect 2>/dev/null | grep -q ' --> off'; then
         if setsebool -P httpd_can_network_connect 1 2>/dev/null; then
             echo "unmask-web-nginx: SELinux setsebool -P httpd_can_network_connect 1 applied"
-            echo "  (= nginx can now proxy_pass to unmask-admin.  set UNMASK_SKIP_SETSEBOOL=1 to opt out)"
+            echo "  (= nginx can now proxy_pass to unmask.  set UNMASK_SKIP_SETSEBOOL=1 to opt out)"
         else
             echo "unmask-web-nginx: WARNING -- setsebool failed."
             echo "  -> run manually: sudo setsebool -P httpd_can_network_connect 1"
@@ -126,7 +126,7 @@ echo "        open:  https://<your-domain>/unmask/admin/setup/"
 echo ""
 echo "  [2] Direct port (= dev / lab, or private network)"
 echo "        Edit /etc/unmask/config.yml → server.bind: 0.0.0.0:9477"
-echo "        sudo systemctl restart unmask-admin"
+echo "        sudo systemctl restart unmask"
 echo "        open:  http://${host}:9477/unmask/admin/setup/"
 echo ""
 echo "  [3] SSH tunnel (= universal fallback, no nginx setup needed)"

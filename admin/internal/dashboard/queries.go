@@ -1607,7 +1607,7 @@ type CountryRow struct {
 //   - total: list of per-day req + uniq IP
 //
 // Fast path reads pre-aggregated rows from unmask_aggregate (written hourly by
-// `unmask-admin aggregate` → AggregateServeKind).  Scanning the large, growing
+// `unmask aggregate` → AggregateServeKind).  Scanning the large, growing
 // unmask_event table on every dashboard load was the page's dominant latency;
 // the pre-aggregation moves that cost to the hourly cron.  Falls back to a
 // live scan when a host filter is active (unmask_aggregate has no host

@@ -4,9 +4,9 @@
 //
 // Usage:
 //
-//	unmask-admin render-nginx                       # write to config.yml output_dir
-//	unmask-admin render-nginx -out-dir /etc/unmask  # explicit dir
-//	unmask-admin render-nginx -dry-run              # print to stdout only
+//	unmask render-nginx                       # write to config.yml output_dir
+//	unmask render-nginx -out-dir /etc/unmask  # explicit dir
+//	unmask render-nginx -dry-run              # print to stdout only
 //
 // Apply with a separate `nginx -s reload` (= unmask does not touch nginx itself).
 package main

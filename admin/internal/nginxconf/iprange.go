@@ -6,7 +6,7 @@
 //
 // Each source's JSON is embedded at build time (= release snapshot).  When
 // the list changes, either wait for the next unmask release or manually
-// re-fetch via the planned `unmask-admin update-iprange` (= ROADMAP).
+// re-fetch via the planned `unmask update-iprange` (= ROADMAP).
 package nginxconf
 
 import (

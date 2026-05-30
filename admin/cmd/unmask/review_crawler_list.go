@@ -14,8 +14,8 @@
 //
 // Usage:
 //
-//	unmask-admin review-crawler-list                # fetch JSON and diff
-//	unmask-admin review-crawler-list -url file:...  # local compare
+//	unmask review-crawler-list                # fetch JSON and diff
+//	unmask review-crawler-list -url file:...  # local compare
 package main
 
 import (
@@ -46,7 +46,7 @@ func cmdReviewCrawlerList(args []string) error {
 	// Fetch upstream.
 	cli := &http.Client{Timeout: *timeout}
 	req, _ := http.NewRequest(http.MethodGet, *url, nil)
-	req.Header.Set("User-Agent", "unmask-admin/"+Version)
+	req.Header.Set("User-Agent", "unmask/"+Version)
 	resp, err := cli.Do(req)
 	if err != nil {
 		return err

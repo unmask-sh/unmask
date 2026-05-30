@@ -9,7 +9,7 @@
 // New months may take a few days to publish; on 404 we fall back to the
 // previous month so a first-of-month invocation does not fail.
 //
-// Used by both the `unmask-admin install-ipgeo` CLI and the web UI's 1-click
+// Used by both the `unmask install-ipgeo` CLI and the web UI's 1-click
 // install button.
 package ipgeo
 
@@ -174,7 +174,7 @@ func downloadOne(url, path string, maxBytes int64, client *http.Client) (int64, 
 	if err != nil {
 		return 0, fmt.Errorf("request: %w", err)
 	}
-	req.Header.Set("User-Agent", "unmask-admin/install-mmdb (+https://unmask.sh)")
+	req.Header.Set("User-Agent", "unmask/install-mmdb (+https://unmask.sh)")
 	resp, err := client.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("fetch %s: %w", url, err)

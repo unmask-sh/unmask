@@ -1,4 +1,4 @@
-# unmask-admin config (= inside the e2e docker container).
+# unmask config (= inside the e2e docker container).
 # Not for production use.  Fixed secret + sqlite tempdir + socket path for e2e only.
 
 db:

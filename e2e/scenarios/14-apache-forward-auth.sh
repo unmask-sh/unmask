@@ -4,7 +4,7 @@
 # Unlike scenario 05 (which curls the /api/check endpoint directly), this
 # drives a genuine Apache container running snippets/apache-forward-auth.conf
 # + apache-unmask.lua.  Every request goes through the mod_lua AccessChecker,
-# which does an internal /_unmask/check subrequest to unmask-admin and
+# which does an internal /_unmask/check subrequest to unmask and
 # branches on X-Unmask-Action:
 #
 #   pass      : browser UA → DECLINED → Apache serves its DocumentRoot (200)

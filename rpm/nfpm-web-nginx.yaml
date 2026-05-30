@@ -2,8 +2,8 @@
 #
 # Goal: after install, `https://host/unmask/admin/` brings up the UI
 # out-of-the-box (= zabbix / cacti pattern).  unmask itself
-# (= /usr/sbin/unmask-admin) listens on localhost; this package wires
-# nginx ↔ unmask-admin together.
+# (= /usr/sbin/unmask) listens on localhost; this package wires
+# nginx ↔ unmask together.
 #
 # default mode = forward-auth (= lightweight mode that does not require JA4
 # fingerprinting; all features work, but only the JA4-granular verdict

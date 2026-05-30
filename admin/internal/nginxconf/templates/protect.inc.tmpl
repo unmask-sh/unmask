@@ -1,4 +1,4 @@
-# /etc/unmask/native/protect.inc — auto-rendered by unmask-admin / DO NOT EDIT
+# /etc/unmask/native/protect.inc — auto-rendered by unmask / DO NOT EDIT
 #
 # Usage: include this in the location { } you want to protect, inside the
 # user's server { }:
@@ -23,7 +23,7 @@ error_page 429 = @unmask_rate_challenge;
 
 # JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
 # force challenge.  The original URI is passed to the challenge handler via the
-# `_orig` query, so unmask-admin can record "URL the user originally tried" on
+# `_orig` query, so unmask can record "URL the user originally tried" on
 # the hunt page.  Note: $request_uri includes path + query, and nginx rewrite
 # args are not URL-encoded, so anything after a second `?` bleeds into args.
 # We accept this since aggregation is at the path level.

@@ -17,13 +17,13 @@ fi
 if [ "$do_cleanup" = 1 ]; then
     # Data is kept (= recovery scenarios).  User removal is left to the operator.
     # The systemd drop-in placed by postinst is removed (= on full remove only).
-    rm -rf /etc/systemd/system/unmask-admin.service.d 2>/dev/null || true
-    # OpenRC: postinstall symlinks /etc/init.d/unmask-admin -> the openrc init
+    rm -rf /etc/systemd/system/unmask.service.d 2>/dev/null || true
+    # OpenRC: postinstall symlinks /etc/init.d/unmask -> the openrc init
     # script under /usr/share/unmask/init/.  apk's package manager won't touch
     # the symlink because it isn't owned by the package; clear it here so a
     # rerun of `apk add unmask` (or any later remove cycle) starts clean.
-    if [ -L /etc/init.d/unmask-admin ]; then
-        rm -f /etc/init.d/unmask-admin
+    if [ -L /etc/init.d/unmask ]; then
+        rm -f /etc/init.d/unmask
     fi
 fi
 

@@ -14,7 +14,7 @@ SupplementaryGroups=nginx
 
 # Config: /etc/unmask/config.yml.  Overridable via -config.
 Environment=UNMASK_CONFIG=/etc/unmask/config.yml
-ExecStart=/usr/sbin/unmask-admin serve
+ExecStart=/usr/sbin/unmask serve
 
 # Auto-create /run/unmask/ on startup (= 0750 unmask:unmask, on tmpfs).
 # admin binds log.sock here; group access is needed for sharing.

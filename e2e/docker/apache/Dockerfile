@@ -15,7 +15,7 @@ FROM debian:12-slim
 
 # mod_lua.so ships inside apache2-bin (a dependency of apache2) on Debian 12 —
 # there is no separate libapache2-mod-lua package, a2enmod lua is enough.
-# lua-socket gives the mod_lua handler an HTTP client to reach unmask-admin
+# lua-socket gives the mod_lua handler an HTTP client to reach unmask
 # (mod_lua has none of its own); it installs into Lua 5.3's path, which is the
 # version mod_lua links against on Debian 12.
 RUN apt-get update && apt-get install -y --no-install-recommends \

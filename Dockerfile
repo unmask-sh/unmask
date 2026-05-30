@@ -1,4 +1,4 @@
-# unmask-admin: single image (= multi-stage Go build → minimal runtime).
+# unmask: single image (= multi-stage Go build → minimal runtime).
 #
 # Use:
 #   docker build -t unmask/admin:latest .
@@ -32,7 +32,7 @@ COPY admin/ ./admin/
 RUN cd admin && \
     CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w -X main.Version=$UNMASK_VERSION" \
-    -o /out/unmask-admin ./cmd/unmask-admin
+    -o /out/unmask ./cmd/unmask
 
 # -------------------------------------------------------------------------
 # runtime stage: scratch + ca-certs + tzdata only.  Pure-Go binary, so no
@@ -45,7 +45,7 @@ RUN apk add --no-cache ca-certificates tzdata && \
     mkdir -p /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask && \
     chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask
 
-COPY --from=build /out/unmask-admin /usr/local/bin/unmask-admin
+COPY --from=build /out/unmask /usr/local/bin/unmask
 
 # If admin.yml is missing at startup, generate a minimal one (= install wizard
 # captures the DB etc.).  No-op if it already exists.

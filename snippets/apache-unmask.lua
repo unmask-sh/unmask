@@ -2,7 +2,7 @@
 --
 -- Flow:
 --   client → Apache → handle_request(r)
---                   ├→ HTTP GET to unmask-admin /api/check (via luasocket)
+--                   ├→ HTTP GET to unmask /api/check (via luasocket)
 --                   └→ branch on status / X-Unmask-Action:
 --                       pass      → apache2.DECLINED  (= forward as usual)
 --                       challenge → 302 to /unmask/challenge/
@@ -10,7 +10,7 @@
 --
 -- Requires the `lua-socket` package (RHEL: EPEL `lua-socket` /
 -- Debian: `lua-socket`).  mod_lua itself has no HTTP client and no subrequest
--- API, so the outbound call to unmask-admin goes through luasocket.
+-- API, so the outbound call to unmask goes through luasocket.
 --
 -- Installation:
 --   Put `LuaHookAccessChecker /etc/httpd/unmask.lua handle_request` in
@@ -19,7 +19,7 @@
 local http  = require("socket.http")
 local ltn12 = require("ltn12")
 
--- unmask-admin /api/check URL.  Rewrite the host:port if admin does not run
+-- unmask /api/check URL.  Rewrite the host:port if admin does not run
 -- on the same host (= server.port in admin.yml).
 local UNMASK_API = "http://127.0.0.1:9477/unmask/api/check"
 
@@ -27,7 +27,7 @@ local UNMASK_API = "http://127.0.0.1:9477/unmask/api/check"
 -- workers.  On timeout the handler fails open (= forwards as usual).
 http.TIMEOUT = 2
 
--- /unmask/* is proxied straight to unmask-admin (challenge page / static
+-- /unmask/* is proxied straight to unmask (challenge page / static
 -- assets / verify API).  Never run the auth check on it, or the challenge
 -- page itself would be challenged.
 local function should_skip(uri)
@@ -39,7 +39,7 @@ function handle_request(r)
         return apache2.DECLINED
     end
 
-    -- Forward the original request context to unmask-admin as headers.
+    -- Forward the original request context to unmask as headers.
     -- Apache mode cannot supply a JA4 (no TLS handshake access); every other
     -- axis (UA filter / honeypot / BAN / CAPTCHA / protected paths / search
     -- rescue / rate_limit) works from these.
@@ -58,7 +58,7 @@ function handle_request(r)
             -- ANTI-SPOOF: r.headers_in returns whatever the client sent, so a
             -- directly-reachable Apache lets a client forge this. Neutralize
             -- it in apache-forward-auth.conf unless a trusted front layer
-            -- guarantees it. unmask-admin also honors it only with
+            -- guarantees it. unmask also honors it only with
             -- challenge.ja4_source=header from a trusted peer.
             ["X-Client-JA4"]    = r.headers_in["X-Client-JA4"] or "",
         },
@@ -84,7 +84,7 @@ function handle_request(r)
         return 403
     end
     if code == 401 or action == "challenge" then
-        -- Redirect to the challenge HTML served by unmask-admin.
+        -- Redirect to the challenge HTML served by unmask.
         r.headers_out["Location"] = "/unmask/challenge/"
         return 302
     end

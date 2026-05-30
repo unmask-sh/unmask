@@ -1,4 +1,4 @@
-// `unmask-admin doctor` — self-check right after install / upgrade.
+// `unmask doctor` — self-check right after install / upgrade.
 //
 // Each check reports one line of [OK] / [WARN] / [ERR].  Prints a summary at
 // the end; if any [ERR] is present, exits with code 1 (= machine-checkable
@@ -67,7 +67,7 @@ func cmdDoctor(args []string) error {
 	addErr := func(t, m string) { checks = append(checks, doctorCheck{"err", t, m}) }
 
 	resolved := settings.ResolvePath(*configPath)
-	fmt.Printf("unmask-admin doctor (config: %s)\n\n", resolved)
+	fmt.Printf("unmask doctor (config: %s)\n\n", resolved)
 
 	// 1. load + parse config
 	s, err := settings.Load(resolved)
@@ -111,7 +111,7 @@ func cmdDoctor(args []string) error {
 			}
 		}
 		if len(missing) > 0 {
-			addErr("DB table check", fmt.Sprintf("missing: %s (= run unmask-admin migrate)", strings.Join(missing, ", ")))
+			addErr("DB table check", fmt.Sprintf("missing: %s (= run unmask migrate)", strings.Join(missing, ", ")))
 		} else {
 			addOK("DB tables", strings.Join(tables, " / "))
 		}
@@ -121,7 +121,7 @@ func cmdDoctor(args []string) error {
 	// (WARN at 35+ day age — DB-IP publishes monthly so anything older
 	// indicates a missed cron run) and surface vendor / build date.
 	if s.IPGeo.MMDBPath == "" && s.IPGeo.MMDBASNPath == "" {
-		addWarn("IP-geo mmdb", "not set (= no per-country chart / ASN popover); run `unmask-admin install-ipgeo` to fetch DB-IP Lite (CC BY 4.0)")
+		addWarn("IP-geo mmdb", "not set (= no per-country chart / ASN popover); run `unmask install-ipgeo` to fetch DB-IP Lite (CC BY 4.0)")
 	} else {
 		r := ipgeo.Open(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath)
 		checkMMDBPath("IP-geo city mmdb", s.IPGeo.MMDBPath, addOK, addWarn, addErr)
@@ -190,7 +190,7 @@ func cmdDoctor(args []string) error {
 
 	// 9. Ensure the secret is not still the default (= a weak seed lets attackers forge cookies)
 	if isDefaultSecret(s.Secret.BVSecret) {
-		addErr("bv_secret", "still default.  regenerate via unmask-admin config-init")
+		addErr("bv_secret", "still default.  regenerate via unmask config-init")
 	} else if len(s.Secret.BVSecret) < 16 {
 		addWarn("bv_secret", "too short (= recommend 16+ chars)")
 	} else {
@@ -399,7 +399,7 @@ func checkMMDBPath(title, path string,
 	st, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			addWarn(title, path+" missing — run `unmask-admin install-ipgeo` to fetch DB-IP Lite")
+			addWarn(title, path+" missing — run `unmask install-ipgeo` to fetch DB-IP Lite")
 		} else {
 			addErr(title, err.Error())
 		}
@@ -425,7 +425,7 @@ func checkMMDBPath(title, path string,
 		msg += fmt.Sprintf(" · build %s (%d days old)", info.BuildTime.Format("2006-01-02"), ageDays)
 		if ageDays > 35 {
 			// DB-IP publishes monthly; > 35 days = missed refresh.
-			addWarn(title, msg+" — stale; run `unmask-admin install-ipgeo` (cron)")
+			addWarn(title, msg+" — stale; run `unmask install-ipgeo` (cron)")
 			return
 		}
 	}

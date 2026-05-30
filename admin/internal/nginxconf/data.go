@@ -1,5 +1,5 @@
 // Package nginxconf: embed data + render functions for the nginx config
-// fragments used by unmask-admin's `render-nginx` sub-command.
+// fragments used by unmask's `render-nginx` sub-command.
 //
 // Philosophy:
 //   - The only file a user edits is /etc/unmask/config.yml.
