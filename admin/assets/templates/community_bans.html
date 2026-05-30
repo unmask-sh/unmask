@@ -290,8 +290,10 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   {{ end }}
 
   <div class="status-legend" role="note" aria-label="{{ t .Lang "community_bans.legend.aria" }}">
-    <span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>
-    <span class="leg leg-promoted">{{ t .Lang "community_bans.legend.promoted" }}</span>
+    {{- /* fetch+apply mode: every applicable row enforces, so the "score 3+
+           but not enforced yet" status never appears.  Show 適用中 in its
+           place.  fetch / off: rows are at most "applicable", not enforced. */ -}}
+    {{ if eq .SubscribeMode "fetch_apply" }}<span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>{{ else }}<span class="leg leg-promoted">{{ t .Lang "community_bans.legend.promoted" }}</span>{{ end }}
     <span class="leg leg-reports">{{ t .Lang "community_bans.legend.reports" }}</span>
     <span class="leg leg-bypassed">{{ t .Lang "community_bans.legend.bypassed" }}</span>
   </div>
