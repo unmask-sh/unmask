@@ -43,10 +43,11 @@ const (
 	hourlyKeep  = 32       // days of buckets to retain (covers the 30d range)
 )
 
-// hourColExpr formats a datetime column to a 'YYYY-MM-DD HH' bucket string
-// using the database's own clock — so the stored bucket and the read-side
-// thresholds always agree regardless of whether date_created is kept in UTC
-// (sqlite) or server-local time (mariadb NOW()).
+// hourColExpr formats a datetime column to a 'YYYY-MM-DD HH' bucket string.
+// All timestamps are UTC by construction (sqlite stores date_created via
+// datetime('now'); MariaDB's session time_zone is pinned to '+00:00' in
+// db.Open), so the stored bucket is the UTC hour.  The operator's cookie TZ
+// is then applied by the read-side query layer via *time.Location.
 func hourColExpr(d *db.DB, col string) string {
 	if d.Driver == db.DriverSQLite {
 		return "strftime('%Y-%m-%d %H', " + col + ")"

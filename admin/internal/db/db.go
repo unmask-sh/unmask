@@ -79,8 +79,17 @@ func Open(s settings.DB) (*DB, error) {
 		cfg.Addr = fmt.Sprintf("%s:%d", s.MariaDB.Host, s.MariaDB.Port)
 		cfg.DBName = s.MariaDB.Database
 		cfg.ParseTime = true
-		cfg.Loc = time.Local
-		cfg.Params = map[string]string{"charset": "utf8mb4"}
+		// Force everything timestamp-related to UTC: the driver-side parse
+		// location AND the session time_zone.  With this, NOW() / CURRENT_TIMESTAMP
+		// / DATE(col) / DATE_FORMAT(col,…) / DATE_SUB(NOW(),…) all evaluate in
+		// UTC, matching SQLite's UTC-by-default behaviour.  The application
+		// (= dashboard.Daily*) then converts UTC unix sec to the operator's
+		// cookie TZ on read, so the storage is timezone-agnostic.
+		cfg.Loc = time.UTC
+		cfg.Params = map[string]string{
+			"charset":   "utf8mb4",
+			"time_zone": "'+00:00'",
+		}
 		dialector = gormmysql.Open(cfg.FormatDSN())
 		driver = DriverMariaDB
 		maxIdle = 2

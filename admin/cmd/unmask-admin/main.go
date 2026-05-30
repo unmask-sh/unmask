@@ -886,81 +886,19 @@ func cmdMigrate(args []string) error {
 }
 
 // ----------------------------------------------------------------
-// aggregate (for cron; currently writes daily aggregates from the event table into unmask_aggregate)
+// aggregate: deprecated.  unmask_aggregate / AggregateServeKind were retired
+// in favour of the per-request raw scan that honours the operator's cookie TZ.
+// Hourly aggregates (= unmask_aggregate_hourly + _hll) are still kept up to
+// date by AggregateHourly inside the main service.  The subcommand is left as
+// a no-op so existing cron entries do not error.
 // ----------------------------------------------------------------
 
 func cmdAggregate(args []string) error {
 	fs := flag.NewFlagSet("aggregate", flag.ExitOnError)
-	configPath := fs.String("config", "", "path to config.yml")
-	days := fs.Int("days", 30, "how many days back to (re)aggregate")
+	_ = fs.String("config", "", "path to config.yml")
+	_ = fs.Int("days", 30, "how many days back to (re)aggregate")
 	_ = fs.Parse(args)
-
-	s, err := loadSettings(*configPath)
-	if err != nil {
-		return err
-	}
-	conn, err := db.Open(s.DB)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	since := conn.NowMinusMinutes(*days * 24 * 60)
-	stmt := fmt.Sprintf(`
-        SELECT DATE(date_created), 'phase', phase, COUNT(*)
-        FROM unmask_event
-        WHERE date_created > %s
-        GROUP BY DATE(date_created), phase
-    `, since)
-	rows, err := conn.Query(stmt)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	upsert := `INSERT INTO unmask_aggregate (bucket_date, bucket_kind, bucket_key, cnt) VALUES (?, ?, ?, ?)`
-	if conn.Driver == db.DriverSQLite {
-		upsert += ` ON CONFLICT(bucket_date, bucket_kind, bucket_key) DO UPDATE SET cnt = excluded.cnt`
-	} else {
-		upsert += ` ON DUPLICATE KEY UPDATE cnt = VALUES(cnt)`
-	}
-
-	n := 0
-	for rows.Next() {
-		var dateRaw any
-		var kind, key string
-		var cnt int
-		if err := rows.Scan(&dateRaw, &kind, &key, &cnt); err != nil {
-			return err
-		}
-		var dateStr string
-		switch v := dateRaw.(type) {
-		case string:
-			dateStr = v
-		case []byte:
-			dateStr = string(v)
-		case time.Time:
-			dateStr = v.Format("2006-01-02")
-		default:
-			dateStr = fmt.Sprintf("%v", v)
-		}
-		if _, err := conn.Exec(upsert, dateStr, kind, key, cnt); err != nil {
-			return err
-		}
-		n++
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	fmt.Printf("aggregate: wrote %d phase rows (last %d days)\n", n, *days)
-
-	// serve-by-kind + per-day totals: feeds the dashboard 30-day chart 2.
-	// Pre-aggregating here keeps that chart off the slow live event-table
-	// scan it used to run on every dashboard page load.
-	if err := dashboard.AggregateServeKind(context.Background(), conn, s.Nginx, *days); err != nil {
-		return fmt.Errorf("aggregate serve-kind: %w", err)
-	}
-	fmt.Printf("aggregate: wrote serve-kind rows (last %d days)\n", *days)
+	fmt.Println("aggregate: deprecated no-op (dashboard reads raw events directly; hourly rollups run from the service)")
 	return nil
 }
 

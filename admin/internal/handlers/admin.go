@@ -54,6 +54,22 @@ func resolveTZ(r *http.Request) string {
 	return v
 }
 
+// resolveLocation maps the cookie TZ to a *time.Location for server-side day
+// bucketing of dashboard / stats queries.  Empty cookie or unknown name falls
+// back to time.UTC (= raw storage TZ), so a broken cookie value does not
+// crash chart rendering -- it just renders in UTC.  The template / JS side
+// keeps using resolveTZ() as the display TZ for individual <time data-ts>.
+func resolveLocation(r *http.Request) *time.Location {
+	name := resolveTZ(r)
+	if name == "" {
+		return time.UTC
+	}
+	if loc, err := time.LoadLocation(name); err == nil && loc != nil {
+		return loc
+	}
+	return time.UTC
+}
+
 var (
 	dashboardTmpl     *template.Template
 	dashboardTmplOnce sync.Once
@@ -741,6 +757,11 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		verdictAction[p.Verdict] = p.Action
 	}
 
+	// Operator cookie TZ -> *time.Location for the day-bucketed queries.
+	// Storage is UTC; day boundaries (and only those) are converted here so
+	// the chart's labels follow the operator.
+	loc := resolveLocation(r)
+
 	// Each dashboard card is an independent read query.  Previously executed
 	// sequentially, so the whole page latency was queries x per-query latency,
 	// degrading linearly as the event table grew.  Run them in parallel using
@@ -807,7 +828,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dctx, dcancel := queryCtx(15 * time.Second)
 		defer dcancel()
 		var derr error
-		dailyKind, dailyTotal, derr = dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30)
+		dailyKind, dailyTotal, derr = dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30, loc)
 		if derr != nil {
 			log.Printf("daily pass by day: %v", derr)
 		}
@@ -819,7 +840,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dskCtx, dskCancel := queryCtx(15 * time.Second)
 		defer dskCancel()
 		var derr error
-		dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts)
+		dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
 		if derr != nil {
 			log.Printf("daily serve by kind: %v", derr)
 		}
@@ -831,7 +852,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dcctx, dccancel := queryCtx(15 * time.Second)
 		defer dccancel()
 		var derr error
-		dailyCountry, derr = dashboard.DailyPassByCountry(dcctx, h.DB, site, 30)
+		dailyCountry, derr = dashboard.DailyPassByCountry(dcctx, h.DB, site, 30, loc)
 		if derr != nil {
 			log.Printf("daily pass by country: %v", derr)
 		}
@@ -842,7 +863,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		dunCtx, dunCancel := queryCtx(15 * time.Second)
 		defer dunCancel()
 		var derr error
-		dailyUniq, derr = dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30)
+		dailyUniq, derr = dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30, loc)
 		if derr != nil {
 			log.Printf("daily unique ips: %v", derr)
 		}

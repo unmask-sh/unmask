@@ -13,7 +13,6 @@ import (
 	"net"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1613,125 +1612,67 @@ type CountryRow struct {
 // the pre-aggregation moves that cost to the hourly cron.  Falls back to a
 // live scan when a host filter is active (unmask_aggregate has no host
 // dimension) or when the aggregate table has not been populated yet.
-func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string) ([]DailyKindBucket, []DailyTotal, error) {
+// eventTimeLayouts lists the date_created layouts unmask has used over time;
+// SQLite hands TEXT back, MariaDB a time.Time.  Kept private to the dashboard
+// package -- the events package has its own (different signature) variant.
+var eventTimeLayouts = []string{
+	"2006-01-02 15:04:05.000",
+	"2006-01-02T15:04:05.000Z",
+	"2006-01-02 15:04:05",
+	"2006-01-02T15:04:05Z",
+}
+
+// normalizeEventTime turns a driver-returned date_created cell into a UTC
+// time.Time so callers can apply *time.Location for the operator's cookie TZ.
+// Returns (zero, false) when the value cannot be parsed.
+func normalizeEventTime(v any) (time.Time, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC(), true
+	case []byte:
+		return parseEventTimeStr(string(x))
+	case string:
+		return parseEventTimeStr(x)
+	}
+	return time.Time{}, false
+}
+
+func parseEventTimeStr(s string) (time.Time, bool) {
+	for _, layout := range eventTimeLayouts {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
 	t0 := time.Now()
 	defer func() {
 		if elapsed := time.Since(t0); elapsed > 500*time.Millisecond {
 			log.Printf("DailyServeByKind: %v elapsed (slow)", elapsed)
 		}
 	}()
-	if len(hosts) == 0 {
-		daily, totals, err := dailyServeByKindAgg(ctx, d, site, days)
-		if err != nil {
-			log.Printf("DailyServeByKind: aggregate read failed, falling back to scan: %v", err)
-		} else if len(daily) > 0 || len(totals) > 0 {
-			return daily, totals, nil
-		}
-	}
-	return dailyServeByKindScan(ctx, d, site, hosts, days, botVerdicts)
+	// Read straight from unmask_event so the day buckets follow the operator's
+	// cookie TZ.  The previous "aggregate fast path" (= unmask_aggregate with
+	// a DATE column) cannot represent TZ-shifted boundaries -- it has been
+	// retired, and the table is dropped by the 0013 migration.  Raw scan is
+	// fast enough at the 30-day / ~100k-event scale.
+	return dailyServeByKindScan(ctx, d, site, hosts, days, botVerdicts, tz)
 }
 
-// dailyServeByKindAgg reads the pre-aggregated rows AggregateServeKind wrote
-// into unmask_aggregate for this site.  Returns empty slices (no error) when
-// the aggregate job has not populated serve_* rows yet, so the caller can fall
-// back to a live scan.
-func dailyServeByKindAgg(ctx context.Context, d *db.DB, site string, days int) ([]DailyKindBucket, []DailyTotal, error) {
-	if site == "" {
-		site = "default"
-	}
-	sinceDate := d.NowMinusMinutes(days * 24 * 60)
-	// bucket_key is "<site>|<suffix>"; match this site's rows only.
-	// DATE() wraps bucket_date so the driver returns a plain "YYYY-MM-DD"
-	// string — a bare DATE column comes back as a time.Time and would render
-	// as "2026-05-20 00:00:00 +0000 UTC" in the per-day table.
-	stmt := fmt.Sprintf(`
-        SELECT DATE(bucket_date), bucket_kind, bucket_key, cnt
-        FROM unmask_aggregate
-        WHERE bucket_kind IN ('serve_kind', 'serve_total')
-          AND bucket_date > DATE(%s)
-          AND bucket_key LIKE ?`, sinceDate)
-	rows, err := d.QueryContext(ctx, stmt, site+"|%")
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close()
-
-	type dkKey struct {
-		date string
-		kind int
-	}
-	byDateKind := map[dkKey]int{}
-	type totAcc struct{ req, uniq int }
-	byTotal := map[string]*totAcc{}
-	for rows.Next() {
-		var dRaw any
-		var kind, key string
-		var cnt int
-		if err := rows.Scan(&dRaw, &kind, &key, &cnt); err != nil {
-			return nil, nil, err
-		}
-		date := scalarString(dRaw)
-		// key = "<site>|<suffix>"; take the suffix after the last '|'.
-		suffix := key
-		if i := strings.LastIndexByte(key, '|'); i >= 0 {
-			suffix = key[i+1:]
-		}
-		switch kind {
-		case "serve_kind":
-			k, err := strconv.Atoi(suffix)
-			if err != nil {
-				continue
-			}
-			byDateKind[dkKey{date, k}] += cnt
-		case "serve_total":
-			t := byTotal[date]
-			if t == nil {
-				t = &totAcc{}
-				byTotal[date] = t
-			}
-			if suffix == "uniqip" {
-				t.uniq += cnt
-			} else {
-				t.req += cnt
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	dailyKeys := make([]dkKey, 0, len(byDateKind))
-	for k := range byDateKind {
-		dailyKeys = append(dailyKeys, k)
-	}
-	sort.Slice(dailyKeys, func(i, j int) bool {
-		if dailyKeys[i].date != dailyKeys[j].date {
-			return dailyKeys[i].date < dailyKeys[j].date
-		}
-		return dailyKeys[i].kind < dailyKeys[j].kind
-	})
-	daily := make([]DailyKindBucket, 0, len(dailyKeys))
-	for _, k := range dailyKeys {
-		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
-	}
-	totalKeys := make([]string, 0, len(byTotal))
-	for k := range byTotal {
-		totalKeys = append(totalKeys, k)
-	}
-	sort.Strings(totalKeys)
-	totals := make([]DailyTotal, 0, len(totalKeys))
-	for _, date := range totalKeys {
-		t := byTotal[date]
-		totals = append(totals, DailyTotal{Date: date, Req: t.req, UniqIPs: t.uniq})
-	}
-	return daily, totals, nil
-}
-
-// dailyServeByKindScan is the live-scan fallback.  Two scans, each producing a
+// dailyServeByKindScan is the only serve-kind read path.  The previous
+// "aggregate fast path" (dailyServeByKindAgg + AggregateServeKind) wrote
+// per-day rows into unmask_aggregate using a DATE column, which cannot honour
+// a per-operator cookie TZ.  Both were retired in favour of this raw scan,
+// which is still cheap (~100 ms at 100k events / 30 days).  Two scans, each producing a
 // small result set: query A groups by (date, verdict, ua-prefix) — deliberately
 // NOT by ip_address (including ip yields ~200k rows on a busy 30-day window) —
 // and query B groups by date only for COUNT(*) + COUNT(DISTINCT ip_address).
-func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string) ([]DailyKindBucket, []DailyTotal, error) {
+func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
 	since := d.NowMinusMinutes(days * 24 * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	cond := siteCond(site) + hostCond(hosts)
@@ -1759,30 +1700,42 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
 	}
 	classifyCache := make(map[classifyKey]int, 256)
 
-	// Query A — kind buckets.  Grouped by (date, verdict, ua-prefix), NOT by
-	// ip_address (see the function doc): a few thousand rows instead of ~200k.
-	stmtA := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d,
+	// Read the raw serve rows and bucket them per (TZ-shifted date, ua-prefix,
+	// verdict) in Go.  GROUP BY in SQL would force a server-side DATE() that
+	// can't honour the operator's cookie TZ; doing it here keeps the day
+	// boundaries correct under any TZ.  We project the timestamp + 80-char
+	// ua prefix only, so even at ~100k events / 30d the row payload is small.
+	stmt := fmt.Sprintf(`
+        SELECT date_created,
                COALESCE(ja4_verdict, '') AS verdict,
                COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
-               COUNT(*) AS n
+               ip_address
         FROM unmask_event
-        WHERE phase='serve' AND date_created > %s AND %s%s
-        GROUP BY DATE(date_created), ja4_verdict, SUBSTR(user_agent, 1, 80)`,
+        WHERE phase='serve' AND date_created > %s AND %s%s`,
 		since, notRL, cond)
-	rowsA, err := d.QueryContext(ctx, stmtA)
+	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rowsA.Close()
-	for rowsA.Next() {
-		var dRaw any
-		var verdict, ua string
-		var n int
-		if err := rowsA.Scan(&dRaw, &verdict, &ua, &n); err != nil {
+	defer rows.Close()
+
+	type totAcc struct {
+		req  int
+		seen map[string]struct{}
+	}
+	byTotal := map[string]*totAcc{}
+
+	for rows.Next() {
+		var ts any
+		var verdict, ua, ip string
+		if err := rows.Scan(&ts, &verdict, &ua, &ip); err != nil {
 			return nil, nil, err
 		}
-		date := scalarString(dRaw)
+		t, ok := normalizeEventTime(ts)
+		if !ok {
+			continue
+		}
+		date := t.In(tz).Format("2006-01-02")
 		isBot := botSet[verdict]
 		ck := classifyKey{ua, isBot}
 		kind, ok := classifyCache[ck]
@@ -1794,38 +1747,19 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
 			kind = int(classify.IsBot(ua, action))
 			classifyCache[ck] = kind
 		}
-		byDateKind[dkKey{date, kind}] += n
-	}
-	if err := rowsA.Err(); err != nil {
-		return nil, nil, err
-	}
-	rowsA.Close()
+		byDateKind[dkKey{date, kind}]++
 
-	// Query B — per-day totals.  Grouped by date only (~30 rows), so
-	// COUNT(DISTINCT ip_address) is cheap to deliver despite a second scan.
-	stmtB := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d,
-               COUNT(*) AS req,
-               COUNT(DISTINCT ip_address) AS uniq_ips
-        FROM unmask_event
-        WHERE phase='serve' AND date_created > %s AND %s%s
-        GROUP BY DATE(date_created)`,
-		since, notRL, cond)
-	rowsB, err := d.QueryContext(ctx, stmtB)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rowsB.Close()
-	totals := []DailyTotal{}
-	for rowsB.Next() {
-		var dRaw any
-		var req, uniq int
-		if err := rowsB.Scan(&dRaw, &req, &uniq); err != nil {
-			return nil, nil, err
+		tot := byTotal[date]
+		if tot == nil {
+			tot = &totAcc{seen: make(map[string]struct{})}
+			byTotal[date] = tot
 		}
-		totals = append(totals, DailyTotal{Date: scalarString(dRaw), Req: req, UniqIPs: uniq})
+		tot.req++
+		if ip != "" {
+			tot.seen[ip] = struct{}{}
+		}
 	}
-	if err := rowsB.Err(); err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
 
@@ -1845,137 +1779,14 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
 		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
 	}
 
-	// total: sort by date asc
+	// totals: sort by date asc
+	totals := make([]DailyTotal, 0, len(byTotal))
+	for date, tot := range byTotal {
+		totals = append(totals, DailyTotal{Date: date, Req: tot.req, UniqIPs: len(tot.seen)})
+	}
 	sort.Slice(totals, func(i, j int) bool { return totals[i].Date < totals[j].Date })
 
 	return daily, totals, nil
-}
-
-// AggregateServeKind scans phase='serve' events and writes per-day kind buckets
-// and per-day totals into unmask_aggregate, so DailyServeByKind can read a few
-// hundred pre-computed rows instead of scanning the whole event table on every
-// dashboard load.  Called by `unmask-admin aggregate` (hourly cron).
-//
-// Rows written (UPSERT, so re-runs refresh the current day in place):
-//   - bucket_kind='serve_kind',  bucket_key='<site>|<kind>'     cnt=request count
-//   - bucket_kind='serve_total', bucket_key='<site>|req'        cnt=request count
-//   - bucket_kind='serve_total', bucket_key='<site>|uniqip'     cnt=distinct IPs
-func AggregateServeKind(ctx context.Context, d *db.DB, ngx settings.Nginx, days int) error {
-	since := d.NowMinusMinutes(days * 24 * 60)
-	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	// exclude rate_limit serve hits (same rule as the live scan path).
-	notRL := fmt.Sprintf("COALESCE(%s, '') NOT IN ('1', 1)", jsonRL)
-
-	botSet := map[string]bool{}
-	for _, v := range BotVerdictNames(ngx) {
-		botSet[v] = true
-	}
-	type classifyKey struct {
-		ua    string
-		isBot bool
-	}
-	classifyCache := make(map[classifyKey]int, 256)
-
-	// scan A — kind buckets per (date, site).
-	stmtA := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d, site,
-               COALESCE(ja4_verdict, '') AS verdict,
-               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
-               COUNT(*) AS n
-        FROM unmask_event
-        WHERE phase='serve' AND date_created > %s AND %s
-        GROUP BY DATE(date_created), site, ja4_verdict, SUBSTR(user_agent, 1, 80)`,
-		since, notRL)
-	rowsA, err := d.QueryContext(ctx, stmtA)
-	if err != nil {
-		return err
-	}
-	type kindKey struct {
-		date string
-		site string
-		kind int
-	}
-	kindAgg := map[kindKey]int{}
-	for rowsA.Next() {
-		var dRaw any
-		var site, verdict, ua string
-		var n int
-		if err := rowsA.Scan(&dRaw, &site, &verdict, &ua, &n); err != nil {
-			rowsA.Close()
-			return err
-		}
-		isBot := botSet[verdict]
-		ck := classifyKey{ua, isBot}
-		kind, ok := classifyCache[ck]
-		if !ok {
-			action := ""
-			if isBot {
-				action = "bot"
-			}
-			kind = int(classify.IsBot(ua, action))
-			classifyCache[ck] = kind
-		}
-		kindAgg[kindKey{scalarString(dRaw), site, kind}] += n
-	}
-	if err := rowsA.Err(); err != nil {
-		rowsA.Close()
-		return err
-	}
-	rowsA.Close()
-
-	// scan B — per (date, site) totals.
-	stmtB := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d, site,
-               COUNT(*) AS req,
-               COUNT(DISTINCT ip_address) AS uniq_ips
-        FROM unmask_event
-        WHERE phase='serve' AND date_created > %s AND %s
-        GROUP BY DATE(date_created), site`,
-		since, notRL)
-	rowsB, err := d.QueryContext(ctx, stmtB)
-	if err != nil {
-		return err
-	}
-	type totKey struct{ date, site string }
-	type totVal struct{ req, uniq int }
-	totAgg := map[totKey]totVal{}
-	for rowsB.Next() {
-		var dRaw any
-		var site string
-		var req, uniq int
-		if err := rowsB.Scan(&dRaw, &site, &req, &uniq); err != nil {
-			rowsB.Close()
-			return err
-		}
-		totAgg[totKey{scalarString(dRaw), site}] = totVal{req, uniq}
-	}
-	if err := rowsB.Err(); err != nil {
-		rowsB.Close()
-		return err
-	}
-	rowsB.Close()
-
-	upsert := `INSERT INTO unmask_aggregate (bucket_date, bucket_kind, bucket_key, cnt) VALUES (?, ?, ?, ?)`
-	if d.Driver == db.DriverSQLite {
-		upsert += ` ON CONFLICT(bucket_date, bucket_kind, bucket_key) DO UPDATE SET cnt = excluded.cnt`
-	} else {
-		upsert += ` ON DUPLICATE KEY UPDATE cnt = VALUES(cnt)`
-	}
-	for k, n := range kindAgg {
-		key := k.site + "|" + strconv.Itoa(k.kind)
-		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_kind", key, n); err != nil {
-			return err
-		}
-	}
-	for k, v := range totAgg {
-		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_total", k.site+"|req", v.req); err != nil {
-			return err
-		}
-		if _, err := d.ExecContext(ctx, upsert, k.date, "serve_total", k.site+"|uniqip", v.uniq); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // DailyPassByDay: aggregate all nginx requests from unmask_cookie_minute by
@@ -1986,55 +1797,76 @@ func AggregateServeKind(ctx context.Context, d *db.DB, ngx settings.Nginx, days 
 // In environments where nginx-rendered.conf is not included in http {}, the
 // table stays empty (= returns all zeros).
 //
-// Day boundaries use the server-local TZ (= SQLite 'localtime' /
-// MariaDB DATE(FROM_UNIXTIME)). Uniq IP cannot be computed because the
+// Day boundaries are UTC (= SQLite DATE(...,unixepoch) without 'localtime' /
+// MariaDB DATE(FROM_UNIXTIME(...)) under session time_zone='+00:00').  The
+// operator's cookie TZ is then applied by the caller via *time.Location.
+// Uniq IP cannot be computed because the
 // cookie_minute table has no IP column → DailyTotal.UniqIPs is left at 0
 // (= per-IP detail is available via ip-popover / a separate card).
-func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, days int) ([]DailyKindBucket, []DailyTotal, error) {
+func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, days int, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
 	cutoffMin := ""
-	dateExpr := ""
 	if d.Driver == db.DriverSQLite {
 		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", days*24*60)
-		dateExpr = `DATE(bucket_min * 60, 'unixepoch', 'localtime')`
 	} else {
 		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", days*24*60)
-		dateExpr = `DATE(FROM_UNIXTIME(bucket_min * 60))`
 	}
 	cond := ""
 	if site != "" {
 		cond = " AND site = '" + site + "'"
 	}
-	// kind/cnt normalized schema. Aggregate total / captcha / pow /
-	// challenge_served in one CASE query. Even if a new kind ("signature" etc.)
-	// is added later, we keep the current 3-way display (= pass / pow_pass /
-	// not_pass) until dashboard requirements change.
+	// Pull raw minute buckets and aggregate per day in Go using the operator's
+	// cookie TZ.  This is what makes day boundaries follow the user (= 2026-05-30
+	// in Tokyo runs 2026-05-29 15:00 UTC -> 2026-05-30 14:59 UTC).
 	stmt := fmt.Sprintf(`
-        SELECT %s AS d,
+        SELECT bucket_min,
                COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
         WHERE bucket_min > %s%s
-        GROUP BY d
-        ORDER BY d`, dateExpr, cutoffMin, cond)
+        GROUP BY bucket_min
+        ORDER BY bucket_min`, cutoffMin, cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
 
-	daily := []DailyKindBucket{}
-	totals := []DailyTotal{}
+	type acc struct{ total, bv, bp, fc int }
+	byDate := map[string]*acc{}
+	var ordered []string // insertion order = ascending date
 	for rows.Next() {
-		var dRaw any
+		var bucketMin int64
 		var total, bv, bp, fc int
-		if err := rows.Scan(&dRaw, &total, &bv, &bp, &fc); err != nil {
+		if err := rows.Scan(&bucketMin, &total, &bv, &bp, &fc); err != nil {
 			return nil, nil, err
 		}
-		date := scalarString(dRaw)
-		notPass := fc
-		white := total - bv - bp - notPass
+		date := time.Unix(bucketMin*60, 0).In(tz).Format("2006-01-02")
+		a := byDate[date]
+		if a == nil {
+			a = &acc{}
+			byDate[date] = a
+			ordered = append(ordered, date)
+		}
+		a.total += total
+		a.bv += bv
+		a.bp += bp
+		a.fc += fc
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	daily := []DailyKindBucket{}
+	totals := []DailyTotal{}
+	for _, date := range ordered {
+		a := byDate[date]
+		notPass := a.fc
+		white := a.total - a.bv - a.bp - notPass
 		if white < 0 {
 			white = 0
 		}
@@ -2042,19 +1874,16 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 		if white > 0 {
 			daily = append(daily, DailyKindBucket{Date: date, Kind: KindWhitePass, Req: white})
 		}
-		if bv > 0 {
-			daily = append(daily, DailyKindBucket{Date: date, Kind: KindCaptchaPass, Req: bv})
+		if a.bv > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindCaptchaPass, Req: a.bv})
 		}
-		if bp > 0 {
-			daily = append(daily, DailyKindBucket{Date: date, Kind: KindPoWPass, Req: bp})
+		if a.bp > 0 {
+			daily = append(daily, DailyKindBucket{Date: date, Kind: KindPoWPass, Req: a.bp})
 		}
 		if notPass > 0 {
 			daily = append(daily, DailyKindBucket{Date: date, Kind: KindNotPass, Req: notPass})
 		}
-		totals = append(totals, DailyTotal{Date: date, Req: total, UniqIPs: 0})
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
+		totals = append(totals, DailyTotal{Date: date, Req: a.total, UniqIPs: 0})
 	}
 	return daily, totals, nil
 }
@@ -2084,68 +1913,97 @@ type DailyUniq struct {
 // nginxlog pipeline is not running, this table stays empty and the function
 // returns an empty slice — callers should treat that as "country breakdown
 // unavailable" and fall back to DailyPassByDay's totals.
-func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int) ([]DailyCountryBucket, error) {
+func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz *time.Location) ([]DailyCountryBucket, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
 	cutoffHour := ""
-	dateExpr := ""
 	if d.Driver == db.DriverSQLite {
 		cutoffHour = fmt.Sprintf("(strftime('%%s', 'now', '-%d days') / 3600)", days)
-		dateExpr = `DATE(bucket_hour * 3600, 'unixepoch', 'localtime')`
 	} else {
 		cutoffHour = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d DAY)) DIV 3600)", days)
-		dateExpr = `DATE(FROM_UNIXTIME(bucket_hour * 3600))`
 	}
 	cond := ""
 	if site != "" {
 		cond = " AND site = '" + site + "'"
 	}
+	// Return raw hourly buckets and aggregate per (TZ-shifted date, country) in
+	// Go.  See DailyPassByDay for the rationale.
 	stmt := fmt.Sprintf(`
-        SELECT %s AS d, country,
+        SELECT bucket_hour, country,
                COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
         FROM unmask_traffic_country_hourly
         WHERE bucket_hour > %s%s
-        GROUP BY d, country
-        ORDER BY d, country`, dateExpr, cutoffHour, cond)
+        GROUP BY bucket_hour, country
+        ORDER BY bucket_hour`, cutoffHour, cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []DailyCountryBucket{}
+
+	type dcKey struct{ date, country string }
+	type acc struct{ total, bv, bp, fc int }
+	byKey := map[dcKey]*acc{}
+	var ordered []dcKey
 	for rows.Next() {
-		var dRaw any
+		var bucketHour int64
 		var cc sql.NullString
 		var total, bv, bp, fc int
-		if err := rows.Scan(&dRaw, &cc, &total, &bv, &bp, &fc); err != nil {
+		if err := rows.Scan(&bucketHour, &cc, &total, &bv, &bp, &fc); err != nil {
 			return nil, err
 		}
-		date := scalarString(dRaw)
+		date := time.Unix(bucketHour*3600, 0).In(tz).Format("2006-01-02")
 		country := ""
 		if cc.Valid {
 			country = cc.String
 		}
-		notPass := fc
-		white := total - bv - bp - notPass
+		key := dcKey{date, country}
+		a := byKey[key]
+		if a == nil {
+			a = &acc{}
+			byKey[key] = a
+			ordered = append(ordered, key)
+		}
+		a.total += total
+		a.bv += bv
+		a.bp += bp
+		a.fc += fc
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Stable order: date asc, country asc.
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].date != ordered[j].date {
+			return ordered[i].date < ordered[j].date
+		}
+		return ordered[i].country < ordered[j].country
+	})
+	out := []DailyCountryBucket{}
+	for _, k := range ordered {
+		a := byKey[k]
+		notPass := a.fc
+		white := a.total - a.bv - a.bp - notPass
 		if white < 0 {
 			white = 0
 		}
 		if white > 0 {
-			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindWhitePass, Req: white})
+			out = append(out, DailyCountryBucket{Date: k.date, Country: k.country, Kind: KindWhitePass, Req: white})
 		}
-		if bv > 0 {
-			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindCaptchaPass, Req: bv})
+		if a.bv > 0 {
+			out = append(out, DailyCountryBucket{Date: k.date, Country: k.country, Kind: KindCaptchaPass, Req: a.bv})
 		}
-		if bp > 0 {
-			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindPoWPass, Req: bp})
+		if a.bp > 0 {
+			out = append(out, DailyCountryBucket{Date: k.date, Country: k.country, Kind: KindPoWPass, Req: a.bp})
 		}
 		if notPass > 0 {
-			out = append(out, DailyCountryBucket{Date: date, Country: country, Kind: KindNotPass, Req: notPass})
+			out = append(out, DailyCountryBucket{Date: k.date, Country: k.country, Kind: KindNotPass, Req: notPass})
 		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -2158,7 +2016,10 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int) ([
 // pipeline is not running, the table is empty and the function returns an
 // empty slice.  Days are bucketed using the server-local TZ so the labels
 // align with DailyPassByDay's DATE() output.
-func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int) ([]DailyUniq, error) {
+func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *time.Location) ([]DailyUniq, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
 	cutoffMin := time.Now().Unix()/60 - int64(days)*1440
 	args := []any{cutoffMin}
 	cond := ""
@@ -2181,7 +2042,7 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int) ([]Dai
 		if err := rows.Scan(&bm, &blob); err != nil {
 			return nil, err
 		}
-		date := time.Unix(bm*60, 0).Local().Format("2006-01-02")
+		date := time.Unix(bm*60, 0).In(tz).Format("2006-01-02")
 		s, ok := by[date]
 		if !ok {
 			s = &hll{}
@@ -2345,12 +2206,13 @@ func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow,
 
 // ---- legacy: per-phase daily series (= for the existing chart; deprecated) ----
 
-func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error) {
+func DailySeries(ctx context.Context, d *db.DB, days int, tz *time.Location) ([]DailyBucket, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
 	stmt := fmt.Sprintf(`
-        SELECT DATE(date_created) AS d, phase, COUNT(*) FROM unmask_event
-        WHERE date_created > %s
-        GROUP BY DATE(date_created), phase
-        ORDER BY d`, d.NowMinusMinutes(days*24*60))
+        SELECT date_created, phase FROM unmask_event
+        WHERE date_created > %s`, d.NowMinusMinutes(days*24*60))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2360,13 +2222,16 @@ func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error)
 	by := map[string]*DailyBucket{}
 	var order []string
 	for rows.Next() {
-		var dsRaw any
+		var ts any
 		var phase string
-		var cnt int
-		if err := rows.Scan(&dsRaw, &phase, &cnt); err != nil {
+		if err := rows.Scan(&ts, &phase); err != nil {
 			return nil, err
 		}
-		ds := scalarString(dsRaw)
+		t, ok := normalizeEventTime(ts)
+		if !ok {
+			continue
+		}
+		ds := t.In(tz).Format("2006-01-02")
 		b, ok := by[ds]
 		if !ok {
 			b = &DailyBucket{Date: ds}
@@ -2375,19 +2240,19 @@ func DailySeries(ctx context.Context, d *db.DB, days int) ([]DailyBucket, error)
 		}
 		switch phase {
 		case "serve":
-			b.Serve = cnt
+			b.Serve++
 		case "load":
-			b.Load = cnt
+			b.Load++
 		case "pow_pass":
-			b.PowPass = cnt
+			b.PowPass++
 		case "captcha":
-			b.Captcha = cnt
+			b.Captcha++
 		case "bv_pow_only":
-			b.BVPowOnly = cnt
+			b.BVPowOnly++
 		case "bv_captcha_only":
-			b.BVCaptchaOnly = cnt
+			b.BVCaptchaOnly++
 		case "bv_pow_then_captcha":
-			b.BVPowThenCaptcha = cnt
+			b.BVPowThenCaptcha++
 		}
 	}
 	if err := rows.Err(); err != nil {
