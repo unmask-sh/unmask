@@ -52,19 +52,20 @@ table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertica
 /* Time cells: inline <time> elements still need an explicit line-height so
  * their first line sits exactly where the clamp-cell's first line does. */
 table.feed tbody td>time.js-datetime{display:inline-block;line-height:1.4}
-/* Cap the columns that can contain long, free-form strings; the cell content
- * wraps with -- when it would otherwise blow up the row.  Reason and comment
- * cells use line-clamp so multi-line text never pushes the table sideways. */
-table.feed col.col-reason,table.feed col.col-comments{width:14rem}
+/* Cap each column.  Reason / comment cells are single-line ellipsis (the full
+ * text is exposed by hovering the cell -- title= on the td).  Time columns
+ * wide enough for the YYYY/M/D HH:MM:SS the toLocaleString() formatter
+ * produces on the desktop locales we care about. */
+table.feed col.col-reason,table.feed col.col-comments{width:12rem}
 table.feed col.col-ip{width:11rem}
 table.feed col.col-ja4{width:12rem}
-table.feed col.col-time{width:8rem}
+table.feed col.col-time{width:10rem}
 table.feed col.col-score{width:5rem}
 table.feed col.col-match{width:7rem}
 table.feed col.col-votes{width:11rem}
 table.feed col.col-marker{width:1.5rem}
-table.feed td.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;word-break:break-word}
-table.feed td.clamp .cmt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.feed td.clamp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+table.feed td.clamp .cmt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* Sort header link: every sortable column shows a permanent "⇅" affordance so
  * the operator can tell at a glance which headers click.  The arrow turns into
  * the active direction (▼ / ▲) once that column drives the sort.  Hover
@@ -77,11 +78,14 @@ table.feed thead th.sortable a.sort-link:hover::after{color:#64748b}
 table.feed thead th.sortable a.sort-link.active{color:#0f172a;text-decoration:underline}
 table.feed thead th.sortable a.sort-link.active::after{content:""} /* arrow replaced by .sort-arrow span */
 table.feed thead th .sort-arrow{font-size:.6rem;color:#3b82f6}
-/* votes header: label on top, mini sort icons (= 📍 / 👍 / 👎) below */
+/* votes header: label on top, mini sort icons (= 📍 / 👍 / 💬) on the line
+ * below.  white-space:nowrap on the row keeps the three icons together even
+ * when the column is at its minimum width. */
 table.feed thead th.votes-th{display:table-cell}
 table.feed thead th .th-label{display:block}
-table.feed thead th .sort-mini{display:inline-flex;gap:.25rem;margin-top:.15rem;font-size:.85rem}
-table.feed thead th .sort-mini a{text-decoration:none;opacity:.55;line-height:1;display:inline-flex;align-items:center;gap:.1rem}
+table.feed thead th .sort-mini{display:block;margin-top:.15rem;font-size:.85rem;white-space:nowrap;line-height:1}
+table.feed thead th .sort-mini a{text-decoration:none;opacity:.55;display:inline-block;margin-right:.3rem;white-space:nowrap}
+table.feed thead th .sort-mini a:last-child{margin-right:0}
 table.feed thead th .sort-mini a:hover{opacity:1}
 table.feed thead th .sort-mini a.active{opacity:1;text-decoration:underline}
 table.feed tbody tr:hover{background:#f8fafc}
@@ -299,7 +303,6 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
       <col class="col-ja4">
       <col class="col-votes">
       <col class="col-reason">
-      <col class="col-comments">
       <col class="col-time">
       <col class="col-time">
     </colgroup>
@@ -325,7 +328,6 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           </span>
         </th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
-        <th>{{ t .Lang "community_bans.col.comments" }}</th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "first_seen" }} active{{ end }}" href="?{{ $sortBase }}sort=first_seen&amp;order={{ if and (eq $sort "first_seen") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.first_seen" }}{{ if eq $sort "first_seen" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "expires" }} active{{ end }}" href="?{{ $sortBase }}sort=expires&amp;order={{ if and (eq $sort "expires") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.expires" }}{{ if eq $sort "expires" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
       </tr>
@@ -354,18 +356,11 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           </span>
         </td>
         <td class="clamp" title="{{ if .Reason }}{{ .Reason }}{{ else }}-{{ end }}">{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="clamp">
-          {{ range .Comments }}
-          <span class="cmt" title="{{ .Text }}">{{ .Text }}</span>
-          {{ else }}
-          <span class="muted">-</span>
-          {{ end }}
-        </td>
         <td>{{ if gt .FirstSeen 0 }}<time class="js-datetime" data-ts="{{ .FirstSeen }}">{{ .FirstSeen }}</time>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
