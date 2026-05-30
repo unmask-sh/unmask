@@ -303,6 +303,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
       <col class="col-ja4">
       <col class="col-votes">
       <col class="col-reason">
+      <col class="col-comments">
       <col class="col-time">
       <col class="col-time">
     </colgroup>
@@ -328,6 +329,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           </span>
         </th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
+        <th>{{ t .Lang "community_bans.col.comments" }}</th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "first_seen" }} active{{ end }}" href="?{{ $sortBase }}sort=first_seen&amp;order={{ if and (eq $sort "first_seen") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.first_seen" }}{{ if eq $sort "first_seen" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "expires" }} active{{ end }}" href="?{{ $sortBase }}sort=expires&amp;order={{ if and (eq $sort "expires") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.expires" }}{{ if eq $sort "expires" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
       </tr>
@@ -356,11 +358,18 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           </span>
         </td>
         <td class="clamp" title="{{ if .Reason }}{{ .Reason }}{{ else }}-{{ end }}">{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="clamp">
+          {{ range .Comments }}
+          <span class="cmt" title="{{ .Text }}">{{ .Text }}</span>
+          {{ else }}
+          <span class="muted">-</span>
+          {{ end }}
+        </td>
         <td>{{ if gt .FirstSeen 0 }}<time class="js-datetime" data-ts="{{ .FirstSeen }}">{{ .FirstSeen }}</time>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .ExpiresAt }}">{{ .ExpiresAt }}</time></td>
       </tr>
       {{ else }}
-      <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
