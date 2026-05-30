@@ -347,7 +347,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
         </td>
         <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if .Bypassed }} <span class="bypassed-badge" title="{{ t $.Lang "community_bans.bypassed_title" }}">🔍 {{ t $.Lang "community_bans.bypassed_label" }}</span>{{ else if not .Promoted }} <span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_title" }}">{{ t $.Lang "community_bans.reports_only_label" }}</span>{{ else if eq $.SubscribeMode "fetch_apply" }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ else }} <span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_title2" }}">{{ t $.Lang "community_bans.promoted_label" }}</span>{{ end }}</td>
         <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono clamp"{{ if .JA4 }} data-full="{{ .JA4 }}"{{ end }}>{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
           <span class="votes-td">
           {{ if gt .Reports 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}</span>{{ end }}
