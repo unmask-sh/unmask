@@ -1561,6 +1561,7 @@ func defaults() Settings {
 		CommunityBans: CommunityBans{
 			SubmitEnabled:    false,
 			SubscribeMode:    SubscribeOff,
+			PublishCountry:   true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
 			RegisterURL:      DefaultCommunityBansRegisterURL,
 			SubmitURL:        DefaultCommunityBansSubmitURL,
 			FeedURL:          DefaultCommunityBansFeedURL,
