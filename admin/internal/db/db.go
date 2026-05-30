@@ -1,7 +1,12 @@
-// Package db: thin SQLite / MariaDB abstraction.
+// Package db: SQLite / MariaDB layer with a GORM handle for CRUD.
 //
-// No ORM.  Aggregation queries read more clearly as raw SQL, so this package
-// only exposes a very thin wrapper around database/sql.
+// Hybrid by design: aggregation reads stay raw SQL via the embedded *sql.DB
+// (the dashboard queries read more clearly that way), while CRUD increasingly
+// goes through GORM models on the Gorm handle (parameterized + type-safe).
+// Both share one connection pool -- Gorm.DB() is the embedded *sql.DB.
+//
+// Pure-Go static binary is preserved: the SQLite driver is glebarez/sqlite
+// (modernc-based), NOT the CGO gorm.io/driver/sqlite.
 //
 // Driver differences:
 //   - placeholder: SQLite uses ?, MariaDB also takes ? (database/sql standard),
@@ -18,8 +23,11 @@ import (
 	"path/filepath"
 	"time"
 
+	glsqlite "github.com/glebarez/sqlite"
 	mysql "github.com/go-sql-driver/mysql"
-	_ "modernc.org/sqlite"
+	gormmysql "gorm.io/driver/mysql"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -33,12 +41,20 @@ const (
 
 type DB struct {
 	*sql.DB
+	Gorm   *gorm.DB
 	Driver Driver
 }
 
 // Open returns a configured *DB. SQLite path's parent directory is created if
 // missing (so first-run "just works").
 func Open(s settings.DB) (*DB, error) {
+	var (
+		dialector gorm.Dialector
+		driver    Driver
+		maxIdle   = 4
+		maxLife   = time.Hour
+	)
+
 	switch s.Driver {
 	case "", string(DriverSQLite):
 		if err := os.MkdirAll(filepath.Dir(s.SQLitePath), 0o755); err != nil {
@@ -52,21 +68,8 @@ func Open(s settings.DB) (*DB, error) {
 			"&_pragma=cache_size(-20000)" + // -20000 = 20MB page cache
 			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
 			"&_pragma=mmap_size(268435456)" // 256MB mmap to speed up page reads
-		conn, err := sql.Open("sqlite", dsn)
-		if err != nil {
-			return nil, err
-		}
-		// WAL mode allows multiple parallel readers; writes are serial (SQLite constraint).
-		// MaxOpen=1 also serializes reads, so the dashboard contends with auth_request
-		// writes and hits the 8s timeout.  Parallelising reads improves latency.
-		conn.SetMaxOpenConns(8)
-		conn.SetMaxIdleConns(4)
-		conn.SetConnMaxLifetime(time.Hour)
-		if err := conn.PingContext(context.Background()); err != nil {
-			conn.Close()
-			return nil, err
-		}
-		return &DB{DB: conn, Driver: DriverSQLite}, nil
+		dialector = glsqlite.Open(dsn)
+		driver = DriverSQLite
 
 	case string(DriverMariaDB):
 		cfg := mysql.NewConfig()
@@ -78,22 +81,36 @@ func Open(s settings.DB) (*DB, error) {
 		cfg.ParseTime = true
 		cfg.Loc = time.Local
 		cfg.Params = map[string]string{"charset": "utf8mb4"}
-		conn, err := sql.Open("mysql", cfg.FormatDSN())
-		if err != nil {
-			return nil, err
-		}
-		conn.SetMaxOpenConns(8)
-		conn.SetMaxIdleConns(2)
-		conn.SetConnMaxLifetime(30 * time.Minute)
-		if err := conn.PingContext(context.Background()); err != nil {
-			conn.Close()
-			return nil, err
-		}
-		return &DB{DB: conn, Driver: DriverMariaDB}, nil
+		dialector = gormmysql.Open(cfg.FormatDSN())
+		driver = DriverMariaDB
+		maxIdle = 2
+		maxLife = 30 * time.Minute
 
 	default:
 		return nil, errors.New("unknown db driver: " + s.Driver)
 	}
+
+	gdb, err := gorm.Open(dialector, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return nil, err
+	}
+	conn, err := gdb.DB()
+	if err != nil {
+		return nil, err
+	}
+	// WAL mode allows multiple parallel readers; writes are serial (SQLite).
+	// Parallelising reads keeps the dashboard from contending with auth_request
+	// writes and hitting the busy timeout.
+	conn.SetMaxOpenConns(8)
+	conn.SetMaxIdleConns(maxIdle)
+	conn.SetConnMaxLifetime(maxLife)
+	if err := conn.PingContext(context.Background()); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return &DB{DB: conn, Gorm: gdb, Driver: driver}, nil
 }
 
 // NowMinusMinutes returns a SQL fragment representing "now - n minutes" for
