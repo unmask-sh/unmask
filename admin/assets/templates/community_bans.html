@@ -61,7 +61,7 @@ table.feed col.col-ip{width:11rem}
 table.feed col.col-ja4{width:12rem}
 table.feed col.col-time{width:10rem}
 table.feed col.col-score{width:5rem}
-table.feed col.col-match{width:7rem}
+table.feed col.col-match{width:7.5rem}
 table.feed col.col-votes{width:11rem}
 table.feed col.col-marker{width:1.5rem}
 table.feed td.clamp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -138,14 +138,16 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .votes-cell .cmt-count{color:#64748b}
 /* status badges sit on their own line under the match pill so a narrow
  * match column doesn't wrap them mid-text. */
-.enforced-badge,.promoted-badge,.reports-only-badge,.bypassed-badge{display:block;width:fit-content;margin:.2rem 0 0;padding:.05rem .4rem;border-radius:.2rem;font-size:.68rem;cursor:help}
-.enforced-badge{font-weight:700;background:#dcfce7;color:#166534}
-.promoted-badge{font-weight:600;background:#dbeafe;color:#1e40af}
-.reports-only-badge{font-weight:600;background:#f1f5f9;color:#64748b}
-/* bypassed: reports exist but the IP is allowlisted (search-engine / trusted
- * crawler range), so enforcement never fires -- amber to read as "noted, not
- * acted on" rather than the green "enforced". */
-.bypassed-badge{font-weight:700;background:#fef9c3;color:#854d0e}
+/* Status badges sit inline next to the match-pill so the row stays one line.
+ * They are icon-only -- the textual label moved into title= so the operator
+ * can still read "適用中 / 配信対象 / 報告のみ / 適用外" on hover.  The colour
+ * still carries the meaning at a glance: green=enforced, blue=propagated,
+ * grey=reports-only, amber=bypassed-allowlist. */
+.enforced-badge,.promoted-badge,.reports-only-badge,.bypassed-badge{display:inline-block;margin-left:.3rem;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
+.enforced-badge{background:#dcfce7;color:#166534}
+.promoted-badge{background:#dbeafe;color:#1e40af}
+.reports-only-badge{background:#f1f5f9;color:#64748b}
+.bypassed-badge{background:#fef9c3;color:#854d0e}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
@@ -345,7 +347,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           {{ else }}<span class="score-0" title="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
           {{ end }}
         </td>
-        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if .Bypassed }} <span class="bypassed-badge" title="{{ t $.Lang "community_bans.bypassed_title" }}">🔍 {{ t $.Lang "community_bans.bypassed_label" }}</span>{{ else if not .Promoted }} <span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_title" }}">{{ t $.Lang "community_bans.reports_only_label" }}</span>{{ else if eq $.SubscribeMode "fetch_apply" }} <span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_title" }}">✓ {{ t $.Lang "community_bans.enforced_label" }}</span>{{ else }} <span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_title2" }}">{{ t $.Lang "community_bans.promoted_label" }}</span>{{ end }}</td>
+        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if .Bypassed }}<span class="bypassed-badge" title="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">★</span>{{ else if not .Promoted }}<span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_label" }} — {{ t $.Lang "community_bans.reports_only_title" }}">○</span>{{ else if eq $.SubscribeMode "fetch_apply" }}<span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>{{ else }}<span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_label" }} — {{ t $.Lang "community_bans.promoted_title2" }}">→</span>{{ end }}</td>
         <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="mono clamp"{{ if .JA4 }} data-full="{{ .JA4 }}"{{ end }}>{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
