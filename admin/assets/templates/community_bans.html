@@ -48,7 +48,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
 table.feed{table-layout:fixed} /* Fixed layout: each cell honours max-width / overflow rules below instead of stretching to fit content. */
 table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
-table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+/* Time cells: inline <time> elements still need an explicit line-height so
+ * their first line sits exactly where the clamp-cell's first line does. */
+table.feed tbody td>time.js-datetime{display:inline-block;line-height:1.4}
 /* Cap the columns that can contain long, free-form strings; the cell content
  * wraps with -- when it would otherwise blow up the row.  Reason and comment
  * cells use line-clamp so multi-line text never pushes the table sideways. */
@@ -313,16 +316,16 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
         <th>{{ t .Lang "community_bans.col.match" }}</th>
         <th>IP</th>
         <th>JA4</th>
-        <th class="sortable votes-th">
+        <th class="votes-th">
           <span class="th-label">{{ t .Lang "community_bans.col.votes" }}</span>
           <span class="sort-mini">
             <a class="{{ if eq $sort "reports" }}active{{ end }}" href="?{{ $sortBase }}sort=reports&amp;order={{ if and (eq $sort "reports") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by reports">📍{{ if eq $sort "reports" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
             <a class="{{ if eq $sort "good" }}active{{ end }}" href="?{{ $sortBase }}sort=good&amp;order={{ if and (eq $sort "good") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by likes">👍{{ if eq $sort "good" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
-            <a class="{{ if eq $sort "bad" }}active{{ end }}" href="?{{ $sortBase }}sort=bad&amp;order={{ if and (eq $sort "bad") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by bads">👎{{ if eq $sort "bad" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "comments" }}active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by comments">💬{{ if eq $sort "comments" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
           </span>
         </th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
-        <th class="sortable"><a class="sort-link{{ if eq $sort "comments" }} active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.comments" }}{{ if eq $sort "comments" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
+        <th>{{ t .Lang "community_bans.col.comments" }}</th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "first_seen" }} active{{ end }}" href="?{{ $sortBase }}sort=first_seen&amp;order={{ if and (eq $sort "first_seen") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.first_seen" }}{{ if eq $sort "first_seen" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "expires" }} active{{ end }}" href="?{{ $sortBase }}sort=expires&amp;order={{ if and (eq $sort "expires") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.expires" }}{{ if eq $sort "expires" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
       </tr>
@@ -346,8 +349,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
         <td>
           <span class="votes-td">
           {{ if gt .Installs 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}/{{ .Installs }}</span>{{ end }}
-          {{ if or (gt .LikeCount 0) (gt .BadCount 0) (gt .CommentCount 0) }}<span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}"><span class="like">👍 {{ .LikeCount }}</span> <span class="bad">👎 {{ .BadCount }}</span>{{ if gt .CommentCount 0 }} <span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}</span>{{ end }}
-          {{ if and (le .Installs 0) (le .LikeCount 0) (le .BadCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
+          {{ if or (gt .LikeCount 0) (gt .CommentCount 0) }}<span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}"><span class="like">👍 {{ .LikeCount }}</span>{{ if gt .CommentCount 0 }} <span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}</span>{{ end }}
+          {{ if and (le .Installs 0) (le .LikeCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
           </span>
         </td>
         <td class="clamp" title="{{ if .Reason }}{{ .Reason }}{{ else }}-{{ end }}">{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
