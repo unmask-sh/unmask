@@ -15,6 +15,8 @@ import (
 	"database/sql"
 	"log"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/db"
 )
 
 // AuditEntry: one record (= for the viewer UI).
@@ -32,21 +34,19 @@ type AuditEntry struct {
 //
 // userID == 0 is anonymous (= login failure / bootstrap etc.).
 func (r *Repository) Record(ctx context.Context, userID int64, username, action, target, detailJSON string) {
-	var uid sql.NullInt64
+	row := db.UserAudit{Username: username, Action: action, At: time.Now()}
 	if userID > 0 {
-		uid = sql.NullInt64{Int64: userID, Valid: true}
+		row.UserID = &userID
 	}
-	var t, d sql.NullString
 	if target != "" {
-		t = sql.NullString{String: target, Valid: true}
+		row.Target = &target
 	}
 	if detailJSON != "" {
-		d = sql.NullString{String: detailJSON, Valid: true}
+		row.Detail = &detailJSON
 	}
-	_, err := r.DB.ExecContext(ctx,
-		`INSERT INTO unmask_user_audit (user_id, username, action, target, detail) VALUES (?, ?, ?, ?, ?)`,
-		uid, username, action, t, d)
-	if err != nil {
+	// Omit At from the insert so the DB's CURRENT_TIMESTAMP default fires --
+	// but we still set it above for safety; either way is fine.
+	if err := r.DB.Gorm.WithContext(ctx).Create(&row).Error; err != nil {
 		log.Printf("audit insert failed: %v", err)
 	}
 }

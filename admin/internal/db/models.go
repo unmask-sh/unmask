@@ -1,5 +1,7 @@
 package db
 
+import "time"
+
 // GORM models for admin tables.
 //
 // Admin's schema is owned by migrate.go (raw CREATE TABLE / ALTER), so these
@@ -25,3 +27,40 @@ type Ban struct {
 }
 
 func (Ban) TableName() string { return "unmask_ban" }
+
+// User: a row of unmask_user.  Pointer fields (Email / ResetToken /
+// ResetTokenExpiresAt / LastLogin) map to NULL-able columns -- GORM persists
+// nil as SQL NULL, so the "clear reset_token" path stays one Update call on
+// both drivers (no need for a separate UPDATE ... = NULL branch).
+//
+// CreatedAt has a CURRENT_TIMESTAMP default on both backends; mark it
+// autoCreateTime:false so GORM never tries to assign its own zero value when
+// the column is omitted.
+type User struct {
+	ID                  int64      `gorm:"primaryKey;autoIncrement"`
+	Username            string     `gorm:"column:username;not null;uniqueIndex"`
+	PasswordHash        string     `gorm:"column:password_hash;not null"`
+	Role                string     `gorm:"column:role;not null"`
+	Email               *string    `gorm:"column:email"`
+	AlertOptOut         int        `gorm:"column:alert_opt_out;not null;default:0"`
+	ResetToken          *string    `gorm:"column:reset_token"`
+	ResetTokenExpiresAt *int64     `gorm:"column:reset_token_expires_at"`
+	CreatedAt           time.Time  `gorm:"column:created_at;not null;autoCreateTime:false"`
+	LastLogin           *time.Time `gorm:"column:last_login"`
+}
+
+func (User) TableName() string { return "unmask_user" }
+
+// UserAudit: a row of unmask_user_audit.  At has a CURRENT_TIMESTAMP default on
+// both backends; leaving it the zero value lets the DB stamp it.
+type UserAudit struct {
+	ID       int64     `gorm:"primaryKey;autoIncrement"`
+	UserID   *int64    `gorm:"column:user_id"`
+	Username string    `gorm:"column:username;not null"`
+	Action   string    `gorm:"column:action;not null"`
+	Target   *string   `gorm:"column:target"`
+	Detail   *string   `gorm:"column:detail"`
+	At       time.Time `gorm:"column:at;not null;autoCreateTime:false"`
+}
+
+func (UserAudit) TableName() string { return "unmask_user_audit" }

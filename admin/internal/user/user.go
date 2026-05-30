@@ -129,13 +129,10 @@ func (r *Repository) Create(ctx context.Context, username, plainPassword, role s
 	if err != nil {
 		return nil, err
 	}
-	_, err = r.DB.ExecContext(ctx,
-		`INSERT INTO unmask_user (username, password_hash, role) VALUES (?, ?, ?)`,
-		username, hash, role)
-	if err != nil {
-		// Both SQLite and MySQL produce driver-specific UNIQUE violation
-		// messages, so do a coarse check (= contains "UNIQUE constraint"
-		// / "Duplicate entry").
+	row := db.User{Username: username, PasswordHash: hash, Role: role, CreatedAt: time.Now()}
+	if err := r.DB.Gorm.WithContext(ctx).Select("Username", "PasswordHash", "Role").Create(&row).Error; err != nil {
+		// Both SQLite and MariaDB produce driver-specific UNIQUE violation
+		// messages, so do a coarse string check.
 		msg := err.Error()
 		if strings.Contains(msg, "UNIQUE constraint") || strings.Contains(msg, "Duplicate entry") {
 			return nil, ErrUsernameTaken
@@ -187,13 +184,12 @@ func (r *Repository) SetPassword(ctx context.Context, userID int64, plainPasswor
 	if err != nil {
 		return err
 	}
-	res, err := r.DB.ExecContext(ctx,
-		`UPDATE unmask_user SET password_hash = ? WHERE id = ?`, hash, userID)
-	if err != nil {
-		return err
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("password_hash", hash)
+	if res.Error != nil {
+		return res.Error
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if res.RowsAffected == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -219,8 +215,8 @@ func (r *Repository) SetRole(ctx context.Context, userID int64, newRole string) 
 			return ErrLastSuperadmin
 		}
 	}
-	_, err = r.DB.ExecContext(ctx, `UPDATE unmask_user SET role = ? WHERE id = ?`, newRole, userID)
-	return err
+	return r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("role", newRole).Error
 }
 
 // Delete: remove the user.  The last superadmin cannot be removed.
@@ -239,15 +235,14 @@ func (r *Repository) Delete(ctx context.Context, userID int64) error {
 			return ErrLastSuperadmin
 		}
 	}
-	_, err = r.DB.ExecContext(ctx, `DELETE FROM unmask_user WHERE id = ?`, userID)
-	return err
+	return r.DB.Gorm.WithContext(ctx).Where("id = ?", userID).Delete(&db.User{}).Error
 }
 
 // TouchLastLogin: update last_login on successful authentication.
 // best-effort (= login itself succeeds even if this fails).
 func (r *Repository) TouchLastLogin(ctx context.Context, userID int64) {
-	_, _ = r.DB.ExecContext(ctx,
-		`UPDATE unmask_user SET last_login = CURRENT_TIMESTAMP WHERE id = ?`, userID)
+	_ = r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("last_login", time.Now()).Error
 }
 
 // scanUser: scanner that handles both QueryRow / Rows.  Includes
@@ -282,14 +277,12 @@ func (r *Repository) SetProfile(ctx context.Context, userID int64, email string,
 	if alertOptOut {
 		optOut = 1
 	}
-	res, err := r.DB.ExecContext(ctx,
-		`UPDATE unmask_user SET email = ?, alert_opt_out = ? WHERE id = ?`,
-		emailVal, optOut, userID)
-	if err != nil {
-		return err
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"email": emailVal, "alert_opt_out": optOut})
+	if res.Error != nil {
+		return res.Error
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if res.RowsAffected == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -318,14 +311,12 @@ func (r *Repository) CreateWithProfile(ctx context.Context, username, plainPassw
 // existing token (= the previous reset's token becomes invalid).
 func (r *Repository) IssueResetToken(ctx context.Context, userID int64, token string, ttlSec int64) error {
 	expires := time.Now().Unix() + ttlSec
-	res, err := r.DB.ExecContext(ctx,
-		`UPDATE unmask_user SET reset_token = ?, reset_token_expires_at = ? WHERE id = ?`,
-		token, expires, userID)
-	if err != nil {
-		return err
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"reset_token": token, "reset_token_expires_at": expires})
+	if res.Error != nil {
+		return res.Error
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	if res.RowsAffected == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -347,16 +338,20 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 	}
 	if !u.ResetTokenExpiresAt.Valid || u.ResetTokenExpiresAt.Int64 < time.Now().Unix() {
 		// Expired.  Wipe the token and fail.
-		_, _ = r.DB.ExecContext(ctx,
-			`UPDATE unmask_user SET reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?`, u.ID)
+		_ = clearResetToken(ctx, r, u.ID)
 		return nil, ErrNotFound
 	}
 	// Consume (= one-shot).
-	if _, err := r.DB.ExecContext(ctx,
-		`UPDATE unmask_user SET reset_token = NULL, reset_token_expires_at = NULL WHERE id = ?`, u.ID); err != nil {
+	if err := clearResetToken(ctx, r, u.ID); err != nil {
 		return nil, err
 	}
 	return u, nil
+}
+
+// clearResetToken nulls out reset_token + reset_token_expires_at in one update.
+func clearResetToken(ctx context.Context, r *Repository, userID int64) error {
+	return r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"reset_token": nil, "reset_token_expires_at": nil}).Error
 }
 
 // GetByEmail: for forgot-password, look up by email instead of username.

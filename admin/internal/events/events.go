@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -179,13 +178,14 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 	if retentionDays <= 0 || d == nil {
 		return 0, nil
 	}
-	var stmt string
-	if d.Driver == db.DriverSQLite {
-		stmt = fmt.Sprintf(`DELETE FROM unmask_event WHERE date_created < datetime('now', '-%d days')`, retentionDays)
-	} else {
-		stmt = fmt.Sprintf(`DELETE FROM unmask_event WHERE date_created < DATE_SUB(NOW(), INTERVAL %d DAY)`, retentionDays)
-	}
-	res, err := d.ExecContext(ctx, stmt)
+	// Compute the cutoff in Go so the SQL stays driver-agnostic (= no more
+	// datetime('now',…) vs DATE_SUB(NOW(),…) branch).  The original column
+	// is DATETIME; the mysql driver parses time.Time, the glebarez/modernc
+	// driver compares ISO8601-ish strings -- the comparison "<" works for
+	// both, so we pass a time.Time bind and let the driver format it.
+	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	res, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_event WHERE date_created < ?`, cutoff)
 	if err != nil {
 		return 0, err
 	}
