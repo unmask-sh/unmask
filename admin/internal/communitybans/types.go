@@ -29,6 +29,11 @@ const (
 )
 
 // SubmitRequest: client → unmask.sh submit payload.
+//
+// BanSource records which admin-side trigger produced the BAN (= "manual" /
+// "honeypot" / "protected_failed" / "rate_limit_abuse" / "ja4_loop").  The
+// hub's judge uses this to lean match selection toward ip_only vs ja4_only;
+// older clients that omit the field still work (hub treats empty as neutral).
 type SubmitRequest struct {
 	IP             string `json:"ip"`
 	JA4            string `json:"ja4,omitempty"`
@@ -36,6 +41,7 @@ type SubmitRequest struct {
 	Comment        string `json:"comment,omitempty"`
 	PublishCountry bool   `json:"publish_country,omitempty"`
 	OverrideHN     string `json:"override_hn,omitempty"`
+	BanSource      string `json:"ban_source,omitempty"`
 }
 
 // RegisterRequest: client → unmask.sh register payload (= optional metadata).

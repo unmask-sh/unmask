@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -337,6 +338,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 				defer cancel()
 				if err := h.CommunityBans.Submit(ctx, communitybans.SubmitRequest{
 					IP: ip, JA4: ja4, Reason: reason, Comment: comment,
+					BanSource: ban.SourceManual,
 				}); err != nil {
 					log.Printf("communitybans: submit ban %s|%s: %v", ip, ja4, err)
 				}
