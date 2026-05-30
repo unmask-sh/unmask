@@ -46,8 +46,36 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .filter-bar button{padding:.3rem .8rem;border:1px solid #0f172a;border-radius:.2rem;background:#0f172a;color:#fff;cursor:pointer;font-size:.85rem}
 .filter-bar a.reset{padding:.3rem .5rem;color:#475569;text-decoration:none;font-size:.85rem}
 table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
+table.feed{table-layout:fixed} /* Fixed layout: each cell honours max-width / overflow rules below instead of stretching to fit content. */
 table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
-table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+/* Cap the columns that can contain long, free-form strings; the cell content
+ * wraps with -- when it would otherwise blow up the row.  Reason and comment
+ * cells use line-clamp so multi-line text never pushes the table sideways. */
+table.feed col.col-reason,table.feed col.col-comments{width:14rem}
+table.feed col.col-ip{width:11rem}
+table.feed col.col-ja4{width:12rem}
+table.feed col.col-time{width:8rem}
+table.feed col.col-score{width:5rem}
+table.feed col.col-match{width:7rem}
+table.feed col.col-votes{width:8rem}
+table.feed col.col-marker{width:1.5rem}
+table.feed td.clamp{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal;word-break:break-word}
+table.feed td.clamp .cmt{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Sort header link + arrow.  Default header style is preserved; the link only
+ * adds a pointer cursor and a faint underline when active. */
+table.feed thead th.sortable a.sort-link{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:.2rem;cursor:pointer}
+table.feed thead th.sortable a.sort-link:hover{color:#0f172a}
+table.feed thead th.sortable a.sort-link.active{color:#0f172a;text-decoration:underline}
+table.feed thead th .sort-arrow{font-size:.6rem;color:#94a3b8}
+table.feed thead th.sortable a.sort-link.active .sort-arrow{color:#3b82f6}
+/* votes header: label on top, mini sort icons (= 📍 / 👍 / 👎) below */
+table.feed thead th.votes-th{display:table-cell}
+table.feed thead th .th-label{display:block}
+table.feed thead th .sort-mini{display:inline-flex;gap:.25rem;margin-top:.15rem;font-size:.85rem}
+table.feed thead th .sort-mini a{text-decoration:none;opacity:.55;line-height:1;display:inline-flex;align-items:center;gap:.1rem}
+table.feed thead th .sort-mini a:hover{opacity:1}
+table.feed thead th .sort-mini a.active{opacity:1;text-decoration:underline}
 table.feed tbody tr:hover{background:#f8fafc}
 table.feed tbody tr.feed-row.not-promoted td:not(:first-child){opacity:.72}
 table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
@@ -250,18 +278,43 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   </div>
 
   <table class="feed">
+    <colgroup>
+      <col class="col-marker">
+      <col class="col-score">
+      <col class="col-match">
+      <col class="col-ip">
+      <col class="col-ja4">
+      <col class="col-votes">
+      <col class="col-reason">
+      <col class="col-comments">
+      <col class="col-time">
+      <col class="col-time">
+    </colgroup>
+    {{- /* Pre-build the filter prefix once -- every sort link reuses it. */ -}}
+    {{- $sortBase := "" -}}
+    {{- if .CommunityBansQuery }}{{ $sortBase = printf "q=%s&" .CommunityBansQuery }}{{ end -}}
+    {{- if .CommunityBansMatch }}{{ $sortBase = printf "%smatch=%s&" $sortBase .CommunityBansMatch }}{{ end -}}
+    {{- $sort := .CommunityBansSort -}}
+    {{- $order := .CommunityBansOrder -}}
     <thead>
       <tr>
         <th style="width:1.5rem"></th>
-        <th>{{ t .Lang "community_bans.col.score" }}</th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "score" }} active{{ end }}" href="?{{ $sortBase }}sort=score&amp;order={{ if and (eq $sort "score") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.score" }}{{ if eq $sort "score" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
         <th>{{ t .Lang "community_bans.col.match" }}</th>
         <th>IP</th>
         <th>JA4</th>
-        <th>{{ t .Lang "community_bans.col.votes" }}</th>
+        <th class="sortable votes-th">
+          <span class="th-label">{{ t .Lang "community_bans.col.votes" }}</span>
+          <span class="sort-mini">
+            <a class="{{ if eq $sort "reports" }}active{{ end }}" href="?{{ $sortBase }}sort=reports&amp;order={{ if and (eq $sort "reports") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by reports">📍{{ if eq $sort "reports" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "good" }}active{{ end }}" href="?{{ $sortBase }}sort=good&amp;order={{ if and (eq $sort "good") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by likes">👍{{ if eq $sort "good" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "bad" }}active{{ end }}" href="?{{ $sortBase }}sort=bad&amp;order={{ if and (eq $sort "bad") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by bads">👎{{ if eq $sort "bad" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+          </span>
+        </th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
-        <th>{{ t .Lang "community_bans.col.comments" }}</th>
-        <th>{{ t .Lang "community_bans.col.first_seen" }}</th>
-        <th>{{ t .Lang "community_bans.col.expires" }}</th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "comments" }} active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.comments" }}{{ if eq $sort "comments" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "first_seen" }} active{{ end }}" href="?{{ $sortBase }}sort=first_seen&amp;order={{ if and (eq $sort "first_seen") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.first_seen" }}{{ if eq $sort "first_seen" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "expires" }} active{{ end }}" href="?{{ $sortBase }}sort=expires&amp;order={{ if and (eq $sort "expires") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.expires" }}{{ if eq $sort "expires" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
       </tr>
     </thead>
     <tbody>
@@ -287,10 +340,10 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           {{ if and (le .Installs 0) (le .LikeCount 0) (le .BadCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
           </span>
         </td>
-        <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td>
+        <td class="clamp" title="{{ if .Reason }}{{ .Reason }}{{ else }}-{{ end }}">{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="clamp">
           {{ range .Comments }}
-          <span class="cmt">{{ .Text }}<time class="js-datetime" data-ts="{{ .SubmittedAt }}">{{ .SubmittedAt }}</time></span>
+          <span class="cmt" title="{{ .Text }}">{{ .Text }}</span>
           {{ else }}
           <span class="muted">-</span>
           {{ end }}

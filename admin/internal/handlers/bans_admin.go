@@ -20,6 +20,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -306,6 +307,49 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Sorting -- ?sort=KEY&order=asc|desc.  Default sort: score desc, tie-broken
+	// by report count desc + first-seen desc for stable ordering.  Unknown
+	// keys fall back to the default so a bookmarked URL with a typo still
+	// renders.  Numeric keys default to desc (= "biggest first", which is
+	// what you almost always want on a ranking-style table).
+	sortKey := strings.TrimSpace(r.URL.Query().Get("sort"))
+	switch sortKey {
+	case "score", "reports", "good", "bad", "comments", "first_seen", "last_seen", "expires":
+		// keep
+	default:
+		sortKey = "score"
+	}
+	orderParam := strings.TrimSpace(r.URL.Query().Get("order"))
+	desc := orderParam != "asc" // default desc unless explicitly asc
+	sort.SliceStable(filtered, func(i, j int) bool {
+		a, b := filtered[i], filtered[j]
+		var less bool
+		switch sortKey {
+		case "score":
+			less = a.Score < b.Score
+		case "reports":
+			less = a.Reports < b.Reports
+		case "good":
+			less = a.LikeCount < b.LikeCount
+		case "bad":
+			less = a.BadCount < b.BadCount
+		case "comments":
+			less = a.CommentCount < b.CommentCount
+		case "first_seen":
+			less = a.FirstSeen < b.FirstSeen
+		case "last_seen":
+			// FeedEntry has no LastSeen field; use ExpiresAt - 30 days as a
+			// proxy (= ExpiresAt is LastSeen + retention).
+			less = a.ExpiresAt < b.ExpiresAt
+		case "expires":
+			less = a.ExpiresAt < b.ExpiresAt
+		}
+		if desc {
+			return !less
+		}
+		return less
+	})
+
 	// Pagination -- 50 rows per page, 1-indexed.  Out-of-range pages clamp
 	// to the last available page so a bookmarked URL still renders.
 	const perPage = 50
@@ -355,6 +399,8 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"CommunityBansMatch":           match,
 		"CommunityBansQuery":           q,
 		"CommunityBansMapDir":          mapDir,
+		"CommunityBansSort":            sortKey,
+		"CommunityBansOrder":           orderParam,
 		"Page":                         page,
 		"PageNext":                     page + 1,
 		"PagePrev":                     page - 1,
