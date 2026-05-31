@@ -1,0 +1,25 @@
+# common.yaml.in — shared metadata header for every unmask nfpm yml.
+#
+# Concatenated by the Makefile in front of each <kind>-body.yaml.in.  The body
+# adds the package-specific bits (= description, depends, contents, scripts,
+# overrides) and, for non-release packages, the signing block from
+# `signing.yaml.in`.
+#
+# Variables resolved by `envsubst` at build time:
+#   PACKAGE_NAME      e.g. unmask / unmask-plugin-nginx / unmask-release
+#   PACKAGE_ARCH      ${UNMASK_ARCH} for binaries, "all" for unmask-release
+#   PACKAGE_VENDOR    "unmask" for product packages, "unmask project" for release
+#   PACKAGE_HOMEPAGE  https://github.com/unmask-sh/unmask for product packages,
+#                     https://unmask.sh/ for release
+#   UNMASK_VERSION    package version (= same across all packages)
+
+name: ${PACKAGE_NAME}
+arch: ${PACKAGE_ARCH}
+platform: linux
+version: ${UNMASK_VERSION}
+section: net
+priority: optional
+maintainer: unmask maintainers <oss@unmask.sh>
+vendor: ${PACKAGE_VENDOR}
+homepage: ${PACKAGE_HOMEPAGE}
+license: Apache-2.0

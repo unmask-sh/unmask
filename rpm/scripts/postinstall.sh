@@ -86,10 +86,10 @@ fi
 chown unmask:unmask "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
 chmod 0644 "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
 
-# init system detection: systemd > OpenRC > SysVinit in that order.
-# init.d/unmask is symlinked per OS (= the body is picked from
-# unmask.sysv / unmask.openrc shipped under
-# /usr/share/unmask/init/).
+# init system detection: systemd > OpenRC.  SysVinit (= CentOS 6 etc.) was
+# retired since every supported distro is one of these two.
+# init.d/unmask is symlinked from /usr/share/unmask/init/unmask.openrc on
+# apk hosts.
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     # systemd environment (= RHEL 7+ / Ubuntu 16.04+ / Debian 8+ / Arch / etc.)
     #
@@ -140,17 +140,6 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
         rc-service unmask restart || true
     fi
     INIT_KIND=openrc
-elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
-    # SysVinit (= RHEL 6 / CentOS 6).  symlink the SysV variant that depends on the functions library.
-    ln -sf /usr/share/unmask/init/unmask.sysv /etc/init.d/unmask
-    chkconfig --add unmask || true
-    chkconfig unmask on || true
-    if [ "${1:-}" = "1" ]; then
-        service unmask start || true
-    else
-        service unmask condrestart || true
-    fi
-    INIT_KIND=sysvinit
 else
     INIT_KIND=manual
 fi

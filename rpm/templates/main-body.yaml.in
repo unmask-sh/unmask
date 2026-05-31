@@ -1,51 +1,20 @@
-# unmask main package — admin binary + all distribution payloads (= challenge HTML / snippets / etc).
+# main-body.yaml.in — package-specific body for `unmask` (= the main package).
 #
-# The nginx-module .so is **not** included.  Defaults to forward-auth mode,
-# which can sit in front of any HTTP server (= nginx / Apache / Caddy /
-# Traefik / Envoy / HAProxy).
+# Prepend common.yaml.in + signing.yaml.in via the Makefile before handing to
+# nfpm.  The result is a complete yml describing the admin binary, the bundled
+# integration snippets for every supported HTTP server, init scripts and the
+# per-format preinstall overrides.
 #
-# For nginx native mode (= JA4 fingerprint capture / maximum performance),
-# additionally install `unmask-plugin-nginx-<unmask_ver>-nginx_<X.Y.Z>.<arch>.rpm`.
-#
-# multi-arch support:
-#   UNMASK_ARCH=amd64 UNMASK_VERSION=0.1.0 nfpm pkg --packager rpm --target dist/
-#   UNMASK_ARCH=arm64 UNMASK_VERSION=0.1.0 nfpm pkg --packager rpm --target dist/
+# multi-arch build:
+#   UNMASK_ARCH=amd64 UNMASK_VERSION=0.1.0 make package-main
+#   UNMASK_ARCH=arm64 UNMASK_VERSION=0.1.0 make package-main
 
-name: unmask
-arch: ${UNMASK_ARCH}
-platform: linux
-version: ${UNMASK_VERSION}
-section: net
-priority: optional
-maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   unmask — JA4 TLS-fingerprint based bot challenge.
   Admin server (Go static binary), challenge HTML/JS, configuration UI,
   and integration snippets for nginx / Apache / Caddy / Traefik / HAProxy.
   By default operates in forward-auth mode (= HTTP-server-agnostic).
   Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
-vendor: unmask
-homepage: https://github.com/unmask-sh/unmask
-license: Apache-2.0
-
-rpm:
-  group: System Environment/Daemons
-  signature:
-    key_file: ${NFPM_RPM_KEY_FILE:-}
-
-deb:
-  fields:
-    Vcs-Browser: https://github.com/unmask-sh/unmask
-
-# apk signing: signed only when NFPM_APK_KEY_FILE is set (= release build path).
-# If unset, envsubst expands to empty → nfpm skips signing (= dev build is fine).
-# nfpm's apk packager is SHA-1 only (= filenames are .SIGN.RSA.*).  apk-tools v3
-# is expected to accept SHA-1 for backward compat.  Consider rotating to SHA-256
-# before v0.1 GA (= pending upstream nfpm issue).
-apk:
-  signature:
-    key_file: ${NFPM_APK_KEY_FILE}
-    key_name: ${NFPM_APK_KEY_NAME}
 
 contents:
   # admin server
@@ -89,21 +58,14 @@ contents:
   - src: ./unmask.service
     dst: /usr/lib/systemd/system/unmask.service
 
-  # init script: bundle both formats under /usr/share/unmask/init/.
-  # postinstall picks the OS and symlinks the right one to /etc/init.d/unmask.
-  # systemd hosts do not need init.d (= they use unmask.service).
-  - src: ./init.d/unmask
-    dst: /usr/share/unmask/init/unmask.sysv
-    file_info:
-      mode: 0755
+  # init script: OpenRC for alpine (the only non-systemd distro in the install
+  # matrix).  Bundled under /usr/share/unmask/init/; postinstall symlinks it
+  # to /etc/init.d/unmask on apk hosts.  The sysv-init flavour was retired
+  # because every other supported distro uses systemd.
   - src: ./init.d/unmask.openrc
     dst: /usr/share/unmask/init/unmask.openrc
     file_info:
       mode: 0755
-
-  # logrotate
-  - src: ./unmask.logrotate
-    dst: /etc/logrotate.d/unmask
 
   # state directories
   - dst: /var/lib/unmask
@@ -129,12 +91,6 @@ contents:
     dst: /usr/share/doc/unmask/unmask-ipgeo.cron.sample
     file_info:
       mode: 0644
-  - dst: /var/log/unmask
-    type: dir
-    file_info:
-      mode: 0750
-      owner: unmask
-      group: unmask
   - dst: /etc/unmask
     type: dir
     file_info:

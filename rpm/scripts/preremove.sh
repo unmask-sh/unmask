@@ -11,13 +11,6 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
         rc-update del unmask default 2>/dev/null || true
         rm -f /etc/init.d/unmask
     fi
-elif command -v chkconfig >/dev/null 2>&1 && [ -x /etc/init.d/unmask ]; then
-    # SysVinit (= RHEL 6).  On full remove: stop + chkconfig --del + delete symlink.
-    if [ "${1:-}" = "0" ]; then
-        service unmask stop || true
-        chkconfig --del unmask || true
-        rm -f /etc/init.d/unmask
-    fi
 fi
 
 exit 0

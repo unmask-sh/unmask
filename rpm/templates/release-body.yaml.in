@@ -1,5 +1,5 @@
-# unmask-release — minimal package whose only job is to install the repo
-# configuration + GPG key.
+# release-body.yaml.in — body for unmask-release (= minimal package whose only
+# job is to install the repo configuration + GPG key).
 #
 # A user runs once at first:
 #   sudo dnf install -y https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm   # RHEL/Rocky/AlmaLinux
@@ -16,18 +16,11 @@
 # This is the "release package" pattern (= same as zabbix / docker / epel)
 # that lets us avoid "curl | sh" entirely.
 #
-# A single YAML file generates rpm / deb / apk in common:
-#   for fmt in rpm deb apk; do
-#     UNMASK_VERSION=0.1.0 nfpm pkg --packager $fmt -f rpm/nfpm-release.yaml --target dist/
-#   done
+# Note: unlike the other packages, release does NOT include signing.yaml.in
+# (= the release package IS the chain-of-trust root, so signing it with the
+# same key would be circular).  apk signing is still required because alpine
+# refuses unsigned packages outright; that block is inlined below.
 
-name: unmask-release
-arch: all      # noarch / all / noarch — nfpm interprets this per-packager
-platform: linux
-version: ${UNMASK_VERSION}
-section: net
-priority: optional
-maintainer: unmask maintainers <oss@unmask.sh>
 description: |
   unmask repository configuration + GPG public key.
   Installing this package adds the unmask package repository and the GPG
@@ -36,10 +29,6 @@ description: |
     dnf install unmask          # RHEL/Rocky/AlmaLinux
     apt install unmask          # Debian/Ubuntu
     apk add unmask              # Alpine
-
-vendor: unmask project
-homepage: https://unmask.sh/
-license: Apache-2.0
 
 contents:
   # GPG / signing key (= one OpenPGP public key shared by rpm / deb / apk)

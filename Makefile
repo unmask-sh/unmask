@@ -48,7 +48,26 @@ DIST            = dist
 ADMIN_BIN       = $(DIST)/unmask-$(GOOS)-$(GOARCH)
 MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 
-GOFLAGS = -trimpath -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
+# Reproducible-build flags:
+#   -trimpath      strip $GOPATH / module cache paths from the binary
+#   -buildvcs=false  drop the embedded git revision / dirty flag (= changes when
+#                  uncommitted edits exist or different working trees produce the
+#                  same commit)
+#   -ldflags -s -w  strip debug + symbol tables (= shrinks binary, deterministic)
+# Combined with SOURCE_DATE_EPOCH (honoured by Go since 1.20) and a pinned Go
+# toolchain via go.mod (= GOTOOLCHAIN=local), two builds from the same commit
+# produce byte-identical binaries.  Builds run under nfpm pick up SOURCE_DATE_EPOCH
+# via env so the rpm / deb / apk content hashes are stable too.
+GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
+
+# SOURCE_DATE_EPOCH: pin file mtime + Go's "build info" timestamp.  Default to
+# the commit timestamp so reproducible builds work without an explicit override.
+# Override on the command line (= `make build SOURCE_DATE_EPOCH=1700000000`)
+# when the operator wants a specific deterministic timestamp.
+ifeq ($(origin SOURCE_DATE_EPOCH),undefined)
+SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
+endif
+export SOURCE_DATE_EPOCH
 
 .PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down distro-check vet fmt clean help repo repo-apk publish
 
@@ -299,12 +318,11 @@ package-release:
 	# Leaving ASCII armor as-is makes apt-get update ignore the repo with NO_PUBKEY.
 	mkdir -p build/release
 	gpg --dearmor --yes -o build/release/unmask.gpg < rpm/release/RPM-GPG-KEY-unmask
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) \
-		envsubst '$$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-release.yaml > nfpm-release.tmp.yaml && \
-		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager rpm --target ../$(DIST) && \
-		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager deb --target ../$(DIST) && \
-		$(NFPM) pkg --config nfpm-release.tmp.yaml --packager apk --target ../$(DIST) && \
-		rm -f nfpm-release.tmp.yaml
+	$(call _nfpm_yaml,release,unmask-release,all,unmask project,https://unmask.sh/,$(DIST)/.tmp-pkg/nfpm-release.yaml)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager rpm --target ../$(DIST)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager deb --target ../$(DIST)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager apk --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-release.yaml
 
 ## repo - assemble a distribution layout including metadata into repo/ from
 # the rpm/deb/apk under dist/ (tools/build-repo.sh). Output: ../unmask-dl-build/.
@@ -377,12 +395,52 @@ sign-rpm:
 sign-verify:
 	@for f in $(DIST)/*.rpm; do echo "--- $$f ---"; rpm -K "$$f"; done
 
-# nfpm does not expand env vars in contents.src, so resolve them first via envsubst into a temporary yml.
+# nfpm yaml is built up from rpm/templates/* via envsubst.  Three fragments:
+#   common.yaml.in     — name / arch / version / vendor / homepage / license
+#   signing.yaml.in    — rpm / deb / apk signing blocks (= product packages only,
+#                        not for unmask-release which is the chain-of-trust root)
+#   <kind>-body.yaml.in — description / depends / contents / scripts / overrides
+# concatenated into $(DIST)/.tmp-pkg/nfpm-<kind>.<arch>.yaml and fed to nfpm.
+#
+# nfpm itself does not expand env vars in contents.src, so each fragment is
+# expanded with envsubst at concat time.
+NFPM_TPL = rpm/templates
+
+# _nfpm_yaml — assemble one yml from the templates.
+#   $(1) kind            (= main / plugin-nginx / plugin-nginx-fat / release /
+#                          web-nginx / web-apache / web-caddy)
+#   $(2) PACKAGE_NAME    (= unmask / unmask-plugin-nginx / unmask-release / ...)
+#   $(3) PACKAGE_ARCH    (= $(GOARCH) for binaries, "all" for unmask-release)
+#   $(4) PACKAGE_VENDOR  (= "unmask" for product packages, "unmask project" for release)
+#   $(5) PACKAGE_HOMEPAGE
+#   $(6) output yaml path
+#
+# Note: unmask-release intentionally OMITS signing.yaml.in (= the release
+# package IS the chain-of-trust root; signing it with the same key would be
+# circular).  apk signing for release is inlined into release-body.yaml.in
+# because alpine refuses unsigned packages outright.
+define _nfpm_yaml
+	mkdir -p $$(dirname $(6))
+	PACKAGE_NAME='$(2)' PACKAGE_ARCH='$(3)' PACKAGE_VENDOR='$(4)' PACKAGE_HOMEPAGE='$(5)' UNMASK_VERSION='$(UNMASK_VERSION)' \
+		envsubst '$$PACKAGE_NAME $$PACKAGE_ARCH $$PACKAGE_VENDOR $$PACKAGE_HOMEPAGE $$UNMASK_VERSION' \
+		< $(NFPM_TPL)/common.yaml.in > $(6)
+	if [ "$(1)" != "release" ]; then \
+		PACKAGE_HOMEPAGE='$(5)' \
+			envsubst '$$PACKAGE_HOMEPAGE $$NFPM_RPM_KEY_FILE $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' \
+			< $(NFPM_TPL)/signing.yaml.in >> $(6) ; \
+	fi
+	UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_ARCH='$(GOARCH)' \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' \
+		< $(NFPM_TPL)/$(1)-body.yaml.in >> $(6)
+endef
+
+# Concatenated yaml for the main `unmask` package goes through nfpm for a given packager ($1).
+# `cd rpm` is required because contents.src paths in main-body.yaml.in are
+# relative to rpm/ (= same convention every nfpm target shares).
 define _nfpm_main
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
-		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-main.yaml > nfpm-main.$(GOARCH).yaml && \
-		$(NFPM) pkg --config nfpm-main.$(GOARCH).yaml --packager $(1) --target ../$(DIST) && \
-		rm -f nfpm-main.$(GOARCH).yaml
+	$(call _nfpm_yaml,main,unmask,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml
 endef
 
 # The main package only needs the admin binary (no nginx module required).
@@ -403,9 +461,9 @@ package-apk: build-admin
 #   dist/unmask-plugin-nginx_<unmask_ver>_<arch>.apk
 package-plugin-nginx-fat: build-module-multi-all
 	mkdir -p $(DIST)/.tmp-pkg
-	# 1. Assemble the nfpm yml (generate the bundled .so list from build-module-multi output).
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
-		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-plugin-nginx-fat.yaml > nfpm-plugin-nginx-fat.$(GOARCH).yaml
+	# 1. Assemble the nfpm yml from rpm/templates/* (plugin-nginx-fat-body.yaml.in
+	#    ends with `contents:` and an empty list, ready for append).
+	$(call _nfpm_yaml,plugin-nginx-fat,unmask-plugin-nginx,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml)
 	# 2. Append the bundled .so list to contents.
 	#    OpenSSL 3 build (dist/multi-modules/<v>/...) -> /usr/share/unmask/plugin/openssl3/
 	#    OpenSSL 1.1 build (dist/multi-modules-openssl11/<v>/...) -> /usr/share/unmask/plugin/openssl11/
@@ -414,48 +472,47 @@ package-plugin-nginx-fat: build-module-multi-all
 		v=$$(basename "$$d"); \
 		so="$$d/ngx_http_unmask_module.so"; \
 		[ -f "$$so" ] || continue; \
-		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    dst: /usr/share/unmask/plugin/openssl3/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  - src: ../$$so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl3/ngx_http_unmask_module-$$v.so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                            >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                          >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
 		echo "  -> bundling nginx $$v (OpenSSL 3)"; \
 	done
 	@for d in $(MULTI_OPENSSL11_DIR)/*/; do \
 		v=$$(basename "$$d"); \
 		so="$$d/ngx_http_unmask_module.so"; \
 		[ -f "$$so" ] || continue; \
-		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    dst: /usr/share/unmask/plugin/openssl11/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  - src: ../$$so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl11/ngx_http_unmask_module-$$v.so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                             >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                           >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
 		echo "  -> bundling nginx $$v (OpenSSL 1.1)"; \
 	done
 	@for d in $(MULTI_OPENSSL10_DIR)/*/; do \
 		v=$$(basename "$$d"); \
 		so="$$d/ngx_http_unmask_module.so"; \
 		[ -f "$$so" ] || continue; \
-		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    dst: /usr/share/unmask/plugin/openssl10/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  - src: ../$$so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/openssl10/ngx_http_unmask_module-$$v.so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                             >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                           >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
 		echo "  -> bundling nginx $$v (OpenSSL 1.0)"; \
 	done
 	@for d in $(MULTI_GLIBC212_DIR)/*/; do \
 		v=$$(basename "$$d"); \
 		so="$$d/ngx_http_unmask_module.so"; \
 		[ -f "$$so" ] || continue; \
-		echo "  - src: ../$$so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    dst: /usr/share/unmask/plugin/glibc212/ngx_http_unmask_module-$$v.so" >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "    file_info:"                                                  >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
-		echo "      mode: 0644"                                                >> rpm/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "  - src: ../$$so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    dst: /usr/share/unmask/plugin/glibc212/ngx_http_unmask_module-$$v.so" >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "    file_info:"                                                            >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
+		echo "      mode: 0644"                                                          >> $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml; \
 		echo "  -> bundling nginx $$v (CentOS 6 / glibc 2.12)"; \
 	done
 	# 3. Build all 3 formats.
-	cd rpm && \
-		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager rpm --target ../$(DIST) && \
-		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager deb --target ../$(DIST) && \
-		$(NFPM) pkg --config nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager apk --target ../$(DIST) && \
-		rm -f nfpm-plugin-nginx-fat.$(GOARCH).yaml
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager rpm --target ../$(DIST)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager deb --target ../$(DIST)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager apk --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml
 	rm -rf $(DIST)/.tmp-pkg
 	@echo ""
 	@echo ">>> fat plugin output:"
@@ -472,16 +529,17 @@ package-plugin-nginx-fat: build-module-multi-all
 #   dist/unmask-plugin-nginx_<unmask_ver>-nginx_<X.Y.Z>_<arch>.apk
 package-plugin-nginx: package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk
 
-# Shared macro: expand nfpm config + preinstall into a temporary yml.
+# Shared macro: assemble plugin-nginx (single variant) yml + a NGINX_VERSION-baked
+# preinstall, then run nfpm.  The preinstall is templated separately because
+# nfpm scripts: takes a file path, not inline content.
 define _nfpm_plugin
 	mkdir -p $(DIST)/.tmp-pkg
 	sed "s|__NGINX_VERSION__|$(NGINX_VERSION)|g" rpm/scripts/preinstall-plugin-nginx.sh > $(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh
 	chmod +x $(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
-		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-plugin-nginx.yaml > nfpm-plugin-nginx.$(GOARCH).yaml && \
-		sed -i "s|./scripts/preinstall-plugin-nginx.sh|../$(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh|" nfpm-plugin-nginx.$(GOARCH).yaml && \
-		$(NFPM) pkg --config nfpm-plugin-nginx.$(GOARCH).yaml --packager $(1) --target ../$(DIST) && \
-		rm -f nfpm-plugin-nginx.$(GOARCH).yaml
+	$(call _nfpm_yaml,plugin-nginx,unmask-plugin-nginx,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml)
+	sed -i "s|./scripts/preinstall-plugin-nginx.sh|../$(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh|" $(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml
 	rm -rf $(DIST)/.tmp-pkg
 endef
 
@@ -525,12 +583,13 @@ package-plugin-nginx-apk: build-module
 # unmask; pick the web server you want and install it.
 # ----------------------------------------------------------------
 
-# Shared macro: run nfpm with one yaml + a given packager.
+# Shared macro: assemble web-<server> yml + run nfpm.
+#   $(1) server name (nginx / apache / caddy)
+#   $(2) packager    (rpm / deb / apk)
 define _nfpm_web
-	cd rpm && UNMASK_VERSION=$(UNMASK_VERSION) UNMASK_ARCH=$(GOARCH) \
-		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' < nfpm-web-$(1).yaml > nfpm-web-$(1).$(GOARCH).yaml && \
-		$(NFPM) pkg --config nfpm-web-$(1).$(GOARCH).yaml --packager $(2) --target ../$(DIST) && \
-		rm -f nfpm-web-$(1).$(GOARCH).yaml
+	$(call _nfpm_yaml,web-$(1),unmask-web-$(1),$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml)
+	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml --packager $(2) --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml
 endef
 
 ## package-web-nginx  - generate the nginx conf.d snippet as rpm/deb/apk

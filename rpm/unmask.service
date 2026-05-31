@@ -34,7 +34,7 @@ RestrictRealtime=yes
 LockPersonality=yes
 RestrictNamespaces=yes
 # /etc/unmask needs write access so the web settings UI can update config.yml + nginx-rendered*.conf.
-ReadWritePaths=/var/lib/unmask /var/log/unmask /run/unmask /etc/unmask
+ReadWritePaths=/var/lib/unmask /run/unmask /etc/unmask
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
@@ -43,16 +43,10 @@ SystemCallErrorNumber=EPERM
 LimitNOFILE=65536
 Restart=on-failure
 RestartSec=5s
-# SIGHUP is used by admin to reopen the log file (= logrotate postrotate).
-# The default Restart=on-failure treats a SIGHUP exit as "clean" (systemd
-# semantics), so include SIGHUP in RestartForceExitStatus to ensure auto-recovery
-# even if a build dies before handling SIGHUP.
-RestartForceExitStatus=SIGHUP
 
-# admin opens /var/log/unmask/admin.log directly and reopens on SIGHUP
-# (= internal/logwriter).  We do NOT use systemd's append: (= once systemd
-# holds the fd, admin cannot swap the fd after logrotate renames the file).
-# stdout / stderr are routed to journal as a fallback for startup errors etc.
+# 12-factor logging: admin writes to stderr; journald captures.
+# `journalctl -u unmask` shows all admin output; retention is managed by
+# /etc/systemd/journald.conf (= no app-side rotation).
 StandardOutput=journal
 StandardError=journal
 

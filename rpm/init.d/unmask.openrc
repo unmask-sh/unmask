@@ -16,8 +16,11 @@ command_user="unmask:unmask"
 command_background=true
 
 pidfile="/var/run/unmask/unmask.pid"
-output_log="/var/log/unmask/admin.log"
-error_log="/var/log/unmask/admin.log"
+# 12-factor logging: admin writes to stderr.  OpenRC's start-stop-daemon
+# default routes stdout/stderr to /var/log/messages (= busybox syslog) on
+# alpine; set output_log / error_log here only if a separate file is
+# preferred per-host.  Filter with: `tail -F /var/log/messages | grep unmask`
+# or wire up syslog-ng / rsyslog program rules.
 
 depend() {
     need net
@@ -26,5 +29,4 @@ depend() {
 
 start_pre() {
     checkpath -d -m 0750 -o unmask:unmask /var/run/unmask
-    checkpath -d -m 0750 -o unmask:unmask /var/log/unmask
 }
