@@ -452,6 +452,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
      read / write without expanding the whole row.  Wired in the comment-
      cell click handler near the end of this file. */}}
 <div id="comment-popover" data-popover="comment"></div>
+<div id="reports-popover" data-popover="reports"></div>
+<div id="vote-popover" data-popover="vote"></div>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('time.js-datetime').forEach(function(el){
@@ -588,10 +590,13 @@ document.addEventListener('click', function(e){
   }
   function infoTarget(el){
     if (!el || !el.closest) return null;
-    // Skip elements that own their own popover (= .cmt-count opens the comment
-    // popover on click).  Otherwise the parent votes-cell's data-info would
-    // both show on hover AND get re-pinned on click, stacking two popovers.
-    if (el.closest('.cmt-count')) return null;
+    // Skip elements that own their own popover:
+    //   .cmt-count     -> comment popover (= comments section)
+    //   .like          -> vote popover    (= 👍/👎 buttons)
+    //   .reports-badge -> reports popover (= 報告したユーザー)
+    // Otherwise the parent votes-cell / reports-badge's data-info would both
+    // show on hover AND get re-pinned on click, stacking two popovers.
+    if (el.closest('.cmt-count, .like, .reports-badge')) return null;
     return el.closest('[data-info]');
   }
   document.addEventListener('mouseover', function(e){
@@ -1239,6 +1244,188 @@ document.addEventListener('click', function(e){
       refreshClone(clone, row);
     }).catch(function(err){
       del.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // Reports + vote popovers: mirror the comment-popover pattern so the
+  // operator can browse reporters / cast a vote from the list row without
+  // expanding the detail panel.  All three share fetchFor() above.
+
+  function detailLoading(){ return '<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>'; }
+  function detailErr(err){ return '<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>'; }
+  // info-popover sits at z-index 600 (= hover) and would otherwise overlay
+  // the popover-clone (= z-index 400) until the user moves the mouse out.
+  function hideHoverPopovers(){
+    var el = document.getElementById('info-popover');
+    if (el) el.style.display = 'none';
+  }
+
+  // -------- Reports popover (= 📍 cell) --------
+  var reportsPop = document.getElementById('reports-popover');
+  var reportsPin = (reportsPop && window.popoverPin) ? window.popoverPin.install(reportsPop) : null;
+  var reportsCloneToRow = new WeakMap();
+
+  function renderReportsSection(d){
+    var subs = (d.submissions || []).map(function(s){
+      var mine = (MY_HN && s.hn === MY_HN);
+      return '<li>' + flagImg(s.country_code) + '<span class="hn">' + esc(s.hn) + '</span>' + selfMarker(s.hn) +
+             (s.reason ? '<span class="reason-inline">— ' + esc(s.reason) + '</span>' : '') +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span>' +
+             (mine ? deleteBtn('submission', s.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    return '<div class="detail-panel"><section><h4>' + esc(t.submitters) + ' (' + ((d.submissions||[]).length) + ')</h4><ul class="flat">' + subs + '</ul></section></div>';
+  }
+  function refreshReportsClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderReportsSection(d);
+      var badge = row.querySelector('.reports-badge');
+      var n = (d.submissions || []).length;
+      if (badge){
+        if (n > 0){
+          badge.textContent = '📍 ' + n;
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    }).catch(function(){ /* ignored */ });
+  }
+  document.querySelectorAll('table.feed tbody tr.feed-row .reports-badge').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var badge = e.target.closest && e.target.closest('.reports-badge');
+    if (!badge) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = badge.closest('tr.feed-row');
+    if (!row || !reportsPin) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hideHoverPopovers();
+    var x = e.pageX, y = e.pageY;
+    reportsPin.showHover(detailLoading(), x, y);
+    fetchFor(row).then(function(d){
+      reportsPin.handleClick(renderReportsSection(d), x, y, row, t.submitters);
+      var clone = document.body.querySelector('.popover-clone[data-popover="reports"]:last-of-type');
+      if (clone) reportsCloneToRow.set(clone, row);
+    }).catch(function(err){
+      reportsPin.showHover(detailErr(err), x, y);
+    });
+  }, true);
+  // Delete-x button inside a reports-popover clone (= delete one's own
+  // submission).
+  document.addEventListener('click', function(e){
+    var del = e.target.closest && e.target.closest('.delete-x');
+    if (!del) return;
+    var clone = del.closest('.popover-clone[data-popover="reports"]');
+    if (!clone) return; // other popovers' delete buttons stay scoped to theirs
+    e.preventDefault();
+    e.stopPropagation();
+    var row = reportsCloneToRow.get(clone);
+    if (!row) return;
+    if (!confirm(t.deleteConfirm)) return;
+    var kind = del.dataset.deleteKind; // 'submission'
+    var id = del.dataset.deleteId;
+    del.disabled = true;
+    postDelete(kind, id).then(function(r){
+      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      refreshReportsClone(clone, row);
+    }).catch(function(err){
+      del.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // -------- Vote popover (= 👍 cell) --------
+  var votePop = document.getElementById('vote-popover');
+  var votePin = (votePop && window.popoverPin) ? window.popoverPin.install(votePop) : null;
+  var voteCloneToRow = new WeakMap();
+
+  function renderVoteSection(d){
+    if (!MY_HN) {
+      return '<div class="detail-panel"><section><div class="detail-actions"><span class="empty">' + esc(t.notRegistered) + '</span></div></section></div>';
+    }
+    var myLike = findOwn(d.likers);
+    var myBad  = findOwn(d.bads);
+    var mine = myLike ? 'like' : (myBad ? 'bad' : '');
+    var likeCount = (d.likers || []).length;
+    var badCount  = (d.bads   || []).length;
+    var likeIdAttr = myLike ? ' data-my-vote-id="' + esc(myLike.id) + '"' : '';
+    var badIdAttr  = myBad  ? ' data-my-vote-id="' + esc(myBad.id)  + '"' : '';
+    return '<div class="detail-panel"><section><div class="detail-actions" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+      '<button class="vote-btn' + (mine === 'like' ? ' active like' : '') + '" data-vote-kind="like"' + likeIdAttr + '>' + esc(t.btnLike) + ' (' + likeCount + ')</button>' +
+      '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad"' + badIdAttr + '>' + esc(t.btnBad) + ' (' + badCount + ')</button>' +
+      '<span class="my-hn">' + esc(t.myHnLabel) + ': ' + esc(MY_HN) + '</span></div></section></div>';
+  }
+  function refreshVoteClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderVoteSection(d);
+      // Sync the list row's 👍 N counter (= likes only; bads stay private).
+      var likeSpan = row.querySelector('.votes-cell .like');
+      if (likeSpan) likeSpan.textContent = '👍 ' + ((d.likers || []).length);
+    }).catch(function(){ /* ignored */ });
+  }
+  document.querySelectorAll('table.feed tbody tr.feed-row .votes-cell .like').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var like = e.target.closest && e.target.closest('.votes-cell .like');
+    if (!like) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = like.closest('tr.feed-row');
+    if (!row || !votePin) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hideHoverPopovers();
+    var x = e.pageX, y = e.pageY;
+    votePin.showHover(detailLoading(), x, y);
+    fetchFor(row).then(function(d){
+      votePin.handleClick(renderVoteSection(d), x, y, row, t.btnLike);
+      var clone = document.body.querySelector('.popover-clone[data-popover="vote"]:last-of-type');
+      if (clone) voteCloneToRow.set(clone, row);
+    }).catch(function(err){
+      votePin.showHover(detailErr(err), x, y);
+    });
+  }, true);
+  // Vote button inside a vote-popover clone.  Toggles like / bad / off and
+  // refreshes the clone + the list row counter from the hub's truth (=
+  // refresh-from-server instead of duplicating the detail-row's elaborate
+  // optimistic state machine).
+  document.addEventListener('click', function(e){
+    var voteBtn = e.target.closest && e.target.closest('.vote-btn');
+    if (!voteBtn) return;
+    var clone = voteBtn.closest('.popover-clone[data-popover="vote"]');
+    if (!clone) return; // detail-row vote path is handled in the row IIFE
+    e.preventDefault();
+    e.stopPropagation();
+    var row = voteCloneToRow.get(clone);
+    if (!row) return;
+    var actions = voteBtn.closest('.detail-actions');
+    var repID = actions && actions.dataset.repId;
+    if (!repID) return;
+    var kind = voteBtn.dataset.voteKind;
+    var isActive = voteBtn.classList.contains('active');
+    var myVoteId = voteBtn.dataset.myVoteId;
+    var otherBtn = actions.querySelector('.vote-btn[data-vote-kind="' + (kind === 'like' ? 'bad' : 'like') + '"]');
+    voteBtn.disabled = true;
+    if (otherBtn) otherBtn.disabled = true;
+    var pending = (isActive && myVoteId)
+      ? postDelete('vote', myVoteId)
+      : postVote(repID, kind);
+    pending.then(function(r){
+      if (!r.ok && r.status !== 204 && r.status !== 404) {
+        return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      }
+    }).then(function(){
+      refreshVoteClone(clone, row);
+    }).catch(function(err){
+      voteBtn.disabled = false;
+      if (otherBtn) otherBtn.disabled = false;
       alert((t.err || 'error') + ' ' + (err.message || err));
     });
   });
