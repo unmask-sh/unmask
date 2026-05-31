@@ -1101,14 +1101,33 @@ document.addEventListener('click', function(e){
   // below can find the originating row (for cmt-count refresh + cache key).
   var cloneToRow = new WeakMap();
 
+  // 💬 trigger -> follow-up comments only (= d.comments table, postable +
+  // deletable).  Reporter comments live in their own popover triggered from
+  // the COMMENTS column cell so each affordance maps to one data source.
   function renderCommentSection(d){
-    // Section 1: reporter comments (= submissions[].comment).  These are the
-    // BAN-dialog comments aggregated per reporter; they're the canonical
-    // "why I think this is a bot" record.  Read-only here -- removing one
-    // would mean deleting the whole submission (= reports popover handles
-    // that path).  The COMMENTS column cell already shows these aggregated
-    // without attribution, so this section gives the same data with HN /
-    // country / timestamp.
+    var comments = (d.comments || []).map(function(c){
+      var mine = (MY_HN && c.hn === MY_HN);
+      return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
+             '<span class="comment-text">' + esc(c.text) + '</span>' +
+             '<span class="when">' + fmtTime(c.created_at) + '</span>' +
+             (mine ? deleteBtn('comment', c.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var form = '';
+    if (MY_HN) {
+      form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="2"></textarea>' +
+        '<button type="submit">' + esc(t.btnPost) + '</button></form>';
+    }
+    return '<div class="detail-panel">' +
+      '<section><h4>' + esc(t.followupComments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + form + '</section>' +
+    '</div>';
+  }
+
+  // COMMENTS column cell trigger -> reporter comments only (=
+  // submissions[].comment field, what each reporter typed into the BAN
+  // dialog).  Read-only here; removing one means deleting the whole
+  // submission via the reports popover.
+  function renderReporterCommentsSection(d){
     var subItems = (d.submissions || []).filter(function(s){
       return s.comment && String(s.comment).trim();
     });
@@ -1117,28 +1136,7 @@ document.addEventListener('click', function(e){
              '<span class="comment-text">' + esc(s.comment) + '</span>' +
              '<span class="when">' + fmtTime(s.submitted_at) + '</span></li>';
     }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
-
-    // Section 2: follow-up comments (= d.comments, the standalone comments
-    // table).  Anyone with an HN can post here; the form below + delete-x
-    // on one's own row drive POST / DELETE /api/feed/comment.
-    var generalComm = (d.comments || []).map(function(c){
-      var mine = (MY_HN && c.hn === MY_HN);
-      return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
-             '<span class="comment-text">' + esc(c.text) + '</span>' +
-             '<span class="when">' + fmtTime(c.created_at) + '</span>' +
-             (mine ? deleteBtn('comment', c.id) : '') + '</li>';
-    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
-
-    var form = '';
-    if (MY_HN) {
-      form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
-        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="2"></textarea>' +
-        '<button type="submit">' + esc(t.btnPost) + '</button></form>';
-    }
-    return '<div class="detail-panel">' +
-      '<section><h4>' + esc(t.reporterComments) + ' (' + subItems.length + ')</h4><ul class="flat">' + subComm + '</ul></section>' +
-      '<section><h4>' + esc(t.followupComments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + generalComm + '</ul>' + form + '</section>' +
-    '</div>';
+    return '<div class="detail-panel"><section><h4>' + esc(t.reporterComments) + ' (' + subItems.length + ')</h4><ul class="flat">' + subComm + '</ul></section></div>';
   }
 
   function fetchFor(row){
@@ -1192,14 +1190,14 @@ document.addEventListener('click', function(e){
   // votes-cell[data-info] and would steal the click by pinning the reasoning
   // text).  stopImmediatePropagation stops every later document-level
   // listener for the same event.
-  // 💬 N badge OR the COMMENTS column cell both open the comment popover --
-  // the column cell shows every comment with its author / country / time
-  // metadata (= the table cell only renders concatenated text).
-  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count, table.feed tbody tr.feed-row td.feed-comments').forEach(function(el){
+  // 💬 N badge -> follow-up comments popover (= postable + deletable).
+  // COMMENTS column cell -> reporter comments popover (= read-only) handled
+  // in a separate listener below so each affordance maps to one data source.
+  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count').forEach(function(el){
     el.style.cursor = 'pointer';
   });
   document.addEventListener('click', function(e){
-    var cmt = e.target.closest && e.target.closest('.cmt-count, td.feed-comments');
+    var cmt = e.target.closest && e.target.closest('.cmt-count');
     if (!cmt) return;
     // Don't intercept clicks inside the popover-clone (= its own buttons).
     if (e.target.closest('.popover-clone')) return;
@@ -1217,9 +1215,36 @@ document.addEventListener('click', function(e){
     var x = e.pageX, y = e.pageY;
     pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
     fetchFor(row).then(function(d){
-      pin.handleClick(renderCommentSection(d), x, y, row, t.comments);
+      pin.handleClick(renderCommentSection(d), x, y, row, t.followupComments);
       // After the clone exists, remember its row so the form/delete handlers
       // can resolve the row from the popover-clone alone.
+      var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
+      if (clone) cloneToRow.set(clone, row);
+    }).catch(function(err){
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+    });
+  }, true);
+
+  // COMMENTS column cell -> reporter comments popover.  Same pin as 💬 (=
+  // popover host element shared), different content + title.
+  document.querySelectorAll('table.feed tbody tr.feed-row td.feed-comments').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var td = e.target.closest && e.target.closest('td.feed-comments');
+    if (!td) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = td.closest('tr.feed-row');
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    var infoP = document.getElementById('info-popover');
+    if (infoP) infoP.style.display = 'none';
+    var x = e.pageX, y = e.pageY;
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    fetchFor(row).then(function(d){
+      pin.handleClick(renderReporterCommentsSection(d), x, y, row, t.reporterComments);
       var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
       if (clone) cloneToRow.set(clone, row);
     }).catch(function(err){
@@ -1517,7 +1542,8 @@ document.addEventListener('click', function(e){
   // Wire hover-show for all three list-row popovers.  Click still pins via
   // the capture-phase handlers above; this just adds peek-on-hover so the
   // operator can browse without committing.
-  installHoverShow('.cmt-count, td.feed-comments',   pin,        pop,        renderCommentSection);
+  installHoverShow('.cmt-count',                     pin,        pop,        renderCommentSection);
+  installHoverShow('td.feed-comments',               pin,        pop,        renderReporterCommentsSection);
   installHoverShow('.reports-badge, td.feed-reason', reportsPin, reportsPop, renderReportsSection);
   installHoverShow('.votes-cell .like',              votePin,    votePop,    renderVoteSection);
 })();
