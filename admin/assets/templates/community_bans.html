@@ -707,6 +707,8 @@ document.addEventListener('click', function(e){
   var t = {
     judge: {{ t .Lang "community_bans.detail.judge_h" }},
     submitters: {{ t .Lang "community_bans.detail.submitters_h" }},
+    reporterComments: {{ t .Lang "community_bans.detail.reporter_comments_h" }},
+    followupComments: {{ t .Lang "community_bans.detail.followup_comments_h" }},
     comments: {{ t .Lang "community_bans.detail.comments_h" }},
     none: {{ t .Lang "community_bans.detail.none" }},
     loading: {{ t .Lang "community_bans.detail.loading" }},
@@ -1100,13 +1102,33 @@ document.addEventListener('click', function(e){
   var cloneToRow = new WeakMap();
 
   function renderCommentSection(d){
-    var comments = (d.comments || []).map(function(c){
+    // Section 1: reporter comments (= submissions[].comment).  These are the
+    // BAN-dialog comments aggregated per reporter; they're the canonical
+    // "why I think this is a bot" record.  Read-only here -- removing one
+    // would mean deleting the whole submission (= reports popover handles
+    // that path).  The COMMENTS column cell already shows these aggregated
+    // without attribution, so this section gives the same data with HN /
+    // country / timestamp.
+    var subItems = (d.submissions || []).filter(function(s){
+      return s.comment && String(s.comment).trim();
+    });
+    var subComm = subItems.map(function(s){
+      return '<li>' + flagImg(s.country_code) + '<span class="hn">' + esc(s.hn) + '</span>' + selfMarker(s.hn) +
+             '<span class="comment-text">' + esc(s.comment) + '</span>' +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+
+    // Section 2: follow-up comments (= d.comments, the standalone comments
+    // table).  Anyone with an HN can post here; the form below + delete-x
+    // on one's own row drive POST / DELETE /api/feed/comment.
+    var generalComm = (d.comments || []).map(function(c){
       var mine = (MY_HN && c.hn === MY_HN);
       return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
              '<span class="comment-text">' + esc(c.text) + '</span>' +
              '<span class="when">' + fmtTime(c.created_at) + '</span>' +
              (mine ? deleteBtn('comment', c.id) : '') + '</li>';
     }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+
     var form = '';
     if (MY_HN) {
       form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
@@ -1114,7 +1136,8 @@ document.addEventListener('click', function(e){
         '<button type="submit">' + esc(t.btnPost) + '</button></form>';
     }
     return '<div class="detail-panel">' +
-      '<section><h4>' + esc(t.comments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + form + '</section>' +
+      '<section><h4>' + esc(t.reporterComments) + ' (' + subItems.length + ')</h4><ul class="flat">' + subComm + '</ul></section>' +
+      '<section><h4>' + esc(t.followupComments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + generalComm + '</ul>' + form + '</section>' +
     '</div>';
   }
 
