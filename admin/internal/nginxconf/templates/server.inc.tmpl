@@ -1,4 +1,4 @@
-# /etc/unmask/native/server.inc — auto-rendered by admin.  DO NOT EDIT.
+# /var/lib/unmask/nginx/server.inc — auto-rendered by admin.  DO NOT EDIT.
 #
 # generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
 #
@@ -6,18 +6,24 @@
 #   server {
 #       listen 443 ssl;
 #       server_name example.com;
-#       access_log /var/log/nginx/example-access.log;        # leave existing as-is
-#       include /etc/unmask/native/server.inc;               # ← add this
+#       access_log /var/log/nginx/example-access.log;           # leave existing as-is
+#       include /var/lib/unmask/nginx/server.inc;               # ← add this
 #       ...
 #       location / {
-#           include /etc/unmask/native/protect.inc;          # scope to protect
+#           include /var/lib/unmask/nginx/protect.inc;          # scope to protect
 #       }
 #   }
 #
 # Contents: (1) access_log for dashboard aggregation of cookie-passed requests
-# (unmask_minimal), (2) @unmask_rate_challenge named location, (3) the
-# `location ^~ /unmask/` proxy to the admin daemon.  Any future server-scope
-# directives consolidate here.
+# (unmask_minimal), (2) BAN enforcement if-blocks (= deny / rewrite-to-challenge),
+# (3) @unmask_rate_challenge named location, (4) the `location ^~ /unmask/`
+# proxy to the admin daemon.  Any future server-scope directives consolidate
+# here.
+#
+# Restricting which Host gets the admin UI: edit settings →
+# nginx.admin_allowed_hosts in admin (= HTTP-layer allowlist on /admin/*).
+# nginx still proxies /unmask/* on every vhost that includes this file; only
+# the admin UI surface is gated.
 #
 # Why access_log is required here: redefining access_log at the server level
 # stops nginx from inheriting the http-scope `access_log syslog:... unmask_minimal;`,
@@ -26,10 +32,10 @@
 # block, so this coexists with the user's existing access_log.
 #
 # The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
-# are declared by admin at /etc/unmask/native/http.inc (= http scope).
+# are declared by admin at /var/lib/unmask/nginx/http.inc (= http scope).
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed
-# ($unmask_log_keep is defined in native/http.inc, http scope).
+# ($unmask_log_keep is defined in http.inc, http scope).
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;
 {{- else }}
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
@@ -37,7 +43,7 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 
 # Persistent BAN application.  The native plugin reads the ban file and the
 # http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
-# native/http.inc) blanks out /unmask/* so the challenge HTML still loads.
+# http.inc) blanks out /unmask/* so the challenge HTML still loads.
 # Mirrors the forward-auth banDecideFromSource path so a manual / honeypot /
 # community_bans ban produces the same response in both modes (= settings.Bans
 # + Honeypot.DefaultAction resolved at ban-file flush time).
@@ -51,10 +57,7 @@ if ($unmask_banned_effective = "1") {
 # @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
 # in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
 # admin serves as a challenge page (= "you're going too fast, prove you're
-# human").  Native mode previously left this undefined → 429 fell through to
-# nginx's default 500 page.  /unmask/_rl is also handled by admin in the
-# forward-auth mode (server.inc) under the same name, so the path stays
-# consistent across modes.
+# human").
 location @unmask_rate_challenge {
     rewrite ^ /unmask/_rl$request_uri last;
 }
@@ -63,13 +66,15 @@ location @unmask_rate_challenge {
 # exposes variables but does NOT serve content, so every /unmask/ path
 # (challenge HTML, verify API, static assets, rate-limit challenge, dashboard,
 # healthz, metrics) is proxied to the admin upstream.  This makes native mode
-# self-contained: a vhost only needs `include native/server.inc;` here plus
-# `include native/protect.inc;` in protected locations — no hand-written
-# /unmask/ block and no auth_request/server.inc (= that richer per-path bundle
-# is for forward-auth mode, and mixing it in duplicates this location).
-# The upstream `unmask_admin` is declared in /etc/unmask/upstream.conf.
+# self-contained: a vhost only needs `include server.inc;` here plus
+# `include protect.inc;` in protected locations.
+#
+# Whether the admin UI is reachable through this Host is decided at the HTTP
+# layer by admin's settings.Nginx.AdminAllowedHosts allowlist; nginx itself
+# proxies on every Host.  See settings → nginx.admin_allowed_hosts.
+# The upstream `unmask` is declared at the tail of http.inc.
 location ^~ /unmask/ {
-    proxy_pass         http://unmask_admin;
+    proxy_pass         http://unmask;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;
     # Server-side scheme / port injection.  The admin trusts these when

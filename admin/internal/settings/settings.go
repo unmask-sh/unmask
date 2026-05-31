@@ -76,54 +76,15 @@ type Secret struct {
 type ChallengeConfig struct {
 	Default ChallengeValues            `yaml:"default"`
 	Sites   map[string]ChallengeValues `yaml:"sites,omitempty"`
-
-	// Install-wide forward-auth JA4 trust (= NOT per-site; one knob for the
-	// whole install).  See the field comments below for the trust model.
-	JA4Source                 string   `yaml:"ja4_source,omitempty"`
-	TrustedForwardAuthProxies []string `yaml:"trusted_forward_auth_proxies,omitempty"`
 }
 
-// JA4 source modes for ChallengeConfig.JA4Source.
-const (
-	JA4SourceOff    = "off"
-	JA4SourceModule = "module"
-	JA4SourceHeader = "header"
-)
-
-// ResolvedJA4Source returns the effective JA4 source mode, defaulting to
-// JA4SourceOff for empty / unrecognized values (= secure-by-default).
-//
-// Modes:
-//   - "off"    : never read X-Client-JA4 (default; secure-by-default).
-//   - "module" : native nginx-module mode -- JA4 reaches nginx as
-//                $client_ja4, never as an HTTP header to /api/check, so
-//                auth_check ignores X-Client-JA4 (belt-and-suspenders).
-//   - "header" : forward-auth mode -- an upstream proxy forwards the real
-//                client's JA4 via X-Client-JA4.  Honored only when the
-//                connection peer matches TrustedForwardAuthProxies.
-//
-// The native-mode LB trust knobs (= nginx.trusted_lb_presets /
-// trusted_lb_extra) are a separate path and untouched.
-func (c ChallengeConfig) ResolvedJA4Source() string {
-	switch c.JA4Source {
-	case JA4SourceModule, JA4SourceHeader:
-		return c.JA4Source
-	default:
-		return JA4SourceOff
-	}
-}
-
-// ResolvedTrustedForwardAuthProxies returns the configured proxy CIDRs, or
-// the loopback default (127.0.0.0/8, ::1/128) when unset.  The peer
-// connection address (= r.RemoteAddr, NOT the resolved visitor IP) is
-// matched against this list; an X-Client-JA4 from a non-listed peer is
-// dropped (= spoof protection).
-func (c ChallengeConfig) ResolvedTrustedForwardAuthProxies() []string {
-	if len(c.TrustedForwardAuthProxies) == 0 {
-		return []string{"127.0.0.0/8", "::1/128"}
-	}
-	return c.TrustedForwardAuthProxies
-}
+// JA4 trust at the admin / HTTP layer is gated by the LB CIDR list alone
+// (= settings.Nginx.TrustedLBPresets / TrustedLBExtra plus the loopback
+// default).  An X-Client-JA4 header is honored iff the connection peer falls
+// inside that list; no separate on/off knob exists.  Configuring at least
+// one trusted LB CIDR turns the trust on; leaving the list empty (loopback
+// only) means only nginx (= the local proxy) can supply JA4, which is the
+// shape every native-mode install ends up in by default.
 
 // Resolve returns the ChallengeValues for the given site.  When site has an
 // entry in Sites the entry is returned verbatim (= no merge with Default,
@@ -356,13 +317,6 @@ type Server struct {
 	// filled automatically). In shared-DB setups where hostnames collide or
 	// change dynamically, pin a fixed name in config.
 	HostID string `yaml:"host_id,omitempty"`
-	// LogPath: log output destination for unmask itself. Unset / empty
-	// → stderr. When combined with logrotate, send SIGHUP from postrotate
-	// and the admin re-opens the file fd (= writes to the post-rename inode).
-	// We do not use systemd unit StandardOutput=append: (= if systemd holds
-	// the fd, the admin cannot handle rotation; instead we use the journal
-	// only as a fallback for startup errors).
-	LogPath string `yaml:"log_path,omitempty"`
 }
 
 // IPGeo: optional IP-geolocation mmdb integration (DB-IP Lite / MaxMind
@@ -437,6 +391,20 @@ type Nginx struct {
 	StatsExcludeIPs  []string `yaml:"stats_exclude_ips,omitempty"`
 	AdminAllowFrom   []string `yaml:"admin_allow_from"`
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
+
+	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
+	// Empty = allow every Host that reaches the admin (legacy compat).  When
+	// the same nginx serves multiple domains and only one should expose the
+	// admin UI, list that domain here.  Comparison is case-insensitive and
+	// the port suffix (= :443 etc.) is stripped before matching.
+	//
+	// Notes:
+	//   - The challenge surfaces (= /unmask/challenge/, /unmask/_check,
+	//     /unmask/_rl/, /unmask/healthz) ignore this list because they must
+	//     work on every public-traffic vhost.  Only /admin/* is gated.
+	//   - This is an HTTP-layer check inside admin; nginx still proxies
+	//     /unmask/* to admin unchanged (= no nginx config involvement).
+	AdminAllowedHosts []string `yaml:"admin_allowed_hosts,omitempty"`
 
 	// Preset IDs of trusted LBs. Default is empty (= all disabled, secure default).
 	// Pick IDs from the presets in nginxconf/lb_iprange.go to enable. Example:
@@ -739,7 +707,10 @@ type HoneypotConfig struct {
 	// tab.
 	URLs []HoneypotURL `yaml:"urls,omitempty"`
 	// BanFilePath: output path for the ban list (= honeypot / manual / all
-	// sources).  Install-wide; default /etc/unmask/banned.txt.
+	// sources).  Install-wide; default /var/lib/unmask/nginx/banned.txt
+	// because the file is admin-rendered state, not a user-edited config
+	// (= FHS: /etc/ is for hand-edited files only).  Only the native mode
+	// reads this -- forward-auth checks the DB directly.
 	BanFilePath string `yaml:"ban_file_path,omitempty"`
 	// DefaultAction: chain to run when a honeypot trip results in a
 	// challenge (= chMode used by challenge.html JS).  Empty = inherit
@@ -1115,16 +1086,16 @@ type CommunityBans struct {
 	TermsAcceptedVersion int   `yaml:"terms_accepted_version,omitempty"`
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
-	// AutoBanMinScore: score threshold (1-5) above which a promoted hub entry
-	// gets auto-added to the local BanMgr.  0 disables (= map-only enforcement,
-	// no per-row BAN list rows from the hub).  Default 3 = "everything the hub
-	// promotes (score >= 3) flows into my BAN list" -- safe because the default
-	// action is captcha_only, so a false positive still recovers via captcha.
-	AutoBanMinScore int `yaml:"auto_ban_min_score,omitempty"`
-	// AutoBanAction: chain mode applied to auto-added rows.  Empty defers to
-	// settings.Nginx.Bans.CommunityBansDefaultAction.  Concrete values:
-	// deny / pow_only / pow_then_captcha / captcha_only.  Default captcha_only.
-	AutoBanAction string `yaml:"auto_ban_action,omitempty"`
+
+	// LocalMutes: install-local opt-out list.  Each entry mutes one hub feed
+	// row so it is dropped before WriteMapFiles, even when subscribe_mode =
+	// fetch_apply.  Key shape mirrors community_bans entry identity:
+	//   "ip_only:<ip>"          (= no JA4)
+	//   "ja4_only:<ja4>"        (= no IP)
+	//   "ip_ja4:<ip>|<ja4>"     (= both -- pipe-separated)
+	// The "共有 BAN" tab toggles entries in / out of this list; the hub copy
+	// is untouched (= mute is a local override, not a hub action).
+	LocalMutes []string `yaml:"local_mutes,omitempty"`
 
 	// OperatorEndpoint: base URL for the hub-operator API (= the endpoints
 	// behind GET/PATCH /api/feed/operator/*).  Only the operator running the
@@ -1144,10 +1115,9 @@ const (
 	DefaultCommunityBansSubmitURL   = "https://unmask.sh/api/feed/submit"
 	// FeedURL is the single hub endpoint that ships promoted + reports-only
 	// entries together.  WriteMapFiles filters Promoted=true before writing
-	// the nginx map files so non-promoted entries stay browse-only.  The
-	// local AutoBanMinScore threshold then narrows the propagated set further
-	// for auto-ban -- the hub no longer publishes a separate pre-filtered
-	// file for that.
+	// the nginx map files so non-promoted entries stay browse-only.  Local
+	// enforcement is map-only (= no copy into unmask_ban); the "共有 BAN"
+	// tab is the sole UI for browsing what the hub published.
 	DefaultCommunityBansFeedURL      = "https://unmask.sh/api/feed/list.json"
 	DefaultCommunityBansAggregateURL = "https://unmask.sh/api/feed/aggregate"
 )
@@ -1540,7 +1510,6 @@ func defaults() Settings {
 			Bind:     "127.0.0.1",
 			Port:     9477,
 			BasePath: "/unmask",
-			LogPath:  "/var/log/unmask/admin.log",
 		},
 		NginxLog: NginxLog{
 			Enabled:    true,
@@ -1562,15 +1531,17 @@ func defaults() Settings {
 			SubmitEnabled:    false,
 			SubscribeMode:    SubscribeOff,
 			PublishCountry:   true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
-			RegisterURL:      DefaultCommunityBansRegisterURL,
-			SubmitURL:        DefaultCommunityBansSubmitURL,
-			FeedURL:          DefaultCommunityBansFeedURL,
-			AggregateURL:     DefaultCommunityBansAggregateURL,
-			AutoBanMinScore:  3, // default: auto-apply everything the hub promotes (score >= 3); captcha_only action keeps false positives recoverable
-			AutoBanAction:    "captcha_only",
+			RegisterURL:  DefaultCommunityBansRegisterURL,
+			SubmitURL:    DefaultCommunityBansSubmitURL,
+			FeedURL:      DefaultCommunityBansFeedURL,
+			AggregateURL: DefaultCommunityBansAggregateURL,
 		},
 		Nginx: Nginx{
-			OutputDir:    "/etc/unmask",
+			// /var/lib/ rather than /etc/ because everything below this point
+			// is admin-rendered (= DO NOT EDIT) -- /etc/ is reserved for the
+			// hand-edited config.yml per FHS.  Future apache support will live
+			// at /var/lib/unmask/apache/ alongside /var/lib/unmask/nginx/.
+			OutputDir:    "/var/lib/unmask/nginx",
 			UpstreamAddr: "127.0.0.1:9477",
 			SeenVersion:  "v0.1", // for old-yml compat (= initialized here when the field is missing)
 			// AdminAllowFrom defaults to empty: avoids silently locking down
@@ -1614,7 +1585,7 @@ func defaults() Settings {
 				DisabledPresets: []string{
 					"wordpress", "secrets", "cms-admin", "shell", "cgi-tomcat", "scan-paths",
 				},
-				BanFilePath: "/etc/unmask/banned.txt",
+				BanFilePath: "/var/lib/unmask/nginx/banned.txt",
 				// DefaultAction left empty -> inherits the same fallback as
 				// the rate-limit default (pow_then_captcha).  Keeps the
 				// chain choice consistent across axes.

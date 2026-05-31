@@ -119,10 +119,7 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 .ph-check{background:#e2e8f0;color:#475569}         /* gray meta (= auth_request parent event) */
 .ph-check-pass{background:#dcfce7;color:#166534}    /* green pass */
 .ph-check-block{background:#fee2e2;color:#991b1b}   /* red reject */
-.pager{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.75rem}
-.pager a,.pager span{padding:.3rem .8rem;border:1px solid #cbd5e1;border-radius:.2rem;text-decoration:none;color:#475569;font-size:.85rem}
-.pager a:hover{background:#f1f5f9;color:#0f172a}
-.pager span.disabled{color:#cbd5e1;cursor:not-allowed}
+/* pager styles via partial_pager_styles below. */
 /* live tail */
 .live-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
 .live-bar button{padding:.25rem .8rem;font-size:.78rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155}
@@ -181,6 +178,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
 </style>
 {{ template "popover_pin_assets" . }}
+{{ template "pager_styles" }}
 </head>
 <body>
 <header class="unmask-header">
@@ -282,7 +280,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       <tr>
         {{/* JA4 strings are always fully visible in this column (= no
              truncation), so a native title= would just repeat the same
-             value as a tooltip and clutter the UI. */}}
+             value as a tooltip and clutter the UI.  When the operator opens
+             the BAN dialog from this row, the dialog shows JA4 + a sample
+             IP (= the most-frequent IP observed with this JA4 in window)
+             so the community share submission carries an (ip, ja4) pair
+             with ban_source=ja4_ranking. */}}
         <td class="key">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ .Count }}</td>
         <td class="actions">
@@ -293,11 +295,15 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <span class="action-pill action-{{ .Action }}">{{ .Verdict }}</span>
             </span>
             {{ else }}
-            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" onsubmit="return confirm('Register JA4 {{ .Key }} as bot?')">
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" class="js-ban-form" data-ja4="{{ .Key }}" style="display:inline">
               <input type="hidden" name="op" value="ja4_bot">
               <input type="hidden" name="pattern" value="{{ .Key }}">
               <input type="hidden" name="title" value="bot hunt ({{ .Count }} req)">
               <input type="hidden" name="range" value="{{ $.Range }}">
+              <input type="hidden" name="share" value="">
+              <input type="hidden" name="reason" value="">
+              <input type="hidden" name="comment" value="">
+              <input type="hidden" name="accept_terms" value="">
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_bot" }}</button>
             </form>
             {{ end }}
@@ -380,13 +386,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     {{ end }}
   </form>
   <div class="events-scroll">
+  {{ template "pager_seek" .PagerSeek }}
   {{ template "events_table_block" . }}
   </div>
-  <div class="pager">
-    {{ $hostQS := "" }}{{ range $h, $on := .HostSelected }}{{ if $on }}{{ $hostQS = printf "%s&host=%s" $hostQS $h }}{{ end }}{{ end }}
-    {{ if .HasPrev }}<a href="?range={{ .Range }}&ip={{ .IPFilter }}&ja4={{ .JA4Filter }}&phase={{ .Phase }}{{ $hostQS }}&offset={{ .PrevOffset }}">← {{ t .Lang "audit.prev" }}</a>{{ else }}<span class="disabled">← {{ t .Lang "audit.prev" }}</span>{{ end }}
-    {{ if .HasMore }}<a href="?range={{ .Range }}&ip={{ .IPFilter }}&ja4={{ .JA4Filter }}&phase={{ .Phase }}{{ $hostQS }}&offset={{ .NextOffset }}">{{ t .Lang "audit.next" }} →</a>{{ else }}<span class="disabled">{{ t .Lang "audit.next" }} →</span>{{ end }}
-  </div>
+  {{ template "pager_seek" .PagerSeek }}
 </div>
 
 </main>
@@ -405,13 +408,19 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{/* one unified clickwrap.  Not yet opted in: ticking share also accepts
            the terms (the label carries the links), and the server flips
            submit_enabled + TermsAcceptedAt via accept_terms=1.  Already opted
-           in: it's a plain per-BAN share toggle.  The BAN never needs consent. */}}
+           in: it's a plain per-BAN share toggle.  The BAN never needs consent.
+           The detailed disclosure (= terms_note) sits in a `<details>` block
+           below the label.  A popover would get trapped inside the dialog's
+           top-layer; a native `<details>` expands inline and dodges that. */}}
       <label class="ban-dialog-share">
         <input type="checkbox" id="ban-dialog-share">
         <span>{{ if .CommunityBansActive }}{{ t .Lang "hunt.ban.share_label" }}{{ else }}{{ safeHTML (t .Lang "hunt.ban.share_consent_label") }}{{ end }}</span>
       </label>
       {{ if not .CommunityBansActive }}
-      <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
+      <details class="ban-dialog-terms-details">
+        <summary>{{ t .Lang "hunt.ban.terms_more" }}</summary>
+        <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
+      </details>
       {{ end }}
       <div id="ban-dialog-reason-row" class="ban-dialog-reason" style="display:none">
         <label for="ban-dialog-reason">{{ t .Lang "hunt.ban.reason_shared_label" }}</label>
@@ -438,7 +447,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .ban-dialog-reason{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
 .ban-dialog-reason label{color:#475569;font-size:.78rem}
 .ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
-.ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem}
+.ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem;margin-top:1.2rem}
+.ban-dialog-terms-details{font-size:.78rem;color:#64748b}
+.ban-dialog-terms-details summary{cursor:pointer;color:#3b82f6;user-select:none;list-style:revert}
+.ban-dialog-terms-details summary:hover{text-decoration:underline}
+.ban-dialog-terms-details .ban-dialog-terms-note{margin-top:.4rem;padding:.5rem .7rem;background:#f8fafc;border-left:.15rem solid #cbd5e1;border-radius:.2rem;line-height:1.7}
 /* align-items:flex-start so the unified consent label (= terms links + share
  * copy on no-prior-opt-in) wraps cleanly with the checkbox pinned to the top. */
 .ban-dialog-share{display:flex;align-items:flex-start;gap:.45rem;font-size:.875rem;cursor:pointer;line-height:1.4}
@@ -911,7 +924,7 @@ document.addEventListener('DOMContentLoaded', function(){
       ev.preventDefault();
       var ip  = form.dataset.ip  || '';
       var ja4 = form.dataset.ja4 || '';
-      if (target) target.textContent = ja4 ? (ip + '  ·  ' + ja4) : ip;
+      if (target) target.textContent = [ip, ja4].filter(Boolean).join(' / ');
       if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
       // Seed the editable reason with the auto-generated default so the operator
       // can review, tweak, or clear it before sharing.

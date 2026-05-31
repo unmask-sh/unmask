@@ -35,7 +35,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
-	"github.com/unmask-sh/unmask/admin/internal/logwriter"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
@@ -171,21 +170,10 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Switch the log destination to our own file open (rather than systemd
-	// StandardOutput=append:).  Needed so we can reopen the fd on SIGHUP for
-	// logrotate compatibility.  On failure (permission etc.), fall back to
-	// stderr and continue startup.
-	var lw *logwriter.LogWriter
-	if s.Server.LogPath != "" {
-		w, err := logwriter.New(s.Server.LogPath)
-		if err != nil {
-			log.Printf("logwriter: %v (= stderr fallback)", err)
-		} else {
-			lw = w
-			log.SetOutput(lw)
-			log.Printf("logwriter: writing to %s (reopen on SIGHUP)", lw.Path())
-		}
-	}
+	// Logging follows 12-factor: every log line goes to stderr and the init
+	// system (= systemd journald / OpenRC syslog / docker container runtime)
+	// handles routing + retention.  No app-side file rotation; see
+	// https://12factor.net/logs.
 	// Serve still starts even when DB connection fails (incomplete db: section
 	// in admin.yml, or DB server not running).  The setup wizard at
 	// /admin/setup/ accepts driver / connection info and hot-swaps it after
@@ -366,7 +354,6 @@ func cmdServe(args []string) error {
 			UserAgent:      "unmask/" + Version,
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
-			BanMgr:         banMgr,
 		}
 		go h.CommunityBans.Run(context.Background(), time.Hour)
 	}
@@ -455,22 +442,13 @@ func cmdServe(args []string) error {
 		IdleTimeout:       60 * time.Second,
 	}
 
-	// Treat SIGHUP as logrotate's "please reopen the log file" request
-	// (don't stop the process).  SIGINT / SIGTERM trigger graceful shutdown.
+	// SIGINT / SIGTERM trigger graceful shutdown.  SIGHUP is no longer
+	// special-cased (= the app no longer owns a log file to reopen; the
+	// init system handles routing).
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		for sig := range sigCh {
-			if sig == syscall.SIGHUP {
-				if lw != nil {
-					if err := lw.Reopen(); err != nil {
-						log.Printf("logwriter: reopen failed: %v", err)
-					} else {
-						log.Printf("logwriter: reopened %s (via SIGHUP)", lw.Path())
-					}
-				}
-				continue
-			}
 			log.Printf("shutdown signal received: %s", sig)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			_ = srv.Shutdown(ctx)
@@ -676,6 +654,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminMyIP))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/{$}",
 		h.AuthMiddleware(h.AdminCommunityBansIndex))
+	mux.HandleFunc("POST "+base+"/admin/community-bans/mute-toggle",
+		h.AuthMiddleware(h.AdminCommunityBansMuteToggle))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/removals",
 		h.AuthMiddleware(h.AdminRemovalRequestsIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/removals/{id}",

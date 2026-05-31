@@ -47,8 +47,15 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .filter-bar a.reset{padding:.3rem .5rem;color:#475569;text-decoration:none;font-size:.85rem}
 table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
 table.feed{table-layout:fixed} /* Fixed layout: each cell honours max-width / overflow rules below instead of stretching to fit content. */
-table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
-table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+/* col widths below sum to ~100% of the wrap; any leftover gets proportionally
+ * distributed by the fixed-layout algorithm, so keep the sum close to the
+ * actual wrap width to make the narrow columns (score / match / votes) really
+ * stay narrow. */
+table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #cbd5e1;border-right:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc}
+table.feed thead th:last-child{border-right:none}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;border-right:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+table.feed tbody td:last-child{border-right:none}
+table.feed tbody tr:hover{background:#f8fafc}
 /* Time cells: inline <time> elements still need an explicit line-height so
  * their first line sits exactly where the clamp-cell's first line does. */
 table.feed tbody td>time.js-datetime{display:inline-block;line-height:1.4}
@@ -56,16 +63,29 @@ table.feed tbody td>time.js-datetime{display:inline-block;line-height:1.4}
  * text is exposed by hovering the cell -- title= on the td).  Time columns
  * wide enough for the YYYY/M/D HH:MM:SS the toLocaleString() formatter
  * produces on the desktop locales we care about. */
-table.feed col.col-reason,table.feed col.col-comments{width:12rem}
-table.feed col.col-ip{width:11rem}
-table.feed col.col-ja4{width:12rem}
-table.feed col.col-time{width:10rem}
-table.feed col.col-score{width:5rem}
-table.feed col.col-match{width:7.5rem}
-table.feed col.col-votes{width:11rem}
-table.feed col.col-marker{width:1.5rem}
+/* Percentages over the wrap so each column gets its share regardless of how
+ * wide the host viewport is.  Narrow columns (score / match / votes) hold
+ * their ground; wide ones (reason / comment / ja4) absorb the leftover. */
+table.feed col.col-marker{width:2%}
+table.feed col.col-score{width:5%}
+table.feed col.col-match{width:5%}
+table.feed col.col-status{width:3%}
+table.feed col.col-ip{width:11%}
+table.feed col.col-ja4{width:14%}
+table.feed col.col-votes{width:9%}
+table.feed col.col-reason{width:15%}
+table.feed col.col-comments{width:17%}
+table.feed col.col-time{width:14%}
+/* SCORE / MATCH / 適用 列は中身が短い → 折り返し抑止で 1 行に保つ */
+table.feed thead th:nth-child(2),table.feed thead th:nth-child(3),table.feed thead th:nth-child(4),table.feed tbody td:nth-child(2),table.feed tbody td:nth-child(3),table.feed tbody td:nth-child(4){white-space:nowrap}
+/* status column (= 適用 badge / toggle button): 1-char icons, never clip. */
+table.feed tbody td:nth-child(4){overflow:visible;text-overflow:clip}
 table.feed td.clamp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-table.feed td.clamp .cmt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Inside the comments column the .cmt spans render inline (no chip styling)
+ * so multiple comments collapse onto a single line + ellipsis once overflow
+ * triggers.  Detail-panel .cmt (= block chip) is unaffected by this scope. */
+table.feed td.clamp .cmt{display:inline;background:transparent;padding:0;margin:0;font-size:inherit;border-radius:0}
+table.feed td.clamp .cmt + .cmt::before{content:" · ";color:#94a3b8;padding:0 .1rem}
 /* Sort header link: every sortable column shows a permanent "⇅" affordance so
  * the operator can tell at a glance which headers click.  The arrow turns into
  * the active direction (▼ / ▲) once that column drives the sort.  Hover
@@ -135,7 +155,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .votes-cell{display:inline-flex;gap:.35rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
-.votes-cell .cmt-count{color:#64748b}
+.votes-cell .cmt-count{color:#1e40af}
 /* status badges sit on their own line under the match pill so a narrow
  * match column doesn't wrap them mid-text. */
 /* Status badges sit inline next to the match-pill so the row stays one line.
@@ -143,7 +163,14 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
  * can still read "適用中 / 配信対象 / 報告のみ / 適用外" on hover.  The colour
  * still carries the meaning at a glance: green=enforced, blue=propagated,
  * grey=reports-only, amber=bypassed-allowlist. */
-.enforced-badge,.promoted-badge,.reports-only-badge,.bypassed-badge{display:inline-block;margin-left:.3rem;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
+.enforced-badge,.promoted-badge,.reports-only-badge,.not-applied-badge,.bypassed-badge,.muted-badge{display:inline-block;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
+.muted-badge{background:#fee2e2;color:#991b1b}
+/* mute-toggle-btn-badge: strip <button> chrome so it looks like the surrounding
+   span badges, but keep it interactive (cursor:pointer, focus ring). */
+.mute-toggle-btn-badge{font:inherit;border:none;cursor:pointer}
+.mute-toggle-btn-badge:hover{filter:brightness(.95)}
+.mute-toggle-btn-badge:focus{outline:.125rem solid #3b82f6;outline-offset:.1rem}
+.not-applied-badge{background:transparent;color:#94a3b8;font-weight:600}
 .enforced-badge{background:#dcfce7;color:#166534}
 .promoted-badge{background:#dbeafe;color:#1e40af}
 .reports-only-badge{background:#f1f5f9;color:#64748b}
@@ -187,11 +214,12 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
 .note{color:#64748b;font-size:.85rem;line-height:1.6}
 .note code{background:#f1f5f9;padding:.1em .4em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace}
-.pager{display:flex;gap:.5rem;align-items:center;justify-content:center;margin:1rem 0;font-size:.85rem}
-.pager a,.pager span{padding:.3rem .65rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#fff;color:#475569;text-decoration:none}
-.pager a:hover{background:#f1f5f9}
-.pager .current{background:#0f172a;color:#fff;border-color:#0f172a;font-weight:600}
-.pager .disabled{opacity:.4;pointer-events:none}
+/* pager styles are pulled in via partial_pager_styles below. */
+.impact-panel{display:flex;flex-wrap:wrap;gap:1rem;padding:.6rem .8rem;margin:.7rem 0 .5rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.3rem;font-size:.82rem;color:#166534}
+.impact-stat{display:inline-flex;align-items:center;gap:.4rem;cursor:help}
+.impact-stat strong{font-weight:600;color:#15803d}
+.impact-stat .impact-num{font-family:ui-monospace,Menlo,monospace;font-size:.95rem;font-weight:700;color:#0f172a}
+.impact-stat .impact-sub{color:#475569;font-size:.78rem;margin-left:.15rem}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -207,6 +235,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .picker select option{color:#0f172a;background:#fff}
 </style>
 {{ template "popover_pin_assets" . }}
+{{ template "pager_styles" }}
 </head>
 <body>
 <header class="unmask-header">
@@ -250,32 +279,30 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
     </form>
   </div>
 
-  <div class="counts">
-    <span class="pill"><strong>{{ .CommunityBansTotalEntries }}</strong> {{ t .Lang "community_bans.total" }}</span>
-    <span class="pill">match=<span class="match-pill match-ip_ja4">ip_ja4</span> <strong>{{ .CommunityBansCountIPJA4 }}</strong></span>
-    <span class="pill">match=<span class="match-pill match-ja4_only">ja4_only</span> <strong>{{ .CommunityBansCountJA4 }}</strong></span>
-    <span class="pill">match=<span class="match-pill match-ip_only">ip_only</span> <strong>{{ .CommunityBansCountIP }}</strong></span>
-    {{ if gt .CommunityBansLastPulledAt 0 }}
-    <span class="pill">{{ t .Lang "community_bans.last_pulled" }}: <time class="js-datetime" data-ts="{{ .CommunityBansLastPulledAt }}">{{ .CommunityBansLastPulledAt }}</time></span>
-    {{ else }}
-    <span class="pill muted">({{ t .Lang "community_bans.never_pulled" }})</span>
+  {{- /* Impact panel: how often hub-derived BANs actually blocked traffic on
+        this install. Surfaces the value-add of subscribing -- "the shared
+        feed prevented N hits in 30 days" -- alongside the list itself. */ -}}
+  <div class="impact-panel">
+    <span class="impact-stat" data-info="{{ t .Lang "community_bans.hits30d_tip" }}">
+      📊 <strong>{{ t .Lang "community_bans.hits30d_label" }}</strong>
+      <span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
+      {{ if gt .CommunityBansHitsUniqueIP30d 0 }}<span class="impact-sub">(uniq IP: {{ comma .CommunityBansHitsUniqueIP30d }})</span>{{ end }}
+    </span>
+    {{ if gt .CommunityBansFromHub 0 }}
+    <span class="impact-stat" data-info="{{ t .Lang "community_bans.impact_tip" }}">
+      🔁 <strong>{{ t .Lang "community_bans.impact_auto_label" }}</strong>
+      <span class="impact-num">{{ comma .CommunityBansFromHub }}</span> 行
+    </span>
     {{ end }}
   </div>
-
-  <details id="my-subs-card" style="margin:.6rem 0;padding:.4rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-    <summary style="cursor:pointer;font-weight:600;color:#0f172a;font-size:.9rem">{{ t .Lang "community_bans.my_submissions_h" }} <span id="my-subs-count" class="muted" style="font-weight:normal;font-size:.8rem">…</span></summary>
-    <div id="my-subs-body" style="padding:.5rem 0;font-size:.82rem">
-      <span class="muted">{{ t .Lang "community_bans.detail.loading" }}</span>
-    </div>
-  </details>
 
   <form method="GET" class="filter-bar">
     <input type="text" name="q" value="{{ .CommunityBansQuery }}" placeholder="{{ t .Lang "community_bans.filter.q_placeholder" }}">
     <select name="match">
-      <option value="" {{ if eq .CommunityBansMatch "" }}selected{{ end }}>{{ t .Lang "community_bans.filter.all_matches" }}</option>
-      <option value="ip_ja4"   {{ if eq .CommunityBansMatch "ip_ja4"   }}selected{{ end }}>ip_ja4</option>
-      <option value="ja4_only" {{ if eq .CommunityBansMatch "ja4_only" }}selected{{ end }}>ja4_only</option>
-      <option value="ip_only"  {{ if eq .CommunityBansMatch "ip_only"  }}selected{{ end }}>ip_only</option>
+      <option value="" {{ if eq .CommunityBansMatch "" }}selected{{ end }}>{{ t .Lang "community_bans.filter.all_matches" }} ({{ .CommunityBansTotalEntries }})</option>
+      <option value="ip_ja4"   {{ if eq .CommunityBansMatch "ip_ja4"   }}selected{{ end }}>ip_ja4 ({{ .CommunityBansCountIPJA4 }})</option>
+      <option value="ja4_only" {{ if eq .CommunityBansMatch "ja4_only" }}selected{{ end }}>ja4_only ({{ .CommunityBansCountJA4 }})</option>
+      <option value="ip_only"  {{ if eq .CommunityBansMatch "ip_only"  }}selected{{ end }}>ip_only ({{ .CommunityBansCountIP }})</option>
     </select>
     <button type="submit">{{ t .Lang "community_bans.filter.apply" }}</button>
     {{ if or .CommunityBansMatch .CommunityBansQuery }}
@@ -283,26 +310,23 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
     {{ end }}
   </form>
 
-  {{ if gt .CommunityBansFiltered 0 }}
-  <div class="note" style="margin:.3rem 0 .5rem;font-size:.78rem">
-    {{ .PageStart }}-{{ .PageEnd }} / {{ .CommunityBansFiltered }} 件
-  </div>
-  {{ end }}
-
   <div class="status-legend" role="note" aria-label="{{ t .Lang "community_bans.legend.aria" }}">
     {{- /* fetch+apply mode: every applicable row enforces, so the "score 3+
            but not enforced yet" status never appears.  Show 適用中 in its
            place.  fetch / off: rows are at most "applicable", not enforced. */ -}}
-    {{ if eq .SubscribeMode "fetch_apply" }}<span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>{{ else }}<span class="leg leg-promoted">{{ t .Lang "community_bans.legend.promoted" }}</span>{{ end }}
+    {{ if eq .SubscribeMode "fetch_apply" }}<span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>{{ end }}
     <span class="leg leg-reports">{{ t .Lang "community_bans.legend.reports" }}</span>
     <span class="leg leg-bypassed">{{ t .Lang "community_bans.legend.bypassed" }}</span>
   </div>
+
+  {{ template "pager_full" .Pager }}
 
   <table class="feed">
     <colgroup>
       <col class="col-marker">
       <col class="col-score">
       <col class="col-match">
+      <col class="col-status">
       <col class="col-ip">
       <col class="col-ja4">
       <col class="col-votes">
@@ -321,14 +345,15 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
         <th style="width:1.5rem"></th>
         <th class="sortable"><a class="sort-link{{ if eq $sort "score" }} active{{ end }}" href="?{{ $sortBase }}sort=score&amp;order={{ if and (eq $sort "score") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.score" }}{{ if eq $sort "score" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
         <th>{{ t .Lang "community_bans.col.match" }}</th>
+        <th>{{ t .Lang "community_bans.col.status" }}</th>
         <th>IP</th>
         <th>JA4</th>
         <th class="votes-th">
           <span class="th-label">{{ t .Lang "community_bans.col.votes" }}</span>
           <span class="sort-mini">
-            <a class="{{ if eq $sort "reports" }}active{{ end }}" href="?{{ $sortBase }}sort=reports&amp;order={{ if and (eq $sort "reports") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by reports">📍{{ if eq $sort "reports" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
-            <a class="{{ if eq $sort "good" }}active{{ end }}" href="?{{ $sortBase }}sort=good&amp;order={{ if and (eq $sort "good") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by likes">👍{{ if eq $sort "good" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
-            <a class="{{ if eq $sort "comments" }}active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}" title="sort by comments">💬{{ if eq $sort "comments" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "reports" }}active{{ end }}" href="?{{ $sortBase }}sort=reports&amp;order={{ if and (eq $sort "reports") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by reports" aria-label="sort by reports">📍{{ if eq $sort "reports" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "good" }}active{{ end }}" href="?{{ $sortBase }}sort=good&amp;order={{ if and (eq $sort "good") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by likes" aria-label="sort by likes">👍{{ if eq $sort "good" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "comments" }}active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by comments" aria-label="sort by comments">💬{{ if eq $sort "comments" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
           </span>
         </th>
         <th>{{ t .Lang "community_bans.col.reason" }}</th>
@@ -338,25 +363,60 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
     </thead>
     <tbody>
       {{ range .CommunityBansEntries }}
-      <tr class="feed-row {{ if .Bypassed }}row-bypassed{{ else if not .Promoted }}row-reports not-promoted{{ else if eq $.SubscribeMode "fetch_apply" }}row-enforced{{ else }}row-promoted{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+      {{- /* Three-state display (the operator only cares whether THIS install
+            will actually act on the row):
+              ★  bypassed (= whitelisted -- never enforced regardless of score)
+              ✓  enforced (= fetch_apply + Promoted (= score >= 3 hub-side))
+              ○  everything else (= "not applied": reports-only or fetch-only). */ -}}
+      {{- $enforced := and (eq $.SubscribeMode "fetch_apply") .Promoted -}}
+      <tr class="feed-row {{ if .Bypassed }}row-bypassed{{ else if $enforced }}row-enforced{{ else if not .Promoted }}row-reports not-promoted{{ else }}row-reports{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
         <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
-          {{ if eq .Score 5 }}<span class="score-pill score-5" title="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
-          {{ else if eq .Score 4 }}<span class="score-pill score-4" title="{{ t $.Lang "community_bans.score.4" }}">4 🚨</span>
-          {{ else if eq .Score 3 }}<span class="score-pill score-3" title="{{ t $.Lang "community_bans.score.3" }}">3 ⚠️</span>
-          {{ else if eq .Score 2 }}<span class="score-pill score-2" title="{{ t $.Lang "community_bans.score.2" }}">2 👀</span>
-          {{ else if eq .Score 1 }}<span class="score-pill score-1" title="{{ t $.Lang "community_bans.score.1" }}">1 🤷</span>
-          {{ else }}<span class="score-0" title="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
+          {{ if eq .Score 5 }}<span class="score-pill score-5" data-info="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
+          {{ else if eq .Score 4 }}<span class="score-pill score-4" data-info="{{ t $.Lang "community_bans.score.4" }}">4 🚨</span>
+          {{ else if eq .Score 3 }}<span class="score-pill score-3" data-info="{{ t $.Lang "community_bans.score.3" }}">3 ⚠️</span>
+          {{ else if eq .Score 2 }}<span class="score-pill score-2" data-info="{{ t $.Lang "community_bans.score.2" }}">2 👀</span>
+          {{ else if eq .Score 1 }}<span class="score-pill score-1" data-info="{{ t $.Lang "community_bans.score.1" }}">1 🤷</span>
+          {{ else }}<span class="score-0" data-info="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
           {{ end }}
         </td>
-        <td><span class="match-pill match-{{ .Match }}">{{ .Match }}</span>{{ if .Bypassed }}<span class="bypassed-badge" title="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">★</span>{{ else if not .Promoted }}<span class="reports-only-badge" title="{{ t $.Lang "community_bans.reports_only_label" }} — {{ t $.Lang "community_bans.reports_only_title" }}">○</span>{{ else if eq $.SubscribeMode "fetch_apply" }}<span class="enforced-badge" title="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>{{ else }}<span class="promoted-badge" title="{{ t $.Lang "community_bans.promoted_label" }} — {{ t $.Lang "community_bans.promoted_title2" }}">→</span>{{ end }}</td>
+        {{- /* hub の judge が報告少なすぎで MatchNone を返した場合でも、 (ip, ja4)
+              の有無から正しい match 種別を推定して pill を出す. 「いかなる場合
+              でも pill を見せる」 ためのフォールバック. */ -}}
+        {{- $matchPill := .Match -}}
+        {{- if eq $matchPill "" -}}
+          {{- if and .IP .JA4 }}{{ $matchPill = "ip_ja4" }}
+          {{- else if .JA4 }}{{ $matchPill = "ja4_only" }}
+          {{- else if .IP }}{{ $matchPill = "ip_only" }}{{ end -}}
+        {{- end -}}
+        <td><span class="match-pill match-{{ $matchPill }}">{{ $matchPill }}</span></td>
+        {{- /* mute key mirrors communitybans.MuteKey -- {ip_only|ja4_only|ip_ja4}:<id>. */ -}}
+        {{- $muteKey := "" -}}
+        {{- if and (eq $matchPill "ip_ja4") .IP .JA4 }}{{ $muteKey = printf "ip_ja4:%s|%s" .IP .JA4 }}
+        {{- else if and (eq $matchPill "ja4_only") .JA4 }}{{ $muteKey = printf "ja4_only:%s" .JA4 }}
+        {{- else if and (eq $matchPill "ip_only") .IP }}{{ $muteKey = printf "ip_only:%s" .IP }}{{- end -}}
+        {{- $isMuted := false -}}
+        {{- if and $muteKey $.MutedKeys -}}{{- if index $.MutedKeys $muteKey -}}{{- $isMuted = true -}}{{- end -}}{{- end -}}
+        <td>
+          {{- /* badge = toggle button when the row is mute-eligible (= has a
+                 MuteKey).  enforced ⇄ muted swap with one click; bypassed and
+                 not-applied stay non-interactive.  The badge keeps the
+                 status-color styling (.enforced-badge / .muted-badge) and
+                 reuses .mute-toggle-btn-badge to strip <button> chrome. */ -}}
+          {{ if .Bypassed }}<span class="bypassed-badge" data-info="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">🛡</span>
+          {{- else if and $isMuted $muteKey }}<button type="button" class="mute-toggle-btn-badge muted-badge" data-mute-key="{{ $muteKey }}" data-mute-action="unmute" aria-label="{{ t $.Lang "community_bans.unmute_action" }}" data-info="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}">❗</button>
+          {{- else if and $enforced $muteKey }}<button type="button" class="mute-toggle-btn-badge enforced-badge" data-mute-key="{{ $muteKey }}" data-mute-action="mute" aria-label="{{ t $.Lang "community_bans.mute_action" }}" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</button>
+          {{- else if $enforced }}<span class="enforced-badge" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>
+          {{- else }}<span class="not-applied-badge" data-info="{{ t $.Lang "community_bans.reports_only_label" }} — {{ t $.Lang "community_bans.reports_only_title" }}">—</span>
+          {{- end }}
+        </td>
         <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="mono clamp"{{ if .JA4 }} data-full="{{ .JA4 }}"{{ end }}>{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>
           <span class="votes-td">
-          {{ if gt .Reports 0 }}<span class="reports-badge" title="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}</span>{{ end }}
-          {{ if or (gt .LikeCount 0) (gt .CommentCount 0) }}<span class="votes-cell" title="{{ if .Reasoning }}{{ .Reasoning }}{{ end }}"><span class="like">👍 {{ .LikeCount }}</span>{{ if gt .CommentCount 0 }} <span class="cmt-count">💬 {{ .CommentCount }}</span>{{ end }}</span>{{ end }}
-          {{ if and (le .Installs 0) (le .LikeCount 0) (le .CommentCount 0) }}<span class="muted">-</span>{{ end }}
+          {{ if gt .Reports 0 }}<span class="reports-badge" data-info="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}</span>{{ end }}
+          {{/* 0 件でも明示表示 ([[feedback_zero_row_policy]]) -- operator が「報告はあるけど vote/comment 無し」 を一目で判断できる. */}}
+          <span class="votes-cell"{{ if .Reasoning }} data-info="{{ .Reasoning }}"{{ end }}><span class="like">👍 {{ .LikeCount }}</span> <span class="cmt-count">💬 {{ .CommentCount }}</span></span>
           </span>
         </td>
         <td class="clamp"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -370,26 +430,12 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
         <td>{{ if gt .FirstSeen 0 }}<time class="js-datetime" data-ts="{{ .FirstSeen }}">{{ .FirstSeen }}</time>{{ else }}<span class="muted">-</span>{{ end }}</td>
       </tr>
       {{ else }}
-      <tr><td colspan="9" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
 
-  {{ if gt .TotalPages 1 }}
-  <div class="pager">
-    {{ if le .PagePrev 0 }}
-      <span class="disabled">‹ prev</span>
-    {{ else }}
-      <a href="?{{ if .CommunityBansQuery }}q={{ .CommunityBansQuery }}&{{ end }}{{ if .CommunityBansMatch }}match={{ .CommunityBansMatch }}&{{ end }}page={{ .PagePrev }}">‹ prev</a>
-    {{ end }}
-    <span class="current">{{ .Page }} / {{ .TotalPages }}</span>
-    {{ if gt .PageNext .TotalPages }}
-      <span class="disabled">next ›</span>
-    {{ else }}
-      <a href="?{{ if .CommunityBansQuery }}q={{ .CommunityBansQuery }}&{{ end }}{{ if .CommunityBansMatch }}match={{ .CommunityBansMatch }}&{{ end }}page={{ .PageNext }}">next ›</a>
-    {{ end }}
-  </div>
-  {{ end }}
+  {{ template "pager_full" .Pager }}
 
   <div class="note" style="margin-top:.6rem;font-size:.78rem">
     {{ safeHTML (tf .Lang "community_bans.foot" .CommunityBansMapDir) }}
@@ -400,12 +446,85 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 </main>
 <div id="ip-popover" data-popover="ip"></div>
 <div id="clamp-popover" data-popover="clamp"></div>
+<div id="info-popover" data-popover="info"></div>
+{{/* Column-level popover for 💬: same detail data as the row-expand panel,
+     but scoped to the comments section + post form so the operator can
+     read / write without expanding the whole row.  Wired in the comment-
+     cell click handler near the end of this file. */}}
+<div id="comment-popover" data-popover="comment"></div>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('time.js-datetime').forEach(function(el){
     var ts = parseInt(el.getAttribute('data-ts'), 10);
     if (!ts) return;
     el.textContent = new Date(ts * 1000).toLocaleString();
+  });
+});
+
+// Mute toggle: POST via fetch with application/x-www-form-urlencoded body
+// (= Go's r.ParseForm reads urlencoded directly; FormData would be
+// multipart/form-data which needs ParseMultipartForm + a larger handler
+// surface).  Optimistic UI: flip badge + button locally; only revert on
+// server error.  No reload (= the rest of the page stays in place).
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('.mute-toggle-btn-badge');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  var key = btn.dataset.muteKey;
+  var action = btn.dataset.muteAction;
+  if (!key || !action) return;
+  // Snapshot for rollback.
+  var prevAction = action;
+  var prevText = btn.textContent;
+  var prevClass = btn.className;
+  var prevAria = btn.getAttribute('aria-label');
+  var prevInfo = btn.getAttribute('data-info');
+  // Optimistic flip: swap visual + dataset; keep the same <button> in place so
+  // a second click re-toggles without re-querying / re-creating elements.
+  btn.disabled = true;
+  if (action === 'mute') {
+    btn.className = 'mute-toggle-btn-badge muted-badge';
+    btn.textContent = '❗';
+    btn.dataset.muteAction = 'unmute';
+  } else {
+    btn.className = 'mute-toggle-btn-badge enforced-badge';
+    btn.textContent = '✓';
+    btn.dataset.muteAction = 'mute';
+  }
+  var basePath = "{{ .BasePath }}";
+  var body = new URLSearchParams();
+  body.append('key', key);
+  body.append('action', action);
+  fetch(basePath + '/admin/community-bans/mute-toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    credentials: 'same-origin',
+    redirect: 'manual',
+  }).then(function(r){
+    // 302 redirect under manual mode → status=0/302 = success here.
+    if (r.ok || r.status === 0 || r.status === 302) {
+      btn.disabled = false;
+      return;
+    }
+    r.text().then(function(t){
+      console.warn('mute-toggle: HTTP', r.status, t);
+      alert('mute-toggle failed: ' + r.status + ' ' + (t || '').slice(0, 200));
+      btn.className = prevClass;
+      btn.textContent = prevText;
+      btn.dataset.muteAction = prevAction;
+      btn.setAttribute('aria-label', prevAria);
+      btn.setAttribute('data-info', prevInfo);
+      btn.disabled = false;
+    });
+  }).catch(function(err){
+    console.warn('mute-toggle: network', err);
+    alert('mute-toggle failed: network');
+    btn.className = prevClass;
+    btn.textContent = prevText;
+    btn.dataset.muteAction = prevAction;
+    btn.disabled = false;
   });
 });
 
@@ -444,6 +563,70 @@ document.addEventListener('DOMContentLoaded', function(){
       e.preventDefault();
       pin.handleClick(fmt(td.dataset.full), e.pageX, e.pageY, td);
     });
+  });
+})();
+
+// Info popover (= replaces every native title= tooltip on the page so the
+// hover help renders inside the shared popover instead of the browser
+// chrome).  Targets any element with [data-info]; hover shows transient,
+// click pins.  Safe to overlap with clamp-popover (different popover slots,
+// independent pin state).
+(function(){
+  var pop = document.getElementById('info-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function fmt(text){
+    // data-info may already contain emoji + dashes; safeHTML payloads (= the
+    // settings.community_bans below_threshold_title carries a <strong>) live
+    // in i18n strings and are intentionally passed verbatim into the popover.
+    return '<div style="max-width:32rem;font-size:.82rem;line-height:1.5;white-space:normal">' + text + '</div>';
+  }
+  function infoTarget(el){
+    if (!el || !el.closest) return null;
+    // Skip elements that own their own popover (= .cmt-count opens the comment
+    // popover on click).  Otherwise the parent votes-cell's data-info would
+    // both show on hover AND get re-pinned on click, stacking two popovers.
+    if (el.closest('.cmt-count')) return null;
+    return el.closest('[data-info]');
+  }
+  document.addEventListener('mouseover', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    if (pin.hasPinFor(t)) return;
+    // Don't override the cursor on interactive elements: <button>s already
+    // own `pointer`, links own `pointer`, and pinning is suppressed for them
+    // (see the click handler below).  Also drop the "click to pin" hint
+    // from the popover (= popover-no-pin marker) so it doesn't advertise an
+    // action that won't fire for a button / link target.
+    if (t.tagName === 'A' || t.tagName === 'BUTTON') {
+      pop.classList.add('popover-no-pin');
+    } else {
+      pop.classList.remove('popover-no-pin');
+      t.style.cursor = 'help';
+    }
+    pin.showHover(fmt(t.dataset.info), e.pageX, e.pageY);
+  });
+  document.addEventListener('mouseout', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    var to = e.relatedTarget ? infoTarget(e.relatedTarget) : null;
+    if (to === t) return;
+    pin.hideHover();
+  });
+  document.addEventListener('click', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    // Don't intercept clicks on links (= sort-mini <a> with data-info) or
+    // <button>s with data-info -- the user expects the actual action
+    // (navigation / form submit / JS handler), not a pinned popover.
+    if (t.tagName === 'A' || t.tagName === 'BUTTON') return;
+    e.preventDefault();
+    pin.handleClick(fmt(t.dataset.info), e.pageX, e.pageY, t);
   });
 })();
 
@@ -513,8 +696,6 @@ document.addEventListener('DOMContentLoaded', function(){
   var t = {
     judge: {{ t .Lang "community_bans.detail.judge_h" }},
     submitters: {{ t .Lang "community_bans.detail.submitters_h" }},
-    likers: {{ t .Lang "community_bans.detail.likers_h" }},
-    bads: {{ t .Lang "community_bans.detail.bads_h" }},
     comments: {{ t .Lang "community_bans.detail.comments_h" }},
     none: {{ t .Lang "community_bans.detail.none" }},
     loading: {{ t .Lang "community_bans.detail.loading" }},
@@ -563,14 +744,10 @@ document.addEventListener('DOMContentLoaded', function(){
              '<span class="when">' + fmtTime(s.submitted_at) + '</span>' +
              (mine ? deleteBtn('submission', s.id) : '') + '</li>';
     }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
-    var voteRow = function(v){
-      var mine = (MY_HN && v.hn === MY_HN);
-      return '<li>' + flagImg(v.country_code) + '<span class="hn">' + esc(v.hn) + '</span>' + selfMarker(v.hn) +
-             '<span class="when">' + fmtTime(v.created_at) + '</span>' +
-             (mine ? deleteBtn('vote', v.id) : '') + '</li>';
-    };
-    var likers = (d.likers || []).map(voteRow).join('') || '<li class="empty">' + esc(t.none) + '</li>';
-    var bads = (d.bads || []).map(voteRow).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    // Voter HN roster is intentionally not rendered in the admin UI -- the
+    // operator works off vote counts (button label + list row) and toggles
+    // their own vote via the active button.  Anyone needing the full voter
+    // list can hit the public /api/feed/aggregate?ip=&ja4= endpoint.
     var comments = (d.comments || []).map(function(c){
       var mine = (MY_HN && c.hn === MY_HN);
       return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
@@ -587,10 +764,19 @@ document.addEventListener('DOMContentLoaded', function(){
     var actions = '';
     var commentForm = '';
     if (MY_HN) {
-      var mine = findOwn(d.likers) ? 'like' : (findOwn(d.bads) ? 'bad' : '');
+      var myLike = findOwn(d.likers);
+      var myBad  = findOwn(d.bads);
+      var mine = myLike ? 'like' : (myBad ? 'bad' : '');
+      var likeCount = (d.likers || []).length;
+      var badCount  = (d.bads   || []).length;
+      // The vote-btn carries its own vote-id when the operator has already
+      // cast a matching vote, so re-clicking an active button can hit DELETE
+      // and toggle the vote off instead of being a no-op UPSERT.
+      var likeIdAttr = myLike ? ' data-my-vote-id="' + esc(myLike.id) + '"' : '';
+      var badIdAttr  = myBad  ? ' data-my-vote-id="' + esc(myBad.id)  + '"' : '';
       actions = '<div class="detail-actions" data-rep-id="' + esc(d.representative_submission_id) + '">' +
-        '<button class="vote-btn' + (mine === 'like' ? ' active like' : '') + '" data-vote-kind="like">' + esc(t.btnLike) + '</button>' +
-        '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad">' + esc(t.btnBad) + '</button>' +
+        '<button class="vote-btn' + (mine === 'like' ? ' active like' : '') + '" data-vote-kind="like"' + likeIdAttr + '>' + esc(t.btnLike) + ' (' + likeCount + ')</button>' +
+        '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad"' + badIdAttr + '>' + esc(t.btnBad) + ' (' + badCount + ')</button>' +
         '<span class="my-hn">' + esc(t.myHnLabel) + ': ' + esc(MY_HN) + '</span></div>';
       commentForm = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
         '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="1"></textarea>' +
@@ -601,10 +787,6 @@ document.addEventListener('DOMContentLoaded', function(){
     return '<div class="detail-panel">' +
       '<section><h4>' + esc(t.judge) + '</h4>' + jLine + actions + '</section>' +
       '<section><h4>' + esc(t.submitters) + ' (' + ((d.submissions||[]).length) + ')</h4><ul class="flat">' + subs + '</ul></section>' +
-      '<section><h4>' + esc(t.likers) + ' (' + ((d.likers||[]).length) + ') · ' + esc(t.bads) + ' (' + ((d.bads||[]).length) + ')</h4>' +
-        '<ul class="flat">' + likers + '</ul>' +
-        ((d.bads||[]).length > 0 ? '<ul class="flat" style="margin-top:.4rem">' + bads + '</ul>' : '') +
-      '</section>' +
       '<section><h4>' + esc(t.comments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + commentForm + '</section>' +
     '</div>';
   }
@@ -615,7 +797,7 @@ document.addEventListener('DOMContentLoaded', function(){
     dr.className = 'detail-row';
     dr.style.display = 'none';
     var dc = document.createElement('td');
-    dc.colSpan = 9;
+    dc.colSpan = 10;
     dr.appendChild(dc);
     row.parentNode.insertBefore(dr, next);
     return dr;
@@ -670,11 +852,111 @@ document.addEventListener('DOMContentLoaded', function(){
         var repID = actions && actions.dataset.repId;
         if (!repID) return;
         var kind = voteBtn.dataset.voteKind;
-        actions.querySelectorAll('.vote-btn').forEach(function(b){ b.disabled = true; });
-        postVote(repID, kind).then(function(r){
-          if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-          return fetchDetail(row, dr);
-        }).catch(function(err){ alert((t.err || 'error') + ' ' + (err.message || err)); });
+        var isActive = voteBtn.classList.contains('active');
+        var myVoteId = voteBtn.dataset.myVoteId;
+        var otherKind = (kind === 'like') ? 'bad' : 'like';
+        var otherBtn = actions.querySelector('.vote-btn[data-vote-kind="' + otherKind + '"]');
+        var otherWasActive = !!(otherBtn && otherBtn.classList.contains('active'));
+        var otherMyId = otherBtn && otherBtn.dataset.myVoteId || '';
+
+        // Decide the operation up-front so the optimistic UI + request stay in
+        // sync (= no second guess after the network call).
+        var op; // 'toggle_off' | 'switch' | 'create'
+        if (isActive && myVoteId) op = 'toggle_off';
+        else if (otherWasActive && otherMyId) op = 'switch';
+        else op = 'create';
+
+        // Snapshot the whole .detail-actions + the list row's votes cell so a
+        // server error can revert everything by stuffing the HTML back.  Event
+        // handlers are bound to document so re-rendering inner HTML is safe.
+        var snapshotActions = actions.innerHTML;
+        var listVotesTd = row.querySelector('.votes-td');
+        var snapshotListVotes = listVotesTd ? listVotesTd.innerHTML : null;
+
+        function setCountInLabel(btn, delta){
+          btn.textContent = btn.textContent.replace(/\((\d+)\)/, function(_m, n){
+            return '(' + (parseInt(n, 10) + delta) + ')';
+          });
+        }
+        function adjustListLike(delta){
+          if (!listVotesTd || !delta) return;
+          var likeSpan = listVotesTd.querySelector('.votes-cell .like');
+          if (likeSpan) {
+            // Existing "👍 N" markup -- patch the digit in place.
+            likeSpan.textContent = likeSpan.textContent.replace(/(\d+)/, function(_m, n){
+              return String(Math.max(0, parseInt(n, 10) + delta));
+            });
+          } else if (delta > 0) {
+            // No votes-cell yet: build one (= first like on this row).
+            var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+            var cell = document.createElement('span');
+            cell.className = 'votes-cell';
+            cell.innerHTML = '<span class="like">👍 1</span>' + (cmtCountSpan ? ' ' + cmtCountSpan.outerHTML : '');
+            // Hide the "-" muted placeholder if it was the only child.
+            var muted = listVotesTd.querySelector('.muted');
+            if (muted) muted.remove();
+            listVotesTd.appendChild(cell);
+          }
+        }
+        // Like-count delta on the list row (= bad votes don't surface in the
+        // list aggregation, so only kind=='like' shifts the visible counter).
+        var likeDelta = 0;
+        if (kind === 'like') {
+          if (op === 'create' || op === 'switch') likeDelta = +1;
+          else if (op === 'toggle_off')           likeDelta = -1;
+        } else { // kind == 'bad'
+          if (op === 'switch')                    likeDelta = -1;
+        }
+
+        // Apply optimistic UI immediately.
+        voteBtn.disabled = true;
+        if (otherBtn) otherBtn.disabled = true;
+        if (op === 'toggle_off') {
+          voteBtn.classList.remove('active', kind);
+          setCountInLabel(voteBtn, -1);
+          delete voteBtn.dataset.myVoteId;
+        } else if (op === 'switch') {
+          voteBtn.classList.add('active', kind);
+          setCountInLabel(voteBtn, +1);
+          // hub UPSERT reuses the row, so the id is preserved across kinds.
+          voteBtn.dataset.myVoteId = otherMyId;
+          if (otherBtn) {
+            otherBtn.classList.remove('active', otherKind);
+            setCountInLabel(otherBtn, -1);
+            delete otherBtn.dataset.myVoteId;
+          }
+        } else { // create
+          voteBtn.classList.add('active', kind);
+          setCountInLabel(voteBtn, +1);
+          voteBtn.dataset.myVoteId = '__pending__';
+        }
+        adjustListLike(likeDelta);
+
+        var pending = (op === 'toggle_off')
+          ? postDelete('vote', myVoteId)
+          : postVote(repID, kind);
+        pending.then(function(r){
+          if (!r.ok && r.status !== 204 && r.status !== 404) {
+            return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+          }
+          // For POST responses the hub returns {id: ...}; cache it on the
+          // button so a follow-up DELETE knows which row to remove.
+          if (op !== 'toggle_off' && r.status >= 200 && r.status < 300) {
+            return r.json().then(function(body){
+              if (body && body.id) voteBtn.dataset.myVoteId = String(body.id);
+            }).catch(function(){ /* no body / parse fail -> non-fatal */ });
+          }
+          return null;
+        }).then(function(){
+          voteBtn.disabled = false;
+          if (otherBtn) otherBtn.disabled = false;
+        }).catch(function(err){
+          // Revert: restoring the snapshot HTML is enough because vote/delete
+          // handlers are bound to document, not to the action buttons.
+          actions.innerHTML = snapshotActions;
+          if (listVotesTd && snapshotListVotes !== null) listVotesTd.innerHTML = snapshotListVotes;
+          alert((t.err || 'error') + ' ' + (err.message || err));
+        });
       } else if (delBtn){
         ev.preventDefault();
         var kind = delBtn.dataset.deleteKind;
@@ -700,51 +982,268 @@ document.addEventListener('DOMContentLoaded', function(){
       var text = ta && ta.value.trim();
       if (!repID || !text) return;
       var submitBtn = form.querySelector('button[type=submit]');
+
+      // Locate the comments <section> -- it is the last section in the panel
+      // (renderPanel() ordering: judge / submitters / comments).
+      var dp = dr.querySelector('.detail-panel');
+      var sections = dp ? dp.querySelectorAll('section') : [];
+      var commentSection = sections.length ? sections[sections.length - 1] : null;
+      var commentsList = commentSection ? commentSection.querySelector('ul.flat') : null;
+      if (!dp || !commentSection || !commentsList) return;
+
+      // Snapshots for full revert on server error.
+      var snapshotPanel = dp.innerHTML;
+      var listVotesTd = row.querySelector('.votes-td');
+      var snapshotListVotes = listVotesTd ? listVotesTd.innerHTML : null;
+      var taOrigValue = ta.value;
+
+      // Optimistic insertion: build a <li> matching renderPanel's comment row
+      // shape and prepend it (= DESC ordering: newest at the top).
+      var nowSec = Math.floor(Date.now() / 1000);
+      var newLi = document.createElement('li');
+      newLi.innerHTML =
+        flagImg('') +
+        '<span class="hn">' + esc(MY_HN) + '</span>' +
+        '<span class="self-mark">' + esc(t.selfMark) + '</span>' +
+        '<span class="comment-text">' + esc(text) + '</span>' +
+        '<span class="when">' + esc(fmtTime(nowSec)) + '</span>' +
+        deleteBtn('comment', '__pending__');
+      // Drop the "(none)" placeholder if it was the only entry.
+      var empty = commentsList.querySelector('li.empty');
+      if (empty) empty.remove();
+      commentsList.insertBefore(newLi, commentsList.firstChild);
+
+      // Bump the section header count "コメント (N)" → "(N+1)".
+      var h4 = commentSection.querySelector('h4');
+      if (h4) {
+        h4.textContent = h4.textContent.replace(/\((\d+)\)/, function(_m, n){
+          return '(' + (parseInt(n, 10) + 1) + ')';
+        });
+      }
+
+      // Bump the list row's 💬 N counter (or create one if missing).
+      if (listVotesTd) {
+        var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+        if (cmtCountSpan) {
+          cmtCountSpan.textContent = cmtCountSpan.textContent.replace(/(\d+)/, function(_m, n){
+            return String(parseInt(n, 10) + 1);
+          });
+        } else {
+          var votesCell = listVotesTd.querySelector('.votes-cell');
+          if (!votesCell) {
+            var muted = listVotesTd.querySelector('.muted');
+            if (muted) muted.remove();
+            votesCell = document.createElement('span');
+            votesCell.className = 'votes-cell';
+            listVotesTd.appendChild(votesCell);
+          }
+          var newCmtSpan = document.createElement('span');
+          newCmtSpan.className = 'cmt-count';
+          newCmtSpan.textContent = ' 💬 1';
+          votesCell.appendChild(newCmtSpan);
+        }
+      }
+
+      // Clear + disable while in flight.
+      ta.value = '';
+      ta.disabled = true;
       if (submitBtn) submitBtn.disabled = true;
+
       postComment(repID, text).then(function(r){
         if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-        return fetchDetail(row, dr);
-      }).catch(function(err){ alert((t.err || 'error') + ' ' + (err.message || err)); });
+        // Hub returns {id} so the inline delete-x button gets the real row id.
+        return r.json().catch(function(){ return null; });
+      }).then(function(body){
+        if (body && body.id) {
+          var delBtn = newLi.querySelector('.delete-x');
+          if (delBtn) delBtn.dataset.deleteId = String(body.id);
+        }
+        ta.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
+        ta.focus();
+      }).catch(function(err){
+        // Full revert: restore both the detail panel HTML and the list row
+        // votes cell back to their pre-click state.
+        dp.innerHTML = snapshotPanel;
+        if (listVotesTd && snapshotListVotes !== null) listVotesTd.innerHTML = snapshotListVotes;
+        // The form snapshot was inside dp -- re-find it and restore the text.
+        var newForm = dp.querySelector('.detail-comment-form');
+        var newTa = newForm && newForm.querySelector('textarea[name=text]');
+        if (newTa) newTa.value = taOrigValue;
+        alert((t.err || 'error') + ' ' + (err.message || err));
+      });
+    });
+  });
+
+  // Comment popover: clicking the row's 💬 cell pins a popover with the same
+  // comments section + post form the detail panel shows.  Lets the operator
+  // post / read / delete without expanding the row.  The existing row-expand
+  // path still works in parallel; this is an additional shortcut.  Lives
+  // inside the parent IIFE so it can reuse esc/flagImg/fmtTime/selfMarker/
+  // deleteBtn/postComment/postDelete/MY_HN/t/BASE.
+  var pop = document.getElementById('comment-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  // cloneToRow: lookup so the popover-clone-scoped form / delete handlers
+  // below can find the originating row (for cmt-count refresh + cache key).
+  var cloneToRow = new WeakMap();
+
+  function renderCommentSection(d){
+    var comments = (d.comments || []).map(function(c){
+      var mine = (MY_HN && c.hn === MY_HN);
+      return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
+             '<span class="comment-text">' + esc(c.text) + '</span>' +
+             '<span class="when">' + fmtTime(c.created_at) + '</span>' +
+             (mine ? deleteBtn('comment', c.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var form = '';
+    if (MY_HN) {
+      form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="2"></textarea>' +
+        '<button type="submit">' + esc(t.btnPost) + '</button></form>';
+    }
+    return '<div class="detail-panel">' +
+      '<section><h4>' + esc(t.comments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + form + '</section>' +
+    '</div>';
+  }
+
+  function fetchFor(row){
+    var ip = row.dataset.ip || '';
+    var ja4 = row.dataset.ja4 || '';
+    var qp = new URLSearchParams();
+    if (ip) qp.set('ip', ip);
+    if (ja4) qp.set('ja4', ja4);
+    return fetch(BASE + '/admin/api/community-bans/detail?' + qp.toString(), {credentials:'same-origin', cache:'no-cache'})
+      .then(function(r){ if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); }); return r.json(); });
+  }
+
+  // Re-render the pinned clone's body after a comment post / delete so the
+  // popover stays a fresh source of truth without forcing the operator to
+  // close + reopen it.
+  function refreshClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderCommentSection(d);
+      // Sync the list row's 💬 count badge.
+      var cmtSpan = row.querySelector('.cmt-count');
+      if (cmtSpan) cmtSpan.textContent = '💬 ' + ((d.comments||[]).length);
+    }).catch(function(){ /* ignored */ });
+  }
+
+  // Bump the list row's 💬 N counter (or create one if missing).  Used for
+  // optimistic count updates so the user sees the change immediately.
+  function bumpCmtCount(row, delta){
+    var listVotesTd = row.querySelector('.votes-td');
+    if (!listVotesTd) return;
+    var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+    if (cmtCountSpan){
+      var m = cmtCountSpan.textContent.match(/(\d+)/);
+      var n = m ? parseInt(m[1], 10) + delta : delta;
+      if (n < 0) n = 0;
+      cmtCountSpan.textContent = '💬 ' + n;
+    } else if (delta > 0) {
+      var voteCell = listVotesTd.querySelector('.votes-cell');
+      if (voteCell){
+        var s = document.createElement('span');
+        s.className = 'cmt-count';
+        s.textContent = ' 💬 ' + delta;
+        voteCell.appendChild(s);
+      }
+    }
+  }
+
+  // 💬 cell click -> fetch + pin a popover scoped to the comments section.
+  // Registered with `capture=true` so this fires before the generic
+  // info-popover click handler (= which sees .cmt-count's parent
+  // votes-cell[data-info] and would steal the click by pinning the reasoning
+  // text).  stopImmediatePropagation stops every later document-level
+  // listener for the same event.
+  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var cmt = e.target.closest && e.target.closest('.cmt-count');
+    if (!cmt) return;
+    // Don't intercept clicks inside the popover-clone (= its own buttons).
+    if (e.target.closest('.popover-clone')) return;
+    var row = cmt.closest('tr.feed-row');
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    // Hide the info-popover in case mouseover-on-parent showed it just before
+    // this click landed.  info-popover's primary sits at z-index 600 (=
+    // hover) and would otherwise overlay the comment-popover clone (= z-index
+    // 400) until the user moves the mouse out.
+    var infoP = document.getElementById('info-popover');
+    if (infoP) infoP.style.display = 'none';
+    var x = e.pageX, y = e.pageY;
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    fetchFor(row).then(function(d){
+      pin.handleClick(renderCommentSection(d), x, y, row, t.comments);
+      // After the clone exists, remember its row so the form/delete handlers
+      // can resolve the row from the popover-clone alone.
+      var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
+      if (clone) cloneToRow.set(clone, row);
+    }).catch(function(err){
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+    });
+  }, true);
+
+  // Comment-post form inside a comment-popover clone.
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!form || !form.classList.contains('detail-comment-form')) return;
+    var clone = form.closest('.popover-clone[data-popover="comment"]');
+    if (!clone) return; // detail-row form path is handled above
+    e.preventDefault();
+    var row = cloneToRow.get(clone);
+    if (!row) return;
+    var ta = form.querySelector('textarea[name=text]');
+    var text = (ta && ta.value || '').trim();
+    if (!text) return;
+    var repID = form.dataset.repId;
+    var submitBtn = form.querySelector('button[type=submit]');
+    if (submitBtn) submitBtn.disabled = true;
+    if (ta) ta.disabled = true;
+    postComment(repID, text).then(function(r){
+      if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      return r.json().catch(function(){ return {}; });
+    }).then(function(){
+      bumpCmtCount(row, 1);
+      refreshClone(clone, row);
+    }).catch(function(err){
+      if (submitBtn) submitBtn.disabled = false;
+      if (ta) ta.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // Delete-x button inside a comment-popover clone.
+  document.addEventListener('click', function(e){
+    var del = e.target.closest && e.target.closest('.delete-x');
+    if (!del) return;
+    var clone = del.closest('.popover-clone[data-popover="comment"]');
+    if (!clone) return; // detail-row delete path is handled in the row IIFE
+    e.preventDefault();
+    e.stopPropagation();
+    var row = cloneToRow.get(clone);
+    if (!row) return;
+    if (!confirm(t.deleteConfirm)) return;
+    var kind = del.dataset.deleteKind;
+    var id = del.dataset.deleteId;
+    del.disabled = true;
+    postDelete(kind, id).then(function(r){
+      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      if (kind === 'comment') bumpCmtCount(row, -1);
+      refreshClone(clone, row);
+    }).catch(function(err){
+      del.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
     });
   });
 })();
 
-// My-subs panel (= GDPR Art 15).
-(function(){
-  var card = document.getElementById('my-subs-card');
-  if (!card) return;
-  var loaded = false;
-  function esc(s){
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
-      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
-    });
-  }
-  function fmtTime(ts){ return ts ? new Date(ts*1000).toLocaleString() : ''; }
-  function render(d){
-    var subN = (d.submissions||[]).length;
-    var comN = (d.comments||[]).length;
-    var voteN = (d.votes||[]).length;
-    document.getElementById('my-subs-count').textContent = '· ' + subN + ' submit / ' + comN + ' comment / ' + voteN + ' vote' + (d.hn ? '  (HN: ' + d.hn + ')' : '');
-    var rows = (d.submissions||[]).map(function(s){
-      return '<tr><td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace">' + esc(s.ip||'') + '</td>' +
-             '<td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace;color:#475569">' + esc(s.ja4||'') + '</td>' +
-             '<td style="padding:.2rem .4rem">' + esc(s.reason||'') + '</td>' +
-             '<td style="padding:.2rem .4rem;color:#94a3b8;font-size:.78rem">' + fmtTime(s.submitted_at) + '</td></tr>';
-    }).join('');
-    if (!rows) rows = '<tr><td colspan="4" style="padding:.5rem;color:#94a3b8;font-style:italic">(none)</td></tr>';
-    document.getElementById('my-subs-body').innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:.82rem">' +
-      '<thead><tr style="text-align:left;color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em">' +
-      '<th style="padding:.2rem .4rem">IP</th><th style="padding:.2rem .4rem">JA4</th><th style="padding:.2rem .4rem">reason</th><th style="padding:.2rem .4rem">at</th></tr></thead>' +
-      '<tbody>' + rows + '</tbody></table>';
-  }
-  card.addEventListener('toggle', function(){
-    if (!card.open || loaded) return;
-    fetch("{{.BasePath}}/admin/api/community-bans/me/submissions", {credentials:'same-origin', cache:'no-cache'})
-      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(function(d){ render(d); loaded = true; })
-      .catch(function(err){ document.getElementById('my-subs-body').innerHTML = '<span style="color:#b91c1c">' + esc(err.message || err) + '</span>'; });
-  });
-})();
 </script>
 </body>
 </html>

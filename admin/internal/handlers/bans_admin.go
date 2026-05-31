@@ -89,10 +89,9 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	if mapDir == "" {
 		mapDir = "/etc/unmask"
 	}
-	doc, err := communitybans.ReadDocument(mapDir)
-	if err != nil {
-		log.Printf("bans: community-bans read doc: %v", err)
-		// keep rendering (= treat as empty doc).
+	var doc communitybans.FeedDocument
+	if h.CommunityBans != nil {
+		doc = h.CommunityBans.GetCachedDoc()
 	}
 	match := strings.TrimSpace(r.URL.Query().Get("match"))
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
@@ -252,9 +251,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	if mapDir == "" {
 		mapDir = "/etc/unmask"
 	}
-	doc, err := communitybans.ReadDocument(mapDir)
-	if err != nil {
-		log.Printf("community-bans: read doc: %v", err)
+	var doc communitybans.FeedDocument
+	if h.CommunityBans != nil {
+		doc = h.CommunityBans.GetCachedDoc()
 	}
 
 	ipCC := map[string]string{}
@@ -380,6 +379,34 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		myHN = strings.TrimSpace(cur.CommunityBans.HN)
 	}
 
+	// "Community Bans 効果": past-30d block count from unmask_event (= traffic
+	// that hub-derived BANs actually stopped on this install).  Same query as
+	// AdminBansIndex but inlined; failure -> zero so the impact panel still
+	// renders without aborting the rest of the page.
+	var hitCount, hitUniqueIP int
+	var hitsFromHub int
+	if h.DB != nil {
+		var jsonExpr, dateExpr string
+		if h.DB.Driver == "sqlite" {
+			jsonExpr = `json_extract(payload_json, '$.ban_source')`
+			dateExpr = `date_created >= datetime('now', '-30 days')`
+		} else {
+			jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.ban_source'))`
+			dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+		}
+		row := h.DB.QueryRowContext(r.Context(),
+			`SELECT COUNT(*), COUNT(DISTINCT ip_address)
+			   FROM unmask_event
+			  WHERE phase = 'serve'
+			    AND `+jsonExpr+` = 'community_bans'
+			    AND `+dateExpr)
+		_ = row.Scan(&hitCount, &hitUniqueIP)
+		// Rows currently in the local BAN list sourced from the hub (= shown
+		// next to the past-30d hits as "rows copied from the hub").
+		_ = h.DB.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM unmask_ban WHERE source = 'community_bans'`).Scan(&hitsFromHub)
+	}
+
 	data := map[string]any{
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
@@ -396,6 +423,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"CommunityBansLastPulledAt":    cur.CommunityBans.LastPulledAt,
 		"CommunityBansGeneratedAt":     doc.GeneratedAt,
 		"CommunityBansVersion":         doc.Version,
+		"CommunityBansHits30d":         hitCount,
+		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
+		"CommunityBansFromHub":         hitsFromHub,
 		"CommunityBansMatch":           match,
 		"CommunityBansQuery":           q,
 		"CommunityBansMapDir":          mapDir,
@@ -408,6 +438,15 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"PerPage":                      perPage,
 		"PageStart":                    start + 1,
 		"PageEnd":                      end,
+		"Pager": buildPagerData(
+			i18n.Resolve(r),
+			page, totalPages, perPage, total,
+			buildBansBaseURL(q, match, sortKey, orderParam),
+		),
+		// MutedKeys: presence of a feed entry's MuteKey here means this
+		// install has opted out (= LocalMutes); the row should render a
+		// "muted" badge and an "unmute" toggle instead of "mute".
+		"MutedKeys": muteLookupForTemplate(cur.CommunityBans.LocalMutes),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -522,6 +561,101 @@ func (h *Handler) proxyToHub(w http.ResponseWriter, r *http.Request, target stri
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, resp.Body)
+}
+
+// muteLookupForTemplate: build a map[string]bool the template can use as a
+// set lookup ({{ index .MutedKeys $key }}).  Blank entries are dropped.
+func muteLookupForTemplate(mutes []string) map[string]bool {
+	if len(mutes) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(mutes))
+	for _, m := range mutes {
+		m = strings.TrimSpace(m)
+		if m != "" {
+			out[m] = true
+		}
+	}
+	return out
+}
+
+// AdminCommunityBansMuteToggle: POST /admin/community-bans/mute-toggle
+//
+//	form: key=<MuteKey>   action=mute | unmute
+//
+// Local-only override: flips an entry on / off in
+// settings.CommunityBans.LocalMutes without touching the hub.  Next pull
+// rebuilds the map files; for immediate effect we also trigger an
+// out-of-band re-pull via the existing pull cycle goroutine.  Roles:
+// admin / superadmin only.
+func (h *Handler) AdminCommunityBansMuteToggle(w http.ResponseWriter, r *http.Request) {
+	pay := SessionFromContext(r)
+	if pay == nil || !user.CanWrite(pay.Role) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	key := strings.TrimSpace(r.FormValue("key"))
+	action := strings.TrimSpace(r.FormValue("action"))
+	if key == "" || (action != "mute" && action != "unmute") {
+		http.Error(w, "key + action=mute|unmute required", http.StatusBadRequest)
+		return
+	}
+	base := h.Settings.Server.BasePath
+	cur, err := settings.Load(h.ConfigPath)
+	if err != nil {
+		http.Error(w, "load: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	mutes := cur.CommunityBans.LocalMutes
+	seen := make(map[string]bool, len(mutes))
+	out := mutes[:0]
+	for _, m := range mutes {
+		m = strings.TrimSpace(m)
+		if m == "" || seen[m] {
+			continue
+		}
+		if m == key && action == "unmute" {
+			continue // drop this entry
+		}
+		seen[m] = true
+		out = append(out, m)
+	}
+	if action == "mute" && !seen[key] {
+		out = append(out, key)
+	}
+	cur.CommunityBans.LocalMutes = out
+	if err := settings.Save(cur, h.ConfigPath); err != nil {
+		http.Error(w, "save: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	settingsMu.Lock()
+	h.Settings = cur
+	settingsMu.Unlock()
+	if h.UserRepo != nil {
+		username := ""
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+			username = u.Username
+		}
+		h.UserRepo.Record(r.Context(), pay.UserID, username, "community_bans_"+action,
+			key, "")
+	}
+	// Best-effort: trigger an immediate map re-render so the new mute takes
+	// effect without waiting for the next 1h pull cycle.  Failures only delay
+	// enforcement until the scheduled pull -- they don't break the save.
+	if h.CommunityBans != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := h.CommunityBans.Pull(ctx); err != nil {
+				log.Printf("communitybans: immediate re-pull after mute toggle: %v", err)
+			}
+		}()
+	}
+	http.Redirect(w, r, base+"/admin/community-bans/", http.StatusFound)
 }
 
 // AdminCommunityBansVote: POST /admin/api/community-bans/vote

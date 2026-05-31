@@ -11,12 +11,21 @@
 #  Place this in your nginx http {} block:
 #
 #      http {
-#          include {{ .OutputDir }}/native/http.inc;
+#          include {{ .OutputDir }}/http.inc;
 #          ...
 #      }
 #
 #  Also load the ja4 module separately (main scope):
 #      load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;
+
+# -----------------------------------------------------------------------------
+# Hash sizing for community-bans maps.  The ipja4 map keys are "<ip>:<ja4>"
+# (= up to ~52 chars), exceeding the nginx default map_hash_bucket_size (= 64)
+# on builds where that default is tight.  Must be set BEFORE any map{} directive
+# below or nginx parses the first map at the old bucket size and rejects the
+# later override as "duplicate".
+# -----------------------------------------------------------------------------
+map_hash_bucket_size 128;
 
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
@@ -623,7 +632,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
 }
 
 # Zone definitions: auto-rendered from settings.rate_limit.  Users just
-# `include /etc/unmask/native/protect.inc;` and the default zone applies to
+# `include /var/lib/unmask/nginx/protect.inc;` and the default zone applies to
 # each location.  Named zones can be switched per-location by manually writing
 # `limit_req zone=...` to use a different rate.
 {{- range .RateZones }}
@@ -685,3 +694,21 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 {{- else }}
 # nginx_log.socket_path is empty in config.yml, so access_log is not emitted.
 {{- end }}
+
+# -----------------------------------------------------------------------------
+# unmask upstream (= proxy target for server.inc).  Lives at the tail of
+# this file so a single `include http.inc;` covers both http-scope
+# directives + the upstream block (= the legacy /etc/unmask/upstream.conf was
+# retired in favour of this).  Renamed from "unmask_admin" alongside the
+# binary rename (= /usr/sbin/unmask-admin -> /usr/sbin/unmask).
+#
+# bind forms (= server.bind in config.yml):
+#   - TCP    : "127.0.0.1:8765"        -> `server 127.0.0.1:8765;`
+#   - socket : "unix:/path/to.sock"    -> `server unix:/path/to.sock;`
+# Socket eliminates port collisions + slightly faster than TCP loopback.
+# server.socket_mode / .socket_group in config.yml control its permissions.
+# -----------------------------------------------------------------------------
+upstream unmask {
+    server {{ .UpstreamServer }};
+    keepalive 16;
+}

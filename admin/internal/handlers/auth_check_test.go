@@ -296,14 +296,15 @@ func TestPeerIsTrustedProxy(t *testing.T) {
 }
 
 // TestResolveForwardedJA4: the forward-auth JA4 trust gate. The header is
-// honored only when ja4_source=header AND the connection peer is trusted AND
-// the value is well-formed (safeJA4). Everything else yields "".
+// honored when the connection peer is inside the trusted-LB list (loopback
+// is part of that list by default) and the value is well-formed (safeJA4).
+// Anything else yields "".
 func TestResolveForwardedJA4(t *testing.T) {
 	// alnum + underscore, within safeJA4RE's 8-40 length bound.
 	const goodJA4 = "t13d1516h2_e2etestfp01"
 	const fallbackJA4 = "t13other_fallback99"
 
-	mk := func(source string, proxies []string, remoteAddr, clientJA4, originalJA4 string) (*http.Request, settings.Settings) {
+	mk := func(extra []settings.TrustedLBExtra, remoteAddr, clientJA4, originalJA4 string) (*http.Request, settings.Settings) {
 		r := httptest.NewRequest(http.MethodGet, "/unmask/api/check", nil)
 		r.RemoteAddr = remoteAddr
 		if clientJA4 != "" {
@@ -312,37 +313,38 @@ func TestResolveForwardedJA4(t *testing.T) {
 		if originalJA4 != "" {
 			r.Header.Set("X-Original-JA4", originalJA4)
 		}
-		cfg := settings.Settings{Challenge: settings.ChallengeConfig{
-			JA4Source:                 source,
-			TrustedForwardAuthProxies: proxies, // nil -> loopback default
-		}}
+		// Extra peer CIDRs ride along via the native-mode LB-trust extra
+		// list -- the same knob operators configure for LB header trust.
+		cfg := settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra}}
 		return r, cfg
+	}
+	extraCIDR := func(cidr string) []settings.TrustedLBExtra {
+		if cidr == "" {
+			return nil
+		}
+		return []settings.TrustedLBExtra{{ID: "test", CIDRs: []string{cidr}, Header: "$http_x_client_ja4"}}
 	}
 	cases := []struct {
 		name        string
-		source      string
-		proxies     []string
+		extra       []settings.TrustedLBExtra
 		remoteAddr  string
 		clientJA4   string
 		originalJA4 string
 		want        string
 	}{
-		{"off ignores header from loopback", "off", nil, "127.0.0.1:5", goodJA4, "", ""},
-		{"empty source defaults to off", "", nil, "127.0.0.1:5", goodJA4, "", ""},
-		{"module ignores header", "module", nil, "127.0.0.1:5", goodJA4, "", ""},
-		{"header + loopback peer -> honored", "header", nil, "127.0.0.1:5", goodJA4, "", goodJA4},
-		{"header + v6 loopback peer -> honored", "header", nil, "[::1]:5", goodJA4, "", goodJA4},
-		{"header + public peer -> dropped", "header", nil, "203.0.113.9:5", goodJA4, "", ""},
-		{"header + explicit proxy CIDR -> honored", "header", []string{"172.16.0.0/12"}, "172.20.0.3:5", goodJA4, "", goodJA4},
-		{"header + explicit CIDR, peer outside -> dropped", "header", []string{"172.16.0.0/12"}, "127.0.0.1:5", goodJA4, "", ""},
-		{"header + no header -> empty", "header", nil, "127.0.0.1:5", "", "", ""},
-		{"header + malformed JA4 -> empty", "header", nil, "127.0.0.1:5", "'; DROP TABLE", "", ""},
-		{"header + X-Original-JA4 fallback", "header", nil, "127.0.0.1:5", "", goodJA4, goodJA4},
-		{"header + X-Client-JA4 wins over fallback", "header", nil, "127.0.0.1:5", goodJA4, fallbackJA4, goodJA4},
+		{"loopback peer -> honored", nil, "127.0.0.1:5", goodJA4, "", goodJA4},
+		{"v6 loopback peer -> honored", nil, "[::1]:5", goodJA4, "", goodJA4},
+		{"public peer with no LB trust -> dropped", nil, "203.0.113.9:5", goodJA4, "", ""},
+		{"LB-trust CIDR -> honored", extraCIDR("172.16.0.0/12"), "172.20.0.3:5", goodJA4, "", goodJA4},
+		{"LB-trust CIDR, peer outside -> loopback still honored", extraCIDR("172.16.0.0/12"), "127.0.0.1:5", goodJA4, "", goodJA4},
+		{"no header -> empty", nil, "127.0.0.1:5", "", "", ""},
+		{"malformed JA4 -> empty", nil, "127.0.0.1:5", "'; DROP TABLE", "", ""},
+		{"X-Original-JA4 fallback", nil, "127.0.0.1:5", "", goodJA4, goodJA4},
+		{"X-Client-JA4 wins over fallback", nil, "127.0.0.1:5", goodJA4, fallbackJA4, goodJA4},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			r, cfg := mk(c.source, c.proxies, c.remoteAddr, c.clientJA4, c.originalJA4)
+			r, cfg := mk(c.extra, c.remoteAddr, c.clientJA4, c.originalJA4)
 			if got := resolveForwardedJA4(r, cfg); got != c.want {
 				t.Errorf("resolveForwardedJA4 = %q, want %q", got, c.want)
 			}

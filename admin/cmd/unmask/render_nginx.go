@@ -1,6 +1,10 @@
-// render-nginx: generate the native-mode snippets (native/http.inc,
-// native/server.inc, native/protect.inc, upstream.conf) from config.yml +
-// embedded preset.
+// render-nginx: generate the native-mode snippets (http.inc,
+// server.inc, protect.inc) from config.yml + embedded preset.
+// The unmask upstream block lives at the tail of http.inc
+// (= the legacy /etc/unmask/upstream.conf was retired).
+// Per-host gating of the admin UI is done at the HTTP layer via
+// settings.Nginx.AdminAllowedHosts; nginx unconditionally proxies /unmask/*
+// for every Host that includes server.inc.
 //
 // Usage:
 //
@@ -33,11 +37,11 @@ func cmdRenderNginx(args []string) error {
 	}
 
 	// renderedFiles: the files nginxconf.Render writes, relative to outDir.
+	// Keep in sync with internal/nginxconf/render.go::Render.
 	renderedFiles := []string{
-		"native/http.inc",
-		"native/server.inc",
-		"native/protect.inc",
-		"upstream.conf",
+		"http.inc",
+		"server.inc",
+		"protect.inc",
 	}
 
 	if *dryRun {

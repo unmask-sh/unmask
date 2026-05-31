@@ -1,11 +1,13 @@
 // nginxconf.Render: generate nginx config snippets for native mode
 // from settings.
 //
-// Output (= unified under <OutputDir>/native/.  Restructured on 2026-05-13):
-//   - native/http.inc       http scope: JA4 maps + assorted decision maps + log_format
-//   - native/server.inc     server scope: access_log syslog etc.
-//   - native/protect.inc    location/server scope: limit_req + final_challenge rewrite
-//   - upstream.conf         upstream block (= stays at /etc/unmask/upstream.conf)
+// Output (= unified under <OutputDir>/.  Restructured on 2026-05-13):
+//   - http.inc       http scope: JA4 maps + assorted decision maps + log_format + unmask upstream
+//   - server.inc     server scope: access_log syslog + ban enforcement +
+//                    @unmask_rate_challenge + `location ^~ /unmask/` proxy
+//                    to admin.  Restricting which Host gets the admin UI is
+//                    done at the HTTP layer by settings.Nginx.AdminAllowedHosts.
+//   - protect.inc    location/server scope: limit_req + final_challenge rewrite
 //
 // The forward-auth-mode static snippets (= /etc/unmask/forward-auth/{server,protect}.inc)
 // are placed by the unmask-web-nginx package (= this code does not touch them).
@@ -38,11 +40,11 @@ import (
 var templatesFS embed.FS
 
 // Render: write the native-mode snippets from settings into
-// <outDir>/native/.
-//   - <outDir>/native/http.inc      http scope: JA4 maps / log_format / rate-zone
-//   - <outDir>/native/server.inc    server scope: access_log syslog etc.
-//   - <outDir>/native/protect.inc   location/server scope: protection trigger
-//   - <outDir>/upstream.conf        upstream block (= included by the shipped conf.d/unmask-web.conf)
+// <outDir>/.
+//   - <outDir>/http.inc      http scope: JA4 maps / log_format / rate-zone
+//   - <outDir>/server.inc    server scope: access_log + ban + @unmask_rate_challenge + `location ^~ /unmask/`
+//   - <outDir>/protect.inc   location/server scope: protection trigger
+//                                   (= the unmask upstream block now lives at the tail of http.inc)
 //
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /etc/unmask).
 // version is for display (= written in the header of the generated file).
@@ -55,11 +57,13 @@ func Render(s settings.Settings, outDir, version string) error {
 		outDir = s.Nginx.OutputDir
 	}
 	if outDir == "" {
-		outDir = "/etc/unmask"
+		outDir = "/var/lib/unmask/nginx"
 	}
-	nativeDir := filepath.Join(outDir, "native")
-	if err := os.MkdirAll(nativeDir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", nativeDir, err)
+	// outDir is already the nginx-specific dir (= /var/lib/unmask/nginx/);
+	// the renderer writes directly into it, no sub-directory.  When apache
+	// support lands it gets its own /var/lib/unmask/apache/ alongside.
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", outDir, err)
 	}
 
 	data, err := buildRenderData(s, outDir, version)
@@ -69,27 +73,24 @@ func Render(s settings.Settings, outDir, version string) error {
 
 	// http scope: JA4 maps / log_format / rate-zone.  The postinstall
 	// drops a symlink to /etc/nginx/conf.d/00-unmask.conf to auto-load it.
-	if err := renderToFile(nativeDir, "http.inc",
+	if err := renderToFile(outDir, "http.inc",
 		"templates/http.conf.tmpl", data); err != nil {
 		return err
 	}
-	// upstream.conf — upstream block that supports TCP/socket switching.
-	// The unmask-web-nginx-shipped conf.d/unmask-web.conf does
-	// `include /etc/unmask/upstream.conf;`.  Existing installs that
-	// hand-wrote the upstream into unmask-web-nginx.conf don't include
-	// this file, so its presence is harmless (= no regression).
-	if err := renderToFile(outDir, "upstream.conf",
-		"templates/upstream.conf.tmpl", data); err != nil {
-		return err
-	}
-	// server scope: access_log syslog etc.  The user's vhost has a
-	// single line `include /etc/unmask/native/server.inc;`.
-	if err := renderToFile(nativeDir, "server.inc",
+	// upstream.conf was retired -- the `upstream unmask { ... }` block
+	// now lives at the tail of http.inc so a single `include http.inc;`
+	// covers it (= one fewer file + one fewer symlink in conf.d/).
+	// server scope: access_log + ban enforcement + @unmask_rate_challenge +
+	// `location ^~ /unmask/` proxy.  The user's vhost adds
+	// `include /var/lib/unmask/nginx/server.inc;` on each vhost where the
+	// challenge should fire OR the admin UI should be reachable.  Per-host
+	// gating of /admin/* is done at the HTTP layer (= AdminAllowedHosts).
+	if err := renderToFile(outDir, "server.inc",
 		"templates/server.inc.tmpl", data); err != nil {
 		return err
 	}
 	// location/server scope: protection trigger (= rate-limit + final_challenge rewrite).
-	if err := renderToFile(nativeDir, "protect.inc",
+	if err := renderToFile(outDir, "protect.inc",
 		"templates/protect.inc.tmpl", data); err != nil {
 		return err
 	}
@@ -199,7 +200,7 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 		outDir = s.Nginx.OutputDir
 	}
 	if outDir == "" {
-		outDir = "/etc/unmask"
+		outDir = "/var/lib/unmask/nginx"
 	}
 	data, err := buildRenderData(s, outDir, version)
 	if err != nil {
@@ -209,7 +210,6 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 	var sig strings.Builder
 	for _, tmpl := range []string{
 		"templates/http.conf.tmpl",
-		"templates/upstream.conf.tmpl",
 		"templates/server.inc.tmpl",
 		"templates/protect.inc.tmpl",
 	} {
@@ -767,7 +767,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// CommunityBans: render the 3 map includes only in fetch_apply mode.
 	// "fetch" pulls for the browse list but never enforces, so it gets no
 	// nginx include; "off" likewise.  MapDir priority:
-	// CommunityBans.MapDir > Nginx.OutputDir > "/etc/unmask".
+	// CommunityBans.MapDir > Nginx.OutputDir > "/var/lib/unmask/nginx".
+	// OutputDir is already the nginx-specific dir, so the maps land right
+	// next to http.inc / banned.txt -- no extra sub-directory.
 	if s.CommunityBans.ApplyActive() {
 		d.CommunityBansSubscribe = true
 		md := strings.TrimSpace(s.CommunityBans.MapDir)
@@ -775,7 +777,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			md = strings.TrimSpace(s.Nginx.OutputDir)
 		}
 		if md == "" {
-			md = "/etc/unmask"
+			md = "/var/lib/unmask/nginx"
 		}
 		d.CommunityBansMapDir = md
 	}

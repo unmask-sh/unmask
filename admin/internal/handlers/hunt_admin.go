@@ -215,6 +215,14 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"PrevOffset": maxInt(offset-pageSize, 0),
 		"HasMore":    hasMore,
 		"HasPrev":    offset > 0,
+		// Range caption fits the seek pager's right-hand info slot.  We don't
+		// expose a total (= unmask_event would need a window-scoped COUNT(*)
+		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
+		"PagerSeek": buildHuntPagerSeek(
+			i18n.Resolve(r), rng, ipFilter, ja4Filter, phaseFilter, q,
+			offset, pageSize, offset > 0, hasMore,
+			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
+		),
 		"Saved":      q.Get("saved") != "",
 		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
@@ -227,6 +235,20 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	h.addMeToData(r, data)
 	if err := tmpl.ExecuteTemplate(w, "hunt.html", data); err != nil {
 		log.Printf("hunt render: %v", err)
+	}
+}
+
+// rangeToMinutes mirrors the range parsing in AdminHunt so the action
+// handler can resolve the same sample window the ranking aggregated over.
+// Unknown / empty -> 60 minutes (= the "1h" default).
+func rangeToMinutes(rng string) int {
+	switch strings.TrimSpace(rng) {
+	case "6h":
+		return 360
+	case "24h":
+		return 1440
+	default:
+		return 60
 	}
 }
 
@@ -372,6 +394,60 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 			redir("ja4_bot: " + err.Error())
 			return
 		}
+		// Optional community share: when share=1, POST (sample IP, JA4) to
+		// the shared feed with BanSource=ja4_ranking so the hub's judge can
+		// upgrade the entry to ja4_only (= operator endorsed the fingerprint,
+		// not the specific IP).  The user only picked a JA4 in the ranking;
+		// admin resolves a representative IP for the same window internally
+		// so the hub still receives an (ip, ja4) pair (= ja4-only submit is
+		// supported too, but a pair gives richer signal to other consumers).
+		// Submit failures don't roll back the local JA4Verdicts.Extra append.
+		if h.CommunityBans != nil && strings.TrimSpace(r.FormValue("share")) == "1" {
+			ja4 := pat // ja4_bot's pattern IS the JA4 fingerprint
+			rawReason := strings.TrimSpace(r.FormValue("reason"))
+			comment := r.FormValue("comment")
+			// Resolve a representative IP for this JA4 within the same window
+			// the ranking aggregated over.  Best-effort: empty when no IP was
+			// observed.  hub validation now accepts (ja4) without (ip).
+			sampleIP, _ := events.SampleIPForJA4(r.Context(), h.DB, rangeToMinutes(r.FormValue("range")), ja4)
+			// accept_terms=1: mirror the op=ban path so opting in via the JA4
+			// ranking dialog also activates community submit for future BANs.
+			if strings.TrimSpace(r.FormValue("accept_terms")) == "1" {
+				if cur, err := settings.Load(h.ConfigPath); err == nil {
+					if !cur.CommunityBans.SubmitActive() {
+						cur.CommunityBans.SubmitEnabled = true
+						if cur.CommunityBans.TermsAcceptedAt == 0 {
+							cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
+						}
+						cur.CommunityBans.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
+						cur.Nginx.SeenVersion = "v" + h.Version
+						if err := settings.Save(cur, h.ConfigPath); err != nil {
+							log.Printf("communitybans: accept_terms save: %v", err)
+						} else {
+							settingsMu.Lock()
+							h.Settings = cur
+							settingsMu.Unlock()
+							if h.UserRepo != nil {
+								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
+									"", `{"from":"hunt_ja4_ranking_dialog"}`)
+							}
+						}
+					}
+				} else {
+					log.Printf("communitybans: accept_terms load: %v", err)
+				}
+			}
+			go func(ip, ja4, reason, comment string) {
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				if err := h.CommunityBans.Submit(ctx, communitybans.SubmitRequest{
+					IP: ip, JA4: ja4, Reason: reason, Comment: comment,
+					BanSource: ban.SourceJA4Ranking,
+				}); err != nil {
+					log.Printf("communitybans: submit ja4_ranking %s|%s: %v", ip, ja4, err)
+				}
+			}(sampleIP, ja4, rawReason, comment)
+		}
 		redir("")
 		return
 
@@ -447,4 +523,40 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 // tests don't need to stub it).
 func nowUnix() int64 {
 	return time.Now().Unix()
+}
+
+// huntRangeText builds the "N-M 件目を表示中" caption shown next to the seek
+// pager.  No total -- the event table is too large for COUNT(*).  Empty
+// when the page has no rows so the caption stays out of the way.
+func huntRangeText(lang i18n.Lang, offset, gotRows int) string {
+	if gotRows <= 0 {
+		return ""
+	}
+	return i18n.Tf(lang, "pager.range_caption", offset+1, offset+gotRows)
+}
+
+// buildHuntPagerSeek builds a PagerSeekData for the hunt page.  The base
+// query carries range / ip / ja4 / phase plus any host=... selections so
+// pager links keep the operator's filters intact.
+func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, phase string, q url.Values, offset, pageSize int, hasPrev, hasNext bool, rangeText string) PagerSeekData {
+	var sb strings.Builder
+	sb.WriteByte('?')
+	appendIfSet := func(k, v string) {
+		if v == "" {
+			return
+		}
+		sb.WriteString(url.QueryEscape(k))
+		sb.WriteByte('=')
+		sb.WriteString(url.QueryEscape(v))
+		sb.WriteByte('&')
+	}
+	appendIfSet("range", rng)
+	appendIfSet("ip", ipFilter)
+	appendIfSet("ja4", ja4Filter)
+	appendIfSet("phase", phase)
+	// host can be repeated (= multi-select).
+	for _, h := range q["host"] {
+		appendIfSet("host", h)
+	}
+	return buildPagerSeekData(lang, sb.String(), offset, pageSize, hasPrev, hasNext, rangeText)
 }

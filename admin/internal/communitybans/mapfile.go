@@ -1,7 +1,6 @@
 package communitybans
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,52 +9,10 @@ import (
 	"time"
 )
 
-// WriteDocument: atomic-write the canonical feed JSON for the browse page
-// (= /admin/community-bans/) to read and render.  Outputs community-bans-doc.json in
-// the same dir as WriteMapFiles.  Always overwrites even on empty doc (= the
-// browse page renders "entry=0").
-func WriteDocument(doc FeedDocument, dir string) error {
-	if dir == "" {
-		return nil
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-	body, err := json.Marshal(doc)
-	if err != nil {
-		return err
-	}
-	path := filepath.Join(dir, "community-bans-doc.json")
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o644); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
-}
-
-// ReadDocument: reads the JSON written by WriteDocument.  Returns an empty
-// doc if the file does not exist.
-func ReadDocument(dir string) (FeedDocument, error) {
-	if dir == "" {
-		return FeedDocument{}, nil
-	}
-	body, err := os.ReadFile(filepath.Join(dir, "community-bans-doc.json"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return FeedDocument{}, nil
-		}
-		return FeedDocument{}, err
-	}
-	var doc FeedDocument
-	if err := json.Unmarshal(body, &doc); err != nil {
-		return FeedDocument{}, err
-	}
-	return doc, nil
-}
+// The legacy on-disk WriteDocument/ReadDocument pair (= persisted
+// community-bans-doc.json) was retired in favour of Client.cachedDoc /
+// Client.GetCachedDoc().  nginx never read the file, and admin restart is
+// rare enough that an in-memory cache is sufficient.
 
 // WriteMapFiles: split feed entries across 3 nginx map snippets and atomic-write.
 //

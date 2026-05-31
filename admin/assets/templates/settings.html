@@ -901,25 +901,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
   </div>
 
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.network.fwdja4_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.fwdja4_desc") }}</span></span></h2>
-    <div class="field">
-      <label>{{ t .Lang "settings.network.fwdja4_source_label" }}</label>
-      {{ $js := .Challenge.ResolvedJA4Source }}
-      <select name="ja4_source" style="padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:16rem">
-        <option value="off"    {{ if eq $js "off"    }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_off" }}</option>
-        <option value="module" {{ if eq $js "module" }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_module" }}</option>
-        <option value="header" {{ if eq $js "header" }}selected{{ end }}>{{ t .Lang "settings.network.fwdja4_source_header" }}</option>
-      </select>
-      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.fwdja4_source_hint") }}</p>
-    </div>
-    <div class="field">
-      <label>{{ t .Lang "settings.network.fwdja4_proxies_label" }}</label>
-      <input type="text" name="trusted_forward_auth_proxies" value="{{ .FwdAuthProxiesCSV }}" placeholder="127.0.0.0/8, ::1/128">
-      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.fwdja4_proxies_hint") }}</p>
-    </div>
-  </div>
-
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -3858,35 +3839,9 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </label>
     </div>
 
-    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.auto_apply_h" }}</h3>
-    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.auto_apply_desc") }}</div>
-    <div class="field" style="display:flex;gap:1rem;align-items:flex-end">
-      <div>
-        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.auto_min_score_label" }}</label>
-        {{ $abs := .CommunityBans.AutoBanMinScore }}
-        <select name="auto_ban_min_score" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
-          <option value="0" {{ if eq $abs 0 }}selected{{ end }}>{{ t .Lang "settings.community_bans.auto_min_score_0" }}</option>
-          <option value="3" {{ if eq $abs 3 }}selected{{ end }}>3 ⚠️ {{ t .Lang "settings.community_bans.auto_min_score_3" }}</option>
-          <option value="4" {{ if eq $abs 4 }}selected{{ end }}>4 🚨 {{ t .Lang "settings.community_bans.auto_min_score_4" }}</option>
-          <option value="5" {{ if eq $abs 5 }}selected{{ end }}>5 🛑 {{ t .Lang "settings.community_bans.auto_min_score_5" }}</option>
-        </select>
-      </div>
-      <div>
-        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.auto_action_label" }}</label>
-        {{ $aba := .CommunityBans.AutoBanAction }}
-        {{ if eq $aba "" }}{{ $aba = "captcha_only" }}{{ end }}
-        <select name="auto_ban_action" style="padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
-          <option value="captcha_only"     {{ if eq $aba "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="pow_then_captcha" {{ if eq $aba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="pow_only"         {{ if eq $aba "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="deny"             {{ if eq $aba "deny" }}selected{{ end }}>deny</option>
-        </select>
-      </div>
-    </div>
-
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.identity_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.identity_desc") }}</div>
-    <div class="field" style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap">
+    <div class="field" style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap">
       <div>
         <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_derived_label" }}</label>
         <code style="display:inline-block;padding:.35rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;color:#475569">{{ if .CommunityBans.HN }}{{ .CommunityBans.HN }}{{ else }}<span class="muted">(まだ register されていません)</span>{{ end }}</code>
@@ -3894,7 +3849,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div style="flex:1;min-width:14rem">
         <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
         <input type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" maxlength="32" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
-        <div class="note" style="margin-top:.25rem;font-size:.72rem">{{ t .Lang "settings.community_bans.hn_override_rules" }}</div>
+        <div class="note" style="margin-top:.25rem;font-size:.72rem">{{ safeHTML (t .Lang "settings.community_bans.hn_override_rules") }}</div>
       </div>
     </div>
 
@@ -3909,6 +3864,15 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <td>{{ if gt .CommunityBans.LastPulledAt 0 }}<time class="js-datetime" data-ts="{{ .CommunityBans.LastPulledAt }}">{{ .CommunityBans.LastPulledAt }}</time>  ({{ .CommunityBans.Entries }} entries){{ else }}<span class="muted">{{ t .Lang "settings.community_bans.status_never" }}</span>{{ end }}</td>
       </tr>
     </table>
+
+    <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.my_data_h" }}</h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.my_data_desc") }}</div>
+    <details id="my-data-card" style="padding:.4rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
+      <summary style="cursor:pointer;font-weight:600;color:#0f172a;font-size:.9rem">{{ t .Lang "settings.community_bans.my_data_load" }} <span id="my-data-count" class="muted" style="font-weight:normal;font-size:.8rem">…</span></summary>
+      <div id="my-data-body" style="padding:.5rem 0;font-size:.82rem">
+        <span class="muted">{{ t .Lang "community_bans.detail.loading" }}</span>
+      </div>
+    </details>
 
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
@@ -3933,6 +3897,107 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     }
   }
   terms.addEventListener('change', sync);
+})();
+
+// My hub-data panel (= GDPR Art 15 + Art 17 surface): submissions / comments / votes
+// owned by this install's token, each with an inline delete button.
+(function(){
+  var card = document.getElementById('my-data-card');
+  if (!card) return;
+  var BASE = "{{ .BasePath }}";
+  var T = {
+    subs_h:    {{ t .Lang "settings.community_bans.my_data_subs_h" }},
+    empty:     {{ t .Lang "settings.community_bans.my_data_empty" }},
+    del:       {{ t .Lang "settings.community_bans.my_data_delete" }},
+    confirm:   {{ t .Lang "settings.community_bans.my_data_confirm" }},
+    err:       {{ t .Lang "settings.community_bans.my_data_err" }},
+    reason:    {{ t .Lang "community_bans.col.reason" }},
+    at_col:    {{ t .Lang "settings.community_bans.my_data_at_col" }}
+  };
+  var loaded = false, data = null;
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function fmtTime(ts){ return ts ? new Date(ts*1000).toLocaleString() : ''; }
+  // Submission row delete (× button).  vote / comment are intentionally not
+  // listed in this section (= the operator can't tell which (ip, ja4) they
+  // belong to without joining back).  Use the community-bans page detail
+  // panel for those.
+  function delBtn(id){
+    return '<button type="button" class="my-data-del" data-id="' + esc(id) + '" ' +
+           'style="border:1px solid #fecaca;background:#fff;color:#b91c1c;padding:.1rem .45rem;border-radius:.25rem;cursor:pointer;font-size:.78rem" ' +
+           'aria-label="' + esc(T.del) + '">×</button>';
+  }
+  function tableHTML(headers, rows, emptyCols){
+    if (!rows.length) {
+      return '<table style="width:100%;border-collapse:collapse"><tbody><tr><td colspan="' + emptyCols + '" style="padding:.5rem;color:#94a3b8;font-style:italic">' + esc(T.empty) + '</td></tr></tbody></table>';
+    }
+    var th = headers.map(function(h){ return '<th style="padding:.2rem .4rem">' + esc(h) + '</th>'; }).join('');
+    return '<table style="width:100%;border-collapse:collapse;font-size:.82rem">' +
+      '<thead><tr style="text-align:left;color:#64748b;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em">' + th + '</tr></thead>' +
+      '<tbody>' + rows.join('') + '</tbody></table>';
+  }
+  function render(d){
+    data = d;
+    var subN = (d.submissions||[]).length;
+    document.getElementById('my-data-count').textContent =
+      '· ' + subN + (d.hn ? '  (HN: ' + d.hn + ')' : '');
+
+    // Only submissions are listed + deletable here.  Each submission row is
+    // self-contained (its IP / JA4 / reason carry their own context, so the
+    // operator can tell what they're deleting).  Comments / votes live on
+    // the community-bans page where the parent (ip, ja4) pair is visible.
+    var sRows = (d.submissions||[]).map(function(s){
+      return '<tr>' +
+        '<td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace">' + esc(s.ip||'') + '</td>' +
+        '<td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem">' + esc(s.ja4||'') + '</td>' +
+        '<td style="padding:.2rem .4rem">' + esc(s.reason||'') + '</td>' +
+        '<td style="padding:.2rem .4rem;color:#94a3b8;font-size:.78rem;white-space:nowrap"><time class="js-datetime" data-ts="' + esc(s.submitted_at) + '">' + fmtTime(s.submitted_at) + '</time></td>' +
+        '<td style="padding:.2rem .4rem;text-align:right">' + delBtn(s.id) + '</td>' +
+        '</tr>';
+    });
+
+    var html = '';
+    html += '<h4 style="font-size:.85rem;margin:.4rem 0 .25rem;color:#0f172a">' + esc(T.subs_h) + ' <span class="muted" style="font-size:.75rem">(' + subN + ')</span></h4>';
+    html += tableHTML(['IP', 'JA4', T.reason, T.at_col, ''], sRows, 5);
+
+    document.getElementById('my-data-body').innerHTML = html;
+    document.getElementById('my-data-body').querySelectorAll('time.js-datetime').forEach(function(el){
+      var ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (ts) el.textContent = new Date(ts * 1000).toLocaleString();
+    });
+  }
+  function load(){
+    fetch(BASE + "/admin/api/community-bans/me/submissions", {credentials:'same-origin', cache:'no-cache'})
+      .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(d){ render(d); loaded = true; })
+      .catch(function(err){
+        document.getElementById('my-data-body').innerHTML = '<span style="color:#b91c1c">' + esc(err.message || err) + '</span>';
+      });
+  }
+  card.addEventListener('toggle', function(){
+    if (card.open && !loaded) load();
+  });
+  card.addEventListener('click', function(e){
+    var btn = e.target.closest('.my-data-del');
+    if (!btn) return;
+    e.preventDefault();
+    if (!confirm(T.confirm)) return;
+    var id = btn.getAttribute('data-id');
+    btn.disabled = true;
+    fetch(BASE + "/admin/api/community-bans/submission/" + encodeURIComponent(id),
+          {method: 'DELETE', credentials:'same-origin'})
+      .then(function(r){
+        if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+        loaded = false; load();
+      })
+      .catch(function(err){
+        btn.disabled = false;
+        alert((T.err || 'error') + ': ' + (err.message || err));
+      });
+  });
 })();
 </script>
 {{ end }}

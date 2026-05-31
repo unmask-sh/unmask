@@ -701,6 +701,32 @@ func RankByJA4(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, e
 	return out, rows.Err()
 }
 
+// SampleIPForJA4 returns the IP that appears the most often with the given
+// JA4 fingerprint inside the last sinceMin minutes.  Used by the hunt page
+// to surface a representative IP next to each JA4 ranking row so the
+// operator can open the IP BAN dialog and report (ip, ja4) to community.
+// Returns "" when no IP is found (= the JA4 only appears in events without
+// an IP, or no events match).
+func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (string, error) {
+	if ja4 == "" {
+		return "", nil
+	}
+	stmt := `SELECT ip_address FROM unmask_event
+	         WHERE date_created > ` + d.NowMinusMinutes(sinceMin) + `
+	           AND COALESCE(ja4, '') = ?
+	           AND COALESCE(ip_address, '') <> ''
+	         GROUP BY ip_address ORDER BY COUNT(*) DESC LIMIT 1`
+	var ip string
+	row := d.QueryRowContext(ctx, stmt, ja4)
+	if err := row.Scan(&ip); err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return ip, nil
+}
+
 // RankByUA aggregates unmask_event from the last sinceMin minutes by UA.
 func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {

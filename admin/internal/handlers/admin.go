@@ -90,6 +90,66 @@ func loadDashboardTemplate() (*template.Template, error) {
 			},
 			"add": func(a, b int) int { return a + b },
 			"sub": func(a, b int) int { return a - b },
+			"mul": func(a, b int) int { return a * b },
+			"min": func(a, b int) int { if a < b { return a }; return b },
+			"max": func(a, b int) int { if a > b { return a }; return b },
+			// paginationPages: full numbered pager helper.
+			//
+			// Returns the sequence of page numbers to render in the pager, with
+			// 0 acting as an "..." (ellipsis) marker.  Inspired by the parent
+			// repo's PageNavigator (= current ± round window + first/last outer
+			// blocks, joined with ellipses where there are gaps).
+			//
+			//   current    -- 1-indexed current page (1..total)
+			//   total      -- total pages (>= 1)
+			//   round      -- pages to show on each side of current (e.g. 2 → ±2)
+			//   outer      -- pages to anchor at the head and the tail (e.g. 1)
+			//
+			// Empty / nil for total <= 0.  Single-page case returns [1].
+			"paginationPages": func(current, total, round, outer int) []int {
+				if total <= 0 {
+					return nil
+				}
+				if round < 0 { round = 0 }
+				if outer < 0 { outer = 0 }
+				present := make(map[int]bool, 2*round+2*outer+1)
+				add := func(p int) {
+					if p >= 1 && p <= total {
+						present[p] = true
+					}
+				}
+				// First outer block (= expand when current is near the start).
+				headBlock := outer
+				if round > current { headBlock = round * 3 }
+				for p := 1; p <= headBlock; p++ {
+					add(p)
+				}
+				// Tail outer block (= expand when current is near the end).
+				tailFrom := total - outer + 1
+				if total-round < current { tailFrom = total - round*2 + 1 }
+				for p := tailFrom; p <= total; p++ {
+					add(p)
+				}
+				// Current window.
+				for p := current - round; p <= current+round; p++ {
+					add(p)
+				}
+				keys := make([]int, 0, len(present))
+				for k := range present {
+					keys = append(keys, k)
+				}
+				sort.Ints(keys)
+				out := make([]int, 0, len(keys)*2)
+				var last int
+				for _, k := range keys {
+					if last > 0 && k > last+1 {
+						out = append(out, 0) // ellipsis sentinel
+					}
+					out = append(out, k)
+					last = k
+				}
+				return out
+			},
 			// Render an integer with thousands separators (1234 -> "1,234").  Same format as the parent project.
 			"comma": func(n int) string {
 				s := fmt.Sprintf("%d", n)
@@ -337,23 +397,27 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 	return v
 }
 
-// AdminIPAllowMiddleware enforces remote-IP access control on /admin/*.
+// AdminIPAllowMiddleware enforces both remote-IP and Host-header access
+// control on /admin/*.
 //
 // Configuration:
-//   - settings.Nginx.AdminAllowFrom is the source of truth (editable via web UI).
-//   - An empty list means **allow all** (legacy behavior; avoids accidentally
-//     disabling access on existing installs).  Almost every install has the
-//     wizard set this to a non-empty list.
-//   - Each entry is an IP exact match or CIDR (e.g. "192.168.0.0/24").
+//   - settings.Nginx.AdminAllowFrom — IP / CIDR list (e.g. "192.168.0.0/24").
+//   - settings.Nginx.AdminAllowedHosts — Host-header list (e.g. "admin.example.com").
+//   - Either list empty = allow all (legacy behavior; avoids locking out
+//     existing installs).  Wizard sets AdminAllowFrom to a non-empty list on
+//     fresh installs; AdminAllowedHosts is opt-in for the "single nginx serves
+//     many domains but only one should expose the admin UI" pattern.
 //
-// The rendered nginx server.conf emits the equivalent allow / deny, but
+// The rendered nginx server.conf emits the equivalent IP allow / deny, but
 // existing integrated deployments that don't include the rendered conf
 // won't see it.  Enforcing this at the handler layer guarantees a consistent
-// restriction independent of nginx config.
+// restriction independent of nginx config.  The Host check is handler-only
+// (= nginx still proxies every /unmask/* path; the admin decides what to
+// expose).
 //
 // Not applied during the install wizard (/admin/setup/) so the initial install
-// can't lock you out before any IP is configured.  Applied to /admin/login to
-// prevent brute force from unauthorized IPs.
+// can't lock you out before any IP / Host is configured.  Applied to
+// /admin/login to prevent brute force from unauthorized IPs.
 func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Bypass during the install wizard (setup token guards it separately).
@@ -367,8 +431,49 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			http.Error(w, "forbidden: your IP is not in admin_allow_from", http.StatusForbidden)
 			return
 		}
+		if !hostAllowed(r.Host, h.Settings.Nginx.AdminAllowedHosts) {
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, h.Settings.Nginx.AdminAllowedHosts)
+			http.Error(w, "forbidden: this Host is not in admin_allowed_hosts", http.StatusForbidden)
+			return
+		}
 		next(w, r)
 	}
+}
+
+// hostAllowed reports whether the Host header matches any entry in allowList.
+// Comparison is case-insensitive and any trailing port (= ":443" etc.) is
+// stripped before matching.  Empty allowList means allow all (legacy compat;
+// avoids lockout from misconfiguration).
+//
+// IPv6 literals come in as "[::1]:443" / "[::1]" — strip ":port" only when
+// the host isn't already bracketed at the end.
+func hostAllowed(host string, allowList []string) bool {
+	if len(allowList) == 0 {
+		return true
+	}
+	host = strings.TrimSpace(host)
+	// Strip the trailing port if present.  For an IPv6 "[::1]:443" host the
+	// port lives after the closing ']'.  For "[::1]" alone there is no port.
+	if strings.HasPrefix(host, "[") {
+		if i := strings.LastIndex(host, "]"); i > 0 {
+			if i+1 < len(host) && host[i+1] == ':' {
+				host = host[:i+1]
+			}
+		}
+	} else if i := strings.LastIndex(host, ":"); i >= 0 {
+		host = host[:i]
+	}
+	host = strings.ToLower(host)
+	for _, entry := range allowList {
+		entry = strings.ToLower(strings.TrimSpace(entry))
+		if entry == "" {
+			continue
+		}
+		if host == entry {
+			return true
+		}
+	}
+	return false
 }
 
 // ipAllowed reports whether ip matches any entry in allowList.  Supports both
@@ -572,7 +677,14 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 		rejectInvalid()
 		return
 	}
-	// success
+	// success.  Transparently rehash legacy bcrypt to argon2id while we have
+	// the plaintext.  best-effort (= login itself succeeds even if the rewrite
+	// fails; the next successful login will retry).
+	if user.IsLegacyHash(u.PasswordHash) {
+		if err := h.UserRepo.SetPassword(r.Context(), u.ID, password); err != nil {
+			log.Printf("argon2id rehash: %v", err)
+		}
+	}
 	h.UserRepo.TouchLastLogin(r.Context(), u.ID)
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"

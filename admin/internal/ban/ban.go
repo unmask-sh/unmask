@@ -46,6 +46,10 @@ const (
 	SourceProtectedFailed = "protected_failed" // v0.2+
 	SourceRateLimitAbuse  = "rate_limit_abuse" // v0.2+
 	SourceJA4Loop         = "ja4_loop"         // v0.2+
+	// SourceJA4Ranking: hunt → "上位 JA4" ranking から operator が選んで報告した
+	// (= 特定 IP ではなく JA4 fingerprint 自体への評価).  hub はこれを受け取ると
+	// 該当 entry を ja4_only として強く分類する (= judge.applySourceLean).
+	SourceJA4Ranking      = "ja4_ranking"
 )
 
 // Entry: one ban record.
@@ -124,6 +128,14 @@ func (m *Manager) Start() {
 	if m == nil {
 		return
 	}
+	// Migration (2026-05-31): community feed entries no longer copy into
+	// unmask_ban.  Cleanup leftover rows from older installs once at startup
+	// so the BAN management UI immediately reflects the new policy (= local
+	// list shows only this install's own decisions).  nginx maps remain the
+	// enforcement surface for community entries.  Best-effort: ignore errors.
+	if res := m.DB.Gorm.Exec(`DELETE FROM unmask_ban WHERE source = ?`, "community_bans"); res.Error == nil && res.RowsAffected > 0 {
+		log.Printf("ban: cleaned up %d legacy community_bans rows (= now map-only)", res.RowsAffected)
+	}
 	if m.filePath != "" {
 		if err := m.flush(); err != nil {
 			log.Printf("ban: initial flush: %v", err)
@@ -193,45 +205,6 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 	}
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, source, reason, bannedBy)
-	}
-}
-
-// AddFromHub: auto-add a community_bans entry into the local BAN list.
-//
-//	expiresAt is a UNIX seconds timestamp, taken straight from the hub
-//	feed entry (= 0 means permanent, but hub entries always carry one).
-//	action overrides the default chain mode resolver (= use
-//	settings.CommunityBans.AutoBanAction, falls back to ResolveAction
-//	when empty).
-//
-// Skips whitelisted IPs and empty IP entries (= ja4_only feed rows have
-// no IP -- those keep their nginx-map enforcement only).
-func (m *Manager) AddFromHub(ctx context.Context, ip, ja4, reason, action string, expiresAt int64) {
-	if m == nil {
-		return
-	}
-	ip = strings.TrimSpace(ip)
-	ja4 = strings.TrimSpace(ja4)
-	if ip == "" {
-		return
-	}
-	if m.whitelist[ip] {
-		return
-	}
-	now := time.Now().Unix()
-	if expiresAt > 0 && expiresAt < now {
-		return // already expired -- skip
-	}
-	if err := m.upsert(ctx, ip, ja4, "community_bans", reason, now, expiresAt, "community_bans_auto", action); err != nil {
-		log.Printf("ban auto-add from community_bans hub: %v", err)
-		return
-	}
-	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
-	if m.OnCreated != nil {
-		m.OnCreated(ip, ja4, "community_bans", reason, "community_bans_auto")
 	}
 }
 

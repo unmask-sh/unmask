@@ -118,6 +118,19 @@ func IsTrustedLBIP(ip string, n settings.Nginx) (trusted bool, vendor string) {
 	return false, ""
 }
 
+// EffectiveLBCIDRs returns the flat CIDR list across every enabled preset +
+// custom extra in n.  Used by callers outside this package that need the
+// same trust list — primarily the forward-auth admin peer check, which reuses
+// the native-mode LB list so an operator configures one place instead of two.
+func EffectiveLBCIDRs(n settings.Nginx) []string {
+	lbs := effectiveLBs(n.TrustedLBPresets, n.TrustedLBExtra)
+	out := make([]string, 0, len(lbs)*4)
+	for _, p := range lbs {
+		out = append(out, p.CIDRs...)
+	}
+	return out
+}
+
 // effectiveLBs: return the merged list of user-enabled presets + custom
 // extras.  Both empty -> empty (= trust no LB.  secure default).  Extras
 // win on ID collisions.
