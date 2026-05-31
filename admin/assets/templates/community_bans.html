@@ -1261,6 +1261,55 @@ document.addEventListener('click', function(e){
     if (el) el.style.display = 'none';
   }
 
+  // installHoverShow: wire mouseover/mouseout on `selector` so the popover
+  // appears on hover (= fetches detail + showHover'd into `pin`'s primary),
+  // and disappears on mouseout unless the mouse moved into the primary
+  // popover itself (= so the operator can read multi-line content without
+  // it vanishing the moment they aim at it).  Click still pins via the
+  // existing capture-phase handler below; this is purely for "チラ見".
+  // hasPinFor short-circuits so hover doesn't fight a pinned clone.
+  function installHoverShow(selector, pin, primary, renderFn){
+    if (!pin || !primary) return;
+    document.addEventListener('mouseover', function(e){
+      var t = e.target.closest && e.target.closest(selector);
+      if (!t) return;
+      if (pin.hasPinFor(t)) return;
+      var to = e.relatedTarget ? e.relatedTarget.closest(selector) : null;
+      if (to === t) return; // moving within same trigger -> no-op
+      var row = t.closest('tr.feed-row');
+      if (!row) return;
+      var x = e.pageX, y = e.pageY;
+      pin.showHover(detailLoading(), x, y);
+      fetchFor(row).then(function(d){
+        // Skip the render if the user has already moused out (= primary is
+        // hidden) or pinned (= a clone exists).  Avoids the loading spinner
+        // briefly flashing the stale row's data after the cursor moved on.
+        if (primary.style.display === 'none') return;
+        if (pin.hasPinFor(t)) return;
+        pin.showHover(renderFn(d), x, y);
+      }).catch(function(){ pin.hideHover(); });
+    });
+    document.addEventListener('mouseout', function(e){
+      var t = e.target.closest && e.target.closest(selector);
+      if (!t) return;
+      var to = e.relatedTarget;
+      if (to && to.closest){
+        if (to.closest(selector) === t) return; // child of same trigger
+        if (primary.contains(to)) return;       // moved into the popover
+      }
+      pin.hideHover();
+    });
+    // Mouseleave on the primary popover: keep it open while the cursor is
+    // inside; hide once it leaves (= unless the cursor went back to a
+    // trigger of the same selector, in which case mouseover above keeps it
+    // visible).
+    primary.addEventListener('mouseleave', function(e){
+      var to = e.relatedTarget;
+      if (to && to.closest && to.closest(selector)) return;
+      pin.hideHover();
+    });
+  }
+
   // -------- Reports popover (= 📍 cell) --------
   var reportsPop = document.getElementById('reports-popover');
   var reportsPin = (reportsPop && window.popoverPin) ? window.popoverPin.install(reportsPop) : null;
@@ -1429,6 +1478,13 @@ document.addEventListener('click', function(e){
       alert((t.err || 'error') + ' ' + (err.message || err));
     });
   });
+
+  // Wire hover-show for all three list-row popovers.  Click still pins via
+  // the capture-phase handlers above; this just adds peek-on-hover so the
+  // operator can browse without committing.
+  installHoverShow('.cmt-count',          pin,        pop,        renderCommentSection);
+  installHoverShow('.reports-badge',      reportsPin, reportsPop, renderReportsSection);
+  installHoverShow('.votes-cell .like',   votePin,    votePop,    renderVoteSection);
 })();
 
 </script>

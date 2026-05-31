@@ -407,6 +407,11 @@ window.popoverPin = window.popoverPin || (function(){
         clone.remove();
         pins.delete(trigger);
       };
+      // Remember the trigger so the global outside-click listener can avoid
+      // closing this clone when the user re-clicks its own trigger (= the
+      // trigger's own click handler is what should toggle, not the outside-
+      // click close path).
+      clone._popoverTrigger = trigger;
       var titleArg = (typeof customTitle === 'string' && customTitle)
                        ? capTitle(customTitle)
                        : titleFromTrigger(trigger);
@@ -460,6 +465,22 @@ window.popoverPin = window.popoverPin || (function(){
       }
     };
   }
+  // Click outside any pinned clone closes it (= focus-loss dismiss).  Skips
+  // clicks landing on the clone itself (= internal interaction) and on the
+  // clone's trigger element (= the trigger's own click handler is what
+  // should toggle, not this listener -- otherwise the trigger would close
+  // and immediately reopen, causing a flicker).  Capture phase so this fires
+  // before app-level click handlers; we never preventDefault so the rest of
+  // the chain still runs.
+  document.addEventListener('mousedown', function(e){
+    document.querySelectorAll('.popover-clone').forEach(function(c){
+      if (c.contains(e.target)) return;
+      if (c._popoverTrigger && c._popoverTrigger.contains && c._popoverTrigger.contains(e.target)) return;
+      if (typeof c._popoverUnpin === 'function') c._popoverUnpin();
+      else c.remove();
+    });
+  }, true);
+
   // ESC closes pinned popovers LIFO: each press peels off the most recently
   // opened clone, so users can incrementally walk back through a stack of
   // pinned helps without nuking the whole working set with one keystroke.
