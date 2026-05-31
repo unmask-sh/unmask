@@ -19,8 +19,15 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ck=$(mktemp)
 trap 'rm -f "$ck"' EXIT
 
+# IP isolation: keep this scenario on a dedicated XFF so the prior
+# honeypot scenarios (02 / 03) don't carry their ban into the cookie
+# pass-through check.  _bv is HMAC-bound to remote_ip, so every reuse
+# must come from the same XFF.
+CLIENT_IP=198.51.100.40
+
 # 1. fetch captcha
-new=$(curl -sk -A "$UA_BROWSER" "${BASE_URL}/unmask/api/captcha/new")
+new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
+    "${BASE_URL}/unmask/api/captcha/new")
 a=$(echo "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(echo "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(echo "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
@@ -29,7 +36,7 @@ ans=$((a + b))
 log "captcha: $a + $b = $ans  token=${token:0:24}..."
 
 # 2. verify (= submit answer)
-verify=$(curl -sk -A "$UA_BROWSER" -c "$ck" \
+verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
     -d "{\"token\":\"$token\",\"answer\":\"$ans\"}" \
     "${BASE_URL}/unmask/api/verify")
@@ -40,6 +47,7 @@ bv=$(grep '_bv' "$ck" | awk '{print $7}')
 log "_bv cookie received: ${bv:0:32}..."
 
 # 3. Hit the honeypot with _bv.  Challenge should be skipped, expect 200.
-code=$(curl -sk -A "$UA_BROWSER" -b "$ck" -o /dev/null -w '%{http_code}' \
+code=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -b "$ck" \
+    -o /dev/null -w '%{http_code}' \
     "${BASE_URL}/wp-login.php")
 assert_eq 200 "$code" "GET /wp-login.php with _bv cookie returns 200 (= challenge skipped)"

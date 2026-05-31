@@ -10,7 +10,12 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 . "$DIR/lib/assert.sh"
 
-body=$(curl -sk -A "$UA_BROWSER" "${BASE_URL}/")
+# IP isolation: keep this scenario on a dedicated XFF so honeypot bans
+# from prior scenarios (02 / 03 / 04) don't push our hit to the challenge
+# page (= empty echo body, no ja4= line).
+CLIENT_IP=198.51.100.70
+
+body=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" "${BASE_URL}/")
 ja4_line=$(echo "$body" | grep -E '^ja4=' | head -1 | tr -d '\r')
 ja4="${ja4_line#ja4=}"
 

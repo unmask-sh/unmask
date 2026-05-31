@@ -22,13 +22,19 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 fails=0
 
+# IP isolation: keep this scenario on a dedicated XFF so honeypot bans from
+# prior scenarios (02 / 03 / 04) don't reject these UAs at the IP-ban gate
+# before the UA-rescue match has a chance to run.
+CLIENT_IP=198.51.100.150
+
 # A rescued request reaches the @echo origin (body "[unmask e2e]"); a
 # challenged one gets the challenge HTML instead (no echo marker).
 check_rescued() {
     local name="$1" ua="$2"
     local body_tmp code
     body_tmp=$(mktemp)
-    code=$(curl -sk -A "$ua" -o "$body_tmp" -w '%{http_code}' "${BASE_URL}/")
+    code=$(curl -sk -A "$ua" -H "X-Forwarded-For: $CLIENT_IP" \
+        -o "$body_tmp" -w '%{http_code}' "${BASE_URL}/")
     if [ "$code" = "200" ] && grep -qF '[unmask e2e]' "$body_tmp"; then
         log_pass "$name UA → passed to origin, not challenged (= 200)"
     else

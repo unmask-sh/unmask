@@ -31,8 +31,13 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 fails=0
 
+# IP isolation: dedicated XFF so honeypot bans from prior scenarios don't
+# pre-empt the bypass-path matcher with a banned-IP challenge.
+CLIENT_IP=198.51.100.180
+
 # (a) Inside the bypass path -- expect fc=0 + echo body.
-curl -sk -A "$UA_CURL" -o "$tmpdir/a.body" -w '%{http_code}' \
+curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $CLIENT_IP" \
+    -o "$tmpdir/a.body" -w '%{http_code}' \
     "${BASE_URL}/e2e-bypass-only/foo" > "$tmpdir/a.code"
 code_a=$(cat "$tmpdir/a.code")
 body_a=$(cat "$tmpdir/a.body")
@@ -48,7 +53,8 @@ else
 fi
 
 # (b) Same substring mid-URI -- must NOT bypass (= anchor enforced).
-curl -sk -A "$UA_CURL" -o "$tmpdir/b.body" -w '%{http_code}' \
+curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $CLIENT_IP" \
+    -o "$tmpdir/b.body" -w '%{http_code}' \
     "${BASE_URL}/foo/e2e-bypass-only/bar" > "$tmpdir/b.code"
 code_b=$(cat "$tmpdir/b.code")
 body_b=$(cat "$tmpdir/b.body")
@@ -65,7 +71,8 @@ fi
 
 # (c) Unrelated path -- with curl UA the request is normally challenged.
 # Confirms the bypass entry doesn't accidentally let everything through.
-curl -sk -A "$UA_CURL" -o "$tmpdir/c.body" -w '%{http_code}' \
+curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $CLIENT_IP" \
+    -o "$tmpdir/c.body" -w '%{http_code}' \
     "${BASE_URL}/not-bypassed/" > "$tmpdir/c.code"
 code_c=$(cat "$tmpdir/c.code")
 body_c=$(cat "$tmpdir/c.body")

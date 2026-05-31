@@ -31,10 +31,14 @@ RESOLVE_IP=127.0.0.1
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
 
+# IP isolation: dedicated XFF keeps prior-scenario honeypot bans (= ban on
+# the shared docker IP) from masking the per-host protected_mode test.
+CLIENT_IP=198.51.100.190
+
 # probe(host, path) -> echoes status code, writes body to $tmpdir/body.
 probe() {
     local host="$1" path="$2"
-    curl -sk -A "$UA_BROWSER" \
+    curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
         --resolve "${host}:${PORT}:${RESOLVE_IP}" \
         -o "$tmpdir/body" -w '%{http_code}' \
         "https://${host}:${PORT}${path}"
