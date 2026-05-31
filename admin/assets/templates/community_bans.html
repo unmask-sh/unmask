@@ -419,8 +419,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           <span class="votes-cell"{{ if .Reasoning }} data-info="{{ .Reasoning }}"{{ end }}><span class="like">👍 {{ .LikeCount }}</span> <span class="cmt-count">💬 {{ .CommentCount }}</span></span>
           </span>
         </td>
-        <td class="clamp"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="clamp"{{ if .Comments }} data-full="{{ range $i, $c := .Comments }}{{ if $i }}&#10;&#10;{{ end }}{{ $c.Text }}{{ end }}"{{ end }}>
+        <td class="clamp feed-reason"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="clamp feed-comments"{{ if .Comments }} data-full="{{ range $i, $c := .Comments }}{{ if $i }}&#10;&#10;{{ end }}{{ $c.Text }}{{ end }}"{{ end }}>
           {{ range .Comments }}
           <span class="cmt">{{ .Text }}</span>
           {{ else }}
@@ -552,6 +552,12 @@ document.addEventListener('click', function(e){
     return '<div style="white-space:pre-wrap;max-width:32rem;font-size:.85rem;line-height:1.5">' + esc(text) + '</div>';
   }
   document.querySelectorAll('table.feed td.clamp[data-full]').forEach(function(td){
+    // feed-reason / feed-comments cells own their own popover (= the
+    // structured reports / comment popover) which can render every
+    // reporter's text with HN + country + timestamp, so skip the generic
+    // clamp truncation popover for them -- otherwise both would fire on
+    // hover and the less-informative one would race ahead.
+    if (td.classList.contains('feed-reason') || td.classList.contains('feed-comments')) return;
     td.style.cursor = 'default';
     td.addEventListener('mouseenter', function(e){
       if (pin.hasPinFor(td)) return;
@@ -1163,11 +1169,14 @@ document.addEventListener('click', function(e){
   // votes-cell[data-info] and would steal the click by pinning the reasoning
   // text).  stopImmediatePropagation stops every later document-level
   // listener for the same event.
-  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count').forEach(function(el){
+  // 💬 N badge OR the COMMENTS column cell both open the comment popover --
+  // the column cell shows every comment with its author / country / time
+  // metadata (= the table cell only renders concatenated text).
+  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count, table.feed tbody tr.feed-row td.feed-comments').forEach(function(el){
     el.style.cursor = 'pointer';
   });
   document.addEventListener('click', function(e){
-    var cmt = e.target.closest && e.target.closest('.cmt-count');
+    var cmt = e.target.closest && e.target.closest('.cmt-count, td.feed-comments');
     if (!cmt) return;
     // Don't intercept clicks inside the popover-clone (= its own buttons).
     if (e.target.closest('.popover-clone')) return;
@@ -1341,11 +1350,14 @@ document.addEventListener('click', function(e){
       }
     }).catch(function(){ /* ignored */ });
   }
-  document.querySelectorAll('table.feed tbody tr.feed-row .reports-badge').forEach(function(el){
+  // 📍 badge OR the REASON column cell both open the reports popover -- the
+  // column cell shows every reporter's reason (= the table cell itself can
+  // only carry the representative submission's reason).
+  document.querySelectorAll('table.feed tbody tr.feed-row .reports-badge, table.feed tbody tr.feed-row td.feed-reason').forEach(function(el){
     el.style.cursor = 'pointer';
   });
   document.addEventListener('click', function(e){
-    var badge = e.target.closest && e.target.closest('.reports-badge');
+    var badge = e.target.closest && e.target.closest('.reports-badge, td.feed-reason');
     if (!badge) return;
     if (e.target.closest('.popover-clone')) return;
     var row = badge.closest('tr.feed-row');
@@ -1482,9 +1494,9 @@ document.addEventListener('click', function(e){
   // Wire hover-show for all three list-row popovers.  Click still pins via
   // the capture-phase handlers above; this just adds peek-on-hover so the
   // operator can browse without committing.
-  installHoverShow('.cmt-count',          pin,        pop,        renderCommentSection);
-  installHoverShow('.reports-badge',      reportsPin, reportsPop, renderReportsSection);
-  installHoverShow('.votes-cell .like',   votePin,    votePop,    renderVoteSection);
+  installHoverShow('.cmt-count, td.feed-comments',   pin,        pop,        renderCommentSection);
+  installHoverShow('.reports-badge, td.feed-reason', reportsPin, reportsPop, renderReportsSection);
+  installHoverShow('.votes-cell .like',              votePin,    votePop,    renderVoteSection);
 })();
 
 </script>
