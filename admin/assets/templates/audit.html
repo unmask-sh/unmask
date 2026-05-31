@@ -34,10 +34,7 @@ table.audit td.username{font-weight:600}
 table.audit td.target{font-family:ui-monospace,Menlo,monospace;color:#475569}
 table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;font-size:.8rem;max-width:30rem;overflow-wrap:break-word}
 .muted{color:#94a3b8}
-.pager{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem}
-.pager a,.pager span{padding:.3rem .8rem;border:1px solid #cbd5e1;border-radius:.2rem;text-decoration:none;color:#475569;font-size:.85rem}
-.pager a:hover{background:#f1f5f9;color:#0f172a}
-.pager span.disabled{color:#cbd5e1;cursor:not-allowed}
+/* pager styles via partial_pager_styles below. */
 .action-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
 .act-login{background:#dcfce7;color:#166534}
 .act-login_failed{background:#fee2e2;color:#991b1b}
@@ -68,6 +65,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
 .picker select option{color:#0f172a;background:#fff}
 
 </style>
+{{ template "pager_styles" }}
 </head>
 <body>
 <header class="unmask-header">
@@ -127,6 +125,9 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
 <div class="bcd-card">
   {{ if .Saved }}<div class="banner-ok">{{ t .Lang "audit.restored" }}</div>{{ end }}
   {{ if .Error }}<div class="banner-err">{{ .Error }}</div>{{ end }}
+
+  {{ template "pager_full" .Pager }}
+
   <table class="audit">
     <thead>
       <tr>
@@ -194,10 +195,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
     }
   });
   </script>
-  <div class="pager">
-    {{ if .HasPrev }}<a href="?offset={{ .PrevOffset }}">← {{ t .Lang "audit.prev" }}</a>{{ else }}<span class="disabled">← {{ t .Lang "audit.prev" }}</span>{{ end }}
-    {{ if .HasMore }}<a href="?offset={{ .NextOffset }}">{{ t .Lang "audit.next" }} →</a>{{ else }}<span class="disabled">{{ t .Lang "audit.next" }} →</span>{{ end }}
-  </div>
+  {{ template "pager_full" .Pager }}
 </div>
 
 </main>

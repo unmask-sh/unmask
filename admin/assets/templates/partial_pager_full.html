@@ -1,0 +1,69 @@
+{{/*
+  partial_pager_full -- full numbered pager (= prev / 1 / 2 ... 47 / 48 / next).
+
+  Inspired by the parent repo's PageNavigator + _admin_pager helpers; the page-
+  number generation logic is the Go-side `paginationPages` template helper, and
+  the layout below is a clean-room reimplementation in plain CSS (no Bootstrap).
+
+  Mirrors the parent's default: a single page still renders (= "[1]" alone +
+  count caption), to confirm "there's just this one page" rather than vanish
+  silently.  HideIfOnePage = true reproduces the old `not_show_if_one_page=1`
+  opt behaviour for places that prefer the no-pager look on a single page.
+
+  Context expected (= pass via {{ template "pager_full" . }}):
+    Lang          i18n.Lang
+    Current       int       current 1-indexed page
+    TotalPages    int       total pages (= 0 still hides; 1 still renders)
+    PerPage       int       rows per page (= used for "X-Y of Z" caption)
+    TotalRows     int       full row count (= for the caption)
+    BaseURL       string    path or query prefix that ends right before "page="
+                            (= e.g. "?q=foo&match=ip_ja4&")
+    Round         int       pages on each side of current (default 2 if 0)
+    Outer         int       anchored pages at the head / tail (default 1 if 0)
+    ShowInfo      bool      when true, render "X-Y of Z" caption to the right
+    HideIfOnePage bool      opt-in: hide the whole pager when TotalPages == 1
+*/}}
+
+{{ define "pager_full" }}
+{{- if and (gt .TotalPages 0) (not (and .HideIfOnePage (eq .TotalPages 1))) -}}
+{{- $round := .Round -}}{{- if le $round 0 }}{{ $round = 2 }}{{ end -}}
+{{- $outer := .Outer -}}{{- if le $outer 0 }}{{ $outer = 1 }}{{ end -}}
+{{- $cur := .Current -}}
+{{- $tot := .TotalPages -}}
+{{- $base := .BaseURL -}}
+<div class="pager">
+  <nav class="pager-nav" aria-label="Page navigation">
+    <ul class="pagination">
+      {{- if le $cur 1 }}
+      <li class="page-item disabled"><span class="page-link" aria-disabled="true">‹</span></li>
+      {{- else }}
+      <li class="page-item"><a class="page-link" href="{{ $base }}page={{ sub $cur 1 }}" rel="prev" aria-label="{{ t .Lang "pager.prev" }}">‹</a></li>
+      {{- end }}
+
+      {{- range $i, $p := paginationPages $cur $tot $round $outer }}
+        {{- if eq $p 0 }}
+      <li class="page-item disabled ellipsis"><span class="page-link" aria-hidden="true">…</span></li>
+        {{- else if eq $p $cur }}
+      <li class="page-item active"><span class="page-link" aria-current="page">{{ $p }}</span></li>
+        {{- else }}
+      <li class="page-item"><a class="page-link" href="{{ $base }}page={{ $p }}">{{ $p }}</a></li>
+        {{- end }}
+      {{- end }}
+
+      {{- if ge $cur $tot }}
+      <li class="page-item disabled"><span class="page-link" aria-disabled="true">›</span></li>
+      {{- else }}
+      <li class="page-item"><a class="page-link" href="{{ $base }}page={{ add $cur 1 }}" rel="next" aria-label="{{ t .Lang "pager.next" }}">›</a></li>
+      {{- end }}
+    </ul>
+  </nav>
+  {{- if and .ShowInfo (gt .TotalRows 0) }}
+  {{- $start := add (mul (sub $cur 1) .PerPage) 1 -}}
+  {{- $end := min (mul $cur .PerPage) .TotalRows -}}
+  <div class="pager-info">
+    <small>{{ comma $start }}-{{ comma $end }} / {{ tf .Lang "pager.records_total_n" (comma .TotalRows) }}</small>
+  </div>
+  {{- end }}
+</div>
+{{- end -}}
+{{ end }}

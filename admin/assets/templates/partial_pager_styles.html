@@ -1,0 +1,29 @@
+{{/*
+  partial_pager_styles -- shared CSS for partial_pager_full / partial_pager_seek.
+
+  Call once per page (= near the top of <body>, or in a <head>-style block)
+  before the first {{ template "pager_full" ... }} / "pager_seek" usage.
+  Calling twice on the same page is harmless (browsers dedupe identical
+  declarations) but ugly in DevTools; prefer one call per page.
+
+  No-op when the page already inlines its own .pager block (= legacy pages
+  during the migration); the rules below are scoped to .pager so the page-
+  level overrides win by stacking after this partial.
+*/}}
+
+{{ define "pager_styles" }}
+<style>
+.pager{display:flex;gap:1rem;align-items:center;justify-content:center;margin:1rem 0;font-size:.85rem;flex-wrap:wrap}
+.pager-nav{display:flex}
+.pager .pagination{display:flex;gap:.25rem;list-style:none;padding:0;margin:0}
+.pager .page-item{display:inline-block}
+.pager .page-link{display:inline-block;min-width:1.8rem;text-align:center;padding:.3rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#fff;color:#475569;text-decoration:none;font-size:.82rem;line-height:1.4;cursor:pointer}
+.pager .page-link:hover{background:#f1f5f9}
+.pager .page-item.active .page-link{background:#0f172a;color:#fff;border-color:#0f172a;font-weight:600;cursor:default}
+.pager .page-item.disabled .page-link{opacity:.4;pointer-events:none;cursor:default}
+.pager .page-item.ellipsis .page-link{border-color:transparent;background:transparent;color:#94a3b8;padding:.3rem .2rem}
+.pager-info{color:#64748b}
+.pager-info small{font-size:.78rem}
+@media (max-width:480px){.pager{flex-direction:column;align-items:center}}
+</style>
+{{ end }}
