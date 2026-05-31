@@ -279,7 +279,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <td class="bcd-num">{{comma .CookieErr}}</td>
         <td class="bcd-num">{{comma .JSError}}</td>
         <td class="bcd-num">{{rate .PowSolved .Load}}</td>
-        <td class="bcd-num">{{rate .BVTotal .Captcha}}</td>
+        <td class="bcd-num">{{rate .CaptchaPassed .Captcha}}</td>
         <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{end}}">{{comma .ServeRL}}</td>
         <td class="bcd-num">{{comma .LoadUniq}}</td>
         <td class="bcd-num">{{comma .Silent}}</td>

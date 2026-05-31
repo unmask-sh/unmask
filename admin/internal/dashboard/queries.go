@@ -387,6 +387,7 @@ type FunnelRow struct {
 	JSError          int
 	PowSolved        int     // = BVPowOnly + PowPass (= total PoW pass-through; chart-facing)
 	BVTotal          int     // = BVPowOnly + BVCaptchaOnly + BVPowThenCaptcha (= total auth completions; chart-facing)
+	CaptchaPassed    int     // = BVCaptchaOnly + BVPowThenCaptcha (= _bv issued after a CAPTCHA was shown; PoW-only is excluded)
 	PowRate          float64 // = PowSolved / Load
 	CaptchaRate      float64 // = Captcha / Load
 }
@@ -689,6 +690,7 @@ func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string,
 		}
 		row.PowSolved = row.BVPowOnly + row.PowPass
 		row.BVTotal = row.BVPowOnly + row.BVCaptchaOnly + row.BVPowThenCaptcha
+		row.CaptchaPassed = row.BVCaptchaOnly + row.BVPowThenCaptcha
 		if row.Load > 0 {
 			row.PowRate = float64(row.PowSolved) / float64(row.Load)
 			row.CaptchaRate = float64(row.Captcha) / float64(row.Load)
@@ -710,6 +712,7 @@ func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string,
 	}
 	total.PowSolved = total.BVPowOnly + total.PowPass
 	total.BVTotal = total.BVPowOnly + total.BVCaptchaOnly + total.BVPowThenCaptcha
+	total.CaptchaPassed = total.BVCaptchaOnly + total.BVPowThenCaptcha
 
 	// rate_limit row: aggregate all-phase transitions of IPs with rl=1 serves via IP join
 	rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
@@ -778,6 +781,7 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []stri
 	}
 	r.PowSolved = r.BVPowOnly + r.PowPass
 	r.BVTotal = r.BVPowOnly + r.BVCaptchaOnly + r.BVPowThenCaptcha
+	r.CaptchaPassed = r.BVCaptchaOnly + r.BVPowThenCaptcha
 	if r.Load > 0 {
 		r.PowRate = float64(r.PowSolved) / float64(r.Load)
 		r.CaptchaRate = float64(r.Captcha) / float64(r.Load)
