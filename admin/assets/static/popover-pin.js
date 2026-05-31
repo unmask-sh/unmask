@@ -234,12 +234,20 @@ window.popoverPin = window.popoverPin || (function(){
       // Freeze the rendered width on the way down so the bar doesn't snap
       // back to the popover's natural narrow size once the body is hidden.
       // Restore on expand so the popover can grow again if the body / title
-      // text would have changed.
+      // text would have changed.  Also clear the inline `height` that
+      // attachResize sets: a regular inline declaration is treated as an
+      // author-normal rule, and Chromium currently lets it beat the
+      // `height: 1.85rem !important` collapse rule — clearing the inline
+      // value lets the CSS shrink the popover down to the toolbar height.
       var willCollapse = !clone.classList.contains('popover-collapsed');
       if (willCollapse){
         clone.style.width = clone.getBoundingClientRect().width + 'px';
+        clone._popoverPrevHeight = clone.style.height;
+        clone.style.height = '';
       } else {
         clone.style.width = '';
+        clone.style.height = clone._popoverPrevHeight || '';
+        clone._popoverPrevHeight = null;
       }
       var on = clone.classList.toggle('popover-collapsed');
       col.textContent = on ? '▸' : '▾';
@@ -344,7 +352,23 @@ window.popoverPin = window.popoverPin || (function(){
   window._popoverAttachResize = attachResize;
 
   var clampToViewport = window.popoverClampToViewport;
-  function install(primary){
+  // install(primary, opts?): wire a primary element as a popover slot.
+  //
+  // opts:
+  //   noPin: when true, handleClick stops promoting hover popovers into
+  //          pinned clones -- the popover stays in its transient hover form
+  //          and goes away on mouseleave.  Useful for popovers attached to
+  //          buttons / links whose click already has a meaningful action
+  //          (= form submit, navigation) so pinning would steal the click.
+  //          showHover / hideHover behave the same as the default mode.
+  function install(primary, opts){
+    opts = opts || {};
+    var noPin = !!opts.noPin;
+    if (noPin) {
+      // Mark the primary so CSS can drop the "click to pin" ::after hint
+      // (the hint would lie to the user — clicking won't actually pin).
+      primary.classList.add('popover-no-pin');
+    }
     var pins = new Map();
     function showAt(p, html, x, y){
       p.innerHTML = html;
@@ -412,6 +436,13 @@ window.popoverPin = window.popoverPin || (function(){
         return false;
       },
       handleClick: function(html, x, y, trigger, customTitle){
+        if (noPin) {
+          // No-pin mode: keep the popover in hover form so a stray click on
+          // an info element doesn't lose the popover, but never promote it
+          // into a persistent clone.  Same behaviour as showHover.
+          if (html) showAt(primary, html, x, y);
+          return;
+        }
         var existing = pins.get(trigger);
         if (existing && existing.isConnected){
           // unpin: remove the clone and, assuming we're still over the same trigger, re-show the
@@ -562,11 +593,18 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         // collapse so the bar keeps its current horizontal footprint -- same
         // pattern as the popoverPin flavor.
         function toggleCollapse(){
+          // Mirror the popoverPin toggleCollapse: also clear inline height
+          // so the !important collapse rule applies (= Chromium lets a
+          // regular inline declaration beat !important author rules here).
           var willCollapse = !clone.classList.contains('popover-collapsed');
           if (willCollapse){
             clone.style.width = clone.getBoundingClientRect().width + 'px';
+            clone._popoverPrevHeight = clone.style.height;
+            clone.style.height = '';
           } else {
             clone.style.width = '';
+            clone.style.height = clone._popoverPrevHeight || '';
+            clone._popoverPrevHeight = null;
           }
           var on = clone.classList.toggle('popover-collapsed');
           col.textContent = on ? '▸' : '▾';

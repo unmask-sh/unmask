@@ -189,16 +189,30 @@
 }
 .popover-copied-toast.is-visible{opacity:1;transform:translateY(0)}
 
-/* Collapsed mode = title bar only.  Hide the body and the bottom hint
- * (= ESC to close / click to pin).  Keep the popover's padding-top so the
- * absolutely-positioned title bar still has room above the (now empty)
- * content area; clear padding-bottom so the popover shrinks to bar height. */
-[data-popover].popover-collapsed{min-height:0;padding-bottom:0}
-[data-popover].popover-collapsed .popover-body{display:none}
-[data-popover].popover-collapsed::after{display:none}
-.info-popup-pinned.popover-collapsed{padding-bottom:0}
-.info-popup-pinned.popover-collapsed .popover-body{display:none}
-.info-popup-pinned.popover-collapsed::after{display:none}
+/* Collapsed mode = title bar + 1-line ellipsis summary of the body.  Use
+ * !important to override per-element inline styles (= the clamp / info /
+ * IP popover fmt() helpers each set white-space / max-width / line-height
+ * on the body's wrapper <div>, which would otherwise win over a plain
+ * class selector and break the collapse shrink).  An earlier revision hid
+ * the body outright (`display:none`); on popovers whose title is empty
+ * (= table-cell triggers have no h1-h6 ancestor for titleFromTrigger to
+ * find) that left the user staring at a blank rectangle. */
+/* Collapsed mode = the toolbar (= drag handle + ▸ + × + ⧉) is the visible
+ * "1-line" representation.  Force the popover to the toolbar's height
+ * (= 1.85rem + top inset) and hide body + bottom hint so the box visibly
+ * shrinks to a single bar.  The toolbar is .popover-body's sibling (not
+ * its child) so display:none on the body leaves the toolbar visible. */
+[data-popover].popover-collapsed{min-height:0!important;height:1.85rem!important;padding-top:1.85rem!important;padding-bottom:0!important;overflow:hidden!important}
+[data-popover].popover-collapsed .popover-body{display:none!important;height:0!important;margin:0!important;padding:0!important}
+[data-popover].popover-collapsed::after{display:none!important}
+.info-popup-pinned.popover-collapsed{min-height:0!important;height:1.85rem!important;padding-top:1.85rem!important;padding-bottom:0!important;overflow:hidden!important}
+.info-popup-pinned.popover-collapsed .popover-body{display:none!important;height:0!important;margin:0!important;padding:0!important}
+.info-popup-pinned.popover-collapsed::after{display:none!important}
+
+/* noPin mode (= install(primary, {noPin:true})) hides the bottom "click to
+ * pin" hint because clicking won't promote the popover; advertising it
+ * would mislead the user. */
+[data-popover].popover-no-pin::after{display:none!important}
 
 /* base style for info-tip (= `?` ball + hover popup).  Drop next to a heading on any page as
  * <span class="info-tip">?<span class="info-popup">description...</span></span> — hover shows
