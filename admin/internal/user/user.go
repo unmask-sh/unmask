@@ -5,24 +5,33 @@
 //   - admin      : every setting + ban operations.  cannot manage users
 //   - viewer     : read-only
 //
-// Passwords are hashed with bcrypt.  cost 12 (= within the recommended
-// range as of 2026).
+// Passwords are hashed with argon2id (= memory-hard, PHC string format).
+// OWASP 2024 baseline parameters: m=64MiB, t=2, p=1.  Legacy bcrypt hashes
+// from before the 2026-05-31 migration verify in place (= IsLegacyHash + the
+// AdminLoginPost handler triggers a one-shot rehash on the next successful
+// login).
 //
 // Authentication flow:
 //  1. Login form receives username + password.
-//  2. Verify(username, password) runs bcrypt verification.
+//  2. Verify(username, password) runs argon2id verification (bcrypt fallback
+//     for legacy hashes).
 //  3. On success, issue a session cookie (= cookies pkg) with user_id +
-//     role in the payload.
+//     role in the payload.  If the hash was legacy, SetPassword() rewrites it
+//     with argon2id transparently.
 package user
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -80,26 +89,94 @@ var ErrUsernameTaken = errors.New("username already taken")
 // and end up with zero users."
 var ErrLastSuperadmin = errors.New("cannot remove the last superadmin")
 
-// HashPassword: hash with bcrypt at cost 12.  Reject empty / over-long
-// passwords (= > 72 bytes) (= bcrypt only sees the first 72 bytes, so
-// reject to avoid silent truncation).
+// argon2id parameters (= OWASP 2024 baseline).  Memory is the dominant cost
+// factor for an attacker with a GPU farm, so push memory before iterations.
+const (
+	argon2Memory  uint32 = 64 * 1024 // 64 MiB
+	argon2Time    uint32 = 2
+	argon2Threads uint8  = 1
+	argon2KeyLen  uint32 = 32
+	argon2SaltLen        = 16
+	// maxPasswordLen: argon2 itself has no length limit, but a multi-MB
+	// password input would force the host to hash megabytes per login attempt.
+	// 1 KiB is well over any realistic passphrase.
+	maxPasswordLen = 1024
+)
+
+// HashPassword: hash with argon2id and return a PHC string
+// (= `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`).  Reject empty /
+// pathologically long inputs.
 func HashPassword(plain string) (string, error) {
 	if plain == "" {
 		return "", errors.New("password is empty")
 	}
-	if len(plain) > 72 {
-		return "", errors.New("password too long (max 72 bytes)")
+	if len(plain) > maxPasswordLen {
+		return "", fmt.Errorf("password too long (max %d bytes)", maxPasswordLen)
 	}
-	b, err := bcrypt.GenerateFromPassword([]byte(plain), 12)
-	if err != nil {
+	salt := make([]byte, argon2SaltLen)
+	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	return string(b), nil
+	key := argon2.IDKey([]byte(plain), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+	enc := base64.RawStdEncoding.EncodeToString
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2.Version, argon2Memory, argon2Time, argon2Threads,
+		enc(salt), enc(key)), nil
 }
 
-// CheckPassword: bcrypt verify.  Returns nil on match.
+// CheckPassword: verify against either an argon2id PHC string or a legacy
+// bcrypt hash.  Returns nil on match.
+//
+// After a successful login, callers should additionally check IsLegacyHash()
+// and call SetPassword() to rewrite the stored hash with argon2id.
 func CheckPassword(hash, plain string) error {
-	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
+	if IsLegacyHash(hash) {
+		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
+	}
+	return checkArgon2id(hash, plain)
+}
+
+// IsLegacyHash: true if the stored hash is bcrypt (= `$2a$` / `$2b$` / `$2y$`).
+// Used by the login handler to trigger a one-shot rehash to argon2id.
+func IsLegacyHash(hash string) bool { return strings.HasPrefix(hash, "$2") }
+
+// errBadHash: parse failure or argon2id mismatch.  Returned as a single value
+// to avoid leaking which step failed (= argon2 verify is constant-time, so
+// don't unmask the failure mode either).
+var errBadHash = errors.New("password mismatch")
+
+func checkArgon2id(encoded, plain string) error {
+	parts := strings.Split(encoded, "$")
+	// PHC format: "" / argon2id / v=N / m=...,t=...,p=... / salt / hash
+	if len(parts) != 6 || parts[1] != "argon2id" {
+		return errBadHash
+	}
+	var version int
+	if _, err := fmt.Sscanf(parts[2], "v=%d", &version); err != nil || version != argon2.Version {
+		return errBadHash
+	}
+	var memory, time uint32
+	var threads uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads); err != nil {
+		return errBadHash
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return errBadHash
+	}
+	expected, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil {
+		return errBadHash
+	}
+	keyLen := uint32(len(expected))
+	if keyLen == 0 {
+		return errBadHash
+	}
+	actual := argon2.IDKey([]byte(plain), salt, time, memory, threads, keyLen)
+	if subtle.ConstantTimeCompare(expected, actual) != 1 {
+		return errBadHash
+	}
+	return nil
 }
 
 // Repository: thin CRUD wrapper for the unmask_user table.
