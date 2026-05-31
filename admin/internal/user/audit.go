@@ -87,6 +87,24 @@ func (r *Repository) ListAudit(ctx context.Context, limit, offset int, userIDFil
 	return out, rows.Err()
 }
 
+// CountAudit: row count for the same filter ListAudit uses, so callers can
+// build a numbered pager (= "1-50 of 697").  Cheap on unmask_user_audit
+// because the table stays compact (~10^3 rows in practice); large append-
+// only logs (= unmask_event) should use seek pagination instead.
+func (r *Repository) CountAudit(ctx context.Context, userIDFilter int64) (int, error) {
+	q := `SELECT COUNT(*) FROM unmask_user_audit`
+	args := []any{}
+	if userIDFilter > 0 {
+		q += ` WHERE user_id = ?`
+		args = append(args, userIDFilter)
+	}
+	var n int
+	if err := r.DB.QueryRowContext(ctx, q, args...).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // GetAuditByID fetches a single audit row.  Returns (nil, nil) if not found.
 // Used by the audit restore handler to retrieve the `before` snapshot.
 func (r *Repository) GetAuditByID(ctx context.Context, id int64) (*AuditEntry, error) {

@@ -53,7 +53,13 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	offset := 0
-	if s := r.URL.Query().Get("offset"); s != "" {
+	// Pager partial (= pager_full) emits "?page=N" links; older bookmarks
+	// may still use "?offset=N".  Accept both.
+	if s := r.URL.Query().Get("page"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n >= 1 {
+			offset = (n - 1) * auditPageSize
+		}
+	} else if s := r.URL.Query().Get("offset"); s != "" {
 		if n, err := strconv.Atoi(s); err == nil && n >= 0 {
 			offset = n
 		}
@@ -94,6 +100,28 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hasMore := len(entries) == auditPageSize
+	// Numbered pager: unmask_user_audit is small enough that COUNT(*) is
+	// instant.  Use offset → 1-indexed page so the shared pager_full partial
+	// can render "‹ 1 [2] 3 ›".
+	totalRows, err := h.UserRepo.CountAudit(r.Context(), 0)
+	if err != nil {
+		log.Printf("audit count: %v", err)
+		// Fall back to a "1 of 1+" view: total = offset+len(entries) (= the
+		// best lower-bound we have without the count).  The pager will still
+		// render but jump-by-number is degraded.
+		totalRows = offset + len(entries)
+	}
+	page := offset/auditPageSize + 1
+	totalPages := (totalRows + auditPageSize - 1) / auditPageSize
+	if totalPages < 1 {
+		totalPages = 1
+	}
+	pager := buildPagerData(i18n.Resolve(r), page, totalPages, auditPageSize, totalRows, "?")
+	// Audit query string keeps "offset" semantics on the URL so existing
+	// bookmarks keep working; pager_full emits "page=" links, so translate
+	// inside the partial by overriding BaseURL to use a custom query param.
+	// We simply convert page → offset by encoding a "page=N" link and letting
+	// the handler accept either page= or offset=.
 	data := map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
@@ -107,6 +135,7 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 		"HasPrev":    offset > 0,
 		"Saved":      r.URL.Query().Get("saved") != "",
 		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Pager":      pager,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
