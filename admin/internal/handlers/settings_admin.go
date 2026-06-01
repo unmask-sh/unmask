@@ -97,6 +97,10 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab string) map[string]any {
 	cur := h.snapshotSettings().Nginx
 	seenVer := cur.SeenVersion
+	// Operator's cookie TZ -- the `Format("...MST")` strings inside this view
+	// (mtime / oldest event / oldest cookie minute) shift to it.  Falls back
+	// to time.UTC when the cookie is empty / invalid.
+	loc := resolveLocation(r)
 
 	// upstream rescue summary: aggregate pattern counts for the UI banner.
 	upstreamRescue := classify.UpstreamRescueList()
@@ -313,7 +317,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	var retentionView retentionStatsView
 	if tab == "retention" {
 		rctx, rcancel := context.WithTimeout(r.Context(), 3*time.Second)
-		retentionView = h.retentionStats(rctx)
+		retentionView = h.retentionStats(rctx, resolveLocation(r))
 		rcancel()
 	}
 
@@ -458,8 +462,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
-		"IPGeoCommonGeo": scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/"),
-		"IPGeoCommonASN": scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/"),
+		"IPGeoCommonGeo": scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/", loc),
+		"IPGeoCommonASN": scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/", loc),
 		// IPGeoMode / IPGeoASNMode: which radio is currently active.
 		//   "dbip"   -> saved path matches DefaultMMDBPath / DefaultASNPath
 		//   "custom" -> a non-default path
@@ -470,11 +474,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoASNDefault": ipgeo.DefaultASNPath,
 		// Active-row metadata for the in-line vendor / build / size badges.
 		"IPGeoActiveInfo": func() IPGeoPathInfo {
-			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBPath)
+			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBPath, loc)
 			return info
 		}(),
 		"IPGeoASNActiveInfo": func() IPGeoPathInfo {
-			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath)
+			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath, loc)
 			return info
 		}(),
 		"LBPresets":             buildLBPresetView(cur),
@@ -1464,7 +1468,7 @@ func ipgeoMode(path, defaultPath string, allowNone bool) string {
 // excluded prefix, and the file exists, append it at the tail (= ensures a
 // file placed in an unexpected directory still shows up).  If currentPath
 // does not exist, do not append.
-func scanIPGeoPaths(paths []string, currentPath, excludePrefix string) []IPGeoPathInfo {
+func scanIPGeoPaths(paths []string, currentPath, excludePrefix string, loc *time.Location) []IPGeoPathInfo {
 	out := make([]IPGeoPathInfo, 0, len(paths)+1)
 	seen := map[string]bool{}
 	excluded := func(p string) bool {
@@ -1474,13 +1478,13 @@ func scanIPGeoPaths(paths []string, currentPath, excludePrefix string) []IPGeoPa
 		if excluded(p) {
 			continue
 		}
-		if info, ok := buildIPGeoPathInfo(p); ok {
+		if info, ok := buildIPGeoPathInfo(p, loc); ok {
 			out = append(out, info)
 			seen[p] = true
 		}
 	}
 	if currentPath != "" && !seen[currentPath] && !excluded(currentPath) {
-		if info, ok := buildIPGeoPathInfo(currentPath); ok {
+		if info, ok := buildIPGeoPathInfo(currentPath, loc); ok {
 			out = append(out, info)
 		}
 	}
@@ -1491,7 +1495,10 @@ func scanIPGeoPaths(paths []string, currentPath, excludePrefix string) []IPGeoPa
 // Returns (zero, false) when the file is missing.  Metadata-parse failures
 // (= a non-mmdb file at the path) still return the row with empty Vendor
 // / DatabaseType so the UI can flag "unreadable".
-func buildIPGeoPathInfo(p string) (IPGeoPathInfo, bool) {
+func buildIPGeoPathInfo(p string, loc *time.Location) (IPGeoPathInfo, bool) {
+	if loc == nil {
+		loc = time.UTC
+	}
 	st, err := osStat(p)
 	if err != nil {
 		return IPGeoPathInfo{}, false
@@ -1499,7 +1506,7 @@ func buildIPGeoPathInfo(p string) (IPGeoPathInfo, bool) {
 	row := IPGeoPathInfo{
 		Path:    p,
 		Exists:  true,
-		MTime:   st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
+		MTime:   st.ModTime().In(loc).Format("2006-01-02 15:04 MST"),
 		MTimeTS: st.ModTime().Unix(),
 		Size:    humanSize(st.Size()),
 	}
@@ -3225,7 +3232,10 @@ type retentionStatsView struct {
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
 // effort: query errors are logged and produce zero fields rather than fail
 // the whole page.
-func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
+func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retentionStatsView {
+	if loc == nil {
+		loc = time.UTC
+	}
 	v := retentionStatsView{}
 	if h == nil || h.DB == nil {
 		return v
@@ -3243,7 +3253,7 @@ func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
 		log.Printf("retentionStats events oldest: %v", err)
 	}
 	if v.EventsOldestTS > 0 {
-		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).UTC().Format("2006-01-02 15:04 UTC")
+		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 	}
 	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows); err != nil {
 		log.Printf("retentionStats cookie_minute count: %v", err)
@@ -3255,7 +3265,7 @@ func (h *Handler) retentionStats(ctx context.Context) retentionStatsView {
 	}
 	if oldestMin > 0 {
 		v.CookieMinuteOldestTS = oldestMin * 60
-		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).UTC().Format("2006-01-02 15:04 UTC")
+		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 	}
 	if h.Settings.DB.Driver == "sqlite" && h.Settings.DB.SQLitePath != "" {
 		if st, err := os.Stat(h.Settings.DB.SQLitePath); err == nil {

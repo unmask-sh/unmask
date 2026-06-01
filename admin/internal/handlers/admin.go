@@ -763,7 +763,7 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 		// RangeStartTS = epoch sec UTC.  Emit in the template as <time class="js-datetime"
 		// data-ts="...">; JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
-		"RangeStartFallback": rangeStart.UTC().Format("2006-01-02 15:04 UTC"),
+		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
 		"Driver":             string(h.DB.Driver),
 		"Sites":              sites,
 	}
@@ -1147,7 +1147,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"Range": rng,
 		// RangeStartTS = epoch sec UTC.  JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
-		"RangeStartFallback": rangeStart.UTC().Format("2006-01-02 15:04 UTC"),
+		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
 		"Driver":             string(h.DB.Driver),
 		"Funnel":             funnel,
 		"CookieRows":         cookieRows,
