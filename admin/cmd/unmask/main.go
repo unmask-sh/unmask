@@ -435,10 +435,16 @@ func cmdServe(args []string) error {
 		return fmt.Errorf("listen: %w", err)
 	}
 	srv := &http.Server{
-		Handler:           withAccessLog(mux),
+		Handler: withAccessLog(mux),
+		// WriteTimeout governs the longest response Go will let a handler
+		// finish before the connection is force-closed.  The dashboard's
+		// renderDashboard caps its own work at 30s overall (= via per-card
+		// context.WithTimeout + a wg.Wait race), so allow a 60s envelope
+		// here -- room for the 30s queries plus template render plus
+		// network drain on a slow link.
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
 

@@ -726,9 +726,18 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	sites, err := dashboard.Sites(ctx, h.DB, hours)
+	// Site list is informational on this entry handler.  When the listing
+	// query times out (= 30d range on a large operator DB), still hand off
+	// to renderDashboard with the default site so the page is not blocked
+	// behind it.  list=1 is the only path that actually depends on the site
+	// summary rows, so keep its strict error there.
 	if err != nil {
 		log.Printf("sites: %v", err)
-		http.Error(w, "db error", http.StatusInternalServerError)
+		if r.URL.Query().Get("list") == "1" {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
+		h.renderDashboard(w, r, defaultSite)
 		return
 	}
 	// site <= 1 -> internally dispatch and render the dashboard directly.  list=1 forces the list.
@@ -980,15 +989,34 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			log.Printf("daily unique ips: %v", derr)
 		}
 	})
-	wg.Wait()
+	// Race wg.Wait against the overall deadline so a slow card (e.g. one of
+	// the 30-day raw scans on a big operator DB) doesn't pin the whole
+	// handler.  pure-Go sqlite (= glebarez/sqlite/modernc) doesn't respect
+	// context cancel, so the underlying scan keeps going as an orphan
+	// goroutine until it finishes -- but the handler returns now with the
+	// cards that came back in time, same shape as a per-query timeout would
+	// have produced.
+	waitDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+	case <-ctx.Done():
+		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", site, hosts, rng)
+	}
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
 			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
 	}
 
-	// funnel is the centerpiece, so error returns 500.  Other cards may be
-	// missing; render continues with "0 entries" (same degradation policy as
-	// the old sequential version).
+	// funnel is the centerpiece, so a confirmed error returns 500.  Other
+	// cards may be missing; render continues with "0 entries" (same
+	// degradation policy as the old sequential version).  Note we only fail
+	// the page on a true error -- if the overall deadline fired before
+	// funnel returned, funnel / funnelErr are both nil and we render the
+	// dashboard with an empty funnel card.
 	if funnelErr != nil {
 		log.Printf("funnel: %v", funnelErr)
 		http.Error(w, "db error: "+funnelErr.Error(), http.StatusInternalServerError)
