@@ -12,4 +12,32 @@
   All picker data (Hosts / HostSelected / SelfHostID / Sites / SiteSelected)
   is injected by addMeToData on every admin page render.
 */ -}}
-{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ end }}
+{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ end }}
+
+{{/*
+  init_tz_cookie: sync the operator's detected TZ to the unmask_tz cookie on
+  the first hit of any admin page.  Otherwise the cookie only gets written
+  when the operator opens profile / and explicitly changes the picker --
+  every page rendered before that lands in the server's UTC fallback even
+  though the browser has a TZ to offer.  Best-effort: runs once per load,
+  skips cleanly when a cookie is already there.
+*/}}
+{{ define "init_tz_cookie" }}
+<script>
+(function(){
+  function getCookie(name){
+    var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  if (getCookie('unmask_tz') !== '') return;
+  var tz = '';
+  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+  if (!tz) return;
+  document.cookie = 'unmask_tz=' + encodeURIComponent(tz) + '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
+  // Reload once so the server picks up the cookie on the very first hit.
+  // The cookie itself prevents an infinite loop -- the guard above returns
+  // early on every subsequent navigation.
+  location.reload();
+})();
+</script>
+{{ end }}
