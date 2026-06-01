@@ -13,6 +13,7 @@ import (
 	"net"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1773,12 +1774,154 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 			log.Printf("DailyServeByKind: %v elapsed (slow)", elapsed)
 		}
 	}()
-	// Read straight from unmask_event so the day buckets follow the operator's
-	// cookie TZ.  The previous "aggregate fast path" (= unmask_aggregate with
-	// a DATE column) cannot represent TZ-shifted boundaries -- it has been
-	// retired, and the table is dropped by the 0013 migration.  Raw scan is
-	// fast enough at the 30-day / ~100k-event scale.
+	// Aggregate fast path: unmask_aggregate_hourly stores per-(hour, ua-class,
+	// verdict) counts and a per-hour HLL of distinct IPs.  We pull those rows
+	// and group them in Go using *time.Location, so the day boundaries follow
+	// the operator's cookie TZ -- the constraint that made the old DATE-column
+	// fast path impossible.  Site / host filters and the brief post-restart
+	// window still drop to the raw scan.
+	if HourlyAggReady() && site == "" && len(hosts) == 0 {
+		return dailyServeByKindAgg(ctx, d, days, botVerdicts, tz)
+	}
 	return dailyServeByKindScan(ctx, d, site, hosts, days, botVerdicts, tz)
+}
+
+// dailyServeByKindAgg reads hkServeKind / hkServeIP from
+// unmask_aggregate_hourly + _hll and folds the hour buckets into the
+// operator's cookie TZ on the way out.  ja4Action="" was used at rollup time,
+// so the read side promotes ua_class=Human + verdict ∈ botVerdicts to JA4Bot
+// here -- the only piece classify needs that the rollup couldn't preserve.
+func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
+	botSet := map[string]bool{}
+	for _, v := range botVerdicts {
+		botSet[v] = true
+	}
+
+	hours := days * 24
+	cntStmt := fmt.Sprintf(`
+        SELECT bucket_hour, bucket_key, cnt
+        FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '%s'
+          AND bucket_hour >= %s`, hkServeKind, hourAgoExpr(d, hours))
+	rows, err := d.QueryContext(ctx, cntStmt)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	type dkKey struct {
+		date string
+		kind int
+	}
+	byDateKind := map[dkKey]int{}
+	type totAcc struct {
+		req int
+	}
+	byTotal := map[string]*totAcc{}
+
+	for rows.Next() {
+		var bucketHour, key string
+		var cnt int
+		if err := rows.Scan(&bucketHour, &key, &cnt); err != nil {
+			return nil, nil, err
+		}
+		// bucket_hour is 'YYYY-MM-DD HH' (UTC).  Parse and shift to the
+		// operator's TZ before the date label is assigned.
+		hourT, err := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+		if err != nil {
+			continue
+		}
+		date := hourT.In(tz).Format("2006-01-02")
+		// key = '<ua_class>|<verdict>'.  Split + promote ua_class=Human to
+		// JA4Bot when the verdict is currently flagged a bot verdict.
+		sep := strings.IndexByte(key, '|')
+		if sep < 0 {
+			continue
+		}
+		uaClassN, perr := strconv.Atoi(key[:sep])
+		if perr != nil {
+			continue
+		}
+		verdict := key[sep+1:]
+		kind := classify.Category(uaClassN)
+		if kind == classify.Human && verdict != "(none)" && botSet[verdict] {
+			kind = classify.JA4Bot
+		}
+		byDateKind[dkKey{date, int(kind)}] += cnt
+		tot := byTotal[date]
+		if tot == nil {
+			tot = &totAcc{}
+			byTotal[date] = tot
+		}
+		tot.req += cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	// distinct IP per (operator-TZ day) via per-hour HLL merge.
+	hllStmt := fmt.Sprintf(`
+        SELECT bucket, sketch
+        FROM unmask_aggregate_hll
+        WHERE bucket_kind = '%s'
+          AND bucket >= %s`, hkServeIP, hourAgoExpr(d, hours))
+	hRows, err := d.QueryContext(ctx, hllStmt)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer hRows.Close()
+	sketchByDay := map[string]*hll{}
+	for hRows.Next() {
+		var bucketHour string
+		var blob []byte
+		if err := hRows.Scan(&bucketHour, &blob); err != nil {
+			return nil, nil, err
+		}
+		hourT, err := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+		if err != nil {
+			continue
+		}
+		date := hourT.In(tz).Format("2006-01-02")
+		h := loadHLL(blob)
+		if existing, ok := sketchByDay[date]; ok {
+			existing.merge(h)
+		} else {
+			sketchByDay[date] = h
+		}
+	}
+	if err := hRows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	dailyKeys := make([]dkKey, 0, len(byDateKind))
+	for k := range byDateKind {
+		dailyKeys = append(dailyKeys, k)
+	}
+	sort.Slice(dailyKeys, func(i, j int) bool {
+		if dailyKeys[i].date != dailyKeys[j].date {
+			return dailyKeys[i].date < dailyKeys[j].date
+		}
+		return dailyKeys[i].kind < dailyKeys[j].kind
+	})
+	daily := make([]DailyKindBucket, 0, len(dailyKeys))
+	for _, k := range dailyKeys {
+		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
+	}
+
+	totals := make([]DailyTotal, 0, len(byTotal))
+	for date, tot := range byTotal {
+		uniq := 0
+		if h := sketchByDay[date]; h != nil {
+			uniq = int(h.estimate())
+		}
+		totals = append(totals, DailyTotal{Date: date, Req: tot.req, UniqIPs: uniq})
+	}
+	sort.Slice(totals, func(i, j int) bool { return totals[i].Date < totals[j].Date })
+
+	return daily, totals, nil
 }
 
 // dailyServeByKindScan is the only serve-kind read path.  The previous

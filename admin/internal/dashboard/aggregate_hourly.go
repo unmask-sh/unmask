@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 )
@@ -32,6 +33,7 @@ const (
 	hkSiteAll   = "sa"  // key '<site>'            all phases (Sites total events)
 	hkSiteServe = "ss"  // key '<site>'            phase=serve (Sites serve count)
 	hkSiteBV    = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
+	hkServeKind = "svk" // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
@@ -39,6 +41,7 @@ const (
 	hkVerdictIP = "vdip" // hourly bucket, key '<verdict>'  distinct IP, all phases
 	hkCountryIP = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
 	hkSiteIP    = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
+	hkServeIP   = "svip" // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
 )
 
 const (
@@ -179,13 +182,18 @@ func hourlyLastID(ctx context.Context, d *db.DB) (int64, error) {
 
 func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afterID int64) (int, int64, error) {
 	rows, err := d.QueryContext(ctx, `
-        SELECT id, `+hourColExpr(d, "date_created")+`, site, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, ip_address
+        SELECT id, `+hourColExpr(d, "date_created")+`, site, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, user_agent, ip_address
         FROM unmask_event WHERE id > ? ORDER BY id LIMIT ?`, afterID, hourlyBatch)
 	if err != nil {
 		return 0, 0, err
 	}
 	geo := gip != nil && gip.Loaded()
 	batch := newAggBatch()
+	// classify cache: serve-phase events feed the per-kind daily chart, so
+	// every event ends up running classify.IsBot (= 600-alt regex).  Memoize
+	// per-ua so backfill stays cheap (ja4Action is "" here; see the serve
+	// case below for the reasoning).
+	classifyCache := make(map[string]classify.Category, 256)
 	var n int
 	var maxID int64
 	for rows.Next() {
@@ -198,9 +206,10 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			phase   string
 			flags   int
 			payload sql.NullString
+			ua      sql.NullString
 			ip      []byte
 		)
-		if err := rows.Scan(&id, &hour, &site, &verdict, &vid, &phase, &flags, &payload, &ip); err != nil {
+		if err := rows.Scan(&id, &hour, &site, &verdict, &vid, &phase, &flags, &payload, &ua, &ip); err != nil {
 			rows.Close()
 			return 0, 0, err
 		}
@@ -237,8 +246,33 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			if site != "" {
 				batch.counts[hourlyKey{hour, hkSiteServe, site}]++
 			}
-			if payloadRL(payload.String) {
+			rl := payloadRL(payload.String)
+			if rl {
 				batch.counts[hourlyKey{hour, hkServeRL, vv}]++
+			} else {
+				// DailyServeByKind reads svk + svip.  Drop rate-limited
+				// serves on the rl path (they have their own dashboard card)
+				// to match dailyServeByKindScan's `NOT IN ('1', 1)` filter.
+				//
+				// classify.IsBot needs both ua and ja4Action -- ja4Action
+				// requires the operator's current botVerdicts list, which is
+				// settings-driven and changes at runtime.  Persisting the
+				// final Category at rollup time would freeze that list to
+				// whatever it was at backfill, so we save the ua-only
+				// category (= ja4Action "") together with the raw verdict and
+				// let the read side fold in the JA4Bot promotion via the
+				// up-to-date settings.
+				uaStr := ua.String
+				if len(uaStr) > 80 {
+					uaStr = uaStr[:80]
+				}
+				kind, ok := classifyCache[uaStr]
+				if !ok {
+					kind = classify.IsBot(uaStr, "")
+					classifyCache[uaStr] = kind
+				}
+				batch.counts[hourlyKey{hour, hkServeKind, strconv.Itoa(int(kind)) + "|" + v}]++
+				batch.sketch(hllKey{hour, hkServeIP, ""}).add(ip)
 			}
 			if geo {
 				if cc := gip.LookupBytes(ip); cc != "" {
