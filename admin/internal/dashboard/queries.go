@@ -757,7 +757,14 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	}
 	totalUniq := int(totalSketch.estimate())
 
-	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq)
+	// rate-limit row skip gate: when the aggregate already accumulates zero
+	// rate-limited serves in the window, skip the rateLimitFunnelRow raw
+	// scan -- it would only return an empty row.
+	var rlTotal int64
+	_ = d.QueryRowContext(ctx, `
+        SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkServeRL+`' AND bucket_hour >= `+hourAgoExpr(d, hours)).Scan(&rlTotal)
+	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, rlTotal == 0)
 }
 
 // buildFunnelRows turns the per-verdict aggregation maps into ordered
@@ -769,10 +776,10 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 // raw.  Agg-path callers should use buildFunnelRowsWithUniq so the LoadUniq
 // piece can be sourced from a pre-computed HLL merge instead.
 func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string) ([]FunnelRow, error) {
-	return buildFunnelRowsWithUniq(ctx, d, site, hosts, since, byVP, loadByV, rlByV, botVerdicts, nil)
+	return buildFunnelRowsWithUniq(ctx, d, site, hosts, since, byVP, loadByV, rlByV, botVerdicts, nil, false)
 }
 
-func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string, totalLoadUniq *int) ([]FunnelRow, error) {
+func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string, totalLoadUniq *int, skipRateLimitRow bool) ([]FunnelRow, error) {
 	// D) verdict list = fixed-list order + unknown verdicts seen in the DB
 	// (= appended in name order). The fixed list is all presets + ok + (none).
 	// User extra-rule verdicts are added via seenInDB when first observed.
@@ -851,10 +858,16 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 	total.BVTotal = total.BVPowOnly + total.BVCaptchaOnly + total.BVPowThenCaptcha
 	total.CaptchaPassed = total.BVCaptchaOnly + total.BVPowThenCaptcha
 
-	// rate_limit row: aggregate all-phase transitions of IPs with rl=1 serves via IP join
-	rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
-	if err == nil {
-		out = append([]FunnelRow{rlRow}, out...)
+	// rate_limit row: aggregate all-phase transitions of IPs with rl=1 serves
+	// via IP join.  Agg-path callers pass skipRateLimitRow=true when the
+	// hkServeRL aggregate shows zero rate-limited serves in the window --
+	// otherwise this raw scan sweeps the whole phase=serve subset only to
+	// return an empty row.
+	if !skipRateLimitRow {
+		rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
+		if err == nil {
+			out = append([]FunnelRow{rlRow}, out...)
+		}
 	}
 
 	// total uniq is a separate SQL (= so the same IP is not counted across verdicts).
