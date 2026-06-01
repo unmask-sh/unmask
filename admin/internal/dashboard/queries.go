@@ -225,8 +225,117 @@ type SiteSummary struct {
 }
 
 // Sites returns one row per distinct site observed in the last `hours` hours,
-// plus 'default' even if no events.
+// plus 'default' even if no events.  The hourly aggregate (= bucket_kinds
+// hkSiteAll / hkSiteServe / hkSiteBV / hkSiteIP) supplies all counts when
+// available; the raw scan stays as a fallback for the brief window after a
+// fresh start before AggregateHourly has run to completion.
 func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
+	if HourlyAggReady() {
+		return sitesAgg(ctx, d, hours)
+	}
+	return sitesScan(ctx, d, hours)
+}
+
+// sitesAgg reads SiteSummary from unmask_aggregate_hourly + unmask_aggregate_hll.
+// O(buckets * sites) -> stable a few hundred rows even on 30d / multi-site
+// installs, vs the raw GROUP BY site that scales with the event table.
+func sitesAgg(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
+	by := map[string]SiteSummary{}
+
+	// plain counts: total / serve / passed per site over the hour window.
+	cntStmt := fmt.Sprintf(`
+        SELECT bucket_kind, bucket_key, SUM(cnt) AS c, MAX(bucket_hour) AS last_hour
+        FROM unmask_aggregate_hourly
+        WHERE bucket_hour > %s
+          AND bucket_kind IN ('%s','%s','%s')
+        GROUP BY bucket_kind, bucket_key`,
+		hourAgoExpr(d, hours), hkSiteAll, hkSiteServe, hkSiteBV)
+	rows, err := d.QueryContext(ctx, cntStmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind, site string
+		var cnt int64
+		var lastHour sql.NullString
+		if err := rows.Scan(&kind, &site, &cnt, &lastHour); err != nil {
+			return nil, err
+		}
+		s := by[site]
+		s.Site = site
+		switch kind {
+		case hkSiteAll:
+			s.Events = int(cnt)
+			// last_hour is 'YYYY-MM-DD HH'; expand to 'YYYY-MM-DD HH:00:00'
+			// so the read side / template can parse it the same way as the
+			// raw scan's MAX(date_created).
+			if lastHour.Valid && lastHour.String != "" {
+				s.LastSeen = lastHour.String + ":00:00"
+				s.LastSeenTS = parseDateTimeToUnix(s.LastSeen)
+			}
+		case hkSiteServe:
+			s.Serve = int(cnt)
+		case hkSiteBV:
+			s.Verify = int(cnt)
+		}
+		by[site] = s
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// distinct IP: HLL union per site over the hour window.  Use the same
+	// shape as VerdictDistribution's per-verdict HLL read (= load sketches
+	// grouped by key, then estimate in Go).
+	hllStmt := fmt.Sprintf(`
+        SELECT bucket_key, sketch
+        FROM unmask_aggregate_hll
+        WHERE bucket > %s AND bucket_kind = '%s'`,
+		hourAgoExpr(d, hours), hkSiteIP)
+	hRows, err := d.QueryContext(ctx, hllStmt)
+	if err != nil {
+		return nil, err
+	}
+	defer hRows.Close()
+	sketches := map[string]*hll{}
+	for hRows.Next() {
+		var site string
+		var blob []byte
+		if err := hRows.Scan(&site, &blob); err != nil {
+			return nil, err
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[site]; ok {
+			existing.merge(h)
+		} else {
+			sketches[site] = h
+		}
+	}
+	if err := hRows.Err(); err != nil {
+		return nil, err
+	}
+	for site, h := range sketches {
+		s := by[site]
+		s.Site = site
+		s.UniqIP = int(h.estimate())
+		by[site] = s
+	}
+
+	if _, ok := by["default"]; !ok {
+		by["default"] = SiteSummary{Site: "default"}
+	}
+	out := make([]SiteSummary, 0, len(by))
+	for _, v := range by {
+		out = append(out, v)
+	}
+	sortSites(out)
+	return out, nil
+}
+
+// sitesScan is the original raw-event implementation, retained as a fallback
+// for the pre-aggregate-ready window after a fresh start.
+func sitesScan(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	// "passed" = any terminal _bv issuance phase (= sum of all challenge_mode
 	// success paths).  Matches the meaning of the old verify_ok counter but
 	// covers PoW-only completions too.
@@ -272,8 +381,13 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	for _, v := range by {
 		out = append(out, v)
 	}
+	sortSites(out)
+	return out, nil
+}
+
+// sortSites: default first, then by event count desc, site name asc.
+func sortSites(out []SiteSummary) {
 	sort.SliceStable(out, func(i, j int) bool {
-		// default first, then by event count desc
 		if out[i].Site == "default" {
 			return true
 		}
@@ -285,7 +399,6 @@ func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 		}
 		return out[i].Site < out[j].Site
 	})
-	return out, nil
 }
 
 // HostInfo: one observed unmask instance (= host) for the host inventory.

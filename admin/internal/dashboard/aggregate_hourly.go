@@ -25,16 +25,20 @@ var hourlyReady atomic.Bool
 // rollup; the captcha-force / flags cards are dominated by per-bucket
 // distinct-IP work that aggregating would not speed up.
 const (
-	hkFunnel  = "fnl" // key '<vid>|<verdict>|<phase>'
-	hkLoadF0  = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
-	hkServeRL = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
-	hkCountry = "cc"  // key '<country>'         phase=serve
+	hkFunnel    = "fnl" // key '<vid>|<verdict>|<phase>'
+	hkLoadF0    = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
+	hkServeRL   = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
+	hkCountry   = "cc"  // key '<country>'         phase=serve
+	hkSiteAll   = "sa"  // key '<site>'            all phases (Sites total events)
+	hkSiteServe = "ss"  // key '<site>'            phase=serve (Sites serve count)
+	hkSiteBV    = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
 const (
 	hkVerdictIP = "vdip" // hourly bucket, key '<verdict>'  distinct IP, all phases
 	hkCountryIP = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
+	hkSiteIP    = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
 )
 
 const (
@@ -175,7 +179,7 @@ func hourlyLastID(ctx context.Context, d *db.DB) (int64, error) {
 
 func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afterID int64) (int, int64, error) {
 	rows, err := d.QueryContext(ctx, `
-        SELECT id, `+hourColExpr(d, "date_created")+`, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, ip_address
+        SELECT id, `+hourColExpr(d, "date_created")+`, site, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, ip_address
         FROM unmask_event WHERE id > ? ORDER BY id LIMIT ?`, afterID, hourlyBatch)
 	if err != nil {
 		return 0, 0, err
@@ -188,6 +192,7 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		var (
 			id      int64
 			hour    string
+			site    string
 			verdict sql.NullString
 			vid     sql.NullInt64
 			phase   string
@@ -195,7 +200,7 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			payload sql.NullString
 			ip      []byte
 		)
-		if err := rows.Scan(&id, &hour, &verdict, &vid, &phase, &flags, &payload, &ip); err != nil {
+		if err := rows.Scan(&id, &hour, &site, &verdict, &vid, &phase, &flags, &payload, &ip); err != nil {
 			rows.Close()
 			return 0, 0, err
 		}
@@ -215,12 +220,23 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		batch.counts[hourlyKey{hour, hkFunnel, vv + "|" + phase}]++
 		// vdip: distinct IP per verdict, all phases (VerdictDistribution).
 		batch.sketch(hllKey{hour, hkVerdictIP, v}).add(ip)
+		// site dimension: feeds dashboard.Sites (= the stats-page entry list).
+		// Total / serve / passed counts + distinct IP per site, all bucketed
+		// hourly so 7d / 30d ranges read O(hours * sites) rows instead of
+		// scanning the raw event table.
+		if site != "" {
+			batch.counts[hourlyKey{hour, hkSiteAll, site}]++
+			batch.sketch(hllKey{hour, hkSiteIP, site}).add(ip)
+		}
 		switch phase {
 		case "load":
 			if flags == 0 {
 				batch.counts[hourlyKey{hour, hkLoadF0, vv}]++
 			}
 		case "serve":
+			if site != "" {
+				batch.counts[hourlyKey{hour, hkSiteServe, site}]++
+			}
 			if payloadRL(payload.String) {
 				batch.counts[hourlyKey{hour, hkServeRL, vv}]++
 			}
@@ -231,6 +247,13 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 					// day granularity keeps the sketch table tiny.
 					batch.sketch(hllKey{day, hkCountryIP, cc}).add(ip)
 				}
+			}
+		default:
+			// Any phase beginning with 'bv_' = a _bv issuance phase (= the
+			// visitor passed PoW / CAPTCHA / etc.).  Counts as "passed" in
+			// Sites' summary, matching the meaning in Funnel.
+			if site != "" && len(phase) >= 3 && phase[:3] == "bv_" {
+				batch.counts[hourlyKey{hour, hkSiteBV, site}]++
 			}
 		}
 	}
