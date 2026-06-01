@@ -1541,8 +1541,11 @@ func defaults() Settings {
 			// is admin-rendered (= DO NOT EDIT) -- /etc/ is reserved for the
 			// hand-edited config.yml per FHS.  Future apache support will live
 			// at /var/lib/unmask/apache/ alongside /var/lib/unmask/nginx/.
-			OutputDir:    "/var/lib/unmask/nginx",
-			UpstreamAddr: "127.0.0.1:9477",
+			OutputDir: "/var/lib/unmask/nginx",
+			// UpstreamAddr stays empty so buildUpstreamServer derives the
+			// upstream from server.bind (TCP or unix:).  An operator deploys
+			// admin and nginx in separate network namespaces (= docker
+			// compose, k8s) can set it explicitly to e.g. "admin:9477".
 			SeenVersion:  "v0.1", // for old-yml compat (= initialized here when the field is missing)
 			// AdminAllowFrom defaults to empty: avoids silently locking down
 			// existing installs (= deployments behind an LB) to loopback only.

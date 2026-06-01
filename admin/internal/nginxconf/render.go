@@ -113,8 +113,15 @@ func Render(s settings.Settings, outDir, version string) error {
 //   - TCP    : "host:port"  (= existing behavior)
 //   - unix   : "unix:/path/to.sock"
 //
-// If bind has a "unix:" prefix, it's socket mode.
+// nginx.upstream_addr overrides the bind-derived form when set -- useful
+// when nginx and admin live in different network namespaces (docker
+// compose, k8s sidecar) and the upstream needs the service hostname
+// instead of the loopback address admin binds to.  If bind has a "unix:"
+// prefix, it's socket mode.
 func buildUpstreamServer(s settings.Settings) string {
+	if addr := strings.TrimSpace(s.Nginx.UpstreamAddr); addr != "" {
+		return addr
+	}
 	bind := strings.TrimSpace(s.Server.Bind)
 	if strings.HasPrefix(bind, "unix:") {
 		return bind
