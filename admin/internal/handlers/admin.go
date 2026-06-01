@@ -754,6 +754,8 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
+	loc := resolveLocation(r)
+	dashboard.ApplyDisplayLoc(sites, loc)
 	now := time.Now()
 	rangeStart := now.Add(-time.Duration(hours) * time.Hour)
 	data := map[string]any{
@@ -763,7 +765,7 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 		// RangeStartTS = epoch sec UTC.  Emit in the template as <time class="js-datetime"
 		// data-ts="...">; JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
-		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
+		"RangeStartFallback": rangeStart.In(loc).Format("2006-01-02 15:04 MST"),
 		"Driver":             string(h.DB.Driver),
 		"Sites":              sites,
 	}
@@ -1023,6 +1025,30 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
 			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
 	}
+
+	// LastSeen / Date cells on every row carry the SQL driver's UTC datetime
+	// text by default.  Reformat them in the operator's TZ before render --
+	// the data-ts attribute is the source of truth, the string is just the
+	// readable cell.  Cheap (= a few hundred rows total) and only touches
+	// fields the helper recognises (= LastSeen/LastSeenTS, Date/DateTS).
+	dashboard.ApplyDisplayLoc(cookieRows, loc)
+	dashboard.ApplyDisplayLoc(rlIPs, loc)
+	dashboard.ApplyDisplayLoc(rlPaths, loc)
+	dashboard.ApplyDisplayLoc(flagsRows, loc)
+	dashboard.ApplyDisplayLoc(verdictDist, loc)
+	dashboard.ApplyDisplayLoc(hitRows, loc)
+	dashboard.ApplyDisplayLoc(loopRows, loc)
+	dashboard.ApplyDisplayLoc(verifyNG, loc)
+	dashboard.ApplyDisplayLoc(cookieFails, loc)
+	dashboard.ApplyDisplayLoc(stealth, loc)
+	dashboard.ApplyDisplayLoc(jsErrs, loc)
+	dashboard.ApplyDisplayLoc(dailyKind, loc)
+	dashboard.ApplyDisplayLoc(dailyTotal, loc)
+	dashboard.ApplyDisplayLoc(dailyServeKind, loc)
+	dashboard.ApplyDisplayLoc(dailyServeTotal, loc)
+	dashboard.ApplyDisplayLoc(countries, loc)
+	dashboard.ApplyDisplayLoc(dailyCountry, loc)
+	dashboard.ApplyDisplayLoc(dailyUniq, loc)
 
 	// funnel is the centerpiece, so a confirmed error returns 500.  Other
 	// cards may be missing; render continues with "0 entries" (same
