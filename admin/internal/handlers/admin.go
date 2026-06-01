@@ -934,10 +934,19 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry())
 	})
 	run("CookieStatus", func() { cookieRows, _ = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours) })
-	run("RateLimitSummary", func() { rlSummary, _ = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours) })
-	run("RateLimitIPs", func() { rlIPs, _ = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30) })
-	run("RateLimitPaths", func() { rlPaths, _ = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30) })
-	run("RateLimitQueriesByPath", func() { rlPathQueries, _ = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5) })
+	// Pre-gate the rate-limit cards on the aggregate's serve-rl count.  On
+	// any operator install where rate_limit is rare (= the common case),
+	// this skips four 80k-row raw scans worth of dashboard latency per page
+	// load.  When the aggregate isn't ready or the page is site/host
+	// filtered, HasRateLimited conservatively returns true so the raw cards
+	// still render.
+	hasRL, _ := dashboard.HasRateLimited(ctx, h.DB, site, hosts, hours)
+	if hasRL {
+		run("RateLimitSummary", func() { rlSummary, _ = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours) })
+		run("RateLimitIPs", func() { rlIPs, _ = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30) })
+		run("RateLimitPaths", func() { rlPaths, _ = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30) })
+		run("RateLimitQueriesByPath", func() { rlPathQueries, _ = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5) })
+	}
 	run("FlagsDistribution", func() { flagsRows, _ = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours) })
 	run("VerdictDistribution", func() { verdictDist, _ = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours) })
 	run("CaptchaForceBreakdown", func() { hitRows, _ = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours) })

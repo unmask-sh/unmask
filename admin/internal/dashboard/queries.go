@@ -1347,6 +1347,25 @@ type RLSummary struct {
 	Total int
 }
 
+// HasRateLimited reports whether any phase=serve+rl=1 events landed in the
+// last `hours`.  Read straight off the existing hkServeRL aggregate (= per-
+// verdict rate-limited serve count).  Site/host scoping is not modelled in
+// the aggregate, so we conservatively return true when filtered; callers
+// only use this as a "skip all RateLimit* cards when nothing happened" gate.
+func HasRateLimited(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (bool, error) {
+	if site != "" || len(hosts) > 0 || !HourlyAggReady() {
+		return true, nil
+	}
+	var total int64
+	err := d.QueryRowContext(ctx, `
+        SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkServeRL+`' AND bucket_hour >= `+hourAgoExpr(d, hours)).Scan(&total)
+	if err != nil {
+		return true, err
+	}
+	return total > 0, nil
+}
+
 func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLIPRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
