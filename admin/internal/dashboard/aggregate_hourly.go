@@ -38,10 +38,11 @@ const (
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
 const (
-	hkVerdictIP = "vdip" // hourly bucket, key '<verdict>'  distinct IP, all phases
-	hkCountryIP = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
-	hkSiteIP    = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
-	hkServeIP   = "svip" // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
+	hkVerdictIP     = "vdip" // hourly bucket, key '<verdict>'  distinct IP, all phases
+	hkCountryIP     = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
+	hkSiteIP        = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
+	hkServeIP       = "svip" // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
+	hkLoadVerdictIP = "lvip" // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
 )
 
 const (
@@ -242,6 +243,10 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			if flags == 0 {
 				batch.counts[hourlyKey{hour, hkLoadF0, vv}]++
 			}
+			// lvip: phase=load distinct IP per verdict.  Funnel needs both the
+			// per-verdict count and the total (= union of sketches), so we
+			// store only per-verdict and let the read side merge across keys.
+			batch.sketch(hllKey{hour, hkLoadVerdictIP, v}).add(ip)
 		case "serve":
 			if site != "" {
 				batch.counts[hourlyKey{hour, hkSiteServe, site}]++

@@ -715,36 +715,49 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	}
 	rows.Close()
 
-	// distinct-IP per verdict (phase=load) is not summable across buckets, so
-	// read it raw over the same hour-aligned window as the aggregate.
+	// per-verdict distinct IP for phase=load: HLL merge across the hour
+	// buckets, then estimate per-key.  The same sketches feed the TOTAL row's
+	// LoadUniq via a single union pass.  No raw scan in the agg path.
 	since := hourAgoTimestamp(d, hours)
-	uq, err := d.QueryContext(ctx, fmt.Sprintf(`
-        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
-               COUNT(DISTINCT ip_address) AS uniq_ip
-        FROM unmask_event WHERE date_created > %s AND phase = 'load'
-        GROUP BY ja4_verdict, ja4_verdict_id`, since))
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind = '`+hkLoadVerdictIP+`'`)
 	if err != nil {
 		return nil, err
 	}
-	for uq.Next() {
-		var v string
-		var vid, u sql.NullInt64
-		if err := uq.Scan(&v, &vid, &u); err != nil {
-			uq.Close()
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var verdict string
+		var blob []byte
+		if err := sRows.Scan(&verdict, &blob); err != nil {
+			sRows.Close()
 			return nil, err
 		}
-		k := canonVerdict(reg, vid.Int64, v)
-		e := loadByV[k]
-		e.uniq += int(u.Int64)
-		loadByV[k] = e
+		h := loadHLL(blob)
+		if existing, ok := sketches[verdict]; ok {
+			existing.merge(h)
+		} else {
+			sketches[verdict] = h
+		}
 	}
-	if err := uq.Err(); err != nil {
-		uq.Close()
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
 		return nil, err
 	}
-	uq.Close()
+	sRows.Close()
+	// per-verdict estimate → loadByV.uniq; total union → totalUniqOverride.
+	totalSketch := &hll{}
+	for v, h := range sketches {
+		k := canonVerdict(reg, 0, v)
+		e := loadByV[k]
+		e.uniq += int(h.estimate())
+		loadByV[k] = e
+		totalSketch.merge(h)
+	}
+	totalUniq := int(totalSketch.estimate())
 
-	return buildFunnelRows(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts)
+	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq)
 }
 
 // buildFunnelRows turns the per-verdict aggregation maps into ordered
@@ -752,7 +765,14 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 // the TOTAL row. The rate-limit row and the total distinct-IP count are read
 // raw from unmask_event over `since` (a SQL datetime expression); both Funnel
 // paths supply a window-consistent `since`.
+// buildFunnelRows is the scan-path entry point: it queries TOTAL distinct IP
+// raw.  Agg-path callers should use buildFunnelRowsWithUniq so the LoadUniq
+// piece can be sourced from a pre-computed HLL merge instead.
 func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string) ([]FunnelRow, error) {
+	return buildFunnelRowsWithUniq(ctx, d, site, hosts, since, byVP, loadByV, rlByV, botVerdicts, nil)
+}
+
+func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts []string, since string, byVP map[funnelVP]int, loadByV map[string]funnelLoad, rlByV map[string]int, botVerdicts []string, totalLoadUniq *int) ([]FunnelRow, error) {
 	// D) verdict list = fixed-list order + unknown verdicts seen in the DB
 	// (= appended in name order). The fixed list is all presets + ok + (none).
 	// User extra-rule verdicts are added via seenInDB when first observed.
@@ -837,11 +857,16 @@ func buildFunnelRows(ctx context.Context, d *db.DB, site string, hosts []string,
 		out = append([]FunnelRow{rlRow}, out...)
 	}
 
-	// total uniq is a separate SQL (= so the same IP is not counted across verdicts)
-	row := d.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s%s AND phase = 'load'`,
-		since, siteCond(site)+hostCond(hosts)))
-	_ = row.Scan(&total.LoadUniq)
+	// total uniq is a separate SQL (= so the same IP is not counted across verdicts).
+	// Agg path skips this round-trip by passing the value down via totalLoadUniq.
+	if totalLoadUniq != nil {
+		total.LoadUniq = *totalLoadUniq
+	} else {
+		row := d.QueryRowContext(ctx, fmt.Sprintf(
+			`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s%s AND phase = 'load'`,
+			since, siteCond(site)+hostCond(hosts)))
+		_ = row.Scan(&total.LoadUniq)
+	}
 	if total.Load > 0 {
 		total.PowRate = float64(total.PowSolved) / float64(total.Load)
 		total.CaptchaRate = float64(total.Captcha) / float64(total.Load)

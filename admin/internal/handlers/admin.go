@@ -915,37 +915,41 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	qStart := time.Now()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
-	run := func(fn func()) {
+	run := func(name string, fn func()) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			t0 := time.Now()
 			fn()
+			if elapsed := time.Since(t0); elapsed > 200*time.Millisecond {
+				log.Printf("dashboard card %s: %v elapsed", name, elapsed)
+			}
 		}()
 	}
-	run(func() {
+	run("funnel", func() {
 		fctx, fcancel := queryCtx(5 * time.Second)
 		defer fcancel()
 		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry())
 	})
-	run(func() { cookieRows, _ = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours) })
-	run(func() { rlSummary, _ = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours) })
-	run(func() { rlIPs, _ = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30) })
-	run(func() { rlPaths, _ = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30) })
-	run(func() { rlPathQueries, _ = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5) })
-	run(func() { flagsRows, _ = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours) })
-	run(func() { verdictDist, _ = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours) })
-	run(func() { hitRows, _ = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours) })
-	run(func() { loopRows, _ = dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours) })
-	run(func() { verifyNG, _ = dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30) })
-	run(func() { cookieFails, _ = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours) })
-	run(func() { stealth, _ = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts) })
-	run(func() { jsErrs, _ = dashboard.JSErrors(ctx, h.DB, site, hosts, hours) })
+	run("CookieStatus", func() { cookieRows, _ = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours) })
+	run("RateLimitSummary", func() { rlSummary, _ = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours) })
+	run("RateLimitIPs", func() { rlIPs, _ = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30) })
+	run("RateLimitPaths", func() { rlPaths, _ = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30) })
+	run("RateLimitQueriesByPath", func() { rlPathQueries, _ = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5) })
+	run("FlagsDistribution", func() { flagsRows, _ = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours) })
+	run("VerdictDistribution", func() { verdictDist, _ = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours) })
+	run("CaptchaForceBreakdown", func() { hitRows, _ = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours) })
+	run("ReloadLoops", func() { loopRows, _ = dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours) })
+	run("VerifyNGRanking", func() { verifyNG, _ = dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30) })
+	run("CookieSetFails", func() { cookieFails, _ = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours) })
+	run("StealthPassed", func() { stealth, _ = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts) })
+	run("JSErrors", func() { jsErrs, _ = dashboard.JSErrors(ctx, h.DB, site, hosts, hours) })
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).
-	run(func() {
+	run("DailyPassByDay", func() {
 		dctx, dcancel := queryCtx(15 * time.Second)
 		defer dcancel()
 		var derr error
@@ -957,7 +961,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// 30-day trend chart 2 (legacy): phase='serve' stacked-bar by classify.IsBot.
 	// High cardinality (tens of thousands of distinct UA x verdict x IP).
 	// Separate ctx with a longer deadline.
-	run(func() {
+	run("DailyServeByKind", func() {
 		dskCtx, dskCancel := queryCtx(15 * time.Second)
 		defer dskCancel()
 		var derr error
@@ -966,10 +970,10 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			log.Printf("daily serve by kind: %v", derr)
 		}
 	})
-	run(func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
+	run("CountriesByServe", func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
 	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
 	// rolled up with a country dimension).  Empty when nginxlog or ipgeo is off.
-	run(func() {
+	run("DailyPassByCountry", func() {
 		dcctx, dccancel := queryCtx(15 * time.Second)
 		defer dccancel()
 		var derr error
@@ -980,7 +984,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	// Per-day unique-IP estimate over the same 30-day window (= HLL merge of
 	// unmask_traffic_hll(kind='ip')).  Empty when nginxlog is off.
-	run(func() {
+	run("DailyUniqueIPs", func() {
 		dunCtx, dunCancel := queryCtx(15 * time.Second)
 		defer dunCancel()
 		var derr error
