@@ -305,13 +305,6 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 </main>
 <div id="ip-popover" data-popover="ip"></div>
 <script>
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('time.js-datetime').forEach(function(el){
-    var ts = parseInt(el.getAttribute('data-ts'), 10);
-    if (!ts) return;
-    el.textContent = new Date(ts * 1000).toLocaleString();
-  });
-});
 
 // IP popover (rDNS + IP-geo + ASN). Same pattern as hunt.html / dashboard.html.
 (function(){
@@ -400,5 +393,6 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 
 </script>
+{{ template "js_datetime_fmt" . }}
 </body>
 </html>

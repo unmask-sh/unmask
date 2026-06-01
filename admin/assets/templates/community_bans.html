@@ -455,13 +455,6 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 <div id="reports-popover" data-popover="reports"></div>
 <div id="vote-popover" data-popover="vote"></div>
 <script>
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('time.js-datetime').forEach(function(el){
-    var ts = parseInt(el.getAttribute('data-ts'), 10);
-    if (!ts) return;
-    el.textContent = new Date(ts * 1000).toLocaleString();
-  });
-});
 
 // Mute toggle: POST via fetch with application/x-www-form-urlencoded body
 // (= Go's r.ParseForm reads urlencoded directly; FormData would be
@@ -1549,5 +1542,6 @@ document.addEventListener('click', function(e){
 })();
 
 </script>
+{{ template "js_datetime_fmt" . }}
 </body>
 </html>

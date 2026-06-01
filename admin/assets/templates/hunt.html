@@ -853,13 +853,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
   window.addEventListener('beforeunload', function(){ stopSSE(false); });
 })();
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('time.js-datetime').forEach(function(el){
-    var ts = parseInt(el.getAttribute('data-ts'), 10);
-    if (!ts) return;
-    el.textContent = new Date(ts * 1000).toLocaleString();
-  });
-});
 
 // BAN confirm dialog: preventDefault the form submit once -> show the dialog ->
 // on "BAN execute" copy share / comment into hidden inputs and submit.
@@ -944,5 +937,6 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 })();
 </script>
+{{ template "js_datetime_fmt" . }}
 </body>
 </html>

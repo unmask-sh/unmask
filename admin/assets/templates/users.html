@@ -130,13 +130,7 @@ table.users tbody tr:hover{background:#f8fafc}
 <script>
 function confirmReset(name){return confirm("Reset password for " + name + "?")}
 // js-datetime: render data-ts (unix sec) as a localized string.
-document.addEventListener('DOMContentLoaded', function(){
-  document.querySelectorAll('time.js-datetime').forEach(function(el){
-    var ts = parseInt(el.getAttribute('data-ts'), 10);
-    if (!ts) return;
-    el.textContent = new Date(ts * 1000).toLocaleString();
-  });
-});
 </script>
+{{ template "js_datetime_fmt" . }}
 </body>
 </html>

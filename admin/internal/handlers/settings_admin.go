@@ -1420,7 +1420,8 @@ var ipgeoCommonASNPaths = []string{
 type IPGeoPathInfo struct {
 	Path         string
 	Exists       bool
-	MTime        string // RFC-like ("2006-01-02 15:04 UTC")
+	MTime        string // RFC-like ("2006-01-02 15:04 UTC") -- noscript fallback
+	MTimeTS      int64  // unix sec UTC; template emits <time class="js-datetime" data-ts="..."> and JS formats it in browser TZ
 	Size         string // human-readable ("4.0 MB")
 	Vendor       string // "MaxMind" / "DB-IP" / "IP2Location" / "Unknown" / "" (= unreadable)
 	DatabaseType string // raw mmdb DatabaseType (e.g. "DBIP-Country-Lite")
@@ -1496,10 +1497,11 @@ func buildIPGeoPathInfo(p string) (IPGeoPathInfo, bool) {
 		return IPGeoPathInfo{}, false
 	}
 	row := IPGeoPathInfo{
-		Path:   p,
-		Exists: true,
-		MTime:  st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
-		Size:   humanSize(st.Size()),
+		Path:    p,
+		Exists:  true,
+		MTime:   st.ModTime().UTC().Format("2006-01-02 15:04 UTC"),
+		MTimeTS: st.ModTime().Unix(),
+		Size:    humanSize(st.Size()),
 	}
 	if info, err := ipgeo.InspectMMDB(p); err == nil {
 		row.Vendor = info.Vendor

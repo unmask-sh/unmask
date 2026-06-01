@@ -1,0 +1,61 @@
+{{/*
+Reformat every <time class="js-datetime" data-ts="..."> / <time class="js-date" data-ts="..."> on the page using:
+  - the picker's cookie TZ (unmask_tz)        — falls back to the browser's TZ when "" / unset
+  - the picker's cookie locale (unmask_locale) — falls back to the page's auto-detected locale
+
+This is the same logic the profile page's lang_tz_picker runs after a picker
+change, lifted out so any admin page can opt in by including
+`{{ template "js_datetime_fmt" . }}` once near its closing </body>.  Without
+this include, the page renders js-datetime tags with their server-side UTC
+fallback text and never converts to the operator's TZ.
+*/}}
+{{ define "js_datetime_fmt" }}
+<script>
+(function(){
+  function getCookie(name){
+    var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function detectLocale(){
+    var n = (navigator.language || 'ja').toLowerCase();
+    return n.indexOf('en') === 0 ? 'en' : 'ja';
+  }
+  var tz  = getCookie('unmask_tz') || undefined;       // undefined → browser auto
+  var loc = getCookie('unmask_locale') || detectLocale();
+  var dtFmt, dFmt;
+  try {
+    dtFmt = new Intl.DateTimeFormat(loc, {
+      timeZone: tz,
+      year:'numeric', month:'short', day:'2-digit',
+      hour:'2-digit', minute:'2-digit',
+      timeZoneName: 'short',
+    });
+    dFmt = new Intl.DateTimeFormat(loc, {
+      timeZone: tz,
+      year:'numeric', month:'short', day:'2-digit',
+    });
+  } catch (e) {
+    // Bad cookie value (= unknown TZ name) — fall back to browser TZ silently.
+    dtFmt = new Intl.DateTimeFormat(loc, { year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit', timeZoneName:'short' });
+    dFmt  = new Intl.DateTimeFormat(loc, { year:'numeric', month:'short', day:'2-digit' });
+  }
+  function fmtAll(){
+    document.querySelectorAll('.js-datetime[data-ts]').forEach(function(el){
+      var ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dtFmt.format(new Date(ts * 1000));
+    });
+    document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
+      var ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dFmt.format(new Date(ts * 1000));
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fmtAll);
+  } else {
+    fmtAll();
+  }
+})();
+</script>
+{{ end }}

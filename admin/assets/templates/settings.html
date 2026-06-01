@@ -609,7 +609,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <code>{{ .Path }}</code>
             {{ if .Vendor }}<span class="vendor-badge vendor-{{ .Vendor | lower }}">{{ .Vendor }}{{ if .DatabaseType }} · {{ .DatabaseType }}{{ end }}</span>{{ end }}
             {{ if and (eq $mode "custom") (eq .Path $.IPGeoMMDBPath) }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
-            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime {{ .MTime }}</span>
+            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime <time class="js-datetime" data-ts="{{ .MTimeTS }}">{{ .MTime }}</time></span>
           </li>
           {{ end }}
           {{ end }}
@@ -675,7 +675,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <code>{{ .Path }}</code>
             {{ if .Vendor }}<span class="vendor-badge vendor-{{ .Vendor | lower }}">{{ .Vendor }}{{ if .DatabaseType }} · {{ .DatabaseType }}{{ end }}</span>{{ end }}
             {{ if and (eq $asnMode "custom") (eq .Path $.IPGeoMMDBASNPath) }}<span class="active-pill">{{ t $.Lang "settings.network.geoip_active" }}</span>{{ end }}
-            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime {{ .MTime }}</span>
+            <span class="meta">{{ .Size }}{{ if .BuildTime }} · build {{ .BuildTime }}{{ end }} · mtime <time class="js-datetime" data-ts="{{ .MTimeTS }}">{{ .MTime }}</time></span>
           </li>
           {{ end }}
           {{ end }}
@@ -4352,5 +4352,6 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
+{{ template "js_datetime_fmt" . }}
 </body>
 </html>
