@@ -243,10 +243,13 @@ func sitesAgg(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	by := map[string]SiteSummary{}
 
 	// plain counts: total / serve / passed per site over the hour window.
+	// >= matches the funnel / country aggregate readers: hourAgoExpr names
+	// the boundary bucket (= the one covering 'now - hours'), so the bucket
+	// itself must be included or the count is short by one hour.
 	cntStmt := fmt.Sprintf(`
         SELECT bucket_kind, bucket_key, SUM(cnt) AS c, MAX(bucket_hour) AS last_hour
         FROM unmask_aggregate_hourly
-        WHERE bucket_hour > %s
+        WHERE bucket_hour >= %s
           AND bucket_kind IN ('%s','%s','%s')
         GROUP BY bucket_kind, bucket_key`,
 		hourAgoExpr(d, hours), hkSiteAll, hkSiteServe, hkSiteBV)
@@ -291,7 +294,7 @@ func sitesAgg(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	hllStmt := fmt.Sprintf(`
         SELECT bucket_key, sketch
         FROM unmask_aggregate_hll
-        WHERE bucket > %s AND bucket_kind = '%s'`,
+        WHERE bucket >= %s AND bucket_kind = '%s'`,
 		hourAgoExpr(d, hours), hkSiteIP)
 	hRows, err := d.QueryContext(ctx, hllStmt)
 	if err != nil {
