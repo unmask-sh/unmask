@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -1577,6 +1578,11 @@ func buildLBExtraView(n settings.Nginx) []LBExtraView {
 	return out
 }
 
+// lbExtraIDRE constrains a custom trusted-LB id to an nginx-safe identifier.
+// The id is emitted into the rendered config (geo var name + quoted map key),
+// so a '"' or whitespace would break out; only [A-Za-z0-9_-] is allowed.
+var lbExtraIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 // applyTrustedLBForm: receives the trusted-LB section of the network tab.
 //   - trusted_lb_preset[]   : preset IDs enabled via checkbox
 //   - lb_extra_id[] / lb_extra_cidrs[] / lb_extra_header[] : 3 parallel arrays from the row UI
@@ -1612,15 +1618,26 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 		if id == "" || c == "" {
 			continue
 		}
+		// Reject ids that aren't nginx-safe identifiers (= injection guard:
+		// the id lands in a geo var name and a quoted map key).
+		if !lbExtraIDRE.MatchString(id) {
+			continue
+		}
 		// Split CIDRs by CSV or whitespace separators.
 		var cidrList []string
 		for _, s := range strings.FieldsFunc(c, func(r rune) bool {
 			return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == ';'
 		}) {
 			s = strings.TrimSpace(s)
-			if s != "" {
-				cidrList = append(cidrList, s)
+			if s == "" {
+				continue
 			}
+			// Validate before it reaches the unquoted geo{} block: a stray
+			// '}' / '"' would otherwise close the block or inject directives.
+			if _, _, err := net.ParseCIDR(s); err != nil && net.ParseIP(s) == nil {
+				continue
+			}
+			cidrList = append(cidrList, s)
 		}
 		if len(cidrList) == 0 {
 			continue
@@ -2202,6 +2219,11 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.verdict_2tokens", p))
 		}
 		if strings.ContainsAny(p, "\"\\\x00\r\n") {
+			continue
+		}
+		// The verdict is emitted into a quoted nginx map value, so it needs the
+		// same character reject as the pattern or a '"' would break the quote.
+		if strings.ContainsAny(v, "\"\\\x00\r\n") {
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
@@ -2837,6 +2859,11 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			line = strings.TrimSpace(line)
 			if line == "" || seen[line] {
 				continue
+			}
+			// The path lands unquoted in `location ^~ <path> {`, so a space / {
+			// / } / ; would break out into an arbitrary location or directive.
+			if strings.ContainsAny(line, " \t{}#;\"\\\r\x00") {
+				return fmt.Errorf("zone %s: path %q contains invalid characters", name, line)
 			}
 			seen[line] = true
 			paths = append(paths, line)

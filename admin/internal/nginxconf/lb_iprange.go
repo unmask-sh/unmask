@@ -19,6 +19,7 @@ package nginxconf
 
 import (
 	"net"
+	"regexp"
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -32,18 +33,31 @@ import (
 // Use case: convert what the user types as an HTTP header name in the
 // settings UI into a form usable inside nginx-rendered.conf, and store
 // it (= storage is unified on nginx variable notation).
+// httpHeaderVarRE matches a clean nginx $http_ variable.  NginxVarFromHeader's
+// result is emitted unquoted into a map directive, so anything outside this
+// shape (spaces, ';', '}', newlines) must be rejected or a custom LB header
+// could break out into arbitrary http-scope config.
+var httpHeaderVarRE = regexp.MustCompile(`^\$http_[a-z0-9_]+$`)
+
 func NginxVarFromHeader(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""
 	}
 	if strings.HasPrefix(s, "$http_") {
-		return strings.ToLower(s)
+		s = strings.ToLower(s)
+	} else {
+		s = strings.TrimPrefix(s, "$")
+		s = strings.ToLower(s)
+		s = strings.ReplaceAll(s, "-", "_")
+		s = "$http_" + s
 	}
-	s = strings.TrimPrefix(s, "$")
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "-", "_")
-	return "$http_" + s
+	// Reject anything that isn't a clean $http_<name>; the value goes into an
+	// unquoted nginx map directive (= injection guard, see httpHeaderVarRE).
+	if !httpHeaderVarRE.MatchString(s) {
+		return ""
+	}
+	return s
 }
 
 // HeaderFromNginxVar: convert "$http_cf_ja4" back to "Cf-JA4" (= for UI display).
