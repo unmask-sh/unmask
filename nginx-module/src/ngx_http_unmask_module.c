@@ -568,29 +568,6 @@ ngx_unmask_ct_memcmp(const void *a, const void *b, size_t n)
     return CRYPTO_memcmp(a, b, n);
 }
 
-/* djb2 hash: bit-identical to challenge.js / Go cookies.djb2.
- * JS: h=5381; for c in str: h = ((h<<5)+h) + c; h |= 0;  (= int32 wrap)
- *
- * Fully UB-safe: compute in 32-bit unsigned, then reinterpret the bit
- * pattern as int32_t.  Never triggers signed overflow.
- * The seed is ASCII-only (digits + '_' + 'unmask'), so s[i] is 0..127,
- * matching JS char.codeAt under zero-extension.
- */
-static int32_t
-ngx_unmask_djb2(const u_char *s, size_t n)
-{
-    uint32_t h = 5381u;
-    for (size_t i = 0; i < n; i++) {
-        h = h * 33u + (uint32_t)s[i];
-    }
-    /* unsigned -> signed reinterpretation.  Implementation-defined per
-     * C99 6.3.1.3, but on gcc/clang/x86_64 this is two's complement
-     * (= matches JS's h|=0). */
-    union { uint32_t u; int32_t s; } cv;
-    cv.u = h;
-    return cv.s;
-}
-
 /* base36 parse: accepts only [0-9a-zA-Z]. Returns -1 for n>13, empty,
  * invalid char, or overflow.  13 chars is the safe upper bound for an
  * int64 base36 value (= log36(2^63) ~ 12.27). */
@@ -611,69 +588,6 @@ ngx_unmask_base36(const u_char *s, size_t n)
         v = v * 36 + d;
     }
     return v;
-}
-
-/* base36 format: non-negative int64 -> [0-9a-z] string.  buf >= 16 bytes.
- * Writes at most 13 chars (= int64 max).  Returns number of bytes written. */
-static size_t
-ngx_unmask_base36_fmt(int64_t v, char *buf)
-{
-    static const char D[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-    if (v <= 0) { buf[0] = '0'; return 1; }
-    char tmp[16];
-    size_t n = 0;
-    while (v > 0 && n < 13) {
-        tmp[n++] = D[v % 36];
-        v /= 36;
-    }
-    for (size_t i = 0; i < n; i++) buf[i] = tmp[n - 1 - i];
-    return n;
-}
-
-/* verify_pow_cookie: validate a 4-segment "<issued_unix>.sig.target.flags"
- * via djb2.
- *   seed = "<issued_unix>_unmask_<target_dec>"
- *   proof = abs(djb2(seed))
- *   expected_sig = base36(proof)
- * Bit-identical logic to challenge.js (= client) and Go cookies.verifyPoW.
- * Returns 1 if valid, 0 otherwise.  valid_seconds bounds the look-back. */
-static int
-ngx_unmask_verify_pow_cookie(const u_char *day_s, size_t day_n,
-                             const u_char *sig_s, size_t sig_n,
-                             const u_char *tgt_s, size_t tgt_n,
-                             int valid_seconds)
-{
-    if (sig_n == 0 || sig_n > 13) return 0;
-    if (tgt_n == 0 || tgt_n > 8)  return 0;
-
-    int64_t cookie_unix = ngx_unmask_atoll(day_s, day_n);
-    if (cookie_unix < 0) return 0;
-    int64_t now = (int64_t)ngx_time();
-    if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
-    if (now - cookie_unix > (int64_t)valid_seconds) return 0;
-
-    int64_t target = ngx_unmask_base36(tgt_s, tgt_n);
-    if (target < 0) return 0;
-
-    /* seed = "<issued_unix>_unmask_<target>".  Max length = 19 + 8 + 13 + 1 = 41.
-     * 80-byte buffer leaves comfortable margin. */
-    char seed[80];
-    int slen = snprintf(seed, sizeof(seed), "%lld_unmask_%lld",
-                        (long long)cookie_unix, (long long)target);
-    if (slen <= 0 || slen >= (int)sizeof(seed)) return 0;
-
-    int32_t h = ngx_unmask_djb2((const u_char *)seed, (size_t)slen);
-    /* Compute abs(int32) in int64.  Safe even for INT32_MIN (= within
-     * int64 range). */
-    int64_t proof = (h < 0) ? -(int64_t)h : (int64_t)h;
-
-    char expected[16];
-    size_t exp_len = ngx_unmask_base36_fmt(proof, expected);
-
-    if (exp_len != sig_n) return 0;
-    /* sig_n is constrained 0 < sig_n <= 13 by the caller; expected is
-     * also 1..13 bytes. */
-    return ngx_unmask_ct_memcmp(expected, sig_s, exp_len) == 0;
 }
 
 /* leading_zero_bits: count consecutive 0 bits starting from the MSB of
@@ -865,14 +779,11 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
             return UNMASK_BV_KIND_NONE;
         }
 
-        /* Legacy djb2 (= v0.0) fallback */
-        if (ngx_unmask_verify_pow_cookie(
-                cookie.data, day_n,
-                dot1 + 1, sig_n,
-                dot2 + 1, tgt_n,
-                valid_seconds) == 1) {
-            return UNMASK_BV_KIND_POW;
-        }
+        /* A 4-segment _bv that is NOT "pow2" is rejected.  The removed v0.0 djb2
+         * fallback verified an UNKEYED checksum with no difficulty check, so an
+         * attacker could mint a valid PoW cookie offline = full native-mode
+         * bypass.  challenge.js only ever emits the pow2 form, so nothing legit
+         * relied on it (no back-compat needed pre-GA). */
         return UNMASK_BV_KIND_NONE;
     }
 
