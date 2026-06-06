@@ -22,6 +22,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -985,6 +986,10 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			// A panic in a card query (bad DB row, nil deref) would otherwise
+			// crash the whole daemon -- net/http does not recover goroutines the
+			// handler spawns.  Recover so one bad card can't take the site down.
+			defer safe.Recover("dashboard:" + name)
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			t0 := time.Now()

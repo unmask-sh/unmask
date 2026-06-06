@@ -62,6 +62,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
 
 // Reader: body of the recv goroutine + flush goroutine.  Disabled
@@ -774,6 +775,7 @@ func trafficHLLUpsert(drv db.Driver) string {
 // flushLoop: 60-second ticker.
 func (r *Reader) flushLoop() {
 	defer close(r.doneB)
+	defer safe.Recover("nginxlog-flush") // a panic here must not crash the daemon
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 	for {
@@ -817,7 +819,10 @@ func (r *Reader) recvLoop() {
 		if len(line) > 0 && line[n-1] == '\n' {
 			line = line[:n-1]
 		}
-		r.onLine(string(line))
+		// Per-line recovery: a malformed/attacker-influenced log line that
+		// panics onLine must not kill the whole reader (and the daemon).
+		ls := string(line)
+		safe.Run("nginxlog-line", func() { r.onLine(ls) })
 	}
 }
 

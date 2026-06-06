@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
 
 // flusherQueueSize: channel buffer.  Default 10,000 (= absorbs roughly 10 seconds of burst).
@@ -112,6 +113,7 @@ func (f *Flusher) DroppedCount() uint64 {
 
 func (f *Flusher) run() {
 	defer f.wg.Done()
+	defer safe.Recover("events-flusher") // a panic here must not crash the daemon
 	buf := make([]*Event, 0, 512)
 	// Ideally the ticker would re-read flushInterval each tick, but stdlib's
 	// Ticker cannot change interval, so poll on a short interval (= 100ms)

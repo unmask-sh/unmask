@@ -38,6 +38,7 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
 
 const (
@@ -533,6 +534,7 @@ func (m *Manager) Snapshot() []Entry {
 
 func (m *Manager) loop() {
 	defer close(m.doneCh)
+	defer safe.Recover("ban-loop") // a panic here must not crash the daemon
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 	for {

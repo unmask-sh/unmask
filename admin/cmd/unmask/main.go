@@ -41,6 +41,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
@@ -302,7 +303,7 @@ func cmdServe(args []string) error {
 		t := time.NewTicker(60 * time.Second)
 		defer t.Stop()
 		for range t.C {
-			limiter.Purge()
+			safe.Run("limiter-purge", limiter.Purge)
 		}
 	}()
 
@@ -406,6 +407,7 @@ func cmdServe(args []string) error {
 	if conn != nil {
 		go func() {
 			runPrune := func() {
+				defer safe.Recover("events-prune") // a panic here must not kill the daemon
 				retention := h.Settings.EventsRetentionDays
 				if retention <= 0 {
 					return
@@ -438,6 +440,7 @@ func cmdServe(args []string) error {
 	if conn != nil {
 		go func() {
 			runAgg := func() {
+				defer safe.Recover("hourly-aggregate") // panic must not kill the daemon
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
 				if err := dashboard.AggregateHourly(ctx, conn, gip); err != nil {
@@ -445,6 +448,7 @@ func cmdServe(args []string) error {
 				}
 			}
 			runPrune := func() {
+				defer safe.Recover("hourly-prune")
 				if err := dashboard.PruneHourly(context.Background(), conn); err != nil {
 					log.Printf("hourly aggregate prune: %v", err)
 				}
