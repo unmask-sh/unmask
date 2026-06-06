@@ -81,6 +81,35 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the `max-height: <viewport>-2rem` cap when the help body is long.
 
 ### Fixed
+- (2026-06-06) **nginx / Apache integration fixes surfaced by the first real
+  multi-mode install-matrix fire** (the matrix's fire-check had silently been
+  install-only since the binary rename, masking these on fresh installs):
+  - **native nginx**: the `unmask-web-nginx` postinstall symlinked the http.inc
+    auto-load at the retired `/etc/unmask/native/http.inc` placeholder instead
+    of the flat `/etc/unmask/http.inc` render path, so the JA4 maps / log_format
+    never loaded and `nginx -t` aborted with `unknown log format`.
+  - **forward-auth nginx**: `forward-auth/server.inc` did `proxy_pass
+    http://unmask_admin` with no upstream defined (the render that once emitted
+    it was retired); the postinstall now writes a default-port `upstream
+    unmask_admin`.  Its `X-Client-JA4` / `X-JA4-*` headers (native-only vars)
+    are commented out so pure forward-auth `nginx -t` passes.
+  - **forward-auth Apache packaging**: `unmask-web-apache` depended on
+    `libapache2-mod-lua` (deb) / `apache2-mod-lua` (apk), neither of which
+    exists; now `apache2` + `lua-socket` (deb) and `apache2-lua` + `lua5.1-socket`
+    (apk, matching Alpine's Lua 5.1 mod_lua).
+  - **http.inc** no longer sets `map_hash_bucket_size`; it conflicted with a
+    host nginx.conf that declares a `map{}` first (e.g. Alpine's stock
+    `map $http_upgrade`), and the default bucket already fits the widest key.
+  Verified end-to-end (install → bot traffic → unmask_event count climbs) for
+  native nginx + forward-auth nginx + forward-auth Apache on AlmaLinux 9,
+  Ubuntu 24.04, and Alpine.
+
+- (2026-06-06) **`known_browser_action` now defaults to `pass`**.  It was unset,
+  which `uaDecide` treats as a PoW challenge, so a fresh install challenged
+  every real-browser visitor on the first hit -- the opposite of the JA4 design
+  (a TLS-confirmed browser should sail through; only a spoofed UA whose JA4
+  mismatches is challenged).  Unknown UAs keep the implicit PoW challenge.
+
 - (2026-06-06) **Stuck hover popovers are dismissed by a hover-reconcile
   watchdog**.  A fast pointer pass could leave a popover pinned after the
   cursor had already left its trigger; an rAF-throttled `:hover`
