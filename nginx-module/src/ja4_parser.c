@@ -31,6 +31,18 @@ static unsigned int rd_u16(const unsigned char *p) {
     return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
 }
 
+/* Lowercase hex digits for the JA4 ALPN hex-fallback below. */
+static const char ja4_hex_digits[] = "0123456789abcdef";
+
+/* JA4 ALPN rule: an ALPN end byte is used verbatim only when it is ASCII
+ * alphanumeric (0x30-0x39, 0x41-0x5A, 0x61-0x7A); otherwise the hex nibble
+ * is emitted instead. */
+static int ja4_is_alnum(unsigned char c) {
+    return (c >= '0' && c <= '9')
+        || (c >= 'A' && c <= 'Z')
+        || (c >= 'a' && c <= 'z');
+}
+
 int ja4_parse_client_hello(const unsigned char *msg, size_t len,
                            ja4_parsed_t *out)
 {
@@ -171,8 +183,20 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
                     unsigned int proto_len = eptr[2];
                     if (proto_len >= 1
                         && (size_t)proto_len + 3 <= (size_t)elen) {
-                        out->alpn_first = eptr[3];
-                        out->alpn_last  = eptr[3 + proto_len - 1];
+                        unsigned char fb = eptr[3];
+                        unsigned char lb = eptr[3 + proto_len - 1];
+                        /* Emit the end bytes verbatim only when both are ASCII
+                         * alphanumeric; otherwise emit the first byte's high
+                         * nibble and the last byte's low nibble as hex (e.g.
+                         * 0xAB..0xCD -> "ad").  Keeps a crafted ALPN from
+                         * putting raw bytes into the JA4 string. */
+                        if (ja4_is_alnum(fb) && ja4_is_alnum(lb)) {
+                            out->alpn_first = fb;
+                            out->alpn_last  = lb;
+                        } else {
+                            out->alpn_first = ja4_hex_digits[(fb >> 4) & 0x0f];
+                            out->alpn_last  = ja4_hex_digits[lb & 0x0f];
+                        }
                     }
                 }
             }
