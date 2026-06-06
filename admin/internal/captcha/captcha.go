@@ -131,6 +131,42 @@ func VerifyMath(answerStr, token, captchaSecretBase string) bool {
 	return hmac.Equal([]byte(expected), []byte(token))
 }
 
+// IssueToken returns a proof-of-load token bound to the client IP and the
+// current time: "<issued>.<hmac>", hmac = HMAC(mathSecret(base, today), "ct:<issued>:<ip>").
+// The challenge page embeds it (window.UNMASK.ct) and challenge.js echoes it on
+// the behavioral-CAPTCHA submit, so the server can require that the client
+// actually fetched THIS challenge for THIS IP before accepting a behavioral
+// score (which the client fully controls and can forge from a blind POST).
+func IssueToken(captchaSecretBase, ip string) string {
+	issued := time.Now().Unix()
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac.Write([]byte("ct:" + strconv.FormatInt(issued, 10) + ":" + ip))
+	return strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
+}
+
+// VerifyToken validates a token from IssueToken for the given IP: the HMAC must
+// match and issued must be within validSecs (and the daily secret rotation
+// bounds it further).  Returns false on any malformation.
+func VerifyToken(token, captchaSecretBase, ip string, validSecs int64) bool {
+	dot := strings.IndexByte(token, '.')
+	if dot <= 0 || dot >= len(token)-1 {
+		return false
+	}
+	issuedStr, sig := token[:dot], token[dot+1:]
+	issued, err := strconv.ParseInt(issuedStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().Unix()
+	if issued > now+60 || now-issued > validSecs {
+		return false
+	}
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac.Write([]byte("ct:" + issuedStr + ":" + ip))
+	expected := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(expected), []byte(sig))
+}
+
 func today() int64 { return time.Now().Unix() / 86400 }
 
 func mathSecret(base string, day int64) []byte {

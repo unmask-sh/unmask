@@ -406,6 +406,7 @@
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         token: captchaToken,
+        ct: (window.UNMASK && window.UNMASK.ct) || '', // proof-of-load token bound to IP + this challenge
         sig: {
           mouseTrail: sig.mouseTrail,
           scrolls:    sig.scrolls,
@@ -635,7 +636,10 @@
   // Difficulty comes from settings.Challenge.PowDifficulty (= default 18 bits)
   // via window.UNMASK.pow_difficulty.
   var powDiff=(window.UNMASK && window.UNMASK.pow_difficulty) || 18;
-  var seed=String(issuedAt)+'_unmask';
+  // seed is SERVER-supplied (= PowSeed(bvSecret, clientIP, issued)): the client
+  // cannot derive it (no secret), so the PoW can't be precomputed offline, and
+  // it is bound to this IP so a solved cookie can't be reused from another IP.
+  var seed=(window.UNMASK && window.UNMASK.pow_seed) || '';
 
   // ---- pure JS SHA-256 (= RFC 6234). 32-byte output. ~150 lines. ----
   var SHA256_K = new Uint32Array([

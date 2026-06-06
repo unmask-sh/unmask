@@ -28,8 +28,8 @@
 //
 //	"<issued_unix>.pow2.<nonce_b36>.<flags_b36>"  (parts[1]="pow2" marker)
 //
-// We compute SHA-256 of seed = "<issued_unix>_unmask" + ":" + nonce and verify
-// that leading-zero-bits >= difficulty.  difficulty is
+// We compute SHA-256 of seed = PowSeed(bvSecret, remoteIP, issued) + ":" + nonce
+// and verify that leading-zero-bits >= difficulty.  difficulty is
 // settings.Challenge.ResolvedPowDifficulty().
 package cookies
 
@@ -79,10 +79,12 @@ func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
 //  2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"    (4 segments. issued by challenge.js)
 //
 // In the PoW path the client computes the hash in JS and issues the cookie
-// itself, so bv_secret is not passed to the server (= the seed challenge.js
-// computes is the fixed value issued + "_unmask").  The issued_unix is
-// server-supplied (= window.UNMASK.issued_at), so the client's wall clock
-// has no effect on either the seed or the validity window.
+// itself, but the SEED is server-supplied: window.UNMASK.pow_seed =
+// PowSeed(bvSecret, remoteIP, issued).  Binding the seed to the secret + IP is
+// what makes the PoW unforgeable (no offline precompute) and non-transferable
+// (no cross-IP reuse).  The issued_unix is also server-supplied
+// (= window.UNMASK.issued_at), so the client's wall clock has no effect on the
+// seed or the validity window.
 //
 // powValidSeconds / captchaValidSeconds let the server tune the two paths
 // independently down to the second.  Browser-side cookie Max-Age is
@@ -98,7 +100,7 @@ func Verify(value, bvSecret, remoteIP string, powValidSeconds, captchaValidSecon
 	parts := strings.Split(value, ".")
 	// PoW format: 4 segments with parts[1]="pow2" marker.
 	if len(parts) == 4 && parts[1] == "pow2" {
-		return verifyPowSHA256(parts, powValidSeconds, powDifficulty)
+		return verifyPowSHA256(parts, bvSecret, remoteIP, powValidSeconds, powDifficulty)
 	}
 	// CAPTCHA format: 3 segments.  Verify via HMAC.
 	if len(parts) != 3 {
@@ -134,15 +136,33 @@ func withinWindow(issued int64, validSeconds int) bool {
 // challenge.js generation logic (= matches sha256() + the solve loop in challenge.js):
 //
 //	issued = window.UNMASK.issued_at  (= server-supplied unix seconds)
-//	seed   = issued + "_unmask"
+//	seed   = window.UNMASK.pow_seed   (= server-supplied; see PowSeed)
 //	Iterate nonce 0..N and pick the first nonce where the leading zero bits
 //	of SHA-256(seed + ":" + nonce) >= pow_difficulty.
 //	cookie = issued + ".pow2." + nonce.toString(36) + "." + flags.toString(36)
 //
-// The server recomputes SHA-256 with the same seed and accepts if
-// leading-zero-bits >= powDifficulty.  Falls back to default 18 if
-// powDifficulty is invalid (= 0 etc.).
-func verifyPowSHA256(parts []string, validSeconds, powDifficulty int) bool {
+// The server recomputes the seed via PowSeed(bvSecret, remoteIP, issued) and
+// re-runs SHA-256, accepting if leading-zero-bits >= powDifficulty.  Because the
+// seed binds the BV secret + client IP, the cookie cannot be precomputed offline
+// nor reused from another IP.  Falls back to default difficulty 18 if invalid.
+// PowSeed derives the server-bound PoW seed for an issuance time + client IP.
+// challenge.js receives it (window.UNMASK.pow_seed) and brute-forces a nonce
+// over SHA-256(seed + ":" + nonce); the verifier (here, and the C plugin in
+// native mode) recomputes the same seed.  Binding the seed to the BV secret
+// makes the PoW impossible to precompute offline (an attacker can't derive the
+// seed without the secret -- it must fetch the challenge), and binding it to
+// the client IP makes a solved cookie non-transferable to other IPs (= a botnet
+// can't share one solve, and one solve no longer passes for the whole internet
+// for the validity window).  HMAC-SHA1 mirrors the CAPTCHA path so the C plugin
+// reuses the same primitive; MUST stay byte-identical to ngx_unmask_pow_seed().
+func PowSeed(bvSecret, remoteIP string, issued int64) string {
+	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":pow_seed"
+	mac := hmac.New(sha1.New, []byte(bvSecret))
+	mac.Write([]byte(msg))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func verifyPowSHA256(parts []string, bvSecret, remoteIP string, validSeconds, powDifficulty int) bool {
 	if powDifficulty < 8 || powDifficulty > 24 {
 		powDifficulty = 18
 	}
@@ -159,7 +179,7 @@ func verifyPowSHA256(parts []string, validSeconds, powDifficulty int) bool {
 	if err != nil || nonce < 0 {
 		return false
 	}
-	seed := strconv.FormatInt(issued, 10) + "_unmask"
+	seed := PowSeed(bvSecret, remoteIP, issued)
 	input := seed + ":" + strconv.FormatInt(nonce, 10)
 	sum := sha256.Sum256([]byte(input))
 	return leadingZeroBits(sum[:]) >= powDifficulty

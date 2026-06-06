@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -80,7 +81,11 @@ func newTestHandler(t *testing.T) *Handler {
 // VerifyJSON: high score → 200 ok=1 + Set-Cookie _bv.
 func TestVerifyJSON_BehavioralPass(t *testing.T) {
 	h := newTestHandler(t)
-	body := `{"token":"x","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
+	// ct = the server-issued proof-of-load token, bound to the client IP and
+	// CaptchaSecretBase (= "test-base" in newTestHandler).  Required since the
+	// behavioral path now rejects a blind POST with no/invalid ct.
+	ct := captcha.IssueToken("test-base", "1.2.3.4")
+	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Real-IP", "1.2.3.4")
@@ -112,6 +117,27 @@ func TestVerifyJSON_BehavioralPass(t *testing.T) {
 	}
 	if resp["ok"].(float64) != 1 {
 		t.Errorf("ok != 1: %v", resp)
+	}
+}
+
+// TestVerifyJSON_BehavioralForgedCt locks the #2 fix: a behavioral submit whose
+// signal scores high but whose proof-of-load token (ct) is missing/forged is
+// rejected with no cookie, so a bot can't clear the CAPTCHA with a blind POST.
+func TestVerifyJSON_BehavioralForgedCt(t *testing.T) {
+	h := newTestHandler(t)
+	body := `{"token":"x","ct":"99999.deadbeefdeadbeef","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
+	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", "1.2.3.4")
+	rr := httptest.NewRecorder()
+	h.VerifyJSON(rr, req)
+	if rr.Code == http.StatusOK {
+		t.Fatalf("expected rejection for forged ct, got 200 body=%s", rr.Body.String())
+	}
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_bv" {
+			t.Fatal("a _bv cookie was issued despite an invalid proof-of-load token")
+		}
 	}
 }
 

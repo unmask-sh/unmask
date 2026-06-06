@@ -705,7 +705,8 @@ ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
 static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                                     const u_char *nonce_s, size_t nonce_n,
-                                    int valid_seconds, int difficulty)
+                                    int valid_seconds, int difficulty,
+                                    ngx_str_t bv_secret, ngx_str_t remote)
 {
     if (nonce_n == 0 || nonce_n > 13) return 0;
     if (difficulty < 8 || difficulty > 32) difficulty = 18;
@@ -719,11 +720,30 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     int64_t nonce = ngx_unmask_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
 
-    /* input = "<issued_unix>_unmask:<nonce>".  Max = 19 + 8 + 1 + 19 + 1 = 48.
-     * 80-byte buffer is generous. */
+    /* seed = hex(HMAC-SHA1(bv_secret, "<issued_unix>:<remote>:pow_seed")).  MUST
+     * stay byte-identical to cookies.PowSeed() (Go admin) and the value the
+     * admin injects as window.UNMASK.pow_seed (challenge.js).  Binding the seed
+     * to the secret makes the PoW impossible to precompute offline; binding it
+     * to the client IP makes a solved cookie non-transferable across IPs. */
+    char seed_msg[96];
+    int sm = snprintf(seed_msg, sizeof(seed_msg), "%lld:%.*s:pow_seed",
+                      (long long)cookie_unix, (int)remote.len, remote.data);
+    if (sm <= 0 || sm >= (int)sizeof(seed_msg)) return 0;
+    unsigned char seed_mac[20];
+    unsigned int seed_mac_len = sizeof(seed_mac);
+    if (HMAC(EVP_sha1(), bv_secret.data, bv_secret.len,
+             (const unsigned char *)seed_msg, (size_t)sm,
+             seed_mac, &seed_mac_len) == NULL || seed_mac_len != 20) {
+        return 0;
+    }
+    char seed_hex[41];
+    ngx_unmask_hex(seed_hex, seed_mac, 20);
+    seed_hex[40] = '\0';
+
+    /* input = "<seed_hex(40)>:<nonce>".  Max = 40 + 1 + 19 = 60. */
     char input[80];
-    int ilen = snprintf(input, sizeof(input), "%lld_unmask:%lld",
-                        (long long)cookie_unix, (long long)nonce);
+    int ilen = snprintf(input, sizeof(input), "%s:%lld",
+                        seed_hex, (long long)nonce);
     if (ilen <= 0 || ilen >= (int)sizeof(input)) return 0;
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
@@ -838,7 +858,8 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
             if (ngx_unmask_verify_pow_sha256_cookie(
                     cookie.data, day_n,
                     dot2 + 1, tgt_n,
-                    valid_seconds, difficulty) == 1) {
+                    valid_seconds, difficulty,
+                    mcf->bv_secret, r->connection->addr_text) == 1) {
                 return UNMASK_BV_KIND_POW;
             }
             return UNMASK_BV_KIND_NONE;

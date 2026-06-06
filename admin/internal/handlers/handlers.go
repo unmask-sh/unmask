@@ -53,6 +53,8 @@ const (
 	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
+	powSeedPlaceholder     = `/*__POW_SEED__*/""`
+	ctTokenPlaceholder     = `/*__CT__*/""`
 	defaultSite            = "default"
 )
 
@@ -804,13 +806,24 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(beaconTokenPlaceholder),
 		append([]byte(`/*__BEACON_TOKEN__*/`), btJSON...))
 
-	// issued_at: server unix seconds embedded into window.UNMASK so challenge.js
-	// does not rely on the visitor's Date.now() (= eliminates client clock skew
-	// for both the PoW seed and the cookie's first segment).  The server
-	// enforces a small future-skew tolerance on /verify, but for cookies
-	// minted via this exact value the relationship is always "now or earlier".
+	// issued_at + pow_seed: both server-supplied so challenge.js relies on neither
+	// the visitor's Date.now() nor a client-derived seed.  issued is computed once
+	// and shared by the cookie's first segment AND the PoW seed, which binds the
+	// BV secret + client IP (= cookies.PowSeed: no offline precompute, no cross-IP
+	// reuse).  The server enforces a small future-skew tolerance on /verify.
+	issued := time.Now().Unix()
+	chIP := clientIP(r)
 	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
-		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", time.Now().Unix())))
+		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", issued)))
+	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.Settings.Secret.BVSecret, chIP, issued))
+	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
+		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
+	// ct: a server-issued, IP+time-bound proof-of-load token for the behavioral
+	// CAPTCHA submit, so a forged behavioral score can't be accepted from a blind
+	// POST that never fetched this challenge (see captcha.IssueToken).
+	ctJSON, _ := json.Marshal(captcha.IssueToken(h.Settings.Secret.CaptchaSecretBase, chIP))
+	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
+		append([]byte(`/*__CT__*/`), ctJSON...))
 
 	// "protected by unmask" credit: when OFF in settings (default), strip the
 	// marker region from the HTML.  When ON, drop only the markers and keep
@@ -1349,6 +1362,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	var payload struct {
 		Token         string          `json:"token"`
+		Ct            string          `json:"ct"` // proof-of-load token (window.UNMASK.ct) for the behavioral path
 		Answer        json.RawMessage `json:"answer"`
 		Sig           *captcha.Signal `json:"sig"`
 		ProviderToken string          `json:"provider_token"` // release token from a 3rd-party CAPTCHA widget
@@ -1401,6 +1415,14 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	if payload.Sig != nil {
 		if payload.Token == "" {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "no_token"})
+			return
+		}
+		// Proof-of-load.  The behavioral score is fully client-controlled and
+		// forgeable, so without this a bot clears the CAPTCHA with a single blind
+		// POST of a fabricated signal.  Require the server-issued ct token that
+		// binds this IP + a recent fetch of THIS challenge page.
+		if !captcha.VerifyToken(payload.Ct, h.Settings.Secret.CaptchaSecretBase, ip, 900) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
 		}
 		score := captcha.Score(payload.Sig)
