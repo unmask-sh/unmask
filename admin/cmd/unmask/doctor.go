@@ -78,11 +78,19 @@ func cmdDoctor(args []string) error {
 	}
 	addOK("config load", resolved)
 
-	// 2. nginxconf render dry-run
-	if err := nginxconf.Render(s, os.TempDir(), Version); err != nil {
-		addErr("nginx-rendered.conf render", err.Error())
+	// 2. nginxconf render dry-run.  Render into a private 0700 temp dir and
+	// remove it -- the rendered http.inc carries bv_secret, so writing it into
+	// the shared, predictable os.TempDir() (0644) would leak the key to every
+	// local user.  (Mirrors render-nginx -dry-run.)
+	if tmpDir, terr := os.MkdirTemp("", "unmask-doctor-"); terr != nil {
+		addErr("nginx-rendered.conf render", terr.Error())
 	} else {
-		addOK("nginx-rendered.conf render (dry-run)", "")
+		defer os.RemoveAll(tmpDir)
+		if err := nginxconf.Render(s, tmpDir, Version); err != nil {
+			addErr("nginx-rendered.conf render", err.Error())
+		} else {
+			addOK("nginx-rendered.conf render (dry-run)", "")
+		}
 	}
 
 	// 3. DB ping + tables

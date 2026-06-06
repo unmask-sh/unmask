@@ -122,6 +122,12 @@ func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 	if tmpl == "" {
 		tmpl = defaultURLTemplateForKind(kind)
 	}
+	// The mmdb is fetched without a checksum/signature, so TLS is the only
+	// integrity guarantee -- refuse a plain-http override that a MITM could
+	// swap for a malicious (but structurally valid) geo DB driving verdicts.
+	if !strings.HasPrefix(tmpl, "https://") {
+		return nil, fmt.Errorf("ipgeo URL must be https:// (got %q)", tmpl)
+	}
 	now := opts.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
@@ -193,11 +199,14 @@ func downloadOne(url, path string, maxBytes int64, client *http.Client) (int64, 
 	}
 	defer gz.Close()
 
-	tmp := path + ".next"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o640)
+	// CreateTemp (random name + O_EXCL) so a pre-planted "<path>.next" symlink
+	// can't redirect this (possibly root-run) write to an attacker-chosen target.
+	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".next-*")
 	if err != nil {
-		return 0, fmt.Errorf("create %s: %w", tmp, err)
+		return 0, fmt.Errorf("create temp for %s: %w", path, err)
 	}
+	tmp := f.Name()
+	_ = os.Chmod(tmp, 0o640) // CreateTemp makes 0600; restore the intended 0640
 	written, copyErr := io.Copy(f, &io.LimitedReader{R: gz, N: maxBytes + 1})
 	closeErr := f.Close()
 	if copyErr != nil {

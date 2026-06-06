@@ -70,7 +70,7 @@ func Render(s settings.Settings, outDir, version string) error {
 	// http scope: JA4 maps / log_format / rate-zone.  The postinstall
 	// drops a symlink to /etc/nginx/conf.d/00-unmask.conf to auto-load it.
 	if err := renderToFile(outDir, "http.inc",
-		"templates/http.conf.tmpl", data); err != nil {
+		"templates/http.conf.tmpl", data, 0o640); err != nil { // 0640: carries bv_secret
 		return err
 	}
 	// upstream.conf was retired -- the `upstream unmask { ... }` block
@@ -82,12 +82,12 @@ func Render(s settings.Settings, outDir, version string) error {
 	// challenge should fire OR the admin UI should be reachable.  Per-host
 	// gating of /admin/* is done at the HTTP layer (= AdminAllowedHosts).
 	if err := renderToFile(outDir, "server.inc",
-		"templates/server.inc.tmpl", data); err != nil {
+		"templates/server.inc.tmpl", data, 0o644); err != nil {
 		return err
 	}
 	// location/server scope: protection trigger (= rate-limit + final_challenge rewrite).
 	if err := renderToFile(outDir, "protect.inc",
-		"templates/protect.inc.tmpl", data); err != nil {
+		"templates/protect.inc.tmpl", data, 0o644); err != nil {
 		return err
 	}
 	return nil
@@ -124,7 +124,7 @@ func buildUpstreamServer(s settings.Settings) string {
 	return fmt.Sprintf("%s:%d", host, port)
 }
 
-func renderToFile(outDir, outName, tmplPath string, data any) error {
+func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) error {
 	body, err := fs.ReadFile(templatesFS, tmplPath)
 	if err != nil {
 		return fmt.Errorf("read template %s: %w", tmplPath, err)
@@ -134,11 +134,14 @@ func renderToFile(outDir, outName, tmplPath string, data any) error {
 		return fmt.Errorf("parse template %s: %w", tmplPath, err)
 	}
 	dst := filepath.Join(outDir, outName)
-	tmp := dst + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	// CreateTemp uses a random name + O_EXCL, so a pre-planted symlink at a
+	// predictable "<dst>.tmp" path can't redirect this (possibly root-run) write
+	// to an attacker-chosen target.
+	f, err := os.CreateTemp(outDir, outName+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("open %s: %w", tmp, err)
+		return fmt.Errorf("create temp in %s: %w", outDir, err)
 	}
+	tmp := f.Name()
 	if err := t.Execute(f, data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
@@ -152,6 +155,12 @@ func renderToFile(outDir, outName, tmplPath string, data any) error {
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("close: %w", err)
+	}
+	// CreateTemp makes the file 0600; set the intended perm before publishing.
+	// http.inc carries bv_secret, so it must not be world-readable.
+	if err := os.Chmod(tmp, perm); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("chmod: %w", err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)

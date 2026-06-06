@@ -1936,7 +1936,7 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
                COUNT(*) AS total,
                SUM(CASE WHEN %s = 'math' THEN 1 ELSE 0 END) AS n_math,
                COUNT(*) - SUM(CASE WHEN %s = 'math' THEN 1 ELSE 0 END) AS n_beh,
-               AVG(CAST(%s AS REAL)) AS avg_score,
+               AVG(%s + 0.0) AS avg_score,
                MAX(user_agent) AS ua,
                MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
                MAX(date_created) AS last_seen
@@ -2284,7 +2284,11 @@ func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []
 		}
 		verdict := key[sep+1:]
 		kind := classify.Category(uaClassN)
-		if kind == classify.Human && verdict != "(none)" && botSet[verdict] {
+		// Mirror classify.IsBot precedence: a bot JA4 verdict promotes ANY
+		// non-search category (Human/OldUA/Service/UserDev) to JA4Bot.  The scan
+		// path (IsBot(ua,"bot")) already does this, so promoting only Human here
+		// made the default agg view under-report ja4_bot vs the filtered view.
+		if kind != classify.SearchAI && verdict != "(none)" && botSet[verdict] {
 			kind = classify.JA4Bot
 		}
 		byDateKind[dkKey{date, int(kind)}] += cnt

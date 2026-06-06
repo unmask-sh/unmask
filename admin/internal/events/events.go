@@ -208,7 +208,10 @@ func prepareInsertArgs(e *Event) []any {
 	}
 	ua := truncate(e.UserAgent, 255)
 	ja4 := nullIfEmpty(e.JA4)
-	verdict := nullIfEmpty(e.JA4Verdict)
+	// ja4_verdict is VARCHAR(40) and comes from the X-JA4-Verdict header on the
+	// beacon path; cap it so an over-long value can't raise MariaDB error 1406
+	// and roll back the entire (default 100-event) batch insert.
+	verdict := nullIfEmpty(truncate(e.JA4Verdict, 40))
 	cookieBV := nullIfEmpty(e.CookieBV)
 	cookieBR := nullIfEmpty(e.CookieBR)
 

@@ -99,6 +99,10 @@ fi
     echo "unmask: WARNING: render-nginx failed (= /etc/unmask/http.inc + server.inc not generated. Please verify manually.)"
 chown unmask:unmask "$CONFIG_DIR"/*.inc 2>/dev/null || true
 chmod 0644 "$CONFIG_DIR"/*.inc 2>/dev/null || true
+# http.inc carries unmask_bv_secret -- not world-readable (a local user could
+# otherwise read the key and forge _bv cookies).  nginx's master reads config
+# as root, so 0640 unmask:unmask is sufficient.
+chmod 0640 "$CONFIG_DIR"/http.inc 2>/dev/null || true
 
 # init system detection: systemd > OpenRC.  SysVinit (= CentOS 6 etc.) was
 # retired since every supported distro is one of these two.
