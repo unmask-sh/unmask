@@ -52,14 +52,14 @@ stale_only=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $STALE_IP" \
     -o /dev/null -w '%{http_code}' \
     -H "Cookie: _bv=99999999.pow2.zzzz.0" \
     "${BASE_URL}/wp-login.php")
-assert_eq 403 "$stale_only" "stale _bv alone: 403"
+assert_eq 403 "$stale_only" "stale _bv alone: 403" || exit 1
 
 # 3. valid-first + stale-second -> 200 (= even the old buggy code accepted this).
 valid_first=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
     -o /dev/null -w '%{http_code}' \
     -H "Cookie: _bv=${bv}; _bv=99999999.pow2.zzzz.0" \
     "${BASE_URL}/wp-login.php")
-assert_eq 200 "$valid_first" "valid _bv first, stale second: 200"
+assert_eq 200 "$valid_first" "valid _bv first, stale second: 200" || exit 1
 
 # 4. stale-first + valid-second -> 200 (= THE regression target.  Was 403 before).
 stale_first=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \

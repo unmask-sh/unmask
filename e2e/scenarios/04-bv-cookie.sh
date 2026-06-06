@@ -40,7 +40,7 @@ verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
     -d "{\"token\":\"$token\",\"answer\":\"$ans\"}" \
     "${BASE_URL}/unmask/api/verify")
-assert_in '"ok":1' "$verify" "verify returns ok=1"
+assert_in '"ok":1' "$verify" "verify returns ok=1" || exit 1
 
 bv=$(grep '_bv' "$ck" | awk '{print $7}')
 [ -n "$bv" ] || { log_fail "Set-Cookie: _bv not received. cookie jar:\n$(cat "$ck")"; exit 1; }

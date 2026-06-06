@@ -16,7 +16,7 @@ body_tmp=$(mktemp)
 trap 'rm -f "$body_tmp"' EXIT
 
 code=$(curl -sk -A "$UA_BROWSER" -o "$body_tmp" -w '%{http_code}' "${BASE_URL}/wp-login.php")
-assert_eq 403 "$code" "GET /wp-login.php (= browser UA + honeypot) returns 403"
+assert_eq 403 "$code" "GET /wp-login.php (= browser UA + honeypot) returns 403" || exit 1
 
 # Verify the challenge HTML was returned (= identifiers are the embedded JS post-__JA4_HIT__ replace and the __SUBFILTER_PROBE__ trace)
 assert_in 'probe=' "$(cat "$body_tmp")" "challenge HTML body contains probe marker"

@@ -30,7 +30,7 @@ action=$(grep -i '^X-Unmask-Action:' "$hdrfile" | head -1 | tr -d '\r' | sed 's/
 reason=$(grep -i '^X-Unmask-Reason:' "$hdrfile" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
 rm -f "$hdrfile"
 
-assert_eq 403 "$code"          "CN visitor + benign JA4 → 403"
+assert_eq 403 "$code"          "CN visitor + benign JA4 → 403" || exit 1
 [[ "$action" == "block" ]]     || { log_fail "expected action=block, got $action"; exit 1; }
 [[ "$reason" == *"geo:CN:deny"* ]] \
     || { log_fail "expected reason contains geo:CN:deny, got $reason"; exit 1; }
