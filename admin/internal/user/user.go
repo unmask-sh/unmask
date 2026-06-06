@@ -162,6 +162,17 @@ func checkArgon2id(encoded, plain string) error {
 	return nil
 }
 
+// dummyHash is a real argon2id hash (same params as HashPassword) computed once
+// at startup.  DummyCheckPassword verifies against it so a login for a
+// non-existent username spends the same CPU as a real one -- no username
+// enumeration via response timing.
+var dummyHash, _ = HashPassword("unmask-login-timing-equalizer")
+
+// DummyCheckPassword runs a verify against the fixed dummy hash and discards the
+// result.  Call it on the user-not-found login path to match the cost of a real
+// CheckPassword.
+func DummyCheckPassword(plain string) { _ = CheckPassword(dummyHash, plain) }
+
 // Repository: thin CRUD wrapper for the unmask_user table.
 type Repository struct{ DB *db.DB }
 

@@ -352,6 +352,12 @@ func (r *Reader) parse(line string) (parsed, bool) {
 	if s == "" {
 		s = "default"
 	}
+	if len(s) > 64 {
+		// Match the DB site column width.  A longer $host (or a spoofed one)
+		// would overflow it and, under MariaDB STRICT_TRANS_TABLES, abort the
+		// whole batch upsert -- losing every row in that flush, not just this one.
+		s = s[:64]
+	}
 	return parsed{
 		msec: v, site: s,
 		kind: m[3],

@@ -43,6 +43,24 @@ func (l *Limiter) SetClock(fn func() time.Time) {
 	l.nowFn = fn
 }
 
+const (
+	// rlSweepThreshold: map size above which Hit evicts stale keys before
+	// inserting a new one.  rlStaleSeconds: a key whose newest hit is older than
+	// this is past any reasonable rate window, so it's safe to drop.
+	rlSweepThreshold = 100_000
+	rlStaleSeconds   = 600
+)
+
+// sweepStale drops windows idle longer than rlStaleSeconds.  Caller holds l.mu.
+func (l *Limiter) sweepStale(now int64) {
+	cutoff := now - rlStaleSeconds
+	for k, w := range l.m {
+		if len(w.hits) == 0 || w.hits[len(w.hits)-1] < cutoff {
+			delete(l.m, k)
+		}
+	}
+}
+
 // Spec: rate spec for a single zone.  Built from settings.RateZone.
 type Spec struct {
 	RequestsPerMin int
@@ -80,6 +98,12 @@ func (l *Limiter) Hit(key string, spec Spec) Result {
 
 	w, ok := l.m[key]
 	if !ok {
+		// Bound the map: a client rotating the key (e.g. spoofed JA4 in the key)
+		// would otherwise add an entry per request forever = OOM.  When the map
+		// is large, evict keys idle past any reasonable window before adding.
+		if len(l.m) >= rlSweepThreshold {
+			l.sweepStale(now)
+		}
 		w = &window{hits: make([]int64, 0, 16)}
 		l.m[key] = w
 	}

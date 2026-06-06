@@ -313,6 +313,16 @@ func (v *Verifier) Verify(ctx context.Context, req *http.Request) Result {
 	if inputParams.Expires > 0 && inputParams.Expires < now {
 		return Result{Reason: "signature expired"}
 	}
+	// Freshness floor: the checks above only bound the FUTURE, so a signature
+	// with neither `expires` nor a `nonce` could be captured and replayed
+	// forever on a stale `created`.  Require at least one anti-replay anchor --
+	// an unexpired `expires`, a `nonce` (single-use, recorded below), or a
+	// `created` within the skew window (bounds replay to ~5 min).
+	if inputParams.Expires <= 0 && inputParams.Nonce == "" {
+		if inputParams.Created <= 0 || inputParams.Created < now-300 {
+			return Result{Reason: "no freshness bound (expires, nonce, or recent created required)"}
+		}
+	}
 
 	if inputParams.KeyID == "" {
 		return Result{Reason: "keyid missing"}

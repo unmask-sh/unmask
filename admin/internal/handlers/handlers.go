@@ -653,7 +653,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// the post-PoW success path.  Skipped when ?_force= is set so
 		// the operator's test endpoint can still preview the page in
 		// passthrough mode.
-		h.setBVCookie(w, "passthrough.0.c")
+		h.setBVCookie(w, r, "passthrough.0.c")
 		target := "/"
 		if rlOrigURI != "" {
 			target = rlOrigURI
@@ -1416,7 +1416,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		if ok {
 			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
-			h.setBVCookie(w, val)
+			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
 			return
 		}
@@ -1451,7 +1451,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		if score >= minScore {
 			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
-			h.setBVCookie(w, val)
+			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
 		}
@@ -1488,7 +1488,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 	if captcha.VerifyMath(ans, payload.Token, h.Settings.Secret.CaptchaSecretBase) {
 		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
-		h.setBVCookie(w, val)
+		h.setBVCookie(w, r, val)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
 	}
@@ -1581,14 +1581,18 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
-func (h *Handler) setBVCookie(w http.ResponseWriter, val string) {
+func (h *Handler) setBVCookie(w http.ResponseWriter, r *http.Request, val string) {
 	c := &http.Cookie{
 		Name:  "_bv",
 		Value: val,
 		Path:  "/",
 		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
 		// unnecessary for the browser-side Max-Age.
-		MaxAge:   h.Settings.Challenge.Default.CookieMaxAgeSeconds(),
+		MaxAge: h.Settings.Challenge.Default.CookieMaxAgeSeconds(),
+		// Secure on HTTPS so the pass cookie isn't sent in cleartext on a same-
+		// host http request (it's HMAC+IP bound, but don't leak it on the wire).
+		// Not HttpOnly: challenge.js reads/sets _bv on the client.
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	}
 	http.SetCookie(w, c)
@@ -1616,6 +1620,22 @@ func clientIP(r *http.Request) string {
 			v = v[:i]
 		}
 		return strings.TrimSpace(v)
+	}
+	host := r.RemoteAddr
+	if i := strings.LastIndexByte(host, ':'); i > 0 {
+		host = host[:i]
+	}
+	return strings.Trim(host, "[]")
+}
+
+// adminClientIP resolves the client IP for the ADMIN allowlist check.  Unlike
+// clientIP it trusts X-Real-IP / X-Forwarded-For ONLY when the connection peer
+// is a configured trusted proxy -- otherwise anyone who can reach the admin
+// port could spoof X-Real-IP to satisfy admin_allow_from.  (Mirrors the
+// peer-gating /api/check already applies to forwarded JA4 / site.)
+func adminClientIP(r *http.Request, cfg settings.Settings) string {
+	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
+		return clientIP(r)
 	}
 	host := r.RemoteAddr
 	if i := strings.LastIndexByte(host, ':'); i > 0 {

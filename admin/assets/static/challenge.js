@@ -713,7 +713,11 @@
   }
   // ---- PoW solve loop ----
   var nonce=0, target=0;
-  var BATCH=5000, MAX_ITER=10000000;
+  // Expected work to find powDiff leading-zero bits is 2^powDiff, so a fixed
+  // 10M cap locks out legitimate visitors once the operator raises difficulty
+  // (2^24 = 16.7M > 10M -> ~half never solve and loop).  Scale the budget to
+  // ~8x the expectation (>99.9% solve) with a 10M floor for the default (18).
+  var BATCH=5000, MAX_ITER=Math.max(10000000, Math.pow(2, powDiff) * 8);
   // Reveal the progress bar -- the visitor sees something moving instead of a
   // static "Loading..." that reads like a hung page (= ~6% of legitimate
   // browsers abandon the challenge during this loop with no other signal in
@@ -803,7 +807,8 @@
   // cookies to expire client-side.  Date.now() here only controls the browser
   // Max-Age cap (= unrelated to authentication / signature validation).
   var exp2=new Date(Date.now()+86400000*365);
-  document.cookie='_bv='+tok+';path=/;expires='+exp2.toUTCString()+';SameSite=Lax';
+  var _bvSecure = (location.protocol === 'https:') ? ';Secure' : '';
+  document.cookie='_bv='+tok+';path=/;expires='+exp2.toUTCString()+';SameSite=Lax'+_bvSecure;
   // After PoW completion + cookie set (read back immediately to verify the set succeeded)
   var _bv_set_ok = /(?:^|;\s*)_bv=/.test(document.cookie);
   _bcDebug('bv_pow_only', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });

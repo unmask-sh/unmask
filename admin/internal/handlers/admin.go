@@ -338,7 +338,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Check the remote IP against the admin_allow_from list (enforced at the
 		// handler layer so deployments that don't include the rendered nginx conf
 		// still get the restriction).
-		ip := clientIP(r)
+		ip := adminClientIP(r, h.snapshotSettings())
 		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
 			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
 			http.Error(w, "forbidden: your IP is not in admin_allow_from", http.StatusForbidden)
@@ -517,7 +517,7 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			next(w, r)
 			return
 		}
-		ip := clientIP(r)
+		ip := adminClientIP(r, h.snapshotSettings())
 		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
 			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
 			http.Error(w, "forbidden: your IP is not in admin_allow_from", http.StatusForbidden)
@@ -766,6 +766,9 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := h.UserRepo.GetByUsername(r.Context(), username)
 	if err != nil {
+		// Equalize timing: a non-existent username must cost the same as a real
+		// one (which runs argon2id below) so response time can't enumerate users.
+		user.DummyCheckPassword(password)
 		rejectInvalid()
 		return
 	}
