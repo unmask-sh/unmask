@@ -16,13 +16,19 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=../lib/assert.sh
 . "$DIR/lib/assert.sh"
 
+# Hit the admin DIRECTLY (not via BASE_URL/nginx): this scenario injects
+# X-Original-IP to simulate per-client IPs, but the rendered nginx now (correctly)
+# overrides X-Original-* from $remote_addr, so going through nginx would collapse
+# every case to the gateway IP.  Same pattern as scenarios 10/12/13/16.
+ADMIN_URL=${ADMIN_URL:-http://127.0.0.1:19477}
+
 # Helper that grabs both the /unmask/api/check response header (X-Unmask-Action)
 # and the status code.  curl -D dumps headers.
 check() {
     local hdrfile="$(mktemp)"
     local code
     code=$(curl -sk -o /dev/null -D "$hdrfile" \
-        -w '%{http_code}' "$@" "${BASE_URL}/unmask/api/check")
+        -w '%{http_code}' "$@" "${ADMIN_URL}/unmask/api/check")
     local action reason
     action=$(grep -i '^X-Unmask-Action:' "$hdrfile" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
     reason=$(grep -i '^X-Unmask-Reason:' "$hdrfile" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
