@@ -52,6 +52,42 @@ const (
 	SourceJA4Ranking      = "ja4_ranking"
 )
 
+// ScopeIPJA4 / ScopeJA4Only / ScopeIPOnly drive which fields the C plugin
+// matches against at request time.  The (ip, ja4) data columns hold full
+// operator-entered info regardless of scope, so flipping the scope in the
+// BAN modal does not lose the context.
+const (
+	ScopeIPJA4   = "ip_ja4"
+	ScopeJA4Only = "ja4_only"
+	ScopeIPOnly  = "ip_only"
+)
+
+// ValidateScope normalises operator input.  Empty / unknown values fall
+// back to ScopeIPJA4 so the file flush never emits a malformed marker.
+func ValidateScope(s string) string {
+	switch s {
+	case ScopeIPJA4, ScopeJA4Only, ScopeIPOnly:
+		return s
+	default:
+		return ScopeIPJA4
+	}
+}
+
+// DeriveScope: pick a scope from (ip, ja4) emptiness when the caller has
+// not specified one explicitly.  Mirrors the legacy semantics: an empty
+// IP with a JA4 fingerprint becomes ja4_only; the opposite becomes
+// ip_only; everything else stays ip_ja4 (= exact tuple match).
+func DeriveScope(ip, ja4 string) string {
+	switch {
+	case ip == "" && ja4 != "":
+		return ScopeJA4Only
+	case ja4 == "" && ip != "":
+		return ScopeIPOnly
+	default:
+		return ScopeIPJA4
+	}
+}
+
 // Entry: one ban record.
 type Entry struct {
 	ID        int64
@@ -63,6 +99,7 @@ type Entry struct {
 	ExpiresAt time.Time // zero = permanent
 	BannedBy  string    // username (= for manual) or empty (= automatic)
 	Action    string    // per-row override; empty = source default at flush time
+	Scope     string    // ip_ja4 / ja4_only / ip_only (= ScopeIPJA4 etc.)
 }
 
 // ActionResolver maps a ban source (= "honeypot" / "manual" /
@@ -194,7 +231,7 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 	if m.duration > 0 {
 		expires = now + int64(m.duration.Seconds())
 	}
-	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, ""); err != nil {
+	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, "", DeriveScope(ip, ja4)); err != nil {
 		log.Printf("ban upsert: %v", err)
 		return
 	}
@@ -213,23 +250,44 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 // pass a valid chain mode (= deny / pow_only / pow_then_captcha /
 // captcha_only) to override per row.
 func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy, action string, expiresSec int64) error {
+	return m.AddManualWithScope(ctx, ip, ja4, "", reason, bannedBy, action, expiresSec)
+}
+
+// AddManualWithScope is the explicit-scope variant.  Pass scope="" to fall
+// back to DeriveScope(ip, ja4) — the BAN modal hands it explicitly so the
+// operator's dropdown choice survives even when both fields are filled.
+func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason, bannedBy, action string, expiresSec int64) error {
 	if m == nil {
 		return errors.New("manager nil")
 	}
 	ip = strings.TrimSpace(ip)
 	ja4 = strings.TrimSpace(ja4)
-	if ip == "" {
-		return errors.New("ip is empty")
+	if ip == "" && ja4 == "" {
+		return errors.New("ip or ja4 is required")
 	}
-	if m.whitelist[ip] {
+	if ip != "" && m.whitelist[ip] {
 		return errors.New("ip is on bypass whitelist")
+	}
+	if scope == "" {
+		scope = DeriveScope(ip, ja4)
+	} else {
+		scope = ValidateScope(scope)
+	}
+	if scope == ScopeIPJA4 && (ip == "" || ja4 == "") {
+		return errors.New("ip_ja4 scope requires both ip and ja4")
+	}
+	if scope == ScopeJA4Only && ja4 == "" {
+		return errors.New("ja4_only scope requires ja4")
+	}
+	if scope == ScopeIPOnly && ip == "" {
+		return errors.New("ip_only scope requires ip")
 	}
 	now := time.Now().Unix()
 	var expiresAt int64
 	if expiresSec > 0 {
 		expiresAt = now + expiresSec
 	}
-	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy, strings.TrimSpace(action)); err != nil {
+	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy, strings.TrimSpace(action), scope); err != nil {
 		return err
 	}
 	m.markDirty()
@@ -238,6 +296,78 @@ func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy, acti
 	}
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, SourceManual, reason, bannedBy)
+	}
+	return nil
+}
+
+// UpdateManual edits an existing manual-source row's mutable fields
+// (= ip, ja4, reason, action, expires).  Restricted to source=manual so
+// the honeypot / community_bans flusher that owns those rows is never
+// raced by an operator click.  Same (ip, ja4) constraints as AddManual:
+// at least one of the pair must be non-empty, and a non-empty ip must
+// not be on the bypass whitelist.  UNIQUE (ip, ja4) collisions are
+// surfaced as a user-friendly error so the dialog can show "another row
+// already covers this fingerprint" instead of a generic SQL message.
+func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, reason, action string, expiresSec int64) error {
+	if m == nil {
+		return errors.New("manager nil")
+	}
+	ip = strings.TrimSpace(ip)
+	ja4 = strings.TrimSpace(ja4)
+	if ip == "" && ja4 == "" {
+		return errors.New("ip or ja4 is required")
+	}
+	if ip != "" && m.whitelist[ip] {
+		return errors.New("ip is on bypass whitelist")
+	}
+	if scope == "" {
+		scope = DeriveScope(ip, ja4)
+	} else {
+		scope = ValidateScope(scope)
+	}
+	if scope == ScopeIPJA4 && (ip == "" || ja4 == "") {
+		return errors.New("ip_ja4 scope requires both ip and ja4")
+	}
+	if scope == ScopeJA4Only && ja4 == "" {
+		return errors.New("ja4_only scope requires ja4")
+	}
+	if scope == ScopeIPOnly && ip == "" {
+		return errors.New("ip_only scope requires ip")
+	}
+	var expiresAt int64
+	if expiresSec > 0 {
+		expiresAt = time.Now().Unix() + expiresSec
+	}
+	// Pre-check the UNIQUE (ip, ja4) collision so the SQL error never
+	// reaches the caller (= portable across sqlite / mariadb).
+	var dup int64
+	if err := m.DB.Gorm.WithContext(ctx).Model(&db.Ban{}).
+		Where("ip = ? AND ja4 = ? AND id <> ?", ip, ja4, id).
+		Count(&dup).Error; err != nil {
+		return err
+	}
+	if dup > 0 {
+		return errors.New("another entry already covers this (ip, ja4)")
+	}
+	res := m.DB.Gorm.WithContext(ctx).Model(&db.Ban{}).
+		Where("id = ? AND source = ?", id, SourceManual).
+		Updates(map[string]any{
+			"ip":         ip,
+			"ja4":        ja4,
+			"reason":     reason,
+			"expires_at": expiresAt,
+			"action":     strings.TrimSpace(action),
+			"scope":      scope,
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return errors.New("not found or row is not editable (= non-manual source)")
+	}
+	m.markDirty()
+	if m.filePath != "" {
+		_ = m.flush()
 	}
 	return nil
 }
@@ -270,16 +400,16 @@ func (m *Manager) markDirty() {
 // upsert: update on conflict by the unique key (ip + ja4).  clause.OnConflict
 // renders portably -- ON CONFLICT on sqlite, ON DUPLICATE KEY UPDATE on
 // mariadb -- so the prior two-branch driver switch collapses to one path.
-func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action string) error {
+func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action, scope string) error {
 	row := db.Ban{
 		IP: ip, JA4: ja4, Source: source, Reason: reason,
 		BannedAt: bannedAt, ExpiresAt: expiresAt,
-		BannedBy: bannedBy, Action: action,
+		BannedBy: bannedBy, Action: action, Scope: scope,
 	}
 	return m.DB.Gorm.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "ip"}, {Name: "ja4"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"source", "reason", "banned_at", "expires_at", "banned_by", "action",
+			"source", "reason", "banned_at", "expires_at", "banned_by", "action", "scope",
 		}),
 	}).Create(&row).Error
 }
@@ -358,7 +488,7 @@ func (m *Manager) Snapshot() []Entry {
 	ctx := context.Background()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(ctx,
-		`SELECT id, ip, ja4, source, COALESCE(reason,''), banned_at, expires_at, COALESCE(banned_by,''), COALESCE(action,'')
+		`SELECT id, ip, ja4, source, COALESCE(reason,''), banned_at, expires_at, COALESCE(banned_by,''), COALESCE(action,''), COALESCE(scope,'')
 		 FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
@@ -371,13 +501,16 @@ func (m *Manager) Snapshot() []Entry {
 	for rows.Next() {
 		var e Entry
 		var bannedAt, expiresAt int64
-		if err := rows.Scan(&e.ID, &e.IP, &e.JA4, &e.Source, &e.Reason, &bannedAt, &expiresAt, &e.BannedBy, &e.Action); err != nil {
+		if err := rows.Scan(&e.ID, &e.IP, &e.JA4, &e.Source, &e.Reason, &bannedAt, &expiresAt, &e.BannedBy, &e.Action, &e.Scope); err != nil {
 			log.Printf("ban scan: %v", err)
 			continue
 		}
 		e.BannedAt = time.Unix(bannedAt, 0)
 		if expiresAt > 0 {
 			e.ExpiresAt = time.Unix(expiresAt, 0)
+		}
+		if e.Scope == "" {
+			e.Scope = DeriveScope(e.IP, e.JA4)
 		}
 		out = append(out, e)
 	}
@@ -432,17 +565,17 @@ func (m *Manager) flush() error {
 	m.mu.Unlock()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT ip, ja4, source, action FROM unmask_ban
+		`SELECT ip, ja4, source, action, scope FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
 	if err != nil {
 		return err
 	}
-	type k struct{ ip, ja4, source, action string }
+	type k struct{ ip, ja4, source, action, scope string }
 	keys := []k{}
 	for rows.Next() {
 		var e k
-		if err := rows.Scan(&e.ip, &e.ja4, &e.source, &e.action); err != nil {
+		if err := rows.Scan(&e.ip, &e.ja4, &e.source, &e.action, &e.scope); err != nil {
 			rows.Close()
 			return err
 		}
@@ -458,28 +591,50 @@ func (m *Manager) flush() error {
 		if strings.TrimSpace(e.source) == "" {
 			e.source = "manual"
 		}
+		// Legacy rows without scope (= pre-migration) fall back to inferred.
+		if e.scope == "" {
+			e.scope = DeriveScope(e.ip, e.ja4)
+		}
 		keys = append(keys, e)
 	}
 	rows.Close()
 
-	// sort by ip|ja4 (= the rendered order. required for the binary
-	// search in the nginx module).
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].ip != keys[j].ip {
-			return keys[i].ip < keys[j].ip
+	// File-line shape per scope.  DB always carries both ip + ja4 so the
+	// operator never loses the captured context; the file only carries
+	// what the C plugin's bsearch needs to match against.
+	//
+	//   ip_ja4   -> "<ip>|<ja4>|src|act"   (= exact tuple, the legacy default)
+	//   ja4_only -> "|<ja4>|src|act"       (= IP omitted; plugin pass 2 hits)
+	//   ip_only  -> "<ip>||src|act"        (= JA4 omitted; plugin pass 3 hits)
+	type line struct{ key, action, source string }
+	lines := make([]line, 0, len(keys))
+	for _, e := range keys {
+		var key string
+		switch e.scope {
+		case ScopeJA4Only:
+			key = "|" + e.ja4
+		case ScopeIPOnly:
+			key = e.ip + "|"
+		default: // ScopeIPJA4
+			key = e.ip + "|" + e.ja4
 		}
-		return keys[i].ja4 < keys[j].ja4
-	})
+		lines = append(lines, line{key: key, action: e.action, source: e.source})
+	}
+
+	// sort by key so the C plugin's bsearch finds entries.  Required for
+	// each pass independently -- pass 1 (= "<ip>|<ja4>"), pass 2 (= "|<ja4>"),
+	// pass 3 (= "<ip>|") all share one sorted list since the keys are
+	// distinguishable by their inner '|' position.
+	sort.Slice(lines, func(i, j int) bool { return lines[i].key < lines[j].key })
 
 	var buf strings.Builder
 	buf.WriteString("# unmask ban list (= managed by unmask; do not edit)\n")
-	buf.WriteString("# format: <ip>|<ja4>|<source>|<action> per line\n")
-	buf.WriteString(fmt.Sprintf("# count: %d\n", len(keys)))
+	buf.WriteString("# format: <key>|<source>|<action> per line; key is one of\n")
+	buf.WriteString("#         <ip>|<ja4>  (exact tuple),  |<ja4>  (ja4-only),  <ip>|  (ip-only)\n")
+	buf.WriteString(fmt.Sprintf("# count: %d\n", len(lines)))
 	buf.WriteString(fmt.Sprintf("# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
-	for _, e := range keys {
-		buf.WriteString(e.ip)
-		buf.WriteByte('|')
-		buf.WriteString(e.ja4)
+	for _, e := range lines {
+		buf.WriteString(e.key)
 		buf.WriteByte('|')
 		buf.WriteString(e.source)
 		buf.WriteByte('|')

@@ -44,6 +44,7 @@ button:hover { background: #1d4ed8; }
 </head>
 <body>
 <form class="card" method="POST" action="{{.BasePath}}/admin/login">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
   <h1>{{ t .Lang "login.title" }}</h1>
 
   {{if eq .Error "invalid"}}

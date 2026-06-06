@@ -4,13 +4,19 @@
 // by each vendor.  UA alone can be spoofed (= fake Googlebot UA), so we need
 // a two-stage rescue that also bypasses by IP.
 //
-// Each source's JSON is embedded at build time (= release snapshot).  When
-// the list changes, either wait for the next unmask release or manually
-// re-fetch via the planned `unmask update-iprange` (= ROADMAP).
+// Two-tier load:
+//   1. override dir (= /var/lib/unmask/iprange/<file>.json, populated by the
+//      hub-pulled subscribe goroutine).  When present and parseable, this
+//      takes precedence so the install tracks upstream changes without a
+//      release bump.
+//   2. embed snapshot (= compiled-in JSON, ships with the binary).  Fallback
+//      when the override file is missing or unparseable.
 package nginxconf
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -120,73 +126,143 @@ type iprangePayload struct {
 	} `json:"prefixes"`
 }
 
-var iprangeOnce sync.Once
+var (
+	iprangeMu          sync.RWMutex
+	iprangeLoaded      bool
+	iprangeOverrideDir string // empty → embed-only.  Set via SetOverrideDir().
+)
 
-// loadAll: parse the embedded JSON for every group at startup.  Failed
-// groups remain with empty prefixes (= so the UI can render "load failed"
-// via a zero CreationTime()).
+// SetOverrideDir registers a directory whose <file>.json contents take
+// precedence over the embed snapshot.  Subsequent loadAll() calls re-parse
+// from disk.  Call once at startup (= cmdServe) with /var/lib/unmask/iprange.
+func SetOverrideDir(dir string) {
+	iprangeMu.Lock()
+	defer iprangeMu.Unlock()
+	if dir == iprangeOverrideDir {
+		return
+	}
+	iprangeOverrideDir = dir
+	iprangeLoaded = false
+	resetGroupsLocked()
+}
+
+// Reload discards cached state so the next access re-parses.  Used by the
+// subscribe goroutine after writing fresh override files.
+func Reload() {
+	iprangeMu.Lock()
+	defer iprangeMu.Unlock()
+	iprangeLoaded = false
+	resetGroupsLocked()
+}
+
+func resetGroupsLocked() {
+	for i := range BypassIPGroups {
+		BypassIPGroups[i].prefixes = nil
+		BypassIPGroups[i].creation = time.Time{}
+	}
+}
+
+// loadAll: parse JSON for every group, preferring the override dir over the
+// embed snapshot.  Failed groups remain with empty prefixes (= so the UI can
+// render "load failed" via a zero CreationTime()).
 func loadAll() {
-	iprangeOnce.Do(func() {
-		for i := range BypassIPGroups {
-			g := &BypassIPGroups[i]
-			if g.AddedIn == "" {
-				g.AddedIn = "v0.1"
+	iprangeMu.RLock()
+	if iprangeLoaded {
+		iprangeMu.RUnlock()
+		return
+	}
+	iprangeMu.RUnlock()
+
+	iprangeMu.Lock()
+	defer iprangeMu.Unlock()
+	if iprangeLoaded {
+		return
+	}
+	overrideDir := iprangeOverrideDir
+
+	for i := range BypassIPGroups {
+		g := &BypassIPGroups[i]
+		if g.AddedIn == "" {
+			g.AddedIn = "v0.1"
+		}
+		body := readPreferringOverride(overrideDir, g.File)
+		if body == nil {
+			continue
+		}
+		var p iprangePayload
+		if err := json.Unmarshal(body, &p); err != nil {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, pre := range p.Prefixes {
+			v := pre.IPv4Prefix
+			if v == "" {
+				v = pre.IPv6Prefix
 			}
-			body, err := assets.IPRange.ReadFile(g.File)
-			if err != nil {
+			if v == "" || seen[v] {
 				continue
 			}
-			var p iprangePayload
-			if err := json.Unmarshal(body, &p); err != nil {
-				continue
-			}
-			seen := map[string]bool{}
-			for _, pre := range p.Prefixes {
-				v := pre.IPv4Prefix
-				if v == "" {
-					v = pre.IPv6Prefix
-				}
-				if v == "" || seen[v] {
-					continue
-				}
-				seen[v] = true
-				g.prefixes = append(g.prefixes, v)
-			}
-			sort.Strings(g.prefixes)
-			// JSON creationTime: format varies subtly per vendor.  Try in order.
-			//   - "2026-05-01T14:46:54.000000"          (Google.  Assumed UTC but no Z)
-			//   - "2025-02-07T16:56:00.000000"          (Perplexity.  Same shape)
-			//   - "2026-04-29T21:03:15.207621"          (chatgpt-user.  Same shape)
-			for _, layout := range []string{
-				"2006-01-02T15:04:05.000000",
-				"2006-01-02T15:04:05.000000Z",
-				time.RFC3339Nano,
-				time.RFC3339,
-			} {
-				if t, err := time.Parse(layout, p.CreationTime); err == nil {
-					g.creation = t.UTC()
-					break
-				}
+			seen[v] = true
+			g.prefixes = append(g.prefixes, v)
+		}
+		sort.Strings(g.prefixes)
+		// JSON creationTime: format varies subtly per vendor.  Try in order.
+		//   - "2026-05-01T14:46:54.000000"          (Google.  Assumed UTC but no Z)
+		//   - "2025-02-07T16:56:00.000000"          (Perplexity.  Same shape)
+		//   - "2026-04-29T21:03:15.207621"          (chatgpt-user.  Same shape)
+		for _, layout := range []string{
+			"2006-01-02T15:04:05.000000",
+			"2006-01-02T15:04:05.000000Z",
+			time.RFC3339Nano,
+			time.RFC3339,
+		} {
+			if t, err := time.Parse(layout, p.CreationTime); err == nil {
+				g.creation = t.UTC()
+				break
 			}
 		}
-	})
+	}
+	iprangeLoaded = true
+}
+
+// readPreferringOverride: try <overrideDir>/<basename(file)> first.  Returns
+// nil on miss in both override and embed (= caller skips the group).
+func readPreferringOverride(overrideDir, file string) []byte {
+	if overrideDir != "" {
+		if b, err := os.ReadFile(filepath.Join(overrideDir, filepath.Base(file))); err == nil {
+			return b
+		}
+	}
+	b, err := assets.IPRange.ReadFile(file)
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // CreationTime: the JSON's creationTime (= used to render "last update YYYY-MM-DD" in the UI).
 func (g *BypassIPGroup) CreationTime() time.Time {
 	loadAll()
+	iprangeMu.RLock()
+	defer iprangeMu.RUnlock()
 	return g.creation
 }
 
 // Prefixes: list of loaded IP prefixes (= read-only).
 func (g *BypassIPGroup) Prefixes() []string {
 	loadAll()
-	return g.prefixes
+	iprangeMu.RLock()
+	defer iprangeMu.RUnlock()
+	out := make([]string, len(g.prefixes))
+	copy(out, g.prefixes)
+	return out
 }
 
 // PrefixCount: for the UI count display.
 func (g *BypassIPGroup) PrefixCount() int {
 	loadAll()
+	iprangeMu.RLock()
+	defer iprangeMu.RUnlock()
 	return len(g.prefixes)
 }
 
@@ -196,6 +272,8 @@ func (g *BypassIPGroup) PrefixCount() int {
 // preset OFF; UA-only crawler matching takes over as the rescue path).
 func FlattenBypassPresets(enabledPresets []string) []string {
 	loadAll()
+	iprangeMu.RLock()
+	defer iprangeMu.RUnlock()
 	enabled := map[string]bool{}
 	for _, id := range enabledPresets {
 		enabled[id] = true

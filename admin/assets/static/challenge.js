@@ -736,8 +736,7 @@
 
   // cookie token: <issued_unix>.pow2.<nonce>.<flags> (= 4 segments).
   //   parts[0] = issuance unix seconds (= server-injected via window.UNMASK.issued_at).
-  //   parts[1] = "pow2" marker (= distinguishes from the legacy djb2 cookie's base36 hash;
-  //              server / C plugin uses this to branch into the SHA-256 verify path).
+  //   parts[1] = "pow2" marker (= server / C plugin branches into the SHA-256 verify path).
   //   parts[2] = nonce in base36 (= server verifies by recomputing SHA-256(seed+":"+nonce)).
   //   parts[3] = flags base36.
   var tok=issuedAt+'.pow2.'+target.toString(36)+'.'+flags.toString(36);

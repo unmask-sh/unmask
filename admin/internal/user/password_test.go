@@ -1,9 +1,4 @@
-// password_test.go: argon2id roundtrip + legacy bcrypt fallback.
-//
-// These tests are a safety net for the 2026-05-31 bcrypt → argon2id migration.
-// One real bcrypt hash (= generated with cost=10 from the literal `correct
-// horse battery staple`) is embedded so the legacy-verify path stays exercised
-// without depending on the runtime bcrypt cost knob.
+// password_test.go: argon2id hash roundtrip.
 package user
 
 import (
@@ -19,9 +14,6 @@ func TestHashPasswordRoundtrip(t *testing.T) {
 	}
 	if !strings.HasPrefix(enc, "$argon2id$") {
 		t.Fatalf("expected argon2id PHC string, got %q", enc)
-	}
-	if IsLegacyHash(enc) {
-		t.Fatalf("IsLegacyHash returned true for a fresh argon2id hash")
 	}
 	if err := CheckPassword(enc, pw); err != nil {
 		t.Fatalf("CheckPassword: %v", err)
@@ -55,37 +47,5 @@ func TestHashPasswordReturnsDistinctSalts(t *testing.T) {
 	}
 	if a == b {
 		t.Fatalf("two HashPassword calls returned the same hash (= salt not randomised)")
-	}
-}
-
-// Legacy bcrypt hash for "correct horse battery staple" at cost 10.
-// Generated once with `bcrypt.GenerateFromPassword([]byte(pw), 10)` and pinned
-// so the test does not pay bcrypt cost at every run.
-const legacyBcryptHash = "$2a$10$DowJonesIndustrialAvg3.HrIQGqPL6FmDFLZjxIROwHnUkAQfEdC"
-
-func TestLegacyHashIsBcrypt(t *testing.T) {
-	if !IsLegacyHash(legacyBcryptHash) {
-		t.Fatalf("IsLegacyHash should recognise a bcrypt $2a$ prefix")
-	}
-}
-
-func TestCheckPasswordLegacyBcrypt(t *testing.T) {
-	// Build a fresh bcrypt hash so we don't depend on a hand-crafted constant
-	// (= the literal above is illustrative only; bcrypt salts must be base64).
-	// We test the routing — argon2id vs bcrypt — and trust the bcrypt package
-	// to verify its own hashes.
-	const pw = "legacy-pw"
-	hash, err := bcryptHashForTest(pw)
-	if err != nil {
-		t.Fatalf("bcrypt test setup: %v", err)
-	}
-	if !IsLegacyHash(hash) {
-		t.Fatalf("expected bcrypt prefix on %q", hash)
-	}
-	if err := CheckPassword(hash, pw); err != nil {
-		t.Fatalf("CheckPassword should verify a bcrypt hash: %v", err)
-	}
-	if err := CheckPassword(hash, pw+"!"); err == nil {
-		t.Fatalf("CheckPassword should reject the wrong password for bcrypt")
 	}
 }

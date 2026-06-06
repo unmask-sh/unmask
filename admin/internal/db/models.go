@@ -24,6 +24,14 @@ type Ban struct {
 	ExpiresAt int64  `gorm:"column:expires_at;not null;default:0"`
 	BannedBy  string `gorm:"column:banned_by"`
 	Action    string `gorm:"column:action;not null;default:''"`
+	// Scope decides what the C plugin matches against at request time:
+	//   "ip_ja4"   exact (ip, ja4) tuple -- both columns must equal the visitor's
+	//   "ja4_only" any IP with this JA4 (= residential / mobile network bots)
+	//   "ip_only"  any JA4 from this IP (= compromised host / scraper farm)
+	// The IP / JA4 columns keep full operator-entered info regardless of scope,
+	// so flipping scope later (= the dropdown in the BAN modal) does not lose
+	// the context.  flush() emits a different file-line shape per scope.
+	Scope string `gorm:"column:scope;not null;default:'ip_ja4'"`
 }
 
 func (Ban) TableName() string { return "unmask_ban" }

@@ -12,7 +12,88 @@
   All picker data (Hosts / HostSelected / SelfHostID / Sites / SiteSelected)
   is injected by addMeToData on every admin page render.
 */ -}}
-{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ end }}
+{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ end }}
+
+{{/*
+  init_csrf: double-submit CSRF shim, global so no individual form or fetch
+  call site has to remember the token.  The server set a JS-readable cookie
+  (= unmask_admin_csrf) at login; every mutating request must echo it back.
+  This runs on every authed admin page (= header_tools is on all of them).
+
+  Coverage:
+    - native form posts  -> hidden _csrf field injected on submit
+                            (+ mirrored into the action query for multipart,
+                             whose body the server's ParseForm does not read)
+    - fetch / XHR        -> X-CSRF-Token header added for same-origin mutating
+                            requests (covers /admin/api/* JSON endpoints)
+
+  Security: a cross-origin attacker can neither read the cookie (SameSite=Strict
+  + same-origin policy) nor set a custom header on a cross-site form post, so
+  echoing the cookie proves same-origin intent.  Login / setup / password-reset
+  POSTs are not behind the CSRF-checking middleware, so a missing cookie there
+  is a harmless no-op.
+*/}}
+{{ define "init_csrf" }}
+<script>
+(function(){
+  function getCookie(name){
+    var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  var COOKIE = 'unmask_admin_csrf';
+  var FIELD  = '_csrf';
+  var HEADER = 'X-CSRF-Token';
+
+  // 1) Native form posts.  Capture phase so it runs before the browser
+  //    serialises the form.  GET forms change no state -> skipped.
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!form || form.tagName !== 'FORM') return;
+    if ((form.getAttribute('method') || 'get').toLowerCase() !== 'post') return;
+    var tok = getCookie(COOKIE);
+    if (!tok) return;
+    var input = form.querySelector('input[name="' + FIELD + '"]');
+    if (!input) {
+      input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = FIELD;
+      form.appendChild(input);
+    }
+    input.value = tok;
+    // multipart: the body field is invisible to the server's ParseForm, so
+    // also park the token in the action query where it reads parse-free.
+    if ((form.getAttribute('enctype') || '').toLowerCase() === 'multipart/form-data') {
+      var action = form.getAttribute('action') || (location.pathname + location.search);
+      action = action.replace(/([?&])_csrf=[^&]*/,'$1').replace(/[?&]$/,'');
+      action += (action.indexOf('?') >= 0 ? '&' : '?') + FIELD + '=' + encodeURIComponent(tok);
+      form.setAttribute('action', action);
+    }
+  }, true);
+
+  // 2) fetch(): add X-CSRF-Token for same-origin mutating requests.
+  if (window.fetch) {
+    var orig = window.fetch;
+    window.fetch = function(input, init){
+      init = init || {};
+      var method = (init.method || (input && typeof input === 'object' && input.method) || 'GET').toUpperCase();
+      if (method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE') {
+        var url = (typeof input === 'string') ? input : (input && input.url) || '';
+        var sameOrigin = !/^https?:\/\//i.test(url) || url.indexOf(location.origin) === 0;
+        if (sameOrigin) {
+          var tok = getCookie(COOKIE);
+          if (tok) {
+            var h = new Headers((init && init.headers) || (input && typeof input === 'object' && input.headers) || {});
+            if (!h.has(HEADER)) h.set(HEADER, tok);
+            init.headers = h;
+          }
+        }
+      }
+      return orig.call(this, input, init);
+    };
+  }
+})();
+</script>
+{{ end }}
 
 {{/*
   init_tz_cookie: sync the operator's detected TZ to the unmask_tz cookie on
@@ -29,15 +110,66 @@
     var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
     return m ? decodeURIComponent(m[1]) : '';
   }
-  if (getCookie('unmask_tz') !== '') return;
-  var tz = '';
-  try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
-  if (!tz) return;
-  document.cookie = 'unmask_tz=' + encodeURIComponent(tz) + '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
-  // Reload once so the server picks up the cookie on the very first hit.
-  // The cookie itself prevents an infinite loop -- the guard above returns
-  // early on every subsequent navigation.
-  location.reload();
+  // 1) On first hit, copy the browser-detected TZ to the cookie and reload
+  //    so the server-side fallback picks it up too.  The cookie itself
+  //    short-circuits the reload on every subsequent navigation.
+  if (getCookie('unmask_tz') === '') {
+    var tz = '';
+    try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) {}
+    if (tz) {
+      document.cookie = 'unmask_tz=' + encodeURIComponent(tz) + '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
+      location.reload();
+      return;
+    }
+  }
+
+  // 2) Reformat every <time class="js-datetime" data-ts="..."> /
+  //    <time class="js-date" data-ts="..."> element using the picker's
+  //    TZ + locale (localStorage 'unmask:tz' / 'unmask:locale').  Server
+  //    timestamps land as UTC unix sec in data-ts; the fallback text
+  //    inside the element is the server's best guess in cookie TZ, but
+  //    only this JS produces the operator-locale Intl format.  Lives in
+  //    init_tz_cookie (= header_tools) so it runs on every admin page,
+  //    not just profile/ where the dropdown picker is.
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function fmtAll(){
+    // Compact, layout-neutral YYYY/MM/DD HH:MM:SS TZ.  Locale fixed to 'ja'
+    // because it is the one Intl locale that already yields slash + 24h +
+    // operator-readable tz abbreviation (JST / UTC etc.); en-* locales
+    // collapse the tz to GMT+offset and reorder MM/DD/YYYY in 'short'.
+    // Operator language picker controls the rest of the UI -- only the
+    // datetime layout is forced here, deliberately.
+    var tzVal = lsGet('unmask:tz') || undefined; // undefined → Intl auto
+    var dtFmt, dFmt;
+    try {
+      dtFmt = new Intl.DateTimeFormat('ja', {
+        timeZone: tzVal,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
+        timeZoneName: 'short',
+      });
+      dFmt = new Intl.DateTimeFormat('ja', {
+        timeZone: tzVal,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+      });
+    } catch (e) { return; }
+    document.querySelectorAll('.js-datetime[data-ts]').forEach(function(el){
+      var ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dtFmt.format(new Date(ts * 1000));
+    });
+    document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
+      var ts = parseInt(el.getAttribute('data-ts'), 10);
+      if (!ts || isNaN(ts)) return;
+      el.textContent = dFmt.format(new Date(ts * 1000));
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fmtAll);
+  } else {
+    fmtAll();
+  }
 })();
 </script>
 {{ end }}

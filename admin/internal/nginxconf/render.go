@@ -48,10 +48,6 @@ var templatesFS embed.FS
 //
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /etc/unmask).
 // version is for display (= written in the header of the generated file).
-//
-// Old files (= <outDir>/nginx-rendered{,.-server,.-protect}.{conf,inc}) are
-// removed as a migration (= no backward compatibility; pre-v0.1 GA so a
-// clean break is fine).
 func Render(s settings.Settings, outDir, version string) error {
 	if outDir == "" {
 		outDir = s.Nginx.OutputDir
@@ -93,17 +89,6 @@ func Render(s settings.Settings, outDir, version string) error {
 	if err := renderToFile(outDir, "protect.inc",
 		"templates/protect.inc.tmpl", data); err != nil {
 		return err
-	}
-	// migration: clean up old-file residue (= leaving them included
-	// in existing deploys causes nginx to fail to start due to duplicate
-	// upstream / location, so delete during render).
-	for _, stale := range []string{
-		"nginx-rendered.conf",
-		"nginx-rendered-server.conf",
-		"nginx-rendered-server.inc",
-		"nginx-rendered-protect.inc",
-	} {
-		_ = os.Remove(filepath.Join(outDir, stale))
 	}
 	return nil
 }
@@ -300,6 +285,9 @@ type renderData struct {
 	// RateZones: derived from settings.RateLimit.  Render limit_req_zone into http {}.
 	// [0] is the default zone (= when there's no name, use "unmask_rate").
 	RateZones []RateZoneRender
+	// RatePresetLocations: path-pattern zones materialised as nginx
+	// locations in server.inc.  See RatePresetLocationRender.
+	RatePresetLocations []RatePresetLocationRender
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
@@ -307,7 +295,7 @@ type renderData struct {
 	//   "ip"     -> "$binary_remote_addr"
 	//   "ja4"    -> "$effective_ja4"
 	//   "ip+ja4" -> "$binary_remote_addr$effective_ja4"
-	// Empty Key falls back to "ip" (= back-compat with pre-existing installs).
+	// Empty Key falls back to "ip" (= the default).
 	RateLimitKeyExpr string
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
@@ -330,8 +318,8 @@ type renderData struct {
 
 	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
-	// SubscribeEnabled=true.  MapDir is the base directory of the include
-	// (= communitybans.WriteMapFiles output destination).
+	// CommunityBansSubscribe is true.  MapDir is the base directory of the
+	// include (= communitybans.WriteMapFiles output destination).
 	CommunityBansSubscribe bool
 	CommunityBansMapDir    string
 }
@@ -341,6 +329,19 @@ type RateZoneRender struct {
 	Name           string
 	RequestsPerMin int
 	Burst          int
+}
+
+// RatePresetLocationRender: one preset zone that resolved to a concrete
+// path-scoped nginx location.  Each entry becomes a `location ^~ <Path>
+// { limit_req zone=<ZoneName> burst=<Burst> nodelay; ... }` block in
+// server.inc, so a zone with a PathPatterns list is enforced in native
+// mode without operator-side vhost editing.  Empty PathPatterns zones
+// (= install-wide) do not appear here -- those rely on the default
+// zone's limit_req in protect.inc.
+type RatePresetLocationRender struct {
+	Path     string
+	ZoneName string
+	Burst    int
 }
 
 // GeoRuleRender: one entry of the $unmask_geo_action map.
@@ -362,8 +363,8 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		BVPowValidSeconds:     s.Challenge.Default.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.Default.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.Default.ResolvedPowDifficulty(),
-		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction, s.Global.DefaultAction),
-		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction, s.Global.DefaultAction),
+		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction),
+		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction),
 		UpstreamAddr:          defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
 		UpstreamServer:        buildUpstreamServer(s),
 		BypassIPs:             mergeBypassIPs(s),
@@ -729,6 +730,28 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			RequestsPerMin: rpm,
 			Burst:          burst,
 		})
+		// Native-mode preset wiring: any zone that carries a
+		// PathPatterns list materialises here as one nginx location
+		// per pattern.  Server.inc.tmpl picks RatePresetLocations up
+		// and renders a `location ^~ <Path> { limit_req zone=<rendered>
+		// ... ; <admin proxy> }` block, so an install with
+		// `unmask_admin_login` (= path /unmask/admin/login) gets
+		// per-IP rate limiting at the path even without operator-side
+		// vhost edits.  Site-scoped zones (z.Site != "") still emit
+		// the location -- nginx selects on URI, not on Host, so an
+		// operator who really wants Host-isolation should add the
+		// preset zone's PathPattern to AdminAllowedHosts upstream.
+		for _, p := range z.PathPatterns {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			d.RatePresetLocations = append(d.RatePresetLocations, RatePresetLocationRender{
+				Path:     p,
+				ZoneName: rendered,
+				Burst:    burst,
+			})
+		}
 	}
 
 	// Geo (native mode): walk the mmdb once at render time to materialise a
@@ -932,17 +955,12 @@ func sanitizeIPs(xs []string) []string {
 // directive.  Regex metacharacters (= including backslashes) are
 // allowed so that legitimate regexes like /wp-login\.php /
 // ^/admin\.php aren't rejected.
-// resolveGlobalAction: same fallback ladder handlers.go uses when picking
-// the chain for the "no-match" path: per-axis setting → DefaultAction →
-// "pow_only" as the strict default.  Returned verbatim into http.inc so
-// nginx can decide whether to challenge ($action != "pass") without
-// duplicating the resolution table.
-func resolveGlobalAction(axis, fallback string) string {
+// resolveGlobalAction: per-axis setting → "pow_only" strict default.
+// Returned verbatim into http.inc so nginx can decide whether to challenge
+// ($action != "pass") without duplicating the resolution table.
+func resolveGlobalAction(axis string) string {
 	if axis != "" {
 		return axis
-	}
-	if fallback != "" {
-		return fallback
 	}
 	return "pow_only"
 }

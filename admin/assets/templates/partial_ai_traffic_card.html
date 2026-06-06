@@ -1,0 +1,105 @@
+{{/*
+  partial_ai_traffic_card -- the AI / crawler traffic card shared between
+  the overview ("/admin/") and the stats page ("/admin/stats/{site}/").
+  Both pages render the identical markup + CSS + JS so the operator never
+  sees layout drift between the two views.
+
+  The caller is expected to expose:
+    .Lang             current locale (= passed through to t / safeHTML)
+    .AITraffic        []handlers.AITrafficRow      (all-traffic tab)
+    .AITrafficServed  []dashboard.AITrafficRow     (served-only tab)
+
+  The "all" tab reads .AITraffic (= unmask_crawler_minute, install-wide,
+  includes rescued/bypassed crawlers; carries Total / Served / Passed /
+  pass-rate metrics).  The "served" tab reads .AITrafficServed (= hkAITag
+  aggregate fed by phase=serve events; carries Count / UniqIP).  Both
+  share classify.CrawlerTagOrder so the tag list is stable.
+
+  Zero-row rows are marked with class="muted-row"; the page-level zero-row
+  toggle picks those up and inserts the checkbox under each table.
+*/}}
+{{ define "ai_traffic_card" }}
+<div class="bcd-card ai-traffic-card" data-ai-card>
+  <h2>{{ t .Lang "ai_traffic.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
+  <div class="ai-tabs" role="tablist">
+    <button class="ai-tab active" data-tab="all" role="tab">{{ t .Lang "ai_traffic.tab.all" }}</button>
+    <button class="ai-tab" data-tab="served" role="tab">{{ t .Lang "ai_traffic.tab.served" }}</button>
+  </div>
+  <div class="ai-pane" data-pane="all">
+    <table class="bcd-table ai-traffic">
+      <thead><tr><th>{{ t .Lang "ai_traffic.col.tag" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.total" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.served" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.passed" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.pass_rate" }}</th></tr></thead>
+      <tbody>
+        {{ range .AITraffic }}
+        <tr{{ if eq .Total 0 }} class="muted-row" style="color:#94a3b8"{{ end }}>
+          <td><span class="ai-cat ai-cat-{{ .Category }}">{{ .Category }}</span></td>
+          <td class="bcd-num">{{ if .Total }}{{ comma .Total }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+          <td class="bcd-num">{{ if .Served }}{{ comma .Served }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+          <td class="bcd-num">{{ if .Passed }}{{ comma .Passed }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+          <td class="bcd-num">{{ rate .Passed .Total }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+  <div class="ai-pane" data-pane="served" style="display:none">
+    <p class="muted" style="margin:.5rem 0;font-size:.8rem">{{ safeHTML (t .Lang "ai_traffic.tab.served.note") }}</p>
+    <table class="bcd-table ai-traffic">
+      <thead><tr><th>{{ t .Lang "ai_traffic.col.tag" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.count" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.uniq_ip" }}</th></tr></thead>
+      <tbody>
+        {{ range .AITrafficServed }}
+        <tr{{ if eq .Count 0 }} class="muted-row" style="color:#94a3b8"{{ end }}>
+          <td><span class="ai-cat ai-cat-{{ .Tag }}">{{ .Tag }}</span></td>
+          <td class="bcd-num">{{ if .Count }}{{ comma .Count }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+          <td class="bcd-num">{{ if .UniqIP }}{{ comma .UniqIP }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+  </div>
+</div>
+{{ end }}
+
+{{/*
+  ai_traffic_card_assets -- one-shot <style> + <script> block.  Include it
+  once per page (before </body>) so the partial works regardless of which
+  page-level base CSS is present.
+*/}}
+{{ define "ai_traffic_card_assets" }}
+<style>
+.ai-traffic-card .ai-tabs{display:flex;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
+.ai-traffic-card .ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.ai-traffic-card .ai-tab:hover{color:#0f172a}
+.ai-traffic-card .ai-tab.active{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
+.ai-traffic-card table.ai-traffic{width:100%;border-collapse:collapse;font-size:.85rem;table-layout:auto}
+.ai-traffic-card table.ai-traffic thead th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.78rem;background:#f8fafc}
+.ai-traffic-card table.ai-traffic th.bcd-num,.ai-traffic-card table.ai-traffic td.bcd-num{text-align:right;font-variant-numeric:tabular-nums}
+.ai-traffic-card table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
+.ai-traffic-card .ai-cat{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .45rem;border-radius:.25rem;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.ai-cat-ai-training   {background:#fee2e2;color:#991b1b}
+.ai-cat-ai-user       {background:#fecaca;color:#7f1d1d}
+.ai-cat-ai-crawler    {background:#fed7aa;color:#9a3412}
+.ai-cat-search-engine {background:#bbf7d0;color:#14532d}
+.ai-cat-advertising   {background:#fde68a;color:#854d0e}
+.ai-cat-seo           {background:#ddd6fe;color:#5b21b6}
+.ai-cat-monitoring    {background:#dbeafe;color:#1e3a8a}
+.ai-cat-social-preview{background:#cffafe;color:#155e75}
+.ai-cat-feed-reader   {background:#ccfbf1;color:#115e59}
+.ai-cat-archiver      {background:#e2e8f0;color:#475569}
+.ai-cat-academic      {background:#f3e8ff;color:#6b21a8}
+</style>
+<script>
+(function(){
+  document.querySelectorAll('[data-ai-card]').forEach(function(card){
+    var tabs  = card.querySelectorAll('.ai-tab');
+    var panes = card.querySelectorAll('.ai-pane');
+    tabs.forEach(function(tab){
+      tab.addEventListener('click', function(){
+        var which = tab.getAttribute('data-tab');
+        tabs.forEach(function(t){ t.classList.toggle('active', t === tab); });
+        panes.forEach(function(p){ p.style.display = (p.getAttribute('data-pane') === which) ? '' : 'none'; });
+      });
+    });
+  });
+})();
+</script>
+{{ end }}

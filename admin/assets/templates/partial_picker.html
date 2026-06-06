@@ -128,43 +128,10 @@
     location.reload();
   });
 
-  // 4. Reformat every .js-datetime / .js-date element using the selected
-  //    TZ + locale. <time class="js-datetime" data-ts="<unix_sec>"> uses
-  //    datetime; js-date is date-only.
-  function fmtAll(){
-    const tzVal  = lsGet(TZ_KEY,  '') || undefined; // undefined → browser auto
-    // locale "" (browser auto): use detectBrowserLocale for the display
-    // language. (Intl.DateTimeFormat rejects "", so we resolve to detection
-    // result or "ja" etc.)
-    const locVal = lsGet(LOC_KEY, '') || detectBrowserLocale();
-    const dtFmt = new Intl.DateTimeFormat(locVal, {
-      timeZone: tzVal,
-      year:'numeric', month:'short', day:'2-digit',
-      hour:'2-digit', minute:'2-digit',
-      // Append the short TZ name (e.g. JST / UTC / PDT) so the operator
-      // does not have to guess which timezone the figure is in.
-      timeZoneName: 'short',
-    });
-    const dFmt  = new Intl.DateTimeFormat(locVal, {
-      timeZone: tzVal,
-      year:'numeric', month:'short', day:'2-digit',
-    });
-    document.querySelectorAll('.js-datetime[data-ts]').forEach(function(el){
-      const ts = parseInt(el.getAttribute('data-ts'), 10);
-      if (!ts || isNaN(ts)) return;
-      el.textContent = dtFmt.format(new Date(ts*1000));
-    });
-    document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
-      const ts = parseInt(el.getAttribute('data-ts'), 10);
-      if (!ts || isNaN(ts)) return;
-      el.textContent = dFmt.format(new Date(ts*1000));
-    });
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', fmtAll);
-  } else {
-    fmtAll();
-  }
+  // js-datetime / js-date reformatting lives in partial_header_tools.html
+  // (= init_tz_cookie, runs on every admin page).  Don't re-run it here --
+  // the shared copy already fires on DOMContentLoaded and dropdown changes
+  // reload the page anyway.
 })();
 </script>
 {{ end }}

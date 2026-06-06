@@ -81,6 +81,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     <h2>{{ t .Lang "setup.token.h" }}</h2>
     <p class="lead">{{ safeHTML (t .Lang "setup.token.lead") }}</p>
     <form method="post" action="{{ .BasePath }}/admin/setup/token">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="field">
         <label>{{ t .Lang "setup.token.label" }}</label>
         <input type="text" name="token" autofocus required style="font-family:ui-monospace,monospace" placeholder="...">
@@ -97,6 +98,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     <h2>{{ t .Lang "setup.db.h" }}</h2>
     <p class="lead">{{ safeHTML (t .Lang "setup.db.lead") }}</p>
     <form method="post" action="{{ .BasePath }}/admin/setup/db">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="driver-row">
         <label class="driver-card {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}selected{{ end }}" data-driver="sqlite">
           <input type="radio" name="driver" value="sqlite" {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}checked{{ end }}>
@@ -166,6 +168,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     <h2>{{ t .Lang "setup.user.h" }}</h2>
     <p class="lead">{{ safeHTML (t .Lang "setup.user.lead") }}</p>
     <form method="post" action="{{ .BasePath }}/admin/setup/user">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="field">
         <label>{{ t .Lang "setup.user.username" }}</label>
         <input type="text" name="username" autocomplete="username" required placeholder="admin" value="{{ .PrefillUsername }}">
@@ -197,6 +200,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
           <td><code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }})</td></tr>
     </table>
     <form method="post" action="{{ .BasePath }}/admin/setup/install">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="actions">
         <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
         <button type="submit" class="btn">{{ t .Lang "setup.btn.install" }}</button>

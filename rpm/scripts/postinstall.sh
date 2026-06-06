@@ -117,12 +117,6 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         fi
     } > "$DROP_IN/10-group.conf"
 
-    # Migration: the unmask-aggregate.timer / .service pair was retired in
-    # favour of an in-process goroutine in `unmask serve`.  Drop any stale
-    # unit symlinks left behind by older installs (= no-op on fresh install).
-    systemctl disable --now unmask-aggregate.timer 2>/dev/null || true
-    systemctl disable --now unmask-aggregate.service 2>/dev/null || true
-
     systemctl daemon-reload || true
     if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ]; then
         systemctl enable --now unmask.service || true

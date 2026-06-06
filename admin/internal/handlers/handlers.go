@@ -33,6 +33,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
+	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
 
 const (
@@ -94,6 +95,8 @@ type Handler struct {
 	Mailer      *mail.Mailer       // optional, may be nil (SMTP unset).  Used by alert / password reset.
 	RateLimiter *ratelimit.Limiter // sliding-window counter for forward-auth mode.  nil disables counting.
 	CommunityBans  *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	IPRangeSync    *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	WebBotAuth     *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.
@@ -271,8 +274,6 @@ func (h *Handler) basePath() string {
 //   - settings.challenge.challenge_html_path (override for ops)
 //   - /usr/share/unmask/challenge/challenge.html (RPM/deb)
 //   - embedded assets/static/challenge.html (default)
-//
-// For backward compatibility, bot-challenge.html (the old name) is checked as fallback.
 func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	// challenge_html_path is treated as a global override (= same template
 	// for every site).  Per-site challenge HTML override is out of scope for
@@ -280,18 +281,10 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	if p := h.Settings.Challenge.Default.ChallengeHTMLPath; p != "" {
 		return os.ReadFile(p)
 	}
-	for _, p := range []string{
-		"/usr/share/unmask/challenge/challenge.html",
-		"/usr/share/unmask/challenge/bot-challenge.html",
-	} {
-		if b, err := os.ReadFile(p); err == nil {
-			return b, nil
-		}
-	}
-	if b, err := assets.Static.ReadFile(filepath.ToSlash("static/challenge.html")); err == nil {
+	if b, err := os.ReadFile("/usr/share/unmask/challenge/challenge.html"); err == nil {
 		return b, nil
 	}
-	return assets.Static.ReadFile(filepath.ToSlash("static/bot-challenge.html"))
+	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
 }
 
 // stripOrKeepCredit processes the
@@ -508,7 +501,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	h.Notifier.ChallengeServed()
 }
 
-// ServeChallenge: GET {base}/challenge/ (legacy: {base}/challenge.html)
+// ServeChallenge: GET {base}/challenge/
 //
 // Rate-limit path (nginx rewrites to /unmask/challenge/rl1<orig URI>): detect
 // the "/rl1/" prefix, restore the original URI, and treat as rl=1.
@@ -671,19 +664,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	chMode := h.Settings.RateLimit.Default.ResolvedChallengeMode()
 	if forceReason == "none" {
 		// "no-match" path: split the chain by whether the UA looks like
-		// a real browser.  Falls back to the legacy DefaultAction field
-		// when the new per-bucket fields are unset (= existing yamls).
-		// Empty (= fresh install, never touched the Operating mode tab) means
-		// "strict" — the historical default protection posture.
+		// a real browser.  Empty (= fresh install, never touched the
+		// Operating mode tab) means "strict" — the default protection posture.
 		ua := r.Header.Get("User-Agent")
 		var pick string
 		if classify.IsKnownBrowser(ua) {
 			pick = h.Settings.Global.KnownBrowserAction
 		} else {
 			pick = h.Settings.Global.UnknownUAAction
-		}
-		if pick == "" {
-			pick = h.Settings.Global.DefaultAction
 		}
 		if pick == "" {
 			pick = "pow_only" // strict default

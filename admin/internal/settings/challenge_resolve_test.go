@@ -6,7 +6,7 @@ import "testing"
 func TestChallengeResolveUndeclared(t *testing.T) {
 	c := ChallengeConfig{
 		Default: ChallengeValues{
-			CookieSeconds: 86400 * 3,
+			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty: 18,
 			Theme:         "default",
 		},
@@ -21,14 +21,14 @@ func TestChallengeResolveUndeclared(t *testing.T) {
 // Every field reflects the entry's value, even ones equal to Default.
 func TestChallengeResolveDeclared(t *testing.T) {
 	shop := ChallengeValues{
-		CookieSeconds: 86400 * 7,
+		PowCookieValidSeconds: 86400 * 7,
 		PowDifficulty: 16,
 		Theme:         "terminal",
 		ShowCredit:    true,
 	}
 	c := ChallengeConfig{
 		Default: ChallengeValues{
-			CookieSeconds: 86400 * 3,
+			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty: 18,
 			Theme:         "default",
 		},
@@ -47,7 +47,7 @@ func TestChallengeResolveDeclared(t *testing.T) {
 func TestChallengeResolveEmptyEntry(t *testing.T) {
 	c := ChallengeConfig{
 		Default: ChallengeValues{
-			CookieSeconds: 86400 * 3,
+			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty: 18,
 			Theme:         "default",
 		},

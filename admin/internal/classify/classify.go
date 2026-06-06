@@ -122,7 +122,100 @@ type categoryREs struct {
 var (
 	cache     *categoryREs
 	cacheOnce sync.Once
+
+	tagCache     *crawlerTagREs
+	tagCacheOnce sync.Once
 )
+
+// crawlerTagREs: per-tag regex set built from crawler-user-agents.json.
+// Lets callers ask "which crawler tag does this UA match" beyond the rough
+// SearchAI / Service / UserDev split — used by the dashboard's AI-traffic
+// breakdown card so we can distinguish ai-crawler / ai-training / ai-user
+// / search-engine etc. instead of collapsing them all to search_ai.
+type crawlerTagREs struct {
+	tagOrder []string                  // lookup priority (= AI tags first)
+	tagRE    map[string]*regexp.Regexp // tag → compiled regex
+}
+
+// CrawlerTagOrder is the public lookup priority — AI-flavoured tags come
+// first so a UA that matches both an AI tag and a generic one resolves to
+// the more specific AI tag.
+var CrawlerTagOrder = []string{
+	"ai-training",
+	"ai-user",
+	"ai-crawler",
+	"search-engine",
+	"advertising",
+	"seo",
+	"monitoring",
+	"social-preview",
+	"feed-reader",
+	"archiver",
+	"academic",
+}
+
+// LookupTag returns the first crawler-user-agents.json tag matched by ua,
+// or "" when none matches.  Tag lookup priority is CrawlerTagOrder.
+// Safe for concurrent use.
+func LookupTag(ua string) string {
+	if ua == "" {
+		return ""
+	}
+	res := getCrawlerTagREs()
+	for _, tag := range res.tagOrder {
+		if re := res.tagRE[tag]; re != nil && re.MatchString(ua) {
+			return tag
+		}
+	}
+	return ""
+}
+
+func getCrawlerTagREs() *crawlerTagREs {
+	tagCacheOnce.Do(func() {
+		raw := assets.CrawlerUserAgentsJSON
+		if path := os.Getenv("UNMASK_CRAWLER_UA_JSON"); path != "" {
+			if b, err := os.ReadFile(path); err == nil && len(b) > 1024 {
+				raw = b
+			}
+		}
+		tagCache = buildCrawlerTagREs(raw)
+	})
+	return tagCache
+}
+
+// buildCrawlerTagREs groups every JSON entry by its tag list — an entry
+// with multiple tags contributes its pattern to each one — and compiles a
+// joinAlt regex per tag.  Tags absent from the JSON simply get a never-
+// matching regex.
+func buildCrawlerTagREs(jsonRaw []byte) *crawlerTagREs {
+	var data []struct {
+		Pattern string   `json:"pattern"`
+		Tags    []string `json:"tags"`
+	}
+	if len(jsonRaw) > 0 {
+		clean := sanitizeUTF8(jsonRaw)
+		if err := json.Unmarshal(clean, &data); err != nil {
+			log.Printf("classify: crawler-user-agents.json decode failed (tag build): %v", err)
+		}
+	}
+	perTag := map[string][]string{}
+	for _, ent := range data {
+		if ent.Pattern == "" {
+			continue
+		}
+		for _, t := range ent.Tags {
+			perTag[t] = append(perTag[t], ent.Pattern)
+		}
+	}
+	out := &crawlerTagREs{
+		tagOrder: append([]string{}, CrawlerTagOrder...),
+		tagRE:    map[string]*regexp.Regexp{},
+	}
+	for _, tag := range out.tagOrder {
+		out.tagRE[tag] = joinAlt(perTag[tag])
+	}
+	return out
+}
 
 func getCategoryREs() *categoryREs {
 	cacheOnce.Do(func() {
@@ -533,81 +626,6 @@ func IsBot(ua, ja4Action string) Category {
 	return Human
 }
 
-// AICategory: 5-bucket consolidation of upstream crawler-user-agents.json
-// tags used by the dashboard's AI-traffic funnel.  Returns "" when the UA
-// is not an AI / search-bot match.
-//
-// Bucket mapping:
-//
-//	"search"    : search-engine                       (Googlebot, Bingbot)
-//	"training"  : ai-training                         (GPTBot, CCBot, ClaudeBot)
-//	"agent"     : ai-user                             (ChatGPT-User, Claude-Web, DeepResearch)
-//	"scraper"   : ai-crawler                          (generic AI crawlers w/o subdivision)
-//	"collector" : advertising / seo / social-preview /
-//	              feed-reader / archiver / academic / monitoring
-//
-// Built once at init from UpstreamRescueList so subsequent calls are O(1)
-// per pattern check.
-var (
-	aiCategoryPatterns map[string]string // category -> raw regex pattern (= compiled per call... small N)
-	aiCategoryRE       map[string]*regexp.Regexp
-	aiCategoryOnce     sync.Once
-)
-
-func buildAICategoryIndex() {
-	aiCategoryRE = map[string]*regexp.Regexp{}
-	by := UpstreamRescueList()
-	// upstream tag → our bucket
-	tagToBucket := map[string]string{
-		"search-engine":  "search",
-		"ai-training":    "training",
-		"ai-user":        "agent",
-		"ai-crawler":     "scraper",
-		"advertising":    "collector",
-		"seo":            "collector",
-		"social-preview": "collector",
-		"feed-reader":    "collector",
-		"archiver":       "collector",
-		"academic":       "collector",
-		"monitoring":     "collector",
-	}
-	groupedPatterns := map[string][]string{}
-	for cat, list := range by {
-		bucket := tagToBucket[cat]
-		if bucket == "" {
-			continue
-		}
-		for _, ent := range list {
-			groupedPatterns[bucket] = append(groupedPatterns[bucket], ent.Pattern)
-		}
-	}
-	for bucket, pats := range groupedPatterns {
-		if len(pats) == 0 {
-			continue
-		}
-		// Union the patterns with | so a single Regexp does the bucket check
-		// in one pass.  Each pattern is already a regex from the upstream JSON.
-		joined := "(?i)(?:" + strings.Join(pats, ")|(?:") + ")"
-		if re, err := regexp.Compile(joined); err == nil {
-			aiCategoryRE[bucket] = re
-		}
-	}
-}
-
-// AICategory returns one of "search" / "training" / "agent" / "scraper" /
-// "collector" for AI / bot user-agents, or "" for human / unknown / other.
-func AICategory(ua string) string {
-	if ua == "" {
-		return ""
-	}
-	aiCategoryOnce.Do(buildAICategoryIndex)
-	// Order matters when a UA matches multiple buckets (= e.g. ChatGPT-User
-	// could match both "agent" via ai-user and "scraper" via ai-crawler).
-	// Resolve in increasing-generality order: most specific first.
-	for _, bucket := range []string{"agent", "training", "search", "collector", "scraper"} {
-		if re, ok := aiCategoryRE[bucket]; ok && re.MatchString(ua) {
-			return bucket
-		}
-	}
-	return ""
-}
+// (AICategory has been retired in favour of LookupTag, which preserves all
+// 11 upstream tags instead of collapsing them to 5 buckets.  The crawler-
+// minute aggregation now stores tags directly.)

@@ -75,7 +75,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -508,8 +508,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"BypassPresetGroups":         bypassPresetGroups,
+		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":           bypassPathGroups,
+		"WebBotAuth":                 cur.WebBotAuth,
 		"ProtectedPresetGroups":      protectedPresetGroups,
 		"ProtectedPaths":             cur.ProtectedPaths,
 		"ProtectedPresetAction":      cur.ProtectedPaths.PresetAction,
@@ -884,7 +886,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -949,10 +951,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
-		// Drop the legacy field once the new buckets are in use (= avoid
-		// double sources of truth).  Existing yamls keep it until first
-		// save through the new UI.
-		cur.Global.DefaultAction = ""
 	case "network":
 		if err := applyNetworkForm(&cur.Nginx, r, lang); err != nil {
 			redirBack(err.Error())
@@ -1066,13 +1064,15 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
 		applySMTPForm(&cur.SMTP, r)
+	case "web-bot-auth":
+		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
 	case "community-bans":
 		applyCommunityBansForm(&cur.CommunityBans, r)
-		// (The shared-BAN fallback action field was removed from the UI: the
+		// The shared-BAN fallback action is not edited from the UI: the
 		// "auto-BAN action" select writes a concrete action onto every
-		// auto-applied row, so a separate fallback never came into play.
-		// Nginx.Bans.CommunityBansDefaultAction stays in the struct for
-		// back-compat but is no longer edited here.)
+		// auto-applied row, so a separate fallback rarely matters.  The
+		// yaml field (Nginx.Bans.CommunityBansDefaultAction) is still
+		// honored at runtime for operators who set it manually.
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
@@ -1199,7 +1199,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Avoid "no token" right after enabling community-bans and immediately BANning:
-	// when terms accepted + submit_enabled / subscribe_enabled is set but no
+	// when terms accepted + submit_enabled / subscribe active and no
 	// token exists yet, trigger an asynchronous register right after save.
 	// This is redundant with the synchronous register at submit time, but
 	// ensures the "save → BAN" flow from the settings page does not drop a row.
@@ -2688,7 +2688,6 @@ func applyCaptchaForm(c *settings.Captcha, r *http.Request) error {
 //	                                exact unix-second issuance timestamp, so any value in this
 //	                                range is honored at second precision.
 //	captcha_cookie_valid_seconds  : same range for the CAPTCHA path.
-//	cookie_seconds                : legacy single-knob fallback when the kind-specific values are unset.
 //	debug_rate_limit_per_5min     : 1-10000 (= rate limit for inserting challenge debug
 //	                                           payloads from the same IP into unmask_event.
 //	                                           default 20).
@@ -2714,14 +2713,6 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 			return fmt.Errorf("captcha_cookie_valid_seconds must be an integer in 60-31536000 (= 1 minute .. 1 year, got %q)", v)
 		}
 		c.CaptchaCookieValidSeconds = n
-	}
-	if v := strings.TrimSpace(r.FormValue("cookie_seconds")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 60 || n > 31_536_000 {
-			return fmt.Errorf("cookie_seconds must be an integer in 60-31536000 (= 1 min .. 1 year, got %q)", v)
-		}
-		c.CookieSeconds = n
-		c.CookieDays = 0 // canonicalize (= omitempty on save)
 	}
 	if v := strings.TrimSpace(r.FormValue("pow_difficulty")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -3010,10 +3001,8 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyCommunityBansForm: receive the community-bans tab form.
-//   - terms_accepted=1  → stamp TermsAcceptedAt with now (= record consent moment)
-//   - terms_accepted=0  → reset TermsAcceptedAt to 0 (= consent withdrawn)
-//   - submit_enabled    : "share to hub when BANning"
-//   - subscribe_enabled : "pull BANs from other installs and force CAPTCHA"
+//   - report_enabled  : "share to hub when BANning" (= also records terms accept)
+//   - subscribe_mode  : "off" / "fetch" / "fetch_apply"
 //
 // The hub URLs live in defaults() (communitybans-package constants) and are not
 // edited from the UI; the unmask.sh hub is the only target until the feature
@@ -3021,15 +3010,8 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// report_enabled is the unified clickwrap: one checkbox both enables
 	// submission AND records terms acceptance (= ticking it is the
-	// affirmative action).  Falls back to the legacy split fields
-	// (submit_enabled + terms_accepted) when an old form posts.
-	reportField, hasReport := r.Form["report_enabled"]
-	report := false
-	if hasReport {
-		report = len(reportField) > 0 && reportField[0] == "1"
-	} else {
-		report = r.FormValue("submit_enabled") == "1"
-	}
+	// affirmative action).
+	report := r.FormValue("report_enabled") == "1"
 	c.SubmitEnabled = report
 	if report {
 		// Ticking the box is the acceptance.  Stamp time + version on first
@@ -3041,21 +3023,12 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	}
 	// Unchecking report stops submission but keeps the acceptance record
 	// (= re-enabling later does not require re-reading the terms unless the
-	// version bumped in the meantime).  The legacy terms_accepted=0 reset
-	// path is dropped; see PublishCountry / auto-ban parsing below.
-	_ = reportField
-	// subscribe_mode: 3-state (off / fetch / fetch_apply).  Falls back to the
-	// legacy checkbox (subscribe_enabled=1 → fetch_apply) when the new field
-	// is absent, so an old form post still works.
+	// version bumped in the meantime).
 	switch strings.TrimSpace(r.FormValue("subscribe_mode")) {
 	case settings.SubscribeOff, settings.SubscribeFetch, settings.SubscribeFetchApply:
 		c.SubscribeMode = r.FormValue("subscribe_mode")
 	default:
-		if r.FormValue("subscribe_enabled") == "1" {
-			c.SubscribeMode = settings.SubscribeFetchApply
-		} else {
-			c.SubscribeMode = settings.SubscribeOff
-		}
+		c.SubscribeMode = settings.SubscribeOff
 	}
 	// PublishCountry: install-wide opt-in (= default OFF).  When ON, future
 	// register / submit / vote / comment requests pass publish_country=true
@@ -3688,3 +3661,72 @@ func applyRateLimitFormV2(cur *settings.RateLimitConfig, r *http.Request) error 
 // have a coherent meaning.  BanDurationSec lives directly on HoneypotConfig
 // and applies install-wide; per-site URL filtering still works via the
 // HoneypotURL.Site column.
+
+// IPRangeSyncInfo: state shape consumed by the settings template's hub-sync
+// status card.  Zero-value LastSyncedAt = no successful pull yet.
+type IPRangeSyncInfo struct {
+	Enabled      bool
+	HubURL       string
+	LastSyncedAt int64  // unix seconds, 0 if never
+	LastError    string
+}
+
+// IPRangeSyncStatus returns the current state of the subscribe goroutine for
+// the bypass-ips tab's hub-sync card.  Nil-safe (= disabled state).
+func (h *Handler) IPRangeSyncStatus() IPRangeSyncInfo {
+	if h.IPRangeSync == nil {
+		return IPRangeSyncInfo{}
+	}
+	info := IPRangeSyncInfo{
+		Enabled:   true,
+		HubURL:    h.IPRangeSync.HubURLString(),
+		LastError: h.IPRangeSync.LastError(),
+	}
+	if t := h.IPRangeSync.LastSyncedAt(); !t.IsZero() {
+		info.LastSyncedAt = t.Unix()
+	}
+	return info
+}
+
+// applyWebBotAuthForm: receive the web-bot-auth tab form.
+//
+//   - enabled            : verify signed-agent requests at all
+//   - allowed_operators  : textarea, one operator host per line.  Empty list
+//                          accepts any operator that publishes a valid dir.
+//   - cache_ttl_sec      : per-operator directory cache lifetime
+//
+// Public key directories are fetched lazily by the Verifier; this form only
+// configures gating.
+func applyWebBotAuthForm(c *settings.WebBotAuthConfig, r *http.Request) {
+	c.Enabled = r.FormValue("enabled") == "1"
+
+	c.AllowedOperators = nil
+	for _, line := range strings.Split(r.FormValue("allowed_operators"), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			c.AllowedOperators = append(c.AllowedOperators, line)
+		}
+	}
+
+	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cache_ttl_sec"))); err == nil && n > 0 {
+		c.CacheTTLSec = n
+	}
+}
+
+// AdminIPRangeSync: POST {base}/admin/api/iprange/sync — force one pull
+// from the hub right now.  Returns ok=1 + last_synced_at on success, or
+// ok=0 + error message.  Settings UI calls this from the "Sync now" button.
+func (h *Handler) AdminIPRangeSync(w http.ResponseWriter, r *http.Request) {
+	if h.IPRangeSync == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": 0, "error": "sync_disabled"})
+		return
+	}
+	if err := h.IPRangeSync.PullOnce(r.Context()); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": 0, "error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":              1,
+		"last_synced_at":  h.IPRangeSync.LastSyncedAt().Unix(),
+	})
+}

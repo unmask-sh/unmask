@@ -117,6 +117,8 @@ static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_ja4_commands[] = {
     { ngx_string("unmask_bv_secret"),
@@ -196,6 +198,14 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
     { ngx_string("unmask_ban_action"), NULL, ngx_http_unmask_ban_action_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     { ngx_string("unmask_banned"), NULL, ngx_http_unmask_banned_variable, 0,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_has_signed_agent: "1" when the request carries RFC 9421
+     * Signature-Input header (= Web Bot Auth candidate), "0" otherwise.
+     * Used by the hybrid path in server.inc to route signed requests
+     * through admin /_unmask/check for verification while keeping the
+     * pure-native fast path for unsigned traffic (= subrequest 0). */
+    { ngx_string("unmask_has_signed_agent"), NULL,
+      ngx_http_unmask_has_signed_agent_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     ngx_http_null_variable
 };
@@ -1304,6 +1314,37 @@ static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
     if (ngx_unmask_banlist_has(key)) {
         v->len = 1;
         v->data = (u_char *)one;
+        return NGX_OK;
+    }
+
+    /* JA4-only entries (= scope=ja4_only) are stored as keys of the form
+     * "|<ja4>" in the ban file.  Pass 2 retries with this shape so a
+     * single (ip="", ja4=X) row bans every visitor with that fingerprint
+     * regardless of source IP. */
+    if (ja4_len > 0 && 1 + ja4_len + 1 <= sizeof(key)) {
+        key[0] = '|';
+        ngx_memcpy(key + 1, ja4_data, ja4_len);
+        key[1 + ja4_len] = '\0';
+        if (ngx_unmask_banlist_has(key)) {
+            v->len = 1;
+            v->data = (u_char *)one;
+            return NGX_OK;
+        }
+    }
+
+    /* IP-only entries (= scope=ip_only) are stored as keys "<ip>|" with an
+     * empty JA4 column.  Pass 3 retries with this shape so a single
+     * (ip=X, ja4="") row bans every visitor from that IP regardless of
+     * which JA4 fingerprint they present (= compromised host / scraper
+     * farm across changing TLS stacks). */
+    if (iplen + 1 + 1 <= sizeof(key)) {
+        ngx_memcpy(key, ip, iplen);
+        key[iplen] = '|';
+        key[iplen + 1] = '\0';
+        if (ngx_unmask_banlist_has(key)) {
+            v->len = 1;
+            v->data = (u_char *)one;
+        }
     }
     return NGX_OK;
 }
@@ -1364,13 +1405,74 @@ static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
     key[iplen + 1 + ja4_len] = '\0';
 
     const char *action = "";
-    if (ngx_unmask_banlist_lookup(key, &action) && action && *action) {
+    int hit = ngx_unmask_banlist_lookup(key, &action);
+    if (!hit && ja4_len > 0 && 1 + ja4_len + 1 <= sizeof(key)) {
+        /* JA4-only fallback "|<ja4>" -- mirrors ngx_http_unmask_banned_variable. */
+        key[0] = '|';
+        ngx_memcpy(key + 1, ja4_data, ja4_len);
+        key[1 + ja4_len] = '\0';
+        hit = ngx_unmask_banlist_lookup(key, &action);
+    }
+    if (!hit && iplen + 1 + 1 <= sizeof(key)) {
+        /* IP-only fallback "<ip>|" -- bans every JA4 from this source IP. */
+        ngx_memcpy(key, ip, iplen);
+        key[iplen] = '|';
+        key[iplen + 1] = '\0';
+        hit = ngx_unmask_banlist_lookup(key, &action);
+    }
+    if (hit && action && *action) {
         size_t alen = strlen(action);
         u_char *p = ngx_pnalloc(r->pool, alen);
         if (!p) return NGX_OK;
         ngx_memcpy(p, (const u_char *)action, alen);
         v->data = p;
         v->len = alen;
+    }
+    return NGX_OK;
+}
+
+/* unmask_has_signed_agent: walk the inbound headers for "Signature-Input".
+ * Returns "1" when present (non-empty), "0" otherwise.  Header name match
+ * is case-insensitive per HTTP, so we use ngx_strncasecmp.  No allocation
+ * on the hot path -- the two output strings are static. */
+static ngx_int_t
+ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    static u_char zero[] = "0";
+    static u_char one[]  = "1";
+    ngx_list_part_t  *part;
+    ngx_table_elt_t  *h;
+    ngx_uint_t        i;
+
+    (void) data;
+
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+    v->data = zero;
+    v->len = 1;
+
+    part = &r->headers_in.headers.part;
+    h = part->elts;
+    for (i = 0; ; i++) {
+        if (i >= part->nelts) {
+            if (part->next == NULL) {
+                break;
+            }
+            part = part->next;
+            h = part->elts;
+            i = 0;
+        }
+        if (h[i].key.len == sizeof("Signature-Input") - 1
+            && ngx_strncasecmp(h[i].key.data,
+                               (u_char *) "Signature-Input",
+                               sizeof("Signature-Input") - 1) == 0
+            && h[i].value.len > 0) {
+            v->data = one;
+            v->len = 1;
+            return NGX_OK;
+        }
     }
     return NGX_OK;
 }

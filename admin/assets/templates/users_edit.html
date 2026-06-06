@@ -107,6 +107,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 </div>
 
 <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirmSave('{{ .User.Username }}', this)">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
   <input type="hidden" name="op" value="update">
   <input type="hidden" name="id" value="{{ .User.ID }}">
   <input type="hidden" name="redirect" value="{{ .BasePath }}/admin/users/{{ .User.ID }}/edit">
@@ -149,6 +150,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   <h2>{{ t .Lang "users.edit.danger_h" }}</h2>
   <p class="desc">{{ t .Lang "users.edit.danger_desc" }}</p>
   <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirm('Delete user {{ .User.Username }}?')">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="delete">
     <input type="hidden" name="id" value="{{ .User.ID }}">
     <button type="submit" class="btn btn-danger">{{ t .Lang "users.btn.delete" }} {{ .User.Username }}</button>

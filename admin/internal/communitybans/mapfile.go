@@ -44,8 +44,8 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 			continue
 		}
 		// v2 feed carries Promoted: skip non-promoted entries (= score 1-2,
-		// browse-only) from the nginx map files.  v1 feeds have no Promoted
-		// field; treat every entry as enforceable for back-compat.
+		// browse-only) from the nginx map files.  v1 feeds (= no Promoted
+		// field) treat every entry as enforceable.
 		if v2 && !e.Promoted {
 			continue
 		}

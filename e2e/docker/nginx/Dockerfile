@@ -21,6 +21,7 @@ COPY nginx-module/ /src/nginx-module/
 RUN cd nginx-${NGINX_VERSION} \
     && ./configure --with-compat --with-http_ssl_module \
                    --with-http_realip_module \
+                   --with-http_auth_request_module \
                    --add-dynamic-module=/src/nginx-module \
     && make -j"$(nproc)"
 

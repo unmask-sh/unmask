@@ -26,7 +26,7 @@
 #   (d) shop /shop-trap/foo                    -> honeypot fires (fc=1)
 #   (e) blog /shop-trap/foo                    -> no honeypot   (fc=0)
 #   (f) shop /unrelated/                       -> normal pass   (fc=0)
-#   (g) /etc/unmask/native/http.inc contains the per-host map for shop
+#   (g) /etc/unmask/http.inc contains the per-host map for shop
 
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -144,7 +144,7 @@ fi
 # remote BASE_URL or compose isn't running locally).
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if [ -f "$COMPOSE" ] && docker compose -f "$COMPOSE" ps admin >/dev/null 2>&1; then
-    rendered=$(docker compose -f "$COMPOSE" exec -T admin cat /etc/unmask/native/http.inc 2>/dev/null || true)
+    rendered=$(docker compose -f "$COMPOSE" exec -T admin cat /etc/unmask/http.inc 2>/dev/null || true)
     # Both the per-host bypass map (= unmask_bp_host_shop_example_com on
     # /e2e-shop-bypass/) and the per-host honeypot map (= unmask_hp_host_*
     # on /shop-trap/) must be present in the rendered http.inc.  Each map

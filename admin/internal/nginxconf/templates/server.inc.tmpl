@@ -54,6 +54,61 @@ if ($unmask_banned_effective = "1") {
     rewrite ^ /unmask/challenge/ last;
 }
 
+# Web Bot Auth (= hybrid pattern, v0.2).  When the native plugin reports that
+# the request carries an RFC 9421 Signature-Input header, hand the request
+# off to admin /_unmask/check for cryptographic verification — the verifier
+# lives in admin (= pure-Go ed25519 + JWK directory cache), so the plugin
+# only needs to detect the header.  Verified signed agents pass through;
+# everything else falls back to the regular native flow on the next pass.
+#
+# Unsigned traffic (= the vast majority) skips this branch entirely — the
+# fast pure-native path is unchanged, no subrequest overhead.
+if ($unmask_has_signed_agent = "1") {
+    rewrite ^ /_unmask/_signed_route$request_uri last;
+}
+
+# Internal route for signed-agent verification.  auth_request consults admin;
+# X-Unmask-Action=pass (= signature valid + operator allowed) lets through.
+# Failure paths surface as 401/403 and we fall back to the original URI via
+# @unmask_signed_fallback so the visitor still gets the regular flow rather
+# than a flat reject (= unsigned visitor who happened to mis-route here).
+location ^~ /_unmask/_signed_route/ {
+    internal;
+    auth_request /_unmask/_signed_verify;
+    auth_request_set $unmask_signed_action $upstream_http_x_unmask_action;
+    error_page 401 403 = @unmask_signed_fallback;
+
+    rewrite ^/_unmask/_signed_route(/.*)$ $1 break;
+    try_files $uri $uri/ =404;
+}
+
+# Verification failed (= bad signature, expired, operator not in allowlist):
+# strip the marker prefix and let the request fall through to the regular
+# native flow.  The plugin's verdict / ban / honeypot logic still applies.
+location @unmask_signed_fallback {
+    rewrite ^/_unmask/_signed_route(/.*)$ $1 last;
+}
+
+# Subrequest target for /_unmask/_signed_route's auth_request.  Pumps the
+# call into the admin upstream's /_unmask/check endpoint (= same one
+# forward-auth mode uses).  Body is dropped to keep the subrequest cheap.
+location = /_unmask/_signed_verify {
+    internal;
+    proxy_pass http://unmask/_unmask/check;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI    $request_uri;
+    proxy_set_header X-Original-IP     $remote_addr;
+    proxy_set_header X-Original-UA     $http_user_agent;
+    proxy_set_header X-Original-Host   $host;
+    proxy_set_header X-Original-Method $request_method;
+    # Forward the signature headers so the admin-side Verifier can do the
+    # actual RFC 9421 check.  Names are case-insensitive on the wire.
+    proxy_set_header Signature         $http_signature;
+    proxy_set_header Signature-Input   $http_signature_input;
+    proxy_set_header Signature-Agent   $http_signature_agent;
+}
+
 # @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
 # in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
 # admin serves as a challenge page (= "you're going too fast, prove you're
@@ -110,3 +165,31 @@ location ^~ /unmask/ {
     proxy_set_header   Connection "";
     proxy_buffering    off;
 }
+{{ range .RatePresetLocations }}
+# Path-scoped rate-limit preset (= settings.RateLimit.Zones row with
+# PathPatterns).  More-specific than `^~ /unmask/` above so nginx picks
+# this block for {{ .Path }}; otherwise the proxy / header set is the
+# same as the catch-all admin location.  Rate-limit hits chain into
+# @unmask_rate_challenge, identical to the default zone's protect.inc
+# wiring, so the challenge UX matches the rest of the install.
+location ^~ {{ .Path }} {
+    limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
+    limit_req_status 429;
+    error_page 429 = @unmask_rate_challenge;
+    proxy_pass         http://unmask;
+    proxy_set_header   Host             $host;
+    proxy_set_header   X-Real-IP        $remote_addr;
+    proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
+    proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
+    proxy_set_header   X-Client-JA4     $effective_ja4;
+    proxy_set_header   X-JA4-Verdict    $ja4_verdict;
+    proxy_set_header   X-JA4-Action     $ja4_action;
+    proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
+    proxy_set_header   X-Protected-Mode $protected_mode;
+    proxy_set_header   X-Banned         $unmask_banned;
+    client_max_body_size 4m;
+    proxy_http_version 1.1;
+    proxy_set_header   Connection "";
+    proxy_buffering    off;
+}
+{{ end }}

@@ -94,6 +94,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   <h2>{{ t .Lang "profile.profile_h" }}</h2>
   <p class="desc">{{ t .Lang "profile.profile_desc" }}</p>
   <form method="POST" action="{{.BasePath}}/admin/profile/save" autocomplete="off">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="profile">
     <div class="field">
       <label>{{ t .Lang "users.col.username" }}</label>
@@ -114,6 +115,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   <h2>{{ t .Lang "profile.password_h" }}</h2>
   <p class="desc">{{ t .Lang "profile.password_desc" }}</p>
   <form method="POST" action="{{.BasePath}}/admin/profile/save" autocomplete="off">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="password">
     <div class="field">
       <label for="cur">{{ t .Lang "profile.field.current" }}</label>

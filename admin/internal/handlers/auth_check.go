@@ -42,6 +42,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
 
 // axisSeverity: how restrictive an axis vote is.  Higher = stronger.
@@ -174,6 +175,16 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	reason := "ok"
 	status := http.StatusOK
 
+	// Web Bot Auth (RFC 9421) is an explicit veto-pass axis: a valid signed
+	// request joins the search-bot rescue path instead of running through
+	// the score axes.  Verify up-front so the result is available to the
+	// switch below + can be logged in the event payload regardless of which
+	// axis ended up winning (= operator visibility).
+	var wbaResult webbotauth.Result
+	if cfg.Nginx.WebBotAuth.Enabled && h.WebBotAuth != nil && r.Header.Get("Signature-Input") != "" {
+		wbaResult = h.WebBotAuth.Verify(r.Context(), r)
+	}
+
 	// 2. Decision pipeline.
 	//
 	// Phase A: veto-pass axes.  bypass_ips / bypass_paths / _bv cookie pass
@@ -193,6 +204,10 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	honeypotChMode := ""
 
 	switch {
+	case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
+		// Signed agent verified — same trust level as the IP allowlist.
+		// Reason carries the operator host so dashboards can break it down.
+		action, reason, status = "pass", "signed_agent:"+wbaResult.Operator, http.StatusOK
 	case matchers.ipBypass.Match(ip):
 		action, reason, status = "pass", "bypass:ip", http.StatusOK
 	case matchPath(uri, matchers.bypass):
@@ -367,7 +382,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// Bump the cookie-pass-rate chart (= unmask_cookie_minute, kind/cnt normalized) by 1.
 	// kind values:
 	//   "captcha"          : reason="bv-captcha" (= 3-seg _bv HMAC OK)
-	//   "pow"              : reason="bv-pow"     (= 4-seg _bv djb2 OK)
+	//   "pow"              : reason="bv-pow"     (= 4-seg _bv SHA-256 OK)
 	//   "challenge_served" : action=challenge or block
 	//   ""                 : no signals tripped, total only +1
 	if h.NginxLog != nil {
@@ -579,9 +594,6 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings) (axisDecision, bool) 
 		pick = cfg.Global.KnownBrowserAction
 	} else {
 		pick = cfg.Global.UnknownUAAction
-	}
-	if pick == "" {
-		pick = cfg.Global.DefaultAction
 	}
 	if pick == "" {
 		pick = settings.RateChallengePoWOnly

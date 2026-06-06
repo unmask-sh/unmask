@@ -82,6 +82,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 
 <div class="bcd-card">
   <form method="POST" action="{{ .BasePath }}/admin/users/save">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="create">
     <input type="hidden" name="redirect" value="{{ .BasePath }}/admin/users/">
     <div class="add-grid">

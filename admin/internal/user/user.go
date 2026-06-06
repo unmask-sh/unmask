@@ -6,18 +6,13 @@
 //   - viewer     : read-only
 //
 // Passwords are hashed with argon2id (= memory-hard, PHC string format).
-// OWASP 2024 baseline parameters: m=64MiB, t=2, p=1.  Legacy bcrypt hashes
-// from before the 2026-05-31 migration verify in place (= IsLegacyHash + the
-// AdminLoginPost handler triggers a one-shot rehash on the next successful
-// login).
+// OWASP 2024 baseline parameters: m=64MiB, t=2, p=1.
 //
 // Authentication flow:
 //  1. Login form receives username + password.
-//  2. Verify(username, password) runs argon2id verification (bcrypt fallback
-//     for legacy hashes).
+//  2. CheckPassword(stored, plain) runs argon2id verification.
 //  3. On success, issue a session cookie (= cookies pkg) with user_id +
-//     role in the payload.  If the hash was legacy, SetPassword() rewrites it
-//     with argon2id transparently.
+//     role in the payload.
 package user
 
 import (
@@ -32,7 +27,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
-	"golang.org/x/crypto/bcrypt"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -124,21 +118,10 @@ func HashPassword(plain string) (string, error) {
 		enc(salt), enc(key)), nil
 }
 
-// CheckPassword: verify against either an argon2id PHC string or a legacy
-// bcrypt hash.  Returns nil on match.
-//
-// After a successful login, callers should additionally check IsLegacyHash()
-// and call SetPassword() to rewrite the stored hash with argon2id.
+// CheckPassword: verify against an argon2id PHC string.  Returns nil on match.
 func CheckPassword(hash, plain string) error {
-	if IsLegacyHash(hash) {
-		return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain))
-	}
 	return checkArgon2id(hash, plain)
 }
-
-// IsLegacyHash: true if the stored hash is bcrypt (= `$2a$` / `$2b$` / `$2y$`).
-// Used by the login handler to trigger a one-shot rehash to argon2id.
-func IsLegacyHash(hash string) bool { return strings.HasPrefix(hash, "$2") }
 
 // errBadHash: parse failure or argon2id mismatch.  Returned as a single value
 // to avoid leaking which step failed (= argon2 verify is constant-time, so

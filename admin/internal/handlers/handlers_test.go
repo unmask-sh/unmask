@@ -65,7 +65,7 @@ func newTestHandler(t *testing.T) *Handler {
 		},
 		Challenge: settings.ChallengeConfig{
 			Default: settings.ChallengeValues{
-				CookieDays:            3,
+				PowCookieValidSeconds: 86400 * 7,
 				DebugRateLimitPer5Min: 100,
 				CaptchaProvider: settings.Captcha{
 					Provider:              "builtin",
@@ -306,6 +306,32 @@ func TestResolveSiteFilterEncodedCookie(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "unmask_site", Value: "2001%3Adb8%3A%3A1"})
 	if got := resolveSiteFilter(req); got != "2001:db8::1" {
 		t.Fatalf("resolveSiteFilter = %q, want 2001:db8::1", got)
+	}
+}
+
+// TestResolveTZEncodedCookie: the picker JS writes the cookie via
+// encodeURIComponent(), so "Asia/Tokyo" arrives as "Asia%2FTokyo".  Without a
+// decode step the '%' fails the safety allowlist and the operator silently
+// drops back to UTC -- the bug we are guarding against here.
+func TestResolveTZEncodedCookie(t *testing.T) {
+	cases := []struct{ cookie, wantTZ string }{
+		{"Asia/Tokyo", "Asia/Tokyo"},
+		{"Asia%2FTokyo", "Asia/Tokyo"},
+		{"America%2FNew_York", "America/New_York"},
+		{"Europe/London", "Europe/London"},
+		{"auto", ""},
+		{"browser", ""},
+		{"", ""},
+		{"%E6%97%A5%E6%9C%AC", ""}, // multi-byte junk falls through safety filter.
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+		if c.cookie != "" {
+			req.AddCookie(&http.Cookie{Name: "unmask_tz", Value: c.cookie})
+		}
+		if got := resolveTZ(req); got != c.wantTZ {
+			t.Errorf("cookie=%q: resolveTZ = %q, want %q", c.cookie, got, c.wantTZ)
+		}
 	}
 }
 

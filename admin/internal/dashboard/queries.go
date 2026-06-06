@@ -1187,6 +1187,15 @@ var flagsNotes = map[int]string{
 }
 
 func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
+	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+		return flagsDistributionAgg(ctx, d, hours)
+	}
+	return flagsDistributionScan(ctx, d, site, hosts, hours)
+}
+
+// flagsDistributionScan: the original raw-scan path.  Used when a host or
+// site filter rules out the install-wide aggregate.
+func flagsDistributionScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT flags, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE date_created > %s%s AND phase='load'
@@ -1204,7 +1213,90 @@ func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []strin
 		}
 		by[fl] = FlagsRow{Flags: fl, Count: n, UniqIP: u}
 	}
+	return orderFlagsRows(by), nil
+}
 
+// flagsDistributionAgg: install-wide aggregate read.  hkFlags supplies the
+// count per flags value; hkFlagsIP HLL sketches are merged per flags value
+// for the distinct-IP estimate.
+func flagsDistributionAgg(ctx context.Context, d *db.DB, hours int) ([]FlagsRow, error) {
+	by := map[int]FlagsRow{}
+
+	cRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkFlags+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        GROUP BY bucket_key`)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var keyStr string
+		var n int64
+		if err := cRows.Scan(&keyStr, &n); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		fl, err := strconv.Atoi(keyStr)
+		if err != nil {
+			continue // malformed key (shouldn't happen for new rows)
+		}
+		r := by[fl]
+		r.Flags = fl
+		r.Count = int(n)
+		by[fl] = r
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind = '`+hkFlagsIP+`'`)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[int]*hll{}
+	for sRows.Next() {
+		var keyStr string
+		var blob []byte
+		if err := sRows.Scan(&keyStr, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		fl, err := strconv.Atoi(keyStr)
+		if err != nil {
+			continue
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[fl]; ok {
+			existing.merge(h)
+		} else {
+			sketches[fl] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	for fl, h := range sketches {
+		r := by[fl]
+		r.Flags = fl
+		r.UniqIP = int(h.estimate())
+		by[fl] = r
+	}
+
+	return orderFlagsRows(by), nil
+}
+
+// orderFlagsRows materialises the by-flags map into UI display order:
+// keyFlags first (= always shown so the table doesn't lose a familiar slot
+// on a quiet hour), then any remaining observed values, then re-sort by
+// count desc / flags asc, then cap at 30 rows.
+func orderFlagsRows(by map[int]FlagsRow) []FlagsRow {
 	seen := map[int]bool{}
 	var out []FlagsRow
 	for _, fl := range keyFlags {
@@ -1232,7 +1324,7 @@ func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []strin
 	if len(out) > 30 {
 		out = out[:30]
 	}
-	return out, nil
+	return out
 }
 
 // CaptchaForceRow: per-reason counts from load-phase payload_json.force_reason.
@@ -1256,7 +1348,222 @@ type CaptchaForceRow struct {
 // captchaForceKinds: display order = none / each forced reason / unknown.
 var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "unknown"}
 
+// AITrafficRow: one crawler-tag's traffic share over the window.
+//
+// `Tag` is a crawler-user-agents.json tag (= "ai-crawler", "ai-training",
+// "ai-user", "search-engine", etc.).  This card answers "how much of the
+// rl-clean serve traffic was attributable to each crawler family" — the
+// agent-commerce dashboard AWS WAF and Cloudflare are surfacing in 2026.
+type AITrafficRow struct {
+	Tag    string
+	Count  int
+	UniqIP int
+}
+
+// AITrafficBreakdown returns per-crawler-tag counts + distinct IP for the
+// last `hours` window.
+//
+// Path selection:
+//
+//   - site == "" && len(hosts) == 0 && agg ready → install-wide aggregate
+//     (hkAITag / hkAITagIP)
+//   - site != ""                     && agg ready → per-site aggregate
+//     (hkAITagSite / hkAITagSiteIP, keyed '<site>|<tag>')
+//   - host filter (= len(hosts) > 0) || agg not ready → zero rows
+//
+// Host scoping isn't a dimension on this aggregate; the operator filtering
+// by host sees an honest empty card instead of a 30s raw scan.  Same
+// principle for the post-restart window where the aggregate hasn't caught
+// up yet — better to render zeros than to time out the entire dashboard.
+func AITrafficBreakdown(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]AITrafficRow, error) {
+	if len(hosts) > 0 || !HourlyAggReady() {
+		return orderAITrafficRows(nil), nil
+	}
+	if site == "" {
+		return aiTrafficBreakdownAgg(ctx, d, hours)
+	}
+	return aiTrafficBreakdownAggSite(ctx, d, site, hours)
+}
+
+// aiTrafficBreakdownAgg reads the hkAITag count + hkAITagIP HLL bucket
+// kinds.  Order is classify.CrawlerTagOrder (= AI tags first) so the
+// table layout stays stable across refreshes.
+func aiTrafficBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]AITrafficRow, error) {
+	by := map[string]AITrafficRow{}
+
+	cRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkAITag+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        GROUP BY bucket_key`)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var tag string
+		var n int64
+		if err := cRows.Scan(&tag, &n); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		r := by[tag]
+		r.Tag = tag
+		r.Count = int(n)
+		by[tag] = r
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind = '`+hkAITagIP+`'`)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var tag string
+		var blob []byte
+		if err := sRows.Scan(&tag, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[tag]; ok {
+			existing.merge(h)
+		} else {
+			sketches[tag] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	for tag, h := range sketches {
+		r := by[tag]
+		r.Tag = tag
+		r.UniqIP = int(h.estimate())
+		by[tag] = r
+	}
+	return orderAITrafficRows(by), nil
+}
+
+// aiTrafficBreakdownAggSite reads the per-site bucket (hkAITagSite /
+// hkAITagSiteIP).  bucket_key is '<site>|<tag>'; the SQL WHERE narrows by
+// the '<site>|' prefix and Scan splits the tag off the key.
+func aiTrafficBreakdownAggSite(ctx context.Context, d *db.DB, site string, hours int) ([]AITrafficRow, error) {
+	by := map[string]AITrafficRow{}
+	prefix := site + "|"
+	likeArg := prefix + "%"
+
+	cRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkAITagSite+`'
+          AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+          AND bucket_key LIKE ?
+        GROUP BY bucket_key`, likeArg)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var key string
+		var n int64
+		if err := cRows.Scan(&key, &n); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		tag := strings.TrimPrefix(key, prefix)
+		if tag == key {
+			continue // unexpected key shape; skip rather than mis-bucket
+		}
+		r := by[tag]
+		r.Tag = tag
+		r.Count = int(n)
+		by[tag] = r
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind = '`+hkAITagSiteIP+`'
+          AND bucket_key LIKE ?`, likeArg)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var key string
+		var blob []byte
+		if err := sRows.Scan(&key, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		tag := strings.TrimPrefix(key, prefix)
+		if tag == key {
+			continue
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[tag]; ok {
+			existing.merge(h)
+		} else {
+			sketches[tag] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	for tag, h := range sketches {
+		r := by[tag]
+		r.Tag = tag
+		r.UniqIP = int(h.estimate())
+		by[tag] = r
+	}
+	return orderAITrafficRows(by), nil
+}
+
+// orderAITrafficRows materialises by-tag map sorted by Count DESC, with
+// classify.CrawlerTagOrder as the stable tie-breaker.  Every tag is returned
+// even when its count is zero so operators see the full crawler-tag taxonomy
+// at a glance and can confirm an install really got nothing rather than
+// wondering whether the card silently dropped a row.  Zero-count tags fall
+// to the bottom but stay visible (feedback_zero_row_policy).  Mirrors
+// orderCaptchaForceRows.
+func orderAITrafficRows(by map[string]AITrafficRow) []AITrafficRow {
+	out := make([]AITrafficRow, 0, len(classify.CrawlerTagOrder))
+	for _, tag := range classify.CrawlerTagOrder {
+		if r, ok := by[tag]; ok {
+			r.Tag = tag
+			out = append(out, r)
+		} else {
+			out = append(out, AITrafficRow{Tag: tag})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Count > out[j].Count })
+	return out
+}
+
 func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
+	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+		return captchaForceBreakdownAgg(ctx, d, hours)
+	}
+	return captchaForceBreakdownScan(ctx, d, site, hosts, hours)
+}
+
+// captchaForceBreakdownScan: the original raw-scan path.  Used when a host
+// or site filter rules out the install-wide aggregate (= aggregates don't
+// carry host / site dimensions for this card).
+func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	stmt := fmt.Sprintf(`
@@ -1282,6 +1589,82 @@ func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []s
 		}
 		by[v.Kind] = v
 	}
+	return orderCaptchaForceRows(by), nil
+}
+
+// captchaForceBreakdownAgg: install-wide aggregate read.  hkCaptchaForce
+// supplies the count per reason; hkCaptchaForceIP HLL sketches are merged
+// per reason for the distinct-IP estimate.  Same row shape as the scan
+// path so the template doesn't care which one ran.
+func captchaForceBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaForceRow, error) {
+	by := map[string]CaptchaForceRow{}
+
+	cRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkCaptchaForce+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        GROUP BY bucket_key`)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var kind string
+		var n int64
+		if err := cRows.Scan(&kind, &n); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		r := by[kind]
+		r.Kind = kind
+		r.Count = int(n)
+		by[kind] = r
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+          AND bucket_kind = '`+hkCaptchaForceIP+`'`)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var kind string
+		var blob []byte
+		if err := sRows.Scan(&kind, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[kind]; ok {
+			existing.merge(h)
+		} else {
+			sketches[kind] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	for kind, h := range sketches {
+		r := by[kind]
+		r.Kind = kind
+		r.UniqIP = int(h.estimate())
+		by[kind] = r
+	}
+
+	return orderCaptchaForceRows(by), nil
+}
+
+// orderCaptchaForceRows materialises the by-kind map into captchaForceKinds
+// display order, filling missing kinds with zero rows so the UI table never
+// drops a reason.
+func orderCaptchaForceRows(by map[string]CaptchaForceRow) []CaptchaForceRow {
 	out := make([]CaptchaForceRow, 0, len(captchaForceKinds))
 	for _, k := range captchaForceKinds {
 		if r, ok := by[k]; ok {
@@ -1290,7 +1673,7 @@ func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []s
 			out = append(out, CaptchaForceRow{Kind: k})
 		}
 	}
-	return out, nil
+	return out
 }
 
 // ReloadLoopRow: same IP, load phase, reload_count >= 2.

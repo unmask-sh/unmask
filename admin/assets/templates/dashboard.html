@@ -83,11 +83,14 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-/* zero-row collapse. default = hidden (= reduce noise).
-   "shown" state when .bcd-zero-shown is set on the card. User toggle state is
-   persisted to localStorage (= survives reload and navigation). */
-.bcd-zero-row{display:none}
-.bcd-zero-shown .bcd-zero-row{display:table-row}
+/* zero-row visibility. default = SHOWN (feedback_zero_row_policy);
+   .bcd-zero-hidden on the card collapses zero rows.  Toggle is a checkbox
+   inserted right after each table; state persists via localStorage. */
+.bcd-zero-row{display:table-row}
+.bcd-zero-hidden .bcd-zero-row{display:none}
+.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
+.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
+.bcd-zero-toggle:hover{color:#0f172a}
 .bcd-card .bcd-table{visibility:hidden}
 .bcd-card .bcd-table.bcd-ready{visibility:visible}
 .flex{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
@@ -134,6 +137,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
    td/th bg is made transparent so colgroup <col> backgrounds shine through,
    and highlight rows (= bcd-rl / bcd-total) keep their own color via !important. */
 .funnel-grouped th,.funnel-grouped td{background:transparent}
+/* tighten horizontal padding -- 17 columns (verdict + 7 funnel + 3 anomaly +
+   2 rate + 4 meta) overflow even on wide viewports under the base .6rem hpad.
+   Selector specificity is raised to (0,0,2,4) so it beats the base
+   `table.bcd-table > thead > tr > th` (0,0,1,4) padding rule above. */
+table.bcd-table.funnel-grouped > thead > tr > th,
+table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 .funnel-grouped tr.bcd-rl td{background:#fef3c7 !important}
 .funnel-grouped tr.bcd-total td{background:#e0e7ff !important}
 .funnel-grouped thead tr.funnel-sg th{font-size:.7rem;color:#475569;font-weight:600;padding:.3rem .5rem;text-align:center;letter-spacing:.02em;border-bottom:1px solid #cbd5e1}
@@ -347,6 +356,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
 </div>
 
+{{ template "ai_traffic_card" . }}
+{{ template "ai_traffic_card_assets" . }}
+
 <!-- 5) forced-CAPTCHA decisions (by reason) -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.captcha_force" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_force.desc") }}</span></span></h2>
@@ -435,7 +447,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 7) CAPTCHA failure IP ranking -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.captcha_fail" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
-  <table class="bcd-table">
+  <table class="bcd-table" data-no-zero-toggle>
     <thead><tr>
       <th><span class="help-dotted" data-help-key="vng.ip">{{ t .Lang "th.ip" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">{{ t .Lang "th.total" }}</span></th>
@@ -468,7 +480,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 10) stealth bypass -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.stealth" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.stealth.desc") }}</span></span></h2>
-  <table class="bcd-table">
+  <table class="bcd-table" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
       {{range .Stealth}}
@@ -491,7 +503,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 8) JS error -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.js_error" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.js_error.desc") }}</span></span></h2>
-  <table class="bcd-table">
+  <table class="bcd-table" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ua" }}</th><th class="bcd-num">{{ t .Lang "th.flags" }}</th><th>{{ t .Lang "th.error" }}</th><th>{{ t .Lang "th.date" }}</th></tr></thead>
     <tbody>
       {{range .JSErrors}}
@@ -512,7 +524,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 9) Cookie error -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.cookie_err" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie_err.desc") }}</span></span></h2>
-  <table class="bcd-table">
+  <table class="bcd-table" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
       {{range .CookieFails}}
@@ -532,7 +544,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <!-- 6) reload-loop detection -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.reload_loops" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.reload_loops.desc") }}</span></span></h2>
-  <table class="bcd-table">
+  <table class="bcd-table" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.max_reload" }}</th><th class="bcd-num">{{ t .Lang "th.max_flags" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
       {{range .LoopRows}}
@@ -661,19 +673,33 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </script>
 
 <script>
-// zero-row collapse — design rules:
-//   default = hidden (= reduce noise).
-//   user toggles "show / hide" via the control, state is persisted to localStorage.
-//   key: "unmask:zero:" + (h2 text or the table's data-table attribute).
+// zero-row visibility — design rules:
+//   default = SHOWN (= feedback_zero_row_policy: "0 件でも item 自体は default
+//                       表示. toggle で隠せるように").
+//   user ticks a checkbox under the table to collapse zero rows; state is
+//   persisted to localStorage so the choice survives reloads.
+//   key: "unmask:zero_v2:" + (h2 text or DOM index).  The "_v2" suffix
+//   avoids inheriting state from the legacy "default hidden + show toggle"
+//   key whose semantics were inverted.
 document.addEventListener('DOMContentLoaded', function(){
   function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
   function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
 
+  const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
+
   document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
+    // Per-event tables (JSErrors / ReloadLoops / VerifyNGRanking /
+    // CookieSetFails / StealthPassed) carry data-no-zero-toggle: a row is
+    // one event, so "flags == 0" doesn't mean "empty row", and treating it
+    // as one hides legitimate observations.  Opt-out at the table level.
+    if (tbl.hasAttribute('data-no-zero-toggle')) return;
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
-      // rate_limit / TOTAL rows are always visible (= excluded from zero-row collapse)
+      // rate_limit / TOTAL rows are always visible (= excluded from zero-row toggle)
       if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-total')) return false;
+      // Some templates already mark rows via class="muted-row" (= AI card etc.).
+      // Treat that as "this is a zero row" without re-checking each cell.
+      if (tr.classList.contains('muted-row')) return true;
       var nums = tr.querySelectorAll('.bcd-num');
       if (!nums.length) return false;
       return Array.from(nums).every(function(td){
@@ -682,8 +708,6 @@ document.addEventListener('DOMContentLoaded', function(){
         return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
       });
     });
-    // skip the toggle when there are no zero rows (= nothing to act on).
-    // Still show the toggle when every row is zero (= so the user's "hide zeros" hides them all).
     if (zeroRows.length === 0) {
       tbl.classList.add('bcd-ready');
       return;
@@ -691,34 +715,35 @@ document.addEventListener('DOMContentLoaded', function(){
     zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
 
     var card = tbl.closest('.bcd-card') || tbl.parentNode;
-    // table identification key = card's h2 text. Falls back to DOM-order index.
     var h2 = card.querySelector('h2');
     var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
-    var key = 'unmask:zero:' + keySrc;
+    var key = 'unmask:zero_v2:' + keySrc;
 
-    function applyState(shown){
-      card.classList.toggle('bcd-zero-shown', shown);
-      // i18n: receive "hide N zero rows" / "show N zero rows" pre-formatted from the server.
-      // tf returns the full string with %d in it, so substitute zeroRows.length on the JS side.
-      const SHOW_TPL = {{ t .Lang "toggle.show_zero_n" }};
-      const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n" }};
-      const tpl = shown ? HIDE_TPL : SHOW_TPL;
-      toggle.textContent = tpl.replace('%d', zeroRows.length);
+    var label = document.createElement('label');
+    label.className = 'bcd-zero-toggle';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    var span = document.createElement('span');
+    span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
+    label.appendChild(cb);
+    label.appendChild(span);
+
+    function applyState(hide){
+      // When the checkbox is ticked, mark the card and CSS hides the rows.
+      // When unticked the rows fall back to their natural table-row display.
+      card.classList.toggle('bcd-zero-hidden', hide);
     }
 
-    // initial state: if localStorage has "shown", display; otherwise default = hidden.
     var saved = lsGet(key);
-    var initShown = (saved === 'shown');
+    cb.checked = (saved === 'hide');
+    applyState(cb.checked);
 
-    var toggle = document.createElement('div');
-    toggle.className = 'bcd-zero-toggle';
-    toggle.addEventListener('click', function(){
-      var nowShown = !card.classList.contains('bcd-zero-shown');
-      applyState(nowShown);
-      lsSet(key, nowShown ? 'shown' : 'hidden');
+    cb.addEventListener('change', function(){
+      applyState(cb.checked);
+      lsSet(key, cb.checked ? 'hide' : 'show');
     });
-    tbl.parentNode.insertBefore(toggle, tbl.nextSibling);
-    applyState(initShown);
+
+    tbl.parentNode.insertBefore(label, tbl.nextSibling);
     tbl.classList.add('bcd-ready');
   });
 });

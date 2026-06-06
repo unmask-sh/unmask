@@ -180,7 +180,12 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
 
 <div class="bcd-card">
-  <h2>{{ t .Lang "bans.list_h" }} <span style="color:#64748b;font-weight:normal;font-size:.85rem">({{ len .Entries }})</span></h2>
+  <h2 style="display:flex;align-items:center;gap:.6rem">
+    {{ t .Lang "bans.list_h" }}
+    <span style="color:#64748b;font-weight:normal;font-size:.85rem">({{ len .Entries }})</span>
+    <span style="flex:1"></span>
+    <button type="button" class="btn" id="ban-add-btn" data-default-action="{{ .Bans.ManualDefaultAction }}">{{ t .Lang "bans.btn.add" }}</button>
+  </h2>
   <table class="bans">
     <thead>
       <tr>
@@ -198,8 +203,21 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <tbody>
       {{ range .Entries }}
       <tr>
-        <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
-        <td class="mono">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">(any)</span>{{ end }}</td>
+        {{/* "(any)" semantics now follow scope, not column emptiness — a
+             row may have an IP stored as context but still match by JA4
+             only when scope=ja4_only.  Show the stored value as muted /
+             struck-through when scope excludes it from matching. */}}
+        <td class="mono ipclick" data-ip="{{ .IP }}">
+          {{ if .IP }}
+            <img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy">
+            {{ if eq .Scope "ja4_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .IP }}</span>{{ else }}{{ .IP }}{{ end }}
+          {{ else }}<span class="muted">(any)</span>{{ end }}
+        </td>
+        <td class="mono">
+          {{ if .JA4 }}
+            {{ if eq .Scope "ip_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .JA4 }}</span>{{ else }}{{ .JA4 }}{{ end }}
+          {{ else }}<span class="muted">(any)</span>{{ end }}
+        </td>
         <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
         <td>
           {{ if .Action }}
@@ -220,7 +238,17 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         </td>
         <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
         <td class="row-actions">
-          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" onsubmit="return confirm('Unban {{ .IP }}|{{ .JA4 }}?')">
+          {{ if eq .Source "manual" }}
+          <button type="button" class="btn js-ban-edit"
+                  data-id="{{ .ID }}"
+                  data-ip="{{ .IP }}"
+                  data-ja4="{{ .JA4 }}"
+                  data-scope="{{ .Scope }}"
+                  data-reason="{{ .Reason }}"
+                  data-action="{{ .Action }}">{{ t $.Lang "bans.btn.edit" }}</button>
+          {{ end }}
+          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" onsubmit="return confirm('Unban {{ .IP }}|{{ .JA4 }}?')" style="display:inline">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
             <input type="hidden" name="op" value="delete">
             <input type="hidden" name="id" value="{{ .ID }}">
             <button type="submit" class="btn danger">{{ t $.Lang "bans.btn.unban" }}</button>
@@ -228,11 +256,82 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         </td>
       </tr>
       {{ else }}
-      <tr><td colspan="8" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
 </div>
+
+{{/* Shared add/edit dialog.  The single form posts op=add (no id) or op=edit
+     (with id) depending on which entry button fired #ban-add-btn / .js-ban-edit. */}}
+<dialog id="ban-edit-dialog" class="ban-edit-dialog">
+  <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="ban-edit-form">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <h3 id="ban-edit-h">{{ t .Lang "bans.dialog.add_h" }}</h3>
+    <input type="hidden" name="op" id="ban-edit-op" value="add">
+    <input type="hidden" name="id" id="ban-edit-id" value="">
+    <div class="ban-edit-grid">
+      <label class="span2">
+        <span style="display:flex;align-items:center;gap:.3rem">
+          {{ t .Lang "bans.col.scope" }}
+          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.scope.help") }}</span></span>
+        </span>
+        <select name="scope" id="ban-edit-scope">
+          <option value="ip_ja4">{{ t .Lang "bans.scope.ip_ja4" }}</option>
+          <option value="ja4_only">{{ t .Lang "bans.scope.ja4_only" }}</option>
+          <option value="ip_only">{{ t .Lang "bans.scope.ip_only" }}</option>
+        </select>
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.col.ip" }}</span>
+        <input type="text" name="ip" id="ban-edit-ip" placeholder="1.2.3.4">
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.col.ja4" }}</span>
+        <input type="text" name="ja4" id="ban-edit-ja4" placeholder="t13d...">
+      </label>
+      <label class="span2">
+        <span>{{ t .Lang "bans.col.reason" }}</span>
+        <input type="text" name="reason" id="ban-edit-reason" placeholder="DDoS / scraper / etc.">
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.duration_sec" }}</span>
+        <input type="number" name="duration_sec" id="ban-edit-duration" value="0" min="0" max="2592000">
+      </label>
+      <label>
+        <span style="display:flex;align-items:center;gap:.3rem">
+          {{ t .Lang "bans.col.action" }}
+          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.action.help_form") }}</span></span>
+        </span>
+        <select name="ban_action" id="ban-edit-action">
+          <option value="">default</option>
+          <option value="deny">deny</option>
+          <option value="pow_only">pow_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="captcha_only">captcha_only</option>
+        </select>
+      </label>
+    </div>
+    <div class="ban-edit-actions">
+      <button type="button" class="btn" id="ban-edit-cancel">{{ t .Lang "bans.btn.cancel" }}</button>
+      <button type="submit" class="btn primary">{{ t .Lang "bans.btn.save" }}</button>
+    </div>
+  </form>
+</dialog>
+<style>
+.ban-edit-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:32rem;width:90%;background:#fff;color:#0f172a}
+.ban-edit-dialog::backdrop{background:rgba(15,23,42,.45)}
+.ban-edit-dialog form{padding:1rem 1.25rem 1.25rem}
+.ban-edit-dialog h3{margin:0 0 .75rem;font-size:1.05rem}
+.ban-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem .75rem;margin-bottom:.75rem}
+.ban-edit-grid label{display:flex;flex-direction:column;font-size:.8rem;color:#475569;gap:.2rem}
+.ban-edit-grid label.span2{grid-column:1 / span 2}
+.ban-edit-grid input,.ban-edit-grid select{width:100%;padding:.4rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;box-sizing:border-box}
+.ban-edit-hint{font-size:.75rem;color:#64748b;line-height:1.5;margin:0 0 .75rem;padding:.5rem .65rem;background:#f1f5f9;border-radius:.25rem}
+.ban-edit-actions{display:flex;justify-content:flex-end;gap:.5rem}
+.ban-edit-actions .btn.primary{background:#0f172a;color:#fff;border-color:#0f172a}
+.ban-edit-actions .btn.primary:hover{background:#1e293b}
+</style>
 
 <div class="bcd-card">
   <h2 style="display:flex;align-items:center;gap:.5rem">
@@ -240,6 +339,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.defaults_note") }}</span></span>
   </h2>
   <form method="POST" action="{{ .BasePath }}/admin/bans/save">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="save-defaults">
     <div class="add-grid">
       <div>
@@ -257,48 +357,6 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
       </div>
     </div>
-  </form>
-</div>
-
-<div class="bcd-card">
-  <h2>{{ t .Lang "bans.add_h" }}</h2>
-  <form method="POST" action="{{ .BasePath }}/admin/bans/save">
-    <input type="hidden" name="op" value="add">
-    <div class="add-grid">
-      <div>
-        <label>{{ t .Lang "bans.col.ip" }}</label>
-        <input type="text" name="ip" required placeholder="1.2.3.4">
-      </div>
-      <div>
-        <label>{{ t .Lang "bans.col.ja4" }} ({{ t .Lang "bans.ja4_optional" }})</label>
-        <input type="text" name="ja4" placeholder="t13d... ({{ t .Lang "bans.ja4_optional_hint" }})">
-      </div>
-      <div>
-        <label>{{ t .Lang "bans.col.reason" }}</label>
-        <input type="text" name="reason" placeholder="DDoS / scraper / etc.">
-      </div>
-      <div>
-        <label>{{ t .Lang "bans.duration_sec" }}</label>
-        <input type="number" name="duration_sec" value="0" min="0" max="2592000">
-      </div>
-      <div>
-        <label style="display:flex;align-items:center;gap:.3rem">
-          {{ t .Lang "bans.col.action" }}
-          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.action.help_form") }}</span></span>
-        </label>
-        <select name="ban_action">
-          <option value="">default</option>
-          <option value="deny">deny</option>
-          <option value="pow_only">pow_only</option>
-          <option value="pow_then_captcha">pow_then_captcha</option>
-          <option value="captcha_only">captcha_only</option>
-        </select>
-      </div>
-      <div>
-        <button type="submit" class="btn">{{ t .Lang "bans.btn.add" }}</button>
-      </div>
-    </div>
-    <div class="note" style="margin-top:.5rem">{{ safeHTML (t .Lang "bans.add_note") }}</div>
   </form>
 </div>
 
@@ -390,6 +448,198 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
       fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
     });
   });
+})();
+
+// Info-tip popover portal for use inside <dialog>.  Default CSS positions
+// .info-popup absolutely under the tip, but when the tip lives inside a
+// dialog placed near a viewport edge the popup gets clipped by the
+// dialog's top-layer boundary.  We avoid that by rendering a transient
+// clone in document.body on hover/focus, anchored via fixed coords from
+// the tip's bounding box.  The inline popup stays in place for legacy
+// callers; we just hide it inside the dialog.
+(function(){
+  var dlg = document.getElementById('ban-edit-dialog');
+  if (!dlg) return;
+  // Suppress the inline CSS hover popup inside the dialog -- the portal
+  // clone (built below) takes over so we don't get clipped by the dialog's
+  // visual rect.  Also strengthen the portal styling so it renders cleanly
+  // on top of the dialog's content + backdrop in browsers that dim the
+  // dialog's top-layer surface slightly when popovers sit behind it.
+  var style = document.createElement('style');
+  style.textContent =
+    '#ban-edit-dialog .info-tip:hover .info-popup,' +
+    '#ban-edit-dialog .info-tip:focus .info-popup{display:none}' +
+    '#ban-edit-dialog .info-popup-portal{' +
+    '  background:#fff !important;color:#0f172a !important;opacity:1 !important;' +
+    '  box-shadow:0 1rem 2.5rem rgba(15,23,42,.55) !important;' +
+    '  border:1px solid #cbd5e1 !important;border-radius:.4rem !important;' +
+    '  padding:.7rem .9rem !important;width:min(28rem, calc(100vw - 1rem)) !important;' +
+    '  font-size:.8rem !important;line-height:1.6 !important;font-weight:400 !important;' +
+    '}';
+  document.head.appendChild(style);
+
+  // Tips inside this dialog need a portal-clone for both hover and click-pin
+  // because the dialog's ::backdrop covers anything in document.body while
+  // the dialog is open.  Both clones live INSIDE the dialog so they share
+  // its top-layer; click-to-pin reuses the same installInfoTipPinning
+  // machinery the rest of the admin UI uses, parametrised to append to the
+  // dialog and to position fixed (= viewport-relative, no scroll offset).
+  //
+  // The hover portal is still local (= popover-pin.js does not own hover).
+  // It is dismissed when the operator clicks to pin so the pin clone takes
+  // over; multiple pinned clones coexist because each .info-tip stores its
+  // own clone on tip._pinClone, and the global ESC handler peels them in
+  // LIFO order across both the dialog and document.body.
+  var hoverClone = null;
+  function placeFixed(clone, tip){
+    var rect = tip.getBoundingClientRect();
+    var cw = clone.offsetWidth, ch = clone.offsetHeight;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var pad = 8;
+    var left = rect.left;
+    if (left + cw + pad > vw) left = vw - cw - pad;
+    if (left < pad) left = pad;
+    var top = rect.bottom + 4;
+    if (top + ch + pad > vh) top = rect.top - ch - 4;
+    if (top < pad) top = pad;
+    clone.style.left = left + 'px';
+    clone.style.top  = top + 'px';
+  }
+  function showHover(tip){
+    if (tip._pinClone) return; // already pinned -- pin clone takes over
+    if (hoverClone) hoverClone.remove();
+    var src = tip.querySelector('.info-popup');
+    if (!src) return;
+    // Build the portal as a div (= same tag the pin clone uses) so block
+    // layout is unambiguous; some browsers / themes have rendered the
+    // <span>-cloned variant with the wrong background.  innerHTML preserves
+    // the help body verbatim.
+    var c = document.createElement('div');
+    c.className = 'info-popup info-popup-portal';
+    c.setAttribute('data-popover', 'info');
+    c.innerHTML = src.innerHTML;
+    c.style.position = 'fixed';
+    c.style.display = 'block';
+    c.style.zIndex = '2147483647';
+    c.style.background = '#fff';
+    c.style.color = '#0f172a';
+    c.style.opacity = '1';
+    c.style.left = '-9999px';
+    c.style.top = '0';
+    dlg.appendChild(c);
+    placeFixed(c, tip);
+    hoverClone = c;
+  }
+  function dismissHover(){
+    if (hoverClone){ hoverClone.remove(); hoverClone = null; }
+  }
+  dlg.addEventListener('mouseover', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip && dlg.contains(tip)) showHover(tip);
+  });
+  dlg.addEventListener('mouseout', function(ev){
+    var toEl = ev.relatedTarget;
+    if (toEl && toEl.closest && toEl.closest('.info-popup-portal, .info-popup-pinned')) return;
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  });
+  dlg.addEventListener('focusin', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) showHover(tip);
+  });
+  dlg.addEventListener('focusout', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  });
+  // When the operator presses a tip, installInfoTipPinning (called below)
+  // owns the pin lifecycle.  We dismiss the transient hover clone on
+  // mousedown (earlier than click) so the operator never sees the hover
+  // portal stacked behind the pin clone mid-paint.  Belt-and-braces: also
+  // run on click in case mousedown was synthesised away (.click()).
+  function dismissHoverOnTipEvent(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  }
+  dlg.addEventListener('mousedown', dismissHoverOnTipEvent, true);
+  dlg.addEventListener('click',     dismissHoverOnTipEvent, true);
+  dlg.addEventListener('close', function(){
+    dismissHover();
+    // Tear down every pin still open inside the dialog when it closes.
+    dlg.querySelectorAll('.info-popup-pinned').forEach(function(pc){
+      if (typeof pc._popoverUnpin === 'function') pc._popoverUnpin();
+      else pc.remove();
+    });
+  });
+
+  // Wire the dialog's tips against the shared installInfoTipPinning, but
+  // with options that put the pin clone INSIDE the dialog (top-layer) and
+  // position it fixed (= viewport-relative; the dialog ignores document
+  // scroll).  popover-pin.js's auto-wire skips tips inside <dialog>, so
+  // this is the only place these specific tips get wired.
+  if (typeof window.installInfoTipPinning === 'function'){
+    window.installInfoTipPinning(dlg, { container: dlg, positionMode: 'fixed' });
+  }
+})();
+
+// BAN add / edit modal.  One <dialog>, two ops: "+ 追加" opens empty + op=add;
+// row 「編集」 pre-fills from data-* + op=edit + id=<row id>.  Cancel resets via
+// the close hook so reopening is always clean.
+(function(){
+  var dlg = document.getElementById('ban-edit-dialog');
+  if (!dlg || !dlg.showModal) return;
+  var h3   = document.getElementById('ban-edit-h');
+  var op   = document.getElementById('ban-edit-op');
+  var id   = document.getElementById('ban-edit-id');
+  var ip   = document.getElementById('ban-edit-ip');
+  var ja4  = document.getElementById('ban-edit-ja4');
+  var scope = document.getElementById('ban-edit-scope');
+  var rsn  = document.getElementById('ban-edit-reason');
+  var dur  = document.getElementById('ban-edit-duration');
+  var act  = document.getElementById('ban-edit-action');
+  var addBtn = document.getElementById('ban-add-btn');
+  var cancel = document.getElementById('ban-edit-cancel');
+  var addLabel  = "{{ t .Lang "bans.dialog.add_h" }}";
+  var editLabel = "{{ t .Lang "bans.dialog.edit_h" }}";
+
+  function reset(){
+    if (op)  op.value  = 'add';
+    if (id)  id.value  = '';
+    if (ip)  ip.value  = '';
+    if (ja4) ja4.value = '';
+    if (scope) scope.value = 'ip_ja4';
+    if (rsn) rsn.value = '';
+    if (dur) dur.value = '0';
+    if (act) act.value = '';
+  }
+  if (addBtn) addBtn.addEventListener('click', function(){
+    reset();
+    if (h3) h3.textContent = addLabel;
+    dlg.showModal();
+    if (ip) ip.focus();
+  });
+  document.querySelectorAll('.js-ban-edit').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      reset();
+      if (op)    op.value    = 'edit';
+      if (id)    id.value    = btn.getAttribute('data-id')     || '';
+      if (ip)    ip.value    = btn.getAttribute('data-ip')     || '';
+      if (ja4)   ja4.value   = btn.getAttribute('data-ja4')    || '';
+      if (scope) scope.value = btn.getAttribute('data-scope')  || 'ip_ja4';
+      if (rsn)   rsn.value   = btn.getAttribute('data-reason') || '';
+      if (act)   act.value   = btn.getAttribute('data-action') || '';
+      // duration_sec on edit means "reset expiry to N from now"; default 0 =
+      // keep / make permanent depending on the manager rule (= 0 = permanent).
+      if (dur)   dur.value   = '0';
+      if (h3)    h3.textContent = editLabel;
+      dlg.showModal();
+      if (ip) ip.focus();
+    });
+  });
+  if (cancel) cancel.addEventListener('click', function(){
+    dlg.close('cancel');
+  });
+  // ESC / backdrop close triggers the native close event; reset on next open
+  // is handled by reset() at the start of the open handlers above.
 })();
 
 </script>

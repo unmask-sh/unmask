@@ -65,9 +65,9 @@ func readSetupToken() string {
 
 // hasValidSetupToken: does the current request carry a valid token cookie?
 // Docker containers and local dev may not have the token file at all; in
-// that case absence of a token means "open setup" (= backward-compatible
-// / non-destructive).  Production rpm installs always generate the
-// token via postinstall, so verification is enforced.
+// that case absence of a token means "open setup" (= non-destructive).
+// Production rpm installs always generate the token via postinstall, so
+// verification is enforced there.
 func hasValidSetupToken(r *http.Request) bool {
 	expected := readSetupToken()
 	if expected == "" {

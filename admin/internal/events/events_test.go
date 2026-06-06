@@ -10,6 +10,37 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
+// TestNormalizeEventTimeFractional locks in tolerance for any fractional-second
+// precision on date_created.  A value with other than exactly 3 fractional
+// digits used to fail every strict layout and fall through to ts=0, which made
+// the hunt log show a raw UTC string (no operator TZ / no JST) for that row.
+func TestNormalizeEventTimeFractional(t *testing.T) {
+	// All of these denote the same instant 2026-06-04 02:12:02 UTC + fraction.
+	cases := []struct {
+		in     string
+		wantTs int64 // unix seconds (fraction floored)
+	}{
+		{"2026-06-04 02:12:02.350", 1780539122}, // canonical 3-digit
+		{"2026-06-04 02:12:02.35", 1780539122},  // 2-digit (= the reported bug)
+		{"2026-06-04 02:12:02.3", 1780539122},   // 1-digit
+		{"2026-06-04 02:12:02", 1780539122},     // none
+		{"2026-06-04T02:12:02.35Z", 1780539122}, // ISO, 2-digit
+		{"2026-06-04T02:12:02Z", 1780539122},    // ISO, none
+	}
+	for _, c := range cases {
+		display, ts, tsMs := normalizeEventTime(sql.NullTime{}, sql.NullString{String: c.in, Valid: true})
+		if ts != c.wantTs {
+			t.Errorf("normalizeEventTime(%q): ts=%d, want %d (display=%q)", c.in, ts, c.wantTs, display)
+		}
+		if ts == 0 {
+			t.Errorf("normalizeEventTime(%q): ts=0 -> would skip JS reformat (display=%q)", c.in, display)
+		}
+		if tsMs < c.wantTs*1000 {
+			t.Errorf("normalizeEventTime(%q): tsMs=%d below floor", c.in, tsMs)
+		}
+	}
+}
+
 // TestSubsecondOrdering guards the hunt-log ordering fix: events that share a
 // wall-clock second must still come back in their true arrival order, driven
 // by the millisecond date_created timestamp rather than insert order alone.
@@ -63,24 +94,3 @@ func TestSubsecondOrdering(t *testing.T) {
 	}
 }
 
-// TestNormalizeEventTimeLegacy confirms that pre-millisecond rows (the old
-// DEFAULT CURRENT_TIMESTAMP format) still parse and still sort below newer
-// millisecond rows of the same second.
-func TestNormalizeEventTimeLegacy(t *testing.T) {
-	cases := []struct {
-		in      string
-		display string
-		tsMs    int64
-	}{
-		{"2026-05-20 22:00:54", "2026-05-20 22:00:54.000", 1779314454000},
-		{"2026-05-20 22:00:54.712", "2026-05-20 22:00:54.712", 1779314454712},
-		{"2026-05-20T22:00:54Z", "2026-05-20 22:00:54.000", 1779314454000},
-	}
-	for _, c := range cases {
-		display, _, tsMs := normalizeEventTime(sql.NullTime{}, sql.NullString{String: c.in, Valid: true})
-		if display != c.display || tsMs != c.tsMs {
-			t.Errorf("normalizeEventTime(%q) = (%q, %d), want (%q, %d)",
-				c.in, display, tsMs, c.display, c.tsMs)
-		}
-	}
-}

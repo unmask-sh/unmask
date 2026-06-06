@@ -266,7 +266,7 @@ map $unmatched_chain_action $unmatched_should_challenge {
 # bv (bot-verified) cookie classification aliases
 # -----------------------------------------------------------------------------
 # Provide short aliases for the 3 variables the plugin exposes.
-#   $bv_kind          : "captcha" (3-seg HMAC OK) / "pow" (4-seg djb2 OK) / ""
+#   $bv_kind          : "captcha" (3-seg HMAC OK) / "pow" (4-seg SHA-256 OK) / ""
 #   $bv_captcha_valid : 1 if $bv_kind == "captcha", else 0
 #   $bv_pow_valid     : 1 if $bv_kind == "pow", else 0
 #   $bv_any_valid     : 1 if any of the above, else 0  ("repeater" check)
@@ -698,9 +698,7 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # -----------------------------------------------------------------------------
 # unmask upstream (= proxy target for server.inc).  Lives at the tail of
 # this file so a single `include http.inc;` covers both http-scope
-# directives + the upstream block (= the legacy /etc/unmask/upstream.conf was
-# retired in favour of this).  Renamed from "unmask_admin" alongside the
-# binary rename (= /usr/sbin/unmask-admin -> /usr/sbin/unmask).
+# directives + the upstream block.
 #
 # bind forms (= server.bind in config.yml):
 #   - TCP    : "127.0.0.1:8765"        -> `server 127.0.0.1:8765;`

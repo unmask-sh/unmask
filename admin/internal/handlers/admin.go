@@ -32,6 +32,11 @@ const tzCookieName = "unmask_tz"
 // resolveTZ reads the TZ from the cookie.  Whatever IANA tz name the picker UI
 // wrote is used directly.  Empty ("browser-auto" selected) returns "" and the
 // template / JS side resolves with Intl auto.
+//
+// The picker JS writes the cookie via encodeURIComponent(), so "Asia/Tokyo"
+// arrives as "Asia%2FTokyo" — decodeCookieValue undoes that.  Without the
+// decode the '%' fails the allowlist below and the operator silently falls
+// back to UTC.
 func resolveTZ(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -40,7 +45,7 @@ func resolveTZ(r *http.Request) string {
 	if err != nil || c == nil {
 		return ""
 	}
-	v := c.Value
+	v := decodeCookieValue(c.Value)
 	if v == "browser" || v == "auto" {
 		return ""
 	}
@@ -305,9 +310,43 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
 				// Sliding extension on each request: refresh when remaining lifetime drops below half of TTL.
+				secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 				if sessionNeedsRefresh(pay) {
-					secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 					http.SetCookie(w, issueSessionCookie(secret, pay.UserID, pay.Role, secure, pay.Remember))
+				}
+				// Backfill the CSRF cookie for sessions issued before the
+				// CSRF roll-out (= existing logins).  Self-redirect on a GET
+				// so the next request renders templates with the freshly
+				// stamped value populated; a POST without a token still
+				// 403s (= the operator reloads, picks up the cookie, retries).
+				if CSRFTokenFromRequest(r) == "" {
+					if tok, terr := newCSRFToken(); terr == nil {
+						http.SetCookie(w, issueCSRFCookie(tok, secure, pay.Remember))
+						if r.Method == http.MethodGet || r.Method == http.MethodHead {
+							http.Redirect(w, r, r.URL.String(), http.StatusSeeOther)
+							return
+						}
+					}
+				}
+				// CSRF: every state-changing method that flows through
+				// AuthMiddleware (= POST / PUT / PATCH / DELETE) must
+				// carry a token matching the cookie.  GET / HEAD /
+				// OPTIONS pass through untouched -- they don't mutate
+				// state and the browser would not attach the cookie via
+				// a cross-origin request (SameSite=Strict).
+				if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
+					if err := r.ParseForm(); err != nil {
+						http.Error(w, "form parse error", http.StatusBadRequest)
+						return
+					}
+					if !verifyCSRF(r) {
+						if strings.HasPrefix(r.URL.Path, h.Settings.Server.BasePath+"/admin/api/") {
+							writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "csrf"})
+							return
+						}
+						http.Error(w, "csrf token mismatch (= reload the page and retry)", http.StatusForbidden)
+						return
+					}
 				}
 				ctx := context.WithValue(r.Context(), sessionCtxKey{}, pay)
 				next(w, r.WithContext(ctx))
@@ -442,8 +481,8 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 
 // hostAllowed reports whether the Host header matches any entry in allowList.
 // Comparison is case-insensitive and any trailing port (= ":443" etc.) is
-// stripped before matching.  Empty allowList means allow all (legacy compat;
-// avoids lockout from misconfiguration).
+// stripped before matching.  Empty allowList means allow all (= the default;
+// avoids lockout from misconfiguration on first install).
 //
 // IPv6 literals come in as "[::1]:443" / "[::1]" — strip ":port" only when
 // the host isn't already bracketed at the end.
@@ -477,8 +516,8 @@ func hostAllowed(host string, allowList []string) bool {
 }
 
 // ipAllowed reports whether ip matches any entry in allowList.  Supports both
-// exact and CIDR.  Empty allowList means allow all (legacy compat; avoids
-// lockout from misconfiguration).
+// exact and CIDR.  Empty allowList means allow all (= the default; avoids
+// lockout from misconfiguration on first install).
 func ipAllowed(ip string, allowList []string) bool {
 	if len(allowList) == 0 {
 		return true
@@ -508,13 +547,16 @@ func ipAllowed(ip string, allowList []string) bool {
 }
 
 // addMeToData injects the common header data used by every admin page render:
-// "Me" / "MeName" / "BasePath" (consumed by the user_menu partial) plus the
-// host / site picker data consumed by the header_tools partial.  When
-// unauthenticated (e.g. login page) Me / MeName are skipped; BasePath and the
-// picker data are always set (the pickers are not session-dependent).
+// "Me" / "MeName" / "BasePath" / "CSRFToken" (consumed by the user_menu partial
+// and every POST form) plus the host / site picker data consumed by the
+// header_tools partial.  When unauthenticated (e.g. login page) Me / MeName
+// are skipped; BasePath / CSRFToken / picker data are always set.
 func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["BasePath"]; !ok {
 		data["BasePath"] = h.Settings.Server.BasePath
+	}
+	if _, ok := data["CSRFToken"]; !ok {
+		data["CSRFToken"] = CSRFTokenFromRequest(r)
 	}
 	if pay := SessionFromContext(r); pay != nil {
 		data["Me"] = pay
@@ -677,19 +719,20 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 		rejectInvalid()
 		return
 	}
-	// success.  Transparently rehash legacy bcrypt to argon2id while we have
-	// the plaintext.  best-effort (= login itself succeeds even if the rewrite
-	// fails; the next successful login will retry).
-	if user.IsLegacyHash(u.PasswordHash) {
-		if err := h.UserRepo.SetPassword(r.Context(), u.ID, password); err != nil {
-			log.Printf("argon2id rehash: %v", err)
-		}
-	}
 	h.UserRepo.TouchLastLogin(r.Context(), u.ID)
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	remember := r.FormValue("remember") != ""
 	http.SetCookie(w, issueSessionCookie(h.Settings.Secret.BVSecret, u.ID, u.Role, secure, remember))
+	// Pair the session with a fresh CSRF token (= double-submit cookie).
+	// A token failure here is logged but not fatal: an operator can
+	// still navigate to GET pages, and the templates' AuthMiddleware
+	// path will issue one on the next request.
+	if tok, err := newCSRFToken(); err == nil {
+		http.SetCookie(w, issueCSRFCookie(tok, secure, remember))
+	} else {
+		log.Printf("csrf token generate: %v", err)
+	}
 	http.Redirect(w, r, ret, http.StatusFound)
 }
 
@@ -704,6 +747,7 @@ func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
 	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, clearSessionCookie(secure))
+	http.SetCookie(w, clearCSRFCookie(secure))
 	http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/login", http.StatusFound)
 }
 
@@ -906,6 +950,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		cookieFails     []dashboard.CookieFailRow
 		stealth         []dashboard.StealthRow
 		jsErrs          []dashboard.JSErrorRow
+		aiTraffic       []dashboard.AITrafficRow
+		aiTrafficAll    []AITrafficRow
 		dailyKind       []dashboard.DailyKindBucket
 		dailyTotal      []dashboard.DailyTotal
 		dailyServeKind  []dashboard.DailyKindBucket
@@ -957,6 +1003,12 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	run("CookieSetFails", func() { cookieFails, _ = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours) })
 	run("StealthPassed", func() { stealth, _ = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts) })
 	run("JSErrors", func() { jsErrs, _ = dashboard.JSErrors(ctx, h.DB, site, hosts, hours) })
+	run("AITrafficBreakdown", func() { aiTraffic, _ = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours) })
+	// All-traffic view (= access-log pipeline, includes rescued/bypassed
+	// crawlers).  unmask_crawler_minute is install-wide; the site filter
+	// doesn't narrow it, but we still expose the data so the stats card
+	// can show the "all" tab alongside the site-scoped "served" view.
+	run("AITrafficAll", func() { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60) })
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).
@@ -1189,6 +1241,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"CookieFails":        cookieFails,
 		"Stealth":            stealth,
 		"JSErrors":           jsErrs,
+		"AITrafficServed":    aiTraffic,
+		"AITraffic":          aiTrafficAll,
 		"DailyKindJSON":      template.JS(dailyKindJSON),
 		"DailyTotal":         dailyTotal,
 		"PassSumTotal":       sumTotal,

@@ -10,7 +10,8 @@ secret:
   captcha_secret_base: "e2e-docker-captcha-base-do-not-use-in-prod"
 
 challenge:
-  cookie_days: 3
+  pow_cookie_valid_seconds: 604800       # 7 days
+  captcha_cookie_valid_seconds: 1209600  # 14 days
   captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 200
   # Scenarios 12 / 13 hit admin:9477 directly with X-Client-JA4 set, bypassing
@@ -81,8 +82,16 @@ nginx:
   # Scenario 12 (= max-severity composition) needs both axes wired:
   #   - geo: JP rule action=pow_only / CN rule action=deny
   #   - ja4: a known fingerprint classified as bot
-  # The test sends X-Original-IP=192.0.2.81 (= JP via UNMASK_TEST_GEO_OVERRIDE)
-  # and X-Client-JA4=t13e2e0bot01_xxx_yyy (= matches the extra rule below).
+  #   - trusted_lb_extra: accept X-Client-JA4 from any peer (the host curl in
+  #     scenario 12 hits the docker-mapped 19477 → docker bridge IP inside
+  #     the container, which isn't 127.0.0.1; without this rule the JA4 axis
+  #     stays silent and the ja4_bot vote disappears)
+  trusted_lb_extra:
+    - id: e2e
+      label: "e2e (host curl trust)"
+      cidrs:
+        - 0.0.0.0/0
+        - ::/0
   geo:
     default_action: skip
     rules:

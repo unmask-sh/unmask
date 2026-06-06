@@ -44,6 +44,9 @@ func Migrate(conn *DB) error {
 	if err := ensureCookieMinuteKind(conn); err != nil {
 		return fmt.Errorf("ensure cookie_minute kind/cnt schema: %w", err)
 	}
+	if err := ensureBanScopeColumn(conn); err != nil {
+		return err
+	}
 	if err := ensureBanActionColumn(conn); err != nil {
 		return fmt.Errorf("ensure ban action column: %w", err)
 	}
@@ -93,6 +96,48 @@ func ensureBanActionColumn(conn *DB) error {
 	stmt := `ALTER TABLE unmask_ban ADD COLUMN action VARCHAR(32) NOT NULL DEFAULT ''`
 	if _, err := conn.Exec(stmt); err != nil {
 		return fmt.Errorf("add action column: %w", err)
+	}
+	return nil
+}
+
+// ensureBanScopeColumn: ALTER an old-schema unmask_ban table (= no scope
+// column) to add the per-row match scope selector.  Existing rows are
+// back-filled by inference: an empty IP becomes ja4_only, an empty JA4
+// becomes ip_only, both non-empty stays ip_ja4 (= the legacy default).
+// Idempotent + no-op on a fresh install.
+func ensureBanScopeColumn(conn *DB) error {
+	hasTbl, err := hasTable(conn, "unmask_ban")
+	if err != nil {
+		return fmt.Errorf("introspect table: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	hasCol, err := hasColumn(conn, "unmask_ban", "scope")
+	if err != nil {
+		return fmt.Errorf("introspect scope column: %w", err)
+	}
+	if hasCol {
+		return nil
+	}
+	if _, err := conn.Exec(
+		`ALTER TABLE unmask_ban ADD COLUMN scope VARCHAR(16) NOT NULL DEFAULT 'ip_ja4'`,
+	); err != nil {
+		return fmt.Errorf("add scope column: %w", err)
+	}
+	// Back-fill the inferred scope for legacy rows so the C plugin's
+	// scope-aware lookup keeps catching them after the upgrade.  No-op when
+	// the back-fill ran already (= subsequent operator edits set scope
+	// explicitly via the modal).
+	if _, err := conn.Exec(
+		`UPDATE unmask_ban SET scope = 'ja4_only' WHERE ip = '' AND ja4 <> '' AND scope = 'ip_ja4'`,
+	); err != nil {
+		return fmt.Errorf("back-fill ja4_only scope: %w", err)
+	}
+	if _, err := conn.Exec(
+		`UPDATE unmask_ban SET scope = 'ip_only' WHERE ja4 = '' AND ip <> '' AND scope = 'ip_ja4'`,
+	); err != nil {
+		return fmt.Errorf("back-fill ip_only scope: %w", err)
 	}
 	return nil
 }
@@ -575,7 +620,7 @@ CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
 -- kind values (= any ASCII string):
 --   "total"            : total request count
 --   "captcha"          : repeater carrying a 3-seg _bv with HMAC OK
---   "pow"              : repeater carrying a 4-seg _bv with djb2 OK
+--   "pow"              : repeater carrying a 4-seg _bv with SHA-256 OK
 --   "challenge_served" : the request was answered with challenge HTML
 --   Any new kind the plugin emits later is recorded as additional rows with no schema change.
 CREATE TABLE IF NOT EXISTS unmask_cookie_minute (
@@ -625,6 +670,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     expires_at  INTEGER NOT NULL DEFAULT 0,
     banned_by   VARCHAR(64),
     action      VARCHAR(32) NOT NULL DEFAULT '',
+    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
     UNIQUE (ip, ja4)
 );
 CREATE INDEX IF NOT EXISTS idx_ban_expires ON unmask_ban(expires_at);
@@ -725,6 +771,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     expires_at  BIGINT NOT NULL DEFAULT 0,
     banned_by   VARCHAR(64),
     action      VARCHAR(32) NOT NULL DEFAULT '',
+    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
     PRIMARY KEY (id),
     UNIQUE KEY uk_ip_ja4 (ip, ja4),
     KEY idx_expires (expires_at),

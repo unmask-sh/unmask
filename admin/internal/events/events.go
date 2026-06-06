@@ -413,10 +413,19 @@ func extractStringField(payload, key string, maxLen int) string {
 	return rest[:end]
 }
 
-// eventTimeLayouts lists every layout unmask has written into date_created:
-// the current millisecond format first, then legacy second-precision rows
-// (the old DEFAULT CURRENT_TIMESTAMP) and the ISO-8601 variant modernc/sqlite
-// returns for those.
+// eventTimeLayouts lists the layouts admin writes into date_created.
+// The millisecond format is canonical; the ISO-8601 variant is what
+// modernc/sqlite returns to Go for the same value.
+//
+// The bare-second layouts are the robust fallback: Go's time.Parse
+// auto-absorbs a fractional second after the seconds field when the
+// layout itself carries no fractional specifier, so they match ANY
+// precision (.35 / .350 / .350000 / none).  Without them a value with
+// other than exactly 3 fractional digits (= e.g. a DATETIME(2) column,
+// or a trailing-zero-trimmed store) fails every strict layout, falls
+// through to the raw-string branch with ts=0, and the operator sees an
+// un-reformatted UTC string (= no operator-TZ, no JST) on the hunt log.
+// Keep in sync with dashboard.parseDateTimeToUnix.
 var eventTimeLayouts = []string{
 	"2006-01-02 15:04:05.000",
 	"2006-01-02T15:04:05.000Z",

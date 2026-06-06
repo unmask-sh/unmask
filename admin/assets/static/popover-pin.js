@@ -157,7 +157,7 @@ window.popoverPin = window.popoverPin || (function(){
       btn.classList.add('popover-copy-ok');
       // In addition to the icon swap, float a small "copied" chip below the
       // title bar so the action is confirmed in plain words for visitors who
-      // don't recognise the ⧉ → ✓ glyph swap.  Anchored to the clone so the
+      // don't recognise the ❐ → ✓ glyph swap.  Anchored to the clone so the
       // pill follows the popover if dragged mid-fade.
       var existing = clone.querySelector('.popover-copied-toast');
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
@@ -203,8 +203,18 @@ window.popoverPin = window.popoverPin || (function(){
     attachDragToBar(tools, clone);
     var icon = document.createElement('span');
     icon.className = 'popover-icon';
-    icon.setAttribute('aria-hidden', 'true');
+    icon.setAttribute('aria-label', 'double-click to close');
+    icon.setAttribute('role', 'button');
+    icon.setAttribute('tabindex', '0');
     icon.textContent = 'ⓘ';
+    // Windows-style "double-click the app icon to close".  Use
+    // stopImmediatePropagation so the title bar's dblclick-to-collapse
+    // handler never runs in any browser regardless of listener ordering.
+    icon.addEventListener('dblclick', function(e){
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (typeof onClose === 'function') onClose();
+    });
     tools.appendChild(icon);
     if (title){
       var t = document.createElement('span');
@@ -217,7 +227,7 @@ window.popoverPin = window.popoverPin || (function(){
     copy.type = 'button';
     copy.className = 'popover-copy';
     copy.setAttribute('aria-label', 'copy');
-    copy.textContent = '⧉';
+    copy.textContent = '❐';
     copy.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
       copyCloneBody(clone, copy);
@@ -233,10 +243,11 @@ window.popoverPin = window.popoverPin || (function(){
     function toggleCollapse(){
       // Freeze the rendered width on the way down so the bar doesn't snap
       // back to the popover's natural narrow size once the body is hidden.
-      // Restore on expand so the popover can grow again if the body / title
-      // text would have changed.  Also clear the inline `height` that
-      // attachResize sets: a regular inline declaration is treated as an
-      // author-normal rule, and Chromium currently lets it beat the
+      // Keep the frozen width on expand too: the user's collapse-and-restore
+      // cycle should preserve whatever horizontal footprint they last had
+      // (manual resize or initial render).  Also clear the inline `height`
+      // that attachResize sets: a regular inline declaration is treated as
+      // an author-normal rule, and Chromium currently lets it beat the
       // `height: 1.85rem !important` collapse rule — clearing the inline
       // value lets the CSS shrink the popover down to the toolbar height.
       var willCollapse = !clone.classList.contains('popover-collapsed');
@@ -245,7 +256,6 @@ window.popoverPin = window.popoverPin || (function(){
         clone._popoverPrevHeight = clone.style.height;
         clone.style.height = '';
       } else {
-        clone.style.width = '';
         clone.style.height = clone._popoverPrevHeight || '';
         clone._popoverPrevHeight = null;
       }
@@ -258,10 +268,14 @@ window.popoverPin = window.popoverPin || (function(){
     });
     tools.appendChild(col);
     // Windows-style title-bar shortcut: double-click anywhere on the bar
-    // (except a button) toggles collapse.  Same code path as the collapse
-    // button so the chevron glyph flips correctly.
+    // (except a button or the icon) toggles collapse.  Same code path as
+    // the collapse button so the chevron glyph flips correctly.  The icon
+    // exclusion exists so the icon's own "dblclick to close" gesture
+    // never gets shadowed by collapse-toggle on browsers where bubble
+    // ordering differs.
     tools.addEventListener('dblclick', function(e){
       if (e.target.closest('button')) return;
+      if (e.target.closest('.popover-icon')) return;
       e.preventDefault();
       toggleCollapse();
     });
@@ -426,9 +440,51 @@ window.popoverPin = window.popoverPin || (function(){
       attachResize(clone);
       return clone;
     }
+    // Stuck-popover watchdog.  Browsers do NOT reliably fire mouseout /
+    // mouseleave when the cursor moves fast enough to "teleport" out of an
+    // element between two frames, so the per-element `mouseleave -> hideHover`
+    // wiring in the templates occasionally misses and leaves the hover
+    // popover stranded on screen.  CSS `:hover` is the browser's ground truth
+    // for "is the pointer over this element" and is immune to dropped events,
+    // so we poll it on a rAF-throttled document mousemove: when the hover
+    // popover is up but neither its owning trigger nor the popover itself is
+    // hovered any more, dismiss it.  Pinned clones are separate elements and
+    // are unaffected (= they intentionally persist).
+    var hoverTrigger = null;
+    var hoverShown = false;
+    function reconcileHover(){
+      if (!hoverShown) return;
+      if (hoverTrigger && hoverTrigger.matches && hoverTrigger.matches(':hover')) return;
+      if (primary.matches && primary.matches(':hover')) return;
+      primary.style.display = 'none';
+      hoverShown = false;
+      hoverTrigger = null;
+    }
+    var hoverRaf = false;
+    document.addEventListener('mousemove', function(){
+      if (!hoverShown || hoverRaf) return;
+      hoverRaf = true;
+      requestAnimationFrame(function(){ hoverRaf = false; reconcileHover(); });
+    }, { passive: true });
     return {
-      showHover: function(html, x, y){ showAt(primary, html, x, y); },
-      hideHover: function(){ primary.style.display = 'none'; },
+      showHover: function(html, x, y, trigger){
+        showAt(primary, html, x, y);
+        hoverShown = true;
+        if (trigger) {
+          hoverTrigger = trigger;
+        } else {
+          // Derive the owning trigger by hit-testing the anchor point.  Hide
+          // the popover's own pointer surface for the test so a popover that
+          // got clamped over the anchor doesn't shadow the real trigger.
+          var cx = x - window.scrollX, cy = y - window.scrollY;
+          var prevPE = primary.style.pointerEvents;
+          primary.style.pointerEvents = 'none';
+          var under = document.elementFromPoint(cx, cy);
+          primary.style.pointerEvents = prevPE;
+          hoverTrigger = (under && !primary.contains(under)) ? under : null;
+        }
+      },
+      hideHover: function(){ primary.style.display = 'none'; hoverShown = false; hoverTrigger = null; },
       hasPinFor: function(trigger){
         var c = pins.get(trigger);
         if (c && c.isConnected) return true;
@@ -499,10 +555,100 @@ window.popoverPin = window.popoverPin || (function(){
 //
 // usage: auto-wires .info-tip elements with the data-pinnable attribute.  Designed to coexist
 // with pages whose existing hover/click logic already toggles .pinned (e.g. settings.html).
-window.installInfoTipPinning = window.installInfoTipPinning || function(root){
+// installInfoTipPinning(root, opts):
+//
+//   root  -- element subtree whose .info-tip descendants get wired.
+//            Default: document.  When opening a <dialog>, pass the dialog
+//            element here so newly-rendered tips inside it get wired too.
+//
+//   opts  -- optional behaviour overrides:
+//     container  : DOM node the pin clone is appended to.
+//                  Default: document.body.
+//                  For tips inside a <dialog>, pass the dialog so the clone
+//                  inherits the dialog's top-layer (= renders above the
+//                  ::backdrop overlay).
+//     positionMode : 'absolute' (default) -- coords are page-relative
+//                                            (= include scrollX/Y).  Used
+//                                            for body-level clones so they
+//                                            stay anchored as the page scrolls.
+//                    'fixed' -- coords are viewport-relative (no scroll).
+//                               Required for clones inside a <dialog>
+//                               because the dialog's top-layer ignores
+//                               document scroll.
+//     dragClampMargin : minimum pixels of the clone (title bar) that must
+//                       remain inside the viewport when the operator drags
+//                       it.  Default 24px so the bar is always grabbable.
+//
+// Multi-pin: each .info-tip stores its current clone on `tip._pinClone`,
+// so different tips can be pinned simultaneously and ESC peels them in
+// LIFO order via the global ESC handler.  Re-clicking the same tip
+// removes its clone.
+window.installInfoTipPinning = window.installInfoTipPinning || function(root, opts){
   root = root || document;
+  opts = opts || {};
+  var container = opts.container || document.body;
+  var positionMode = opts.positionMode === 'fixed' ? 'fixed' : 'absolute';
+  var dragClampMargin = typeof opts.dragClampMargin === 'number' ? opts.dragClampMargin : 24;
+
+  // Drag handler that matches the chosen position mode.  The factory
+  // captures positionMode in its closure so each pinned clone keeps the
+  // coord space it was created in even after popoverPin's globals get
+  // re-installed.
+  function attachDrag(bar, clone){
+    bar.addEventListener('mousedown', function(e){
+      if (e.target.closest('button')) return;
+      e.preventDefault();
+      var rect = clone.getBoundingClientRect();
+      var sx = e.clientX, sy = e.clientY;
+      // position:absolute keeps the popup attached to the document, so
+      // mouse moves accumulate from a page-relative origin (= rect + scroll).
+      // position:fixed pins to the viewport; origin is the raw rect.
+      var ox = rect.left + (positionMode === 'absolute' ? window.scrollX : 0);
+      var oy = rect.top  + (positionMode === 'absolute' ? window.scrollY : 0);
+      function clampX(x){
+        var vw = document.documentElement.clientWidth;
+        var w  = clone.offsetWidth;
+        var keep = dragClampMargin;
+        // Express bounds in the same coord space as `x` (= page-relative
+        // when absolute, viewport-relative when fixed).  scrollX is 0 for
+        // the fixed branch since we never added it above.
+        var base = positionMode === 'absolute' ? window.scrollX : 0;
+        var minX = base + keep - w;
+        var maxX = base + vw - keep;
+        if (x < minX) x = minX;
+        if (x > maxX) x = maxX;
+        return x;
+      }
+      function clampY(y){
+        var vh = document.documentElement.clientHeight;
+        var keep = dragClampMargin;
+        var base = positionMode === 'absolute' ? window.scrollY : 0;
+        var minY = base;
+        var maxY = base + vh - keep;
+        if (y < minY) y = minY;
+        if (y > maxY) y = maxY;
+        return y;
+      }
+      function onMove(ev){
+        clone.style.left = clampX(ox + ev.clientX - sx) + 'px';
+        clone.style.top  = clampY(oy + ev.clientY - sy) + 'px';
+      }
+      function onUp(){
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
   var tips = root.querySelectorAll('.info-tip');
   tips.forEach(function(tip){
+    // Tips inside a <dialog> need dialog-aware wiring (= container + fixed
+    // positioning).  When skipInDialog is set (the default for the page-load
+    // auto-wire), leave them for the dialog's own setup to handle so we
+    // don't bind a body-targeted listener that would race the dialog one.
+    if (opts.skipInDialog && tip.closest && tip.closest('dialog')) return;
     if (tip.dataset.pinWired === '1') return;
     tip.dataset.pinWired = '1';
     tip.addEventListener('click', function(e){
@@ -522,16 +668,24 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
       }
       var popup = tip.querySelector('.info-popup');
       if (!popup) return;
+      // Safety net: clear any transient hover-portal clones in our container
+      // before we paint the pin clone.  Without this, callers that build
+      // their own hover portal (= bans.html dialog) can briefly show the
+      // hover clone stacked behind the pin clone if the click event arrives
+      // before the caller's own dismiss handler.
+      try {
+        container.querySelectorAll('.info-popup-portal').forEach(function(n){ n.remove(); });
+      } catch (_){}
       var rect = tip.getBoundingClientRect();
-      var x = rect.left + window.scrollX;
-      // the hover popup sits at tip.bottom + 4px.  The pinned clone adds padding-top for the tools,
-      // so shift up by the tools size to keep the content's visual position unchanged.
-      var y = rect.bottom + window.scrollY + 4 - window.POPOVER_PIN_TOP_SHIFT_PX;
+      // Initial coords land in the chosen space; popoverClampToViewport
+      // below will reposition them after measurement.
+      var x = rect.left + (positionMode === 'absolute' ? window.scrollX : 0);
+      var y = rect.bottom + (positionMode === 'absolute' ? window.scrollY : 0) + 4 - window.POPOVER_PIN_TOP_SHIFT_PX;
 
       var clone = document.createElement('div');
       clone.classList.add('info-popup', 'info-popup-pinned', 'popover-clone', 'is-pinned');
       clone.setAttribute('data-popover', 'info');
-      clone.style.position = 'absolute';
+      clone.style.position = positionMode;
       clone.style.left = x + 'px';
       clone.style.top  = y + 'px';
       clone.style.display = 'block';
@@ -545,13 +699,24 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
       var tools = (function(){
         var t = document.createElement('div');
         t.className = 'popover-tools';
-        if (typeof window._popoverAttachDragToBar === 'function'){
-          window._popoverAttachDragToBar(t, clone);
-        }
+        attachDrag(t, clone);
         var icon = document.createElement('span');
         icon.className = 'popover-icon';
-        icon.setAttribute('aria-hidden', 'true');
+        icon.setAttribute('aria-label', 'double-click to close');
+        icon.setAttribute('role', 'button');
+        icon.setAttribute('tabindex', '0');
         icon.textContent = 'ⓘ';
+        // Windows-style "double-click the app icon to close".  Use
+        // stopImmediatePropagation so the title bar's dblclick-to-collapse
+        // handler never runs in any browser (some browsers process bubble
+        // listeners before target listeners finish their stopPropagation
+        // chain).  The title bar handler also bails when e.target is the
+        // icon -- belt-and-braces, see below.
+        icon.addEventListener('dblclick', function(e){
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          if (typeof clone._popoverUnpin === 'function') clone._popoverUnpin();
+        });
         t.appendChild(icon);
         // Title from the nearest labelling context -- same precedence as the
         // popoverPin flavor so stacked pins behave identically.
@@ -581,7 +746,7 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         }
         // copy-to-clipboard (= shares the helper from popoverPin so behavior /
         // visual feedback match across both pinning flavors).
-        var cp = btn('popover-copy', 'copy', 'copy contents to clipboard', '⧉', function(e){
+        var cp = btn('popover-copy', 'copy', 'copy contents to clipboard', '❐', function(e){
           e.preventDefault(); e.stopPropagation();
           if (typeof window._popoverCopyCloneBody === 'function'){
             window._popoverCopyCloneBody(clone, cp);
@@ -593,16 +758,17 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         // collapse so the bar keeps its current horizontal footprint -- same
         // pattern as the popoverPin flavor.
         function toggleCollapse(){
-          // Mirror the popoverPin toggleCollapse: also clear inline height
-          // so the !important collapse rule applies (= Chromium lets a
-          // regular inline declaration beat !important author rules here).
+          // Mirror the popoverPin toggleCollapse: keep the frozen width on
+          // expand so collapse-and-restore preserves the horizontal footprint
+          // (manual resize or initial render).  Also clear inline height so
+          // the !important collapse rule applies (= Chromium lets a regular
+          // inline declaration beat !important author rules here).
           var willCollapse = !clone.classList.contains('popover-collapsed');
           if (willCollapse){
             clone.style.width = clone.getBoundingClientRect().width + 'px';
             clone._popoverPrevHeight = clone.style.height;
             clone.style.height = '';
           } else {
-            clone.style.width = '';
             clone.style.height = clone._popoverPrevHeight || '';
             clone._popoverPrevHeight = null;
           }
@@ -617,6 +783,10 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         t.appendChild(col);
         t.addEventListener('dblclick', function(e){
           if (e.target.closest('button')) return;
+          // double-guard: ignore dblclicks originating on the icon -- those
+          // are handled separately as the "double-click the app icon to
+          // close" gesture and must not also collapse the popover.
+          if (e.target.closest('.popover-icon')) return;
           e.preventDefault();
           toggleCollapse();
         });
@@ -638,14 +808,16 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
         if (typeof tip.blur === 'function') tip.blur();
       };
       clone.appendChild(tools);
-      document.body.appendChild(clone);
+      // Append to the configured container.  For dialogs, this puts the
+      // clone inside the dialog's top-layer so it renders above the backdrop.
+      container.appendChild(clone);
       if (typeof window._popoverAttachRaiseOnFocus === 'function'){
         window._popoverAttachRaiseOnFocus(clone);
       }
-      // Edge-aware reposition: measure now that the clone is in the DOM, then
-      // clamp so it doesn't overflow.  We pass the trigger's rect (= original
-      // anchor) so the clamp can flip above if there's no room below.
-      if (window.popoverClampToViewport) {
+      // Edge-aware reposition.  In absolute mode the clamp helper works in
+      // page coords (= adds scroll internally).  In fixed mode we clamp
+      // inline against viewport coords (no scroll).
+      if (positionMode === 'absolute' && window.popoverClampToViewport) {
         var clrect = clone.getBoundingClientRect();
         var pos = window.popoverClampToViewport(
           rect.left + window.scrollX - 12,   // popoverClampToViewport adds +12 internally
@@ -653,6 +825,19 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root){
           clrect.width, clrect.height);
         clone.style.left = pos.x + 'px';
         clone.style.top  = (pos.y - window.POPOVER_PIN_TOP_SHIFT_PX) + 'px';
+      } else if (positionMode === 'fixed') {
+        var fr = clone.getBoundingClientRect();
+        var vw = document.documentElement.clientWidth;
+        var vh = document.documentElement.clientHeight;
+        var pad = 8;
+        var fx = rect.left;
+        if (fx + fr.width + pad > vw) fx = vw - fr.width - pad;
+        if (fx < pad) fx = pad;
+        var fy = rect.bottom + 4 - window.POPOVER_PIN_TOP_SHIFT_PX;
+        if (fy + fr.height + pad > vh) fy = rect.top - fr.height - 4;
+        if (fy < pad) fy = pad;
+        clone.style.left = fx + 'px';
+        clone.style.top  = fy + 'px';
       }
       if (typeof window._popoverAttachResize === 'function') window._popoverAttachResize(clone);
       tip._pinClone = clone;
@@ -715,6 +900,6 @@ window.installInfoPopupEdgeFlip = window.installInfoPopupEdgeFlip || function(){
 
 // auto-wire on DOMContentLoaded (= any page with an info-tip becomes pinnable automatically).
 document.addEventListener('DOMContentLoaded', function(){
-  if (window.installInfoTipPinning) window.installInfoTipPinning();
+  if (window.installInfoTipPinning) window.installInfoTipPinning(document, { skipInDialog: true });
   if (window.installInfoPopupEdgeFlip) window.installInfoPopupEdgeFlip();
 });

@@ -24,14 +24,12 @@
 // handled by the remote_ip binding (= once realip module has run, both
 // sides see the real client IP).
 //
-// The PoW path (= cookie issued by challenge.js) is the 4-segment form with
-// two variants:
+// The PoW path (= cookie issued by challenge.js) is the 4-segment SHA-256 form:
 //
-//	legacy djb2 : "<issued_unix>.<djb2-hex>.<target_b36>.<flags_b36>"  (= v0.0, deprecated)
-//	SHA-256     : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"         (= v0.1+, parts[1]="pow2" marker)
+//	"<issued_unix>.pow2.<nonce_b36>.<flags_b36>"  (parts[1]="pow2" marker)
 //
-// For SHA-256 we compute SHA-256 of seed = "<issued_unix>_unmask" + ":" +
-// nonce and verify that leading-zero-bits >= difficulty.  difficulty is
+// We compute SHA-256 of seed = "<issued_unix>_unmask" + ":" + nonce and verify
+// that leading-zero-bits >= difficulty.  difficulty is
 // settings.Challenge.ResolvedPowDifficulty().
 package cookies
 
@@ -76,10 +74,9 @@ func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
 // Verify returns true iff `value` is a valid signature signed within the
 // kind-specific validity window for remoteIP.
 //
-// Three formats are accepted:
-//  1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"             (3 segments. issued by server)
-//  2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"         (4 segments. v0.1+ challenge.js)
-//  3. legacy djb2   : "<issued_unix>.<djb2 hex>.<target_b36>.<flags_b36>"  (4 segments. v0.0, deprecated)
+// Two formats are accepted:
+//  1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"        (3 segments. issued by server)
+//  2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"    (4 segments. issued by challenge.js)
 //
 // In the PoW path the client computes the hash in JS and issues the cookie
 // itself, so bv_secret is not passed to the server (= the seed challenge.js
@@ -93,20 +90,15 @@ func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
 // the next request instead of waiting for in-flight cookies to expire.
 //
 // powDifficulty is the SHA-256 PoW target leading-zero-bits
-// (= settings.Challenge.ResolvedPowDifficulty()).  Unused for the legacy
-// djb2 path.
+// (= settings.Challenge.ResolvedPowDifficulty()).
 func Verify(value, bvSecret, remoteIP string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
 	if value == "" {
 		return false
 	}
 	parts := strings.Split(value, ".")
-	// PoW format: 4 segments.
-	if len(parts) == 4 {
-		// parts[1]="pow2" marker -> SHA-256 verify.  Otherwise -> legacy djb2 (= deprecated).
-		if parts[1] == "pow2" {
-			return verifyPowSHA256(parts, powValidSeconds, powDifficulty)
-		}
-		return verifyPoW(parts, powValidSeconds)
+	// PoW format: 4 segments with parts[1]="pow2" marker.
+	if len(parts) == 4 && parts[1] == "pow2" {
+		return verifyPowSHA256(parts, powValidSeconds, powDifficulty)
 	}
 	// CAPTCHA format: 3 segments.  Verify via HMAC.
 	if len(parts) != 3 {
@@ -137,49 +129,7 @@ func withinWindow(issued int64, validSeconds int) bool {
 	return true
 }
 
-// verifyPoW: legacy djb2 _bv path issued by old challenge.js versions.
-// Kept only to drain in-flight cookies during the transition; new clients
-// use the SHA-256 path (= verifyPowSHA256).
-func verifyPoW(parts []string, validSeconds int) bool {
-	issuedStr, sigB36, targetB36 := parts[0], parts[1], parts[2]
-	// parts[3] is flags.  Not needed for verification.
-	issued, err := strconv.ParseInt(issuedStr, 10, 64)
-	if err != nil {
-		return false
-	}
-	if !withinWindow(issued, validSeconds) {
-		return false
-	}
-	target, err := strconv.ParseInt(targetB36, 36, 64)
-	if err != nil {
-		return false
-	}
-	seed := strconv.FormatInt(issued, 10) + "_unmask"
-	proof := djb2(seed + "_" + strconv.FormatInt(target, 10))
-	// JS Math.abs(int32) turns a negative into a positive.  Absorb that
-	// via Go int32 -> uint32 -> big int.
-	if proof < 0 {
-		// Reproduce JS Math.abs(-2147483648) = 2147483648 (= 0x80000000).
-		// Abs the Go int32 -X and represent as uint32.
-		proof = -proof
-	}
-	expectedSig := strconv.FormatInt(proof, 36)
-	return expectedSig == sigB36
-}
-
-// djb2: the same hash logic challenge.js uses.  32-bit signed arithmetic.
-//
-//	JS: h = ((h<<5) + h) + str.charCodeAt(i); h |= 0;
-//	         (= int32 wrap)
-func djb2(s string) int64 {
-	var h int32 = 5381
-	for i := 0; i < len(s); i++ {
-		h = (h << 5) + h + int32(s[i])
-	}
-	return int64(h)
-}
-
-// verifyPowSHA256: verify the SHA-256 PoW cookie issued by challenge.js v0.1+.
+// verifyPowSHA256: verify the SHA-256 PoW cookie issued by challenge.js.
 //
 // challenge.js generation logic (= matches sha256() + the solve loop in challenge.js):
 //

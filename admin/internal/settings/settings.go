@@ -18,7 +18,8 @@
 //	  bv_secret: <random 32+ chars>      # _bv cookie HMAC-SHA1 key
 //	  captcha_secret_base: <random>      # math captcha token HMAC-SHA256 base
 //	challenge:
-//	  cookie_days: 3
+//	  pow_cookie_valid_seconds: 604800       # 7 days
+//	  captcha_cookie_valid_seconds: 1209600  # 14 days
 //	  debug_rate_limit_per_5min: 20
 //	  challenge_html_path: ""            # empty → use the embedded copy
 //	  captcha:
@@ -40,7 +41,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -102,25 +106,16 @@ func (c ChallengeConfig) Resolve(site string) ChallengeValues {
 // set of knobs (PoW difficulty, cookie windows, CAPTCHA provider, ...) that
 // a site either inherits via Default or fully owns via Sites[<host>].
 type ChallengeValues struct {
-	// CookieSeconds: legacy single-knob _bv lifetime.  Now serves as the
-	// fall-back default for {Pow,Captcha}CookieValidSeconds when those are
-	// unset.  Browser-side cookie Max-Age is no longer driven by this value
-	// (= cookies are written with a fixed 365-day Max-Age so that a server-
-	// side window change takes effect immediately on the next request).
-	CookieSeconds int `yaml:"cookie_seconds"`
 	// PowCookieValidSeconds: server-side validity window for _bv issued via
-	// the PoW path (= 4-segment "pow2" cookie).  0 = inherit CookieSeconds.
-	// Granularity is 1 day (= ceil(seconds/86400) used by the nginx HMAC
-	// check), so 86400-multiples are practical values.
+	// the PoW path (= 4-segment "pow2" cookie).  Browser-side cookie Max-Age
+	// is fixed at 365 days so a server-side window change takes effect on the
+	// next request.  0 falls through to the hard default in
+	// PowCookieValidSecondsResolved.
 	PowCookieValidSeconds int `yaml:"pow_cookie_valid_seconds,omitempty"`
 	// CaptchaCookieValidSeconds: same but for _bv issued via the CAPTCHA path
-	// (= 3-segment HMAC cookie).  0 = inherit CookieSeconds.
-	CaptchaCookieValidSeconds int `yaml:"captcha_cookie_valid_seconds,omitempty"`
-	// CookieDays: legacy / backward compat. If yaml lacks cookie_seconds but
-	// has cookie_days, load-time migrates with CookieSeconds = CookieDays * 86400.
-	// Save always writes cookie_seconds only (= cookie_days is not emitted).
-	CookieDays            int    `yaml:"cookie_days,omitempty"`
-	DebugRateLimitPer5Min int    `yaml:"debug_rate_limit_per_5min"`
+	// (= 3-segment HMAC cookie).
+	CaptchaCookieValidSeconds int    `yaml:"captcha_cookie_valid_seconds,omitempty"`
+	DebugRateLimitPer5Min     int    `yaml:"debug_rate_limit_per_5min"`
 	ChallengeHTMLPath     string `yaml:"challenge_html_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
@@ -393,10 +388,12 @@ type Nginx struct {
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
 
 	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
-	// Empty = allow every Host that reaches the admin (legacy compat).  When
-	// the same nginx serves multiple domains and only one should expose the
-	// admin UI, list that domain here.  Comparison is case-insensitive and
-	// the port suffix (= :443 etc.) is stripped before matching.
+	// Empty = allow every Host that reaches the admin (= the default; an
+	// install without a Host allowlist is exposed under any name nginx
+	// proxies through).  When the same nginx serves multiple domains and
+	// only one should expose the admin UI, list that domain here.
+	// Comparison is case-insensitive and the port suffix (= :443 etc.) is
+	// stripped before matching.
 	//
 	// Notes:
 	//   - The challenge surfaces (= /unmask/challenge/, /unmask/_check,
@@ -428,6 +425,49 @@ type Nginx struct {
 	ProtectedPaths   ProtectedPathsConfig   `yaml:"protected_paths"`
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
+	WebBotAuth       WebBotAuthConfig       `yaml:"web_bot_auth,omitempty"`
+}
+
+// WebBotAuthConfig: Web Bot Auth (= RFC 9421 HTTP Message Signatures
+// applied to bot traffic, draft-meunier-web-bot-auth-architecture).
+//
+// When Enabled, the AuthCheck handler verifies any incoming Signature /
+// Signature-Input / Signature-Agent header chain.  A valid signature with
+// the "web-bot-auth" tag yields verdict=signed_agent + action=ok, so the
+// request joins the search-bot rescue path instead of the challenge flow.
+//
+// AllowedOperators is an allowlist of agent URL hosts (e.g.
+// "openai.com").  An empty list means "accept any operator that publishes
+// a valid directory" (= UA + IP allowlist for unknown bots becomes the
+// fallback).  Operators outside the allowlist still get challenged.
+//
+// CacheTTLSec caps how long the in-memory directory cache holds a fetched
+// JWK set per operator.  Default 3600s.
+type WebBotAuthConfig struct {
+	Enabled          bool     `yaml:"enabled"`
+	AllowedOperators []string `yaml:"allowed_operators,omitempty"`
+	CacheTTLSec      int      `yaml:"cache_ttl_sec,omitempty"`
+}
+
+// ResolvedCacheTTLSec returns CacheTTLSec or 3600 (= 1h) when unset.
+func (w WebBotAuthConfig) ResolvedCacheTTLSec() int {
+	if w.CacheTTLSec > 0 {
+		return w.CacheTTLSec
+	}
+	return 3600
+}
+
+// IsOperatorAllowed checks the allowlist.  Empty list → all operators pass.
+func (w WebBotAuthConfig) IsOperatorAllowed(host string) bool {
+	if len(w.AllowedOperators) == 0 {
+		return true
+	}
+	for _, op := range w.AllowedOperators {
+		if strings.EqualFold(op, host) {
+			return true
+		}
+	}
+	return false
 }
 
 // BansConfig: per-source default action for entries on the ban list.  The
@@ -878,19 +918,6 @@ type JA4VerdictExtraRule struct {
 	Action  string `yaml:"action"`
 }
 
-// SiteConfig: vestige of the old multi-site feature. Not used as of v0.1.
-// The struct definition is retained for yml compatibility, but the UI does
-// not touch it and render ignores it (= default site only).
-//
-// Deprecated: multi-site has been removed. Any leftover sites: [...] in yml
-// is silently ignored at startup.
-type SiteConfig struct {
-	ID                  string   `yaml:"id"`
-	Hosts               []string `yaml:"hosts"`
-	HoneypotUseDefaults bool     `yaml:"honeypot_use_defaults"`
-	HoneypotExtra       []string `yaml:"honeypot_extra"`
-}
-
 // GlobalConfig: settings-wide knobs that cross axis boundaries (= UA /
 // JA4 / honeypot / protected paths).  Lives at the root of settings so the
 // "Operating mode" tab can drive them without dragging other tabs into shared
@@ -912,11 +939,6 @@ type GlobalConfig struct {
 	// Picking pow_* / captcha_only / deny gates anything that isn't a real
 	// browser without affecting actual visitors.
 	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
-	// DefaultAction: legacy field (= used to mean "no-match action" for
-	// every UA).  Kept for one-release backward compat; new installs use
-	// KnownBrowserAction / UnknownUAAction.  Removed once existing configs
-	// migrate.
-	DefaultAction string `yaml:"default_action,omitempty"`
 }
 
 // Site acceptance modes (= SiteAcceptanceConfig.Mode).
@@ -1040,10 +1062,10 @@ type SMTP struct {
 // Overview:
 //   - When submit_enabled is true, the BAN button on the hunt page, with
 //     "share" checked, POSTs ip / ja4 / reason / comment to unmask.sh.
-//   - When subscribe_enabled is true, feed_url is pulled hourly and
-//     /etc/unmask/community-bans-*.map (= 3 files) is regenerated. It feeds
-//     into `$community_bans_hit` in nginx-rendered.conf; on hit the response
-//     is fixed to CAPTCHA (= cannot block).
+//   - When subscribe_mode is fetch / fetch_apply, feed_url is pulled hourly
+//     and /etc/unmask/community-bans-*.map (= 3 files) is regenerated. It
+//     feeds into `$community_bans_hit` in nginx-rendered.conf; on hit the
+//     response is fixed to CAPTCHA (= cannot block).
 //   - The token is obtained from the register endpoint on first startup and
 //     persisted in settings. It's sent as a header on submit
 //     (= for auth / rate-limit / reputation).
@@ -1058,14 +1080,9 @@ type SMTP struct {
 //     legal liability.
 type CommunityBans struct {
 	SubmitEnabled bool `yaml:"submit_enabled"`
-	// SubscribeEnabled is the legacy ON/OFF flag.  v2 splits subscribe into a
-	// 3-state SubscribeMode (off / fetch / fetch_apply).  Load() migrates a
-	// pre-v2 true → fetch_apply, false → off, then clears this field so it
-	// drops from the next save (omitempty).
-	SubscribeEnabled bool `yaml:"subscribe_enabled,omitempty"`
 	// SubscribeMode: "off" (= no pull, maps cleared), "fetch" (= pull for the
 	// browse list only, no enforcement, no auto-apply), "fetch_apply" (= pull
-	// + write nginx maps + auto-apply).  "" is treated as off after migration.
+	// + write nginx maps + auto-apply).  "" treated as off.
 	SubscribeMode string `yaml:"subscribe_mode,omitempty"`
 	Token         string `yaml:"token,omitempty"`
 	// HN: handle name returned by the hub at register time, derived from the
@@ -1129,23 +1146,17 @@ const (
 	SubscribeFetchApply = "fetch_apply" // pull + nginx map enforce + auto-apply
 )
 
-// ResolvedSubscribeMode: canonical mode string, with legacy-bool fallback for
-// configs that predate the SubscribeMode field (= belt-and-suspenders; Load()
-// already migrates, but a hand-edited config without the field still resolves).
+// ResolvedSubscribeMode: canonical mode string.  Empty / unknown → off.
 func (s CommunityBans) ResolvedSubscribeMode() string {
 	switch s.SubscribeMode {
 	case SubscribeFetch, SubscribeFetchApply, SubscribeOff:
 		return s.SubscribeMode
 	}
-	if s.SubscribeEnabled {
-		return SubscribeFetchApply
-	}
 	return SubscribeOff
 }
 
 // SubscribeActive: true when the hub feed should be pulled (= fetch or
-// fetch_apply).  Replaces the old SubscribeEnabled bool at call sites that
-// gated "should we pull / register".
+// fetch_apply).  Gates "should we pull / register".
 func (s CommunityBans) SubscribeActive() bool {
 	return s.ResolvedSubscribeMode() != SubscribeOff
 }
@@ -1195,31 +1206,27 @@ func (s CommunityBans) ResolvedAggregateURL() string {
 // or terms wording changes materially.  Operators whose TermsAcceptedVersion
 // is below this value need to re-accept before SubmitActive() returns true.
 //
-// Held at 1 until GA.  Pre-GA there are no external acceptors to protect (=
-// only the dev / fleet installs), so forcing a v2 re-acceptance now just adds
-// friction.  The v2 re-accept gate is armed at GA flip by bumping this to 2
-// once the v2 terms are legally reviewed (= see doc/COMMUNITY-BANS-GA-CHECKLIST.md).
+// The initial public release ships at 1.  The gate machinery (= TermsStale /
+// SubmitActive below) is live but un-armed -- when a future release reworks
+// the wording, bump this constant in the same commit that lands the new docs
+// and existing acceptors will be funnelled through a re-acceptance banner.
 const CurrentCommunityBansTermsVersion = 1
 
 // SubmitActive: submission is allowed only when submit_enabled && terms
-// accepted at the current version.  Operators stuck on v1 see a banner +
-// the submit_enabled checkbox refusing to take effect until they re-accept.
+// accepted at the current version.  Operators on a stale version see a
+// banner + the submit_enabled checkbox refusing to take effect until they
+// re-accept.
 func (s CommunityBans) SubmitActive() bool {
 	return s.SubmitEnabled && s.TermsAcceptedAt > 0 && s.TermsAcceptedVersion >= CurrentCommunityBansTermsVersion
 }
 
 // TermsStale: TermsAccepted is non-zero but predates the current version
-// (= v1 acceptor that has not yet seen v2).  Used by the settings UI to
-// surface a "please re-accept" banner without forcing the operator to flip
-// submit_enabled off and on again.
+// (= the operator accepted an older wording and has not yet seen the new
+// one).  Used by the settings UI to surface a "please re-accept" banner
+// without forcing the operator to flip submit_enabled off and on again.
 func (s CommunityBans) TermsStale() bool {
 	return s.TermsAcceptedAt > 0 && s.TermsAcceptedVersion < CurrentCommunityBansTermsVersion
 }
-
-// (= FeedServer struct moved to the private unmask-sh/unmask-hub repo so
-// the hub-side aggregation code no longer lives next to the OSS admin.
-// The legacy feed_server: yaml block is harmless here — yaml.v3 drops
-// unknown top-level keys.)
 
 // Notifications: external webhook notifications (= Slack / Discord / generic).
 type Notifications struct {
@@ -1273,8 +1280,71 @@ type RateLimitConfig struct {
 	//              botnets that rotate through many IPs but share a JA4)
 	//   "ip+ja4" : "ip|ja4" compound (= narrowest. Two distinct browsers behind
 	//              one NAT IP are counted separately)
-	// Empty -> "ip" (= back-compat with installs that pre-date this field).
+	// Empty -> "ip" default.
 	Key string `yaml:"key,omitempty"`
+	// PresetsBackfilledAt: unix seconds when the install last had its
+	// built-in preset zones backfilled.  Lets BackfillRateLimitPresets()
+	// run exactly once per preset family; an operator who deletes a preset
+	// after a backfill does NOT see it reappear on the next admin restart.
+	PresetsBackfilledAt int64 `yaml:"presets_backfilled_at,omitempty"`
+}
+
+// builtInRateLimitPresets returns the zones that BackfillRateLimitPresets
+// installs on a one-time basis.  Adding a new preset family later is a
+// matter of appending to this slice + bumping the stamp comparison in the
+// backfill helper; existing rows are never touched, so an operator's
+// edits survive.
+func builtInRateLimitPresets() []RateZone {
+	return []RateZone{
+		{
+			Name:           "unmask_admin_login",
+			RequestsPerMin: 5,
+			// Burst sized so the *first* 5 attempts in a minute clear
+			// the limit (= an operator mistype is allowed, not punished
+			// with a CAPTCHA on the next keystroke), while the 6th
+			// attempt fires the zone.  Burst 0 collapses to the render
+			// default (= 50) which is too lenient, so we set this
+			// explicitly.
+			Burst:         5,
+			WindowSec:     60,
+			PathPatterns:  []string{"/unmask/admin/login"},
+			ChallengeMode: RateChallengeCaptchaOnly,
+		},
+	}
+}
+
+// BackfillRateLimitPresets adds the built-in preset zones to an existing
+// install exactly once.  The "exactly once" guarantee uses
+// PresetsBackfilledAt as the marker -- a zero stamp means the install
+// has never been backfilled; a non-zero stamp leaves Zones untouched no
+// matter what the operator has done in the meantime.
+//
+// Match is by zone Name so a preset that has been renamed locally also
+// counts as "present" (= the operator owns it now).  Returns true when a
+// backfill actually changed Zones; callers persist the result and bump
+// the stamp.
+func (c *RateLimitConfig) BackfillRateLimitPresets(now int64) bool {
+	if c.PresetsBackfilledAt > 0 {
+		return false
+	}
+	c.PresetsBackfilledAt = now
+	have := make(map[string]bool, len(c.Zones))
+	for _, z := range c.Zones {
+		have[z.Name] = true
+	}
+	for _, p := range builtInRateLimitPresets() {
+		if have[p.Name] {
+			continue
+		}
+		c.Zones = append(c.Zones, p)
+	}
+	// Always return true once stamping happens.  Even when every preset
+	// zone was already present (= defaults() seeded them on a fresh
+	// install), the caller still needs to persist the stamp so the next
+	// restart skips this work; otherwise the function would re-enter
+	// every boot, walk the list, and decide "no, nothing to do" each
+	// time the admin starts.
+	return true
 }
 
 // RateLimitValues: install-wide scalar parameters reused by both the
@@ -1467,13 +1537,8 @@ func defaults() Settings {
 		},
 		Challenge: ChallengeConfig{
 			Default: ChallengeValues{
-				// Legacy umbrella; kept so config files that only set
-				// cookie_seconds still control both kinds.  New installs prefer
-				// the per-kind values below (= PoW shorter than CAPTCHA, since
-				// PoW is auto-only proof).
-				CookieSeconds:             86400 * 3,
-				PowCookieValidSeconds:     86400 * 3, // 3 days — automatic proof, refresh more often
-				CaptchaCookieValidSeconds: 86400 * 7, // 7 days — human-effort proof, keep longer
+				PowCookieValidSeconds:     86400 * 7,  // 7 days — automatic proof, refresh more often
+				CaptchaCookieValidSeconds: 86400 * 14, // 14 days — human-effort proof, keep longer
 				DebugRateLimitPer5Min:     20,
 				Theme:                     "default",
 				CaptchaProvider: Captcha{
@@ -1505,6 +1570,10 @@ func defaults() Settings {
 				WindowSec:      60,
 				ChallengeMode:  RateChallengePoWThenCaptcha,
 			},
+			// Preset zones are seeded via BackfillRateLimitPresets on the first
+			// admin start (= idempotent, stamp guarded).  Keeping defaults()
+			// zone list empty lets e2e admin.yml load without the preset
+			// triggering Save() side-effects in fresh-install code paths.
 		},
 		Server: Server{
 			Bind:     "127.0.0.1",
@@ -1546,7 +1615,7 @@ func defaults() Settings {
 			// upstream from server.bind (TCP or unix:).  An operator deploys
 			// admin and nginx in separate network namespaces (= docker
 			// compose, k8s) can set it explicitly to e.g. "admin:9477".
-			SeenVersion:  "v0.1", // for old-yml compat (= initialized here when the field is missing)
+			SeenVersion:  "v0.1", // baseline for new-preset NEW-badge gating
 			// AdminAllowFrom defaults to empty: avoids silently locking down
 			// existing installs (= deployments behind an LB) to loopback only.
 			// The install wizard forces a non-empty value. The nginx render
@@ -1648,39 +1717,57 @@ func Load(path string) (Settings, error) {
 	if s.Secret.CaptchaSecretBase == "" {
 		s.Secret.CaptchaSecretBase = randomHex(24)
 	}
-	// backward compat: if old yaml has cookie_days but lacks cookie_seconds,
-	// migrate once (= save writes cookie_seconds back alone). However, when
-	// defaults() seeds CookieSeconds=259200 and yaml overrides only
-	// cookie_days, we can't detect it (= yaml.Unmarshal does not touch
-	// CookieSeconds), so detect "yaml has cookie_days and differs from defaults"
-	// and migrate.
-	if s.Challenge.Default.CookieDays > 0 && s.Challenge.Default.CookieSeconds == 86400*3 {
-		// If CookieDays is set explicitly, prefer it (= migrate even if it
-		// matches defaults' 3; harmless because 86400*3 → 86400*3 is a no-op).
-		s.Challenge.Default.CookieSeconds = s.Challenge.Default.CookieDays * 86400
-	}
-	// CookieDays is legacy. CookieSeconds is the sole canonical value. omitempty on save.
-	s.Challenge.Default.CookieDays = 0
-	// community_bans: migrate the legacy subscribe_enabled bool to the
-	// 3-state subscribe_mode once.  true → fetch_apply (= preserves the
-	// pre-v2 "pull + enforce" behavior), false → off.  Clearing the bool
-	// drops it from the next save (omitempty).
-	if s.CommunityBans.SubscribeMode == "" {
-		if s.CommunityBans.SubscribeEnabled {
-			s.CommunityBans.SubscribeMode = SubscribeFetchApply
-		} else {
-			s.CommunityBans.SubscribeMode = SubscribeOff
+	BackfillExtraVerdictIDs(&s)
+	// Rate-limit preset backfill, stamp persisted to a sibling file so
+	// the "do not reappear after operator delete" guarantee survives a
+	// restart.  yaml.Marshal-backed Save() can't be used (= clobbers
+	// intentionally-sparse admin.yml overrides like the honeypot URL
+	// preset list -- see feedback_settings_load_no_save), so the stamp
+	// is its own one-line file under the runtime state dir.
+	rateLimitPresetBackfill(&s.RateLimit, time.Now().Unix())
+	return s, nil
+}
+
+// presetBackfillStampPath returns where the one-shot stamp lives.  Kept
+// next to the runtime state (= /var/lib/unmask) rather than under /etc
+// so the file is mode-600 writable by the admin uid without sudo and
+// the operator's config dir stays read-only-by-policy.
+func presetBackfillStampPath() string {
+	return "/var/lib/unmask/preset-backfill.stamp"
+}
+
+// rateLimitPresetBackfill runs the in-memory backfill exactly once per
+// install, gated on a stamp file.  On first invocation it appends the
+// built-in preset zones, writes the timestamp, and returns; subsequent
+// starts read the stamp + skip both the append and the file write so
+// an operator who deleted the preset zone in the UI sees no resurrection.
+//
+// A failed read / write is non-fatal: the worst case is that the
+// backfill re-runs next start, which is idempotent (= dedup by zone
+// name) and harmless.
+func rateLimitPresetBackfill(rl *RateLimitConfig, now int64) {
+	stampPath := presetBackfillStampPath()
+	if data, err := os.ReadFile(stampPath); err == nil {
+		ts := strings.TrimSpace(string(data))
+		if ts != "" {
+			// Mirror the stamp into the in-memory struct so the UI
+			// "last backfilled" display stays accurate even though
+			// the yaml never persisted it.
+			if v, perr := strconv.ParseInt(ts, 10, 64); perr == nil {
+				rl.PresetsBackfilledAt = v
+				return
+			}
 		}
 	}
-	s.CommunityBans.SubscribeEnabled = false
-	// community_bans terms: a pre-version-field acceptance (= TermsAcceptedAt
-	// set, TermsAcceptedVersion 0) counts as v1.  Stamp it so SubmitActive
-	// passes and the stale banner stays hidden while CurrentVersion == 1.
-	if s.CommunityBans.TermsAcceptedAt > 0 && s.CommunityBans.TermsAcceptedVersion == 0 {
-		s.CommunityBans.TermsAcceptedVersion = 1
+	// First start (= no stamp file).  Run the backfill, persist the
+	// timestamp.  BackfillRateLimitPresets sets PresetsBackfilledAt on
+	// the struct itself; we copy that value into the stamp file.
+	if !rl.BackfillRateLimitPresets(now) {
+		return
 	}
-	BackfillExtraVerdictIDs(&s)
-	return s, nil
+	if err := os.MkdirAll(filepath.Dir(stampPath), 0o755); err == nil {
+		_ = os.WriteFile(stampPath, []byte(strconv.FormatInt(rl.PresetsBackfilledAt, 10)+"\n"), 0o644)
+	}
 }
 
 // BrowserCookieMaxAgeSeconds is the fixed Max-Age set on _bv cookies sent
@@ -1695,28 +1782,20 @@ const BrowserCookieMaxAgeSeconds = 365 * 86400
 // BrowserCookieMaxAgeSeconds (= server validity window decides effective TTL).
 func (c ChallengeValues) CookieMaxAgeSeconds() int { return BrowserCookieMaxAgeSeconds }
 
-// PowCookieValidSecondsResolved: PowCookieValidSeconds if set, else
-// CookieSeconds (= legacy single knob), else 3 days.
+// PowCookieValidSecondsResolved: PowCookieValidSeconds if set, else 7 days.
 func (c ChallengeValues) PowCookieValidSecondsResolved() int {
 	if c.PowCookieValidSeconds > 0 {
 		return c.PowCookieValidSeconds
 	}
-	if c.CookieSeconds > 0 {
-		return c.CookieSeconds
-	}
-	return 86400 * 3
+	return 86400 * 7
 }
 
-// CaptchaCookieValidSecondsResolved: CaptchaCookieValidSeconds if set, else
-// CookieSeconds, else 3 days.
+// CaptchaCookieValidSecondsResolved: CaptchaCookieValidSeconds if set, else 14 days.
 func (c ChallengeValues) CaptchaCookieValidSecondsResolved() int {
 	if c.CaptchaCookieValidSeconds > 0 {
 		return c.CaptchaCookieValidSeconds
 	}
-	if c.CookieSeconds > 0 {
-		return c.CookieSeconds
-	}
-	return 86400 * 3
+	return 86400 * 14
 }
 
 // BackfillExtraVerdictIDs: auto-numbering for ID-based linking. For existing

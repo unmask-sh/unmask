@@ -196,33 +196,77 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
 </div>
 
-<div class="bcd-card">
-  <h2>{{ t .Lang "overview.ai_traffic_h" }}
-    <span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.ai_traffic_desc") }}</span></span>
-  </h2>
-  <table class="ai-traffic">
-    <thead>
-      <tr>
-        <th>{{ t .Lang "overview.ai_traffic.category" }}</th>
-        <th class="num">{{ t .Lang "overview.ai_traffic.total" }}</th>
-        <th class="num">{{ t .Lang "overview.ai_traffic.served" }}</th>
-        <th class="num">{{ t .Lang "overview.ai_traffic.passed" }}</th>
-        <th class="num">{{ t .Lang "overview.ai_traffic.pass_rate" }}</th>
-      </tr>
-    </thead>
-    <tbody>
-      {{ range .AITraffic }}
-      <tr>
-        <td><span class="ai-cat ai-cat-{{ .Category }}">{{ .Category }}</span></td>
-        <td class="num">{{ if .Total }}{{ comma .Total }}{{ else }}<span class="muted">0</span>{{ end }}</td>
-        <td class="num">{{ if .Served }}{{ comma .Served }}{{ else }}<span class="muted">0</span>{{ end }}</td>
-        <td class="num">{{ if .Passed }}{{ comma .Passed }}{{ else }}<span class="muted">0</span>{{ end }}</td>
-        <td class="num">{{ rate .Passed .Total }}</td>
-      </tr>
-      {{ end }}
-    </tbody>
-  </table>
-</div>
+{{ template "ai_traffic_card" . }}
+{{ template "ai_traffic_card_assets" . }}
+<style>
+.ai-tabs{display:flex;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
+.ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+.ai-tab:hover{color:#0f172a}
+.ai-tab.active{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
+/* zero-row visibility (= shared with stats page).  Default: shown.
+   .bcd-zero-hidden on the card collapses .bcd-zero-row entries. */
+.bcd-zero-row{display:table-row}
+.bcd-zero-hidden .bcd-zero-row{display:none}
+.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
+.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
+.bcd-zero-toggle:hover{color:#0f172a}
+</style>
+<script>
+// zero-row visibility (= mirrors the stats-page implementation; see
+// dashboard.html for the design rules).  Default = shown; the checkbox
+// inserted under each table hides them and the choice persists via
+// localStorage.  Shared key prefix so a "hide" set on stats carries
+// over to overview's twin card.
+document.addEventListener('DOMContentLoaded', function(){
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
+
+  const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
+
+  document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
+    var rows = Array.from(tbl.querySelectorAll('tbody tr'));
+    var zeroRows = rows.filter(function(tr){
+      if (tr.classList.contains('muted-row')) return true;
+      var nums = tr.querySelectorAll('.num, .bcd-num');
+      if (!nums.length) return false;
+      return Array.from(nums).every(function(td){
+        var s = td.textContent.trim().replace(/[,%\s]/g,'');
+        return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
+      });
+    });
+    if (zeroRows.length === 0) return;
+    zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
+
+    var card = tbl.closest('.bcd-card') || tbl.parentNode;
+    var h2 = card.querySelector('h2');
+    var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
+    var key = 'unmask:zero_v2:' + keySrc;
+
+    var label = document.createElement('label');
+    label.className = 'bcd-zero-toggle';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    var span = document.createElement('span');
+    span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
+    label.appendChild(cb);
+    label.appendChild(span);
+
+    function applyState(hide){ card.classList.toggle('bcd-zero-hidden', hide); }
+
+    var saved = lsGet(key);
+    cb.checked = (saved === 'hide');
+    applyState(cb.checked);
+
+    cb.addEventListener('change', function(){
+      applyState(cb.checked);
+      lsSet(key, cb.checked ? 'hide' : 'show');
+    });
+
+    tbl.parentNode.insertBefore(label, tbl.nextSibling);
+  });
+});
+</script>
+<style>
 <style>
 table.ai-traffic{width:100%;border-collapse:collapse;font-size:.85rem}
 table.ai-traffic th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
@@ -271,6 +315,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       <span class="ico">🚫</span>
       <div class="ttl">{{ t .Lang "nav.bans" }}</div>
       <div class="desc">{{ t .Lang "overview.short.bans" }}</div>
+    </a>
+    <a class="shortcut" href="{{.BasePath}}/admin/community-bans/">
+      <span class="ico">🛡️</span>
+      <div class="ttl">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</div>
+      <div class="desc">{{ t .Lang "overview.short.community_bans" }}</div>
     </a>
     <a class="shortcut" href="{{.BasePath}}/admin/settings/">
       <span class="ico">⚙️</span>

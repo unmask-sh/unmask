@@ -105,8 +105,7 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 		redir("")
 		return
 
-	case "password", "":
-		// "" is backward-compat (= legacy form had no op).
+	case "password":
 		cur := r.FormValue("current_password")
 		newPass := r.FormValue("new_password")
 		confirm := r.FormValue("confirm_password")

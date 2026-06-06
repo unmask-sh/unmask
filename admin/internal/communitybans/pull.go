@@ -13,7 +13,7 @@ import (
 )
 
 // Pull: fetches the feed JSON and regenerates the map file.  Skipped when
-// subscribe_enabled=false (= returns nil, nil).  On success, updates
+// subscribe_mode is off (= returns nil, nil).  On success, updates
 // settings.CommunityBans.LastPulledAt / Entries.
 func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	c.mu.Lock()

@@ -16,7 +16,7 @@
 // classification goes into the kind column:
 //   - "total"            : all reqs.  always +1
 //   - "captcha"          : repeater carrying a 3-seg _bv with HMAC OK
-//   - "pow"              : repeater carrying a 4-seg _bv with djb2 OK
+//   - "pow"              : repeater carrying a 4-seg _bv with SHA-256 OK
 //   - "challenge_served" : $final_challenge=1 (= the req was rejected)
 //   - extensibility: if the plugin returns a new kind ("signature" /
 //     "webauthn" / "passkey" etc.), it gets recorded as a new
@@ -85,9 +85,10 @@ type Reader struct {
 	// Wired up by the ban manager via SetHoneypotCallback.  nil-safe.
 	onHoneypot func(ip, ja4 string)
 
-	// classifyCrawler: UA -> crawler category ("search"/"training"/... or "").
-	// Wired by main via SetCrawlerClassifier(classify.AICategory).  Set once at
-	// startup before traffic; nil-safe (no crawler aggregation when unset).
+	// classifyCrawler: UA -> crawler tag (= one of classify.CrawlerTagOrder
+	// or "" when the UA is not a known crawler).  Wired by main via
+	// SetCrawlerClassifier(classify.LookupTag).  Set once at startup before
+	// traffic; nil-safe (no crawler aggregation when unset).
 	classifyCrawler func(ua string) string
 
 	stop  chan struct{}
@@ -104,8 +105,8 @@ func (r *Reader) SetHoneypotCallback(f func(ip, ja4 string)) {
 	r.onHoneypot = f
 }
 
-// SetCrawlerClassifier: register the UA -> crawler-category function (=
-// classify.AICategory).  Without it, crawler aggregation is skipped.
+// SetCrawlerClassifier: register the UA -> crawler-tag function (=
+// classify.LookupTag).  Without it, crawler aggregation is skipped.
 func (r *Reader) SetCrawlerClassifier(f func(ua string) string) {
 	if r == nil {
 		return

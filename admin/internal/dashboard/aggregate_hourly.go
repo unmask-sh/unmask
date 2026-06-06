@@ -22,18 +22,25 @@ import (
 var hourlyReady atomic.Bool
 
 // unmask_aggregate_hourly bucket_kind values (plain counts). See migration
-// 0006. Only the funnel and the per-country serve count need an hourly count
-// rollup; the captcha-force / flags cards are dominated by per-bucket
-// distinct-IP work that aggregating would not speed up.
+// 0006. Initially only the funnel + per-country serve count rolled up here;
+// the original commit dismissed captcha-force / flags as "dominated by
+// per-bucket distinct-IP work that aggregating would not speed up."  That
+// predates the 0007 HLL machinery — once sketches are hour-bucketable, the
+// distinct-IP argument no longer holds, and we add per-reason count + HLL
+// for CaptchaForceBreakdown below (= hkCaptchaForce / hkCaptchaForceIP).
 const (
-	hkFunnel    = "fnl" // key '<vid>|<verdict>|<phase>'
-	hkLoadF0    = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
-	hkServeRL   = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
-	hkCountry   = "cc"  // key '<country>'         phase=serve
-	hkSiteAll   = "sa"  // key '<site>'            all phases (Sites total events)
-	hkSiteServe = "ss"  // key '<site>'            phase=serve (Sites serve count)
-	hkSiteBV    = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
-	hkServeKind = "svk" // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
+	hkFunnel       = "fnl" // key '<vid>|<verdict>|<phase>'
+	hkLoadF0       = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
+	hkServeRL      = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
+	hkCountry      = "cc"  // key '<country>'         phase=serve
+	hkSiteAll      = "sa"  // key '<site>'            all phases (Sites total events)
+	hkSiteServe    = "ss"  // key '<site>'            phase=serve (Sites serve count)
+	hkSiteBV       = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
+	hkServeKind    = "svk" // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
+	hkCaptchaForce = "cf"  // key '<force_reason>'    phase=load (CaptchaForceBreakdown count)
+	hkFlags        = "fl"  // key '<flags>' (decimal) phase=load (FlagsDistribution count)
+	hkAITag        = "ait" // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
+	hkAITagSite    = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
@@ -42,7 +49,11 @@ const (
 	hkCountryIP     = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
 	hkSiteIP        = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
 	hkServeIP       = "svip" // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
-	hkLoadVerdictIP = "lvip" // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
+	hkLoadVerdictIP    = "lvip" // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
+	hkCaptchaForceIP   = "cfip" // hourly bucket, key '<force_reason>' distinct IP, phase=load (CaptchaForceBreakdown)
+	hkFlagsIP          = "flip" // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
+	hkAITagIP          = "atip" // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
+	hkAITagSiteIP      = "atsip" // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
 )
 
 const (
@@ -195,6 +206,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 	// per-ua so backfill stays cheap (ja4Action is "" here; see the serve
 	// case below for the reasoning).
 	classifyCache := make(map[string]classify.Category, 256)
+	// tagCache mirrors classifyCache for crawler-tag lookups.  Same access
+	// pattern (= 80-char truncated UA → "" when no tag matches).
+	tagCache := make(map[string]string, 256)
 	var n int
 	var maxID int64
 	for rows.Next() {
@@ -247,6 +261,19 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			// per-verdict count and the total (= union of sketches), so we
 			// store only per-verdict and let the read side merge across keys.
 			batch.sketch(hllKey{hour, hkLoadVerdictIP, v}).add(ip)
+			// CaptchaForceBreakdown: per-reason count + distinct IP.  Matches
+			// the raw query's CASE-fold: any value outside the known seven
+			// reasons (or no force_reason key at all) collapses to 'unknown'.
+			fr := normalizeForceReason(payloadForceReason(payload.String))
+			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
+			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
+			// FlagsDistribution: per-flags count + distinct IP.  flags is a
+			// small bitfield (= mostly 0..31), so key cardinality stays low.
+			// Stored as a decimal string so the bucket_key column matches
+			// other count keys' type.
+			flagsKey := strconv.Itoa(flags)
+			batch.counts[hourlyKey{hour, hkFlags, flagsKey}]++
+			batch.sketch(hllKey{hour, hkFlagsIP, flagsKey}).add(ip)
 		case "serve":
 			if site != "" {
 				batch.counts[hourlyKey{hour, hkSiteServe, site}]++
@@ -278,6 +305,30 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 				}
 				batch.counts[hourlyKey{hour, hkServeKind, strconv.Itoa(int(kind)) + "|" + v}]++
 				batch.sketch(hllKey{hour, hkServeIP, ""}).add(ip)
+				// AI traffic breakdown: only crawler-tag UAs contribute (= a
+				// human visitor matches nothing and gets a zero-cost map
+				// lookup).  Stored on the rl != 1 path so the rate-limit
+				// pseudo-row doesn't double-count.
+				tag, tok := tagCache[uaStr]
+				if !tok {
+					tag = classify.LookupTag(uaStr)
+					tagCache[uaStr] = tag
+				}
+				if tag != "" {
+					batch.counts[hourlyKey{hour, hkAITag, tag}]++
+					batch.sketch(hllKey{hour, hkAITagIP, tag}).add(ip)
+					// Per-site bucket for the site-filtered card path.  The
+					// install-wide hkAITag above stays the canonical key for
+					// the unfiltered card; this one duplicates the count
+					// scoped to a site so the read side can answer
+					// "?site=foo" without scanning unmask_event.  Skip when
+					// the event has no site label (= unknown vhost).
+					if site != "" {
+						siteKey := site + "|" + tag
+						batch.counts[hourlyKey{hour, hkAITagSite, siteKey}]++
+						batch.sketch(hllKey{hour, hkAITagSiteIP, siteKey}).add(ip)
+					}
+				}
 			}
 			if geo {
 				if cc := gip.LookupBytes(ip); cc != "" {
@@ -404,6 +455,33 @@ func splitVVKey(key string) (vid int, verdict string, ok bool) {
 }
 
 // payloadRL mirrors the SQL test json_extract(payload,'$.rl') IN ('1', 1).
+// payloadForceReason extracts payload_json.force_reason.  Returns "" when
+// payload is empty, malformed, or missing the key.  normalizeForceReason
+// folds the value into the seven known buckets (or "unknown").
+func payloadForceReason(payload string) string {
+	if payload == "" {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil {
+		return ""
+	}
+	s, _ := m["force_reason"].(string)
+	return s
+}
+
+// normalizeForceReason mirrors the raw query's CASE WHEN ... IN (...) ELSE
+// 'unknown' fold.  Known seven reasons pass through; everything else (empty
+// string included) becomes "unknown".  Keep in sync with queries.go's
+// captchaForceKinds slice.
+func normalizeForceReason(fr string) string {
+	switch fr {
+	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test":
+		return fr
+	}
+	return "unknown"
+}
+
 func payloadRL(payload string) bool {
 	if payload == "" {
 		return false

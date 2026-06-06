@@ -11,7 +11,7 @@
 //  4. If the IP-geo mmdb path is set, the file is readable
 //  5. The dir of ban_file_path is writable
 //  6. If challenge_html_path is set, the file is readable
-//  7. honeypot ban_duration / cookie_days are sensible
+//  7. challenge cookie validity windows are sensible
 //  8. nginx output_dir is writable
 package main
 
@@ -162,14 +162,21 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	// 7. challenge settings sanity.  CookieDays is a legacy yaml-only field
-	// that load-time migration sets to 0 once it has folded into CookieSeconds,
-	// so the canonical knob to inspect here is CookieSeconds (in seconds).
-	cookieDays := chDefault.CookieSeconds / 86400
-	if cookieDays <= 0 || cookieDays > 365 {
-		addWarn("cookie_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", chDefault.CookieSeconds, cookieDays))
+	// 7. challenge settings sanity.  Per-kind validity windows resolved via
+	// the helpers so an unset value falls back to its hard default.
+	powSec := chDefault.PowCookieValidSecondsResolved()
+	powDays := powSec / 86400
+	if powDays <= 0 || powDays > 365 {
+		addWarn("pow_cookie_valid_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", powSec, powDays))
 	} else {
-		addOK("cookie_seconds", fmt.Sprintf("%d days (= %d seconds)", cookieDays, chDefault.CookieSeconds))
+		addOK("pow_cookie_valid_seconds", fmt.Sprintf("%d days (= %d seconds)", powDays, powSec))
+	}
+	capSec := chDefault.CaptchaCookieValidSecondsResolved()
+	capDays := capSec / 86400
+	if capDays <= 0 || capDays > 365 {
+		addWarn("captcha_cookie_valid_seconds", fmt.Sprintf("value %d (= %d days) is outside the sensible range (1-365 days)", capSec, capDays))
+	} else {
+		addOK("captcha_cookie_valid_seconds", fmt.Sprintf("%d days (= %d seconds)", capDays, capSec))
 	}
 	if th := chDefault.CaptchaProvider.BuiltinScoreThreshold; th < 0 || th > 1 {
 		addWarn("captcha.builtin_score_threshold", fmt.Sprintf("value %.2f is outside (0.0-1.0)", th))

@@ -118,10 +118,12 @@ th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transf
       <td class="actions">
         {{ if eq .Status "pending" }}
         <form method="post" action="{{ $.BasePath }}/admin/community-bans/removals/{{ .ID }}">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
           <input type="hidden" name="status" value="done">
           <button type="submit" class="done">{{ t $.Lang "removal_requests.btn.done" }}</button>
         </form>
         <form method="post" action="{{ $.BasePath }}/admin/community-bans/removals/{{ .ID }}">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
           <input type="hidden" name="status" value="rejected">
           <button type="submit" class="reject">{{ t $.Lang "removal_requests.btn.reject" }}</button>
         </form>

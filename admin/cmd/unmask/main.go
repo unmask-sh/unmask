@@ -37,6 +37,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
@@ -248,7 +249,7 @@ func cmdServe(args []string) error {
 		defer banMgr.Close()
 		nlog.SetHoneypotCallback(banMgr.Add)
 		// crawler funnel: classify each access-log UA into AI/crawler buckets.
-		nlog.SetCrawlerClassifier(classify.AICategory)
+		nlog.SetCrawlerClassifier(classify.LookupTag)
 		// country breakdown for the 30-day chart: per-packet IP -> country
 		// lookup, folded into unmask_traffic_country_hourly on the hour flush.
 		nlog.SetIPGeo(gip)
@@ -362,6 +363,32 @@ func cmdServe(args []string) error {
 	// to the separate unmask-sh/unmask-hub private repo + binary, deployed
 	// on unmask.sh only.  The legacy feed_server: yaml block is silently
 	// ignored here (= yaml.v3 drops unknown fields).
+
+	// Web Bot Auth verifier: shared cache across requests, set up once.
+	// Lifetime of the Verifier matches the daemon; nothing per-request.
+	h.WebBotAuth = webbotauth.New()
+
+	// IP range subscribe loop: pull aggregated bypass-IP prefixes from the
+	// unmask.sh hub daily (± jitter) and overlay them onto the embed
+	// snapshot.  Failure is non-fatal — embed remains the fallback.  Sync is
+	// always on; opt-out is via an unreachable HubURL or future settings.
+	//
+	// RenderFunc re-emits http.inc / server.inc so the new prefixes show up
+	// in $is_bypass_ip.  nginx -s reload is the operator's call (= predictable
+	// blast radius; we don't surprise-reload nginx).  Render uses a fresh
+	// settings snapshot so future config edits are honoured.
+	ipSync := nginxconf.NewSync()
+	ipSync.UserAgent = "unmask/" + Version
+	ipSync.RenderFunc = func() error {
+		cur := h.SnapshotSettings()
+		out := strings.TrimSpace(cur.Nginx.OutputDir)
+		if out == "" {
+			return nil // no output dir configured → nothing to render
+		}
+		return nginxconf.Render(cur, out, Version)
+	}
+	h.IPRangeSync = ipSync
+	go ipSync.Start(context.Background())
 
 	mux := buildRouter(s, h)
 
@@ -599,8 +626,6 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// challenge/{site} routing.  Method-agnostic so a POST /api/foo that
 	// trips `limit_req` and rewrites to /unmask/_rl/api/foo lands here.
 	mux.HandleFunc(base+"/_rl/", h.ServeChallengeOrJSON)
-	// legacy URL: /unmask/challenge.html -> same handler (redirect handled by nginx)
-	mux.HandleFunc(base+"/challenge.html", h.ServeChallengeOrJSON)
 	// debug / test pages (sanity checks).  Exposed via two paths:
 	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
 	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)
@@ -637,7 +662,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordGet)))
 	mux.HandleFunc("POST "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordPost)))
 	mux.HandleFunc("GET "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.AdminLogout))
-	mux.HandleFunc("POST "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.AdminLogout))
+	mux.HandleFunc("POST "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.RequireCSRFFunc(h.AdminLogout)))
 	// install wizard (cacti / zabbix style).  No auth required; once complete,
 	// SetupGate redirects to /admin/ (prevents re-running setup).
 	mux.HandleFunc("GET "+base+"/admin/setup/{$}", h.SetupGate(h.AdminSetupIndex))
@@ -717,6 +742,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNotifyTest)))
 	mux.HandleFunc("POST "+base+"/admin/api/smtp/test",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSMTPTest)))
+	mux.HandleFunc("POST "+base+"/admin/api/iprange/sync",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminIPRangeSync)))
 	// 1-click DB-IP Lite install / refresh.  Calls the same library as
 	// `unmask install-ipgeo` and reloads the in-process ipgeo Reader.
 	// Accepts ?kind=country (default) or ?kind=asn.
@@ -978,7 +1005,8 @@ secret:
   captcha_secret_base: %q
 
 challenge:
-  cookie_days: 3
+  pow_cookie_valid_seconds: 604800       # 7 days
+  captcha_cookie_valid_seconds: 1209600  # 14 days
   debug_rate_limit_per_5min: 20
   challenge_html_path: ""   # empty -> use the embedded version inside the binary
   captcha:

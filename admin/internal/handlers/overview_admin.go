@@ -2,7 +2,7 @@
 //
 // Layout:
 //   - 4 KPI boxes: events / serves / verify_ok / currently-BANNED, all over the last 24h
-//   - 5 most recent detections (= latest unmask_event rows)
+//   - 10 most recent detections (= latest unmask_event rows)
 //   - shortcuts to each tab (= stats / bot hunt / persistent BAN / settings / docs)
 //
 // Data source is only the existing events package.  Lightweight.
@@ -13,9 +13,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -85,12 +88,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		currentBans = len(h.BanMgr.Snapshot())
 	}
 
-	// 5 most recent detections (= any phase / id desc).  Fetch 20 raw rows
+	// 10 most recent detections (= any phase / id desc).  Fetch 40 raw rows
 	// so the client-side session collapse (= same logic as the hunt table:
 	// group by beacon_token + collapse into one row showing the phase chain)
-	// still has roughly 5 visible sessions in the typical case where one
+	// still has roughly 10 visible sessions in the typical case where one
 	// fire contributes 3-5 raw rows.
-	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 20, 0)
+	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 40, 0)
 	if err != nil {
 		log.Printf("overview recent: %v", err)
 	}
@@ -131,11 +134,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		recent = append(recent, recentRow{Row: r0, CountryCode: cc, Banned: banned})
 	}
 
-	// AI traffic funnel (= last 24h, top of overview).  Five-bucket
-	// consolidation of upstream crawler-user-agents.json tags.  Cheap query
-	// (= one COUNT/UA scan over the past day) so we can run it on every
-	// overview render.
+	// AI traffic funnel (= last 24h, top of overview).  Two views on the
+	// same crawler taxonomy: "all" reads unmask_crawler_minute (the access-
+	// log pipeline that sees rescued / bypassed traffic too), and "served"
+	// reads the hkAITag aggregate fed by phase=serve events (= excludes
+	// bypassed crawlers, useful for operators who tweaked the rescue
+	// presets).  Both run cheap so they share the overview render budget.
 	aiRows := aiTrafficSummary(ctx, h, 1440)
+	aiServed, _ := dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
@@ -154,17 +160,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPICurrentBans":   currentBans,
 		"Recent":           recent,
 		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the
-		// same recent slice under those keys.  EventsCap=5 caps the client-side
+		// same recent slice under those keys.  EventsCap=10 caps the client-side
 		// visible-session count after the session-collapse pass so the card
-		// honours its "5 most recent" heading even though we pre-fetched 20 raw rows.
+		// honours its "10 most recent" heading even though we pre-fetched 40 raw rows.
 		"Rows":      recent,
-		"EventsCap": 5,
+		"EventsCap": 10,
 		"Range":     "",
 		// Drop the per-row BAN action column on the overview card so the URL /
 		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
 		// (= the actual deep-dive destination) keeps the action column on.
 		"HideActions": true,
-		"AITraffic":   aiRows,
+		"AITraffic":       aiRows,
+		"AITrafficServed": aiServed,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -173,11 +180,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AITrafficRow: per-category aggregation for the overview's crawler funnel.
-// Total = every request of that crawler category; Served = the subset that was
+// AITrafficRow: per-tag aggregation for the overview's crawler funnel.
+// Total = every request of that crawler tag; Served = the subset that was
 // challenged (= did not pass straight through); Passed = Total - Served.
+// Category names follow classify.CrawlerTagOrder (11 tags) so the overview
+// + stats cards share one taxonomy.
 type AITrafficRow struct {
-	Category string // "search" / "training" / "agent" / "scraper" / "collector"
+	Category string // one of classify.CrawlerTagOrder
 	Total    int
 	Served   int
 	Passed   int
@@ -189,10 +198,11 @@ type AITrafficRow struct {
 // straight through and never recorded in unmask_event.  Global (not scoped by
 // the host / site picker; the aggregate has no host dimension).  Best-effort.
 func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficRow {
-	// Order matters for stable rendering even with zero rows.
-	order := []string{"search", "training", "agent", "scraper", "collector"}
+	// Order matches the stats card so the operator's eye doesn't have to
+	// re-anchor when switching between views.  Zero-row tags stay visible
+	// per the feedback_zero_row_policy.
 	byCat := map[string]*AITrafficRow{}
-	for _, k := range order {
+	for _, k := range classify.CrawlerTagOrder {
 		byCat[k] = &AITrafficRow{Category: k}
 	}
 	if h.DB != nil {
@@ -218,10 +228,13 @@ func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficR
 			}
 		}
 	}
-	out := make([]AITrafficRow, 0, len(order))
-	for _, k := range order {
+	out := make([]AITrafficRow, 0, len(classify.CrawlerTagOrder))
+	for _, k := range classify.CrawlerTagOrder {
 		out = append(out, *byCat[k])
 	}
+	// Sort by Total DESC; ties keep classify.CrawlerTagOrder via stable sort.
+	// Zero-row tags fall to the bottom but stay visible (feedback_zero_row_policy).
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Total > out[j].Total })
 	return out
 }
 
@@ -371,7 +384,7 @@ func parseHostFilter(raws []string) []string {
 
 // resolveHostFilter: resolve the global scope of the host filter.  Precedence:
 //  1. unmask_hosts cookie (= written by the shared host_picker.  comma-separated.  empty = all hosts)
-//  2. ?host= query param (= deep link / back-compat.  Only when the cookie is unset)
+//  2. ?host= query param (= deep link.  Only when the cookie is unset)
 //
 // The host picker uses a cookie like the TZ / language pickers, so the
 // selection is preserved across navigation (= one view scope shared by every admin page).

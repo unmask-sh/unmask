@@ -18,8 +18,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
@@ -29,6 +31,63 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 )
+
+// staticAssetsTipPatterns are compiled from the static-assets bypass-path
+// preset in nginxconf.BypassPathPresetGroups -- the same regex set that the
+// rendered nginx map uses.  Reusing the preset keeps the hunt-page tip and
+// the actual bypass behaviour in sync; if the preset gains a new pattern
+// (e.g. another well-known asset path), the tip starts counting it too.
+var (
+	staticAssetsTipPatternsOnce sync.Once
+	staticAssetsTipPatterns     []*regexp.Regexp
+)
+
+func compileStaticAssetsTipPatterns() []*regexp.Regexp {
+	staticAssetsTipPatternsOnce.Do(func() {
+		for _, g := range nginxconf.BypassPathPresetGroups {
+			if g.ID != "static-assets" {
+				continue
+			}
+			for _, r := range g.Rules {
+				if re, err := regexp.Compile(r.Pattern); err == nil {
+					staticAssetsTipPatterns = append(staticAssetsTipPatterns, re)
+				}
+			}
+		}
+	})
+	return staticAssetsTipPatterns
+}
+
+// huntTipDismissedCookie carries a comma-separated list of tip IDs the
+// operator has dismissed.  Written by hunt.html's dismiss button, read here
+// so the banner does not re-appear after the page reload.
+const huntTipDismissedCookie = "unmask_hunt_tip_dismissed"
+
+func isHuntTipDismissed(r *http.Request, tipID string) bool {
+	c, err := r.Cookie(huntTipDismissedCookie)
+	if err != nil || c == nil {
+		return false
+	}
+	v := decodeCookieValue(c.Value)
+	for _, id := range strings.Split(v, ",") {
+		if strings.TrimSpace(id) == tipID {
+			return true
+		}
+	}
+	return false
+}
+
+// bypassPathsPresetEnabled reports whether the given preset ID appears in
+// the operator's BypassPathsConfig.EnabledPresets list.  Inline scan; the
+// list is tiny (= a handful of preset IDs).
+func bypassPathsPresetEnabled(b settings.BypassPathsConfig, id string) bool {
+	for _, p := range b.EnabledPresets {
+		if p == id {
+			return true
+		}
+	}
+	return false
+}
 
 // AdminHuntIndex: GET /admin/hunt/ — ranking + raw log + live tail.
 func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
@@ -196,6 +255,37 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Static-assets tip: when many hunt rows hit paths the static-assets
+	// bypass preset would cover (= /static/, /assets/, /favicon.ico etc.),
+	// suggest enabling the preset.  Skipped when the preset is already on
+	// or the operator dismissed the tip in this browser.  Threshold of 20
+	// matches the "many rows" intent without firing on the occasional
+	// /robots.txt hit in a quiet hour.
+	staticAssetsTipHits := 0
+	showStaticAssetsTip := false
+	if !bypassPathsPresetEnabled(cur.BypassPaths, "static-assets") &&
+		!isHuntTipDismissed(r, "static-assets") {
+		pats := compileStaticAssetsTipPatterns()
+		for _, e := range enriched {
+			p := e.Row.Path
+			if p == "" {
+				continue
+			}
+			if i := strings.IndexByte(p, '?'); i >= 0 {
+				p = p[:i]
+			}
+			for _, re := range pats {
+				if re.MatchString(p) {
+					staticAssetsTipHits++
+					break
+				}
+			}
+		}
+		if staticAssetsTipHits >= 20 {
+			showStaticAssetsTip = true
+		}
+	}
+
 	data := map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
@@ -225,6 +315,12 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		),
 		"Saved":      q.Get("saved") != "",
 		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		// Static-assets tip: rendered as a dismissible banner above the
+		// range bar when paths matching the static-assets preset show up
+		// ≥ 20 times in the current page.
+		"ShowStaticAssetsTip":  showStaticAssetsTip,
+		"StaticAssetsTipHits":  staticAssetsTipHits,
+		"StaticAssetsTipHref":  h.Settings.Server.BasePath + "/admin/settings/?tab=bypass-paths",
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
 		// CommunityBansActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the
@@ -292,8 +388,8 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		ip := strings.TrimSpace(r.FormValue("ip"))
 		ja4 := strings.TrimSpace(r.FormValue("ja4"))
 		durSec, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("duration_sec")), 10, 64)
-		if ip == "" {
-			redir("ip is required")
+		if ip == "" && ja4 == "" {
+			redir("ip or ja4 is required")
 			return
 		}
 		if h.BanMgr == nil {
@@ -309,7 +405,10 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		if banReason == "" {
 			banReason = "bot hunt"
 		}
-		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, banReason, meUsername, "", durSec); err != nil {
+		// Scope comes from the form (= JA4 ranking sets ja4_only).  Empty
+		// falls back to DeriveScope.
+		scope := strings.TrimSpace(r.FormValue("scope"))
+		if err := h.BanMgr.AddManualWithScope(r.Context(), ip, ja4, scope, banReason, meUsername, "", durSec); err != nil {
 			redir("ban: " + err.Error())
 			return
 		}

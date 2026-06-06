@@ -61,7 +61,7 @@
       <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td class="mono verdict-cell{{ if and .Verdict (gt (len .Verdict) 20) }} cellpop{{ end }}"{{ if and .Verdict (gt (len .Verdict) 20) }} data-full-value="{{ .Verdict }}"{{ end }}>{{ if .Verdict }}{{ if gt (len .Verdict) 20 }}{{ slice .Verdict 0 19 }}…{{ else }}{{ .Verdict }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}</td>
       <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -74,6 +74,7 @@
           </span>
         {{ else }}
           <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
             <input type="hidden" name="op" value="ban">
             <input type="hidden" name="ip"  value="{{ .IP }}">
             <input type="hidden" name="ja4" value="{{ .JA4 }}">
@@ -105,6 +106,16 @@
      Running immediately would null-out getElementById('cell-popover') and
      bail early, losing the entire session view.  See feedback_partial_row_shape
      memo: the partial must not assume what comes after it. */}}
+<style>
+/* URL cellpop popover action buttons (= Open in new tab / Copy URL).  Lives
+   here, not on the host page, because the button HTML is injected from this
+   partial's popHtml() -- keeping CSS + JS together so any page that includes
+   this partial (overview / dashboard / hunt / ...) renders the buttons with
+   the intended chip style instead of plain links. */
+.cellpop-actions{display:flex;gap:.4rem;margin-top:.5rem;font-family:system-ui,sans-serif}
+.cellpop-btn{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;font-size:.78rem;color:#0f172a;cursor:pointer;text-decoration:none}
+.cellpop-btn:hover{background:#e2e8f0}
+</style>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
 // Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates

@@ -773,6 +773,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 	case "add":
 		ip := strings.TrimSpace(r.FormValue("ip"))
 		ja4 := strings.TrimSpace(r.FormValue("ja4"))
+		scope := strings.TrimSpace(r.FormValue("scope"))
 		reason := strings.TrimSpace(r.FormValue("reason"))
 		durSec, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("duration_sec")), 10, 64)
 		// Per-row action override.  Empty / unknown drops back to
@@ -783,11 +784,11 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		if action != "" && !settings.IsValidRateChallengeMode(action) {
 			action = ""
 		}
-		if ip == "" {
-			redir("ip is required")
+		if ip == "" && ja4 == "" {
+			redir("ip or ja4 is required")
 			return
 		}
-		if err := h.BanMgr.AddManual(r.Context(), ip, ja4, reason, meUsername, action, durSec); err != nil {
+		if err := h.BanMgr.AddManualWithScope(r.Context(), ip, ja4, scope, reason, meUsername, action, durSec); err != nil {
 			redir("add: " + err.Error())
 			return
 		}
@@ -812,6 +813,41 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "ban_remove",
 				strconv.FormatInt(id, 10), "")
+		}
+		redir("")
+		return
+
+	case "edit":
+		// Inline edit of an existing manual BAN row -- the dialog opened
+		// from the row's 「編集」 button posts here.  Match scope (= IP+JA4 /
+		// IP-only / JA4-only) flips by clearing one of the input fields
+		// during edit; the manager re-validates uniqueness.
+		id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+		if err != nil || id <= 0 {
+			redir("invalid id")
+			return
+		}
+		ip := strings.TrimSpace(r.FormValue("ip"))
+		ja4 := strings.TrimSpace(r.FormValue("ja4"))
+		scope := strings.TrimSpace(r.FormValue("scope"))
+		reason := strings.TrimSpace(r.FormValue("reason"))
+		durSec, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("duration_sec")), 10, 64)
+		action := strings.TrimSpace(r.FormValue("ban_action"))
+		if action != "" && !settings.IsValidRateChallengeMode(action) {
+			action = ""
+		}
+		if ip == "" && ja4 == "" {
+			redir("ip or ja4 is required")
+			return
+		}
+		if err := h.BanMgr.UpdateManual(r.Context(), id, ip, ja4, scope, reason, action, durSec); err != nil {
+			redir("edit: " + err.Error())
+			return
+		}
+		if h.UserRepo != nil {
+			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "ban_edit",
+				fmt.Sprintf("%d|%s|%s", id, ip, ja4),
+				fmt.Sprintf(`{"reason":%q,"duration_sec":%d,"action":%q}`, reason, durSec, action))
 		}
 		redir("")
 		return
@@ -856,12 +892,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		case settings.SubscribeOff, settings.SubscribeFetch, settings.SubscribeFetchApply:
 			// valid
 		default:
-			// Legacy checkbox fallback (= subscribe_enabled=1 → fetch_apply).
-			if r.FormValue("subscribe_enabled") == "1" {
-				modeVal = settings.SubscribeFetchApply
-			} else {
-				modeVal = settings.SubscribeOff
-			}
+			modeVal = settings.SubscribeOff
 		}
 		cur, err := settings.Load(h.ConfigPath)
 		if err != nil {

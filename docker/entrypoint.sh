@@ -31,7 +31,8 @@ secret:
     captcha_secret_base: ${CB}
 
 challenge:
-    cookie_days: 3
+    pow_cookie_valid_seconds: 604800       # 7 days
+    captcha_cookie_valid_seconds: 1209600  # 14 days
     captcha_score_threshold: 0.5
 
 server:
