@@ -417,7 +417,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
           <span class="votes-td">
           {{ if gt .Reports 0 }}<span class="reports-badge" data-info="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}</span>{{ end }}
           {{/* 0 件でも明示表示 ([[feedback_zero_row_policy]]) -- operator が「報告はあるけど vote/comment 無し」 を一目で判断できる. */}}
-          <span class="votes-cell"{{ if .Reasoning }} data-info="{{ .Reasoning }}"{{ end }}><span class="like">👍 {{ .LikeCount }}</span> <span class="cmt-count">💬 {{ .CommentCount }}</span></span>
+          <span class="votes-cell"{{ if .Reasoning }} data-info="{{ htmlEscapeText .Reasoning }}"{{ end }}><span class="like">👍 {{ .LikeCount }}</span> <span class="cmt-count">💬 {{ .CommentCount }}</span></span>
           </span>
         </td>
         <td class="clamp feed-reason"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>

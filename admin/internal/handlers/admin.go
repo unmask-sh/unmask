@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	stdhtml "html"
 	"html/template"
 	"io/fs"
 	"log"
@@ -203,6 +204,13 @@ func loadDashboardTemplate() (*template.Template, error) {
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+			// htmlEscapeText: EXTRA-escape a value destined for a data-* attribute
+			// that JS later reads via .dataset (which HTML-decodes) and injects
+			// with innerHTML.  Without this double-escape the decode+raw-inject
+			// re-animates markup = stored XSS (= the community-bans feed .Reasoning
+			// popover).  text/template's own attribute escaping is one layer; this
+			// adds the second so the decoded value renders as literal text.
+			"htmlEscapeText": stdhtml.EscapeString,
 			// ccImg converts ISO 3166-1 alpha-2 into the <x> portion of /static/flags/<x>.png.
 			//   "JP"    -> "jp" (lowercase)
 			//   ""      -> "unknown" (IP-geo miss; falls back to unknown.png)
