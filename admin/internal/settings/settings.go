@@ -457,10 +457,13 @@ func (w WebBotAuthConfig) ResolvedCacheTTLSec() int {
 	return 3600
 }
 
-// IsOperatorAllowed checks the allowlist.  Empty list → all operators pass.
+// IsOperatorAllowed checks the allowlist.  Empty list → no operator passes
+// (fail closed): Web Bot Auth is a veto-pass that skips the whole challenge
+// pipeline, so an unconfigured allowlist must not let every signed agent
+// through.  Operators enable WBA by naming the agent hosts they trust.
 func (w WebBotAuthConfig) IsOperatorAllowed(host string) bool {
 	if len(w.AllowedOperators) == 0 {
-		return true
+		return false
 	}
 	for _, op := range w.AllowedOperators {
 		if strings.EqualFold(op, host) {
@@ -1574,6 +1577,16 @@ func defaults() Settings {
 			// admin start (= idempotent, stamp guarded).  Keeping defaults()
 			// zone list empty lets e2e admin.yml load without the preset
 			// triggering Save() side-effects in fresh-install code paths.
+		},
+		Global: GlobalConfig{
+			// Known browsers pass by default (= a real Chrome/Firefox/Safari UA,
+			// JA4-confirmed in native mode; the JA4 axis still challenges a
+			// spoofed-browser UA whose fingerprint does not match).  Leaving
+			// this empty falls through to PoW for EVERY visitor (uaDecide's
+			// empty -> RateChallengePoWOnly), which defeats the JA4 "real
+			// browsers sail through" value the product is built on.  Unknown
+			// UAs stay on the implicit PoW challenge (UnknownUAAction empty).
+			KnownBrowserAction: "pass",
 		},
 		Server: Server{
 			Bind:     "127.0.0.1",
