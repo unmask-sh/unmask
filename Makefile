@@ -737,7 +737,7 @@ e2e-docker-down:
 ## distro-check  - release-gate: e2e (docker) + install matrix on a VM lab.
 # Maintainer-only target.  e2e covers admin / plugin behavior in isolation;
 # install-test-official.sh exercises the distribution path on real distros
-# via a private sibling repo (../distro-verify/e2e/) which spins up KVM
+# via a private sibling directory (../distro-verify/e2e/) which spins up KVM
 # guests.  Both must pass before publishing.  Outside contributors run
 # `make e2e-docker` instead; the install matrix run is reserved for the
 # release maintainer.
@@ -745,7 +745,7 @@ e2e-docker-down:
 distro-check:
 	@echo '=== gate 1/2: e2e (docker compose) ==='
 	$(MAKE) e2e-docker
-	@echo '=== gate 2/2: install matrix (8 distros) ==='
+	@echo '=== gate 2/2: install matrix (10 distros, verdict-gated) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
 	@echo '=== release gate PASSED — e2e + 8-distro install matrix green ==='
