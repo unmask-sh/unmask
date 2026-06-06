@@ -37,7 +37,7 @@
 #
 # GPG / RSA signing is controlled by environment variables:
 #   UNMASK_GPG_KEY_ID=C03DD45E28C4446FDDC48EFC34A320B544B28158  # rpm/deb signing key (fpr)
-#   UNMASK_GNUPGHOME=/home/apps/unmask/keys/gpg                 # project-local keyring (default)
+#   UNMASK_GNUPGHOME=../keys/gpg                                # project-local keyring (default: a keys/gpg dir beside the repo checkout)
 #   UNMASK_GPG_PASSPHRASE=...                                   # for batch / CI runs.  Omit to be prompted via read -s
 #   UNMASK_RSA_PRIVKEY=~/.abuild/...rsa                         # signing key for apk index
 # If UNMASK_GPG_KEY_ID is unset, signing is skipped (= dry run).
@@ -49,7 +49,7 @@
 #     cron).  pinentry-tty / pinentry-curses fail with 'inappropriate ioctl'.
 #   - We cache the passphrase once via PRESET_PASSPHRASE into the agent and let
 #     every subsequent sign hit the cache.  The cache TTL is bounded by the
-#     agent's max-cache-ttl (= /home/apps/unmask/keys/gpg/gpg-agent.conf default).
+#     agent's max-cache-ttl (= the gpg-agent.conf inside that GNUPGHOME).
 
 set -eu
 
@@ -77,7 +77,7 @@ stage_active() {
 # ---- GnuPG keyring + agent passphrase preset ----
 # Project-local GNUPGHOME (= the unmask release keyring lives outside ~/.gnupg
 # so user keyrings stay unaffected and CI runs are deterministic).
-export GNUPGHOME="${UNMASK_GNUPGHOME:-${ROOT%/repo}/keys/gpg}"
+export GNUPGHOME="${UNMASK_GNUPGHOME:-$(dirname "$ROOT")/keys/gpg}"
 [ -d "$GNUPGHOME" ] || {
     echo "WARN: GNUPGHOME=$GNUPGHOME absent.  Continuing -- signing will be skipped if UNMASK_GPG_KEY_ID is set."
 }
