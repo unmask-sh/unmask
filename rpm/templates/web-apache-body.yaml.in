@@ -16,9 +16,12 @@ depends:
   - unmask
 
 # Apache package names depend on distro:
-#   - RHEL:   httpd + mod_lua + mod_proxy_http (= mod_lua is a separate rpm)
-#   - Debian: apache2 + libapache2-mod-lua
-#   - Alpine: apache2 + apache2-mod-lua + apache2-proxy
+#   - RHEL:   httpd + mod_lua + mod_proxy_http (= mod_lua is a separate rpm;
+#             lua-socket lives in EPEL so it stays a documented manual step,
+#             not a hard depend the base repos cannot satisfy)
+#   - Debian: apache2 (mod_lua ships inside apache2-bin -- there is NO separate
+#             libapache2-mod-lua package on Debian 12 / Ubuntu 24.04) + lua-socket
+#   - Alpine: apache2 + apache2-mod-lua + apache2-proxy + lua socket lib
 overrides:
   rpm:
     depends:
@@ -29,13 +32,14 @@ overrides:
     depends:
       - unmask
       - apache2
-      - libapache2-mod-lua
+      - lua-socket
   apk:
     depends:
       - unmask
       - apache2
-      - apache2-mod-lua
+      - apache2-lua
       - apache2-proxy
+      - lua5.3-socket
 
 # Destination: /etc/httpd/conf.d/ on RHEL-family, /etc/apache2/conf-available/
 # on Debian-family.  nfpm has no conditional, so RPM is assumed RHEL layout
