@@ -5,7 +5,7 @@
 #   1. Place upstream auto-load symlinks in /etc/nginx/conf.d/
 #       00-unmask-upstream.conf -> /etc/unmask/upstream.conf
 #         (= so proxy_pass http://unmask_admin; resolves in every server block. shared by both modes)
-#       00-unmask.conf          -> /etc/unmask/native/http.inc
+#       00-unmask.conf          -> /etc/unmask/http.inc
 #         (= JA4 maps / log_format etc.  native-mode only.  In environments
 #            without the plugin, the target is not rendered but nginx -t still
 #            passes; include only emits a warning.)
@@ -51,9 +51,12 @@ fi
 # JA4 maps auto-load (= native-mode only).  Meaningful only with the
 # unmask-plugin-nginx + admin combination.  Even without the plugin, keep the
 # symlink alive by pointing it at an empty placeholder that is still rendered.
-RENDERED_SRC=/etc/unmask/native/http.inc
+# NOTE: render-nginx writes the flat path /etc/unmask/http.inc (the legacy
+# /etc/unmask/native/ layout was retired); the symlink must track it or nginx
+# loads an empty placeholder and `unknown log format unmask_minimal` aborts -t.
+RENDERED_SRC=/etc/unmask/http.inc
 RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
-[ -d /etc/unmask/native ] || mkdir -p /etc/unmask/native
+[ -d /etc/unmask ] || mkdir -p /etc/unmask
 [ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
 # cleanup of the legacy symlink (= whichever include dir applies on this host)
 rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
