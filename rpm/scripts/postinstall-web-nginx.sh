@@ -98,6 +98,11 @@ if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] \
 fi
 
 if command -v nginx >/dev/null 2>&1; then
+    # Alpine creates the /run/nginx pid dir in the openrc service's start_pre,
+    # so on a fresh box where nginx has never been started the validation
+    # `nginx -t` below fails on open(/run/nginx/nginx.pid) even though the
+    # config is valid -- producing a misleading warning.  Create it first.
+    [ -d /run/nginx ] || mkdir -p /run/nginx 2>/dev/null || true
     if nginx -t >/dev/null 2>&1; then
         nginx -s reload >/dev/null 2>&1 || true
         echo "unmask-web-nginx: nginx reload requested."
