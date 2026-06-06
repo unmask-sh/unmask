@@ -25,28 +25,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: [go, javascript-typescript]
+        include:
+          - language: go
+          - language: javascript-typescript
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
-        if: matrix.language == 'go'
-        with:
-          go-version: "1.25.10"
-          cache-dependency-path: admin/go.sum
-
-      - uses: github/codeql-action/init@v3
+      # build-mode: none — CodeQL extracts both Go and JS from source without a
+      # build, so no setup-go / explicit build step is needed.  This is the
+      # v4-recommended flow and avoids the v3 autobuilder "configuration error"
+      # (the admin module lives in admin/, not at the repo root, which tripped
+      # the old tracing build).
+      - uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
+          build-mode: none
           queries: security-extended
 
-      # Go: explicit build inside admin/ so CodeQL's autobuild picks the right
-      # module root (= the repo root is not a Go module).
-      - name: build go
-        if: matrix.language == 'go'
-        working-directory: admin
-        run: go build ./...
-
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:${{ matrix.language }}"
