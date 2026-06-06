@@ -15,7 +15,7 @@
 #  unmask_version: {{ .Version }}
 
 # rate-limit.  The zone itself is declared via `limit_req_zone` in
-# nginx-rendered.conf (http {} scope).  limit_req_status 429 overrides the
+# http.inc (http {} scope).  limit_req_status 429 overrides the
 # default 503 to 429, then error_page 429 chains into `@unmask_rate_challenge`.
 limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
 limit_req_status 429;
