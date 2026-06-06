@@ -34,8 +34,13 @@ if [ ! -d "$MODULES_PATH" ]; then
 fi
 
 DEST="$MODULES_PATH/$SO_NAME"
-cp -f "$STAGING" "$DEST"
-chmod 0644 "$DEST"
+# Atomic install: write to a sibling tmp + rename(2) so a running nginx
+# worker that still mmaps the old .so doesn't hit ETXTBSY mid-upgrade, and
+# a SIGKILL during the copy can't leave a half-written .so on disk.
+tmp_so="$DEST.tmp.$$"
+cp -f "$STAGING" "$tmp_so"
+chmod 0644 "$tmp_so"
+mv -f "$tmp_so" "$DEST"
 
 # On SELinux hosts, apply the right context so nginx can load the module.
 if command -v restorecon >/dev/null 2>&1; then

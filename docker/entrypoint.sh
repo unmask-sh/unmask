@@ -49,6 +49,11 @@ nginx:
     metrics_allow_from:
         - 127.0.0.1
 EOF
+    # The file embeds bv_secret + captcha_secret_base, and host bind-mounts
+    # (= docker-compose.example.yml: unmask-config:/etc/unmask) surface this
+    # file on the host fs -- without this chmod the default umask leaves it
+    # world-readable there.
+    chmod 0600 "$CFG"
     echo "==> generated minimal $CFG (= visit /unmask/admin/ to start install wizard)"
 fi
 

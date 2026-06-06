@@ -206,8 +206,13 @@ fi
 # ---- 4. cp ----
 SRC="$PLUGIN_DIR/${SO_NAME%.so}-${PICKED}.so"
 DEST="$MODULES_PATH/$SO_NAME"
-cp -f "$SRC" "$DEST"
-chmod 0644 "$DEST"
+# Atomic install: write to a sibling tmp + rename(2) so a running nginx
+# worker that still mmaps the old .so doesn't hit ETXTBSY mid-upgrade, and
+# a SIGKILL during the copy can't leave a half-written .so on disk.
+tmp_so="$DEST.tmp.$$"
+cp -f "$SRC" "$tmp_so"
+chmod 0644 "$tmp_so"
+mv -f "$tmp_so" "$DEST"
 
 # ---- 5. selinux ----
 if command -v restorecon >/dev/null 2>&1; then
@@ -250,14 +255,19 @@ if [ -z "$LOAD_DROPPED" ] && [ -w "$NGINX_CONF" ]; then
     if ! grep -q "load_module.*ngx_http_unmask_module" "$NGINX_CONF"; then
         # Insert at the very top of nginx.conf (= keep existing lines,
         # add load_module as line 1).
-        tmp=$(mktemp) && {
-            echo "$LOAD_LINE" > "$tmp"
-            cat "$NGINX_CONF" >> "$tmp"
-            cat "$tmp" > "$NGINX_CONF"
-            rm -f "$tmp"
+        # Atomic edit: build the new file in a sibling tmp + rename(2) so a
+        # SIGKILL / power loss between truncate and write doesn't leave
+        # nginx.conf empty or half-written (= next `nginx -t` would die).
+        tmp="$NGINX_CONF.tmp.$$"
+        {
+            echo "$LOAD_LINE"
+            cat "$NGINX_CONF"
+        } > "$tmp" && {
+            chmod 0644 "$tmp"
+            mv -f "$tmp" "$NGINX_CONF"
             echo "  load_module added to: $NGINX_CONF (= at the top of main scope)"
             LOAD_DROPPED=1
-        }
+        } || rm -f "$tmp"
     else
         echo "  load_module already present in $NGINX_CONF (= idempotent skip)"
         LOAD_DROPPED=1
