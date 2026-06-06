@@ -488,6 +488,10 @@ func cmdServe(args []string) error {
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      60 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		// Cap headers at 64 KB (Go default is 1 MB).  /api/check runs on every
+		// request and pickValidBV HMAC-verifies every _bv cookie, so 1 MB of
+		// packed cookies = thousands of HMACs per request; 64 KB bounds that.
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	// SIGINT / SIGTERM trigger graceful shutdown.  SIGHUP is no longer

@@ -320,6 +320,16 @@ func SessionFromContext(r *http.Request) *SessionPayload {
 // `admin_token` auth has been removed; only the internal user DB + login form remains.
 func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		// Security headers on every admin response.  X-Frame-Options + CSP
+		// frame-ancestors stop the admin UI being framed (clickjacking of
+		// state-changing actions); nosniff + Referrer-Policy are safe hardening.
+		// (A script-src CSP that would also block injected inline handlers needs
+		// the admin's inline <script>s moved to nonces first -- a follow-up; the
+		// round-3 stored XSS is already fixed at the escaping source.)
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Referrer-Policy", "same-origin")
 		// During the install wizard, redirect every admin path to /admin/setup/.
 		if needed, _ := h.SetupNeeded(r); needed {
 			http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
@@ -734,7 +744,9 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	base := h.Settings.Server.BasePath
 	ret := r.FormValue("return")
-	if ret == "" || !strings.HasPrefix(ret, "/") {
+	// Must be a local path: starts with "/" but not "//" or "/\" (both normalize
+	// to a protocol-relative off-site URL in browsers = open redirect).
+	if ret == "" || !strings.HasPrefix(ret, "/") || strings.HasPrefix(ret, "//") || strings.HasPrefix(ret, "/\\") {
 		ret = base + "/admin/"
 	}
 	username := strings.TrimSpace(r.FormValue("username"))

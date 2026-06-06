@@ -84,6 +84,18 @@ type metricsSnapshot struct {
 
 // Metrics: GET {base}/metrics
 func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
+	// /metrics is registered with no middleware and the rendered nginx proxies
+	// all of /unmask/ to the admin with no allow/deny, so without an app-layer
+	// gate any internet client could read traffic/verdict stats.  Default to
+	// loopback-only; metrics_allow_from widens it.
+	allow := h.Settings.Nginx.MetricsAllowFrom
+	if len(allow) == 0 {
+		allow = []string{"127.0.0.0/8", "::1/128"}
+	}
+	if !ipAllowed(clientIP(r), allow) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	snap := Metrics.snapshot(r.Context(), h)
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
