@@ -198,7 +198,10 @@ func (h *Handler) AdminSettingsSnapshot(w http.ResponseWriter, r *http.Request) 
 // settings yaml as a downloadable file.  No auth modification; admin-or-above
 // only (= scoped by the route registration in main.go).
 func (h *Handler) AdminSettingsExport(w http.ResponseWriter, r *http.Request) {
-	body, err := settings.MarshalYAML(h.snapshotSettings())
+	// Redact secrets: the export is a config backup, not a secret dump.  Leaking
+	// bv_secret (the session-signing key) would let an admin forge a superadmin
+	// session + mint _bv bypass cookies; DB/SMTP/hub creds are likewise sensitive.
+	body, err := settings.MarshalYAML(h.snapshotSettings().WithSecretsRedacted())
 	if err != nil {
 		http.Error(w, "marshal: "+err.Error(), http.StatusInternalServerError)
 		return

@@ -403,6 +403,21 @@ type Nginx struct {
 	//     /unmask/* to admin unchanged (= no nginx config involvement).
 	AdminAllowedHosts []string `yaml:"admin_allowed_hosts,omitempty"`
 
+	// TrustForwardedSite / TrustForwardedJA4: in forward-auth mode the admin
+	// receives the X-Unmask-Site / X-Client-JA4 headers from the proxy, but
+	// nginx's default proxy_pass_request_headers forwards a CLIENT-supplied
+	// value of the same name, and the admin cannot tell an operator-set header
+	// from a client-forwarded one (both arrive from the trusted loopback peer).
+	// So these are NOT trusted by default: a client could otherwise spoof
+	// X-Unmask-Site to select a weaker site's policy (= observe_only bypass) or
+	// spoof X-Client-JA4 to evade JA4 detection.  Default (false): the site is
+	// derived from the proxy-forced X-Original-Host and forward-auth carries no
+	// JA4.  Set true ONLY when your proxy explicitly OVERWRITES the header (=
+	// `proxy_set_header X-Unmask-Site $unmask_site;` so a client value can't
+	// reach here).
+	TrustForwardedSite bool `yaml:"trust_forwarded_site,omitempty"`
+	TrustForwardedJA4  bool `yaml:"trust_forwarded_ja4,omitempty"`
+
 	// Preset IDs of trusted LBs. Default is empty (= all disabled, secure default).
 	// Pick IDs from the presets in nginxconf/lb_iprange.go to enable. Example:
 	//   trusted_lb_presets: [gcp]
@@ -1846,6 +1861,27 @@ func BackfillExtraVerdictIDs(s *Settings) {
 //
 // atomic write: write to a temp file in the same dir → fsync → rename
 // (= POSIX atomic). Permission is 0600 (= secrets are included).
+// WithSecretsRedacted returns a copy with secret fields blanked, for the
+// settings EXPORT / audit display.  bv_secret is the admin session-signing key
+// (session.go), so an unredacted export lets an admin-role downloader forge a
+// superadmin session and mint _bv bypass cookies for every site; the rest are
+// credentials.  Only scalar string fields are touched, so the value-receiver
+// copy fully isolates the original.  Keep in sync with the index page masks.
+func (s Settings) WithSecretsRedacted() Settings {
+	const r = "***REDACTED***"
+	redact := func(p *string) {
+		if *p != "" {
+			*p = r
+		}
+	}
+	redact(&s.Secret.BVSecret)
+	redact(&s.Secret.CaptchaSecretBase)
+	redact(&s.DB.MariaDB.Password)
+	redact(&s.SMTP.Password)
+	redact(&s.CommunityBans.Token)
+	return s
+}
+
 // MarshalYAML serializes a Settings as the canonical yaml form (= the same
 // representation Save writes to disk minus the header comment).  Used by the
 // audit / diff path to capture before/after snapshots.

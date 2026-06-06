@@ -755,15 +755,16 @@ func portFromRequest(r *http.Request) int {
 // X-Unmask-Site header is an explicit override for proxies that map vhosts to
 // a custom site id.
 func siteFromRequest(r *http.Request, cfg settings.Settings) string {
-	// X-Unmask-Site is operator-set in trusted upstreams (= nginx config
-	// `proxy_set_header X-Unmask-Site $unmask_site;`).  But default forward-
-	// auth deployments leave that directive commented out, and nginx's
-	// proxy_pass_request_headers default forwards client-supplied headers,
-	// so accepting it from anyone lets an attacker pick a different site's
-	// per-site config (= challenge bypass via observe_only=true, weaker
-	// honeypot/bypass/rate-limit zone).  Gate on the peer being a trusted
-	// proxy -- same shape as resolveForwardedJA4.
-	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
+	// X-Unmask-Site lets an operator override the host-derived site.  But the
+	// peer being trusted (= loopback in forward-auth) does NOT make the header
+	// VALUE trustworthy: nginx's default proxy_pass_request_headers forwards a
+	// client-supplied X-Unmask-Site, and the admin can't distinguish that from
+	// an operator-set one.  So honor it ONLY when the operator has explicitly
+	// opted in (and thereby promised the proxy OVERWRITES the header), else a
+	// client spoofs it to select a weaker site's policy (observe_only =
+	// install-wide bypass).  Default: derive the site from the proxy-forced
+	// X-Original-Host below, which a client can't set.
+	if cfg.Nginx.TrustForwardedSite && peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
 		if s := strings.TrimSpace(r.Header.Get("X-Unmask-Site")); s != "" {
 			return normalizeSite(s)
 		}
@@ -799,6 +800,15 @@ func forwardAuthTrustedPeers(cfg settings.Settings) []string {
 // proxy snippet overwriting any client-supplied X-Client-JA4 before it
 // forwards the request.
 func resolveForwardedJA4(r *http.Request, cfg settings.Settings) string {
+	// Like X-Unmask-Site, a client-supplied X-Client-JA4 is forwarded verbatim
+	// by nginx's default proxy_pass_request_headers, and a trusted (loopback)
+	// peer does not make the VALUE trustworthy -- a client could spoof a benign
+	// JA4 to evade ja4:bot detection (or rotate it to escape JA4-keyed rate
+	// limiting).  Require an explicit opt-in (operator promises the proxy sets
+	// the JA4 from a real front layer); default forward-auth carries no JA4.
+	if !cfg.Nginx.TrustForwardedJA4 {
+		return ""
+	}
 	ja4 := firstNonEmpty(
 		r.Header.Get("X-Client-JA4"),
 		r.Header.Get("X-Original-JA4"),

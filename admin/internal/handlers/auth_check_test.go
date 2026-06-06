@@ -315,7 +315,9 @@ func TestResolveForwardedJA4(t *testing.T) {
 		}
 		// Extra peer CIDRs ride along via the native-mode LB-trust extra
 		// list -- the same knob operators configure for LB header trust.
-		cfg := settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra}}
+		// TrustForwardedJA4 is on so these cases exercise the peer logic; the
+		// default-deny (flag off) is covered separately below.
+		cfg := settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra, TrustForwardedJA4: true}}
 		return r, cfg
 	}
 	extraCIDR := func(cidr string) []settings.TrustedLBExtra {
@@ -350,6 +352,19 @@ func TestResolveForwardedJA4(t *testing.T) {
 			}
 		})
 	}
+
+	// Default-deny (the round-4 spoof fix): without TrustForwardedJA4, a
+	// client-supplied X-Client-JA4 is dropped even from a loopback peer, so a
+	// client can't inject a benign JA4 to evade ja4:bot.
+	t.Run("flag off -> dropped even from loopback", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, "/unmask/api/check", nil)
+		r.RemoteAddr = "127.0.0.1:5"
+		r.Header.Set("X-Client-JA4", goodJA4)
+		cfg := settings.Settings{} // TrustForwardedJA4 defaults false
+		if got := resolveForwardedJA4(r, cfg); got != "" {
+			t.Errorf("expected drop without TrustForwardedJA4, got %q", got)
+		}
+	})
 }
 
 // TestIsSearchBotUA locks the search/AI-crawler detection that the forward-auth
