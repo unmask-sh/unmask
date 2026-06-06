@@ -273,7 +273,7 @@ fi
 
 echo ""
 echo "next steps (= on the nginx side):"
-echo "  1. (web-nginx package handles 'include /etc/unmask/native/http.inc' via a symlink)"
+echo "  1. (web-nginx package handles 'include /etc/unmask/http.inc' via a symlink)"
 echo "  2. Confirm 'nginx -t' passes, then reload."
 
 exit 0

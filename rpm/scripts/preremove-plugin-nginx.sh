@@ -3,11 +3,21 @@
 # Removes the module file that postinstall copied.  Skipped on upgrade ($1=1)
 # (= the new version overwrites the same path).
 
-# Only on full remove.
-case "${1:-0}" in
-    0|remove)  ;;
-    *)         exit 0 ;;
-esac
+# Only on a genuine removal.  rpm: $1="0"; dpkg: $1="remove".  apk passes the
+# package version string as $1, and nfpm wires this as apk's pre-deinstall hook
+# (= uninstall-only by spec, upgrades use a separate pre-upgrade hook), so on
+# Alpine this is always a removal -- detect it via /lib/apk (= same idiom as
+# postremove.sh).  Without this, `apk del unmask-plugin-nginx` would leave the
+# .so and the load_module .conf behind.
+do_remove=0
+if [ -d /lib/apk ]; then
+    do_remove=1
+else
+    case "${1:-0}" in
+        0|remove) do_remove=1 ;;
+    esac
+fi
+[ "$do_remove" = 1 ] || exit 0
 
 if ! command -v nginx >/dev/null 2>&1; then
     exit 0

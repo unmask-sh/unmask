@@ -44,7 +44,7 @@ NGINX_INCDIR=/etc/nginx/conf.d
 if [ -d /etc/nginx/http.d ] \
    && [ -r /etc/nginx/nginx.conf ] \
    && awk '
-       /\<http[[:space:]]*\{/ { in_http=1 }
+       /^[[:space:]]*http[[:space:]]*\{/ { in_http=1 }
        in_http && /include[[:space:]]+\/etc\/nginx\/http\.d\// { found=1 }
        /^\}/ { in_http=0 }
        END { exit !found }
@@ -133,7 +133,7 @@ echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
 echo ""
 echo "            include /etc/unmask/forward-auth/server.inc;"
 echo ""
-echo "        (native mode with unmask-plugin-nginx: use /etc/unmask/native/server.inc)"
+echo "        (native mode with unmask-plugin-nginx: use /etc/unmask/server.inc)"
 echo "        then:  sudo nginx -t && sudo nginx -s reload"
 echo "        open:  https://<your-domain>/unmask/admin/setup/"
 echo ""

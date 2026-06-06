@@ -1403,7 +1403,15 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		score := captcha.Score(payload.Sig)
 		Metrics.ObserveScore(score)
-		if score >= ch.CaptchaProvider.BuiltinScoreThreshold {
+		// Zero-guard the threshold the same way the reCAPTCHA path does above:
+		// a hand-edited config with provider:builtin but no builtin_score_threshold
+		// yields 0, and `score >= 0` would pass every CAPTCHA (a 0.0-scoring bot
+		// clears it).  defaults()/the form clamp to 0.5, but Load() does not.
+		minScore := ch.CaptchaProvider.BuiltinScoreThreshold
+		if minScore <= 0 {
+			minScore = 0.5
+		}
+		if score >= minScore {
 			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
 			h.setBVCookie(w, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})

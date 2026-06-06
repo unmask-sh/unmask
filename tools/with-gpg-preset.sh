@@ -18,7 +18,10 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-export GNUPGHOME="${UNMASK_GNUPGHOME:-${ROOT%/repo}/keys/gpg}"
+# Sibling keyring dir next to the checkout (= <parent>/keys/gpg).  dirname is
+# rename-robust; the old ${ROOT%/repo} assumed the dir was literally "repo" and
+# silently broke after the repo -> repo-main rename (same fix as build-repo.sh).
+export GNUPGHOME="${UNMASK_GNUPGHOME:-$(dirname "$ROOT")/keys/gpg}"
 
 if [ -z "${UNMASK_GPG_KEY_ID:-}" ]; then
     echo "ERR: UNMASK_GPG_KEY_ID not set" >&2

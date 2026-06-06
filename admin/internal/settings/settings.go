@@ -938,9 +938,11 @@ type GlobalConfig struct {
 	// this into a Cloudflare-style human gate for genuine visitors too.
 	KnownBrowserAction string `yaml:"known_browser_action,omitempty"`
 	// UnknownUAAction: chain for no-match requests whose UA is NOT a known
-	// browser (= curl / library / empty / oddball).  Default "pass".
-	// Picking pow_* / captcha_only / deny gates anything that isn't a real
-	// browser without affecting actual visitors.
+	// browser (= curl / library / empty / oddball).  Default (unset) ==
+	// pow_only: defaults() deliberately leaves this empty and uaDecide maps
+	// empty -> RateChallengePoWOnly, so non-browser clients are PoW-challenged
+	// out of the box (a JS PoW that scripts can't solve).  Set "pass" to let
+	// them through, or captcha_only / deny to gate harder.
 	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
 }
 

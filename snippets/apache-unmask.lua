@@ -20,7 +20,7 @@ local http  = require("socket.http")
 local ltn12 = require("ltn12")
 
 -- unmask /api/check URL.  Rewrite the host:port if admin does not run
--- on the same host (= server.port in admin.yml).
+-- on the same host (= server.port in /etc/unmask/config.yml).
 local UNMASK_API = "http://127.0.0.1:9477/unmask/api/check"
 
 -- Hard cap the admin round-trip so a stalled admin cannot pile up Apache

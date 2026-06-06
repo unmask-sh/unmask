@@ -3,7 +3,7 @@
 #   - Fix permissions on /etc/unmask/ (= so the unmask user can write from the web)
 #   - Generate /etc/unmask/config.yml via `unmask config-init`
 #   - Apply the schema
-#   - Generate nginx-rendered*.conf
+#   - Generate /etc/unmask/{http.inc,server.inc,protect.inc} (= render-nginx)
 #   - systemd reload + enable
 #
 # Note: do NOT `set -eu` here.  This postinstall has no abort requirement
@@ -38,9 +38,14 @@ chmod 0640 "$CONFIG" 2>/dev/null || true
 # first).  Skip if a user already exists in the user table (= idempotent
 # across upgrades).
 TOKEN_FILE=$CONFIG_DIR/.setup-token
-# Generate the token only on the initial install (= $1 == 1 for rpm /
-# configure for deb).
-if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ]; then
+# Generate the token only on a fresh install (= $1 == "1" for rpm /
+# "configure" for deb).  apk passes the package version string as $1 (never
+# "1" / "configure"), so detect Alpine via /lib/apk and treat it as a fresh
+# install too -- otherwise /etc/unmask/.setup-token is never created on Alpine
+# and the setup wizard's anti-hijack token check is bypassable (= the first
+# visitor could create the admin account).  The inner `[ ! -f "$TOKEN_FILE" ]`
+# guard keeps this idempotent across apk upgrades.
+if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ] || [ -d /lib/apk ]; then
     if [ ! -f "$TOKEN_FILE" ]; then
         token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
         echo "$token" > "$TOKEN_FILE"
@@ -78,13 +83,13 @@ fi
 #   sudo /usr/sbin/unmask migrate -config $CONFIG
 # before moving on to the user-create commands.
 
-# Generate nginx-rendered*.conf (= so `nginx -t` passes on first start).
-# Changes via the web auto-render, but the user hasn't opened the web yet
-# right after install, so do it once here.
+# Generate /etc/unmask/{http.inc,server.inc,protect.inc} (= so `nginx -t` passes
+# on first start).  Changes via the web auto-render, but the user hasn't opened
+# the web yet right after install, so do it once here.
 /usr/sbin/unmask render-nginx -config "$CONFIG" || \
-    echo "unmask: WARNING: render-nginx failed (= nginx-rendered.conf not generated. Please verify manually.)"
-chown unmask:unmask "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
-chmod 0644 "$CONFIG_DIR"/nginx-rendered*.conf 2>/dev/null || true
+    echo "unmask: WARNING: render-nginx failed (= /etc/unmask/http.inc + server.inc not generated. Please verify manually.)"
+chown unmask:unmask "$CONFIG_DIR"/*.inc 2>/dev/null || true
+chmod 0644 "$CONFIG_DIR"/*.inc 2>/dev/null || true
 
 # init system detection: systemd > OpenRC.  SysVinit (= CentOS 6 etc.) was
 # retired since every supported distro is one of these two.
@@ -120,6 +125,14 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
     if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ]; then
         systemctl enable --now unmask.service || true
+    elif [ -d /lib/apk ]; then
+        # apk passes the package version as $1 (not "1"/"configure"), so a fresh
+        # Alpine install would otherwise fall through to `try-restart` and never
+        # get enabled or started.  Enable for boot, then restart -- restart
+        # starts a stopped service and reloads a running one, so this is correct
+        # for both fresh-install and upgrade on the (rare) systemd-on-Alpine host.
+        systemctl enable unmask.service || true
+        systemctl restart unmask.service || true
     else
         systemctl try-restart unmask.service || true
     fi
@@ -127,10 +140,17 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
     # OpenRC (= Alpine 3.x / Gentoo).  symlink the OpenRC variant to /etc/init.d/unmask.
     ln -sf /usr/share/unmask/init/unmask.openrc /etc/init.d/unmask
+    # rc-update add is unconditional, so boot-enable happens on every packager
+    # including apk (= which passes the version string as $1, never "1").
     rc-update add unmask default 2>/dev/null || true
     if [ "${1:-}" = "1" ]; then
         rc-service unmask start || true
     else
+        # Covers apk (= version-string $1) and any upgrade: `restart` starts a
+        # stopped service (= fresh Alpine install) and reloads a running one
+        # (= upgrade).  Do NOT narrow this to `start` for apk -- `start` on an
+        # already-running service is a no-op, so an apk upgrade would keep the
+        # old binary loaded.
         rc-service unmask restart || true
     fi
     INIT_KIND=openrc
@@ -159,8 +179,9 @@ fi
 echo "unmask: install complete (init: ${INIT_KIND:-unknown})."
 echo "  next steps (= on the nginx side):"
 echo "    1. add 'load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;' to nginx.conf"
-echo "    2. add 'include /etc/unmask/nginx-rendered.conf;'         inside the http {} block"
-echo "    3. add 'include /etc/unmask/nginx-rendered-server.conf;'  inside protected server {} blocks"
+echo "    2. add 'include /etc/unmask/http.inc;'    inside the http {} block"
+echo "       (= the unmask-web-nginx package auto-symlinks this as /etc/nginx/conf.d/00-unmask.conf)"
+echo "    3. add 'include /etc/unmask/server.inc;'  inside protected server {} blocks"
 if [ "$INIT_KIND" = "systemd" ]; then
     echo "    4. nginx -t && systemctl reload nginx"
 elif [ "$INIT_KIND" = "sysvinit" ]; then

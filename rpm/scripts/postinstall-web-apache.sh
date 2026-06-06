@@ -16,9 +16,40 @@ if [ -f "$RHEL_CONF" ]; then
     echo "unmask-web-apache: installed snippet at $RHEL_CONF"
 elif [ -f "$DEBIAN_CONF" ]; then
     echo "unmask-web-apache: installed snippet at $DEBIAN_CONF"
+    # The snippet uses ProxyPass/ProxyPassReverse (= mod_proxy + mod_proxy_http),
+    # RequestHeader (= mod_headers) and the opt-in LuaHookAccessChecker
+    # (= mod_lua).  Debian's apache2 enables NONE of these by default, so a bare
+    # `a2enconf unmask-web` would arm a config that fails the next
+    # `systemctl restart apache2`.  Enable the modules first (= deb-only path;
+    # RHEL httpd loads mod_proxy itself, and a2enmod does not exist there anyway).
+    if command -v a2enmod >/dev/null 2>&1; then
+        a2enmod proxy proxy_http headers lua >/dev/null 2>&1 || true
+    fi
+    # Resolve a configtest command (= Debian ships apache2ctl; apachectl is an alias).
+    CONFIGTEST=""
+    if command -v apache2ctl >/dev/null 2>&1; then
+        CONFIGTEST=apache2ctl
+    elif command -v apachectl >/dev/null 2>&1; then
+        CONFIGTEST=apachectl
+    fi
     if [ ! -e "$DEBIAN_LINK" ] && command -v a2enconf >/dev/null 2>&1; then
-        a2enconf unmask-web >/dev/null 2>&1 || true
-        echo "unmask-web-apache: enabled via a2enconf"
+        # Gate on a passing configtest so we never enable the conf when Apache's
+        # base config (now with the modules loaded) is already broken.  After
+        # a2enconf, re-validate and roll back with a2disconf if the conf broke
+        # anything — that guarantees the next restart cannot fail because of us.
+        if [ -z "$CONFIGTEST" ] || "$CONFIGTEST" configtest >/dev/null 2>&1; then
+            a2enconf unmask-web >/dev/null 2>&1 || true
+            if [ -n "$CONFIGTEST" ] && ! "$CONFIGTEST" configtest >/dev/null 2>&1; then
+                a2disconf unmask-web >/dev/null 2>&1 || true
+                echo "unmask-web-apache: WARNING — config invalid after a2enconf; reverted (a2disconf)."
+                echo "  → ensure mod_proxy/mod_proxy_http/mod_lua are installed, then: sudo a2enconf unmask-web"
+            else
+                echo "unmask-web-apache: enabled via a2enconf"
+            fi
+        else
+            echo "unmask-web-apache: WARNING — 'apache2ctl configtest' failed; not enabling unmask-web."
+            echo "  → fix the existing Apache config, then: sudo a2enconf unmask-web"
+        fi
     fi
 fi
 

@@ -191,13 +191,22 @@ location = /_unmask/check {
 }
 
 # Internal target for auth_request 401 redirects (= used by protect.inc).
-# Honeypot / future per-axis branches surface chMode via X-Unmask-Chmode →
-# auth_request_set $unmask_chmode → here we forward as ?chm=<mode> so the
-# challenge HTML JS skips PoW / goes straight to CAPTCHA / etc.  An empty
-# $unmask_chmode adds ?chm= (= empty) which the serve handler ignores, so
-# the default per-axis chain takes over.
+# Honeypot / rate-limit branches surface chMode via the admin's X-Unmask-Chmode
+# response header; protect.inc captures it with
+# `auth_request_set $unmask_chmode $upstream_http_x_unmask_chmode;` and native
+# mode defines $unmask_chmode via http.inc's `map "" $unmask_chmode`.
+# This snippet, however, must ALSO parse when server.inc is included WITHOUT
+# protect.inc and WITHOUT the native http.inc — the documented setup-wizard
+# step exposes /unmask/admin/ before protection is turned on.  In that
+# standalone case $unmask_chmode is never registered, and nginx validates every
+# referenced variable at config-init (even inside never-entered locations), so
+# interpolating it here would abort `nginx -t` with
+# `unknown "unmask_chmode" variable`.  We therefore redirect to the plain
+# challenge URL.  The ?chm= hint (= rate-limit / honeypot pre-selecting CAPTCHA
+# over PoW) is only an optimization: when it is absent the admin's serve handler
+# falls back to the default per-axis chain.
 location @unmask_to_challenge {
-    rewrite ^ /unmask/challenge/?chm=$unmask_chmode? last;
+    rewrite ^ /unmask/challenge/ last;
 }
 
 # named locations.

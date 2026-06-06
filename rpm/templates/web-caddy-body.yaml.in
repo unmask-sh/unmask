@@ -11,9 +11,20 @@ description: |
   After install, edit the host name in the snippet, reload caddy and open
   https://your-host/unmask/admin/.
 
+# caddy is only packaged in distro repos on Alpine (= community).  RHEL
+# BaseOS/AppStream/EPEL and Debian main / Ubuntu universe do NOT ship caddy,
+# so a hard `depends: caddy` makes `dnf install unmask-web-caddy` /
+# `apt install unmask-web-caddy` fail outright.  Depend on caddy only where the
+# package manager can resolve it (= apk override); on rpm/deb install Caddy from
+# its official repo first (https://caddyserver.com/docs/install).
 depends:
   - unmask
-  - caddy
+
+overrides:
+  apk:
+    depends:
+      - unmask
+      - caddy
 
 contents:
   - src: ../snippets/Caddyfile-forward-auth

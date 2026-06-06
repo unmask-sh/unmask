@@ -43,27 +43,53 @@ overrides:
       # must match -- lua5.3-socket is invisible to the 5.1 interpreter.
       - lua5.1-socket
 
-# Destination: /etc/httpd/conf.d/ on RHEL-family, /etc/apache2/conf-available/
-# on Debian-family.  nfpm has no conditional, so RPM is assumed RHEL layout
-# and deb is assumed Debian layout; per-packager content lists require overrides.
-# For now, default to RHEL layout (= /etc/httpd).  Debian users handle it
-# manually:
-#   cp /etc/httpd/conf.d/unmask-web.conf /etc/apache2/conf-available/unmask-web.conf
-#   && a2enconf unmask-web
+# Destination differs by distro, and nfpm has no conditional inside a single
+# content entry, so every entry carries an explicit `packager:` qualifier and the
+# Apache layout is selected per format:
+#   - rpm (RHEL-family): /etc/httpd/conf.d/unmask-web.conf + /etc/httpd/unmask.lua
+#       (httpd auto-reads conf.d/ and auto-loads mod_proxy)
+#   - deb (Debian-family): conf-available/unmask-web.conf (= symlink, activated by
+#       a2enconf in postinstall) + /etc/apache2/unmask.lua
+#   - apk (Alpine): /etc/apache2/conf.d/unmask-web.conf (= httpd.conf auto-includes
+#       conf.d/) + /etc/apache2/unmask.lua
+# The Lua file path must match what the snippet documents per distro
+# (= /etc/httpd/unmask.lua on RHEL, /etc/apache2/unmask.lua on Debian/Alpine);
+# without the apk/deb entries the LuaHookAccessChecker path in the docs is absent.
 contents:
+  # --- rpm (RHEL-family): /etc/httpd ---
   - src: ../snippets/apache-forward-auth.conf
     dst: /etc/httpd/conf.d/unmask-web.conf
     type: config|noreplace
     file_info:
       mode: 0644
+    packager: rpm
   - src: ../snippets/apache-unmask.lua
     dst: /etc/httpd/unmask.lua
     file_info:
       mode: 0644
+    packager: rpm
+  # --- deb (Debian-family): /etc/apache2 (conf-available + a2enconf) ---
   - src: /usr/share/unmask/snippets/apache-forward-auth.conf
     dst: /etc/apache2/conf-available/unmask-web.conf
     type: symlink
     packager: deb
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/apache2/unmask.lua
+    file_info:
+      mode: 0644
+    packager: deb
+  # --- apk (Alpine): /etc/apache2/conf.d (auto-included by httpd.conf) ---
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /etc/apache2/conf.d/unmask-web.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
+    packager: apk
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/apache2/unmask.lua
+    file_info:
+      mode: 0644
+    packager: apk
 
 scripts:
   postinstall: ./scripts/postinstall-web-apache.sh
