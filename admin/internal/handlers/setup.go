@@ -64,14 +64,19 @@ func readSetupToken() string {
 }
 
 // hasValidSetupToken: does the current request carry a valid token cookie?
-// Docker containers and local dev may not have the token file at all; in
-// that case absence of a token means "open setup" (= non-destructive).
-// Production rpm installs always generate the token via postinstall, so
-// verification is enforced there.
+// Production rpm/deb/apk installs generate the token via postinstall; Docker
+// containers and local dev opt in to wizard-open mode by setting the
+// UNMASK_OPEN_SETUP=1 env var explicitly.  Empty / unreadable token files
+// (= partial write, truncation) used to fail open, which let the first
+// caller of /admin/setup/ on a fresh internet-reachable instance become
+// superadmin.  Fail closed instead.
 func hasValidSetupToken(r *http.Request) bool {
 	expected := readSetupToken()
 	if expected == "" {
-		return true // token not installed = open setup (= dev / docker / manual install)
+		// Explicit opt-in for dev/docker shells where there is no
+		// postinstall to write a token.  Anyone deploying with this on must
+		// make /admin/setup/ unreachable from the public internet themselves.
+		return os.Getenv("UNMASK_OPEN_SETUP") == "1"
 	}
 	c, err := r.Cookie(SetupTokenCookieName)
 	if err != nil {
