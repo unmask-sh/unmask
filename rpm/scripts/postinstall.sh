@@ -21,7 +21,12 @@ CONFIG=$CONFIG_DIR/config.yml
 # Permissions: 0755 unmask:unmask.  config.yml is 0640 to protect secrets.
 # nginx runs as a different user but traverses /etc/unmask/ to read the
 # rendered conf.
-chown -R unmask:unmask "$CONFIG_DIR" 2>/dev/null || true
+#
+# -h: do NOT follow symlinks.  GNU chown's default is to follow file symlinks
+# and change the target's ownership, so a compromised unmask user could plant
+# /etc/unmask/foo -> /etc/shadow before a re-install and re-run the post-install
+# to flip the target's owner.  -h leaves symlink targets alone.
+chown -h -R unmask:unmask "$CONFIG_DIR" 2>/dev/null || true
 chmod 0755 "$CONFIG_DIR" 2>/dev/null || true
 
 if [ ! -f "$CONFIG" ]; then
@@ -48,7 +53,11 @@ TOKEN_FILE=$CONFIG_DIR/.setup-token
 if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ] || [ -d /lib/apk ]; then
     if [ ! -f "$TOKEN_FILE" ]; then
         token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
-        echo "$token" > "$TOKEN_FILE"
+        # Write the token inside a `umask 077` subshell so the file is born
+        # 0600 -- the prior shape created it under the default umask (= 0644)
+        # and only chmod'd it on the next line, briefly exposing the secret
+        # to any local reader who raced the chmod.
+        ( umask 077; printf '%s\n' "$token" > "$TOKEN_FILE" )
         chown unmask:unmask "$TOKEN_FILE"
         chmod 0600 "$TOKEN_FILE"
         # The admin listens on localhost:9477.  External access is intended

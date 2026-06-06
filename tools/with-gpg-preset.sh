@@ -49,9 +49,12 @@ gpg-connect-agent <<EOF >/dev/null 2>&1
 PRESET_PASSPHRASE $KEYGRIP -1 $HEX
 EOF
 
-# Probe -- fail loudly here rather than deep inside rpm --addsign.
-if ! echo probe | gpg --batch --pinentry-mode loopback \
-        --passphrase "$UNMASK_GPG_PASSPHRASE" \
+# Probe -- fail loudly here rather than deep inside rpm --addsign.  The
+# passphrase is already cached in gpg-agent via PRESET_PASSPHRASE above, so
+# the probe sign goes through the agent and we don't need --passphrase on
+# argv (which would leak the secret to anyone running `ps -ef` while gpg is
+# alive).
+if ! echo probe | gpg --batch \
         --local-user "$UNMASK_GPG_KEY_ID" --clearsign >/dev/null 2>&1; then
     echo "ERR: GPG signing probe failed -- wrong passphrase or key absent in $GNUPGHOME" >&2
     exit 1

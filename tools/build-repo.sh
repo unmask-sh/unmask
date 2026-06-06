@@ -110,9 +110,11 @@ PRESET_PASSPHRASE $KEYGRIP -1 $HEX
 EOF
     UNMASK_GPG_PRESET_DONE=1
     export UNMASK_GPG_PRESET_DONE
-    # Verify the cache landed by signing /dev/null.  Failing here is better
-    # than failing two hundred lines later inside rpm --addsign.
-    if ! echo probe | gpg --batch --pinentry-mode loopback --passphrase "$UNMASK_GPG_PASSPHRASE" \
+    # Verify the cache landed by signing a probe through gpg-agent.  The
+    # passphrase is already preset into the agent above, so the probe doesn't
+    # need to pass --passphrase on argv (which would expose the secret to any
+    # local user running `ps -ef` during the few ms gpg is alive).
+    if ! echo probe | gpg --batch \
             --local-user "$UNMASK_GPG_KEY_ID" --clearsign >/dev/null 2>&1; then
         echo "ERR: GPG signing probe failed.  Wrong passphrase, or key not in $GNUPGHOME ?" >&2
         exit 1

@@ -33,6 +33,22 @@ ProtectControlGroups=yes
 RestrictRealtime=yes
 LockPersonality=yes
 RestrictNamespaces=yes
+# Drop every capability: admin binds an unprivileged port (= 9477) and writes
+# only to its own data dirs.  No CAP_NET_BIND_SERVICE / CAP_DAC_* / etc. needed.
+CapabilityBoundingSet=
+AmbientCapabilities=
+# Refuse setuid / setgid binaries inside the unit (matches NoNewPrivileges).
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+# Don't share the kernel keyring with other services.
+KeyringMode=private
+# 0027 = world has no access to anything admin creates (e.g. dropped event
+# logs); the unmask group still gets read.
+UMask=0027
 # /etc/unmask needs write access so the web settings UI can update config.yml + nginx-rendered*.conf.
 ReadWritePaths=/var/lib/unmask /run/unmask /etc/unmask
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
