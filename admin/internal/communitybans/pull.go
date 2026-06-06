@@ -65,7 +65,9 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	}
 
 	var doc FeedDocument
-	if err := json.NewDecoder(resp.Body).Decode(&doc); err != nil {
+	// Cap the body so a compromised / mis-configured hub can't drive admin
+	// into an OOM by streaming a giant JSON (pull runs every hour on cron).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&doc); err != nil {
 		return FeedDocument{}, fmt.Errorf("decode feed: %w", err)
 	}
 

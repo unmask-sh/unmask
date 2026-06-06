@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -81,7 +82,9 @@ func verifyHTTP(ctx context.Context, endpoint, secret, token, ip string, useScor
 		Score      float64  `json:"score"`       // recaptcha v3
 		ErrorCodes []string `json:"error-codes"` // turnstile / recaptcha
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	// Cap the response body so a misbehaving / MITM'd siteverify endpoint
+	// can't push admin into an OOM.  Real responses are well under 1 KiB.
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&body); err != nil {
 		return nil, err
 	}
 	r := &VerifyResult{OK: body.Success}

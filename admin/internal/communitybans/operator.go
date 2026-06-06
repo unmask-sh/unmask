@@ -102,7 +102,7 @@ func (c *OperatorClient) ListRemovals(ctx context.Context, status string) ([]Rem
 	var body struct {
 		Rows []RemovalRow `json:"rows"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&body); err != nil {
 		return nil, fmt.Errorf("decode rows: %w", err)
 	}
 	return body.Rows, nil

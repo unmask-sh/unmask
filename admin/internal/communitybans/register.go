@@ -54,7 +54,7 @@ func (c *Client) Register(ctx context.Context) error {
 	}
 
 	var rr RegisterResponse
-	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rr); err != nil {
 		return fmt.Errorf("decode register: %w", err)
 	}
 	tok := strings.TrimSpace(rr.Token)
@@ -109,7 +109,7 @@ func (c *Client) BackfillHN(ctx context.Context) error {
 		HNDerived  string `json:"hn_derived"`
 		HNOverride string `json:"hn_override"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&rr); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&rr); err != nil {
 		return fmt.Errorf("rederive decode: %w", err)
 	}
 	hn := strings.TrimSpace(rr.HNDerived)
