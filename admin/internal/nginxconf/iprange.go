@@ -15,6 +15,7 @@ package nginxconf
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -200,6 +201,12 @@ func loadAll() {
 				v = pre.IPv6Prefix
 			}
 			if v == "" || seen[v] {
+				continue
+			}
+			// Validate before the prefix reaches the unquoted geo{} render
+			// (= http.conf.tmpl:84 `{{ . }} 1;`).  Hub compromise or yaml
+			// override could otherwise inject directives.
+			if _, _, err := net.ParseCIDR(v); err != nil && net.ParseIP(v) == nil {
 				continue
 			}
 			seen[v] = true
