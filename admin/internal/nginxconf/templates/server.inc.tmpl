@@ -154,6 +154,18 @@ location ^~ /unmask/ {
     proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
     proxy_set_header   X-Protected-Mode $protected_mode;
     proxy_set_header   X-Banned         $unmask_banned;
+    # Override every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a
+    # visitor can't smuggle a lenient site's identity through a header (=
+    # would otherwise reach handlers.go siteFromRequest's fallback chain and
+    # resolve a different site's Challenge / Honeypot / Bypass config).  The
+    # peer-gated X-Unmask-Site check on the admin side covers cooperating
+    # proxies; this strip closes the path on the public-facing nginx itself.
+    proxy_set_header   X-Original-Host  $host;
+    proxy_set_header   X-Forwarded-Host $host;
+    proxy_set_header   X-Original-URI   $request_uri;
+    proxy_set_header   X-Original-IP    $remote_addr;
+    proxy_set_header   X-Original-UA    $http_user_agent;
+    proxy_set_header   X-Unmask-Site    "";
     # Branding tab uploads a logo image (= /admin/settings/save?section=branding
     # / appearance, multipart/form-data).  The admin caps the body at 4 MiB
     # itself; nginx's default 1 MiB limit would 413 before the request reached
