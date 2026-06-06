@@ -586,6 +586,18 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, username st
 
 // appendJA4Bot: add to JA4Verdicts.Extra with action=bot.
 func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string, userID int64) error {
+	// Validate the pattern before it is rendered into the (root-loaded) nginx
+	// map -- the settings-tab form does this, and this hunt path must not be a
+	// weaker bypass.  Reject quote/backslash/control chars (config injection)
+	// and an invalid regex (nginx -t failure).  render.go re-checks as a
+	// backstop, but reject at the source for a clear error + no silent drop.
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || strings.ContainsAny(pattern, "\"\\\x00\r\n") {
+		return fmt.Errorf("invalid JA4 pattern")
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("invalid JA4 pattern regex: %w", err)
+	}
 	cur, err := settings.Load(h.ConfigPath)
 	if err != nil {
 		return err

@@ -467,6 +467,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if i < len(s.Nginx.JA4Verdicts.ExtraDisabled) && s.Nginx.JA4Verdicts.ExtraDisabled[i] {
 			continue
 		}
+		// Reject rows whose Pattern/Verdict could break out of the quoted map
+		// value and inject an nginx directive into the ROOT-loaded config.  The
+		// settings-tab form validates this, but the hunt "ja4_bot" path appends
+		// without it -- so re-validate at the render layer (the single
+		// chokepoint that also covers a config.yml hand-edit).
+		if strings.ContainsAny(r.Pattern, "\"\\\x00\r\n") || strings.ContainsAny(r.Verdict, "\"\\\x00\r\n") {
+			continue
+		}
 		action := r.Action
 		if !IsValidJA4Action(action) {
 			action = JA4ActionOK
