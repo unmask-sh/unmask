@@ -691,6 +691,13 @@ func normalizeSite(host string) string {
 		host = h
 	}
 	host = strings.ToLower(strings.Trim(host, "[]"))
+	// Drop a trailing FQDN dot.  Browsers and curl will happily send
+	// `Host: example.com.` (= absolute DNS form), but the operator typed
+	// `example.com` into the per-site config -- without this strip the two
+	// would key different rows and the request would fall back to defaultSite
+	// (= an operator running monitor-mode on the default while challenging
+	// per-site would be silently bypassable via that one extra dot).
+	host = strings.TrimRight(host, ".")
 	// Keep only hostname-safe characters (a-z 0-9 . - _ and : for IPv6
 	// literals).  Bounds the value so it is safe to interpolate into the site
 	// SQL fragment and stops a junk Host from polluting the site column.
