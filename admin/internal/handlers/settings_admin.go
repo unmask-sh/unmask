@@ -1353,8 +1353,12 @@ func applyServerListenForm(s *settings.Server, r *http.Request, lang i18n.Lang) 
 		if path == "" || !strings.HasPrefix(path, "/") {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.listen_socket_path", path))
 		}
-		// path injection guard: forbid control chars / newlines / quotes.
-		if strings.ContainsAny(path, "\"\\\x00\r\n") {
+		// path injection guard: the bind value lands unquoted in
+		// nginx upstream's `server {{ .UpstreamServer }};` (= http.conf.tmpl
+		// :714).  A stray `;` / ` ` / `}` / `#` would close the directive or
+		// the block and let an admin form save inject arbitrary http-scope
+		// directives.  Reject anything outside a clean POSIX path.
+		if strings.ContainsAny(path, "\"\\\x00\r\n\t ;{}#") {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.listen_socket_path", path))
 		}
 		s.Bind = "unix:" + path
