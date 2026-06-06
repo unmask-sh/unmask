@@ -707,21 +707,21 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/community-bans/removals",
 		h.AuthMiddleware(h.AdminRemovalRequestsIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/removals/{id}",
-		h.AuthMiddleware(h.AdminRemovalRequestPatch))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminRemovalRequestPatch)))
 	mux.HandleFunc("GET "+base+"/admin/api/community-bans/detail",
 		h.AuthMiddleware(h.AdminCommunityBansDetail))
 	mux.HandleFunc("GET "+base+"/admin/api/community-bans/me/submissions",
 		h.AuthMiddleware(h.AdminCommunityBansMySubmissions))
 	mux.HandleFunc("POST "+base+"/admin/api/community-bans/vote",
-		h.AuthMiddleware(h.AdminCommunityBansVote))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCommunityBansVote)))
 	mux.HandleFunc("DELETE "+base+"/admin/api/community-bans/vote/{id}",
-		h.AuthMiddleware(h.AdminCommunityBansVoteDelete))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCommunityBansVoteDelete)))
 	mux.HandleFunc("POST "+base+"/admin/api/community-bans/comment",
-		h.AuthMiddleware(h.AdminCommunityBansComment))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCommunityBansComment)))
 	mux.HandleFunc("DELETE "+base+"/admin/api/community-bans/comment/{id}",
-		h.AuthMiddleware(h.AdminCommunityBansCommentDelete))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCommunityBansCommentDelete)))
 	mux.HandleFunc("DELETE "+base+"/admin/api/community-bans/submission/{id}",
-		h.AuthMiddleware(h.AdminCommunityBansSubmissionDelete))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCommunityBansSubmissionDelete)))
 	mux.HandleFunc("GET "+base+"/admin/api/events/stream",
 		h.AuthMiddleware(h.AdminEventsStream))
 	// one-click promotion of a ghost site into settings.Sites.Defined (admin or above)

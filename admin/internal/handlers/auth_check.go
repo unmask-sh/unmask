@@ -151,12 +151,11 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Forwarded-Host"),
 		r.Host,
 	)
-	site := siteFromRequest(r)
+	cfg := h.snapshotSettings()
+	site := siteFromRequest(r, cfg)
 	// The old _br cookie (= the previous transient PoW marker) is gone.
 	// In the current design, the PoW-passed cookie is the 4-seg _bv
 	// ("day.sig.target.flags").  It surfaces in reason as "bv-pow".
-
-	cfg := h.snapshotSettings()
 
 	// JA4 fingerprint. An upstream proxy may forward the real client's JA4
 	// via X-Client-JA4. Trust is keyed on the connection PEER (= the proxy
@@ -740,9 +739,19 @@ func portFromRequest(r *http.Request) int {
 // vhosts splits cleanly in the dashboard with no per-site config.  The
 // X-Unmask-Site header is an explicit override for proxies that map vhosts to
 // a custom site id.
-func siteFromRequest(r *http.Request) string {
-	if s := strings.TrimSpace(r.Header.Get("X-Unmask-Site")); s != "" {
-		return normalizeSite(s)
+func siteFromRequest(r *http.Request, cfg settings.Settings) string {
+	// X-Unmask-Site is operator-set in trusted upstreams (= nginx config
+	// `proxy_set_header X-Unmask-Site $unmask_site;`).  But default forward-
+	// auth deployments leave that directive commented out, and nginx's
+	// proxy_pass_request_headers default forwards client-supplied headers,
+	// so accepting it from anyone lets an attacker pick a different site's
+	// per-site config (= challenge bypass via observe_only=true, weaker
+	// honeypot/bypass/rate-limit zone).  Gate on the peer being a trusted
+	// proxy -- same shape as resolveForwardedJA4.
+	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
+		if s := strings.TrimSpace(r.Header.Get("X-Unmask-Site")); s != "" {
+			return normalizeSite(s)
+		}
 	}
 	return normalizeSite(firstNonEmpty(
 		r.Header.Get("X-Original-Host"),

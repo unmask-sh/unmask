@@ -227,8 +227,9 @@ func brandingInjectJSON(b settings.BrandingValues, basePath string) string {
 // mismatch (e.g. visitor asks for .png but operator stored .svg) is also a
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
-	site := siteFromRequest(r)
-	b := h.snapshotSettings().Branding.Resolve(site)
+	cfg := h.snapshotSettings()
+	site := siteFromRequest(r, cfg)
+	b := cfg.Branding.Resolve(site)
 	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
 		return
@@ -448,7 +449,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Event recording so the dashboard funnel still counts this as a serve
 	// (= distinguishable via payload.non_html_client=1).
-	site := siteFromRequest(r)
+	site := siteFromRequest(r, h.snapshotSettings())
 	ip := clientIP(r)
 	if pkt := events.PackIP(ip); pkt != nil {
 		payload := map[string]any{
@@ -506,7 +507,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 // Rate-limit path (nginx rewrites to /unmask/challenge/rl1<orig URI>): detect
 // the "/rl1/" prefix, restore the original URI, and treat as rl=1.
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
-	site := siteFromRequest(r)
+	site := siteFromRequest(r, h.snapshotSettings())
 	// Explicit operator-side force (= /test/force-pow / /admin/test/force-*
 	// add ?_force=...) -- short-circuit the monitor / passthrough early exits
 	// below so the operator can preview the challenge page even when the
@@ -1031,7 +1032,8 @@ func (h *Handler) ForcePoWThenCaptcha(w http.ResponseWriter, r *http.Request) {
 // on the admin side (/unmask/admin/test/*).
 func (h *Handler) PublicTestGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ch := h.snapshotSettings().Challenge.Resolve(siteFromRequest(r))
+		cfg := h.snapshotSettings()
+		ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
 		if !ch.PublicTestPages {
 			http.NotFound(w, r)
 			return
@@ -1357,7 +1359,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	site := siteFromRequest(r)
+	site := siteFromRequest(r, h.Settings)
 	ch := h.Settings.Challenge.Resolve(site)
 	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
 	// kind is kept site-agnostic: a per-site _bv binding needs a dot-safe site
@@ -1457,7 +1459,7 @@ func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 
 // DebugBeacon: POST {base}/api/debug — JS inside the challenge HTML sends phase beacons here.
 func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
-	site := siteFromRequest(r)
+	site := siteFromRequest(r, h.snapshotSettings())
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0})
