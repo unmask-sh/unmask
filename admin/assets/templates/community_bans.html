@@ -650,8 +650,14 @@ document.addEventListener('click', function(e){
   function fmt(d){
     if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
     var na = '<span class="muted">(unavailable)</span>';
-    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
-    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    // Validate the country to two ASCII letters before interpolating into
+    // the unescaped img attributes -- otherwise a 2-char value containing a
+    // quote (= via a compromised hub response) would break out of alt="" /
+    // title="" into stored XSS on hover.  esc() the label as belt-and-
+    // suspenders.
+    var ccValid = /^[A-Za-z]{2}$/.test(d.country || '');
+    var ccLow = ccValid ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = ccValid ? esc(d.country) : '??';
     var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow + '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
     var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
     h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
@@ -724,8 +730,12 @@ document.addEventListener('click', function(e){
     })[c]);
   }
   function flagImg(cc){
-    var lower = (cc && cc.length === 2) ? cc.toLowerCase() : 'unknown';
-    var label = (cc && cc.length === 2) ? cc : '??';
+    // Country must be two ASCII letters to interpolate safely into alt="" /
+    // title="" (= a hub-supplied 2-char value containing a quote would
+    // otherwise break out).  esc() the label as belt-and-suspenders.
+    var ok = /^[A-Za-z]{2}$/.test(cc || '');
+    var lower = ok ? cc.toLowerCase() : 'unknown';
+    var label = ok ? esc(cc) : '??';
     return '<img class="flag" src="' + BASE + '/static/flags/' + lower + '.png" alt="' + label + '" title="' + label + '" loading="lazy">';
   }
   function fmtTime(ts){ return ts ? new Date(ts * 1000).toLocaleString() : ''; }
