@@ -249,6 +249,11 @@ func cmdServe(args []string) error {
 		banMgr.Start()
 		defer banMgr.Close()
 		nlog.SetHoneypotCallback(banMgr.Add)
+		// Never honeypot-ban a rescued search/AI crawler (= CLAUDE.md #4; mirrors
+		// the forward-auth search-bot veto-pass on the access-log ban path).
+		nlog.SetSearchBotCheck(func(ua string) bool {
+			return classify.IsBot(ua, "").String() == "search_ai"
+		})
 		// crawler funnel: classify each access-log UA into AI/crawler buckets.
 		nlog.SetCrawlerClassifier(classify.LookupTag)
 		// country breakdown for the 30-day chart: per-packet IP -> country

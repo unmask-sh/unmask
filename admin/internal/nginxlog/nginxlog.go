@@ -86,6 +86,15 @@ type Reader struct {
 	// Wired up by the ban manager via SetHoneypotCallback.  nil-safe.
 	onHoneypot func(ip, ja4 string)
 
+	// isSearchBot: UA -> true for a rescued search/AI crawler.  Wired by main to
+	// classify.IsBot==search_ai.  Native-mode honeypot bans are driven by the
+	// access-log hp=1 line, which (unlike forward-auth's veto-pass) has no
+	// search-bot exemption -- so without this, a Googlebot that crawls a page
+	// containing a honeypot link gets its IP banned = a ranking accident, and an
+	// attacker can <img src="victim/<honeypot>"> to ban victims' visitors.
+	// nil-safe (no exemption when unset).
+	isSearchBot func(ua string) bool
+
 	// classifyCrawler: UA -> crawler tag (= one of classify.CrawlerTagOrder
 	// or "" when the UA is not a known crawler).  Wired by main via
 	// SetCrawlerClassifier(classify.LookupTag).  Set once at startup before
@@ -104,6 +113,15 @@ func (r *Reader) SetHoneypotCallback(f func(ip, ja4 string)) {
 		return
 	}
 	r.onHoneypot = f
+}
+
+// SetSearchBotCheck: register a UA -> is-rescued-search-bot predicate so the
+// honeypot ban skips search/AI crawlers (= never ban Googlebot/GPTBot etc.).
+func (r *Reader) SetSearchBotCheck(f func(ua string) bool) {
+	if r == nil {
+		return
+	}
+	r.isSearchBot = f
 }
 
 // SetCrawlerClassifier: register the UA -> crawler-tag function (=
@@ -359,7 +377,12 @@ func (r *Reader) onLine(line string) {
 	if !ok {
 		return
 	}
-	if p.hp && r.onHoneypot != nil && p.ip != "" {
+	// Honeypot ban -- but NEVER ban a rescued search/AI crawler (matches the
+	// forward-auth veto-pass; the access-log path otherwise has no exemption, so
+	// a Googlebot hitting a honeypot link would be banned = ranking accident,
+	// and an attacker could weaponize it to ban victims' visitors).
+	if p.hp && r.onHoneypot != nil && p.ip != "" &&
+		(r.isSearchBot == nil || !r.isSearchBot(p.ua)) {
 		r.onHoneypot(p.ip, p.ja4)
 	}
 	kind := p.kind
