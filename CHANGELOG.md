@@ -13,6 +13,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [0.1.0] — 2026-05-25
 
 ### Added
+- (2026-06-06) **Web Bot Auth verification (RFC 9421 HTTP Message
+  Signatures)**.  A new `webbotauth` package validates ed25519-signed
+  `Signature-Input` / `Signature` headers (per
+  draft-meunier-web-bot-auth-architecture-05), and the nginx plugin exposes
+  a `$unmask_has_signed_agent` variable so a request carrying a bot
+  signature can be routed differently from one identified only by a
+  spoofable User-Agent or rDNS.  Lets a cooperating agent (e.g. a signed
+  crawler) prove its identity cryptographically.
+
+- (2026-06-06) **Per-site aggregates for the captcha-force,
+  flag-distribution and AI-traffic dashboard cards** (migrations
+  0016-0019).  These three cards now read pre-rolled per-site aggregate
+  tables instead of scanning raw events, joining the funnel / verdict /
+  countries cards already on the aggregate path.
+
 - (2026-05-25) **Ubuntu 22.04 LTS in the verified install matrix**.  Closes
   the only remaining nginx version gap between alma8 (1.14.1) and
   alma9/centos7 (1.20.1) -- 22.04 ships nginx 1.18.0, which the fat
@@ -28,6 +43,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   hunt log row-for-row with no separate maintenance path.
 
 ### Changed
+- (2026-06-06) **Global CSRF double-submit shim in the admin header
+  tooling**.  A single `init_csrf` injector adds the hidden `_csrf` field
+  on every form submit and the `X-CSRF-Token` header on every `fetch`, so
+  new forms and fetches are covered with no per-form edits.  Replaces the
+  static per-form injection that had silently missed 19 settings forms.
+
+- (2026-06-06) **All admin timestamps render in the operator's cookie
+  timezone**.  Server-side fallbacks and the JS formatter both resolve
+  against the `unmask_tz` cookie, which is now auto-synced from the
+  browser on first hit.  Aggregation stays UTC-at-rest; only the display
+  localizes.
+
 - (2026-05-25) **`bypass_ips` switched to the `enabled_presets` opt-in
   schema** that `bypass_paths` and `protected_paths` already use.  The
   yaml field renames from `bypass_ip_disabled_presets` to
@@ -54,6 +81,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   the `max-height: <viewport>-2rem` cap when the help body is long.
 
 ### Fixed
+- (2026-06-06) **Stuck hover popovers are dismissed by a hover-reconcile
+  watchdog**.  A fast pointer pass could leave a popover pinned after the
+  cursor had already left its trigger; an rAF-throttled `:hover`
+  ground-truth check now tears the orphaned popover down.
+
+- (2026-06-06) **`/admin/login` carries a rate-limit preset** (5 req/min,
+  captcha_only) so the admin login path is covered by the same preset
+  machinery as the other protected paths, backfilled in-memory without
+  rewriting a sparse `admin.yml`.
+
 - (2026-05-25) **`unmask-plugin-nginx` now declares nginx as a hard
   install dependency** in the rpm / deb / apk metadata.  Without this,
   the documented install order (= unmask -> plugin -> web-nginx) ran the
