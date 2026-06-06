@@ -498,8 +498,15 @@ func cmdServe(args []string) error {
 		}
 	}()
 
+	// conn is intentionally nil when the DB is unreachable at boot so the setup
+	// wizard can still come up (see the conn==nil gate above) -- so don't deref
+	// it here, or every DB-down install crashes instead of showing setup.
+	driver := "none (setup mode)"
+	if conn != nil {
+		driver = string(conn.Driver)
+	}
 	log.Printf("unmask %s listening on %s base=%s driver=%s",
-		Version, listenDesc, s.Server.BasePath, conn.Driver)
+		Version, listenDesc, s.Server.BasePath, driver)
 	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

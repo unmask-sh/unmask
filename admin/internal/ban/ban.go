@@ -431,6 +431,11 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)`,
 			ip, ja4, now).Scan(&n)
 		if err != nil {
+			// COUNT(*) always returns a row, so err is a real DB failure (never
+			// ErrNoRows).  Fail open (not-banned) for availability -- failing
+			// closed would block every visitor incl. search bots on a DB blip --
+			// but LOG it, else a degraded ban check is silently invisible.
+			log.Printf("ban: IsBanned(ip+ja4) query failed, treating as not-banned: %v", err)
 			return false
 		}
 		return n > 0
@@ -441,6 +446,7 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)`,
 		ip, now).Scan(&n)
 	if err != nil {
+		log.Printf("ban: IsBanned(ip) query failed, treating as not-banned: %v", err)
 		return false
 	}
 	return n > 0
@@ -463,7 +469,11 @@ func (m *Manager) IsBannedSource(ctx context.Context, ip, ja4 string) (string, b
 			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)
 			 LIMIT 1`,
 			ip, ja4, now).Scan(&src)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false // genuinely not banned (the common case)
+		}
 		if err != nil {
+			log.Printf("ban: IsBannedSource(ip+ja4) query failed, treating as not-banned: %v", err)
 			return "", false
 		}
 		return src, true
@@ -473,7 +483,11 @@ func (m *Manager) IsBannedSource(ctx context.Context, ip, ja4 string) (string, b
 		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)
 		 LIMIT 1`,
 		ip, now).Scan(&src)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false
+	}
 	if err != nil {
+		log.Printf("ban: IsBannedSource(ip) query failed, treating as not-banned: %v", err)
 		return "", false
 	}
 	return src, true

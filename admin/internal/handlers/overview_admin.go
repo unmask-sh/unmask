@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -397,14 +398,28 @@ func resolveHostFilter(r *http.Request) []string {
 	return parseHostFilter(r.URL.Query()["host"])
 }
 
+// siteFilterRE: a site filter value is a hostname-ish token.  Validate at the
+// source (defense in depth) so a hostile unmask_site cookie / ?site= can never
+// reach a SQL sink even if one forgets siteCond (= the 2026-06 SQLi via three
+// dashboard queries that hand-rolled `site = '<raw>'`).
+var siteFilterRE = regexp.MustCompile(`^[a-z0-9.:_-]+$`)
+
+func sanitizeSiteFilter(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" || !siteFilterRE.MatchString(v) {
+		return ""
+	}
+	return v
+}
+
 // resolveSiteFilter: resolve the single-select site filter shared by every
 // admin page.  Precedence mirrors resolveHostFilter: the unmask_site cookie
 // (written by the site_picker), then the ?site= query param.  "" = all sites.
 func resolveSiteFilter(r *http.Request) string {
 	if c, err := r.Cookie("unmask_site"); err == nil {
-		if v := strings.TrimSpace(decodeCookieValue(c.Value)); v != "" {
+		if v := sanitizeSiteFilter(decodeCookieValue(c.Value)); v != "" {
 			return v
 		}
 	}
-	return strings.TrimSpace(r.URL.Query().Get("site"))
+	return sanitizeSiteFilter(r.URL.Query().Get("site"))
 }

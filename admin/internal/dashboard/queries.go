@@ -1126,10 +1126,7 @@ func CookieStatus(ctx context.Context, d *db.DB, site string, hosts []string, ho
 		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", hours*60)
 	}
 
-	cond := ""
-	if site != "" {
-		cond = " AND site = '" + site + "'"
-	}
+	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 
 	// kind/cnt normalized schema. Aggregate the 3 kinds total / captcha / pow in one query.
 	stmt := fmt.Sprintf(`
@@ -2516,10 +2513,7 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	} else {
 		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", days*24*60)
 	}
-	cond := ""
-	if site != "" {
-		cond = " AND site = '" + site + "'"
-	}
+	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	// Pull raw minute buckets and aggregate per day in Go using the operator's
 	// cookie TZ.  This is what makes day boundaries follow the user (= 2026-05-30
 	// in Tokyo runs 2026-05-29 15:00 UTC -> 2026-05-30 14:59 UTC).
@@ -2626,10 +2620,7 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
 	} else {
 		cutoffHour = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d DAY)) DIV 3600)", days)
 	}
-	cond := ""
-	if site != "" {
-		cond = " AND site = '" + site + "'"
-	}
+	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	// Return raw hourly buckets and aggregate per (TZ-shifted date, country) in
 	// Go.  See DailyPassByDay for the rationale.
 	stmt := fmt.Sprintf(`
