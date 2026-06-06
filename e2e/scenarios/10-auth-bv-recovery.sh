@@ -49,12 +49,13 @@ new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
 a=$(echo "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(echo "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(echo "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+ct=$(echo "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
 [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ] || { log_fail "captcha new failed: $new"; exit 1; }
 ans=$((a + b))
 
 verify=$(curl -sk -A "$UA_BROWSER" -c "$ck" -H "X-Forwarded-For: $CLIENT_IP" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$ans\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\"}" \
     "${ADMIN_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "step 2: verify returns ok=1" || fails=$((fails+1))
 bv=$(grep '_bv' "$ck" | awk '{print $7}')

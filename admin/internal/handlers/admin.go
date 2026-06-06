@@ -744,9 +744,8 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	base := h.Settings.Server.BasePath
 	ret := r.FormValue("return")
-	// Must be a local path: starts with "/" but not "//" or "/\" (both normalize
-	// to a protocol-relative off-site URL in browsers = open redirect).
-	if ret == "" || !strings.HasPrefix(ret, "/") || strings.HasPrefix(ret, "//") || strings.HasPrefix(ret, "/\\") {
+	// Must be a local path (not "//" / "/\" = a protocol-relative off-site URL).
+	if !isLocalRedirect(ret) {
 		ret = base + "/admin/"
 	}
 	username := strings.TrimSpace(r.FormValue("username"))

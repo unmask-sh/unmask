@@ -270,6 +270,7 @@
 
   var start=Date.now();
   var captchaToken='';
+  var captchaCt='';
 
   // --- behavioral signal collection ---
   // On checkbox click, send this sig to the server which makes the bot decision.
@@ -456,7 +457,9 @@
       // ignored.  Empty / invalid falls back to "/".
       var target = '/';
       var qsRedir = u.searchParams.get('_test_redirect');
-      if (qsRedir && qsRedir.length > 0 && qsRedir.charAt(0) === '/' && qsRedir.charAt(1) !== '/') {
+      // Local path only: reject "//host" AND "/\host" (browsers normalize the
+      // backslash to "//" = off-site protocol-relative redirect).
+      if (qsRedir && qsRedir.length > 0 && qsRedir.charAt(0) === '/' && qsRedir.charAt(1) !== '/' && qsRedir.charAt(1) !== '\\') {
         target = qsRedir;
       }
       location.replace(target);
@@ -473,6 +476,7 @@
     document.getElementById('captchaDesc').textContent = (t.solveMath || 'Please solve this to continue.');
     fetch(API_BASE + '/captcha/new').then(function(r){return r.json();}).then(function(data){
       captchaToken = data.token;
+      captchaCt = data.ct || '';
       document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
       document.getElementById('answerInput').value='';
       document.getElementById('answerInput').focus();
@@ -494,7 +498,7 @@
     fetch(API_BASE + '/verify',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({answer:parseInt(ans), token:captchaToken})
+      body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt})
     }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
     .then(function(res){
       if(res.data.ok===1){
@@ -506,6 +510,7 @@
         // retry with a different question
         fetch(API_BASE + '/captcha/new').then(function(r){return r.json();}).then(function(data){
           captchaToken = data.token;
+          captchaCt = data.ct || '';
           document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
           document.getElementById('answerInput').value='';
           document.getElementById('submitBtn').disabled=false;

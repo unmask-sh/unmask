@@ -31,14 +31,15 @@ new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
 a=$(echo "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(echo "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(echo "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+ct=$(echo "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
 [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ] || { log_fail "captcha new failed: $new"; exit 1; }
 ans=$((a + b))
 log "captcha: $a + $b = $ans  token=${token:0:24}..."
 
-# 2. verify (= submit answer)
+# 2. verify (= submit answer + the proof-of-load ct from /captcha/new)
 verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$ans\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\"}" \
     "${BASE_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "verify returns ok=1" || exit 1
 

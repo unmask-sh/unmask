@@ -18,6 +18,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"log"
 	"net/http"
 	"net/url"
@@ -82,7 +83,7 @@ func hasValidSetupToken(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return c.Value == expected
+	return subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1
 }
 
 // removeSetupToken: delete the token file on setup completion so the
@@ -275,7 +276,7 @@ func (h *Handler) AdminSetupSaveToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	got := strings.TrimSpace(r.FormValue("token"))
-	if got == "" || got != expected {
+	if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(expected)) != 1 {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort("invalid setup token"), http.StatusFound)
 		return
 	}

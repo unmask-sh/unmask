@@ -657,8 +657,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		target := "/"
 		if rlOrigURI != "" {
 			target = rlOrigURI
-		} else if orig := strings.TrimSpace(r.URL.Query().Get("orig")); orig != "" && strings.HasPrefix(orig, "/") {
+		} else if orig := strings.TrimSpace(r.URL.Query().Get("orig")); isLocalRedirect(orig) {
 			target = orig
+		}
+		if !isLocalRedirect(target) {
+			target = "/" // never emit a client-supplied off-site Location
 		}
 		http.Redirect(w, r, target, http.StatusFound)
 		return
@@ -889,6 +892,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	h.Notifier.ChallengeServed()
 }
 
+// isLocalRedirect reports whether s is safe as a redirect target: a local
+// absolute path ("/...") that a browser won't treat as a protocol-relative
+// off-site URL ("//host" or "/\host" -- both normalize to //).  Mirrors the
+// admin-login check so every redirect that echoes a request-supplied path
+// (observe-only, passthrough) is open-redirect-safe.
+func isLocalRedirect(s string) bool {
+	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.HasPrefix(s, "/\\")
+}
+
 // serveObserveOnlyRedirect is a lightweight handler that, under monitor mode,
 // redirects immediately without serving a challenge.  Records the event with
 // phase=serve + observe_only=1 so stats still reflect "the number of
@@ -910,7 +922,9 @@ func (h *Handler) serveObserveOnlyRedirect(w http.ResponseWriter, r *http.Reques
 	if origPath == "" {
 		origPath = truncateAt(rlOrigURI, 200)
 	}
-	if origPath == "" {
+	if !isLocalRedirect(origPath) {
+		// _orig is client-supplied (= "//evil.com" would be an open redirect in
+		// the meta-refresh + location.replace below); fall back to root.
 		origPath = "/"
 	}
 
@@ -1464,6 +1478,14 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid"})
 		return
 	}
+	// Require the proof-of-load token on the math path too (the behavioral path
+	// already does).  The math token binds only the answer (a+b in [2,40], ~39
+	// values), so without this a bot harvests the few answer/token pairs from
+	// /api/captcha/new once and blind-POSTs them from any IP to mint _bv cookies.
+	if !captcha.VerifyToken(payload.Ct, h.Settings.Secret.CaptchaSecretBase, ip, 900) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+		return
+	}
 	if captcha.VerifyMath(ans, payload.Token, h.Settings.Secret.CaptchaSecretBase) {
 		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
 		h.setBVCookie(w, val)
@@ -1476,7 +1498,11 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 // CaptchaNew: GET {base}/api/captcha/new
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 	a, b, token := captcha.MathChallenge(h.Settings.Secret.CaptchaSecretBase)
-	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token})
+	// ct: proof-of-load bound to this IP + time, returned with the math
+	// challenge and required on the /verify math path -- so the answer/token
+	// can't be harvested once and blind-replayed from any IP forever.
+	ct := captcha.IssueToken(h.Settings.Secret.CaptchaSecretBase, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token, "ct": ct})
 }
 
 // DebugBeacon: POST {base}/api/debug — JS inside the challenge HTML sends phase beacons here.
