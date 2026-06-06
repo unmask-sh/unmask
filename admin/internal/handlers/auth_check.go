@@ -28,9 +28,11 @@ package handlers
 
 import (
 	"context"
+	"log"
 	"net"
 	"net/http"
 	"regexp"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -131,6 +133,19 @@ func pickStrongest(decisions []axisDecision) (axisDecision, []string) {
 // nginx's auth_request is GET, Caddy's forward_auth is GET, Apache's
 // ProxyPass + auth is GET, Envoy ext_authz is POST.  Accept all.
 func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
+	// Fail CLOSED on a panic.  net/http recovers a handler panic but drops the
+	// connection with no response, and the shipped forward-auth snippets map a
+	// 5xx subrequest to @unmask_fail_open (return 200) -- so an unrecovered
+	// panic here is a CHALLENGE BYPASS, not just an error.  Recover and answer
+	// 401 (challenge) so a bug/hostile-input panic cannot pass a request.
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC recovered in AuthCheck (failing closed to challenge): %v\n%s", rec, debug.Stack())
+			w.Header().Set("X-Unmask-Action", "challenge")
+			w.Header().Set("X-Unmask-Reason", "internal_error")
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	}()
 	// 1. extract inputs.  Prefer X-Original-* headers (= when via subrequest).
 	ip := firstNonEmpty(
 		r.Header.Get("X-Original-IP"),

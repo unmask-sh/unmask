@@ -595,7 +595,13 @@ func parseSignatureForLabel(h, label string) ([]byte, error) {
 			continue
 		}
 		val := strings.TrimSpace(part[eq+1:])
-		if !strings.HasPrefix(val, ":") || !strings.HasSuffix(val, ":") {
+		// len(val) >= 2 guard: a single ":" satisfies BOTH HasPrefix and
+		// HasSuffix, so val[1:len-1] becomes val[1:0] -> slice-bounds panic.  An
+		// unauthenticated `Signature: sig1=:` triggers this before any signature
+		// / allowlist check; with the shipped fail-open snippet the panic'd
+		// subrequest 502s and bypasses the challenge.  RFC 9421 wants a malformed
+		// structured field treated as a verification failure, not a crash.
+		if len(val) < 2 || !strings.HasPrefix(val, ":") || !strings.HasSuffix(val, ":") {
 			return nil, errors.New("byte sequence not delimited by ':'")
 		}
 		val = val[1 : len(val)-1]
@@ -655,7 +661,9 @@ func extractAgentURLForLabel(h, label string) string {
 			continue
 		}
 		val := strings.TrimSpace(part[eq+1:])
-		if !strings.HasPrefix(val, `"`) || !strings.HasSuffix(val, `"`) {
+		// len(val) >= 2 guard: a single `"` satisfies both prefix+suffix and
+		// val[1:len-1] would panic (see parseSignatureForLabel).
+		if len(val) < 2 || !strings.HasPrefix(val, `"`) || !strings.HasSuffix(val, `"`) {
 			return ""
 		}
 		return val[1 : len(val)-1]

@@ -744,3 +744,26 @@ func TestJWKThumbprintRSA_Stable(t *testing.T) {
 		t.Errorf("rsa thumbprint = %q, want %q", got, want)
 	}
 }
+
+// TestVerify_MalformedByteSequence_NoPanic locks the slice-bounds panic fix: a
+// single-colon byte-sequence value (Signature: sig1=:) -- or a single-quote
+// Signature-Agent -- used to panic in parseSignatureForLabel/extractAgentURLForLabel
+// (val[1:0]) BEFORE any signature/allowlist check.  Unauthenticated, and with
+// the shipped fail-open snippet that panic was a challenge bypass.  It must now
+// reject without panicking.
+func TestVerify_MalformedByteSequence_NoPanic(t *testing.T) {
+	fx := newFixtureKey(t)
+	v, fx2 := newVerifier(t, fx, fx.directory, nil)
+
+	req := signedRequest(t, fx2, 1735689000, 1735690000)
+	req.Header.Set("Signature", "sig1=:")
+	if res := v.Verify(context.Background(), req); res.OK { // must not panic
+		t.Fatal("malformed single-colon byte sequence passed verify")
+	}
+
+	req2 := signedRequest(t, fx2, 1735689000, 1735690000)
+	req2.Header.Set("Signature-Agent", `sig1="`)
+	if res := v.Verify(context.Background(), req2); res.OK { // must not panic
+		t.Fatal("malformed single-quote agent url passed verify")
+	}
+}
