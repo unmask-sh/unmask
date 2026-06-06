@@ -29,6 +29,12 @@
 # snippet include-order-independent across distros.  If a deployment ever needs
 # a wider bucket, set map_hash_bucket_size at the TOP of the http{} block in
 # nginx.conf, before any map directive.
+#
+# Same applies to map_hash_max_size (default 2048): a very large JA4-verdict or
+# community-bans-derived map can exceed it ("could not build the map_hash, you
+# should increase map_hash_max_size").  It is a single-occurrence http{}
+# directive too, so it cannot be set safely from this include either -- raise it
+# at the TOP of http{} in nginx.conf if you load thousands of map entries.
 # -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------

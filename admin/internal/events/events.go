@@ -218,7 +218,10 @@ func prepareInsertArgs(e *Event) []any {
 		if err == nil {
 			s := string(buf)
 			if len(s) > 4000 {
-				s = s[:4000]
+				// A byte-truncation here would cut mid-token and produce invalid
+				// JSON, which breaks every dashboard card that JSON-parses
+				// payload_json.  Store a valid sentinel instead of corrupt JSON.
+				s = `{"_truncated":true}`
 			}
 			payloadText = sql.NullString{String: s, Valid: true}
 		}

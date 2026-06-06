@@ -286,6 +286,9 @@ func (h *Handler) AdminSetupSaveToken(w http.ResponseWriter, r *http.Request) {
 		Value:    expected,
 		Path:     base + "/admin/setup",
 		HttpOnly: true,
+		// Secure on HTTPS so the setup token (= wizard auth) isn't sent in
+		// cleartext; matches the session/CSRF cookies.
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   3600, // 1 hour (= long enough to finish the wizard)
 	})
