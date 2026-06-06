@@ -11,7 +11,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -152,8 +151,11 @@ func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 func matchedRegex(pat, s string) bool {
 	pat = strings.TrimPrefix(pat, "~*")
 	pat = strings.TrimPrefix(pat, "~")
-	re, err := regexp.Compile("(?i)" + pat)
-	if err != nil {
+	// compileCachedRe memoizes by pattern string: lookupJA4Verdict /
+	// lookupUAListed call this on ~40-100 preset patterns per /api/check, which
+	// used to recompile every time (CPU-DoS).  Cached compile = a cheap lookup.
+	re := compileCachedRe("(?i)" + pat)
+	if re == nil {
 		return false
 	}
 	return re.MatchString(s)

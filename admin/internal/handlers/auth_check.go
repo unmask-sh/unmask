@@ -855,6 +855,28 @@ var (
 	cachedMatchers pathMatchers
 )
 
+// reCache memoizes compiled patterns by their STRING, which always compiles to
+// the same regex -- so it is staleness-free (unlike the settings-pointer cache
+// above, whose key `&n` is a fresh local-copy address that never matches, so it
+// recompiled ~100 preset regexes on EVERY /api/check under matchersMu = an
+// unauthenticated CPU sink).  Bounded by the count of distinct preset+operator
+// patterns (finite, not request-controllable), so it can't grow unboundedly.
+var reCache sync.Map // pattern string -> *regexp.Regexp (nil = compile failed)
+
+func compileCachedRe(pattern string) *regexp.Regexp {
+	if v, ok := reCache.Load(pattern); ok {
+		re, _ := v.(*regexp.Regexp)
+		return re // may be nil = a previously-cached compile failure
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		reCache.Store(pattern, (*regexp.Regexp)(nil))
+		return nil
+	}
+	reCache.Store(pattern, re)
+	return re
+}
+
 // bypassMatchers: build the per-site regex list from settings.  Uses
 // BypassPathsConfig.ResolvePaths(site) / ProtectedPathsConfig.ResolvePaths /
 // HoneypotConfig.ResolveURLs so a row's Site filter is honored once, here,
@@ -892,7 +914,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 			if r.Site != "" && r.Site != site {
 				continue
 			}
-			if re, err := regexp.Compile("(?i)" + r.Pattern); err == nil {
+			if re := compileCachedRe("(?i)" + r.Pattern); re != nil {
 				pm.bypass = append(pm.bypass, re)
 			}
 		}
@@ -901,7 +923,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 		if row.Disabled {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + row.Path); err == nil {
+		if re := compileCachedRe("(?i)" + row.Path); re != nil {
 			pm.bypass = append(pm.bypass, re)
 		}
 	}
@@ -913,7 +935,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 			continue
 		}
 		for _, p := range g.Patterns {
-			if re, err := regexp.Compile("(?i)" + p); err == nil {
+			if re := compileCachedRe("(?i)" + p); re != nil {
 				pm.honeypot = append(pm.honeypot, re)
 			}
 		}
@@ -922,7 +944,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 		if u.Disabled {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + u.Path); err == nil {
+		if re := compileCachedRe("(?i)" + u.Path); re != nil {
 			pm.honeypot = append(pm.honeypot, re)
 		}
 	}
@@ -934,7 +956,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 			continue
 		}
 		for _, r := range g.Rules {
-			if re, err := regexp.Compile("(?i)" + r.Pattern); err == nil {
+			if re := compileCachedRe("(?i)" + r.Pattern); re != nil {
 				pm.protected = append(pm.protected, re)
 			}
 		}
@@ -943,7 +965,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 		if row.Disabled {
 			continue
 		}
-		if re, err := regexp.Compile("(?i)" + row.Path); err == nil {
+		if re := compileCachedRe("(?i)" + row.Path); re != nil {
 			pm.protected = append(pm.protected, re)
 		}
 	}
