@@ -4,6 +4,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	stdhtml "html"
 	"html/template"
@@ -336,6 +337,21 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		secret := h.Settings.Secret.BVSecret
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
+				// Re-check the user against the DB so a deleted or demoted account
+				// loses access immediately instead of riding its cookie's frozen
+				// role for up to 30 days.  Honor the CURRENT DB role (not the
+				// cookie's); a transient DB error keeps the session (fail-open) so
+				// a blip doesn't log every admin out.
+				if h.UserRepo != nil {
+					if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
+						pay.Role = u.Role
+					} else if errors.Is(uerr, user.ErrNotFound) {
+						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+						http.SetCookie(w, clearSessionCookie(sec))
+						http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/login", http.StatusFound)
+						return
+					}
+				}
 				// Sliding extension on each request: refresh when remaining lifetime drops below half of TTL.
 				secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 				if sessionNeedsRefresh(pay) {
