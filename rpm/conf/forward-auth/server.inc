@@ -51,9 +51,14 @@ location ^~ /unmask/admin/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    proxy_set_header  X-Client-JA4  $effective_ja4;
-    proxy_set_header  X-JA4-Verdict $ja4_verdict;
-    proxy_set_header  X-JA4-Action  $ja4_action;
+    # JA4 verdict forwarding (= HYBRID mode only).  $effective_ja4 / $ja4_verdict
+    # / $ja4_action are defined by the native plugin's http.inc maps.  In pure
+    # forward-auth mode (no plugin / no http.inc) they are undefined and abort
+    # `nginx -t`, so they are commented out by default.  Uncomment only if you
+    # also load the native http.inc on this vhost.
+    #proxy_set_header  X-Client-JA4  $effective_ja4;
+    #proxy_set_header  X-JA4-Verdict $ja4_verdict;
+    #proxy_set_header  X-JA4-Action  $ja4_action;
     # Disable buffering so SSE (= /admin/api/events/stream) flows through.
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
@@ -71,12 +76,14 @@ location ^~ /unmask/challenge/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    proxy_set_header  X-Client-JA4     $effective_ja4;
-    proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    proxy_set_header  X-JA4-Action     $ja4_action;
-    proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
-    proxy_set_header  X-Protected-Mode $protected_mode;
-    proxy_set_header  X-Banned         $unmask_banned;
+    # HYBRID-mode JA4 / native-verdict headers (= require the native http.inc
+    # maps; undefined in pure forward-auth, so commented out by default).
+    #proxy_set_header  X-Client-JA4     $effective_ja4;
+    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
+    #proxy_set_header  X-JA4-Action     $ja4_action;
+    #proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
+    #proxy_set_header  X-Protected-Mode $protected_mode;
+    #proxy_set_header  X-Banned         $unmask_banned;
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_admin_down;
 }
@@ -91,9 +98,10 @@ location ^~ /unmask/api/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    proxy_set_header  X-Client-JA4  $effective_ja4;
-    proxy_set_header  X-JA4-Verdict $ja4_verdict;
-    proxy_set_header  X-JA4-Action  $ja4_action;
+    # HYBRID-mode JA4 headers (= commented out; undefined in pure forward-auth).
+    #proxy_set_header  X-Client-JA4  $effective_ja4;
+    #proxy_set_header  X-JA4-Verdict $ja4_verdict;
+    #proxy_set_header  X-JA4-Action  $ja4_action;
 }
 
 # /unmask/static/  — assets (= challenge.js / flag PNG etc.).
@@ -109,12 +117,13 @@ location ^~ /unmask/_rl/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    proxy_set_header  X-Client-JA4     $effective_ja4;
-    proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    proxy_set_header  X-JA4-Action     $ja4_action;
-    proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
-    proxy_set_header  X-Protected-Mode $protected_mode;
-    proxy_set_header  X-Banned         $unmask_banned;
+    # HYBRID-mode JA4 / native-verdict headers (= undefined in pure forward-auth).
+    #proxy_set_header  X-Client-JA4     $effective_ja4;
+    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
+    #proxy_set_header  X-JA4-Action     $ja4_action;
+    #proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
+    #proxy_set_header  X-Protected-Mode $protected_mode;
+    #proxy_set_header  X-Banned         $unmask_banned;
     proxy_intercept_errors off;
 }
 location @unmask_rate_challenge {
@@ -153,9 +162,10 @@ location ^~ /unmask/test/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    proxy_set_header  X-Client-JA4     $effective_ja4;
-    proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    proxy_set_header  X-JA4-Action     $ja4_action;
+    # HYBRID-mode JA4 headers (= undefined in pure forward-auth).
+    #proxy_set_header  X-Client-JA4     $effective_ja4;
+    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
+    #proxy_set_header  X-JA4-Action     $ja4_action;
 }
 
 # /_unmask/check  — internal subrequest endpoint for forward-auth mode.

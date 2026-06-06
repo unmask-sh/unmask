@@ -39,7 +39,9 @@ overrides:
       - apache2
       - apache2-lua
       - apache2-proxy
-      - lua5.3-socket
+      # Alpine's apache2-lua (mod_lua) links Lua 5.1, so the luasocket bindings
+      # must match -- lua5.3-socket is invisible to the 5.1 interpreter.
+      - lua5.1-socket
 
 # Destination: /etc/httpd/conf.d/ on RHEL-family, /etc/apache2/conf-available/
 # on Debian-family.  nfpm has no conditional, so RPM is assumed RHEL layout

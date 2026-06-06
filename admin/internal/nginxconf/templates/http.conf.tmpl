@@ -19,13 +19,17 @@
 #      load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;
 
 # -----------------------------------------------------------------------------
-# Hash sizing for community-bans maps.  The ipja4 map keys are "<ip>:<ja4>"
-# (= up to ~52 chars), exceeding the nginx default map_hash_bucket_size (= 64)
-# on builds where that default is tight.  Must be set BEFORE any map{} directive
-# below or nginx parses the first map at the old bucket size and rejects the
-# later override as "duplicate".
+# Map hash sizing: deliberately NOT set here.  The widest map key is the ipja4
+# "<ip>:<ja4>" pair (~59 chars), which fits the default map_hash_bucket_size
+# (= ngx_cacheline_size, 64 on the x86_64 / aarch64 build targets).  An explicit
+# `map_hash_bucket_size` here is rejected as "duplicate" whenever the host
+# nginx.conf already declares a map{} before this snippet loads -- e.g. Alpine's
+# stock `map $http_upgrade` combined with the `include http.d/*.conf;` order, so
+# this snippet always lands after that map.  Relying on the default keeps the
+# snippet include-order-independent across distros.  If a deployment ever needs
+# a wider bucket, set map_hash_bucket_size at the TOP of the http{} block in
+# nginx.conf, before any map directive.
 # -----------------------------------------------------------------------------
-map_hash_bucket_size 128;
 
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
