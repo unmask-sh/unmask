@@ -60,6 +60,11 @@ nginx:
   # docker compose resolves the service name "admin".  This value is overridden on the
   # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
   upstream_addr: admin:9477
+  # The suite curls admin:9477 directly with X-Client-JA4 / X-Unmask-Site set, so
+  # opt into trusting those forwarded headers (default-off since a client could
+  # otherwise spoof them through the default proxy_pass_request_headers).
+  trust_forwarded_ja4: true
+  trust_forwarded_site: true
   admin_allow_from:
     - 0.0.0.0/0
   metrics_allow_from:
