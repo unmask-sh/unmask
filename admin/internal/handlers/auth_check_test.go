@@ -351,3 +351,25 @@ func TestResolveForwardedJA4(t *testing.T) {
 		})
 	}
 }
+
+// TestIsSearchBotUA locks the search/AI-crawler detection that the forward-auth
+// veto-pass relies on (= the rescue that must beat geo/ja4/protected/honeypot).
+func TestIsSearchBotUA(t *testing.T) {
+	var n settings.Nginx
+	cases := []struct {
+		ua   string
+		want bool
+	}{
+		{"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", true},
+		{"Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", true},
+		{"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)", true},
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36", false},
+		{"curl/8.0", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		if got := isSearchBotUA(c.ua, "", n); got != c.want {
+			t.Errorf("isSearchBotUA(%q) = %v, want %v", c.ua, got, c.want)
+		}
+	}
+}

@@ -203,73 +203,92 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// for the response-header block below.
 	honeypotChMode := ""
 
-	switch {
-	case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
-		// Signed agent verified — same trust level as the IP allowlist.
-		// Reason carries the operator host so dashboards can break it down.
-		action, reason, status = "pass", "signed_agent:"+wbaResult.Operator, http.StatusOK
-	case matchers.ipBypass.Match(ip):
-		action, reason, status = "pass", "bypass:ip", http.StatusOK
-	case matchPath(uri, matchers.bypass):
-		action, reason, status = "pass", "bypass:path", http.StatusOK
-	case bvOK:
-		// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
-		if strings.Count(bvCookie, ".") == 3 {
-			action, reason, status = "pass", "bv-pow", http.StatusOK
+	// Decision order mirrors native mode's BAN if-block + $final_challenge map:
+	//   ban  >  signed_agent / bv / search_bot / bypass_ip / bypass_path  >
+	//   geo / protected / ja4 / honeypot / ua
+	//
+	// (1) BAN is terminal and FIRST.  In native mode the BAN if-block precedes
+	// the $final_challenge map, so a banned entity cannot escape via a bv-cookie,
+	// a bypass IP/path, or a signed-agent header.  The old forward-auth pipeline
+	// put ban in the max-severity group AFTER those veto-passes, letting a banned
+	// bot slip through on a bypass path or a still-valid _bv (up to 3 days).
+	if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
+		if d.sev == sevDeny {
+			action, reason, status = "block", d.reason, http.StatusForbidden
 		} else {
-			action, reason, status = "pass", "bv-captcha", http.StatusOK
+			action, reason, status = "challenge", d.reason, http.StatusUnauthorized
 		}
-	default:
-		// Score axes: collect, take max severity.
-		decisions := make([]axisDecision, 0, 6)
-		if d, ok := h.geoDecide(ip, cfg); ok {
-			decisions = append(decisions, d)
-		}
-		if d, ok := honeypotDecide(uri, matchers, cfg, h.BanMgr, r.Context(), ip); ok {
-			decisions = append(decisions, d)
-		}
-		if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
-			decisions = append(decisions, d)
-		}
-		if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
-			decisions = append(decisions, d)
-		}
-		if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
-			decisions = append(decisions, d)
-		}
-		if d, ok := uaDecide(ua, ja4Action, cfg); ok {
-			decisions = append(decisions, d)
-		}
-		winner, suppressed := pickStrongest(decisions)
-		switch winner.sev {
-		case sevPass:
-			// No axis voted to challenge — let through.  Reason picks the
-			// most-informative passive label (= UA classify if it ran).
-			action, reason, status = "pass", "ok", http.StatusOK
-			for _, d := range decisions {
-				// A pass-decision from UA classify gives a richer reason
-				// (= "human" / "ua:search_ai" / "ua:unknown") than the
-				// generic "ok".  Adopt the first non-empty one.
-				if d.reason != "" && d.sev == sevPass {
-					reason = d.reason
-					break
-				}
+		honeypotChMode = d.chMode
+	} else {
+		switch {
+		// (2) Veto-passes, in native order.  Each is a hard pass that wins over
+		// the gating axes below.
+		case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
+			// Signed agent verified — same trust level as the IP allowlist.
+			// Reason carries the operator host so dashboards can break it down.
+			action, reason, status = "pass", "signed_agent:"+wbaResult.Operator, http.StatusOK
+		case bvOK:
+			// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
+			if strings.Count(bvCookie, ".") == 3 {
+				action, reason, status = "pass", "bv-pow", http.StatusOK
+			} else {
+				action, reason, status = "pass", "bv-captcha", http.StatusOK
 			}
-		case sevDeny:
-			action, reason, status = "block", winner.reason, http.StatusForbidden
+		case isSearchBotUA(ua, ja4Action, cfg.Nginx):
+			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
+			// honeypot exactly like native's is_search_bot exemption, else
+			// crawlers without an IP-range preset (ClaudeBot / YandexBot /
+			// Applebot / Amazonbot / Bytespider) get wrongly blocked = the
+			// ranking accident this project exists to prevent.
+			action, reason, status = "pass", "ua:search_ai", http.StatusOK
+		case matchers.ipBypass.Match(ip):
+			action, reason, status = "pass", "bypass:ip", http.StatusOK
+		case matchPath(uri, matchers.bypass):
+			action, reason, status = "pass", "bypass:path", http.StatusOK
 		default:
-			action, reason, status = "challenge", winner.reason, http.StatusUnauthorized
-		}
-		// honeypot's chMode flows through the X-Unmask-Chmode response
-		// header so the challenge HTML knows which chain to run.  We
-		// surface whatever chMode the winner carries (= honeypot, geo,
-		// protected, etc. all set it identically).
-		if winner.chMode != "" {
-			honeypotChMode = winner.chMode
-		}
-		// Attach suppressed-reason trail for transparency (audit / hunt).
-		if len(suppressed) > 0 {
-			reason = reason + " (suppressed: " + strings.Join(suppressed, ", ") + ")"
+			// (3) Gating axes: collect, take max severity (ban already handled).
+			decisions := make([]axisDecision, 0, 5)
+			if d, ok := h.geoDecide(ip, cfg); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := honeypotDecide(uri, matchers, cfg, h.BanMgr, r.Context(), ip); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := uaDecide(ua, ja4Action, cfg); ok {
+				decisions = append(decisions, d)
+			}
+			winner, suppressed := pickStrongest(decisions)
+			switch winner.sev {
+			case sevPass:
+				// No axis voted to challenge — let through.  Reason picks the
+				// most-informative passive label (= UA classify if it ran).
+				action, reason, status = "pass", "ok", http.StatusOK
+				for _, d := range decisions {
+					if d.reason != "" && d.sev == sevPass {
+						reason = d.reason
+						break
+					}
+				}
+			case sevDeny:
+				action, reason, status = "block", winner.reason, http.StatusForbidden
+			default:
+				action, reason, status = "challenge", winner.reason, http.StatusUnauthorized
+			}
+			// honeypot's chMode flows through the X-Unmask-Chmode response header
+			// so the challenge HTML knows which chain to run.
+			if winner.chMode != "" {
+				honeypotChMode = winner.chMode
+			}
+			// Attach suppressed-reason trail for transparency (audit / hunt).
+			if len(suppressed) > 0 {
+				reason = reason + " (suppressed: " + strings.Join(suppressed, ", ") + ")"
+			}
 		}
 	}
 
@@ -287,6 +306,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		!strings.HasPrefix(reason, "bv-") &&
 		reason != "bypass:ip" &&
 		reason != "bypass:path" &&
+		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
+		!strings.HasPrefix(reason, "signed_agent:") && // verified Web Bot Auth agents aren't rate-limited
 		action != "block"
 	if shouldCount {
 		// Compose the rate-limit counter key from the configured Key kind.
@@ -611,6 +632,25 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings) (axisDecision, bool) 
 	}
 	s := severityFromAction(pick)
 	return axisDecision{sev: s, reason: tag + ":" + pick, chMode: chModeFromSeverity(s)}, true
+}
+
+// isSearchBotUA reports whether the UA is a rescued search / AI crawler that
+// must pass regardless of the gating axes (= the project's #1 rule: never block
+// Googlebot / GPTBot / ClaudeBot / Bingbot / ...).  Native mode's is_search_bot
+// map exempts such a request ABOVE geo / protected / ja4 / honeypot; forward-auth
+// must do the same as a veto-pass, not the weak sevPass vote in uaDecide that
+// loses the max-severity to any deny/challenge axis (= the ranking-accident
+// bug).  Covers both the crawler-user-agents.json match (classify.IsBot ->
+// search_ai) AND a preset/operator UA-list entry categorized search_ai (which
+// uaDecide's max-severity branch only checked for "challenge", ignoring these).
+func isSearchBotUA(ua, ja4Action string, n settings.Nginx) bool {
+	if classify.IsBot(ua, ja4Action).String() == "search_ai" {
+		return true
+	}
+	if listed, category := lookupUAListed(ua, n); listed != "" && category == "search_ai" {
+		return true
+	}
+	return false
 }
 
 // --- helpers ---
