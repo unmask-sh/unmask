@@ -367,6 +367,12 @@ func cmdServe(args []string) error {
 	// Web Bot Auth verifier: shared cache across requests, set up once.
 	// Lifetime of the Verifier matches the daemon; nothing per-request.
 	h.WebBotAuth = webbotauth.New()
+	// SSRF gate for the directory fetch: only fetch from allowlisted operator
+	// hosts.  Reads the live settings on each call so an admin allowlist edit
+	// takes effect without a restart.
+	h.WebBotAuth.AllowOperator = func(host string) bool {
+		return h.SnapshotSettings().Nginx.WebBotAuth.IsOperatorAllowed(host)
+	}
 
 	// IP range subscribe loop: pull aggregated bypass-IP prefixes from the
 	// unmask.sh hub daily (± jitter) and overlay them onto the embed

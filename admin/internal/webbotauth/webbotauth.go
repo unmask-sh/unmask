@@ -42,12 +42,14 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -95,6 +97,14 @@ type Verifier struct {
 	Logger     interface {
 		Printf(format string, args ...any)
 	}
+
+	// AllowOperator, when non-nil, gates the directory fetch: a
+	// Signature-Agent whose host is not allowlisted never triggers an
+	// outbound request.  The fetch runs before signature verification, so
+	// without this gate an unauthenticated caller can point the fetch at
+	// arbitrary URLs (SSRF).  nil disables the gate (used by tests only;
+	// production wires it to the operator allowlist).
+	AllowOperator func(host string) bool
 
 	mu    sync.RWMutex
 	cache map[string]cachedDir // key = agent URL string
@@ -186,7 +196,64 @@ func (v *Verifier) httpClient() *http.Client {
 	if v.HTTPClient != nil {
 		return v.HTTPClient
 	}
-	return &http.Client{Timeout: DefaultHTTPTimeout}
+	// The directory URL is attacker-influenced (Signature-Agent header), so
+	// the default client is hardened against SSRF: it refuses redirects and
+	// refuses to dial any non-public address (loopback / private / link-local
+	// incl. the 169.254.169.254 cloud-metadata endpoint / CGNAT).  The dial
+	// guard runs on the resolved IP, so DNS-rebinding is covered too.
+	return &http.Client{
+		Timeout: DefaultHTTPTimeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errors.New("directory fetch must not redirect")
+		},
+		Transport: &http.Transport{
+			DialContext:           safeDialContext,
+			TLSHandshakeTimeout:   DefaultHTTPTimeout,
+			ResponseHeaderTimeout: DefaultHTTPTimeout,
+			DisableKeepAlives:     true,
+		},
+	}
+}
+
+// cgnatNet is the RFC 6598 shared-address (carrier-grade NAT) range, which
+// net.IP.IsPrivate does not cover but which is still non-public.
+var cgnatNet = func() *net.IPNet {
+	_, n, _ := net.ParseCIDR("100.64.0.0/10")
+	return n
+}()
+
+// isBlockedDialIP reports whether an IP must not be dialed for a directory
+// fetch (= anything that is not a public address).
+func isBlockedDialIP(ip net.IP) bool {
+	return ip == nil ||
+		ip.IsLoopback() ||
+		ip.IsPrivate() ||
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() ||
+		ip.IsInterfaceLocalMulticast() ||
+		ip.IsMulticast() ||
+		ip.IsUnspecified() ||
+		cgnatNet.Contains(ip)
+}
+
+// safeDialContext refuses to connect to non-public addresses.  The check sits
+// in Dialer.Control, so it runs on the actual resolved IP right before connect
+// (= after DNS resolution), which defeats DNS-rebinding.
+func safeDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	d := &net.Dialer{
+		Timeout: DefaultHTTPTimeout,
+		Control: func(_, address string, _ syscall.RawConn) error {
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			if isBlockedDialIP(net.ParseIP(host)) {
+				return fmt.Errorf("refusing to dial non-public address %s", address)
+			}
+			return nil
+		},
+	}
+	return d.DialContext(ctx, network, addr)
 }
 
 func (v *Verifier) cacheTTL() time.Duration {
@@ -267,6 +334,12 @@ func (v *Verifier) Verify(ctx context.Context, req *http.Request) Result {
 	host, err := agentURLHost(agentURL)
 	if err != nil {
 		return Result{Reason: "signature-agent url: " + err.Error()}
+	}
+	// SSRF gate: the fetch below runs before signature verification, so refuse
+	// to fetch from a host the operator hasn't allowlisted.  Combined with the
+	// fail-closed empty-list policy, an unconfigured allowlist fetches nothing.
+	if v.AllowOperator != nil && !v.AllowOperator(host) {
+		return Result{Reason: "operator not allowlisted: " + host}
 	}
 
 	keys, err := v.fetchDirectory(ctx, agentURL)
