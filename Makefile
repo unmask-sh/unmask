@@ -711,6 +711,7 @@ test: test-plugin-parser
 ## test-plugin-parser - run the stand-alone test in nginx-module/src/ja4_parser_test.c
 .PHONY: test-plugin-parser
 test-plugin-parser:
+	mkdir -p $(DIST)
 	gcc -std=gnu99 -Wall -Wextra \
 		nginx-module/src/ja4_parser.c \
 		nginx-module/src/ja4_parser_test.c \
