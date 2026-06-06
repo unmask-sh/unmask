@@ -4,9 +4,9 @@
 // Output (= unified under <OutputDir>/.  Restructured on 2026-05-13):
 //   - http.inc       http scope: JA4 maps + assorted decision maps + log_format + unmask upstream
 //   - server.inc     server scope: access_log syslog + ban enforcement +
-//                    @unmask_rate_challenge + `location ^~ /unmask/` proxy
-//                    to admin.  Restricting which Host gets the admin UI is
-//                    done at the HTTP layer by settings.Nginx.AdminAllowedHosts.
+//     @unmask_rate_challenge + `location ^~ /unmask/` proxy
+//     to admin.  Restricting which Host gets the admin UI is
+//     done at the HTTP layer by settings.Nginx.AdminAllowedHosts.
 //   - protect.inc    location/server scope: limit_req + final_challenge rewrite
 //
 // The forward-auth-mode static snippets (= /etc/unmask/forward-auth/{server,protect}.inc)
@@ -44,7 +44,7 @@ var templatesFS embed.FS
 //   - <outDir>/http.inc      http scope: JA4 maps / log_format / rate-zone
 //   - <outDir>/server.inc    server scope: access_log + ban + @unmask_rate_challenge + `location ^~ /unmask/`
 //   - <outDir>/protect.inc   location/server scope: protection trigger
-//                                   (= the unmask upstream block now lives at the tail of http.inc)
+//     (= the unmask upstream block now lives at the tail of http.inc)
 //
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /etc/unmask).
 // version is for display (= written in the header of the generated file).
@@ -241,30 +241,30 @@ type renderData struct {
 	// Determined by looking at server.bind in config.yml.
 	UpstreamServer string
 
-	SearchBotPatterns       []string // flatten of enabled presets + extras
-	JA4Verdicts             []JA4VerdictRule
-	HoneypotPatterns        []string            // OR list of honeypot path patterns (= deprecated; kept while callers migrate)
+	SearchBotPatterns []string // flatten of enabled presets + extras
+	JA4Verdicts       []JA4VerdictRule
+	HoneypotPatterns  []string // OR list of honeypot path patterns (= deprecated; kept while callers migrate)
 	// HoneypotPatternsGlobal / HoneypotPatternsPerHost are the per-site
 	// render split: one global path map + one map per unique Site + a host
 	// dispatcher.  Same four-stage shape as Bypass paths.
-	HoneypotPatternsGlobal  []string           // patterns from rules with Site == ""
-	HoneypotPatternsPerHost []HoneypotHostMaps // one entry per unique non-empty Site
+	HoneypotPatternsGlobal  []string            // patterns from rules with Site == ""
+	HoneypotPatternsPerHost []HoneypotHostMaps  // one entry per unique non-empty Site
 	ProtectedPaths          []ProtectedPathRule // protected paths {Pattern, Mode, Site} (= source-of-truth list)
 	// ProtectedPathsGlobal / ProtectedPathsPerHost are the rendered split:
 	// global rules emit one path -> mode map; per-host rules emit one path
 	// map per unique Site plus a host dispatcher (= same pattern as bypass).
 	ProtectedPathsGlobal  []ProtectedPathRule     // rules with Site == ""
 	ProtectedPathsPerHost []ProtectedPathHostMaps // one entry per unique non-empty Site
-	BypassPaths             []BypassPathRule    // whitelist paths {Pattern, Site} (= source-of-truth list)
+	BypassPaths           []BypassPathRule        // whitelist paths {Pattern, Site} (= source-of-truth list)
 	// BypassPathsGlobal / BypassPathsPerHost are the rendered split:
 	// global rules feed a `map $request_uri ...` block directly, while per-host
 	// rules group by Site and are emitted as separate path-only maps + a host
 	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
 	// no anchor stripping needed because no map ever concatenates host + uri.
-	BypassPathsGlobal  []string             // patterns from rules with Site == ""
-	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
-	ChallengeAll            bool                // true -> $is_challenge_target = 1 (= UA-agnostic)
-	ChallengeTargetPatterns []string            // OR list of UA patterns evaluated when false
+	BypassPathsGlobal       []string             // patterns from rules with Site == ""
+	BypassPathsPerHost      []BypassPathHostMaps // one entry per unique non-empty Site
+	ChallengeAll            bool                 // true -> $is_challenge_target = 1 (= UA-agnostic)
+	ChallengeTargetPatterns []string             // OR list of UA patterns evaluated when false
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -352,10 +352,10 @@ type GeoRuleRender struct {
 
 func buildRenderData(s settings.Settings, outDir, version string) (renderData, error) {
 	d := renderData{
-		GeneratedAt:           time.Now().UTC().Format(time.RFC3339),
-		Version:               version,
-		OutputDir:             outDir,
-		BVSecret:              s.Secret.BVSecret,
+		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Version:     version,
+		OutputDir:   outDir,
+		BVSecret:    s.Secret.BVSecret,
 		// _bv HMAC validation runs in nginx with one shared secret + cookie
 		// window; per-site challenge fields (PowDifficulty, theme, branding
 		// etc.) are resolved in admin's serve handler via Challenge.Resolve(site)

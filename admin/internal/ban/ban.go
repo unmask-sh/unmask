@@ -49,7 +49,7 @@ const (
 	// SourceJA4Ranking: hunt → "上位 JA4" ranking から operator が選んで報告した
 	// (= 特定 IP ではなく JA4 fingerprint 自体への評価).  hub はこれを受け取ると
 	// 該当 entry を ja4_only として強く分類する (= judge.applySourceLean).
-	SourceJA4Ranking      = "ja4_ranking"
+	SourceJA4Ranking = "ja4_ranking"
 )
 
 // ScopeIPJA4 / ScopeJA4Only / ScopeIPOnly drive which fields the C plugin

@@ -287,7 +287,7 @@ type Row struct {
 	Ts          int64  `json:"ts"`    // unix sec (0 if parse failed / not retrieved)
 	TsMs        int64  `json:"ts_ms"` // unix millis; sub-second precision for the hunt log
 	Site        string `json:"site"`
-	Host        string `json:"host,omitempty"` // identifies "which machine produced this row" on a shared DB.  Omitted on single-host installs.
+	Host        string `json:"host,omitempty"`   // identifies "which machine produced this row" on a shared DB.  Omitted on single-host installs.
 	Scheme      string `json:"scheme,omitempty"` // "http" / "https" -- server-side captured from X-Forwarded-Proto so the URL popover can build a real address.  Empty for rows ingested before migration 0010.
 	Port        int    `json:"port,omitempty"`   // listener port captured server-side from X-Forwarded-Port.  0 = unknown / pre-migration.
 	IP          string `json:"ip"`

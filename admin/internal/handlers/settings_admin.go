@@ -451,14 +451,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// computed (= reload=1 appended iff the rendered nginx conf changed).
 		// No per-section static list -- the deterministic renderer means any
 		// conf-affecting field, in any section, flips this automatically.
-		"SavedReload":           r.URL.Query().Get("reload") == "1",
-		"Error":                 readFlash(w, r, h.Settings.Server.BasePath, "err"),
-		"Cur":                   cur,
-		"Global":                h.snapshotSettings().Global,
-		"IPGeoMMDBPath":         ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath":      ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":           h.IPGeo != nil && h.IPGeo.Loaded(),
-		"IPGeoASNLoaded":        h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"SavedReload":      r.URL.Query().Get("reload") == "1",
+		"Error":            readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Cur":              cur,
+		"Global":           h.snapshotSettings().Global,
+		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
+		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -481,26 +481,26 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath, loc)
 			return info
 		}(),
-		"LBPresets":             buildLBPresetView(cur),
-		"LBExtras":              buildLBExtraView(cur),
-		"SearchBotGroups":       searchBotGroups,
-		"SearchBotsRules":       pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
-		"UpstreamRescue":        upstreamRescue,
-		"UpstreamDisabled":      upstreamDisabledSet,
-		"UpstreamRescueTotal":   upstreamTotal,
-		"UpstreamRescueEnabled": upstreamEnabled,
-		"UpstreamGroupMode":     upstreamGroupMode,
-		"UpstreamGroupAction":   upstreamGroupAction,
-		"JA4Groups":             ja4Groups,
-		"JA4Rules":              ja4ExtraRules,
-		"JA4Verdicts":           cur.JA4Verdicts,
-		"JA4PresetAction":       cur.JA4Verdicts.PresetAction,
-		"JA4ExtraAction":        padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
-		"ChallengeAll":          cur.ChallengeTargets.All,
-		"ChallengeGroups":       tgtGroups,
-		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
-		"ChallengeTargets":      cur.ChallengeTargets,
-		"ChallengePresetAction": cur.ChallengeTargets.PresetAction,
+		"LBPresets":                  buildLBPresetView(cur),
+		"LBExtras":                   buildLBExtraView(cur),
+		"SearchBotGroups":            searchBotGroups,
+		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
+		"UpstreamRescue":             upstreamRescue,
+		"UpstreamDisabled":           upstreamDisabledSet,
+		"UpstreamRescueTotal":        upstreamTotal,
+		"UpstreamRescueEnabled":      upstreamEnabled,
+		"UpstreamGroupMode":          upstreamGroupMode,
+		"UpstreamGroupAction":        upstreamGroupAction,
+		"JA4Groups":                  ja4Groups,
+		"JA4Rules":                   ja4ExtraRules,
+		"JA4Verdicts":                cur.JA4Verdicts,
+		"JA4PresetAction":            cur.JA4Verdicts.PresetAction,
+		"JA4ExtraAction":             padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
+		"ChallengeAll":               cur.ChallengeTargets.All,
+		"ChallengeGroups":            tgtGroups,
+		"ChallengeRules":             pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt),
+		"ChallengeTargets":           cur.ChallengeTargets,
+		"ChallengePresetAction":      cur.ChallengeTargets.PresetAction,
 		"HoneypotGroups":             honeypotGroups,
 		"HoneypotRules":              honeypotURLRows(cur.Honeypot.URLs),
 		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
@@ -3667,7 +3667,7 @@ func applyRateLimitFormV2(cur *settings.RateLimitConfig, r *http.Request) error 
 type IPRangeSyncInfo struct {
 	Enabled      bool
 	HubURL       string
-	LastSyncedAt int64  // unix seconds, 0 if never
+	LastSyncedAt int64 // unix seconds, 0 if never
 	LastError    string
 }
 
@@ -3692,7 +3692,7 @@ func (h *Handler) IPRangeSyncStatus() IPRangeSyncInfo {
 //
 //   - enabled            : verify signed-agent requests at all
 //   - allowed_operators  : textarea, one operator host per line.  Empty list
-//                          accepts any operator that publishes a valid dir.
+//     accepts any operator that publishes a valid dir.
 //   - cache_ttl_sec      : per-operator directory cache lifetime
 //
 // Public key directories are fetched lazily by the Verifier; this form only
@@ -3726,7 +3726,7 @@ func (h *Handler) AdminIPRangeSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":              1,
-		"last_synced_at":  h.IPRangeSync.LastSyncedAt().Unix(),
+		"ok":             1,
+		"last_synced_at": h.IPRangeSync.LastSyncedAt().Unix(),
 	})
 }

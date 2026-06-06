@@ -5,12 +5,12 @@
 // a two-stage rescue that also bypasses by IP.
 //
 // Two-tier load:
-//   1. override dir (= /var/lib/unmask/iprange/<file>.json, populated by the
-//      hub-pulled subscribe goroutine).  When present and parseable, this
-//      takes precedence so the install tracks upstream changes without a
-//      release bump.
-//   2. embed snapshot (= compiled-in JSON, ships with the binary).  Fallback
-//      when the override file is missing or unparseable.
+//  1. override dir (= /var/lib/unmask/iprange/<file>.json, populated by the
+//     hub-pulled subscribe goroutine).  When present and parseable, this
+//     takes precedence so the install tracks upstream changes without a
+//     release bump.
+//  2. embed snapshot (= compiled-in JSON, ships with the binary).  Fallback
+//     when the override file is missing or unparseable.
 package nginxconf
 
 import (

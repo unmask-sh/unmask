@@ -58,18 +58,18 @@ func (h *Handler) AdminRemovalRequestsIndex(w http.ResponseWriter, r *http.Reque
 	}
 
 	data := map[string]any{
-		"Lang":           i18n.Resolve(r),
-		"TZ":             resolveTZ(r),
-		"BasePath":       h.Settings.Server.BasePath,
-		"Version":        h.Version,
-		"FilterStatus":   status,
-		"Rows":           rows,
-		"FetchErr":       fetchErr,
-		"Flash":          flash,
-		"FlashErr":       flashErr,
-		"CountPending":   counts["pending"],
-		"CountDone":      counts["done"],
-		"CountRejected":  counts["rejected"],
+		"Lang":          i18n.Resolve(r),
+		"TZ":            resolveTZ(r),
+		"BasePath":      h.Settings.Server.BasePath,
+		"Version":       h.Version,
+		"FilterStatus":  status,
+		"Rows":          rows,
+		"FetchErr":      fetchErr,
+		"Flash":         flash,
+		"FlashErr":      flashErr,
+		"CountPending":  counts["pending"],
+		"CountDone":     counts["done"],
+		"CountRejected": counts["rejected"],
 	}
 	h.addMeToData(r, data)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

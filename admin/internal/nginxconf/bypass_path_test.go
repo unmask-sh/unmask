@@ -99,10 +99,10 @@ func TestSplitBypassPathsForRender_GlobalOnly(t *testing.T) {
 // TestSplitBypassPathsForRender_PerHost: non-empty Site groups by host.
 func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 	rules := []BypassPathRule{
-		{Pattern: `^/api/`},                          // global
-		{Pattern: `^/admin/`, Site: "shop.example"},        // per-host
-		{Pattern: `^/internal/`, Site: "shop.example"},     // per-host (same host)
-		{Pattern: `^/secret/`, Site: "example.com"},  // per-host (different host)
+		{Pattern: `^/api/`},                            // global
+		{Pattern: `^/admin/`, Site: "shop.example"},    // per-host
+		{Pattern: `^/internal/`, Site: "shop.example"}, // per-host (same host)
+		{Pattern: `^/secret/`, Site: "example.com"},    // per-host (different host)
 	}
 	globals, perHost := splitBypassPathsForRender(rules)
 	if len(globals) != 1 || globals[0] != `^/api/` {

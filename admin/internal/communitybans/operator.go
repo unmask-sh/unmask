@@ -37,8 +37,8 @@ type RemovalRow struct {
 // before /api/feed/operator/...), tokenFile is the path the operator bearer
 // is read from on every call so rotation is hot.
 type OperatorClient struct {
-	Endpoint  string
-	TokenFile string
+	Endpoint   string
+	TokenFile  string
 	HTTPClient *http.Client
 }
 

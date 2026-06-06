@@ -36,8 +36,8 @@ func TestStaticAssetsTipPatternsCompile(t *testing.T) {
 		}
 	}
 	mustNotMatch := []string{
-		"/foo/static/bar",   // ^/static/ is path-anchored.
-		"/api/users",        // covered by api-paths preset, not static-assets.
+		"/foo/static/bar", // ^/static/ is path-anchored.
+		"/api/users",      // covered by api-paths preset, not static-assets.
 		"",
 	}
 	for _, p := range mustNotMatch {
@@ -104,9 +104,9 @@ func TestStaticAssetsTipHitsCounting(t *testing.T) {
 		{Path: "/assets/logo.png"},
 		{Path: "/favicon.ico"},
 		{Path: "/robots.txt"},
-		{Path: "/api/users"},   // not in static-assets.
-		{Path: ""},              // empty path skipped.
-		{Path: "/foo"},          // unrelated path.
+		{Path: "/api/users"}, // not in static-assets.
+		{Path: ""},           // empty path skipped.
+		{Path: "/foo"},       // unrelated path.
 	}
 	count := 0
 	for _, e := range rows {

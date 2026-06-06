@@ -14,13 +14,13 @@
 //
 // Verification:
 //
-//	1. Parse Signature{-Input,-Agent}.  Reject when tag != "web-bot-auth"
-//	   or now ∉ [created, expires].
-//	2. Fetch <agent>/.well-known/http-message-signatures-directory once
-//	   (cached for CacheTTL).  Pick the key whose JWK thumbprint matches
-//	   the signature's keyid.
-//	3. Recompute the signature base from the covered components and verify
-//	   with ed25519 or rsa-pss-sha512 (the two algorithms named in the spec).
+//  1. Parse Signature{-Input,-Agent}.  Reject when tag != "web-bot-auth"
+//     or now ∉ [created, expires].
+//  2. Fetch <agent>/.well-known/http-message-signatures-directory once
+//     (cached for CacheTTL).  Pick the key whose JWK thumbprint matches
+//     the signature's keyid.
+//  3. Recompute the signature base from the covered components and verify
+//     with ed25519 or rsa-pss-sha512 (the two algorithms named in the spec).
 //
 // We intentionally keep this self-contained (no third-party deps) so the
 // admin binary stays pure-Go static.  Other Web Bot Auth implementations
@@ -92,7 +92,9 @@ type Verifier struct {
 	HTTPClient *http.Client
 	CacheTTL   time.Duration
 	Now        func() time.Time
-	Logger     interface{ Printf(format string, args ...any) }
+	Logger     interface {
+		Printf(format string, args ...any)
+	}
 
 	mu    sync.RWMutex
 	cache map[string]cachedDir // key = agent URL string
@@ -120,9 +122,9 @@ type directoryKey struct {
 	Kty string `json:"kty"`
 	Crv string `json:"crv,omitempty"` // Ed25519
 	Kid string `json:"kid"`
-	X   string `json:"x,omitempty"`   // Ed25519 public-key bytes (base64url)
-	N   string `json:"n,omitempty"`   // RSA modulus (base64url big-endian)
-	E   string `json:"e,omitempty"`   // RSA public exponent (base64url big-endian)
+	X   string `json:"x,omitempty"` // Ed25519 public-key bytes (base64url)
+	N   string `json:"n,omitempty"` // RSA modulus (base64url big-endian)
+	E   string `json:"e,omitempty"` // RSA public exponent (base64url big-endian)
 	Use string `json:"use"`
 	Nbf int64  `json:"nbf,omitempty"`
 	Exp int64  `json:"exp,omitempty"`

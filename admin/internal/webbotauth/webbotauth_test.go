@@ -188,11 +188,11 @@ func TestParseSignatureInput_Basic(t *testing.T) {
 
 func TestParseSignatureInput_Malformed(t *testing.T) {
 	cases := []string{
-		"",                 // empty
-		"sig1",             // no '='
-		`sig1=(`,           // missing ')'
-		`sig1="oops"`,      // not a list
-		`sig1=(unquoted)`,  // component without quotes
+		"",                // empty
+		"sig1",            // no '='
+		`sig1=(`,          // missing ')'
+		`sig1="oops"`,     // not a list
+		`sig1=(unquoted)`, // component without quotes
 	}
 	for _, c := range cases {
 		if _, _, _, err := parseSignatureInput(c); err == nil {

@@ -51,16 +51,16 @@ const SyncInitialDelay = 30 * time.Second
 // AggregatedDoc: shape published at SyncDefaultHubURL.  schemaVersion is
 // bumped on a breaking change so old clients can stop applying.
 type AggregatedDoc struct {
-	SchemaVersion int                          `json:"schemaVersion"`
-	GeneratedAt   string                       `json:"generatedAt"`
-	Sources       map[string]AggregatedSource  `json:"sources"`
+	SchemaVersion int                         `json:"schemaVersion"`
+	GeneratedAt   string                      `json:"generatedAt"`
+	Sources       map[string]AggregatedSource `json:"sources"`
 }
 
 // AggregatedSource: per-source body.  Same shape as the vendor JSON
 // (= iprangePayload) so we can write it back to the override dir verbatim.
 type AggregatedSource struct {
-	CreationTime string                  `json:"creationTime"`
-	Prefixes     []AggregatedPrefix      `json:"prefixes"`
+	CreationTime string             `json:"creationTime"`
+	Prefixes     []AggregatedPrefix `json:"prefixes"`
 }
 
 // AggregatedPrefix: one prefix entry.  Vendor JSONs use one of these two
@@ -100,10 +100,10 @@ type Sync struct {
 
 	// State observable by the settings UI.  stateMu serialises only the
 	// state fields below; PullOnce's I/O isn't under the lock.
-	stateMu       sync.Mutex
-	lastSyncedAt  time.Time
-	lastError     string
-	lastWrittenN  int
+	stateMu      sync.Mutex
+	lastSyncedAt time.Time
+	lastError    string
+	lastWrittenN int
 }
 
 // LastSyncedAt returns the time of the last successful pull (= even if it

@@ -26,9 +26,14 @@ func TestDayBucketTZ(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// Seed a single phase='serve' event at 2026-05-29 22:00:00 UTC.
-	// Use the timestamp layout the read side accepts.
-	const tsUTC = "2026-05-29 22:00:00.000"
+	// Seed a single phase='serve' event at 22:00 UTC two days ago, so it stays
+	// inside the 7-day read window no matter when the test runs (a fixed past
+	// date silently fell out of range once enough wall-clock days passed, which
+	// made this test start failing).  22:00 UTC = 07:00 next-day JST, so the
+	// event still straddles the day boundary: day N in UTC, day N+1 in Tokyo.
+	base := time.Now().UTC().AddDate(0, 0, -2)
+	seed := time.Date(base.Year(), base.Month(), base.Day(), 22, 0, 0, 0, time.UTC)
+	tsUTC := seed.Format("2006-01-02 15:04:05.000")
 	if _, err := d.Exec(
 		`INSERT INTO unmask_event
 			(site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id,
@@ -48,8 +53,8 @@ func TestDayBucketTZ(t *testing.T) {
 		tz      *time.Location
 		wantDay string
 	}{
-		{"utc", time.UTC, "2026-05-29"},
-		{"jst", jst, "2026-05-30"},
+		{"utc", time.UTC, seed.Format("2006-01-02")},
+		{"jst", jst, seed.In(jst).Format("2006-01-02")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

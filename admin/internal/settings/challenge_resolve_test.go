@@ -7,8 +7,8 @@ func TestChallengeResolveUndeclared(t *testing.T) {
 	c := ChallengeConfig{
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
-			PowDifficulty: 18,
-			Theme:         "default",
+			PowDifficulty:         18,
+			Theme:                 "default",
 		},
 	}
 	got := c.Resolve("blog.example.com")
@@ -22,15 +22,15 @@ func TestChallengeResolveUndeclared(t *testing.T) {
 func TestChallengeResolveDeclared(t *testing.T) {
 	shop := ChallengeValues{
 		PowCookieValidSeconds: 86400 * 7,
-		PowDifficulty: 16,
-		Theme:         "terminal",
-		ShowCredit:    true,
+		PowDifficulty:         16,
+		Theme:                 "terminal",
+		ShowCredit:            true,
 	}
 	c := ChallengeConfig{
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
-			PowDifficulty: 18,
-			Theme:         "default",
+			PowDifficulty:         18,
+			Theme:                 "default",
 		},
 		Sites: map[string]ChallengeValues{
 			"shop.example.com": shop,
@@ -48,8 +48,8 @@ func TestChallengeResolveEmptyEntry(t *testing.T) {
 	c := ChallengeConfig{
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
-			PowDifficulty: 18,
-			Theme:         "default",
+			PowDifficulty:         18,
+			Theme:                 "default",
 		},
 		Sites: map[string]ChallengeValues{
 			"empty.example.com": {},

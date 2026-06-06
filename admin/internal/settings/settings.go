@@ -116,7 +116,7 @@ type ChallengeValues struct {
 	// (= 3-segment HMAC cookie).
 	CaptchaCookieValidSeconds int    `yaml:"captcha_cookie_valid_seconds,omitempty"`
 	DebugRateLimitPer5Min     int    `yaml:"debug_rate_limit_per_5min"`
-	ChallengeHTMLPath     string `yaml:"challenge_html_path"`
+	ChallengeHTMLPath         string `yaml:"challenge_html_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public
@@ -479,7 +479,7 @@ func (w WebBotAuthConfig) IsOperatorAllowed(host string) bool {
 // foreign-feed import recover when the visitor is actually human; the
 // operator can pick "deny" per row when certainty is high.
 type BansConfig struct {
-	ManualDefaultAction     string `yaml:"manual_default_action,omitempty"`
+	ManualDefaultAction        string `yaml:"manual_default_action,omitempty"`
 	CommunityBansDefaultAction string `yaml:"community_bans_default_action,omitempty"`
 }
 
@@ -1090,17 +1090,17 @@ type CommunityBans struct {
 	// can show it without a hub round-trip.  HNOverride (= empty by default)
 	// lets the operator pick a custom display name; the hub keeps the
 	// derived HN as the canonical identity, override is presentation-only.
-	HN              string `yaml:"hn,omitempty"`
-	HNOverride      string `yaml:"hn_override,omitempty"`
-	PublishCountry  bool   `yaml:"publish_country,omitempty"`
-	RegisterURL     string `yaml:"register_url,omitempty"`
-	SubmitURL       string `yaml:"submit_url,omitempty"`
-	FeedURL         string `yaml:"feed_url,omitempty"`
-	AggregateURL    string `yaml:"aggregate_url,omitempty"`
-	LastPulledAt    int64  `yaml:"last_pulled_at,omitempty"`
-	Entries         int    `yaml:"entries,omitempty"`
-	TermsAcceptedAt      int64 `yaml:"terms_accepted_at,omitempty"`
-	TermsAcceptedVersion int   `yaml:"terms_accepted_version,omitempty"`
+	HN                   string `yaml:"hn,omitempty"`
+	HNOverride           string `yaml:"hn_override,omitempty"`
+	PublishCountry       bool   `yaml:"publish_country,omitempty"`
+	RegisterURL          string `yaml:"register_url,omitempty"`
+	SubmitURL            string `yaml:"submit_url,omitempty"`
+	FeedURL              string `yaml:"feed_url,omitempty"`
+	AggregateURL         string `yaml:"aggregate_url,omitempty"`
+	LastPulledAt         int64  `yaml:"last_pulled_at,omitempty"`
+	Entries              int    `yaml:"entries,omitempty"`
+	TermsAcceptedAt      int64  `yaml:"terms_accepted_at,omitempty"`
+	TermsAcceptedVersion int    `yaml:"terms_accepted_version,omitempty"`
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
 
@@ -1597,13 +1597,13 @@ func defaults() Settings {
 			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
 		},
 		CommunityBans: CommunityBans{
-			SubmitEnabled:    false,
-			SubscribeMode:    SubscribeOff,
-			PublishCountry:   true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
-			RegisterURL:  DefaultCommunityBansRegisterURL,
-			SubmitURL:    DefaultCommunityBansSubmitURL,
-			FeedURL:      DefaultCommunityBansFeedURL,
-			AggregateURL: DefaultCommunityBansAggregateURL,
+			SubmitEnabled:  false,
+			SubscribeMode:  SubscribeOff,
+			PublishCountry: true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
+			RegisterURL:    DefaultCommunityBansRegisterURL,
+			SubmitURL:      DefaultCommunityBansSubmitURL,
+			FeedURL:        DefaultCommunityBansFeedURL,
+			AggregateURL:   DefaultCommunityBansAggregateURL,
 		},
 		Nginx: Nginx{
 			// /var/lib/ rather than /etc/ because everything below this point
@@ -1615,7 +1615,7 @@ func defaults() Settings {
 			// upstream from server.bind (TCP or unix:).  An operator deploys
 			// admin and nginx in separate network namespaces (= docker
 			// compose, k8s) can set it explicitly to e.g. "admin:9477".
-			SeenVersion:  "v0.1", // baseline for new-preset NEW-badge gating
+			SeenVersion: "v0.1", // baseline for new-preset NEW-badge gating
 			// AdminAllowFrom defaults to empty: avoids silently locking down
 			// existing installs (= deployments behind an LB) to loopback only.
 			// The install wizard forces a non-empty value. The nginx render

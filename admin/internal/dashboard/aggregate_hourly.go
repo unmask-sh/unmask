@@ -29,31 +29,31 @@ var hourlyReady atomic.Bool
 // distinct-IP argument no longer holds, and we add per-reason count + HLL
 // for CaptchaForceBreakdown below (= hkCaptchaForce / hkCaptchaForceIP).
 const (
-	hkFunnel       = "fnl" // key '<vid>|<verdict>|<phase>'
-	hkLoadF0       = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
-	hkServeRL      = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
-	hkCountry      = "cc"  // key '<country>'         phase=serve
-	hkSiteAll      = "sa"  // key '<site>'            all phases (Sites total events)
-	hkSiteServe    = "ss"  // key '<site>'            phase=serve (Sites serve count)
-	hkSiteBV       = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
-	hkServeKind    = "svk" // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
-	hkCaptchaForce = "cf"  // key '<force_reason>'    phase=load (CaptchaForceBreakdown count)
-	hkFlags        = "fl"  // key '<flags>' (decimal) phase=load (FlagsDistribution count)
-	hkAITag        = "ait" // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
+	hkFunnel       = "fnl"  // key '<vid>|<verdict>|<phase>'
+	hkLoadF0       = "lf0"  // key '<vid>|<verdict>'   phase=load, flags=0
+	hkServeRL      = "srl"  // key '<vid>|<verdict>'   phase=serve, payload rl=1
+	hkCountry      = "cc"   // key '<country>'         phase=serve
+	hkSiteAll      = "sa"   // key '<site>'            all phases (Sites total events)
+	hkSiteServe    = "ss"   // key '<site>'            phase=serve (Sites serve count)
+	hkSiteBV       = "sb"   // key '<site>'            phase starts with 'bv_' (Sites passed count)
+	hkServeKind    = "svk"  // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
+	hkCaptchaForce = "cf"   // key '<force_reason>'    phase=load (CaptchaForceBreakdown count)
+	hkFlags        = "fl"   // key '<flags>' (decimal) phase=load (FlagsDistribution count)
+	hkAITag        = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
 	hkAITagSite    = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
 const (
-	hkVerdictIP     = "vdip" // hourly bucket, key '<verdict>'  distinct IP, all phases
-	hkCountryIP     = "ccip" // daily  bucket, key '<country>'  distinct IP, phase=serve
-	hkSiteIP        = "siip" // hourly bucket, key '<site>'     distinct IP, all phases
-	hkServeIP       = "svip" // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
-	hkLoadVerdictIP    = "lvip" // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
-	hkCaptchaForceIP   = "cfip" // hourly bucket, key '<force_reason>' distinct IP, phase=load (CaptchaForceBreakdown)
-	hkFlagsIP          = "flip" // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
-	hkAITagIP          = "atip" // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
-	hkAITagSiteIP      = "atsip" // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
+	hkVerdictIP      = "vdip"  // hourly bucket, key '<verdict>'  distinct IP, all phases
+	hkCountryIP      = "ccip"  // daily  bucket, key '<country>'  distinct IP, phase=serve
+	hkSiteIP         = "siip"  // hourly bucket, key '<site>'     distinct IP, all phases
+	hkServeIP        = "svip"  // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
+	hkLoadVerdictIP  = "lvip"  // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
+	hkCaptchaForceIP = "cfip"  // hourly bucket, key '<force_reason>' distinct IP, phase=load (CaptchaForceBreakdown)
+	hkFlagsIP        = "flip"  // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
+	hkAITagIP        = "atip"  // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
+	hkAITagSiteIP    = "atsip" // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
 )
 
 const (

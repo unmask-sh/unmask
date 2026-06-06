@@ -21,6 +21,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -31,25 +32,24 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
 
 const (
-	challengePlaceholder   = `/*__CAPTCHA_FORCE__*/"none"`
-	challengeProbe         = "<!--__SUBFILTER_PROBE__-->"
-	captchaPlaceholder     = "/*__CAPTCHA__*/null"
-	themePlaceholder       = `/*__THEME__*/"default"`
-	brandingPlaceholder    = `/*__BRANDING__*/null`
-	buildVPlaceholder      = `__BUILD_V__`
-	chmodePlaceholder      = `/*__CHMODE__*/"pow_then_captcha"`
-	powDiffPlaceholder     = "/*__POW_DIFFICULTY__*/18"
+	challengePlaceholder = `/*__CAPTCHA_FORCE__*/"none"`
+	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
+	captchaPlaceholder   = "/*__CAPTCHA__*/null"
+	themePlaceholder     = `/*__THEME__*/"default"`
+	brandingPlaceholder  = `/*__BRANDING__*/null`
+	buildVPlaceholder    = `__BUILD_V__`
+	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
+	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	// PoW spinner floor.  Default 0 (= no floor, real timing); only the
 	// /unmask/test/ pages override this via `?_pow_display=N` to slow the
 	// spinner down for visual inspection.  Production traffic always sees
 	// the real PoW solve time.
-	powMinDisplayMsPH = "/*__POW_MIN_DISPLAY_MS__*/0"
+	powMinDisplayMsPH      = "/*__POW_MIN_DISPLAY_MS__*/0"
 	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
@@ -82,21 +82,21 @@ func pickChallengeTheme(r *http.Request, configured string) string {
 }
 
 type Handler struct {
-	DB          *db.DB
-	Settings    settings.Settings
-	ConfigPath  string             // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
-	Version     string             // unmask version (for display)
-	HostID      string             // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
-	IPGeo       *ipgeo.Reader      // optional, may be nil/empty (mmdb unset)
-	NginxLog    *nginxlog.Reader   // optional, may be nil/empty (access_log_path unset)
-	BanMgr      *ban.Manager       // optional, may be nil (ban_file_path unset)
-	UserRepo    *user.Repository   // internal user management (login / users tab / audit hook)
-	Notifier    *notifier.Notifier // optional, may be nil (notification URL unset)
-	Mailer      *mail.Mailer       // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter *ratelimit.Limiter // sliding-window counter for forward-auth mode.  nil disables counting.
-	CommunityBans  *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
-	IPRangeSync    *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
-	WebBotAuth     *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
+	DB            *db.DB
+	Settings      settings.Settings
+	ConfigPath    string                // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
+	Version       string                // unmask version (for display)
+	HostID        string                // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
+	IPGeo         *ipgeo.Reader         // optional, may be nil/empty (mmdb unset)
+	NginxLog      *nginxlog.Reader      // optional, may be nil/empty (access_log_path unset)
+	BanMgr        *ban.Manager          // optional, may be nil (ban_file_path unset)
+	UserRepo      *user.Repository      // internal user management (login / users tab / audit hook)
+	Notifier      *notifier.Notifier    // optional, may be nil (notification URL unset)
+	Mailer        *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
+	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
+	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.
@@ -452,10 +452,10 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if pkt := events.PackIP(ip); pkt != nil {
 		payload := map[string]any{
-			"force_reason":     reason,
-			"rl":               rl,
-			"non_html_client":  1,
-			"method":           r.Method,
+			"force_reason":    reason,
+			"rl":              rl,
+			"non_html_client": 1,
+			"method":          r.Method,
 		}
 		// When the BAN hit reason wins, attach the originating BAN row's
 		// source so the dashboard can split community_bans vs honeypot vs
@@ -1525,9 +1525,9 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) setBVCookie(w http.ResponseWriter, val string) {
 	c := &http.Cookie{
-		Name:     "_bv",
-		Value:    val,
-		Path:     "/",
+		Name:  "_bv",
+		Value: val,
+		Path:  "/",
 		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
 		// unnecessary for the browser-side Max-Age.
 		MaxAge:   h.Settings.Challenge.Default.CookieMaxAgeSeconds(),

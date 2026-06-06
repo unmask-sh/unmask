@@ -26,9 +26,9 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -194,33 +194,33 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		_ = row.Scan(&hitCount, &hitUniqueIP)
 	}
 	data := map[string]any{
-		"Lang":                   i18n.Resolve(r),
-		"TZ":                     resolveTZ(r),
-		"BasePath":               h.Settings.Server.BasePath,
-		"Version":                h.Version,
-		"Entries":                banRows,
-		"BanFilePath":            h.Settings.Nginx.Honeypot.BanFilePath,
-		"Bans":                   h.Settings.Nginx.Bans,
-		"Saved":                  r.URL.Query().Get("saved") != "",
-		"Error":                  readFlash(w, r, h.Settings.Server.BasePath, "err"),
-		"SubscribeMode":          cur.CommunityBans.ResolvedSubscribeMode(),
-		"MyHN":                   myHN,
-		"SourcePills":            sourcePills,
-		"CommunityBansFromHub":   sourceCounts["community_bans"],
-		"CommunityBansHits30d":   hitCount,
+		"Lang":                         i18n.Resolve(r),
+		"TZ":                           resolveTZ(r),
+		"BasePath":                     h.Settings.Server.BasePath,
+		"Version":                      h.Version,
+		"Entries":                      banRows,
+		"BanFilePath":                  h.Settings.Nginx.Honeypot.BanFilePath,
+		"Bans":                         h.Settings.Nginx.Bans,
+		"Saved":                        r.URL.Query().Get("saved") != "",
+		"Error":                        readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"SubscribeMode":                cur.CommunityBans.ResolvedSubscribeMode(),
+		"MyHN":                         myHN,
+		"SourcePills":                  sourcePills,
+		"CommunityBansFromHub":         sourceCounts["community_bans"],
+		"CommunityBansHits30d":         hitCount,
 		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
-		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
-		"CommunityBansGeneratedAt":  doc.GeneratedAt,
-		"CommunityBansVersion":      doc.Version,
-		"CommunityBansEntries":      filtered,
-		"CommunityBansTotalEntries": len(doc.Entries),
-		"CommunityBansFiltered":     len(filtered),
-		"CommunityBansCountIPJA4":   countIPJA4,
-		"CommunityBansCountJA4":     countJA4,
-		"CommunityBansCountIP":      countIP,
-		"CommunityBansMatch":        match,
-		"CommunityBansQuery":        q,
-		"CommunityBansMapDir":       mapDir,
+		"CommunityBansLastPulledAt":    cur.CommunityBans.LastPulledAt,
+		"CommunityBansGeneratedAt":     doc.GeneratedAt,
+		"CommunityBansVersion":         doc.Version,
+		"CommunityBansEntries":         filtered,
+		"CommunityBansTotalEntries":    len(doc.Entries),
+		"CommunityBansFiltered":        len(filtered),
+		"CommunityBansCountIPJA4":      countIPJA4,
+		"CommunityBansCountJA4":        countJA4,
+		"CommunityBansCountIP":         countIP,
+		"CommunityBansMatch":           match,
+		"CommunityBansQuery":           q,
+		"CommunityBansMapDir":          mapDir,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -461,10 +461,10 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 // endpoint is open by design (= raw signals are intentionally public so users
 // can audit verdicts), but the admin still proxies it so:
 //
-//	1. the browser only talks to its own admin origin (= avoids a CORS round-trip)
-//	2. the operator can point CommunityBans.AggregateURL at a custom hub
-//	   without touching the front-end
-//	3. local debugging works behind networks that block the public hub
+//  1. the browser only talks to its own admin origin (= avoids a CORS round-trip)
+//  2. the operator can point CommunityBans.AggregateURL at a custom hub
+//     without touching the front-end
+//  3. local debugging works behind networks that block the public hub
 //
 // Returns the hub JSON body verbatim with a short cache header so a busy
 // expand-collapse loop doesn't hammer the hub.

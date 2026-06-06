@@ -785,10 +785,10 @@ type pathMatchers struct {
 // changes.  site is part of the key so swapping vhosts mid-process does
 // not return a cached compile that was filtered for a different host.
 var (
-	matchersMu      sync.Mutex
-	cachedNginxPtr  *settings.Nginx
-	cachedSite      string
-	cachedMatchers  pathMatchers
+	matchersMu     sync.Mutex
+	cachedNginxPtr *settings.Nginx
+	cachedSite     string
+	cachedMatchers pathMatchers
 )
 
 // bypassMatchers: build the per-site regex list from settings.  Uses

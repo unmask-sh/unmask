@@ -25,11 +25,11 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
-	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 )
 
 // staticAssetsTipPatterns are compiled from the static-assets bypass-path
@@ -313,14 +313,14 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			offset, pageSize, offset > 0, hasMore,
 			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
 		),
-		"Saved":      q.Get("saved") != "",
-		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Saved": q.Get("saved") != "",
+		"Error": readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		// Static-assets tip: rendered as a dismissible banner above the
 		// range bar when paths matching the static-assets preset show up
 		// ≥ 20 times in the current page.
-		"ShowStaticAssetsTip":  showStaticAssetsTip,
-		"StaticAssetsTipHits":  staticAssetsTipHits,
-		"StaticAssetsTipHref":  h.Settings.Server.BasePath + "/admin/settings/?tab=bypass-paths",
+		"ShowStaticAssetsTip": showStaticAssetsTip,
+		"StaticAssetsTipHits": staticAssetsTipHits,
+		"StaticAssetsTipHref": h.Settings.Server.BasePath + "/admin/settings/?tab=bypass-paths",
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
 		// CommunityBansActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the

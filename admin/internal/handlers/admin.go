@@ -96,8 +96,18 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"add": func(a, b int) int { return a + b },
 			"sub": func(a, b int) int { return a - b },
 			"mul": func(a, b int) int { return a * b },
-			"min": func(a, b int) int { if a < b { return a }; return b },
-			"max": func(a, b int) int { if a > b { return a }; return b },
+			"min": func(a, b int) int {
+				if a < b {
+					return a
+				}
+				return b
+			},
+			"max": func(a, b int) int {
+				if a > b {
+					return a
+				}
+				return b
+			},
 			// paginationPages: full numbered pager helper.
 			//
 			// Returns the sequence of page numbers to render in the pager, with
@@ -115,8 +125,12 @@ func loadDashboardTemplate() (*template.Template, error) {
 				if total <= 0 {
 					return nil
 				}
-				if round < 0 { round = 0 }
-				if outer < 0 { outer = 0 }
+				if round < 0 {
+					round = 0
+				}
+				if outer < 0 {
+					outer = 0
+				}
 				present := make(map[int]bool, 2*round+2*outer+1)
 				add := func(p int) {
 					if p >= 1 && p <= total {
@@ -125,13 +139,17 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				// First outer block (= expand when current is near the start).
 				headBlock := outer
-				if round > current { headBlock = round * 3 }
+				if round > current {
+					headBlock = round * 3
+				}
 				for p := 1; p <= headBlock; p++ {
 					add(p)
 				}
 				// Tail outer block (= expand when current is near the end).
 				tailFrom := total - outer + 1
-				if total-round < current { tailFrom = total - round*2 + 1 }
+				if total-round < current {
+					tailFrom = total - round*2 + 1
+				}
 				for p := tailFrom; p <= total; p++ {
 					add(p)
 				}
