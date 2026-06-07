@@ -534,6 +534,25 @@ func (r *Reader) BumpCrawler(ua string, served bool) {
 	r.bumpCrawler(ua, served)
 }
 
+// BumpTrafficHLL / BumpCountry: exported entry points for forward-auth mode.
+// /api/check has the IP (and the Reader's geo is wired in both modes), but emits
+// no access-log line, so without these the unique-IP (DailyUniqueIPs) and
+// per-country (DailyPassByCountry) 30-day charts stay flat-zero in forward-auth.
+// nil-safe.
+func (r *Reader) BumpTrafficHLL(site, ip string, fc bool, bvKind string) {
+	if r == nil {
+		return
+	}
+	r.bumpTrafficHLL(site, ip, fc, bvKind)
+}
+
+func (r *Reader) BumpCountry(site, ip, kind string) {
+	if r == nil {
+		return
+	}
+	r.bumpCountryHourly(site, ip, kind)
+}
+
 // flushOnce: UPSERT buckets "older than the current minute" into the DB.
 // final=true flushes everything including the current minute (= for shutdown).
 // Cookie-minute, crawler-minute and country-hourly buckets all flush in the

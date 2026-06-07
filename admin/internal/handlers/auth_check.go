@@ -421,21 +421,29 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	//   "challenge_served" : action=challenge or block
 	//   ""                 : no signals tripped, total only +1
 	if h.NginxLog != nil {
-		kind := ""
+		// bvKind is the RAW _bv kind ("captcha"/"pow"/""), before the
+		// challenge_served alias -- the HLL pass bucket counts only a genuine
+		// cookie, so it must not see the alias.
+		bvKind := ""
 		switch reason {
 		case "bv-captcha":
-			kind = "captcha"
+			bvKind = "captcha"
 		case "bv-pow":
-			kind = "pow"
+			bvKind = "pow"
 		}
+		kind := bvKind
 		if kind == "" && (action == "challenge" || action == "block") {
 			kind = "challenge_served"
 		}
+		fc := action == "challenge" || action == "block"
 		h.NginxLog.Bump(site, kind)
-		// Crawler funnel: in forward-auth mode no access-log line is emitted,
-		// so feed the crawler aggregate here.  served = the request did not
-		// pass straight through.
+		// In forward-auth mode no access-log line is emitted, so feed the same
+		// aggregates onLine() fills in native mode -- otherwise the crawler
+		// funnel, unique-IP (DailyUniqueIPs) and per-country (DailyPassByCountry)
+		// charts are blank in forward-auth.
 		h.NginxLog.BumpCrawler(ua, action != "pass")
+		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind)
+		h.NginxLog.BumpCountry(site, ip, kind)
 	}
 
 	// 2.8. monitor mode override (= switch right before responding, after
