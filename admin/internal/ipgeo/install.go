@@ -1,13 +1,17 @@
-// install.go — fetch DB-IP Country Lite mmdb and atomically install it.
+// install.go — fetch the DB-IP Lite mmdb (country / ASN) and atomically install it.
 //
 // DB-IP Lite is CC BY 4.0 (= redistribution allowed with attribution).
-// We do NOT bundle the file in the rpm/deb; instead, this helper downloads
-// the current month's snapshot on demand from the public URL:
+// We do NOT bundle the file in the rpm/deb; instead, this helper downloads it
+// on demand, trying two sources in order:
 //
-//	https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
+//  1. the unmask.sh mirror (stable URL, refreshed monthly server-side):
+//     https://unmask.sh/dl/ipgeo/dbip-country-lite.mmdb.gz
+//  2. db-ip.com's month-stamped snapshot (current month, then previous):
+//     https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
 //
-// New months may take a few days to publish; on 404 we fall back to the
-// previous month so a first-of-month invocation does not fail.
+// The mirror is tried first because db-ip.com's path 404s for a few days at each
+// month boundary; if the mirror is unreachable we fall through to db-ip.com.
+// A caller-supplied URLTemplate opts out of the mirror and uses only db-ip.com.
 //
 // Used by both the `unmask install-ipgeo` CLI and the web UI's 1-click
 // install button.
@@ -91,7 +95,23 @@ const (
 	defaultCountryURLTemplate = "https://download.db-ip.com/free/dbip-country-lite-%s.mmdb.gz"
 	defaultASNURLTemplate     = "https://download.db-ip.com/free/dbip-asn-lite-%s.mmdb.gz"
 	defaultMaxBytes           = 50 * 1024 * 1024
+
+	// unmask re-hosts the unmodified DB-IP Lite snapshot (CC BY 4.0) at a stable
+	// URL, refreshed monthly by tools/unmask-dbip-mirror.sh.  We try it first so
+	// installs don't depend on db-ip.com's month-stamped path (which 404s for a
+	// few days at each month boundary) -- with a transparent fall-back to
+	// db-ip.com if the mirror is unreachable.
+	mirrorCountryURL = "https://unmask.sh/dl/ipgeo/dbip-country-lite.mmdb.gz"
+	mirrorASNURL     = "https://unmask.sh/dl/ipgeo/dbip-asn-lite.mmdb.gz"
 )
+
+// mirrorURLForKind returns the unmask.sh mirror URL for kind.
+func mirrorURLForKind(k InstallKind) string {
+	if k == InstallKindASN {
+		return mirrorASNURL
+	}
+	return mirrorCountryURL
+}
 
 // defaultURLTemplateForKind picks the canonical DB-IP Lite URL for kind.
 func defaultURLTemplateForKind(k InstallKind) string {
@@ -145,30 +165,45 @@ func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 		return nil, fmt.Errorf("mkdir %s: %w", filepath.Dir(path), err)
 	}
 
-	// Try current month, then fall back to the previous month if 404.  Some
-	// snapshots are published several days into the month, so first-of-month
-	// runs would otherwise fail predictably.
+	// Source order: the unmask mirror first (stable URL, refreshed monthly
+	// server-side), then db-ip.com's current + previous month (snapshots can
+	// publish several days into the month, so a first-of-month run would
+	// otherwise fail predictably).  A caller-supplied URLTemplate opts out of
+	// the mirror and uses only db-ip.com.
 	months := []string{now.Format("2006-01"), now.AddDate(0, -1, 0).Format("2006-01")}
+	type source struct {
+		url   string
+		month string
+		soft  bool // soft = fall through to the next source on ANY error
+	}
+	var sources []source
+	if opts.URLTemplate == "" {
+		sources = append(sources, source{url: mirrorURLForKind(kind), soft: true})
+	}
+	for _, month := range months {
+		sources = append(sources, source{url: fmt.Sprintf(tmpl, month), month: month})
+	}
 	var lastErr error
-	for i, month := range months {
-		url := fmt.Sprintf(tmpl, month)
-		written, err := downloadOne(url, path, maxBytes, client)
+	for i, src := range sources {
+		written, err := downloadOne(src.url, path, maxBytes, client)
 		if err == nil {
 			return &InstallResult{
 				Path:     path,
-				Source:   url,
+				Source:   src.url,
 				Bytes:    written,
-				Month:    month,
+				Month:    src.month,
 				Fallback: i > 0,
 			}, nil
 		}
-		// Only retry on a "not yet published" 404; other errors are returned.
-		if !errors.Is(err, errNotPublished) {
-			return nil, err
-		}
 		lastErr = err
+		// A mirror failure (soft) or a "not yet published" 404 falls through to
+		// the next source; a hard error from a db-ip.com URL is returned.
+		if src.soft || errors.Is(err, errNotPublished) {
+			continue
+		}
+		return nil, err
 	}
-	return nil, fmt.Errorf("dbip-lite: neither %s published yet (%w)", months, lastErr)
+	return nil, fmt.Errorf("dbip-lite: no source succeeded out of %d (%w)", len(sources), lastErr)
 }
 
 var errNotPublished = errors.New("db-ip snapshot not yet published")
