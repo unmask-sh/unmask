@@ -407,8 +407,8 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 		redirErr("password confirmation mismatch")
 		return
 	}
-	if len(password) < 8 {
-		redirErr("password must be at least 8 characters")
+	if err := user.ValidatePassword(password); err != nil {
+		redirErr(err.Error())
 		return
 	}
 

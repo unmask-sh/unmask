@@ -97,6 +97,23 @@ const (
 	maxPasswordLen = 1024
 )
 
+// MinPasswordLen is the minimum length for a new admin password.  Shared by the
+// setup wizard and the `user` CLI so the CLI (which can create the first
+// superadmin) cannot mint a weaker account than the wizard allows.
+const MinPasswordLen = 8
+
+// ValidatePassword enforces the length policy for a NEW password (not the verify
+// path -- an existing short password must still authenticate).
+func ValidatePassword(plain string) error {
+	if len(plain) < MinPasswordLen {
+		return fmt.Errorf("password must be at least %d characters", MinPasswordLen)
+	}
+	if len(plain) > maxPasswordLen {
+		return fmt.Errorf("password too long (max %d bytes)", maxPasswordLen)
+	}
+	return nil
+}
+
 // HashPassword: hash with argon2id and return a PHC string
 // (= `$argon2id$v=19$m=...,t=...,p=...$<salt>$<hash>`).  Reject empty /
 // pathologically long inputs.

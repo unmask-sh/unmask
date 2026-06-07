@@ -106,6 +106,9 @@ func cmdUserCreate(args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := user.ValidatePassword(pass); err != nil {
+		return err
+	}
 
 	repo, conn, err := openUserRepo(*configPath)
 	if err != nil {
@@ -133,6 +136,9 @@ func cmdUserResetPassword(args []string) error {
 	username := pos[0]
 	pass, err := resolvePassword(*passwordFlag, true)
 	if err != nil {
+		return err
+	}
+	if err := user.ValidatePassword(pass); err != nil {
 		return err
 	}
 

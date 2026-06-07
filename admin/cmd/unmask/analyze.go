@@ -103,13 +103,14 @@ func cmdAnalyze(args []string) error {
 	return rows.Err()
 }
 
-// siteCondLiteral: returns "" if site is empty, otherwise concatenates as a
-// literal (= would normally need pre-validation against injection, but relaxed
-// since the CLI is operator-controlled).
+// siteCondLiteral: returns "" if site is empty, otherwise an `AND site = '...'`
+// literal.  The CLI is operator-controlled (self-injection only), but strip both
+// the quote AND the backslash so a trailing `\` can't escape the closing quote
+// and run on into the rest of the statement under MySQL backslash-escaping.
 func siteCondLiteral(site string) string {
 	if site == "" {
 		return ""
 	}
-	site = strings.ReplaceAll(site, "'", "")
+	site = strings.NewReplacer("'", "", "\\", "").Replace(site)
 	return "AND site = '" + site + "'"
 }
