@@ -16,9 +16,12 @@ depends:
   - unmask
 
 # Apache package names depend on distro:
-#   - RHEL:   httpd + mod_lua + mod_proxy_http (= mod_lua is a separate rpm;
-#             lua-socket lives in EPEL so it stays a documented manual step,
-#             not a hard depend the base repos cannot satisfy)
+#   - RHEL:   httpd + the mod_lua.so FILE.  mod_lua is a separate `mod_lua` rpm
+#             on RHEL 9/10 but is BUNDLED INSIDE `httpd` on RHEL 8 / CentOS 7
+#             (there is no `mod_lua` package there), so a hard `mod_lua` depend
+#             is unsatisfiable on 8/7.  Depending on the file path resolves to
+#             httpd (8/7) or mod_lua (9/10) automatically -- works on every RHEL.
+#             lua-socket lives in EPEL so it stays a documented manual step.
 #   - Debian: apache2 (mod_lua ships inside apache2-bin -- there is NO separate
 #             libapache2-mod-lua package on Debian 12 / Ubuntu 24.04) + lua-socket
 #   - Alpine: apache2 + apache2-mod-lua + apache2-proxy + lua socket lib
@@ -27,7 +30,7 @@ overrides:
     depends:
       - unmask
       - httpd
-      - mod_lua
+      - /usr/lib64/httpd/modules/mod_lua.so
   deb:
     depends:
       - unmask
