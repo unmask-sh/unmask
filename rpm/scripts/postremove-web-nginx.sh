@@ -28,6 +28,7 @@ fi
 
 if [ "$do_cleanup" = 1 ]; then
     rm -f /etc/nginx/conf.d/00-unmask-maphash.conf /etc/nginx/http.d/00-unmask-maphash.conf
+    sed -i '/unmask-maphash/d' /etc/nginx/nginx.conf 2>/dev/null || true
     for link in /etc/nginx/conf.d/00-unmask.conf \
                 /etc/nginx/conf.d/00-unmask-upstream.conf \
                 /etc/nginx/conf.d/00-unmask-rendered.conf \
