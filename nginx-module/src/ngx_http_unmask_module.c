@@ -18,16 +18,15 @@
  * BV cookie format: "<issued_unix>.<sig>.<kind>"
  *   issued_unix = decimal unix seconds, supplied by the admin at issuance
  *                 (= server clock; clients never compute it themselves)
- *   sig         = HMAC-SHA1("<issued_unix>:<remote_addr>:<kind>", BV_SECRET) hex[:16]
- *   kind = "captcha" (default site) or "captcha-<site>" (multi-site)
+ *   sig         = HMAC-SHA1("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
+ *   kind = "captcha"
  *
- * Site binding: if the nginx variable $unmask_site is set on the request,
- * the cookie kind must match.  Mapping:
- *   $unmask_site = "" (= unset)         -> no binding check (legacy)
- *   $unmask_site = "" or "default"      -> kind must be "captcha"
- *   $unmask_site = "<X>"                -> kind must be "captcha-<X>"
- * Mismatch -> $unmask_bv_valid = "0" even if HMAC otherwise verifies.
- * This blocks cross-site cookie replay on multi-site nginx servers.
+ * Site binding: $host (lowercased + port-stripped by nginx) is folded into the
+ * HMAC input, so a cookie minted while solving vhost A's challenge fails on
+ * vhost B (different host -> different signature).  The admin issuer folds in
+ * the same host (X-Original-Host, which nginx sets from $host), keeping the two
+ * byte-identical.  Replaces the old $unmask_site kind-suffix scheme (the admin
+ * only ever emitted "captcha", so that scheme never actually bound anything).
  *
  * Configuration:
  *   unmask_bv_secret <secret>;        # HTTP main scope. shared with admin app.
@@ -530,8 +529,8 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
  * $unmask_bv_valid: parse _bv cookie and verify HMAC-SHA1 signature.
  *
  * Cookie value form: "<day>.<sig16>.<kind>"
- *   sig16 = HMAC-SHA1("<day>:<remote_addr>:<client_ja4>:<kind>", BV_SECRET)
- *           hex[:16]
+ *   sig16 = HMAC-SHA1("<day>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
+ *   (JA4 is NOT in the input -- it diverges across an LB; host binds the vhost.)
  *
  * Returns "1" if signature matches and day is within [today-bv_valid_days, today],
  * otherwise "0". Also returns "0" if bv_secret was not configured.
@@ -609,9 +608,28 @@ ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
     return bits;
 }
 
+/* ngx_unmask_get_host: read nginx's built-in $host (lowercased + port-stripped)
+ * for this request.  Folded into the _bv HMAC / PoW seed so a cookie minted on
+ * vhost A fails verification on vhost B.  The admin issuer uses the same value
+ * (X-Original-Host, which nginx sets from $host), keeping the two byte-identical.
+ * Returns an empty string when $host is unavailable (= same as the admin's "").*/
+static ngx_str_t
+ngx_unmask_get_host(ngx_http_request_t *r)
+{
+    ngx_str_t out = ngx_null_string;
+    static ngx_str_t host_var = ngx_string("host");
+    ngx_uint_t hash = ngx_hash_key(host_var.data, host_var.len);
+    ngx_http_variable_value_t *vv = ngx_http_get_variable(r, &host_var, hash);
+    if (vv != NULL && !vv->not_found && vv->len > 0) {
+        out.data = vv->data;
+        out.len = vv->len;
+    }
+    return out;
+}
+
 /* verify_pow_sha256_cookie: v0.1+ SHA-256 hashcash format.
  *   format: "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker already detected)
- *   seed   = "<issued_unix>_unmask"
+ *   seed   = hex(HMAC-SHA1(bv_secret, "<issued_unix>:<remote>:<host>:pow_seed"))
  *   input  = seed + ":" + nonce_dec
  *   valid  = leading-zero-bits of SHA-256(input) >= difficulty
  * Bit-identical logic to challenge.js and Go cookies.verifyPowSHA256.
@@ -620,7 +638,8 @@ static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                                     const u_char *nonce_s, size_t nonce_n,
                                     int valid_seconds, int difficulty,
-                                    ngx_str_t bv_secret, ngx_str_t remote)
+                                    ngx_str_t bv_secret, ngx_str_t remote,
+                                    ngx_str_t host)
 {
     if (nonce_n == 0 || nonce_n > 13) return 0;
     if (difficulty < 8 || difficulty > 32) difficulty = 18;
@@ -639,9 +658,12 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
      * admin injects as window.UNMASK.pow_seed (challenge.js).  Binding the seed
      * to the secret makes the PoW impossible to precompute offline; binding it
      * to the client IP makes a solved cookie non-transferable across IPs. */
-    char seed_msg[96];
-    int sm = snprintf(seed_msg, sizeof(seed_msg), "%lld:%.*s:pow_seed",
-                      (long long)cookie_unix, (int)remote.len, remote.data);
+    /* "<unix>:<remote>:<host>:pow_seed".  host (= $host) can be a 253-char DNS
+     * name, so size generously; snprintf truncation returns 0 (= fail closed). */
+    char seed_msg[384];
+    int sm = snprintf(seed_msg, sizeof(seed_msg), "%lld:%.*s:%.*s:pow_seed",
+                      (long long)cookie_unix, (int)remote.len, remote.data,
+                      (int)host.len, host.data);
     if (sm <= 0 || sm >= (int)sizeof(seed_msg)) return 0;
     unsigned char seed_mac[20];
     unsigned int seed_mac_len = sizeof(seed_mac);
@@ -773,7 +795,8 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
                     cookie.data, day_n,
                     dot2 + 1, tgt_n,
                     valid_seconds, difficulty,
-                    mcf->bv_secret, r->connection->addr_text) == 1) {
+                    mcf->bv_secret, r->connection->addr_text,
+                    ngx_unmask_get_host(r)) == 1) {
                 return UNMASK_BV_KIND_POW;
             }
             return UNMASK_BV_KIND_NONE;
@@ -798,37 +821,6 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     int64_t cookie_unix = ngx_unmask_atoll(cookie.data, day_len);
     if (cookie_unix < 0) return NGX_OK;
 
-    /* Site binding check: if nginx exposes $unmask_site for this request,
-     * the cookie kind must match the expected form.  This blocks
-     * cross-site cookie replay (= cookie issued for site A but used on
-     * site B).  If $unmask_site is not declared, skip (legacy behavior). */
-    {
-        static ngx_str_t site_var_name = ngx_string("unmask_site");
-        ngx_uint_t site_hash = ngx_hash_key(site_var_name.data, site_var_name.len);
-        ngx_http_variable_value_t *site_vv =
-            ngx_http_get_variable(r, &site_var_name, site_hash);
-        const u_char *cookie_kind = dot1 + 1 + sig_len + 1; /* = dot2 + 1 */
-        if (site_vv != NULL && !site_vv->not_found && site_vv->len > 0) {
-            int is_default = (site_vv->len == 7
-                && ngx_strncmp(site_vv->data, "default", 7) == 0);
-            if (is_default) {
-                if (kind_len != 7
-                    || ngx_strncmp(cookie_kind, "captcha", 7) != 0) {
-                    return UNMASK_BV_KIND_NONE;
-                }
-            } else {
-                static const char prefix[] = "captcha-";
-                size_t plen = sizeof(prefix) - 1;
-                if (kind_len != plen + site_vv->len
-                    || ngx_strncmp(cookie_kind, prefix, plen) != 0
-                    || ngx_strncmp(cookie_kind + plen,
-                                   site_vv->data, site_vv->len) != 0) {
-                    return UNMASK_BV_KIND_NONE;
-                }
-            }
-        }
-    }
-
     /* Validity window in seconds.  Small forward tolerance absorbs clock
      * drift between the admin host that issued the cookie and this nginx
      * host. */
@@ -841,19 +833,23 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
      * admin-side clientIP()). */
     ngx_str_t remote = r->connection->addr_text;
 
-    /* Build "<day>:<remote>:<kind>" in a pool buffer.  JA4 is deliberately
-     * NOT included in the HMAC input: behind an upstream LB / proxy, the
-     * JA4 seen by the cookie issuer (admin), derived from the forwarded
-     * header (= the real client JA4), would diverge from the JA4 seen by
-     * the verifier (plugin), derived from the LB<->nginx handshake, and
-     * verification would always fail.  Replay defense is provided by the
-     * remote_ip binding instead. */
-    size_t msg_len = day_len + 1 + remote.len + 1 + kind_len;
+    /* $host (lowercased + port-stripped) binds the cookie to the vhost: a cookie
+     * minted while solving site A's challenge fails on site B (different host ->
+     * different signature).  The admin issuer folds in the same value
+     * (X-Original-Host = $host), so the two stay byte-identical.  This replaces
+     * the old $unmask_site kind-suffix scheme, which the admin never emitted. */
+    ngx_str_t host = ngx_unmask_get_host(r);
+
+    /* Build "<day>:<remote>:<host>:<kind>" in a pool buffer.  JA4 is deliberately
+     * NOT included (behind an LB the issuer's forwarded JA4 and the verifier's
+     * handshake JA4 diverge); remote_ip + host binding carry the replay defense. */
+    size_t msg_len = day_len + 1 + remote.len + 1 + host.len + 1 + kind_len;
     u_char *msg = ngx_pnalloc(r->pool, msg_len);
     if (msg == NULL) return UNMASK_BV_KIND_NONE;
     u_char *p = msg;
     p = ngx_cpymem(p, cookie.data, day_len);  *p++ = ':';
     p = ngx_cpymem(p, remote.data, remote.len); *p++ = ':';
+    if (host.len) { p = ngx_cpymem(p, host.data, host.len); } *p++ = ':';
     p = ngx_cpymem(p, dot2 + 1, kind_len);
 
     /* HMAC-SHA1. */

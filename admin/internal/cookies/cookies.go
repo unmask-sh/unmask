@@ -56,15 +56,22 @@ func nowUnix() int64 { return time.Now().Unix() }
 
 // IssueValue computes the cookie value for `Set-Cookie: _bv=<value>`.  Uses
 // the server's current unix time as the issuance timestamp.
-func IssueValue(bvSecret, remoteIP, kind string) string {
-	return issueValueAt(bvSecret, remoteIP, kind, nowUnix())
+//
+// host binds the cookie to the requested host: the HMAC input includes it, so a
+// cookie minted while solving site A's challenge fails verification on site B
+// (different host -> different signature).  Without it one solve passed every
+// vhost of the install.  Pass the lowercased request host; "" leaves an empty
+// host segment (= effectively unbound, for a no-Host request).  MUST stay
+// byte-identical to the C plugin's CAPTCHA HMAC input.
+func IssueValue(bvSecret, remoteIP, host, kind string) string {
+	return issueValueAt(bvSecret, remoteIP, host, kind, nowUnix())
 }
 
-func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
+func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	if kind == "" {
 		kind = "captcha"
 	}
-	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + kind
+	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":" + kind
 	mac := hmac.New(sha1.New, []byte(bvSecret))
 	mac.Write([]byte(msg))
 	sig := hex.EncodeToString(mac.Sum(nil))[:16]
@@ -93,14 +100,14 @@ func issueValueAt(bvSecret, remoteIP, kind string, issued int64) string {
 //
 // powDifficulty is the SHA-256 PoW target leading-zero-bits
 // (= settings.Challenge.ResolvedPowDifficulty()).
-func Verify(value, bvSecret, remoteIP string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
+func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
 	if value == "" {
 		return false
 	}
 	parts := strings.Split(value, ".")
 	// PoW format: 4 segments with parts[1]="pow2" marker.
 	if len(parts) == 4 && parts[1] == "pow2" {
-		return verifyPowSHA256(parts, bvSecret, remoteIP, powValidSeconds, powDifficulty)
+		return verifyPowSHA256(parts, bvSecret, remoteIP, host, powValidSeconds, powDifficulty)
 	}
 	// CAPTCHA format: 3 segments.  Verify via HMAC.
 	if len(parts) != 3 {
@@ -114,7 +121,9 @@ func Verify(value, bvSecret, remoteIP string, powValidSeconds, captchaValidSecon
 	if !withinWindow(issued, captchaValidSeconds) {
 		return false
 	}
-	expected := issueValueAt(bvSecret, remoteIP, kind, issued)
+	// host is folded into the HMAC input, so re-issuing for the CURRENT host
+	// reproduces the signature only if the cookie was minted for this same host.
+	expected := issueValueAt(bvSecret, remoteIP, host, kind, issued)
 	return hmac.Equal([]byte(expected), []byte(value))
 }
 
@@ -155,14 +164,14 @@ func withinWindow(issued int64, validSeconds int) bool {
 // can't share one solve, and one solve no longer passes for the whole internet
 // for the validity window).  HMAC-SHA1 mirrors the CAPTCHA path so the C plugin
 // reuses the same primitive; MUST stay byte-identical to ngx_unmask_pow_seed().
-func PowSeed(bvSecret, remoteIP string, issued int64) string {
-	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":pow_seed"
+func PowSeed(bvSecret, remoteIP, host string, issued int64) string {
+	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":pow_seed"
 	mac := hmac.New(sha1.New, []byte(bvSecret))
 	mac.Write([]byte(msg))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func verifyPowSHA256(parts []string, bvSecret, remoteIP string, validSeconds, powDifficulty int) bool {
+func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSeconds, powDifficulty int) bool {
 	if powDifficulty < 8 || powDifficulty > 24 {
 		powDifficulty = 18
 	}
@@ -179,7 +188,7 @@ func verifyPowSHA256(parts []string, bvSecret, remoteIP string, validSeconds, po
 	if err != nil || nonce < 0 {
 		return false
 	}
-	seed := PowSeed(bvSecret, remoteIP, issued)
+	seed := PowSeed(bvSecret, remoteIP, host, issued)
 	input := seed + ":" + strconv.FormatInt(nonce, 10)
 	sum := sha256.Sum256([]byte(input))
 	return leadingZeroBits(sum[:]) >= powDifficulty

@@ -816,9 +816,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// reuse).  The server enforces a small future-skew tolerance on /verify.
 	issued := time.Now().Unix()
 	chIP := clientIP(r)
+	chHost := requestHost(r)
 	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
 		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", issued)))
-	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.Settings.Secret.BVSecret, chIP, issued))
+	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.Settings.Secret.BVSecret, chIP, chHost, issued))
 	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
 		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
 	// ct: a server-issued, IP+time-bound proof-of-load token for the behavioral
@@ -1387,6 +1388,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
+	host := requestHost(r) // binds the issued _bv to this vhost
 	site := siteFromRequest(r, h.Settings)
 	ch := h.Settings.Challenge.Resolve(site)
 	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
@@ -1415,7 +1417,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			ok = ok && res.Score >= min
 		}
 		if ok {
-			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
+			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
 			return
@@ -1450,7 +1452,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			minScore = 0.5
 		}
 		if score >= minScore {
-			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
+			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
@@ -1487,7 +1489,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if captcha.VerifyMath(ans, payload.Token, h.Settings.Secret.CaptchaSecretBase) {
-		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, kind)
+		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
 		h.setBVCookie(w, r, val)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
@@ -1626,6 +1628,31 @@ func clientIP(r *http.Request) string {
 		host = host[:i]
 	}
 	return strings.Trim(host, "[]")
+}
+
+// requestHost returns the lowercased, port-stripped host the client requested.
+// It binds the _bv cookie to a vhost: the issuer (here) and both verifiers (the
+// Go /api/check + the C plugin via nginx $host) must compute the SAME value, so
+// a cookie minted on site A can't pass on site B.  Uses the proxy-forced
+// X-Original-Host (native + forward-auth both set it from $host), falling back
+// to X-Forwarded-Host / r.Host.  Lowercased + port-stripped to match nginx
+// $host, which the C plugin folds into its CAPTCHA HMAC / PoW seed.
+func requestHost(r *http.Request) string {
+	h := firstNonEmpty(
+		r.Header.Get("X-Original-Host"),
+		r.Header.Get("X-Forwarded-Host"),
+		r.Host,
+	)
+	h = strings.TrimSpace(h)
+	// strip an IPv6 literal's brackets + any :port, then lowercase.
+	if strings.HasPrefix(h, "[") {
+		if i := strings.IndexByte(h, ']'); i >= 0 {
+			h = h[1:i]
+		}
+	} else if i := strings.IndexByte(h, ':'); i >= 0 {
+		h = h[:i]
+	}
+	return strings.ToLower(h)
 }
 
 // adminClientIP resolves the client IP for the ADMIN allowlist check.  Unlike

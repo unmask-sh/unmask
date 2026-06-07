@@ -1152,6 +1152,7 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 // ngx_unmask_bv_kind_compute.
 func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string {
 	ch := cfg.Challenge.Resolve(site)
+	host := requestHost(r) // must match the host the cookie was issued for
 	for _, c := range r.Cookies() {
 		if c.Name != "_bv" {
 			continue
@@ -1159,7 +1160,7 @@ func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string
 		if c.Value == "" || len(c.Value) > 256 {
 			continue
 		}
-		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip,
+		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
 			ch.ResolvedPowDifficulty()) {
