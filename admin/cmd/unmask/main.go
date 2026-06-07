@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/signal"
 	osuser "os/user"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -171,6 +172,13 @@ func cmdServe(args []string) error {
 	s, err := loadSettings(*configPath)
 	if err != nil {
 		return err
+	}
+	// Point the setup-token file at the resolved config's directory, so a
+	// relocated install or a second instance reads its OWN .setup-token rather
+	// than the hard-coded /etc/unmask one.  Package installs (config in
+	// /etc/unmask) are unaffected.
+	if resolved := settings.ResolvePath(*configPath); resolved != "" {
+		handlers.SetSetupTokenDir(filepath.Dir(resolved))
 	}
 	// Logging follows 12-factor: every log line goes to stderr and the init
 	// system (= systemd journald / OpenRC syslog / docker container runtime)
