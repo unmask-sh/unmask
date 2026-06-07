@@ -5,7 +5,7 @@
 #   1. Place upstream auto-load symlinks in /etc/nginx/conf.d/
 #       00-unmask-upstream.conf -> /etc/unmask/upstream.conf
 #         (= so proxy_pass http://unmask_admin; resolves in every server block. shared by both modes)
-#       00-unmask.conf          -> /etc/unmask/http.inc
+#       00-unmask.conf          -> /var/lib/unmask/nginx/http.inc
 #         (= JA4 maps / log_format etc.  native-mode only.  In environments
 #            without the plugin, the target is not rendered but nginx -t still
 #            passes; include only emits a warning.)
@@ -61,18 +61,43 @@ fi
 # JA4 maps auto-load (= native-mode only).  Meaningful only with the
 # unmask-plugin-nginx + admin combination.  Even without the plugin, keep the
 # symlink alive by pointing it at an empty placeholder that is still rendered.
-# NOTE: render-nginx writes the flat path /etc/unmask/http.inc (the legacy
-# /etc/unmask/native/ layout was retired); the symlink must track it or nginx
-# loads an empty placeholder and `unknown log format unmask_minimal` aborts -t.
-RENDERED_SRC=/etc/unmask/http.inc
+# NOTE: render-nginx writes to nginx.output_dir, which defaults to
+# /var/lib/unmask/nginx (FHS: /etc keeps the hand-edited config.yml, /var/lib
+# the admin-rendered files); the symlink must track that path or nginx loads an
+# empty placeholder and `unknown log format unmask_minimal` aborts -t.
+RENDERED_SRC=/var/lib/unmask/nginx/http.inc
 RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
-[ -d /etc/unmask ] || mkdir -p /etc/unmask
+[ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
 [ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
-# cleanup of the legacy symlink (= whichever include dir applies on this host)
+# cleanup of the legacy symlink + legacy /etc/unmask target
 rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
 if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
     ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
     echo "unmask-web-nginx: symlinked $RENDERED_LINK -> $RENDERED_SRC"
+elif [ -L "$RENDERED_LINK" ] && [ "$(readlink "$RENDERED_LINK")" != "$RENDERED_SRC" ]; then
+    # repoint a stale symlink left by an older package (= /etc/unmask/http.inc)
+    ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
+    echo "unmask-web-nginx: repointed $RENDERED_LINK -> $RENDERED_SRC"
+fi
+
+# map_hash sizing for the community-bans feed maps.  With subscribe_mode
+# defaulting to fetch_apply, http.inc includes community-bans-*.map out of the
+# box; their "<ip>:<ja4>" keys (~59 chars) plus entry count overflow nginx's
+# default map_hash_bucket_size / map_hash_max_size.  http.inc can't emit these
+# (a second occurrence collides with a host that already sets them), so drop a
+# small snippet here -- but only when no other config already sets the bucket
+# size, to avoid that very duplicate-directive error.
+MAPHASH_LINK=$NGINX_INCDIR/00-unmask-maphash.conf
+if grep -rlE '^[[:space:]]*map_hash_bucket_size' /etc/nginx/nginx.conf /etc/nginx/conf.d /etc/nginx/http.d 2>/dev/null | grep -qv '00-unmask-maphash'; then
+    echo "unmask-web-nginx: host already sets map_hash_bucket_size; leaving it alone"
+    rm -f "$MAPHASH_LINK"
+else
+    cat > "$MAPHASH_LINK" <<'MAPHASH'
+# unmask: the community-bans feed maps use long keys and can hold many entries.
+map_hash_bucket_size 256;
+map_hash_max_size 4096;
+MAPHASH
+    echo "unmask-web-nginx: wrote $MAPHASH_LINK (community-bans maps need a wider map hash)"
 fi
 
 # SELinux: nginx defaults to the httpd_t domain on RHEL-family distros, where
@@ -138,7 +163,7 @@ echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
 echo ""
 echo "            include /etc/unmask/forward-auth/server.inc;"
 echo ""
-echo "        (native mode with unmask-plugin-nginx: use /etc/unmask/server.inc)"
+echo "        (native mode with unmask-plugin-nginx: use /var/lib/unmask/nginx/server.inc)"
 echo "        then:  sudo nginx -t && sudo nginx -s reload"
 echo "        open:  https://<your-domain>/unmask/admin/setup/"
 echo ""

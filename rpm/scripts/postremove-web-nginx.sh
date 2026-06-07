@@ -27,6 +27,7 @@ else
 fi
 
 if [ "$do_cleanup" = 1 ]; then
+    rm -f /etc/nginx/conf.d/00-unmask-maphash.conf /etc/nginx/http.d/00-unmask-maphash.conf
     for link in /etc/nginx/conf.d/00-unmask.conf \
                 /etc/nginx/conf.d/00-unmask-upstream.conf \
                 /etc/nginx/conf.d/00-unmask-rendered.conf \

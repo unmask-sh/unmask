@@ -92,17 +92,23 @@ fi
 #   sudo /usr/sbin/unmask migrate -config $CONFIG
 # before moving on to the user-create commands.
 
-# Generate /etc/unmask/{http.inc,server.inc,protect.inc} (= so `nginx -t` passes
-# on first start).  Changes via the web auto-render, but the user hasn't opened
-# the web yet right after install, so do it once here.
+# Render the nginx snippets (= so `nginx -t` passes on first start).
+# render-nginx writes to nginx.output_dir, default /var/lib/unmask/nginx (FHS:
+# /etc is the hand-edited config.yml, /var/lib the admin-rendered files).
+# Changes via the web auto-render, but the user hasn't opened the web yet right
+# after install, so do it once here.
+RENDER_DIR=/var/lib/unmask/nginx
 /usr/sbin/unmask render-nginx -config "$CONFIG" || \
-    echo "unmask: WARNING: render-nginx failed (= /etc/unmask/http.inc + server.inc not generated. Please verify manually.)"
-chown unmask:unmask "$CONFIG_DIR"/*.inc 2>/dev/null || true
-chmod 0644 "$CONFIG_DIR"/*.inc 2>/dev/null || true
+    echo "unmask: WARNING: render-nginx failed (= $RENDER_DIR/http.inc + server.inc not generated. Please verify manually.)"
+# The render runs as root here, so the dir + files land root-owned; the daemon
+# runs as unmask and must rewrite them (community-bans map files, web-UI
+# re-render), so hand the whole render dir to unmask.
+chown -R unmask:unmask "$RENDER_DIR" 2>/dev/null || true
+chmod 0644 "$RENDER_DIR"/*.inc 2>/dev/null || true
 # http.inc carries unmask_bv_secret -- not world-readable (a local user could
 # otherwise read the key and forge _bv cookies).  nginx's master reads config
 # as root, so 0640 unmask:unmask is sufficient.
-chmod 0640 "$CONFIG_DIR"/http.inc 2>/dev/null || true
+chmod 0640 "$RENDER_DIR"/http.inc 2>/dev/null || true
 
 # init system detection: systemd > OpenRC.  SysVinit (= CentOS 6 etc.) was
 # retired since every supported distro is one of these two.
@@ -192,9 +198,9 @@ fi
 echo "unmask: install complete (init: ${INIT_KIND:-unknown})."
 echo "  next steps (= on the nginx side):"
 echo "    1. add 'load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;' to nginx.conf"
-echo "    2. add 'include /etc/unmask/http.inc;'    inside the http {} block"
+echo "    2. add 'include /var/lib/unmask/nginx/http.inc;'    inside the http {} block"
 echo "       (= the unmask-web-nginx package auto-symlinks this as /etc/nginx/conf.d/00-unmask.conf)"
-echo "    3. add 'include /etc/unmask/server.inc;'  inside protected server {} blocks"
+echo "    3. add 'include /var/lib/unmask/nginx/server.inc;'  inside protected server {} blocks"
 if [ "$INIT_KIND" = "systemd" ]; then
     echo "    4. nginx -t && systemctl reload nginx"
 elif [ "$INIT_KIND" = "sysvinit" ]; then

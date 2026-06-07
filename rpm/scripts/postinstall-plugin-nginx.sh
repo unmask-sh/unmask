@@ -93,7 +93,7 @@ fi
 
 # NOTE: this thin plugin variant deliberately does NOT drop an include for the
 # rendered JA4 maps.  The unmask-web-nginx package already symlinks the real
-# rendered file (= /etc/unmask/http.inc) into http {} scope as
+# rendered file (= /var/lib/unmask/nginx/http.inc) into http {} scope as
 # /etc/nginx/conf.d/00-unmask.conf, so a second include here is redundant -- and
 # the old /etc/unmask/nginx-rendered.conf path this block used was retired
 # (= render-nginx now writes http.inc), so the include pointed at a file that is
