@@ -20,8 +20,8 @@ jobs:
   go-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.10"
           cache-dependency-path: admin/go.sum
@@ -53,7 +53,7 @@ jobs:
   plugin-parser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: test JA4 parser
         run: make test-plugin-parser
 
@@ -68,14 +68,14 @@ jobs:
     # first time).  Tracked in ROADMAP; go-test / build / e2e stay hard gates.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.10"
           cache-dependency-path: admin/go.sum
-      - uses: golangci/golangci-lint-action@v7
+      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
         with:
-          version: latest
+          version: v2.12.2
           working-directory: admin
           args: --timeout=5m
 
@@ -89,8 +89,8 @@ jobs:
       matrix:
         goarch: [amd64, arm64]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: "1.25.10"
           cache-dependency-path: admin/go.sum
@@ -104,7 +104,7 @@ jobs:
             go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
                      -o ../dist/unmask-linux-${GOARCH} ./cmd/unmask
           file ../dist/unmask-linux-${GOARCH}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: unmask-linux-${{ matrix.goarch }}
           path: dist/unmask-linux-${{ matrix.goarch }}
@@ -128,7 +128,7 @@ jobs:
             runner: ubuntu-22.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: install build deps
         run: |
           sudo apt-get update
@@ -157,7 +157,7 @@ jobs:
           cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
              dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
           echo "goarch=${goarch}" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ngx-ja4-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
           path: dist/*.so
@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [go-test]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: docker compose up + run e2e
         run: make e2e-docker
       - name: dump compose logs on failure
