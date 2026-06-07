@@ -100,7 +100,7 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 
 	// 3) Send mail.  The URL prefix uses the client-visible Host (= built
 	//    from the target site and the admin base_path).
-	resetURL := buildResetURL(r, base, tok)
+	resetURL := buildResetURL(r, base, tok, h.snapshotSettings().Nginx.AdminAllowedHosts)
 	subject := "[unmask] password reset link"
 	body := "A password reset was requested for unmask.\n\n" +
 		"Use the following link to set a new password (valid for 1 hour):\n" +
@@ -188,7 +188,7 @@ func newResetToken() (string, error) {
 
 // buildResetURL: build the client-visible URL.  Trust X-Forwarded-Proto /
 // -Host (= behind a reverse proxy).  Fall back to r.Host + inferred scheme.
-func buildResetURL(r *http.Request, base, token string) string {
+func buildResetURL(r *http.Request, base, token string, allowedHosts []string) string {
 	scheme := "https"
 	if v := r.Header.Get("X-Forwarded-Proto"); v != "" {
 		scheme = v
@@ -198,6 +198,26 @@ func buildResetURL(r *http.Request, base, token string) string {
 	host := r.Header.Get("X-Forwarded-Host")
 	if host == "" {
 		host = r.Host
+	}
+	// Reset-link poisoning guard: the email is sent to the victim, so a
+	// client-supplied Host / X-Forwarded-Host of `attacker.com` would yield
+	// a body saying "click https://attacker.com/admin/reset-password?token=XXX"
+	// and a one-click leak of the token (= account takeover).  When the
+	// operator has configured an AdminAllowedHosts allowlist, only honor
+	// hosts inside it; otherwise pin to the first entry.  An empty
+	// allowlist means "single-admin install, trust r.Host" (= preserves the
+	// current behavior on default installs).
+	if len(allowedHosts) > 0 {
+		ok := false
+		for _, a := range allowedHosts {
+			if strings.EqualFold(host, strings.TrimSpace(a)) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			host = strings.TrimSpace(allowedHosts[0])
+		}
 	}
 	// On internal-IP access, host becomes localhost / 127.0.0.1.  The flow
 	// still works, but the link inside the mail won't be reachable
