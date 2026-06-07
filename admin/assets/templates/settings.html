@@ -555,6 +555,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.geoip" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.geoip_desc") }}</span></span></h2>
     {{ $mode := .IPGeoMode }}{{ if eq $mode "" }}{{ $mode = "dbip" }}{{ end }}
+    <p style="font-size:.68rem;color:#94a3b8;margin:.1rem 0 .6rem"><a href="https://db-ip.com" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">IP Geolocation by DB-IP</a> ↗ · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">CC BY 4.0</a> ↗</p>
 
     <div class="ipgeo-section">
       <h3 class="ipgeo-section-title">
