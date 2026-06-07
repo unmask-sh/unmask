@@ -405,8 +405,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
                  status-color styling (.enforced-badge / .muted-badge) and
                  reuses .mute-toggle-btn-badge to strip <button> chrome. */ -}}
           {{ if .Bypassed }}<span class="bypassed-badge" data-info="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">🛡</span>
-          {{- else if and $isMuted $muteKey }}<button type="button" class="mute-toggle-btn-badge muted-badge" data-mute-key="{{ $muteKey }}" data-mute-action="unmute" aria-label="{{ t $.Lang "community_bans.unmute_action" }}" data-info="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}">❗</button>
-          {{- else if and $enforced $muteKey }}<button type="button" class="mute-toggle-btn-badge enforced-badge" data-mute-key="{{ $muteKey }}" data-mute-action="mute" aria-label="{{ t $.Lang "community_bans.mute_action" }}" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</button>
+          {{- else if and $isMuted $muteKey }}<button type="button" class="mute-toggle-btn-badge muted-badge" data-mute-key="{{ $muteKey }}" data-mute-action="unmute" aria-label="{{ t $.Lang "community_bans.unmute_action" }}" data-info="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.mute_action" }}">❗</button>
+          {{- else if and $enforced $muteKey }}<button type="button" class="mute-toggle-btn-badge enforced-badge" data-mute-key="{{ $muteKey }}" data-mute-action="mute" aria-label="{{ t $.Lang "community_bans.mute_action" }}" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.unmute_action" }}">✓</button>
           {{- else if $enforced }}<span class="enforced-badge" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>
           {{- else }}<span class="not-applied-badge" data-info="{{ t $.Lang "community_bans.reports_only_label" }} — {{ t $.Lang "community_bans.reports_only_title" }}">—</span>
           {{- end }}
@@ -476,8 +476,14 @@ document.addEventListener('click', function(e){
   var prevClass = btn.className;
   var prevAria = btn.getAttribute('aria-label');
   var prevInfo = btn.getAttribute('data-info');
+  var prevInfoAfter = btn.getAttribute('data-info-after');
+  var prevAriaAfter = btn.getAttribute('data-aria-after');
   // Optimistic flip: swap visual + dataset; keep the same <button> in place so
   // a second click re-toggles without re-querying / re-creating elements.
+  // The popover content (= data-info) and aria-label are ping-ponged with
+  // data-info-after / data-aria-after so the hover popover shows the
+  // *next* action's hint ("click to mute" ⇄ "click again to re-enable")
+  // straight after the toggle, matching what the icon now means.
   btn.disabled = true;
   if (action === 'mute') {
     btn.className = 'mute-toggle-btn-badge muted-badge';
@@ -487,6 +493,14 @@ document.addEventListener('click', function(e){
     btn.className = 'mute-toggle-btn-badge enforced-badge';
     btn.textContent = '✓';
     btn.dataset.muteAction = 'mute';
+  }
+  if (prevInfoAfter !== null) {
+    btn.setAttribute('data-info', prevInfoAfter);
+    btn.setAttribute('data-info-after', prevInfo);
+  }
+  if (prevAriaAfter !== null) {
+    btn.setAttribute('aria-label', prevAriaAfter);
+    btn.setAttribute('data-aria-after', prevAria);
   }
   var basePath = "{{ .BasePath }}";
   var body = new URLSearchParams();
@@ -512,6 +526,8 @@ document.addEventListener('click', function(e){
       btn.dataset.muteAction = prevAction;
       btn.setAttribute('aria-label', prevAria);
       btn.setAttribute('data-info', prevInfo);
+      if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
+      if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
       btn.disabled = false;
     });
   }).catch(function(err){
@@ -520,6 +536,10 @@ document.addEventListener('click', function(e){
     btn.className = prevClass;
     btn.textContent = prevText;
     btn.dataset.muteAction = prevAction;
+    btn.setAttribute('aria-label', prevAria);
+    btn.setAttribute('data-info', prevInfo);
+    if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
+    if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
     btn.disabled = false;
   });
 });
