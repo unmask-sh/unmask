@@ -156,3 +156,8 @@ nginx:
       - path: "^/e2e-shop-bypass/"
         title: "scenario 21 per-site bypass (shop only)"
         site: "shop.example.com"
+
+# Keep the e2e self-contained: with subscribe_mode defaulting to fetch_apply,
+# the daemon would otherwise register with + pull from the production hub.
+community_bans:
+  subscribe_mode: "off"

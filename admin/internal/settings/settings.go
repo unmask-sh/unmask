@@ -1644,8 +1644,17 @@ func defaults() Settings {
 			AutoFetch:   true,
 		},
 		CommunityBans: CommunityBans{
-			SubmitEnabled:  false,
-			SubscribeMode:  SubscribeOff,
+			SubmitEnabled: false,
+			// Subscribe + auto-apply the shared feed out of the box (secure by
+			// default, in line with the challenge-by-default posture).  The
+			// enforcement surface is guarded: only promoted (judged, high-score)
+			// entries are written to the nginx maps, and whitelisted-crawler IPs
+			// (Googlebot / Bingbot / GPTBot ranges, internal LBs) are stripped
+			// before enforcement (the search-engine-accident guard), so the
+			// classic "blocked a search bot" failure can't happen here.
+			// Submitting (sharing this install's own bans) stays opt-in behind
+			// the terms acceptance; only the consume side defaults on.
+			SubscribeMode:  SubscribeFetchApply,
 			PublishCountry: true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
 			RegisterURL:    DefaultCommunityBansRegisterURL,
 			SubmitURL:      DefaultCommunityBansSubmitURL,
