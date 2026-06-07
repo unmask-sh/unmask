@@ -104,7 +104,7 @@ jobs:
             go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
                      -o ../dist/unmask-linux-${GOARCH} ./cmd/unmask
           file ../dist/unmask-linux-${GOARCH}
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unmask-linux-${{ matrix.goarch }}
           path: dist/unmask-linux-${{ matrix.goarch }}
@@ -157,7 +157,7 @@ jobs:
           cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
              dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
           echo "goarch=${goarch}" >> $GITHUB_OUTPUT
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ngx-ja4-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
           path: dist/*.so
