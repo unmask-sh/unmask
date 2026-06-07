@@ -24,7 +24,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
-	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -1020,29 +1019,51 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	qStart := time.Now()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
-	run := func(name string, fn func()) {
+	var cardMu sync.Mutex
+	var failedCards []string
+	markFailed := func(name string) {
+		cardMu.Lock()
+		failedCards = append(failedCards, name)
+		cardMu.Unlock()
+	}
+	run := func(name string, fn func() error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			// A panic in a card query (bad DB row, nil deref) would otherwise
 			// crash the whole daemon -- net/http does not recover goroutines the
-			// handler spawns.  Recover so one bad card can't take the site down.
-			defer safe.Recover("dashboard:" + name)
+			// handler spawns.  Recover so one bad card can't take the site down,
+			// and mark it failed (= the dashboard shows a "data incomplete"
+			// banner instead of a silently-empty card the operator reads as 0).
+			defer func() {
+				if rec := recover(); rec != nil {
+					log.Printf("dashboard card %s PANIC: %v", name, rec)
+					markFailed(name)
+				}
+			}()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			t0 := time.Now()
-			fn()
+			if err := fn(); err != nil {
+				log.Printf("dashboard card %s failed: %v", name, err)
+				markFailed(name)
+			}
 			if elapsed := time.Since(t0); elapsed > 200*time.Millisecond {
 				log.Printf("dashboard card %s: %v elapsed", name, elapsed)
 			}
 		}()
 	}
-	run("funnel", func() {
+	run("funnel", func() error {
 		fctx, fcancel := queryCtx(5 * time.Second)
 		defer fcancel()
 		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry())
+		return funnelErr
 	})
-	run("CookieStatus", func() { cookieRows, _ = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours) })
+	run("CookieStatus", func() error {
+		var e error
+		cookieRows, e = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours)
+		return e
+	})
 	// Pre-gate the rate-limit cards on the aggregate's serve-rl count.  On
 	// any operator install where rate_limit is rare (= the common case),
 	// this skips four 80k-row raw scans worth of dashboard latency per page
@@ -1051,71 +1072,115 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// still render.
 	hasRL, _ := dashboard.HasRateLimited(ctx, h.DB, site, hosts, hours)
 	if hasRL {
-		run("RateLimitSummary", func() { rlSummary, _ = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours) })
-		run("RateLimitIPs", func() { rlIPs, _ = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30) })
-		run("RateLimitPaths", func() { rlPaths, _ = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30) })
-		run("RateLimitQueriesByPath", func() { rlPathQueries, _ = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5) })
+		run("RateLimitSummary", func() error {
+			var e error
+			rlSummary, e = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours)
+			return e
+		})
+		run("RateLimitIPs", func() error {
+			var e error
+			rlIPs, e = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30)
+			return e
+		})
+		run("RateLimitPaths", func() error {
+			var e error
+			rlPaths, e = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30)
+			return e
+		})
+		run("RateLimitQueriesByPath", func() error {
+			var e error
+			rlPathQueries, e = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5)
+			return e
+		})
 	}
-	run("FlagsDistribution", func() { flagsRows, _ = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours) })
-	run("VerdictDistribution", func() { verdictDist, _ = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours) })
-	run("CaptchaForceBreakdown", func() { hitRows, _ = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours) })
-	run("ReloadLoops", func() { loopRows, _ = dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours) })
-	run("VerifyNGRanking", func() { verifyNG, _ = dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30) })
-	run("CookieSetFails", func() { cookieFails, _ = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours) })
-	run("StealthPassed", func() { stealth, _ = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts) })
-	run("JSErrors", func() { jsErrs, _ = dashboard.JSErrors(ctx, h.DB, site, hosts, hours) })
-	run("AITrafficBreakdown", func() { aiTraffic, _ = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours) })
+	run("FlagsDistribution", func() error {
+		var e error
+		flagsRows, e = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("VerdictDistribution", func() error {
+		var e error
+		verdictDist, e = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaForceBreakdown", func() error {
+		var e error
+		hitRows, e = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("ReloadLoops", func() error {
+		var e error
+		loopRows, e = dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("VerifyNGRanking", func() error {
+		var e error
+		verifyNG, e = dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30)
+		return e
+	})
+	run("CookieSetFails", func() error {
+		var e error
+		cookieFails, e = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("StealthPassed", func() error {
+		var e error
+		stealth, e = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts)
+		return e
+	})
+	run("JSErrors", func() error { var e error; jsErrs, e = dashboard.JSErrors(ctx, h.DB, site, hosts, hours); return e })
+	run("AITrafficBreakdown", func() error {
+		var e error
+		aiTraffic, e = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours)
+		return e
+	})
 	// All-traffic view (= access-log pipeline, includes rescued/bypassed
 	// crawlers).  unmask_crawler_minute is install-wide; the site filter
 	// doesn't narrow it, but we still expose the data so the stats card
 	// can show the "all" tab alongside the site-scoped "served" view.
-	run("AITrafficAll", func() { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60) })
+	run("AITrafficAll", func() error { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60); return nil })
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).
-	run("DailyPassByDay", func() {
+	run("DailyPassByDay", func() error {
 		dctx, dcancel := queryCtx(15 * time.Second)
 		defer dcancel()
 		var derr error
 		dailyKind, dailyTotal, derr = dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30, loc)
-		if derr != nil {
-			log.Printf("daily pass by day: %v", derr)
-		}
+		return derr
 	})
 	// 30-day trend chart 2 (legacy): phase='serve' stacked-bar by classify.IsBot.
 	// High cardinality (tens of thousands of distinct UA x verdict x IP).
 	// Separate ctx with a longer deadline.
-	run("DailyServeByKind", func() {
+	run("DailyServeByKind", func() error {
 		dskCtx, dskCancel := queryCtx(15 * time.Second)
 		defer dskCancel()
 		var derr error
 		dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
-		if derr != nil {
-			log.Printf("daily serve by kind: %v", derr)
-		}
+		return derr
 	})
-	run("CountriesByServe", func() { countries, _ = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15) })
+	run("CountriesByServe", func() error {
+		var e error
+		countries, e = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
+		return e
+	})
 	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
 	// rolled up with a country dimension).  Empty when nginxlog or ipgeo is off.
-	run("DailyPassByCountry", func() {
+	run("DailyPassByCountry", func() error {
 		dcctx, dccancel := queryCtx(15 * time.Second)
 		defer dccancel()
 		var derr error
 		dailyCountry, derr = dashboard.DailyPassByCountry(dcctx, h.DB, site, 30, loc)
-		if derr != nil {
-			log.Printf("daily pass by country: %v", derr)
-		}
+		return derr
 	})
 	// Per-day unique-IP estimate over the same 30-day window (= HLL merge of
 	// unmask_traffic_hll(kind='ip')).  Empty when nginxlog is off.
-	run("DailyUniqueIPs", func() {
+	run("DailyUniqueIPs", func() error {
 		dunCtx, dunCancel := queryCtx(15 * time.Second)
 		defer dunCancel()
 		var derr error
 		dailyUniq, derr = dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30, loc)
-		if derr != nil {
-			log.Printf("daily unique ips: %v", derr)
-		}
+		return derr
 	})
 	// Race wg.Wait against the overall deadline so a slow card (e.g. one of
 	// the 30-day raw scans on a big operator DB) doesn't pin the whole
@@ -1134,6 +1199,12 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	case <-ctx.Done():
 		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", site, hosts, rng)
 	}
+	// Cards that errored (or panicked) -- surfaced as a "data incomplete" banner
+	// so an operator doesn't read a silently-empty card as a real zero.  Copied
+	// under the lock since a timed-out card's goroutine may still be appending.
+	cardMu.Lock()
+	failedCardList := append([]string(nil), failedCards...)
+	cardMu.Unlock()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
 			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
@@ -1288,6 +1359,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"RangeStartTS":       rangeStart.Unix(),
 		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
 		"Driver":             string(h.DB.Driver),
+		"FailedCards":        failedCardList,
 		"Funnel":             funnel,
 		"CookieRows":         cookieRows,
 		"RLSummary":          rlSummary,

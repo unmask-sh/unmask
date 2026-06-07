@@ -208,6 +208,13 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>{{ t .Lang "dashboard.range_30d" }}</a>
 </div>
 
+{{ if .FailedCards }}
+<div role="alert" style="margin:1rem 0;padding:.6rem .9rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;font-size:.82rem;line-height:1.45">
+  ⚠ Some dashboard cards failed to load &mdash; the data shown may be incomplete (a query errored; see the admin log). Affected:
+  <span style="display:block;margin-top:.2rem;color:#b45309;font-size:.76rem">{{ range $i, $c := .FailedCards }}{{ if $i }}, {{ end }}{{ $c }}{{ end }}</span>
+</div>
+{{ end }}
+
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.overview" }}</div>
 
 <!-- 1) challenge funnel -->
