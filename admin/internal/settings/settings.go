@@ -954,9 +954,10 @@ type GlobalConfig struct {
 	// inconvenienced.
 	Passthrough bool `yaml:"passthrough,omitempty"`
 	// KnownBrowserAction: chain for no-match requests whose UA looks like a
-	// real browser (= classify.IsKnownBrowser).  Default "pass" = ordinary
-	// operation (no challenge).  Picking pow_* / captcha_only / deny turns
-	// this into a Cloudflare-style human gate for genuine visitors too.
+	// real browser (= classify.IsKnownBrowser).  Default "pow_only" = a
+	// transparent first-visit PoW (defense in depth behind the JA4 axis).  Set
+	// "pass" for zero-friction pass-through of JA4-confirmed real browsers, or
+	// pow_then_captcha / captcha_only / deny to gate harder.
 	KnownBrowserAction string `yaml:"known_browser_action,omitempty"`
 	// UnknownUAAction: chain for no-match requests whose UA is NOT a known
 	// browser (= curl / library / empty / oddball).  Default (unset) ==
@@ -1608,14 +1609,17 @@ func defaults() Settings {
 			// triggering Save() side-effects in fresh-install code paths.
 		},
 		Global: GlobalConfig{
-			// Known browsers pass by default (= a real Chrome/Firefox/Safari UA,
-			// JA4-confirmed in native mode; the JA4 axis still challenges a
-			// spoofed-browser UA whose fingerprint does not match).  Leaving
-			// this empty falls through to PoW for EVERY visitor (uaDecide's
-			// empty -> RateChallengePoWOnly), which defeats the JA4 "real
-			// browsers sail through" value the product is built on.  Unknown
-			// UAs stay on the implicit PoW challenge (UnknownUAAction empty).
-			KnownBrowserAction: "pass",
+			// Known browsers get a transparent first-visit PoW by default
+			// (pow_only).  Even a real-browser UA can be a bot that mimics a
+			// browser JA4 + UA closely enough to pass the axes, so out of the
+			// box every no-match request is gated with a PoW a script can't
+			// solve -- defense in depth behind the JA4 axis.  One solve sets the
+			// _bv cookie and the rest of its validity window sails through, so a
+			// genuine user only feels it on the first visit.  Set
+			// known_browser_action: pass to instead let JA4-confirmed real
+			// browsers through with zero friction (trades depth for UX).
+			// Unknown UAs likewise PoW, via the empty UnknownUAAction.
+			KnownBrowserAction: "pow_only",
 		},
 		Server: Server{
 			Bind:     "127.0.0.1",
