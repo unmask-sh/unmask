@@ -38,6 +38,9 @@ func Migrate(conn *DB) error {
 	if err := ensureUserExtras(conn); err != nil {
 		return fmt.Errorf("ensure user extras: %w", err)
 	}
+	if err := ensurePasswordHashWidth(conn); err != nil {
+		return fmt.Errorf("ensure password_hash width: %w", err)
+	}
 	if err := ensureHostColumn(conn); err != nil {
 		return err
 	}
@@ -261,6 +264,32 @@ func ensureUserExtras(conn *DB) error {
 		if _, err := conn.Exec(c.ddl); err != nil {
 			return fmt.Errorf("add %s column: %w", c.name, err)
 		}
+	}
+	return nil
+}
+
+// ensurePasswordHashWidth: widen unmask_user.password_hash to 128 chars on
+// MariaDB.  The baseline shipped with VARCHAR(72) (= bcrypt era), but the
+// admin hashes with argon2id which produces a 97-char PHC string -- on
+// MariaDB STRICT_TRANS_TABLES the INSERT errored out (fresh install broken)
+// and on relaxed mode the hash was silently truncated (every login failed).
+// SQLite ignores VARCHAR length (= the declared type is informational, TEXT
+// underneath), so no SQLite branch is needed.  Idempotent: MariaDB MODIFY
+// COLUMN on a column already at the target width is a no-op.
+func ensurePasswordHashWidth(conn *DB) error {
+	if conn.Driver != DriverMariaDB {
+		return nil
+	}
+	hasTbl, err := hasTable(conn, "unmask_user")
+	if err != nil {
+		return fmt.Errorf("introspect unmask_user: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	stmt := `ALTER TABLE unmask_user MODIFY COLUMN password_hash VARCHAR(128) NOT NULL`
+	if _, err := conn.Exec(stmt); err != nil {
+		return fmt.Errorf("widen password_hash: %w", err)
 	}
 	return nil
 }
@@ -638,7 +667,10 @@ CREATE INDEX IF NOT EXISTS idx_cookie_minute_kind_min
 CREATE TABLE IF NOT EXISTS unmask_user (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,
     username                 VARCHAR(64) NOT NULL UNIQUE,
-    password_hash            VARCHAR(72) NOT NULL,
+    -- 128 chars holds the argon2id PHC string ($argon2id$v=19$m=65536,t=2,p=1$<22b64>$<43b64> = 97 chars)
+    -- with headroom for future params bumps.  72 was a bcrypt-era leftover that
+    -- truncated the argon2 hash on MariaDB STRICT installs (= login broken).
+    password_hash            VARCHAR(128) NOT NULL,
     role                     VARCHAR(16) NOT NULL,
     email                    VARCHAR(255),
     alert_opt_out            INTEGER NOT NULL DEFAULT 0,
@@ -736,7 +768,10 @@ CREATE TABLE IF NOT EXISTS unmask_cookie_minute (
 CREATE TABLE IF NOT EXISTS unmask_user (
     id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     username                 VARCHAR(64) NOT NULL,
-    password_hash            VARCHAR(72) NOT NULL,
+    -- 128 chars holds the argon2id PHC string ($argon2id$v=19$m=65536,t=2,p=1$<22b64>$<43b64> = 97 chars)
+    -- with headroom for future params bumps.  72 was a bcrypt-era leftover that
+    -- truncated the argon2 hash on MariaDB STRICT installs (= login broken).
+    password_hash            VARCHAR(128) NOT NULL,
     role                     VARCHAR(16) NOT NULL,
     email                    VARCHAR(255),
     alert_opt_out            TINYINT NOT NULL DEFAULT 0,
