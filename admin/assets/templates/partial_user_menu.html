@@ -32,12 +32,20 @@
     <a href="{{ .BasePath }}/admin/audit/">{{ t .Lang "nav.audit" }}</a>
     {{ end }}
     <div class="um-divider"></div>
-    <a href="{{ .BasePath }}/admin/logout">{{ t .Lang "nav.logout" }}</a>
+    <form method="post" action="{{ .BasePath }}/admin/logout" class="um-logout-form">
+      <button type="submit">{{ t .Lang "nav.logout" }}</button>
+    </form>
   </div>
 </div>
 <style>
 .user-menu-pop .um-section{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;padding:.5rem .7rem .2rem}
 .user-menu-pop .um-divider{border-top:1px solid #334155;margin:.3rem 0}
+/* logout is a POST (a GET link is CSRF-able into a forced logout); the global
+   CSRF shim injects the token into this form.  Styled here -- co-located with
+   the partial -- to match the menu's <a> items on every host page. */
+.user-menu-pop .um-logout-form{margin:0}
+.user-menu-pop .um-logout-form button{display:block;width:100%;text-align:left;padding:.4rem .7rem;color:#cbd5e1;font-size:.85rem;border-radius:.2rem;font-weight:normal;background:none;border:0;cursor:pointer;font-family:inherit}
+.user-menu-pop .um-logout-form button:hover{background:#334155;color:#fff}
 </style>
 <script>
 (function(){

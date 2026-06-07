@@ -412,20 +412,27 @@ func cmdServe(args []string) error {
 	if conn != nil {
 		go func() {
 			runPrune := func() {
-				defer safe.Recover("events-prune") // a panic here must not kill the daemon
-				retention := h.Settings.EventsRetentionDays
-				if retention <= 0 {
-					return
-				}
+				defer safe.Recover("retention-prune") // a panic here must not kill the daemon
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
-				n, err := events.PruneOldEvents(ctx, conn, retention)
-				if err != nil {
-					log.Printf("events prune: %v", err)
-					return
+				// Raw traffic events.
+				if retention := h.Settings.EventsRetentionDays; retention > 0 {
+					if n, err := events.PruneOldEvents(ctx, conn, retention); err != nil {
+						log.Printf("events prune: %v", err)
+					} else if n > 0 {
+						log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
+					}
 				}
-				if n > 0 {
-					log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
+				// Admin-action audit log (independent retention; checked
+				// separately so events_retention_days=0 doesn't disable it).
+				if h.UserRepo != nil {
+					if retention := h.Settings.AuditRetentionDays; retention > 0 {
+						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
+							log.Printf("audit prune: %v", err)
+						} else if n > 0 {
+							log.Printf("audit prune: deleted %d row(s) older than %d days", n, retention)
+						}
+					}
 				}
 			}
 			runPrune()
@@ -687,7 +694,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/forgot-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminForgotPasswordPost)))
 	mux.HandleFunc("GET "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordGet)))
 	mux.HandleFunc("POST "+base+"/admin/reset-password", h.AdminIPAllowMiddleware(h.SetupGate(h.AdminResetPasswordPost)))
-	mux.HandleFunc("GET "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.AdminLogout))
+	// logout is POST-only + CSRF-checked: a GET logout link can be triggered
+	// cross-site (<img src=.../admin/logout>) to force a logout.  The nav menu
+	// posts a CSRF-tokened form (partial_user_menu.html).
 	mux.HandleFunc("POST "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.RequireCSRFFunc(h.AdminLogout)))
 	// install wizard (cacti / zabbix style).  No auth required; once complete,
 	// SetupGate redirects to /admin/ (prevents re-running setup).

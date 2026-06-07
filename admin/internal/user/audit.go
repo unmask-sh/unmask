@@ -51,6 +51,24 @@ func (r *Repository) Record(ctx context.Context, userID int64, username, action,
 	}
 }
 
+// PruneOldAudit deletes audit rows older than retentionDays.  retentionDays <= 0
+// disables pruning (= keep forever).  Mirrors events.PruneOldEvents: the cutoff
+// is computed in Go and bound as a time.Time so the "<" comparison stays portable
+// across the mysql + glebarez/modernc drivers (no datetime() vs DATE_SUB branch).
+// Without this the admin-action log grew unbounded.
+func (r *Repository) PruneOldAudit(ctx context.Context, retentionDays int) (int64, error) {
+	if retentionDays <= 0 || r.DB == nil {
+		return 0, nil
+	}
+	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	res, err := r.DB.ExecContext(ctx, `DELETE FROM unmask_user_audit WHERE at < ?`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 // ListAudit: paging for the viewer UI.  Newest first.  limit / offset paging.
 // If userIDFilter > 0, restrict to that user.
 func (r *Repository) ListAudit(ctx context.Context, limit, offset int, userIDFilter int64) ([]*AuditEntry, error) {

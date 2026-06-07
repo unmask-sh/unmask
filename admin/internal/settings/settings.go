@@ -1043,6 +1043,11 @@ type Settings struct {
 	// goroutine runs `DELETE FROM unmask_event WHERE date_created < now - N days`
 	// idempotently every 24h.
 	EventsRetentionDays int `yaml:"events_retention_days,omitempty"`
+	// AuditRetentionDays: retention days for the admin-action log
+	// (unmask_user_audit: login / settings save / user + ban mutations).
+	// Default 90. 0 = retain forever. Pruned by the same 24h startup goroutine
+	// as events (`DELETE FROM unmask_user_audit WHERE at < now - N days`).
+	AuditRetentionDays int `yaml:"audit_retention_days,omitempty"`
 	// EventsBatchSize: how many raw events to batch per write. Default 100.
 	// Once accumulated, run a bulk INSERT (= N rows in one transaction).
 	// On high-traffic sites (= >100 events/sec) this reduces DB writes to 1/N.
@@ -1545,6 +1550,7 @@ func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 func defaults() Settings {
 	return Settings{
 		EventsRetentionDays:   90,
+		AuditRetentionDays:    90,
 		EventsBatchSize:       100,
 		EventsBatchIntervalMs: 1000,
 		DB: DB{
