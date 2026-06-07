@@ -14,6 +14,21 @@ import (
 // Client.GetCachedDoc().  nginx never read the file, and admin restart is
 // rare enough that an in-memory cache is sufficient.
 
+// ensureMapPlaceholders lays down empty community-bans map files in dir when
+// they do not exist yet, so http.inc's `include community-bans-*.map` directives
+// resolve before the very first successful pull.  A later pull overwrites them;
+// the existence check means a populated map is never clobbered.  This is what
+// keeps `nginx -t` (and nginx startup) from aborting on a fresh install whose
+// first fetch fails -- e.g. the hub is unreachable or the box is offline.
+func ensureMapPlaceholders(dir string) {
+	if dir == "" {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(dir, "community-bans-ipja4.map")); os.IsNotExist(err) {
+		_ = WriteMapFiles(FeedDocument{GeneratedAt: time.Now().Unix(), Version: 2}, dir)
+	}
+}
+
 // WriteMapFiles: split feed entries across 3 nginx map snippets and atomic-write.
 //
 // Output:

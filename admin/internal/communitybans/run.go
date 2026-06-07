@@ -16,6 +16,24 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 		interval = 1 * time.Hour
 	}
 	cur := c.SettingsGetter()
+	// Lay down empty community-bans map placeholders up front -- before the
+	// network-bound register/pull -- so a fresh install's `nginx -t` never aborts
+	// on a dangling community-bans-*.map include while the first fetch is slow or
+	// failing (hub unreachable / offline).  http.inc includes the maps only when
+	// subscribe is active; placeholders are skipped when the maps already exist.
+	if cur.CommunityBans.SubscribeActive() {
+		md := c.MapDir
+		if md == "" {
+			md = cur.CommunityBans.MapDir
+		}
+		if md == "" {
+			md = cur.Nginx.OutputDir
+		}
+		if md == "" {
+			md = "/var/lib/unmask/nginx"
+		}
+		ensureMapPlaceholders(md)
+	}
 	// register only when either submit or subscribe is ON
 	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive() {
 		if err := c.Register(ctx); err != nil {
