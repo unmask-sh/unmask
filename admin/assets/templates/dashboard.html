@@ -761,6 +761,20 @@ document.addEventListener('DOMContentLoaded', function(){
 const dailyKind = {{.DailyKindJSON}};
 const dailyServeKind = {{.DailyServeKindJSON}};
 
+// Localized weekday, mirroring the server-side `weekday` template helper used in
+// the per-day tables, so the chart hover popover labels a day like "2026-06-07 (土)".
+const CHART_LANG = "{{.Lang}}";
+function chartWeekday(dateStr){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (!m) return '';
+  // Build from y/m/d in local time so toLocale/getDay doesn't shift the day when
+  // the browser TZ is behind UTC (the label is a calendar date, not an instant).
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  const ja = ['日','月','火','水','木','金','土'];
+  const en = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return (CHART_LANG === 'ja' ? ja : en)[d.getDay()];
+}
+
 // shared function that draws the stacked bar + hover popover.  Takes the canvas / legend
 // elements by ID and renders data of the same shape ([{date, kind, req}, ...]).  KIND_LABEL /
 // KIND_COLOR map the kind integer -> label / color.
@@ -979,7 +993,8 @@ function renderStackedBarChart(opts){
     if (!rows.length) { hide(); return; }
     const total = rows.reduce((s,r) => s + r.v, 0);
 
-    let html = '<div style="font-weight:700;margin-bottom:.3rem">' + date + '</div>';
+    const wd = chartWeekday(date);
+    let html = '<div style="font-weight:700;margin-bottom:.3rem">' + date + (wd ? ' <span style="font-weight:400;color:#94a3b8">(' + wd + ')</span>' : '') + '</div>';
     html += rows.map(r =>
       '<div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0">' +
         '<span style="width:.6rem;height:.6rem;background:' + (KIND_COLOR[r.k]||'#94a3b8') + ';border-radius:50%;display:inline-block;flex-shrink:0"></span>' +
