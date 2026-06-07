@@ -93,14 +93,17 @@ fi
 NGINX_CONF=/etc/nginx/nginx.conf
 # drop any snippet an older package version left in the include dirs
 rm -f /etc/nginx/conf.d/00-unmask-maphash.conf /etc/nginx/http.d/00-unmask-maphash.conf
-if [ -f "$NGINX_CONF" ] \
-   && ! grep -qE '^[[:space:]]*map_hash_bucket_size' "$NGINX_CONF" \
-   && ! grep -q 'unmask-maphash' "$NGINX_CONF"; then
-    if awk '
+# Check each directive INDEPENDENTLY: a host that already tuned only
+# map_hash_max_size (or only the bucket) must not get a duplicate of the other.
+if [ -f "$NGINX_CONF" ] && ! grep -q 'unmask-maphash' "$NGINX_CONF"; then
+    UM_BUCKET=1; grep -qE '^[[:space:]]*map_hash_bucket_size[[:space:]]' "$NGINX_CONF" && UM_BUCKET=
+    UM_MAX=1;    grep -qE '^[[:space:]]*map_hash_max_size[[:space:]]'    "$NGINX_CONF" && UM_MAX=
+  if [ -n "$UM_BUCKET$UM_MAX" ]; then
+    if awk -v bucket="$UM_BUCKET" -v max="$UM_MAX" '
         !done && /^[[:space:]]*http[[:space:]]*\{/ {
             print
-            print "    map_hash_bucket_size 256;  # unmask-maphash (community-bans maps need a wider hash)"
-            print "    map_hash_max_size 4096;     # unmask-maphash"
+            if (bucket != "") print "    map_hash_bucket_size 256;  # unmask-maphash (community-bans maps need a wider hash)"
+            if (max != "")    print "    map_hash_max_size 4096;     # unmask-maphash"
             done = 1
             next
         }
@@ -113,6 +116,7 @@ if [ -f "$NGINX_CONF" ] \
         echo "unmask-web-nginx: WARNING -- no http{} block found in $NGINX_CONF; set map_hash_bucket_size manually"
     fi
     rm -f "$NGINX_CONF.unmask-tmp"
+  fi
 fi
 
 # SELinux: nginx defaults to the httpd_t domain on RHEL-family distros, where
