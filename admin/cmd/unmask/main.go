@@ -232,6 +232,12 @@ func cmdServe(args []string) error {
 			log.Printf("ipgeo-asn: failed to load %s (popover will not show ASN)", s.IPGeo.MMDBASNPath)
 		}
 	}
+	// First-run: pull a missing managed DB-IP Lite mmdb in the background (from
+	// the unmask.sh mirror, CC BY 4.0) so geo features come up without a manual
+	// install-ipgeo, whatever the install method was.  Reloads gip on success.
+	if s.IPGeo.AutoFetch {
+		ipgeo.AutoFetchMissing(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
+	}
 
 	// Tail of nginx-only access_log + 1-minute flush goroutine + ban manager
 	// only start when the DB is connected (setup complete).  Right after the

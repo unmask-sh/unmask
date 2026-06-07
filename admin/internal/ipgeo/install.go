@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -204,6 +205,75 @@ func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 		return nil, err
 	}
 	return nil, fmt.Errorf("dbip-lite: no source succeeded out of %d (%w)", len(sources), lastErr)
+}
+
+// AutoFetchMissing fetches the managed DB-IP Lite mmdb(s) in the background when
+// they are configured at their default path but not yet on disk -- the daemon's
+// first-run path, so geo features come up without a manual `unmask install-ipgeo`
+// or 1-click, regardless of how unmask was installed (binary / docker / any
+// distro).  Non-blocking: spawns a goroutine and returns immediately.  Fetches
+// are bounded-retry (covers a host briefly offline at boot) and non-fatal.  Only
+// default managed paths are touched; a custom mmdb_path is the operator's own
+// file and is left alone.  gip is reloaded so the geo axis sees the new file
+// without a restart.
+func AutoFetchMissing(countryPath, asnPath string, gip *Reader) {
+	type job struct {
+		kind InstallKind
+		path string
+	}
+	var jobs []job
+	if countryPath == DefaultMMDBPath && !fileExists(countryPath) {
+		jobs = append(jobs, job{InstallKindCountry, countryPath})
+	}
+	if asnPath == DefaultASNPath && !fileExists(asnPath) {
+		jobs = append(jobs, job{InstallKindASN, asnPath})
+	}
+	if len(jobs) == 0 {
+		return
+	}
+	go func() {
+		// Pass 0 fires immediately; later passes retry only what's still missing
+		// after a backoff (covers "network not up yet at boot").
+		backoffs := []time.Duration{0, 60 * time.Second, 5 * time.Minute}
+		remaining := jobs
+		for _, wait := range backoffs {
+			if wait > 0 {
+				time.Sleep(wait)
+			}
+			var failed []job
+			for _, j := range remaining {
+				res, err := InstallDBIPLite(InstallOptions{Kind: j.kind, Path: j.path})
+				if err != nil {
+					log.Printf("ipgeo: first-run auto-fetch of %s failed: %v", j.kind, err)
+					failed = append(failed, j)
+					continue
+				}
+				log.Printf("ipgeo: auto-fetched %s on first run from %s (%d bytes)", j.kind, res.Source, res.Bytes)
+			}
+			remaining = failed
+			if len(remaining) == 0 {
+				break
+			}
+		}
+		// Reload if at least one fetch landed so /api/check picks it up without a
+		// restart (clear-then-reload forces past the unchanged-path short-circuit).
+		if len(remaining) < len(jobs) && gip != nil {
+			gip.Reload("", "")
+			gip.Reload(countryPath, asnPath)
+			log.Printf("ipgeo: reloaded reader after first-run auto-fetch")
+		}
+		if len(remaining) > 0 {
+			log.Printf("ipgeo: first-run auto-fetch gave up on %d db(s) (offline?); run `unmask install-ipgeo` later", len(remaining))
+		}
+	}()
+}
+
+func fileExists(p string) bool {
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 var errNotPublished = errors.New("db-ip snapshot not yet published")

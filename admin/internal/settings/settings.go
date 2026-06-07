@@ -327,6 +327,12 @@ type Server struct {
 type IPGeo struct {
 	MMDBPath    string `yaml:"mmdb_path"`
 	MMDBASNPath string `yaml:"mmdb_asn_path"`
+	// AutoFetch: when a managed (= default-path) DB-IP Lite mmdb is missing at
+	// startup, fetch it in the background on first run so geo features light up
+	// without a manual `unmask install-ipgeo` / 1-click -- regardless of how the
+	// daemon was installed (binary / docker / any distro). Default true; set
+	// false on air-gapped hosts to suppress the (non-fatal) fetch attempts.
+	AutoFetch bool `yaml:"auto_fetch"`
 }
 
 // NginxLog: data source for the cookie-passage dashboard.
@@ -1631,6 +1637,7 @@ func defaults() Settings {
 			// the network tab's ASN radio pre-selects "DB-IP".  Users who
 			// pick "none" get this cleared on save.
 			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
+			AutoFetch:   true,
 		},
 		CommunityBans: CommunityBans{
 			SubmitEnabled:  false,
