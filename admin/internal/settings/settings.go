@@ -40,6 +40,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1771,6 +1772,17 @@ func Load(path string) (Settings, error) {
 		}
 		if err := yaml.Unmarshal(raw, &s); err != nil {
 			return s, fmt.Errorf("parse %s: %w", resolved, err)
+		}
+		// Strict re-parse into a throwaway, purely to surface keys the loader
+		// silently ignored: a misplaced challenge knob (flat under `challenge:`
+		// instead of `challenge.default:`) or a typo'd field would otherwise be
+		// dropped without a trace.  Warn, never fail -- unknown keys from older
+		// versions must still load (feedback_no_user_rescue).
+		probeDec := yaml.NewDecoder(strings.NewReader(string(raw)))
+		probeDec.KnownFields(true)
+		var probe Settings
+		if perr := probeDec.Decode(&probe); perr != nil {
+			log.Printf("unmask: config %s has unrecognized or misplaced keys (ignored, defaults used): %v", resolved, perr)
 		}
 	}
 	if s.Secret.BVSecret == "" {

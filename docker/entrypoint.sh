@@ -31,9 +31,14 @@ secret:
     captcha_secret_base: ${CB}
 
 challenge:
-    pow_cookie_valid_seconds: 604800       # 7 days
-    captcha_cookie_valid_seconds: 1209600  # 14 days
-    captcha_score_threshold: 0.5
+    # Challenge knobs live under default: (multi-site v2 shape); fields placed
+    # directly under challenge: are not read by the loader.
+    default:
+        pow_cookie_valid_seconds: 604800       # 7 days
+        captcha_cookie_valid_seconds: 1209600  # 14 days
+        captcha:
+            provider: builtin
+            builtin_score_threshold: 0.5
 
 server:
     bind: 0.0.0.0
