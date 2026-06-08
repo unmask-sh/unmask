@@ -281,6 +281,29 @@ if [ -z "$LOAD_DROPPED" ]; then
     echo "               $LOAD_LINE"
 fi
 
+# Wire http.inc into http {} scope now that the native plugin .so is present.
+# unmask-web-nginx also creates this symlink (gated on the .so), so doing it here
+# too makes install order between the two packages irrelevant; http.inc carries
+# the C-module directives + plugin-variable maps that only load with this .so.
+if [ -e "$DEST" ]; then
+    PINCDIR=/etc/nginx/conf.d
+    if [ -d /etc/nginx/http.d ] && [ -r /etc/nginx/nginx.conf ] && awk '
+        /^[[:space:]]*http[[:space:]]*\{/ { in_http=1 }
+        in_http && /include[[:space:]]+\/etc\/nginx\/http\.d\// { found=1 }
+        /^\}/ { in_http=0 }
+        END { exit !found }' /etc/nginx/nginx.conf; then
+        PINCDIR=/etc/nginx/http.d
+    fi
+    mkdir -p "$PINCDIR" /var/lib/unmask/nginx
+    PSRC=/var/lib/unmask/nginx/http.inc
+    PLINK=$PINCDIR/00-unmask.conf
+    [ -e "$PSRC" ] || : > "$PSRC"
+    if [ ! -e "$PLINK" ] || { [ -L "$PLINK" ] && [ "$(readlink "$PLINK")" != "$PSRC" ]; }; then
+        ln -sf "$PSRC" "$PLINK"
+        echo "  http.inc auto-load symlinked: $PLINK -> $PSRC"
+    fi
+fi
+
 echo ""
 echo "next steps (= on the nginx side):"
 echo "  1. (web-nginx package handles 'include /var/lib/unmask/nginx/http.inc' via a symlink)"

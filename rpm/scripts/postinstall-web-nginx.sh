@@ -58,26 +58,32 @@ if [ ! -L "$UPSTREAM_LINK" ] && [ ! -e "$UPSTREAM_LINK" ]; then
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
 fi
 
-# JA4 maps auto-load (= native-mode only).  Meaningful only with the
-# unmask-plugin-nginx + admin combination.  Even without the plugin, keep the
-# symlink alive by pointing it at an empty placeholder that is still rendered.
-# NOTE: render-nginx writes to nginx.output_dir, which defaults to
-# /var/lib/unmask/nginx (FHS: /etc keeps the hand-edited config.yml, /var/lib
-# the admin-rendered files); the symlink must track that path or nginx loads an
-# empty placeholder and `unknown log format unmask_minimal` aborts -t.
-RENDERED_SRC=/var/lib/unmask/nginx/http.inc
-RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
-[ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
-[ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
-# cleanup of the legacy symlink + legacy /etc/unmask target
-rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
-if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
-    ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
-    echo "unmask-web-nginx: symlinked $RENDERED_LINK -> $RENDERED_SRC"
-elif [ -L "$RENDERED_LINK" ] && [ "$(readlink "$RENDERED_LINK")" != "$RENDERED_SRC" ]; then
-    # repoint a stale symlink left by an older package (= /etc/unmask/http.inc)
-    ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
-    echo "unmask-web-nginx: repointed $RENDERED_LINK -> $RENDERED_SRC"
+# JA4 maps auto-load -- NATIVE mode only.  http.inc emits C-module directives
+# (unmask_bv_secret / unmask_ban_file / ...) and maps over plugin-provided
+# variables ($client_ja4 / $unmask_bv_kind), so loading it WITHOUT the plugin
+# makes `nginx -t` abort with "unknown directive".  unmask-web-nginx depends
+# only on unmask+nginx (forward-auth is the advertised default), so wire http.inc
+# ONLY when the native plugin .so is actually installed; the unmask-plugin-nginx
+# postinstall also creates this symlink, so install order does not matter.
+PLUGIN_MODPATH=$(nginx -V 2>&1 | tr " " "\n" | sed -n "s|^--modules-path=||p" | head -1)
+if [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" ]; then
+    RENDERED_SRC=/var/lib/unmask/nginx/http.inc
+    RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
+    [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
+    [ -e "$RENDERED_SRC" ] || : > "$RENDERED_SRC"
+    rm -f /etc/nginx/conf.d/00-unmask-rendered.conf /etc/nginx/http.d/00-unmask-rendered.conf
+    if [ ! -L "$RENDERED_LINK" ] && [ ! -e "$RENDERED_LINK" ]; then
+        ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
+        echo "unmask-web-nginx: symlinked $RENDERED_LINK -> $RENDERED_SRC"
+    elif [ -L "$RENDERED_LINK" ] && [ "$(readlink "$RENDERED_LINK")" != "$RENDERED_SRC" ]; then
+        ln -sf "$RENDERED_SRC" "$RENDERED_LINK"
+        echo "unmask-web-nginx: repointed $RENDERED_LINK -> $RENDERED_SRC"
+    fi
+else
+    # forward-auth mode (no native plugin): http.inc would fail nginx -t, so
+    # leave it unwired and clear any stale symlink from a prior native install.
+    rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf
+    echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
 fi
 
 # map_hash sizing for the community-bans feed maps.  With subscribe_mode
