@@ -730,6 +730,15 @@ test-plugin-parser:
 		-o $(DIST)/ja4_parser_test
 	$(DIST)/ja4_parser_test
 
+## test-mariadb  - docker-gated MariaDB smoke (idempotent migrate + UTC + dialect aggregate)
+.PHONY: test-mariadb
+test-mariadb:
+	@command -v docker >/dev/null 2>&1 || { echo "test-mariadb: docker absent, skipping"; exit 0; }
+	@docker rm -f unmask-test-mariadb >/dev/null 2>&1 || true
+	docker run -d --name unmask-test-mariadb -e MARIADB_ROOT_PASSWORD=rootpw -e MARIADB_DATABASE=unmask_test -e MARIADB_USER=unmask -e MARIADB_PASSWORD=unmask -p 3307:3306 mariadb:11 >/dev/null
+	@echo "waiting for mariadb..."; for i in $$(seq 1 45); do docker exec unmask-test-mariadb mariadb -uunmask -punmask unmask_test -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
+	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test ./internal/db/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
+
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:
 #   make e2e BASE_URL=https://localhost:8443
@@ -756,9 +765,11 @@ e2e-docker-down:
 # release maintainer.
 .PHONY: distro-check
 distro-check:
-	@echo '=== gate 1/2: e2e (docker compose) ==='
+	@echo '=== gate 1/3: MariaDB backend smoke (docker) ==='
+	$(MAKE) test-mariadb
+	@echo '=== gate 2/3: e2e (docker compose) ==='
 	$(MAKE) e2e-docker
-	@echo '=== gate 2/2: install matrix (10 distros, verdict-gated) ==='
+	@echo '=== gate 3/3: install matrix (10 distros, verdict-gated) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
 	@echo '=== release gate PASSED — e2e + 8-distro install matrix green ==='
