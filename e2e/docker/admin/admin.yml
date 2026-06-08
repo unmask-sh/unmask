@@ -84,6 +84,10 @@ nginx:
   # explicitly in the blacklist (= curl / library / scrapers).
   challenge_targets:
     all: false
+    # chmode for honeypot / protected-path / ja4 challenges.  pow_only (as on
+    # uic.jp) so a real headless browser (scenario 27) can auto-clear it without
+    # a human CAPTCHA.
+    default_action: pow_only
   # Scenario 12 (= max-severity composition) needs both axes wired:
   #   - geo: JP rule action=pow_only / CN rule action=deny
   #   - ja4: a known fingerprint classified as bot
@@ -141,6 +145,11 @@ nginx:
         site: "shop.example.com"
       - path: "^/login/"
         mode: "captcha"
+      # scenario 27: a PoW-only gate that fires for every visitor, including a
+      # real headless browser (the captcha gates above need human input, so a
+      # browser can't auto-clear them).
+      - path: "^/pow-gate/"
+        mode: "pow"
 
   # Bypass-paths custom row used by scenario 18 to verify that a natural
   # path-anchored regex (`^/e2e-bypass-only/`) is rendered into the nginx

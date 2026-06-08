@@ -28,35 +28,9 @@ if [ -z "$seed" ] || [ -z "$issued" ]; then
 fi
 log "challenge: seed=${seed:0:12}... issued=$issued diff=${diff:-18}"
 
-# 2. Brute-force the nonce: the first n where sha256("<seed>:<n>") has
-#    >= difficulty leading zero bits -- byte-for-byte the loop in challenge.js
-#    and the verifier in cookies.go verifyPowSHA256 / the C plugin.
-bv=$(python3 - "$seed" "$issued" "${diff:-18}" <<'PY'
-import hashlib, string, sys
-seed, issued, diff = sys.argv[1], sys.argv[2], int(sys.argv[3])
-DIG = string.digits + string.ascii_lowercase
-n = 0
-while True:
-    h = hashlib.sha256(f"{seed}:{n}".encode()).digest()
-    bits = 0
-    for byte in h:
-        if byte == 0:
-            bits += 8
-            continue
-        while not (byte & 0x80):
-            bits += 1
-            byte <<= 1
-        break
-    if bits >= diff:
-        m, b36 = n, ""
-        while m:
-            b36 = DIG[m % 36] + b36
-            m //= 36
-        print(f"{issued}.pow2.{b36 or '0'}.0")
-        break
-    n += 1
-PY
-)
+# 2. Brute-force the nonce with the verifier's exact algorithm (lib/powsolve.py):
+#    the first n where sha256("<seed>:<n>") has >= difficulty leading zero bits.
+bv=$(python3 "$DIR/lib/powsolve.py" "$seed" "$issued" "${diff:-18}")
 [ -n "$bv" ] || { log_fail "PoW solve produced no _bv"; exit 1; }
 log "solved _bv=$bv"
 

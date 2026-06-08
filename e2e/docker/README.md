@@ -64,3 +64,9 @@ Add this to `.github/workflows/ci.yml` to run automatically on PR:
   `unmask config-init`.)
 - Initial `make e2e-docker` image build takes 5–10 minutes (nginx compile + go
   module download). Subsequent runs are under a minute thanks to image cache.
+- Scenario 27 (`browser-flow`) drives the real `challenge.js` in a headless
+  Chromium via the official Playwright image (`docker run`), so it needs docker
+  on the host and pulls ~2 GB on first run. It skips gracefully if docker / the
+  image is unavailable — the curl scenarios 23–26 already cover the seed-bound
+  PoW, asset integrity, the stale-asset guard, and loop prevention. Override the
+  image via `PLAYWRIGHT_IMAGE` / `PLAYWRIGHT_VERSION`.
