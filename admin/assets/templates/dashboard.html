@@ -704,7 +704,9 @@ document.addEventListener('DOMContentLoaded', function(){
     // CookieSetFails / StealthPassed) carry data-no-zero-toggle: a row is
     // one event, so "flags == 0" doesn't mean "empty row", and treating it
     // as one hides legitimate observations.  Opt-out at the table level.
-    if (tbl.hasAttribute('data-no-zero-toggle')) return;
+    // Per-event tables opt out of the zero-row toggle, but must still be made
+    // visible (= the default is visibility:hidden until .bcd-ready lands).
+    if (tbl.hasAttribute('data-no-zero-toggle')) { tbl.classList.add('bcd-ready'); return; }
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
       // rate_limit / TOTAL rows are always visible (= excluded from zero-row toggle)
