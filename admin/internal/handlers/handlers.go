@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
@@ -104,6 +105,10 @@ type Handler struct {
 	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
 	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
+
+	// overBlockTripped is the over-block circuit breaker state, sampled and set
+	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
+	overBlockTripped atomic.Bool
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.
@@ -703,10 +708,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//      don't yet have default_action set continue to behave as before.
 	//   3) ?chm= explicit override from the auth_request wrapper.
 	//   4) ?_force= debug override (via /unmask/force-pow / -captcha).
-	// Monitoring mode (= let every request through).  When ON we short-circuit the
-	// challenge: log the signal in events, then bounce the visitor to the
-	// original URL without showing PoW / CAPTCHA.
-	if forceQuery == "" && h.Settings.Global.Passthrough {
+	// Monitoring mode (= let every request through).  When ON -- either the
+	// operator's Global.Passthrough, or the over-block circuit breaker tripping
+	// into auto-passthrough -- we short-circuit the challenge: issue a signed _bv
+	// and bounce the visitor to the original URL without showing PoW / CAPTCHA.
+	if forceQuery == "" && (h.Settings.Global.Passthrough || h.overBlockPassthrough()) {
 		// Issue a PROPERLY-SIGNED _bv so the visitor doesn't loop back through
 		// nginx's challenge redirect.  This MUST be a real HMAC-signed cookie
 		// (IssueValue, same as the post-PoW / CAPTCHA success path): the native C

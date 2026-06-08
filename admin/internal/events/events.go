@@ -324,6 +324,14 @@ type Row struct {
 	// single row.  Different challenge serves get different tokens, so a bot
 	// reloading repeatedly is never accidentally merged.
 	BeaconToken string `json:"bt,omitempty"`
+	// LBWarning: operator-misconfiguration / spoof signal sourced from payload
+	// "lb_warning".  Non-empty when the /api/check request carried an LB-
+	// forwarded header (X-Client-JA4 / X-Unmask-Site) that the admin's
+	// TrustForwarded* settings rejected -- almost always an operator setup gap
+	// where the proxy forwards JA4 but the admin never opted in, occasionally
+	// a visitor probing whether the header is honored.  Empty on phase=check
+	// rows with a clean header set, and on all challenge-flow phases.
+	LBWarning string `json:"lb_warning,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -338,6 +346,14 @@ func extractAction(payload string) string {
 // up to 32 chars.
 func extractRLZone(payload string) string {
 	return extractStringField(payload, "rl_zone", 32)
+}
+
+// extractLBWarning pulls "lb_warning" out of payload_json.  Set by AuthCheck
+// (= phase=check only) when the request carried an LB-forwarded header that
+// the admin's trust config rejected.  Cap at 256 chars; the writer concatenates
+// at most a couple of short fixed strings, so anything longer is malformed.
+func extractLBWarning(payload string) string {
+	return extractStringField(payload, "lb_warning", 256)
 }
 
 // extractBeaconToken pulls "bt" out of payload_json.  The token is generated
@@ -550,6 +566,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 		if r.Phase == "check" {
 			r.Action = extractAction(payload.String)
 			r.RLZone = extractRLZone(payload.String)
+			r.LBWarning = extractLBWarning(payload.String)
 		}
 		// Path is extracted regardless of phase (recorded for load / serve / check).
 		r.Path = extractPath(payload.String)
@@ -652,6 +669,7 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 		if row.Phase == "check" {
 			row.Action = extractAction(payload.String)
 			row.RLZone = extractRLZone(payload.String)
+			row.LBWarning = extractLBWarning(payload.String)
 		}
 		row.Path = extractPath(payload.String)
 		row.BeaconToken = extractBeaconToken(payload.String)
@@ -664,6 +682,17 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 type RankRow struct {
 	Key   string // one of IP / UA / JA4
 	Count int
+}
+
+// OverBlockStats returns the challenge serve volume and the distinct client-IP
+// count over the last `minutes`, for the over-block circuit breaker.  A high
+// serves/distinctIPs ratio means the same visitors are being re-challenged
+// instead of passing -- a challenge loop (the 2026-06-08 tool1-jp incident).
+func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinctIPs int, err error) {
+	stmt := `SELECT COUNT(*), COUNT(DISTINCT ip_address) FROM unmask_event
+	         WHERE phase = 'serve' AND date_created > ` + d.NowMinusMinutes(minutes)
+	err = d.QueryRowContext(ctx, stmt).Scan(&serves, &distinctIPs)
+	return serves, distinctIPs, err
 }
 
 // RankByIP aggregates unmask_event from the last sinceMin minutes by IP.  Top limit entries.

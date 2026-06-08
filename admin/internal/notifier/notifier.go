@@ -32,6 +32,7 @@ const (
 
 	EventBanCreated     = "ban_created"
 	EventChallengeBurst = "challenge_burst"
+	EventOverBlock      = "over_block"
 )
 
 // Config: webhook notification settings.  Disabled or empty URL → no-op.
@@ -192,6 +193,53 @@ func (n *Notifier) ChallengeServed() {
 	subject := fmt.Sprintf("[unmask] challenge burst: %d/5min", count)
 	if cfg.Sites != "" {
 		subject = fmt.Sprintf("[unmask:%s] challenge burst: %d/5min", cfg.Sites, count)
+	}
+	go n.sendMail(subject, text)
+}
+
+// OverBlock: the over-block circuit breaker changed state.  Called only on a
+// transition (trip or clear), so there is no flap to throttle.  When tripped,
+// the same visitors are being re-challenged instead of passing (serves/IP = the
+// ratio over the window); autoPass reports whether the breaker also dropped
+// protection to passthrough.
+func (n *Notifier) OverBlock(tripped bool, serves, ips int, ratio float64, autoPass bool) {
+	if n == nil {
+		return
+	}
+	cfg := n.currentCfg()
+	if cfg.Disabled {
+		return
+	}
+	state := "cleared"
+	var text string
+	if tripped {
+		state = "TRIPPED"
+		act := "alert only (protection unchanged)"
+		if autoPass {
+			act = "AUTO-PASSTHROUGH engaged (visitors let through until it clears)"
+		}
+		text = fmt.Sprintf("[CRITICAL] over-block %s: %d challenge serves to %d IPs (= %.1f/IP) -- the same visitors are being re-challenged instead of passing. %s%s",
+			state, serves, ips, ratio, act, siteSuffix(cfg.Sites))
+	} else {
+		text = fmt.Sprintf("[OK] over-block %s: serves/IP back to %.1f -- the challenge funnel recovered%s",
+			state, ratio, siteSuffix(cfg.Sites))
+	}
+	fields := map[string]any{
+		"event":            EventOverBlock,
+		"tripped":          tripped,
+		"serves":           serves,
+		"ips":              ips,
+		"serves_per_ip":    ratio,
+		"auto_passthrough": autoPass,
+		"site":             cfg.Sites,
+		"ts":               time.Now().Unix(),
+	}
+	if cfg.URL != "" {
+		go n.send(cfg, EventOverBlock, fields, text)
+	}
+	subject := "[unmask] over-block " + state
+	if cfg.Sites != "" {
+		subject = "[unmask:" + cfg.Sites + "] over-block " + state
 	}
 	go n.sendMail(subject, text)
 }

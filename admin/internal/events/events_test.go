@@ -41,6 +41,45 @@ func TestNormalizeEventTimeFractional(t *testing.T) {
 	}
 }
 
+// TestOverBlockStats checks the circuit-breaker signal query: it counts only
+// phase='serve' events in the window and reports distinct client IPs, so the
+// caller can derive serves-per-IP (the re-challenge loop ratio).
+func TestOverBlockStats(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ins := func(ip, phase string, n int) {
+		for i := 0; i < n; i++ {
+			if err := Insert(ctx, d, &Event{IPPacked: PackIP(ip), Phase: phase, OccurredAt: now}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// 3 distinct IPs served, 9 serve events total (.1 looped 5x, .2 looped 3x).
+	ins("10.0.0.1", "serve", 5)
+	ins("10.0.0.2", "serve", 3)
+	ins("10.0.0.3", "serve", 1)
+	ins("10.0.0.4", "load", 4) // non-serve must be excluded from both counts
+
+	serves, ips, err := OverBlockStats(ctx, d, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if serves != 9 {
+		t.Errorf("serves = %d, want 9 (load events must be excluded)", serves)
+	}
+	if ips != 3 {
+		t.Errorf("distinct IPs = %d, want 3", ips)
+	}
+}
+
 // TestSubsecondOrdering guards the hunt-log ordering fix: events that share a
 // wall-clock second must still come back in their true arrival order, driven
 // by the millisecond date_created timestamp rather than insert order alone.

@@ -947,6 +947,54 @@ type JA4VerdictExtraRule struct {
 // JA4 / honeypot / protected paths).  Lives at the root of settings so the
 // "Operating mode" tab can drive them without dragging other tabs into shared
 // state.
+// OverBlockConfig: the over-block circuit breaker.  The daemon samples the
+// challenge funnel; when the same visitors are being re-challenged instead of
+// passing (a high serves-per-IP ratio over the window = a challenge loop, the
+// shape of the 2026-06-08 tool1-jp incident that ran ~14h before anyone
+// noticed), it raises an alert and -- when AutoPassthrough is set -- temporarily
+// lets visitors through until the signal clears, capping the blast radius of any
+// challenge regression.
+type OverBlockConfig struct {
+	// Enabled turns the breaker on.  Off by default (opt-in).
+	Enabled bool `yaml:"enabled,omitempty"`
+	// WindowMinutes: the sampling window for the serves-per-IP ratio. Default 10.
+	WindowMinutes int `yaml:"window_minutes,omitempty"`
+	// MinServes: don't evaluate the ratio below this serve volume in the window
+	// (= avoids tripping on a handful of requests). Default 50.
+	MinServes int `yaml:"min_serves,omitempty"`
+	// MaxServesPerIP: serves/distinct-IP at or above this trips the breaker
+	// (= the same IPs being re-challenged rather than passing). Default 4.
+	MaxServesPerIP int `yaml:"max_serves_per_ip,omitempty"`
+	// AutoPassthrough: while tripped, also flip serveBotChallenge to passthrough
+	// (= issue a signed _bv, let visitors through).  Default false = alert only;
+	// the operator decides whether to drop protection automatically.
+	AutoPassthrough bool `yaml:"auto_passthrough,omitempty"`
+}
+
+// WindowMinutesResolved returns the sampling window, defaulting to 10.
+func (c OverBlockConfig) WindowMinutesResolved() int {
+	if c.WindowMinutes <= 0 {
+		return 10
+	}
+	return c.WindowMinutes
+}
+
+// MinServesResolved returns the minimum serve volume to evaluate, defaulting to 50.
+func (c OverBlockConfig) MinServesResolved() int {
+	if c.MinServes <= 0 {
+		return 50
+	}
+	return c.MinServes
+}
+
+// MaxServesPerIPResolved returns the serves/IP trip threshold, defaulting to 4.
+func (c OverBlockConfig) MaxServesPerIPResolved() int {
+	if c.MaxServesPerIP <= 0 {
+		return 4
+	}
+	return c.MaxServesPerIP
+}
+
 type GlobalConfig struct {
 	// Passthrough = monitoring mode.  When true, the admin's serveBotChallenge
 	// short-circuits and bounces the user straight back to the original URL
@@ -1043,6 +1091,7 @@ type Settings struct {
 	Notifications Notifications        `yaml:"notifications,omitempty"`
 	SMTP          SMTP                 `yaml:"smtp,omitempty"`
 	Global        GlobalConfig         `yaml:"global,omitempty"`
+	OverBlock     OverBlockConfig      `yaml:"over_block_breaker,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.

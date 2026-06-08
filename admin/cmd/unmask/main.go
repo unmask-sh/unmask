@@ -458,6 +458,15 @@ func cmdServe(args []string) error {
 		}()
 	}
 
+	// Over-block circuit breaker: sample the challenge funnel every 60s and trip
+	// (alert + optional auto-passthrough) when the same visitors are being
+	// re-challenged instead of passing, so a challenge regression can't quietly
+	// over-block real traffic for hours.  No-op until over_block_breaker is
+	// enabled.  Reads h.Settings live so web UI saves take effect.
+	if conn != nil {
+		go h.RunOverBlockMonitor(context.Background())
+	}
+
 	// Roll new unmask_event rows into unmask_aggregate_hourly every 60s (plus a
 	// startup pass).  The stats page reads those hourly rollups instead of
 	// scanning the raw event table, which is ~10x slower under pure-Go SQLite.
