@@ -60,6 +60,16 @@ EOF
     # world-readable there.
     chmod 0600 "$CFG"
     echo "==> generated minimal $CFG (= visit /unmask/admin/ to start install wizard)"
+
+    # Setup-token: the wizard's anti-hijack gate fails CLOSED, and a container
+    # has no postinstall to mint a token, so without one every wizard POST is
+    # silently rejected -- a no-feedback dead-end.  Mint one alongside the fresh
+    # config and surface it in the logs (read it via `docker logs`, enter it in
+    # the wizard).  SetupNeeded clears the token automatically once an admin user
+    # exists, so a recreate against a persisted DB never re-locks the UI.
+    token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    ( umask 077; printf '%s\n' "$token" > /etc/unmask/.setup-token )
+    echo "==> unmask setup token (enter this in the wizard): $token"
 fi
 
 exec /usr/local/bin/unmask "$@"
