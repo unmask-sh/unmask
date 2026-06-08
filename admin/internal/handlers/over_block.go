@@ -96,3 +96,40 @@ type overBlockThresholds interface {
 func (h *Handler) overBlockPassthrough() bool {
 	return h.overBlockTripped.Load() && h.snapshotSettings().OverBlock.AutoPassthrough
 }
+
+// OverBlockHealth is the live breaker signal for the dashboard health card.
+type OverBlockHealth struct {
+	Enabled   bool
+	Tripped   bool
+	Serves    int
+	IPs       int
+	Ratio     float64 // serves / IPs over the window
+	Threshold int     // MaxServesPerIP -- Ratio at/above this trips
+	MinServes int     // volume floor below which the breaker won't trip
+	WindowMin int
+	AutoPass  bool
+}
+
+// OverBlockHealth samples the breaker's current signal for the dashboard.  It
+// uses the breaker's own global, fixed-window view (not the dashboard's site /
+// time filter), so the card matches exactly what the monitor acts on.
+func (h *Handler) OverBlockHealth(ctx context.Context) (OverBlockHealth, error) {
+	cfg := h.snapshotSettings().OverBlock
+	hh := OverBlockHealth{
+		Enabled:   cfg.Enabled,
+		Tripped:   h.overBlockTripped.Load(),
+		Threshold: cfg.MaxServesPerIPResolved(),
+		MinServes: cfg.MinServesResolved(),
+		WindowMin: cfg.WindowMinutesResolved(),
+		AutoPass:  cfg.AutoPassthrough,
+	}
+	serves, ips, err := events.OverBlockStats(ctx, h.DB, hh.WindowMin)
+	if err != nil {
+		return hh, err
+	}
+	hh.Serves, hh.IPs = serves, ips
+	if ips > 0 {
+		hh.Ratio = float64(serves) / float64(ips)
+	}
+	return hh, nil
+}

@@ -487,6 +487,12 @@ var dict = map[Lang]map[string]string{
 		"kpi.reject":  "challenge 表示",
 
 		// dashboard 内 card 共通 (= h2 / src-badge / 0-row toggle / table header / etc).
+		"dashboard.overblock.h":              "過剰ブロック検知",
+		"dashboard.overblock.tripped":        "発火中",
+		"dashboard.overblock.healthy":        "正常",
+		"dashboard.overblock.desc":           "同じ visitor が challenge を通過できず再 challenge され続けている度合い。 serves/IP が閾値以上で発火し、 通知 (+ 設定があれば自動全通過) します。",
+		"dashboard.overblock.threshold":      "閾値",
+		"dashboard.overblock.autopass_on":    "自動全通過中 &mdash; 信号が戻るまで challenge を停止しています。",
 		"dashboard.card.funnel":              "チャレンジ ファネル",
 		"dashboard.card.rate_limit":          "レート制限ヒット",
 		"dashboard.rate_limit.desc":          "アプリパス上で <strong>1 IP あたりの req/min 閾値</strong>(default 100)を超えたリクエストの集計。<br><br><strong>挙動</strong>: 通常 PoW をスキップして <strong>CAPTCHA 直行</strong>(人間判定を強制)。<br><strong>除外</strong>: 過去 3 日に CAPTCHA 通過済の IP / 検索 bot UA / ホワイトリスト IP。<br><br><strong>ユーザー視点</strong>: 急に CAPTCHA 画面が表示される(リロード連打や API 自動化を弾く)。<br><br>閾値・対象 path・除外設定は <strong>設定 &gt; Rate Limit</strong> で調整可能。",
@@ -1841,6 +1847,12 @@ match した access は <strong>BAN list に追加</strong>され、 BAN 後の�
 		"kpi.pow":     "PoW passed",
 		"kpi.reject":  "challenge shown",
 
+		"dashboard.overblock.h":              "Over-block detection",
+		"dashboard.overblock.tripped":        "TRIPPED",
+		"dashboard.overblock.healthy":        "Healthy",
+		"dashboard.overblock.desc":           "How much the same visitors are being re-challenged instead of passing.  Trips when serves/IP reaches the threshold, raising an alert (and auto-passthrough if configured).",
+		"dashboard.overblock.threshold":      "threshold",
+		"dashboard.overblock.autopass_on":    "Auto-passthrough engaged &mdash; challenges are paused until the signal recovers.",
 		"dashboard.card.funnel":              "Challenge funnel",
 		"dashboard.card.rate_limit":          "Rate-limit hits",
 		"dashboard.rate_limit.desc":          "Requests exceeding the configured <strong>per-IP req/min threshold</strong> (default 100) on app paths.<br><br><strong>Behavior</strong>: skip PoW → straight to <strong>CAPTCHA</strong> (force human check).<br><strong>Exclusions</strong>: IPs that passed CAPTCHA in the past 3 days, search-bot UAs, whitelisted IPs.<br><br><strong>User perspective</strong>: a CAPTCHA suddenly appears (catches reload-spam and API automation).<br><br>Adjust the threshold, target paths, and exclusions at <strong>Settings &gt; Rate Limit</strong>.",
