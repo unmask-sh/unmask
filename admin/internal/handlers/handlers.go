@@ -312,12 +312,25 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
 }
 
+// challengeJSPackagePath is the package-deployed challenge.js override; a
+// package var so tests can point it at a stale fixture.
+var challengeJSPackagePath = "/usr/share/unmask/challenge/challenge.js"
+
 // loadChallengeJS returns the challenge.js bytes, mirroring loadChallengeHTML's
 // override order: a deployed /usr/share/unmask/challenge/challenge.js wins, else
-// the embedded copy.  Used to inline the script into the served challenge page.
+// the embedded copy.  Used by ServeChallengeJS and the inline path.
 func (h *Handler) loadChallengeJS() ([]byte, error) {
-	if b, err := os.ReadFile("/usr/share/unmask/challenge/challenge.js"); err == nil {
-		return b, nil
+	// Same stale-asset guard as loadChallengeHTML.  A challenge.js that predates
+	// the seed-bound PoW (an old djb2 build that never reads
+	// window.UNMASK.pow_seed) makes the browser solve a PoW the current plugin
+	// rejects, looping every visitor -- exactly what shipped to tool1 alongside
+	// the stale HTML.  Require the pow_seed marker before trusting the on-disk
+	// copy; otherwise use the embedded (always-current) one.
+	if b, err := os.ReadFile(challengeJSPackagePath); err == nil {
+		if bytes.Contains(b, []byte("pow_seed")) {
+			return b, nil
+		}
+		log.Printf("challenge.js at %s lacks pow_seed handling (stale pre-seed-bound-PoW asset); using embedded copy to avoid a challenge loop", challengeJSPackagePath)
 	}
 	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.js"))
 }
@@ -1310,15 +1323,7 @@ const resetCookieBody = `<h1>cookie reset</h1>
 // HTML via window.UNMASK).  If ops overlays
 // `/usr/share/unmask/challenge/challenge.js`, that takes priority.
 func (h *Handler) ServeChallengeJS(w http.ResponseWriter, r *http.Request) {
-	for _, p := range []string{
-		"/usr/share/unmask/challenge/challenge.js",
-	} {
-		if b, err := os.ReadFile(p); err == nil {
-			writeJS(w, b)
-			return
-		}
-	}
-	b, err := assets.Static.ReadFile("static/challenge.js")
+	b, err := h.loadChallengeJS()
 	if err != nil {
 		log.Printf("challenge.js load failed: %v", err)
 		http.Error(w, "challenge.js unavailable", http.StatusInternalServerError)
