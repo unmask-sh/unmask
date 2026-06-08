@@ -43,6 +43,14 @@ contents:
   # proxy_pass http://unmask_admin) is auto-loaded by postinstall via the
   # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.
 
+overrides:
+  # apk: re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # script runs otherwise) so symlinks/maphash are re-applied.
+  apk:
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-web-nginx.sh
+
 scripts:
   postinstall: ./scripts/postinstall-web-nginx.sh
   postremove:  ./scripts/postremove-web-nginx.sh

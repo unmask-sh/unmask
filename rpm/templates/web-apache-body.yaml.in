@@ -37,6 +37,9 @@ overrides:
       - apache2
       - lua-socket
   apk:
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-web-apache.sh
     depends:
       - unmask
       - apache2

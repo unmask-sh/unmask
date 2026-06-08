@@ -117,6 +117,14 @@ overrides:
   apk:
     scripts:
       preinstall: ./scripts/preinstall-main-apk.sh
+    # apk runs NO maintainer script on `apk upgrade` unless an apk-SPECIFIC
+    # post-upgrade hook is declared (the generic scripts.* map only to
+    # .post-install/.post-deinstall).  Without this an `apk upgrade` keeps the
+    # old daemon binary running and never re-renders http.inc.  Re-run the
+    # idempotent postinstall (which restarts the service + render-nginx).
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall.sh
     # OpenRC is the alpine default, but minimal cloud / docker images
     # sometimes ship without it.  In that case, the postinstall OpenRC branch
     # fails to find `rc-service` and falls back to `init: manual`, which

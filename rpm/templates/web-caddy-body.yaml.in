@@ -22,6 +22,9 @@ depends:
 
 overrides:
   apk:
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-web-caddy.sh
     depends:
       - unmask
       - caddy

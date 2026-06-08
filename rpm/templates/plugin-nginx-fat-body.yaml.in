@@ -32,6 +32,11 @@ overrides:
   # never fires.  Pin as a hard apk dependency so `apk add unmask-plugin-nginx`
   # pulls it in by default.
   apk:
+    # apk runs no maintainer script on `apk upgrade` without an
+    # apk-specific post-upgrade hook; re-run the idempotent postinstall.
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-plugin-nginx-fat.sh
     depends:
       - unmask
       - nginx

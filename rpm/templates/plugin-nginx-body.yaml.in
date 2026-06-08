@@ -34,6 +34,14 @@ contents:
     file_info:
       mode: 0644
 
+overrides:
+  # apk: re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # script runs otherwise) so the new .so is re-placed.
+  apk:
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-plugin-nginx.sh
+
 scripts:
   preinstall: ./scripts/preinstall-plugin-nginx.sh
   postinstall: ./scripts/postinstall-plugin-nginx.sh

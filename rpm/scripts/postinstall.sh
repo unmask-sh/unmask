@@ -146,7 +146,11 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     } > "$DROP_IN/10-group.conf"
 
     systemctl daemon-reload || true
-    if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ]; then
+    if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; }; then
+        # Fresh install only: rpm $1=1, or deb "configure" with an empty $2.
+        # deb "configure" ALSO fires on upgrades, where enable --now is a no-op
+        # on the already-running unit so the NEW binary never loads -- gate on
+        # an empty $2 so those fall through to try-restart below instead.
         systemctl enable --now unmask.service || true
     elif [ -d /lib/apk ]; then
         # apk passes the package version as $1 (not "1"/"configure"), so a fresh
