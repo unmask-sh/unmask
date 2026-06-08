@@ -119,6 +119,23 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 	// from in-flight wizard state (= deferred-commit model).  The token
 	// file is removed at the end of AdminSetupInstall.
 	if _, err := os.Stat(SetupTokenPath); err == nil {
+		// A token file is present but the admin user table is already
+		// populated -> the token is stale.  A deb `configure` (and any package
+		// that re-runs the postinstall) recreates .setup-token on EVERY
+		// upgrade, not just fresh installs; re-entering the wizard here would
+		// 302-loop every admin route and let "re-completing" it rewrite the DB
+		// block to SQLite (orphaning MariaDB).  Treat setup as done and clean
+		// the stale token up.
+		if h.DB != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			var n int
+			err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n)
+			cancel()
+			if err == nil && n > 0 {
+				removeSetupToken()
+				return false, ""
+			}
+		}
 		// Without a verified token cookie, we can't read wizard state — go
 		// to the token step.
 		if !hasValidSetupToken(r) {
@@ -459,6 +476,22 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if !hasValidSetupToken(r) {
 		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
+	}
+	// Defense in depth: never re-install against an already-provisioned
+	// instance.  If the live DB already has a user, setup was completed before
+	// (a stale token slipped through) -- re-installing would migrate a fresh DB
+	// and rewrite config.yml's DB block to SQLite, orphaning the real backend.
+	// Clear the stale token and bounce to the dashboard.
+	if h.DB != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		var n int
+		err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n)
+		cancel()
+		if err == nil && n > 0 {
+			removeSetupToken()
+			http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/", http.StatusFound)
+			return
+		}
 	}
 	base := h.Settings.Server.BasePath
 	redirErr := func(msg string) {

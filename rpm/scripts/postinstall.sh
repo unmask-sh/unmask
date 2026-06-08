@@ -50,7 +50,11 @@ TOKEN_FILE=$CONFIG_DIR/.setup-token
 # and the setup wizard's anti-hijack token check is bypassable (= the first
 # visitor could create the admin account).  The inner `[ ! -f "$TOKEN_FILE" ]`
 # guard keeps this idempotent across apk upgrades.
-if [ "${1:-}" = "1" ] || [ "${1:-}" = "configure" ] || [ -d /lib/apk ]; then
+# deb's "configure" fires on UPGRADES too, not just fresh installs; gate it on
+# an empty $2 (the previous version, set only on upgrade) so `apt upgrade`
+# doesn't re-mint the token and re-lock the admin UI behind the wizard.  (The
+# daemon also clears a stale token at runtime once an admin user exists.)
+if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ]; then
     if [ ! -f "$TOKEN_FILE" ]; then
         token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
         # Write the token inside a `umask 077` subshell so the file is born
