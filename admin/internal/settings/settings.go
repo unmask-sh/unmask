@@ -1048,13 +1048,16 @@ type Settings struct {
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a
 	// goroutine runs `DELETE FROM unmask_event WHERE date_created < now - N days`
-	// idempotently every 24h.
-	EventsRetentionDays int `yaml:"events_retention_days,omitempty"`
+	// idempotently every 24h.  No omitempty: 0 is the zero value, so omitempty
+	// would drop it on Save and Load would re-default it to 90 -- silently
+	// deleting the history the operator chose to keep forever.
+	EventsRetentionDays int `yaml:"events_retention_days"`
 	// AuditRetentionDays: retention days for the admin-action log
 	// (unmask_user_audit: login / settings save / user + ban mutations).
 	// Default 90. 0 = retain forever. Pruned by the same 24h startup goroutine
 	// as events (`DELETE FROM unmask_user_audit WHERE at < now - N days`).
-	AuditRetentionDays int `yaml:"audit_retention_days,omitempty"`
+	// No omitempty (same 0-must-round-trip reason as EventsRetentionDays).
+	AuditRetentionDays int `yaml:"audit_retention_days"`
 	// EventsBatchSize: how many raw events to batch per write. Default 100.
 	// Once accumulated, run a bulk INSERT (= N rows in one transaction).
 	// On high-traffic sites (= >100 events/sec) this reduces DB writes to 1/N.
@@ -1122,9 +1125,12 @@ type CommunityBans struct {
 	// can show it without a hub round-trip.  HNOverride (= empty by default)
 	// lets the operator pick a custom display name; the hub keeps the
 	// derived HN as the canonical identity, override is presentation-only.
-	HN                   string `yaml:"hn,omitempty"`
-	HNOverride           string `yaml:"hn_override,omitempty"`
-	PublishCountry       bool   `yaml:"publish_country,omitempty"`
+	HN         string `yaml:"hn,omitempty"`
+	HNOverride string `yaml:"hn_override,omitempty"`
+	// No omitempty: defaults to true, so an operator who opts out (false) would
+	// otherwise have it dropped on Save and reverted to true on Load --
+	// re-publishing the reporter country against their privacy choice.
+	PublishCountry       bool   `yaml:"publish_country"`
 	RegisterURL          string `yaml:"register_url,omitempty"`
 	SubmitURL            string `yaml:"submit_url,omitempty"`
 	FeedURL              string `yaml:"feed_url,omitempty"`
