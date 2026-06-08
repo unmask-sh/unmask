@@ -43,6 +43,11 @@ const (
 	themePlaceholder     = `/*__THEME__*/"default"`
 	brandingPlaceholder  = `/*__BRANDING__*/null`
 	buildVPlaceholder    = `__BUILD_V__`
+	// The external challenge.js <script> tag.  ServeChallenge inlines the JS
+	// verbatim in its place so a client that cannot fetch the 53KB external file
+	// (an extension / flaky network / odd proxy) never loops on a challenge
+	// whose PoW never ran -- the widespread tool1-jp loop.
+	challengeJSScriptTag = `<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	// PoW spinner floor.  Default 0 (= no floor, real timing); only the
@@ -288,6 +293,16 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 		return b, nil
 	}
 	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
+}
+
+// loadChallengeJS returns the challenge.js bytes, mirroring loadChallengeHTML's
+// override order: a deployed /usr/share/unmask/challenge/challenge.js wins, else
+// the embedded copy.  Used to inline the script into the served challenge page.
+func (h *Handler) loadChallengeJS() ([]byte, error) {
+	if b, err := os.ReadFile("/usr/share/unmask/challenge/challenge.js"); err == nil {
+		return b, nil
+	}
+	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.js"))
 }
 
 // stripOrKeepCredit processes the
@@ -628,10 +643,24 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
 		[]byte("/*__BRANDING__*/"+brandingInjectJSON(br, h.basePath())))
-	// Cache-bust the challenge.js URL with the admin's start-time epoch so
-	// every restart forces visitors to re-fetch the script.  Without this
-	// the public-side max-age=600 keeps stale JS in browsers for up to 10
-	// minutes after a fix lands -- painful while iterating on copy / brand.
+	// Inline challenge.js into the page instead of loading it as an external
+	// <script src>.  A client that fails to fetch the 53KB external file (an
+	// extension, a flaky network, an odd proxy) renders the challenge but never
+	// runs the PoW, so it re-challenges forever -- the widespread tool1-jp loop
+	// where the JS-load count was a fraction of the serve count.  Inlining
+	// removes the external fetch entirely.  Escape any "</script>" in the JS so
+	// it can't terminate the inline block early; fall back to the external tag
+	// if the JS can't be read.
+	if js, jerr := h.loadChallengeJS(); jerr == nil && len(js) > 0 {
+		js = bytes.ReplaceAll(js, []byte("</script"), []byte(`<\/script`))
+		inlined := make([]byte, 0, len(js)+len("<script></script>"))
+		inlined = append(inlined, []byte("<script>")...)
+		inlined = append(inlined, js...)
+		inlined = append(inlined, []byte("</script>")...)
+		body = bytes.Replace(body, []byte(challengeJSScriptTag), inlined, 1)
+	}
+	// Cache-bust the (fallback) external challenge.js URL with the admin's
+	// start-time epoch.  No-op once the tag above has been inlined.
 	body = bytes.ReplaceAll(body, []byte(buildVPlaceholder),
 		[]byte(strconv.FormatInt(buildVersionStamp, 10)))
 
