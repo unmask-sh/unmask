@@ -38,7 +38,9 @@ sudo apt install -y https://unmask.sh/dl/deb/unmask-release-latest.deb
 sudo apt update
 sudo apt install -y unmask unmask-web-nginx unmask-plugin-nginx
 
-# apk (= Alpine)
+# apk (= Alpine): add the signing key + repo first
+sudo wget -O /etc/apk/keys/oss@unmask.sh-260509.rsa.pub https://unmask.sh/dl/keys/oss@unmask.sh-260509.rsa.pub
+echo "https://unmask.sh/dl/apk/main" | sudo tee -a /etc/apk/repositories
 sudo apk add unmask unmask-web-nginx unmask-plugin-nginx
 
 # Open https://your-host/unmask/admin/setup/ to finish the install wizard.

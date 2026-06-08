@@ -148,6 +148,11 @@ mkdir -p "$OUT"/{rpm,deb,apk,keys}
 if stage_active rpm || stage_active deb; then
     cp "$ROOT/rpm/release/RPM-GPG-KEY-unmask" "$OUT/keys/RPM-GPG-KEY-unmask"
     cp "$ROOT/rpm/release/unmask.rsa.pub"      "$OUT/keys/unmask.rsa.pub"
+    # apk signing pub key, so the Alpine bootstrap can drop it into
+    # /etc/apk/keys/.  Guarded: place the .pub at rpm/release/ to publish it
+    # (the matching private signer key lives in the offline key store).
+    [ -f "$ROOT/rpm/release/oss@unmask.sh-260509.rsa.pub" ] &&
+        cp "$ROOT/rpm/release/oss@unmask.sh-260509.rsa.pub" "$OUT/keys/oss@unmask.sh-260509.rsa.pub"
 fi
 
 # ============================================================
@@ -177,6 +182,12 @@ elif [ "$HAVE_CREATEREPO" = 1 ]; then
         latest=$(ls -1 "$arch_dir"/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
         [ -n "$latest" ] && cp -f "$latest" "$arch_dir/unmask-release-latest.noarch.rpm"
     done
+    # Also drop the noarch release alias at the TOP of /dl/rpm/ -- the install
+    # docs link to the stable, arch-independent
+    # https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm, and
+    # `dnf install <url>` fetches it directly (no repodata lookup).
+    rel=$(ls -1 "$DIST"/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
+    [ -n "$rel" ] && cp -f "$rel" "$OUT/rpm/unmask-release-latest.noarch.rpm"
 
     # sign packages + generate repodata
     for arch in x86_64 aarch64; do
@@ -224,6 +235,10 @@ elif [ "$HAVE_APT" = 1 ]; then
     # latest alias for unmask-release (= install docs link to a stable URL)
     latest=$(ls -1 "$POOL"/unmask-release_[0-9]*_all.deb 2>/dev/null | sort -V | tail -1)
     [ -n "$latest" ] && cp -f "$latest" "$POOL/unmask-release_latest_all.deb"
+    # Also drop it at the TOP of /dl/deb/ with the filename the install docs use
+    # (https://unmask.sh/dl/deb/unmask-release-latest.deb); `apt install <url>`
+    # fetches it directly.
+    [ -n "$latest" ] && cp -f "$latest" "$OUT/deb/unmask-release-latest.deb"
 
     DSTABLE="$OUT/deb/dists/stable"
     for arch in amd64 arm64; do
