@@ -37,19 +37,25 @@ example.com {
             # (header_up -X-Client-JA4) so a client cannot forge it.
             header_up X-Client-JA4    {http.request.header.X-Client-JA4}
 
-            # Keep admin's X-Unmask-Action header so error_page can branch on it.
+            # Keep admin's X-Unmask-Action / X-Unmask-Reason headers.
             copy_headers X-Unmask-Action X-Unmask-Reason
+
+            # Caddy's forward_auth copies a non-2xx auth response STRAIGHT to
+            # the client and never routes it through handle_errors, so the
+            # challenge-redirect / block decision must live HERE.  401 =
+            # challenge required -> redirect to the challenge page; 403 = block.
+            # A 2xx auth response still falls through to the reverse_proxy below.
+            @challenge status 401
+            handle_response @challenge {
+                redir /unmask/challenge/ 302
+            }
+            @blocked status 403
+            handle_response @blocked {
+                respond "Access denied by unmask" 403
+            }
         }
 
-        # Check passed → normal reverse_proxy / file_server etc.
+        # Auth passed (2xx) → normal reverse_proxy / file_server etc.
         reverse_proxy 127.0.0.1:8080
-    }
-
-    # 401 (= challenge required) → redirect to /unmask/challenge/.
-    handle_errors {
-        @auth_challenge expression {http.error.status_code} == 401
-        @auth_blocked   expression {http.error.status_code} == 403
-        redir @auth_challenge /unmask/challenge/ 302
-        respond @auth_blocked "Access denied by unmask" 403
     }
 }
