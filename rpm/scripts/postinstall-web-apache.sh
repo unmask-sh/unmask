@@ -53,14 +53,23 @@ elif [ -f "$DEBIAN_CONF" ]; then
     fi
 fi
 
-# SELinux hint (= httpd needs the bool to connect to 127.0.0.1:9477).
-if command -v getenforce >/dev/null 2>&1; then
-    if [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
-        if command -v getsebool >/dev/null 2>&1; then
-            if getsebool httpd_can_network_connect 2>/dev/null | grep -q ' --> off'; then
-                echo "unmask-web-apache: SELinux is Enforcing AND httpd_can_network_connect is OFF."
-                echo "  → run: sudo setsebool -P httpd_can_network_connect 1"
-            fi
+# SELinux: httpd (httpd_t) needs the httpd_can_network_connect bool to proxy /
+# auth_request to the admin at 127.0.0.1:9477.  Without it apache-unmask.lua's
+# connect is DENIED and it returns DECLINED -- the challenge silently never
+# fires (a security control failing open).  Auto-enable to match unmask-web-nginx
+# so install-and-go works; opt out with UNMASK_SKIP_SETSEBOOL=1.  Persistent (-P).
+if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
+   command -v getenforce >/dev/null 2>&1 &&
+   [ "$(getenforce 2>/dev/null)" = "Enforcing" ] &&
+   command -v setsebool >/dev/null 2>&1 &&
+   command -v getsebool >/dev/null 2>&1; then
+    if getsebool httpd_can_network_connect 2>/dev/null | grep -q ' --> off'; then
+        if setsebool -P httpd_can_network_connect 1 2>/dev/null; then
+            echo "unmask-web-apache: SELinux setsebool -P httpd_can_network_connect 1 applied"
+            echo "  (= httpd can now connect to unmask.  set UNMASK_SKIP_SETSEBOOL=1 to opt out)"
+        else
+            echo "unmask-web-apache: WARNING -- setsebool failed."
+            echo "  -> run manually: sudo setsebool -P httpd_can_network_connect 1"
         fi
     fi
 fi

@@ -147,6 +147,28 @@ if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] \
     fi
 fi
 
+# SELinux: the native log socket /run/unmask/log.sock is created by the daemon
+# under var_run_t, but nginx (httpd_t) writing a var_run_t sock_file has no allow
+# rule -> the dashboard cookie/crawler/countries cards silently zero and the
+# error_log spams "connect() failed (13: Permission denied)" (the same denial
+# 502s the opt-in unix:/run/unmask/admin.sock).  Relabel the runtime dir
+# httpd_var_run_t so httpd_t may write the socket; the fcontext rule is permanent
+# so the daemon's socket inherits the label after a reboot recreates tmpfs /run.
+if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
+   command -v getenforce >/dev/null 2>&1 &&
+   [ "$(getenforce 2>/dev/null)" = "Enforcing" ] &&
+   command -v semanage >/dev/null 2>&1 &&
+   command -v restorecon >/dev/null 2>&1; then
+    if semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null ||
+       semanage fcontext -m -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null; then
+        [ -d /run/unmask ] && restorecon -RF /run/unmask 2>/dev/null || true
+        echo "unmask-web-nginx: SELinux fcontext httpd_var_run_t set on /run/unmask (native log socket)"
+    else
+        echo "unmask-web-nginx: WARNING -- semanage fcontext for /run/unmask failed."
+        echo "  -> run: sudo semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' && sudo restorecon -RF /run/unmask"
+    fi
+fi
+
 if command -v nginx >/dev/null 2>&1; then
     # Alpine creates the /run/nginx pid dir in the openrc service's start_pre,
     # so on a fresh box where nginx has never been started the validation
