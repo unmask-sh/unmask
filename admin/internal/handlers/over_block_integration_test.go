@@ -18,8 +18,8 @@ import (
 // scenarios' diverse IPs (and a real trip would passthrough-leak into them).
 func TestCheckOverBlockTripsAndPassesThrough(t *testing.T) {
 	h := newTestHandler(t)
+	// On by default (Disabled=false); auto-passthrough is opted in for this test.
 	h.Settings.OverBlock = settings.OverBlockConfig{
-		Enabled:         true,
 		AutoPassthrough: true,
 		WindowMinutes:   60,
 		MinServes:       20,
@@ -47,7 +47,7 @@ func TestCheckOverBlockTripsAndPassesThrough(t *testing.T) {
 
 	// Disabling the breaker must clear the tripped state so it can't latch (and
 	// auto-passthrough recovers on the next request).
-	h.Settings.OverBlock.Enabled = false
+	h.Settings.OverBlock.Disabled = true
 	h.checkOverBlock(ctx)
 	if h.overBlockTripped.Load() {
 		t.Error("disabling the breaker did not clear the tripped state")
@@ -62,7 +62,6 @@ func TestCheckOverBlockTripsAndPassesThrough(t *testing.T) {
 func TestCheckOverBlockHealthyDoesNotTrip(t *testing.T) {
 	h := newTestHandler(t)
 	h.Settings.OverBlock = settings.OverBlockConfig{
-		Enabled:        true,
 		WindowMinutes:  60,
 		MinServes:      20,
 		MaxServesPerIP: 5,

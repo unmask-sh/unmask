@@ -1,45 +1,10 @@
 package handlers
 
 import (
-	"net/http/httptest"
-	"net/url"
-	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
-
-// TestApplyOverBlockForm covers the global-settings form -> OverBlockConfig
-// mapping, including the partial-submit safety (blank/garbage numeric fields
-// keep the previous value rather than zeroing a threshold).
-func TestApplyOverBlockForm(t *testing.T) {
-	form := url.Values{
-		"ob_enabled":           {"1"},
-		"ob_window_minutes":    {"15"},
-		"ob_min_serves":        {"80"},
-		"ob_max_serves_per_ip": {"6"},
-		"ob_auto_passthrough":  {"1"},
-	}
-	r := httptest.NewRequest("POST", "/", strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	var c settings.OverBlockConfig
-	applyOverBlockForm(&c, r)
-	if !c.Enabled || !c.AutoPassthrough || c.WindowMinutes != 15 || c.MinServes != 80 || c.MaxServesPerIP != 6 {
-		t.Errorf("applied wrong: %+v", c)
-	}
-
-	// Unchecked checkboxes -> false; blank/garbage numerics keep the prior value.
-	c2 := settings.OverBlockConfig{Enabled: true, WindowMinutes: 99, MinServes: 99, MaxServesPerIP: 99}
-	r2 := httptest.NewRequest("POST", "/", strings.NewReader("ob_window_minutes=&ob_min_serves=abc&ob_max_serves_per_ip=0"))
-	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	applyOverBlockForm(&c2, r2)
-	if c2.Enabled {
-		t.Error("unchecked ob_enabled should clear Enabled")
-	}
-	if c2.WindowMinutes != 99 || c2.MinServes != 99 || c2.MaxServesPerIP != 99 {
-		t.Errorf("blank/garbage/zero numeric should keep previous: %+v", c2)
-	}
-}
 
 // TestEvalOverBlock covers the breaker's trip decision: it needs BOTH enough
 // serve volume AND a high serves-per-IP ratio (= the same visitors being

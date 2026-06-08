@@ -143,6 +143,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// presets).  Both run cheap so they share the overview render budget.
 	aiRows := aiTrafficSummary(ctx, h, 1440)
 	aiServed, _ := dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24)
+	// Over-block circuit breaker health -- a global signal, so it lives on the
+	// landing rather than the per-site stats dashboard.
+	overBlock, _ := h.OverBlockHealth(ctx)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
@@ -173,6 +176,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"HideActions":     true,
 		"AITraffic":       aiRows,
 		"AITrafficServed": aiServed,
+		"OverBlock":       overBlock,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)

@@ -954,9 +954,13 @@ type JA4VerdictExtraRule struct {
 // noticed), it raises an alert and -- when AutoPassthrough is set -- temporarily
 // lets visitors through until the signal clears, capping the blast radius of any
 // challenge regression.
+//
+// It's a safety net, so it runs by default (alert-only) with no settings UI; the
+// operator tunes or turns it off via config only.
 type OverBlockConfig struct {
-	// Enabled turns the breaker on.  Off by default (opt-in).
-	Enabled bool `yaml:"enabled,omitempty"`
+	// Disabled turns the breaker OFF.  Zero value = false = the breaker runs out
+	// of the box (on unless the operator explicitly opts out).
+	Disabled bool `yaml:"disabled,omitempty"`
 	// WindowMinutes: the sampling window for the serves-per-IP ratio. Default 10.
 	WindowMinutes int `yaml:"window_minutes,omitempty"`
 	// MinServes: don't evaluate the ratio below this serve volume in the window

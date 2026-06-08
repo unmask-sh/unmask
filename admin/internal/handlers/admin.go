@@ -1015,7 +1015,6 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		countries       []dashboard.CountryRow
 		dailyCountry    []dashboard.DailyCountryBucket
 		dailyUniq       []dashboard.DailyUniq
-		overBlock       OverBlockHealth
 	)
 	qStart := time.Now()
 	var wg sync.WaitGroup
@@ -1059,13 +1058,6 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		defer fcancel()
 		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry())
 		return funnelErr
-	})
-	run("OverBlock", func() error {
-		octx, ocancel := queryCtx(5 * time.Second)
-		defer ocancel()
-		var e error
-		overBlock, e = h.OverBlockHealth(octx)
-		return e
 	})
 	run("CookieStatus", func() error {
 		var e error
@@ -1368,7 +1360,6 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
 		"Driver":             string(h.DB.Driver),
 		"FailedCards":        failedCardList,
-		"OverBlock":          overBlock,
 		"Funnel":             funnel,
 		"CookieRows":         cookieRows,
 		"RLSummary":          rlSummary,

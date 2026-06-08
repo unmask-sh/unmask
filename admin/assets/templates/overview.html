@@ -196,6 +196,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
 </div>
 
+{{ with .OverBlock }}{{ if .Tripped }}
+<div role="alert" style="margin:1rem 0;padding:.7rem 1rem;border:1px solid #dc2626;background:#fef2f2;border-radius:.4rem;color:#991b1b;line-height:1.5">
+  &#9888; <strong>{{ t $.Lang "dashboard.overblock.banner" }}</strong> ({{ printf "%.1f" .Ratio }} serves/IP, {{ .WindowMin }}m){{ if .AutoPass }} &mdash; <span style="font-weight:600">{{ t $.Lang "dashboard.overblock.autopass_on" }}</span>{{ end }}
+</div>
+{{ end }}{{ end }}
+
 {{ template "ai_traffic_card" . }}
 {{ template "ai_traffic_card_assets" . }}
 <style>

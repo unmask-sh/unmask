@@ -218,21 +218,6 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 </div>
 {{ end }}
 
-{{ with .OverBlock }}{{ if .Enabled }}
-<div class="bcd-card" style="margin-top:1rem;{{ if .Tripped }}border:1px solid #dc2626;background:#fef2f2{{ end }}">
-  <h2 style="display:flex;align-items:center;gap:.5rem">
-    {{ t $.Lang "dashboard.overblock.h" }}
-    {{ if .Tripped }}<span style="color:#dc2626;font-size:.8rem;font-weight:700">&#9679; {{ t $.Lang "dashboard.overblock.tripped" }}</span>{{ else }}<span style="color:#16a34a;font-size:.8rem;font-weight:700">&#9679; {{ t $.Lang "dashboard.overblock.healthy" }}</span>{{ end }}
-  </h2>
-  <p class="desc">{{ t $.Lang "dashboard.overblock.desc" }}</p>
-  <div style="display:flex;gap:1.5rem;flex-wrap:wrap;align-items:baseline">
-    <div><span style="font-size:1.6rem;font-weight:700;{{ if .Tripped }}color:#dc2626{{ end }}">{{ printf "%.1f" .Ratio }}</span> <span style="color:#64748b;font-size:.8rem">serves/IP</span></div>
-    <div style="color:#64748b;font-size:.85rem">{{ t $.Lang "dashboard.overblock.threshold" }} {{ .Threshold }} &middot; {{ .Serves }} serves / {{ .IPs }} IP / {{ .WindowMin }}m</div>
-  </div>
-  {{ if and .Tripped .AutoPass }}<div class="note" style="margin-top:.55rem;color:#9a3412;font-weight:600">{{ t $.Lang "dashboard.overblock.autopass_on" }}</div>{{ end }}
-</div>
-{{ end }}{{ end }}
-
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.overview" }}</div>
 
 <!-- 1) challenge funnel -->
