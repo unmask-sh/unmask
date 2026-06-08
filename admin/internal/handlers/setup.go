@@ -506,21 +506,37 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	setupMu.Lock()
 	defer setupMu.Unlock()
 
-	// 1. open + migrate DB
-	conn, err := db.Open(s.DB)
-	if err != nil {
-		redirErr("db connect: " + err.Error())
-		return
+	// 1. open + migrate DB.  When the wizard keeps the DB the daemon already
+	// booted with (the common SQLite-default path), REUSE the live connection
+	// rather than opening a second handle and closing the first: the background
+	// workers (events flusher, aggregate, prune, nginxlog, ban) hold the boot
+	// handle, so closing it under them silently drops every /api/check event
+	// until a restart.  A different DB (e.g. switching to MariaDB) still needs a
+	// fresh handle -- and a daemon restart, which the done page now demands.
+	var conn *db.DB
+	if h.DB != nil && s.DB == h.Settings.DB {
+		conn = h.DB
+	} else {
+		c, oerr := db.Open(s.DB)
+		if oerr != nil {
+			redirErr("db connect: " + oerr.Error())
+			return
+		}
+		conn = c
 	}
 	if err := db.Migrate(conn); err != nil {
-		_ = conn.Close()
+		if conn != h.DB {
+			_ = conn.Close()
+		}
 		redirErr("db migrate: " + err.Error())
 		return
 	}
 	// 2. create admin user (= superadmin)
 	repo := user.New(conn)
 	if _, err := repo.Create(r.Context(), s.Username, s.Password, user.RoleSuperadmin); err != nil {
-		_ = conn.Close()
+		if conn != h.DB {
+			_ = conn.Close()
+		}
 		redirErr("create user: " + err.Error())
 		return
 	}
@@ -532,7 +548,9 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	cur.DB = s.DB
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		_ = conn.Close()
+		if conn != h.DB {
+			_ = conn.Close()
+		}
 		redirErr("save admin.yml: " + err.Error())
 		return
 	}
@@ -563,7 +581,16 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if tokenValue != "" {
 		dropWizardState(tokenValue)
 	}
-	http.Redirect(w, r, base+"/admin/setup/done", http.StatusFound)
+	// A DB switch (e.g. to MariaDB) opened a fresh handle and closed the boot
+	// one; the background workers are still bound to the old handle, so only a
+	// restart re-binds them.  Flag it so the done page makes the restart
+	// mandatory instead of optional.  An unchanged DB reused the live handle and
+	// needs no restart.
+	done := base + "/admin/setup/done"
+	if old != conn {
+		done += "?restart=1"
+	}
+	http.Redirect(w, r, done, http.StatusFound)
 }
 
 // AdminSetupDone: GET {base}/admin/setup/done — completion screen (= links to login).
@@ -574,10 +601,11 @@ func (h *Handler) AdminSetupDone(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	data := map[string]any{
-		"Lang":     i18n.Resolve(r),
-		"BasePath": h.Settings.Server.BasePath,
-		"Version":  h.Version,
-		"Step":     "done",
+		"Lang":            i18n.Resolve(r),
+		"BasePath":        h.Settings.Server.BasePath,
+		"Version":         h.Version,
+		"Step":            "done",
+		"RestartRequired": r.URL.Query().Get("restart") == "1",
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "setup.html", data); err != nil {
