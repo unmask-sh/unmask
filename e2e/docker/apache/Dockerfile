@@ -37,8 +37,13 @@ RUN sed -i 's/^Listen 80$/Listen 8081/' /etc/apache2/ports.conf \
     && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:8081>/' \
         /etc/apache2/sites-available/000-default.conf
 
-# Tiny origin served when unmask returns "pass".
-RUN echo '[unmask e2e apache backend]' > /var/www/html/index.html
+# Tiny origin served when unmask returns "pass".  The /pow-gate/ directory gives
+# scenario 29's protected path a real 200 once solved, without a broad
+# FallbackResource that would turn scenario 22's "no over-match -> 404" paths
+# into 200s.
+RUN echo '[unmask e2e apache backend]' > /var/www/html/index.html \
+    && mkdir -p /var/www/html/pow-gate \
+    && echo '[unmask e2e apache backend]' > /var/www/html/pow-gate/index.html
 
 # Install the *real* shipped snippet + lua handler, then apply the two
 # documented per-environment edits: point at the compose admin service and

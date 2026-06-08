@@ -14,6 +14,11 @@ challenge:
   captcha_cookie_valid_seconds: 1209600  # 14 days
   captcha_score_threshold: 0.5
   debug_rate_limit_per_5min: 200
+  # Scenarios 28/31 hit /unmask/test/force-captcha to drive the CAPTCHA chmode in
+  # a real browser.  public_test_pages lives on the resolved ChallengeValues
+  # (challenge.default), not the challenge top level.
+  default:
+    public_test_pages: true
   # Scenarios 12 / 13 hit admin:9477 directly with X-Client-JA4 set, bypassing
   # nginx (= the plugin's native JA4 extraction). Honor that forwarded header:
   #   - ja4_source: header           -> auth_check reads X-Client-JA4
