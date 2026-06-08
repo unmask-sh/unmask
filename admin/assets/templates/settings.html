@@ -1190,6 +1190,32 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
 
   <div class="bcd-card">
+    <h2>{{ t .Lang "settings.global.overblock_h" }}</h2>
+    <p class="desc" style="margin:.4rem 0 1rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.overblock_intro") }}</p>
+    <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;margin:0 0 .9rem">
+      <input type="checkbox" name="ob_enabled" value="1" {{ if .OverBlock.Enabled }}checked{{ end }}>
+      {{ t .Lang "settings.global.overblock_enable_label" }}
+    </label>
+    <div class="field">
+      <label>{{ t .Lang "settings.global.overblock_window_label" }}</label>
+      <input type="number" name="ob_window_minutes" min="1" value="{{ .OverBlock.WindowMinutesResolved }}" style="max-width:8rem">
+    </div>
+    <div class="field">
+      <label>{{ t .Lang "settings.global.overblock_minserves_label" }}</label>
+      <input type="number" name="ob_min_serves" min="1" value="{{ .OverBlock.MinServesResolved }}" style="max-width:8rem">
+    </div>
+    <div class="field">
+      <label>{{ t .Lang "settings.global.overblock_maxperip_label" }}</label>
+      <input type="number" name="ob_max_serves_per_ip" min="1" value="{{ .OverBlock.MaxServesPerIPResolved }}" style="max-width:8rem">
+    </div>
+    <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;margin:.6rem 0 0">
+      <input type="checkbox" name="ob_auto_passthrough" value="1" {{ if .OverBlock.AutoPassthrough }}checked{{ end }}>
+      {{ t .Lang "settings.global.overblock_autopass_label" }}
+    </label>
+    <div class="note" style="margin-top:.45rem;line-height:1.6">{{ safeHTML (t .Lang "settings.global.overblock_autopass_help") }}</div>
+  </div>
+
+  <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.global.no_match_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="global-default-help" aria-label="?">?</button>

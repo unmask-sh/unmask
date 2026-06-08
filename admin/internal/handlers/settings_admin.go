@@ -456,6 +456,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Error":            readFlash(w, r, h.Settings.Server.BasePath, "err"),
 		"Cur":              cur,
 		"Global":           h.snapshotSettings().Global,
+		"OverBlock":        h.snapshotSettings().OverBlock,
 		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
 		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
 		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
@@ -952,6 +953,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
+		applyOverBlockForm(&cur.OverBlock, r)
 	case "network":
 		if err := applyNetworkForm(&cur.Nginx, r, lang); err != nil {
 			redirBack(err.Error())
@@ -2979,6 +2981,22 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 }
 
 // applyNotificationsForm: receive the webhook notifications tab form.
+// applyOverBlockForm reads the over-block circuit breaker fields from the global
+// settings form.  Numeric fields keep the previous value on a blank/garbage
+// input, so a partial submit can't zero out a threshold.
+func applyOverBlockForm(c *settings.OverBlockConfig, r *http.Request) {
+	c.Enabled = r.FormValue("ob_enabled") == "1"
+	c.AutoPassthrough = r.FormValue("ob_auto_passthrough") == "1"
+	atoiInto := func(field string, dst *int) {
+		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(field))); err == nil && v > 0 {
+			*dst = v
+		}
+	}
+	atoiInto("ob_window_minutes", &c.WindowMinutes)
+	atoiInto("ob_min_serves", &c.MinServes)
+	atoiInto("ob_max_serves_per_ip", &c.MaxServesPerIP)
+}
+
 func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	c.Disabled = r.FormValue("disabled") == "1"
 	c.URL = strings.TrimSpace(r.FormValue("url"))
