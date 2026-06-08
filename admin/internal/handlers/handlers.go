@@ -648,12 +648,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// challenge: log the signal in events, then bounce the visitor to the
 	// original URL without showing PoW / CAPTCHA.
 	if forceQuery == "" && h.Settings.Global.Passthrough {
-		// Issue _bv so the visitor doesn't loop back through nginx's
-		// challenge redirect on the next request.  Cookie shape mirrors
-		// the post-PoW success path.  Skipped when ?_force= is set so
-		// the operator's test endpoint can still preview the page in
-		// passthrough mode.
-		h.setBVCookie(w, r, "passthrough.0.c")
+		// Issue a PROPERLY-SIGNED _bv so the visitor doesn't loop back through
+		// nginx's challenge redirect.  This MUST be a real HMAC-signed cookie
+		// (IssueValue, same as the post-PoW / CAPTCHA success path): the native C
+		// plugin verifies the signature and rejects an unsigned sentinel, so the
+		// old "passthrough.0.c" placeholder re-challenged forever in native mode
+		// (passthrough silently never recovered).  Bind it to the same client IP
+		// + host the plugin folds into its HMAC, so the cookie verifies.  Skipped
+		// when ?_force= is set so the operator's test endpoint can still preview
+		// the page in passthrough mode.
+		val := cookies.IssueValue(h.Settings.Secret.BVSecret, clientIP(r), requestHost(r), "captcha")
+		h.setBVCookie(w, r, val)
 		target := "/"
 		if rlOrigURI != "" {
 			target = rlOrigURI
