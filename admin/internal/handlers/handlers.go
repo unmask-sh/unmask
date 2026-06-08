@@ -282,6 +282,12 @@ func (h *Handler) basePath() string {
 //   - settings.challenge.challenge_html_path (override for ops)
 //   - /usr/share/unmask/challenge/challenge.html (RPM/deb)
 //   - embedded assets/static/challenge.html (default)
+
+// challengeHTMLPackagePath is the package-deployed override location; a package
+// var so tests can point it at a stale fixture to exercise the __POW_SEED__
+// guard below.
+var challengeHTMLPackagePath = "/usr/share/unmask/challenge/challenge.html"
+
 func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	// challenge_html_path is treated as a global override (= same template
 	// for every site).  Per-site challenge HTML override is out of scope for
@@ -289,8 +295,19 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	if p := h.Settings.Challenge.Default.ChallengeHTMLPath; p != "" {
 		return os.ReadFile(p)
 	}
-	if b, err := os.ReadFile("/usr/share/unmask/challenge/challenge.html"); err == nil {
-		return b, nil
+	// A packaged /usr/share/unmask/challenge/challenge.html that predates the
+	// seed-bound PoW (no __POW_SEED__ placeholder) makes every visitor loop:
+	// challenge.js solves a seedless PoW the current plugin rejects, so no _bv
+	// ever verifies.  This actually shipped to tool1 -- a 2026-05-25 asset left
+	// in place across a plugin upgrade looped every real visitor.  Require the
+	// placeholder before trusting the on-disk copy; otherwise fall back to the
+	// embedded (always-current) one rather than serving a challenge that can
+	// never be solved.
+	if b, err := os.ReadFile(challengeHTMLPackagePath); err == nil {
+		if bytes.Contains(b, []byte("__POW_SEED__")) {
+			return b, nil
+		}
+		log.Printf("challenge.html at %s lacks __POW_SEED__ (stale pre-seed-bound-PoW asset); using embedded copy to avoid a challenge loop", challengeHTMLPackagePath)
 	}
 	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
 }
