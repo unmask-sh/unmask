@@ -93,6 +93,15 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
+	// 2b. community-bans map_hash sizing.  When enforcement is active, the ipja4
+	// maps need map_hash_bucket_size >= 256 (IPv6 keys ~76 chars).  http.inc emits
+	// it unless the host nginx.conf already declares one -- which may be too small.
+	if w := nginxconf.MapHashAdvice(s); w != "" {
+		addWarn("nginx map_hash", w)
+	} else if s.CommunityBans.ApplyActive() {
+		addOK("nginx map_hash", "community-bans maps sized (host or http.inc)")
+	}
+
 	// 3. DB ping + tables
 	conn, err := db.Open(s.DB)
 	if err != nil {

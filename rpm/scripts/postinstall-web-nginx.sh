@@ -86,44 +86,13 @@ else
     echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
 fi
 
-# map_hash sizing for the community-bans feed maps.  With subscribe_mode
-# defaulting to fetch_apply, http.inc includes community-bans-*.map out of the
-# box; their "<ip>:<ja4>" keys (~59 chars) plus entry count overflow nginx's
-# default map_hash_bucket_size / map_hash_max_size.  map_hash_bucket_size is a
-# single-occurrence http{} directive that must precede the FIRST `map` block, so
-# an http.d / conf.d snippet is too late on hosts whose nginx.conf opens a map
-# before that include -- e.g. Alpine ships a stock `map $http_upgrade` above
-# `include http.d/*.conf;`, which makes a later snippet a duplicate.  Inject it
-# at the top of the http{} block in nginx.conf instead: idempotent, skipped when
-# the operator already set it, reverted on removal via the "unmask-maphash" tag.
-NGINX_CONF=/etc/nginx/nginx.conf
-# drop any snippet an older package version left in the include dirs
+# map_hash sizing for the community-bans maps is no longer injected into
+# nginx.conf.  It now lives at the top of http.inc, emitted by the admin's render
+# (= nginxconf.Render), which probes nginx.conf read-only and emits
+# map_hash_bucket_size / map_hash_max_size only for the directives the host has
+# not already set -- so this package never edits nginx.conf for map sizing.  Drop
+# any leftover snippet an older package version left in the include dirs.
 rm -f /etc/nginx/conf.d/00-unmask-maphash.conf /etc/nginx/http.d/00-unmask-maphash.conf
-# Check each directive INDEPENDENTLY: a host that already tuned only
-# map_hash_max_size (or only the bucket) must not get a duplicate of the other.
-if [ -f "$NGINX_CONF" ] && ! grep -q 'unmask-maphash' "$NGINX_CONF"; then
-    UM_BUCKET=1; grep -qE '^[[:space:]]*map_hash_bucket_size[[:space:]]' "$NGINX_CONF" && UM_BUCKET=
-    UM_MAX=1;    grep -qE '^[[:space:]]*map_hash_max_size[[:space:]]'    "$NGINX_CONF" && UM_MAX=
-  if [ -n "$UM_BUCKET$UM_MAX" ]; then
-    if awk -v bucket="$UM_BUCKET" -v max="$UM_MAX" '
-        !done && /^[[:space:]]*http[[:space:]]*\{/ {
-            print
-            if (bucket != "") print "    map_hash_bucket_size 256;  # unmask-maphash (community-bans maps need a wider hash)"
-            if (max != "")    print "    map_hash_max_size 4096;     # unmask-maphash"
-            done = 1
-            next
-        }
-        { print }
-        END { exit !done }
-      ' "$NGINX_CONF" > "$NGINX_CONF.unmask-tmp"; then
-        cat "$NGINX_CONF.unmask-tmp" > "$NGINX_CONF"
-        echo "unmask-web-nginx: sized map_hash at the top of the http{} block in $NGINX_CONF"
-    else
-        echo "unmask-web-nginx: WARNING -- no http{} block found in $NGINX_CONF; set map_hash_bucket_size manually"
-    fi
-    rm -f "$NGINX_CONF.unmask-tmp"
-  fi
-fi
 
 # SELinux: nginx defaults to the httpd_t domain on RHEL-family distros, where
 # the nginx auth_request directive / proxy_pass to 127.0.0.1:9477 is kernel-blocked unless the

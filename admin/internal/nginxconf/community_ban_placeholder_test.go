@@ -44,8 +44,15 @@ func TestRenderLaysCommunityBanPlaceholders(t *testing.T) {
 	// fetch_apply: http.inc includes the maps, so Render must create them.
 	t.Run("fetch_apply_creates", func(t *testing.T) {
 		dir := t.TempDir()
+		// Render now probes nginx.conf for an existing map_hash; point it at a
+		// controlled empty conf so the test doesn't depend on the host's /etc/nginx.
+		conf := filepath.Join(dir, "nginx.conf")
+		if err := os.WriteFile(conf, []byte("http {\n}\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 		var s settings.Settings
 		s.Nginx.OutputDir = dir
+		s.Nginx.ConfPath = conf
 		s.CommunityBans.SubscribeMode = settings.SubscribeFetchApply
 		if err := Render(s, dir, "test"); err != nil {
 			t.Fatalf("Render: %v", err)

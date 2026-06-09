@@ -364,6 +364,12 @@ type Nginx struct {
 	OutputDir    string `yaml:"output_dir"`
 	UpstreamAddr string `yaml:"upstream_addr"`
 
+	// ConfPath: host nginx.conf path, probed (read-only) before emitting our own
+	// map_hash_bucket_size / map_hash_max_size into http.inc -- a duplicate of a
+	// host-declared one makes `nginx -t` fail.  Empty → /etc/nginx/nginx.conf.
+	// Bootstrap-only (install-time path), not web-editable.
+	ConfPath string `yaml:"conf_path,omitempty"`
+
 	// SeenVersion: admin version at the last time the user saved the settings page.
 	// Preset groups with an AddedIn newer than this are treated as
 	// "added by a version bump" → default OFF + NEW badge shown. Prevents

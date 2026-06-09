@@ -22,11 +22,13 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -65,6 +67,12 @@ func Render(s settings.Settings, outDir, version string) error {
 	data, err := buildRenderData(s, outDir, version)
 	if err != nil {
 		return err
+	}
+	// Surface a host map_hash mismatch (probed in buildRenderData) once per actual
+	// render.  RenderSignature shares buildRenderData but must not log, so the
+	// warning rides on the (unexported) renderData field and is emitted only here.
+	if data.mapHashWarning != "" {
+		log.Printf("unmask: WARNING: %s", data.mapHashWarning)
 	}
 
 	// http scope: JA4 maps / log_format / rate-zone.  The postinstall
@@ -371,6 +379,20 @@ type renderData struct {
 	// include (= communitybans.WriteMapFiles output destination).
 	CommunityBansSubscribe bool
 	CommunityBansMapDir    string
+	// CommunityBansMapHashBucket/Max: emit map_hash_bucket_size / map_hash_max_size
+	// at the top of http.inc.  The community-bans ipja4 key reaches ~76 chars with
+	// an IPv6 address and overflows nginx's default map_hash_bucket_size (64), and a
+	// large feed exceeds the default map_hash_max_size (2048).  Each is set only when
+	// fetch_apply is active AND the host nginx.conf does not already declare that
+	// directive (a duplicate is a fatal `nginx -t` error).  See buildRenderData.
+	CommunityBansMapHashBucket bool
+	CommunityBansMapHashMax    bool
+
+	// mapHashWarning: non-empty when the host nginx.conf already declares a
+	// map_hash_bucket_size too small for the community-bans maps, or could not be
+	// read to check.  Logged by Render only -- RenderSignature must stay
+	// side-effect free.  Unexported so the template can't reference it.
+	mapHashWarning string
 }
 
 // RateZoneRender: zone values used to generate the nginx config.
@@ -867,9 +889,86 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			md = "/var/lib/unmask/nginx"
 		}
 		d.CommunityBansMapDir = md
+
+		// Size the map hash for the community-bans maps -- emit only the directives
+		// the host nginx.conf lacks (a duplicate map_hash_* is a fatal nginx -t
+		// error); warn when a host value is present but too small.
+		d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax, d.mapHashWarning = resolveMapHash(s)
 	}
 
 	return d, nil
+}
+
+// resolveMapHash probes the host nginx.conf (Nginx.ConfPath, default
+// /etc/nginx/nginx.conf) and decides which map_hash_* directives http.inc must
+// emit for the community-bans maps: only those the host has not already declared,
+// because map_hash_bucket_size / map_hash_max_size are single-occurrence http{}
+// directives and a duplicate is a fatal `nginx -t` error.  warning is non-empty
+// when a host value is present but smaller than the community-bans keys need
+// (~76 chars / 256), or the conf could not be read.  Callers gate on
+// community-bans enforcement being active.
+func resolveMapHash(s settings.Settings) (emitBucket, emitMax bool, warning string) {
+	confPath := strings.TrimSpace(s.Nginx.ConfPath)
+	if confPath == "" {
+		confPath = "/etc/nginx/nginx.conf"
+	}
+	const wantBucket = 256
+	hb, hmax, readable := readHostMapHash(confPath)
+	if !readable {
+		// Missing or unreadable (e.g. 0600-hardened) host config: emit ours and
+		// note it -- any duplicate surfaces as a clear `nginx -t` error.
+		return true, true, fmt.Sprintf("could not read %s to check for an existing map_hash_bucket_size; "+
+			"emitting map_hash_bucket_size %d + map_hash_max_size 4096 in http.inc. If you set them in nginx.conf "+
+			"yourself, ensure map_hash_bucket_size >= %d and remove the duplicate.", confPath, wantBucket, wantBucket)
+	}
+	if hb > 0 && hb < wantBucket {
+		warning = fmt.Sprintf("%s sets map_hash_bucket_size %d, but unmask community-bans map keys reach ~76 chars "+
+			"(IPv6) and need >= %d. Raise it to %d (or remove it so unmask manages it), or `nginx -t` will fail once "+
+			"the community-bans feed populates.", confPath, hb, wantBucket, wantBucket)
+	}
+	return hb == 0, hmax == 0, warning
+}
+
+// MapHashAdvice returns a non-empty operator warning when community-bans
+// enforcement is active and the host nginx.conf's map_hash sizing is inadequate
+// (present but too small, or unreadable so unmask can't verify it).  Empty
+// otherwise.  `unmask doctor` surfaces this; Render logs the same string.
+func MapHashAdvice(s settings.Settings) string {
+	if !s.CommunityBans.ApplyActive() {
+		return ""
+	}
+	_, _, w := resolveMapHash(s)
+	return w
+}
+
+// readHostMapHash scans an nginx config file for top-level map_hash_bucket_size
+// / map_hash_max_size declarations and returns their values (0 when absent).
+// readable is false when the file can't be read (missing / permission denied),
+// letting the caller fall back to emitting its own.  Best-effort line scan: it
+// does not follow include directives, matching the postinstall's old grep.
+func readHostMapHash(path string) (bucket, maxsz int, readable bool) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, 0, false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || strings.HasPrefix(f[0], "#") {
+			continue
+		}
+		val := strings.TrimRight(f[1], ";")
+		switch f[0] {
+		case "map_hash_bucket_size":
+			if n, err := strconv.Atoi(val); err == nil {
+				bucket = n
+			}
+		case "map_hash_max_size":
+			if n, err := strconv.Atoi(val); err == nil {
+				maxsz = n
+			}
+		}
+	}
+	return bucket, maxsz, true
 }
 
 func toSet(xs []string) map[string]bool {

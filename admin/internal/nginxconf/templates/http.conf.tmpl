@@ -19,23 +19,24 @@
 #      load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;
 
 # -----------------------------------------------------------------------------
-# Map hash sizing: deliberately NOT set here.  The widest map key is the ipja4
-# "<ip>:<ja4>" pair (~59 chars), which fits the default map_hash_bucket_size
-# (= ngx_cacheline_size, 64 on the x86_64 / aarch64 build targets).  An explicit
-# `map_hash_bucket_size` here is rejected as "duplicate" whenever the host
-# nginx.conf already declares a map{} before this snippet loads -- e.g. Alpine's
-# stock `map $http_upgrade` combined with the `include http.d/*.conf;` order, so
-# this snippet always lands after that map.  Relying on the default keeps the
-# snippet include-order-independent across distros.  If a deployment ever needs
-# a wider bucket, set map_hash_bucket_size at the TOP of the http{} block in
-# nginx.conf, before any map directive.
-#
-# Same applies to map_hash_max_size (default 2048): a very large JA4-verdict or
-# community-bans-derived map can exceed it ("could not build the map_hash, you
-# should increase map_hash_max_size").  It is a single-occurrence http{}
-# directive too, so it cannot be set safely from this include either -- raise it
-# at the TOP of http{} in nginx.conf if you load thousands of map entries.
+# Map hash sizing for the community-bans maps.  The widest key is the ipja4
+# "<ip>:<ja4>" pair -- up to ~76 chars with an IPv6 address, which overflows the
+# default map_hash_bucket_size (= ngx_cacheline_size, 64 on x86_64 / aarch64);
+# a large feed also exceeds the default map_hash_max_size (2048).  Both are
+# single-occurrence http{} directives that must precede the map blocks they size
+# (nginx builds the map hash at parse time), so they are emitted HERE at the top
+# of http.inc -- which sits above every map below -- not in nginx.conf.  They are
+# emitted only when (a) community-bans enforcement is active and (b) the host
+# nginx.conf does not already declare that directive (a duplicate is a fatal
+# `nginx -t` error); buildRenderData probes nginx.conf and warns when a host
+# value is present but smaller than 256.
 # -----------------------------------------------------------------------------
+{{- if .CommunityBansMapHashBucket }}
+map_hash_bucket_size 256;  # unmask: community-bans ipja4 keys reach ~76 chars (IPv6)
+{{- end }}
+{{- if .CommunityBansMapHashMax }}
+map_hash_max_size 4096;    # unmask: community-bans feed can exceed the 2048 default
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
