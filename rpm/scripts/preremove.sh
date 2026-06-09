@@ -24,6 +24,11 @@ if [ "$do_remove" = 1 ]; then
         rc-service unmask stop 2>/dev/null || true
         rc-update del unmask default 2>/dev/null || true
         rm -f /etc/init.d/unmask
+    elif command -v chkconfig >/dev/null 2>&1 && [ -f /etc/rc.d/init.d/unmask ]; then
+        # SysVinit (= RHEL 6 / CentOS 6).  stop + chkconfig --del + remove script.
+        service unmask stop 2>/dev/null || /etc/rc.d/init.d/unmask stop 2>/dev/null || true
+        chkconfig --del unmask 2>/dev/null || true
+        rm -f /etc/rc.d/init.d/unmask
     fi
 fi
 

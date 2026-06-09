@@ -58,12 +58,16 @@ contents:
   - src: ./unmask.service
     dst: /usr/lib/systemd/system/unmask.service
 
-  # init script: OpenRC for alpine (the only non-systemd distro in the install
-  # matrix).  Bundled under /usr/share/unmask/init/; postinstall symlinks it
-  # to /etc/init.d/unmask on apk hosts.  The sysv-init flavour was retired
-  # because every other supported distro uses systemd.
+  # init scripts for the non-systemd distros in the matrix.  Both are bundled
+  # under /usr/share/unmask/init/; postinstall installs the right one:
+  #   - OpenRC (= Alpine / Gentoo): symlinked to /etc/init.d/unmask.
+  #   - SysVinit (= RHEL 6 / CentOS 6): copied to /etc/rc.d/init.d/unmask + chkconfig.
   - src: ./init.d/unmask.openrc
     dst: /usr/share/unmask/init/unmask.openrc
+    file_info:
+      mode: 0755
+  - src: ./init.d/unmask.sysv
+    dst: /usr/share/unmask/init/unmask.sysv
     file_info:
       mode: 0755
 

@@ -181,6 +181,23 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
         rc-service unmask restart || true
     fi
     INIT_KIND=openrc
+elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
+    # SysVinit (= RHEL 6 / CentOS 6: no systemd, no OpenRC).  Install the init
+    # script, register it for boot, and start it on a fresh install (= parity
+    # with the systemd `enable --now` branch above).  The matching uninstall
+    # cleanup lives in preremove.sh.
+    cp -f /usr/share/unmask/init/unmask.sysv /etc/rc.d/init.d/unmask
+    chmod 0755 /etc/rc.d/init.d/unmask
+    chkconfig --add unmask 2>/dev/null || true
+    chkconfig unmask on 2>/dev/null || true
+    if [ "${1:-}" = "1" ]; then
+        # Fresh rpm install ($1=1): start it now.
+        service unmask start 2>/dev/null || /etc/rc.d/init.d/unmask start || true
+    else
+        # Upgrade: restart only if it was running, so the new binary loads.
+        service unmask condrestart 2>/dev/null || /etc/rc.d/init.d/unmask condrestart || true
+    fi
+    INIT_KIND=sysvinit
 else
     INIT_KIND=manual
 fi
