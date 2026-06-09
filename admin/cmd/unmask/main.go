@@ -48,7 +48,11 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
 
-const Version = "0.1.0"
+// Version is the build version.  A var (not const) so the release build can
+// inject it: `go build -ldflags "-X main.Version=$(UNMASK_VERSION)"` (the
+// Makefile does this).  A const would silently ignore the -X flag, leaving
+// `unmask version` and the startup log stuck at the default forever.
+var Version = "0.1.0"
 
 func main() {
 	if len(os.Args) < 2 {

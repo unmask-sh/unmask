@@ -69,7 +69,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down distro-check vet fmt clean help repo repo-apk publish
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-lifecycle distro-check vet fmt clean help repo repo-apk publish
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -755,6 +755,17 @@ e2e-docker:
 
 e2e-docker-down:
 	docker compose -f e2e/docker/docker-compose.yml down -v
+
+## e2e-lifecycle - package-lifecycle scenarios on CentOS 6 in docker:
+# install / upgrade (v0.1.0->v0.1.1) / removal / render-fail-safe -- the
+# install-edge surfaces the fresh-install matrix masks (= 2026-06-08 GA audit
+# core gap).  Builds both versions so the upgrade scenario has a FROM, then runs
+# e2e/lifecycle/run.sh.  systemd-service lifecycle / SELinux enforcing / MariaDB
+# / setup-wizard need a real VM or browser -> distro-check, not docker.
+e2e-lifecycle:
+	$(MAKE) package-rpm package-plugin-nginx-fat package-web-nginx UNMASK_VERSION=0.1.0
+	$(MAKE) package-rpm package-plugin-nginx-fat package-web-nginx UNMASK_VERSION=0.1.1
+	./e2e/lifecycle/run.sh
 
 ## distro-check  - release-gate: e2e (docker) + install matrix on a VM lab.
 # Maintainer-only target.  e2e covers admin / plugin behavior in isolation;
