@@ -682,6 +682,18 @@ release: clean
 		echo "!!! fat plugin build failed (continuing)"
 	@echo ">>> generating checksums.txt"
 	cd $(DIST) && sha256sum unmask-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
+	# GPG-sign checksums.txt so a direct download (= GitHub release asset, not the
+	# GPG-verified apt/dnf/apk repo) is verifiable: `gpg --verify checksums.txt.asc
+	# checksums.txt`.  Gated on UNMASK_GPG_KEY_ID (= same key as sign-rpm); skipped
+	# with a note when unset, so an unsigned dev build still completes.
+	@if [ -n "$(UNMASK_GPG_KEY_ID)" ]; then \
+		echo ">>> GPG-signing checksums.txt (detached, armored)"; \
+		./tools/with-gpg-preset.sh gpg --batch --yes --armor --local-user "$(UNMASK_GPG_KEY_ID)" --detach-sign "$(DIST)/checksums.txt" \
+			&& echo "    wrote $(DIST)/checksums.txt.asc"; \
+	else \
+		echo ">>> UNMASK_GPG_KEY_ID not set -- skipping checksums.txt signature"; \
+		echo "    (set UNMASK_GPG_KEY_ID=<fingerprint> to emit checksums.txt.asc for direct-download verification)"; \
+	fi
 	@echo ">>> release artifacts in $(DIST)/:"
 	@ls -la $(DIST)/
 
@@ -711,8 +723,8 @@ release-github:
 		--repo unmask-sh/unmask \
 		--draft \
 		--title "unmask v$(UNMASK_VERSION)" \
-		--notes 'rpm / deb / apk packages for this release. Recommended install is the unmask.sh apt/dnf/apk repository (https://unmask.sh/install/) — it configures GPG-verified automatic updates. The packages attached here are an immutable per-version archive; a directly-installed package does not configure the repository and will not auto-update. Verify downloads against checksums.txt.' \
-		$(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk $(DIST)/checksums.txt
+		--notes 'rpm / deb / apk packages for this release. Recommended install is the unmask.sh apt/dnf/apk repository (https://unmask.sh/install/) — it configures GPG-verified automatic updates. The packages attached here are an immutable per-version archive; a directly-installed package does not configure the repository and will not auto-update. Verify downloads against checksums.txt (GPG: gpg --verify checksums.txt.asc checksums.txt).' \
+		$(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk $(DIST)/checksums.txt*
 	@echo ">>> draft release created — review the assets, then publish at:"
 	@echo "    https://github.com/unmask-sh/unmask/releases"
 
