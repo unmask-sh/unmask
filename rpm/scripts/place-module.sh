@@ -264,7 +264,12 @@ echo "  installed: $DEST"
 # edit nginx.conf and add the line at the top (= outside http {}).  This
 # is so it works on every distro out of the box.
 NGINX_CONF=/etc/nginx/nginx.conf
-LOAD_LINE="load_module \"$DEST\";"
+# Tag the directive so it's recognizable as package-managed when it lands in the
+# host nginx.conf (= the no-include-dir fallback below): a config-management tool
+# or operator reading nginx.conf sees it's auto-added, not a hand edit.  Removal
+# still matches the module name (grep -v), so the comment rides along and goes
+# with it.  One line, so no begin/end block is needed.
+LOAD_LINE="load_module \"$DEST\";  # unmask-plugin-nginx: auto-added, removed on uninstall"
 LOAD_DROPPED=""
 
 if [ -r "$NGINX_CONF" ]; then

@@ -51,6 +51,22 @@ if [ -f /etc/nginx/conf.d/10-unmask-rendered.conf ]; then
     echo "unmask-plugin-nginx: removed /etc/nginx/conf.d/10-unmask-rendered.conf"
 fi
 
+# Strip a load_module line the postinstall added directly to nginx.conf (the
+# no-include-dir fallback, e.g. CentOS 6 / nginx.org).  The .so was just deleted,
+# so leaving the line behind dangles it and `nginx -t` / startup fails with
+# "dlopen() ... No such file or directory".  Match the module name so the inline
+# "# unmask-plugin-nginx" tag is removed with it.  (Drop-in hosts never hit this:
+# their load_module lived in 50-mod-unmask.conf, removed above.)
+if [ -w /etc/nginx/nginx.conf ] && grep -q 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null; then
+    t="/etc/nginx/nginx.conf.unmask-rm.$$"
+    if grep -v 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf > "$t" 2>/dev/null; then
+        mv -f "$t" /etc/nginx/nginx.conf
+        echo "unmask-plugin-nginx: removed load_module from /etc/nginx/nginx.conf"
+    else
+        rm -f "$t"
+    fi
+fi
+
 echo "unmask-plugin-nginx: removal complete.  run 'nginx -t && systemctl reload nginx' to apply."
 
 exit 0
