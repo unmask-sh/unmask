@@ -49,6 +49,30 @@ disable_unmask_module() {
     echo "  fail-safe: stripped unmask nginx wiring (load_module + http.inc + .so) so nginx still starts without the module."
 }
 
+# verify_or_disable: run `nginx -t` and, if it fails *because of unmask*, strip
+# the wiring (disable_unmask_module) so nginx still starts.  A failure whose
+# error does NOT reference unmask is a pre-existing host config error -- leave
+# unmask alone and let the operator fix it (never mask their own bug).  This is
+# the catch-all for a bad render: a missing community-bans map, a stale http.inc,
+# an unknown directive -- anything that would otherwise leave nginx unable to
+# start/reload after install.  Called at the end of the picker's own flow and,
+# via `--verify`, by the web-nginx postinstall, so whichever wires last runs the
+# final check.
+verify_or_disable() {
+    command -v nginx >/dev/null 2>&1 || return 0
+    if err=$(nginx -t 2>&1); then
+        return 0
+    fi
+    if printf '%s\n' "$err" | grep -qiE 'unmask|00-unmask|ngx_http_unmask'; then
+        echo "  !! nginx -t failed and the error references unmask -- disabling unmask wiring (fail-safe) so nginx still starts:"
+        printf '%s\n' "$err" | sed 's/^/       /'
+        disable_unmask_module
+    else
+        echo "  nginx -t failed, but the error does NOT reference unmask (= pre-existing host config error). Leaving unmask in place:"
+        printf '%s\n' "$err" | sed 's/^/       /'
+    fi
+}
+
 if ! command -v nginx >/dev/null 2>&1; then
     cat <<EOF
 unmask-plugin-nginx: nginx is not installed, so skipped placing the module.
@@ -57,6 +81,15 @@ unmask-plugin-nginx: nginx is not installed, so skipped placing the module.
     2. Copy /usr/share/unmask/plugin/openssl{11,3}/ngx_http_unmask_module-<version>.so by hand to
        \$(nginx -V 2>&1 | tr ' ' '\n' | grep modules-path)
 EOF
+    exit 0
+fi
+
+# --verify: only re-test the already-placed wiring and fail-safe-disable it if
+# *unmask* breaks `nginx -t` (no re-pick).  The web-nginx postinstall calls this
+# after it (re)wires http.inc, so whichever package wires last runs the final
+# check and a bad render never leaves nginx unable to start.
+if [ "${1:-}" = "--verify" ]; then
+    verify_or_disable
     exit 0
 fi
 
@@ -345,6 +378,12 @@ if [ -e "$DEST" ]; then
         echo "  http.inc auto-load symlinked: $PLINK -> $PSRC"
     fi
 fi
+
+# Final gate: now that the .so + load_module + http.inc are wired, make sure the
+# result actually loads.  If unmask broke `nginx -t` (bad render, missing map,
+# ABI surprise), strip the wiring so nginx still starts; a non-unmask failure is
+# left for the operator.
+verify_or_disable
 
 echo ""
 echo "next steps (= on the nginx side):"

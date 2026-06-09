@@ -144,6 +144,13 @@ if command -v nginx >/dev/null 2>&1; then
     # `nginx -t` below fails on open(/run/nginx/nginx.pid) even though the
     # config is valid -- producing a misleading warning.  Create it first.
     [ -d /run/nginx ] || mkdir -p /run/nginx 2>/dev/null || true
+    # Native mode: after (re)wiring http.inc above, let the picker re-test and
+    # fail-safe-disable the unmask wiring if *unmask* (not a pre-existing host
+    # error) breaks `nginx -t`, so a bad render never blocks reload/start.  This
+    # also covers install order: plugin and web-nginx each run --verify after
+    # their own wiring, so whichever lands last leaves the correct state.  No-op
+    # in forward-auth mode (no picker shipped).
+    [ -f /usr/share/unmask/plugin/place-module.sh ] && sh /usr/share/unmask/plugin/place-module.sh --verify
     if nginx -t >/dev/null 2>&1; then
         nginx -s reload >/dev/null 2>&1 || true
         echo "unmask-web-nginx: nginx reload requested."
