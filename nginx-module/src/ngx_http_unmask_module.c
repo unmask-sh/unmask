@@ -871,6 +871,38 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     return UNMASK_BV_KIND_NONE;
 }
 
+/* Verify a `_bv` cookie VALUE, which may be a "~"-joined list of up to
+ * MaxBVEntries per-IP signatures (= a roaming client accumulates one per
+ * network it solved on, so 5G<->wifi switching doesn't re-challenge).  Splits
+ * on '~' and returns the first entry whose kind verifies for the current IP;
+ * the per-entry 80-byte / format / HMAC / PoW checks live in verify_one.  Caps
+ * inspected entries so an oversized hostile cookie can't force unbounded
+ * hashing.  MUST mirror cookies.Verify's any-match in the Go package. */
+static ngx_unmask_bv_kind_t
+ngx_unmask_bv_verify_value(ngx_http_request_t *r,
+                           ngx_http_ja4_main_conf_t *mcf,
+                           ngx_str_t value)
+{
+    u_char *p   = value.data;
+    u_char *end = value.data + value.len;
+    int     n   = 0;
+
+    while (p < end && n < 16) {
+        u_char   *tilde = ngx_strlchr(p, end, '~');
+        ngx_str_t entry;
+        entry.data = p;
+        entry.len  = (size_t)((tilde ? tilde : end) - p);
+        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, entry);
+        if (k != UNMASK_BV_KIND_NONE) {
+            return k;
+        }
+        if (tilde == NULL) break;
+        p = tilde + 1;
+        n++;
+    }
+    return UNMASK_BV_KIND_NONE;
+}
+
 /* Iterate every `_bv=...` pair the client sent (= across all Cookie header
  * lines).  Returns the first kind that verifies; NONE if none do.  The
  * iteration matters because browsers can carry multiple `_bv` cookies at
@@ -908,7 +940,7 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
         size_t off = 0;
         ngx_str_t cookie;
         while (ngx_unmask_next_bv_value(header, &off, &cookie)) {
-            ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, cookie);
+            ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie);
             if (k != UNMASK_BV_KIND_NONE) {
                 return k;
             }

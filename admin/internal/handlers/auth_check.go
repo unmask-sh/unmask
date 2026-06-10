@@ -401,6 +401,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			payload["rl_allowance"] = rlAllowance
 			payload["rl_chmode"] = chMode
 		}
+		if lbWarn := detectLBHeaderWarning(r, cfg); lbWarn != "" {
+			payload["lb_warning"] = lbWarn
+		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
@@ -861,6 +864,46 @@ func peerIsTrustedProxy(remoteAddr string, cidrs []string) bool {
 	return false
 }
 
+// detectLBHeaderWarning flags an LB-forwarded header that the admin's trust
+// config rejects.  Two shapes:
+//   - the header is sent but TrustForwarded* is OFF (= operator wired the proxy
+//     to forward JA4 / site but never opted in on the admin side, so the value
+//     is silently dropped and bot detection runs on the proxy<->admin JA4
+//     instead of the real client's).
+//   - the header is sent from a peer outside forwardAuthTrustedPeers (= either
+//     a misconfigured proxy chain, or a direct visitor trying to spoof the
+//     header).
+//
+// Returns the reason string (suitable for payload.lb_warning) or "" when no
+// warning applies.  Cheap: a couple of header reads + a CIDR scan.
+func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
+	hasJA4 := r.Header.Get("X-Client-JA4") != "" || r.Header.Get("X-Original-JA4") != ""
+	hasSite := r.Header.Get("X-Unmask-Site") != ""
+	if !hasJA4 && !hasSite {
+		return ""
+	}
+	var peerOK bool
+	if hasJA4 || hasSite {
+		peerOK = peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg))
+	}
+	var reasons []string
+	if hasJA4 {
+		if !cfg.Nginx.TrustForwardedJA4 {
+			reasons = append(reasons, "X-Client-JA4 sent but trust_forwarded_ja4 is OFF")
+		} else if !peerOK {
+			reasons = append(reasons, "X-Client-JA4 from untrusted peer")
+		}
+	}
+	if hasSite {
+		if !cfg.Nginx.TrustForwardedSite {
+			reasons = append(reasons, "X-Unmask-Site sent but trust_forwarded_site is OFF")
+		} else if !peerOK {
+			reasons = append(reasons, "X-Unmask-Site from untrusted peer")
+		}
+	}
+	return strings.Join(reasons, "; ")
+}
+
 // --- Regex matcher cache (= recompile only when settings change) ---
 
 type pathMatchers struct {
@@ -1157,7 +1200,9 @@ func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string
 		if c.Name != "_bv" {
 			continue
 		}
-		if c.Value == "" || len(c.Value) > 256 {
+		// Upper bound generous enough for a full MaxBVEntries "~"-list of per-IP
+		// signatures (~35 bytes each); cookies.Verify any-matches the entries.
+		if c.Value == "" || len(c.Value) > 512 {
 			continue
 		}
 		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip, host,

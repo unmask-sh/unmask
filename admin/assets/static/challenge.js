@@ -780,6 +780,11 @@
     return;
   }
 
+  // Capture the prior _bv (the accumulated per-IP signature list) BEFORE the
+  // shadow-eviction below clears path=/, so this solve's token can be appended
+  // to it rather than replacing it (= roaming-client accumulation).
+  var _bvOld = (document.cookie.match(/(?:^|;\s*)_bv=([^;]*)/) || [])[1] || '';
+
   // Evict stale `_bv` at every ancestor directory of orig_path before setting
   // the fresh one.  Browsers send cookies in path-specificity order (longest
   // path first), so an old `_bv=...` at /foo/bar/ would sort ahead of our new
@@ -808,7 +813,18 @@
   // Max-Age cap (= unrelated to authentication / signature validation).
   var exp2=new Date(Date.now()+86400000*365);
   var _bvSecure = (location.protocol === 'https:') ? ';Secure' : '';
-  document.cookie='_bv='+tok+';path=/;expires='+exp2.toUTCString()+';SameSite=Lax'+_bvSecure;
+  // Prepend this solve's token to the prior list, keep at most 8
+  // (= cookies.MaxBVEntries), skip blanks + an exact dup.  Server + native
+  // plugin any-match the "~"-list, so each network the client solved on stays
+  // passed and switching 5G<->wifi doesn't re-challenge.
+  var _bvList = tok, _bvN = 1;
+  if (_bvOld) {
+    var _bvP = _bvOld.split('~');
+    for (var _k = 0; _k < _bvP.length && _bvN < 8; _k++) {
+      if (_bvP[_k] && _bvP[_k] !== tok) { _bvList += '~' + _bvP[_k]; _bvN++; }
+    }
+  }
+  document.cookie='_bv='+_bvList+';path=/;expires='+exp2.toUTCString()+';SameSite=Lax'+_bvSecure;
   // After PoW completion + cookie set (read back immediately to verify the set succeeded)
   var _bv_set_ok = /(?:^|;\s*)_bv=/.test(document.cookie);
   _bcDebug('bv_pow_only', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });

@@ -1616,7 +1616,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookieBV := readCookieMax(r, "_bv", 80)
+	cookieBV := readCookieMax(r, "_bv", 320) // wide enough for a full MaxBVEntries "~"-list
 	cookieBR := readCookieMax(r, "_br", 8)
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
@@ -1646,9 +1646,17 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) setBVCookie(w http.ResponseWriter, r *http.Request, val string) {
+	// Accumulate one per-IP signature instead of overwriting: a roaming client
+	// (5G <-> wifi) keeps a valid _bv for each network it solved on, so switching
+	// networks doesn't re-challenge.  AppendEntry prepends the new entry and caps
+	// the list at MaxBVEntries; the native plugin + Go verify both any-match it.
+	existing := ""
+	if c, err := r.Cookie("_bv"); err == nil {
+		existing = c.Value
+	}
 	c := &http.Cookie{
 		Name:  "_bv",
-		Value: val,
+		Value: cookies.AppendEntry(existing, val),
 		Path:  "/",
 		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
 		// unnecessary for the browser-side Max-Age.
