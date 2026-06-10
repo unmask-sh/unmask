@@ -78,8 +78,63 @@ func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	return strconv.FormatInt(issued, 10) + "." + sig + "." + kind
 }
 
-// Verify returns true iff `value` is a valid signature signed within the
-// kind-specific validity window for remoteIP.
+// MaxBVEntries caps how many per-IP signatures one _bv accumulates (= how many
+// networks a roaming client stays verified on at once).  The issuer (CAPTCHA
+// path here, PoW path in challenge.js) prepends the newest and drops the oldest
+// past this.  MUST match the cap challenge.js uses.
+const MaxBVEntries = 8
+
+// maxVerifyEntries bounds how many ~-joined entries the verifier inspects, so an
+// oversized hostile cookie can't force unbounded HMAC/SHA-256 hashing.
+const maxVerifyEntries = 16
+
+// Verify returns true iff ANY entry in the "~"-delimited _bv list verifies for
+// remoteIP within its kind-specific window.  A single-entry value (no "~") is a
+// one-element list, so this stays backward compatible.  The any-match lets a
+// roaming client hold one signature per IP it verified on (5G / wifi / office),
+// so switching networks doesn't re-challenge; the issuer caps the list at
+// MaxBVEntries, and a botnet rotating thousands of IPs gains nothing because it
+// rarely revisits the same IP (each still costs a fresh solve).
+func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
+	if value == "" {
+		return false
+	}
+	for i, entry := range strings.Split(value, "~") {
+		if i >= maxVerifyEntries {
+			break
+		}
+		if verifyOne(entry, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty) {
+			return true
+		}
+	}
+	return false
+}
+
+// AppendEntry prepends entry to the "~"-delimited _bv list, keeping at most
+// MaxBVEntries (newest first, oldest dropped); blank entries and an exact dup of
+// the just-added entry are skipped.  Used by the CAPTCHA issuer (Go) and mirrored
+// by challenge.js for the PoW path so a roaming client accumulates one signature
+// per IP instead of overwriting the previous network's.
+func AppendEntry(existing, entry string) string {
+	entry = strings.TrimSpace(entry)
+	if entry == "" {
+		return existing
+	}
+	out := []string{entry}
+	for _, e := range strings.Split(existing, "~") {
+		if len(out) >= MaxBVEntries {
+			break
+		}
+		if e = strings.TrimSpace(e); e == "" || e == entry {
+			continue
+		}
+		out = append(out, e)
+	}
+	return strings.Join(out, "~")
+}
+
+// verifyOne returns true iff `value` is a valid single-entry signature signed
+// within the kind-specific validity window for remoteIP.
 //
 // Two formats are accepted:
 //  1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"        (3 segments. issued by server)
@@ -100,7 +155,7 @@ func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 //
 // powDifficulty is the SHA-256 PoW target leading-zero-bits
 // (= settings.Challenge.ResolvedPowDifficulty()).
-func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
+func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
 	if value == "" {
 		return false
 	}
