@@ -38,7 +38,7 @@ func TestVerify_E2ESignerFormat(t *testing.T) {
 	}})
 
 	v, fx := newVerifier(t, &fixtureKey{priv: priv, pub: pub, xRaw: x, thumb: kid, agentURL: "ignored"}, string(dir), nil)
-	v.Now = time.Now // the signer stamps real time; the verifier must agree
+	v.Now = time.Now        // the signer stamps real time; the verifier must agree
 	agentURL := fx.agentURL // the httptest server's https URL
 
 	// ---- byte-for-byte copy of e2e/lib/wbasign.go main() ----
