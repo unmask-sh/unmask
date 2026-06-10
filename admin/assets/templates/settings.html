@@ -508,7 +508,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="listen-socket{{ if ne .ListenMode "socket" }} hidden{{ end }}">
       <div class="field">
         <label>{{ t .Lang "settings.network.listen_sock_path" }}</label>
-        <input type="text" name="socket_path" value="{{ .ListenSockPath }}" placeholder="/run/unmask/admin.sock">
+        <input type="text" name="socket_path" value="{{ .ListenSockPath }}" placeholder="/run/unmask/http.sock">
       </div>
       <div class="field listen-pair">
         <div>

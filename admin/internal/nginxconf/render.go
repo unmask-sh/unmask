@@ -294,7 +294,7 @@ type renderData struct {
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
-	//   socket : "unix:/run/unmask/admin.sock"
+	//   socket : "unix:/run/unmask/http.sock"
 	// Determined by looking at server.bind in config.yml.
 	UpstreamServer string
 

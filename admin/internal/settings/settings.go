@@ -315,6 +315,13 @@ type Server struct {
 	HostID string `yaml:"host_id,omitempty"`
 }
 
+// DefaultListenSocket is the default unix-socket path for the HTTP listener in
+// socket mode -- the value the settings UI pre-fills, so the field is never empty
+// (an empty `bind: unix:` is a hard error, not silently defaulted).  Named for
+// the HTTP role (not "admin", a holdover from the old unmask-admin binary) and
+// parallel to the nginx-log socket /run/unmask/log.sock.
+const DefaultListenSocket = "/run/unmask/http.sock"
+
 // IPGeo: optional IP-geolocation mmdb integration (DB-IP Lite / MaxMind
 // GeoLite2 / etc., all consumable via the maxminddb-format reader).
 //

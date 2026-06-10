@@ -120,7 +120,7 @@ fi
 # under var_run_t, but nginx (httpd_t) writing a var_run_t sock_file has no allow
 # rule -> the dashboard cookie/crawler/countries cards silently zero and the
 # error_log spams "connect() failed (13: Permission denied)" (the same denial
-# 502s the opt-in unix:/run/unmask/admin.sock).  Relabel the runtime dir
+# 502s the opt-in unix:/run/unmask/http.sock).  Relabel the runtime dir
 # httpd_var_run_t so httpd_t may write the socket; the fcontext rule is permanent
 # so the daemon's socket inherits the label after a reboot recreates tmpfs /run.
 if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&

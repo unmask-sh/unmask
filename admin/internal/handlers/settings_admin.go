@@ -432,7 +432,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ListenMode":            listenModeOf(h.Settings.Server),
 		"ListenBind":            h.Settings.Server.Bind,
 		"ListenPort":            h.Settings.Server.Port,
-		"ListenSockPath":        socketPathOf(h.Settings.Server),
+		"ListenSockPath":        defStr(socketPathOf(h.Settings.Server), settings.DefaultListenSocket),
 		"ListenSockMode":        defStr(h.Settings.Server.SocketMode, "0660"),
 		"ListenSockGroup":       defStr(h.Settings.Server.SocketGroup, "nginx"),
 		"EventsRetentionDays":   h.Settings.EventsRetentionDays,
@@ -1323,7 +1323,7 @@ func defStr(s, fallback string) string {
 //	listen_mode  : "tcp" | "socket" radio.
 //	tcp_bind     : bind IP for TCP (= "127.0.0.1" / "0.0.0.0" / a specific IP).
 //	tcp_port     : port for TCP (= 1..65535).
-//	socket_path  : absolute path for unix socket (= "/run/unmask/admin.sock" etc.).
+//	socket_path  : absolute path for unix socket (= "/run/unmask/http.sock" etc.).
 //	socket_mode  : octal file-mode string (= "0660" etc.). Empty = keep current.
 //	socket_group : group owner name. Empty = keep current.
 //
