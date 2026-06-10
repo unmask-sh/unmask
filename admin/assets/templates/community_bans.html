@@ -457,6 +457,17 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 <div id="vote-popover" data-popover="vote"></div>
 <script>
 
+// refreshHoverPopover: if the shared hover popover (#info-popover) is
+// currently visible -- i.e. the user is hovering the badge while clicking
+// it -- replace its body in-place so the popover text matches the new
+// icon state without the user having to mouseout/mouseover.  The wrapper
+// HTML is copy-pasted from the [data-info] IIFE's fmt(); kept in sync.
+function refreshHoverPopover(html){
+  var p = document.getElementById('info-popover');
+  if (!p || p.style.display === 'none') return;
+  p.innerHTML = '<div style="max-width:32rem;font-size:.82rem;line-height:1.5;white-space:normal">' + html + '</div>';
+}
+
 // Mute toggle: POST via fetch with application/x-www-form-urlencoded body
 // (= Go's r.ParseForm reads urlencoded directly; FormData would be
 // multipart/form-data which needs ParseMultipartForm + a larger handler
@@ -502,6 +513,9 @@ document.addEventListener('click', function(e){
     btn.setAttribute('aria-label', prevAriaAfter);
     btn.setAttribute('data-aria-after', prevAria);
   }
+  // Live-refresh the hover popover so the user (who is hovering on the
+  // button right at click time) sees the new hint immediately.
+  refreshHoverPopover(btn.getAttribute('data-info'));
   var basePath = "{{ .BasePath }}";
   var body = new URLSearchParams();
   body.append('key', key);
@@ -528,6 +542,7 @@ document.addEventListener('click', function(e){
       btn.setAttribute('data-info', prevInfo);
       if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
       if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
+      refreshHoverPopover(prevInfo);
       btn.disabled = false;
     });
   }).catch(function(err){
@@ -540,6 +555,7 @@ document.addEventListener('click', function(e){
     btn.setAttribute('data-info', prevInfo);
     if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
     if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
+    refreshHoverPopover(prevInfo);
     btn.disabled = false;
   });
 });
