@@ -54,6 +54,7 @@ if ($unmask_banned_effective = "1") {
     rewrite ^ /unmask/challenge/ last;
 }
 
+{{ if .WebBotAuthEnabled }}
 # Web Bot Auth (= hybrid pattern, v0.2).  When the native plugin reports that
 # the request carries an RFC 9421 Signature-Input header, hand the request
 # off to admin /_unmask/check for cryptographic verification — the verifier
@@ -117,6 +118,7 @@ location = /_unmask/_signed_verify {
     proxy_set_header Signature-Input   $http_signature_input;
     proxy_set_header Signature-Agent   $http_signature_agent;
 }
+{{ end }}
 
 # @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
 # in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which

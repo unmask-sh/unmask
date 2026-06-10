@@ -388,6 +388,16 @@ type renderData struct {
 	CommunityBansMapHashBucket bool
 	CommunityBansMapHashMax    bool
 
+	// WebBotAuthEnabled mirrors settings.WebBotAuth.Enabled.  The signed-agent
+	// branch in server.inc (= the RFC 9421 / Web Bot Auth detect + auth_request
+	// + try_files machinery) is rendered ONLY when this is true.  With WBA
+	// disabled (the default) the whole branch is omitted, so a request that
+	// merely carries a Signature-Input header is never re-routed through the
+	// signed-route: it stays on the normal native flow and a proxied path like
+	// /rss/ is served by its own location instead of the signed-route's
+	// try_files (which =404s a proxied URI that has no file on disk).
+	WebBotAuthEnabled bool
+
 	// mapHashWarning: non-empty when the host nginx.conf already declares a
 	// map_hash_bucket_size too small for the community-bans maps, or could not be
 	// read to check.  Logged by Render only -- RenderSignature must stay
@@ -446,6 +456,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		AdminAllowFrom:        defaultAllow(s.Nginx.AdminAllowFrom),
 		MetricsAllowFrom:      defaultAllow(s.Nginx.MetricsAllowFrom),
 		LBIPRanges:            effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
+		WebBotAuthEnabled:     s.Nginx.WebBotAuth.Enabled,
 	}
 
 	// search bots: merge enabled presets + extras.
