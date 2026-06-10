@@ -10,6 +10,37 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Short entries use minute precision.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [Unreleased]
+
+### Fixed
+- (2026-06-10) **Web Bot Auth now actually works in native mode**.  The
+  signed-route in server.inc had three fatal flaws: the server-scope
+  header gate also fired inside the verification subrequest (nginx
+  re-runs server rewrites for subrequests), rewriting it away from the
+  admin proxy; the proxy target was a phantom endpoint
+  (`/_unmask/check` — the daemon serves `/unmask/api/check`); and the
+  success path served the original URI off the filesystem
+  (`try_files ... =404`), which can't work on proxied vhosts.  Net
+  effect: the daemon was never consulted and a signed request on a
+  proxied site got 404/500 instead of content (the dlvr.it incident).
+  Redesigned: the detour fires only for a signed main request that is
+  about to be challenged (`$unmask_signed_gate`, volatile maps), every
+  verification outcome converges on `@unmask_signed_continue` which
+  re-enters the normal flow, and a daemon-verified pass skips the
+  challenge via `$final_challenge_eff` in protect.inc.  Bans still fire
+  first; a daemon outage degrades to the normal challenge instead of
+  surfacing 5xx.  The plugin's `$unmask_has_signed_agent` now reports 0
+  for subrequests, and the admin verifier reconstructs the signed
+  components (`@authority` etc.) from `X-Original-*` instead of the
+  auth hop's own Host/URI — without that, every signature failed with
+  "signature mismatch" in both native and forward-auth modes.  Failed
+  verifications now log their reason (they were silent).  New
+  `web_bot_auth.allow_private_networks` setting admits operators whose
+  key directory lives on a private network (TLS verification and the
+  https-only rule stay).  Covered end-to-end by e2e scenario 34 (real
+  ed25519 signing against a fake operator directory, replay-defence
+  included) plus template-shape and signer-format unit tests.
+
 ## [0.1.0] — 2026-05-25
 
 ### Added

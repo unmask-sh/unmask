@@ -31,6 +31,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -46,6 +47,42 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
+
+// wbaVerifyRequest reconstructs the CLIENT's request for signature
+// verification.  /_unmask/check is reached via a subrequest / forward-auth
+// hop, so the inbound r describes the hop, not what the bot signed: r.Host is
+// the admin upstream ("unmask" / "admin:9477") and r.URL is /_unmask/check.
+// A bot signs derived components of ITS request — "@authority" = the target
+// site's host, "@path" = the fetched path — so verifying against the raw r
+// can never match (= every signature would fail with "signature mismatch").
+// Rebuild those components from the X-Original-* headers the proxy snippet
+// forwards (same trust level as the rest of this handler, which already
+// drives its decisions off X-Original-URI / -Host / -IP).  The signature
+// headers themselves travel in r.Header and are used as-is.
+func wbaVerifyRequest(r *http.Request) *http.Request {
+	vr := r.Clone(r.Context())
+	if h := r.Header.Get("X-Original-Host"); h != "" {
+		vr.Host = h
+	}
+	if u := r.Header.Get("X-Original-URI"); u != "" {
+		if parsed, err := url.ParseRequestURI(u); err == nil {
+			vr.URL = parsed
+		}
+	}
+	if m := r.Header.Get("X-Original-Method"); m != "" {
+		vr.Method = m
+	}
+	// Absolute-URL pieces for "@target-uri" / "@scheme".  The public side of
+	// every supported deployment terminates TLS (the challenge flow assumes
+	// it), so https is the right default when the proxy didn't say.
+	vr.URL.Host = vr.Host
+	if proto := r.Header.Get("X-Original-Proto"); proto != "" {
+		vr.URL.Scheme = proto
+	} else {
+		vr.URL.Scheme = "https"
+	}
+	return vr
+}
 
 // axisSeverity: how restrictive an axis vote is.  Higher = stronger.
 // Used by the max-severity decision pipeline so multiple axes (geo /
@@ -196,7 +233,16 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// axis ended up winning (= operator visibility).
 	var wbaResult webbotauth.Result
 	if cfg.Nginx.WebBotAuth.Enabled && h.WebBotAuth != nil && r.Header.Get("Signature-Input") != "" {
-		wbaResult = h.WebBotAuth.Verify(r.Context(), r)
+		wbaResult = h.WebBotAuth.Verify(r.Context(), wbaVerifyRequest(r))
+		if !wbaResult.OK && wbaResult.Reason != "" {
+			// A failed verification downgrades silently into the normal axis
+			// pipeline, which is the right traffic behavior but hides WHY a
+			// signature was rejected — and a misconfigured directory / clock /
+			// allowlist looks exactly like a hostile forgery from the outside.
+			// Only requests that DID carry a Signature-Input reach here, so
+			// this stays quiet for normal traffic.
+			log.Printf("unmask: web-bot-auth: signature rejected: %s", wbaResult.Reason)
+		}
 	}
 
 	// 2. Decision pipeline.

@@ -1394,7 +1394,16 @@ static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
 /* unmask_has_signed_agent: walk the inbound headers for "Signature-Input".
  * Returns "1" when present (non-empty), "0" otherwise.  Header name match
  * is case-insensitive per HTTP, so we use ngx_strncasecmp.  No allocation
- * on the hot path -- the two output strings are static. */
+ * on the hot path -- the two output strings are static.
+ *
+ * Subrequests always report "0".  Subrequests share headers_in with the
+ * main request, and nginx re-runs server-scope rewrite directives for
+ * them -- so without this guard the auth_request subrequest that the
+ * signed-route itself issues (uri /_unmask/_signed_verify) matches the
+ * server-scope signed-route gate again and gets rewritten away from the
+ * verify proxy, and the daemon is never consulted.  The variable means
+ * "the CLIENT's request carries a signature", which is only ever a
+ * property of the main request. */
 static ngx_int_t
 ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
@@ -1412,6 +1421,10 @@ ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
     v->not_found = 0;
     v->data = zero;
     v->len = 1;
+
+    if (r != r->main) {
+        return NGX_OK;
+    }
 
     part = &r->headers_in.headers.part;
     h = part->elts;

@@ -620,6 +620,61 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challeng
     "~^0:0:0:0:0::0:[^:]*:1$"   1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
     "~^0:0:0:0:0::0:"           $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
 }
+{{ if .WebBotAuthEnabled }}
+# -----------------------------------------------------------------------------
+# Web Bot Auth (RFC 9421) — signed-agent verification plumbing
+# -----------------------------------------------------------------------------
+# A request carrying a Signature-Input header detours through server.inc's
+# /_unmask/_signed_route, where an auth_request asks the admin daemon to
+# verify the signature; the daemon's X-Unmask-Action rides back in
+# $unmask_signed_action and the request re-enters the normal flow.  The four
+# maps below are the glue.  All are `volatile`: each is re-evaluated per
+# (sub)request URI / state instead of being cached at first touch — the
+# auth_request SUBREQUEST re-runs server-scope rewrites with the client's
+# headers, so a cached gate value would re-route the verify subrequest away
+# from the daemon (= the pre-v0.1.2 bug where the daemon was never reached).
+
+# $unmask_uri_is_unmask: "1" for unmask's own mounts.  Keeps the signed-route
+# gate from firing on (a) the verify subrequest itself (/_unmask/...), and
+# (b) challenge-page / admin traffic (/unmask/...).
+map $uri $unmask_uri_is_unmask {
+    volatile;
+    ~^/_unmask/  1;
+    ~^/unmask/   1;
+    default      0;
+}
+
+# $unmask_signed_gate: detour ONLY a signed request that is about to be
+# challenged.  A signed request that would pass anyway (bypass path / search
+# bot / valid _bv / plain content) stays on the fast native path with zero
+# subrequest overhead — and keeps working even when the admin daemon is down.
+# Ban enforcement stays terminal: the ban if-blocks in server.inc run before
+# this gate and short-circuit the rewrite phase.
+map "$unmask_has_signed_agent:$unmask_uri_is_unmask:$final_challenge" $unmask_signed_gate {
+    volatile;
+    "1:0:1"  1;
+    default  0;
+}
+
+# $unmask_signed_verified: "1" iff the daemon verified the signature AND the
+# operator is allowlisted (= X-Unmask-Action: pass).  Any other daemon answer
+# (challenge / block / unreachable) leaves it 0.
+map $unmask_signed_action $unmask_signed_verified {
+    volatile;
+    "pass"   1;
+    default  0;
+}
+
+# $final_challenge_eff: the challenge decision protect.inc actually enforces.
+# Identical to $final_challenge except a daemon-verified signed agent is
+# exempt.  Unsigned traffic never has $unmask_signed_action set, so this is
+# a pure pass-through for it.
+map "$final_challenge:$unmask_signed_verified" $final_challenge_eff {
+    volatile;
+    "1:0"    1;
+    default  0;
+}
+{{ end }}
 
 # -----------------------------------------------------------------------------
 # Rate-limit smart key + zone definitions (provided by unmask / auto-rendered)

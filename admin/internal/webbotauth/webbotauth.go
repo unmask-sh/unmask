@@ -106,6 +106,13 @@ type Verifier struct {
 	// production wires it to the operator allowlist).
 	AllowOperator func(host string) bool
 
+	// AllowPrivateDial drops the non-public-address dial refusal from the
+	// default client, for operators whose key directory lives on a private
+	// network (= settings web_bot_auth.allow_private_networks).  Every other
+	// hardening stays: https-only agent URLs, no redirects, TLS verification
+	// against the system roots, timeouts.  Ignored when HTTPClient is set.
+	AllowPrivateDial bool
+
 	mu    sync.RWMutex
 	cache map[string]cachedDir // key = agent URL string
 
@@ -201,13 +208,19 @@ func (v *Verifier) httpClient() *http.Client {
 	// refuses to dial any non-public address (loopback / private / link-local
 	// incl. the 169.254.169.254 cloud-metadata endpoint / CGNAT).  The dial
 	// guard runs on the resolved IP, so DNS-rebinding is covered too.
+	// AllowPrivateDial (= web_bot_auth.allow_private_networks) drops only the
+	// address refusal; redirects, TLS verification, and timeouts stay.
+	dial := safeDialContext
+	if v.AllowPrivateDial {
+		dial = (&net.Dialer{Timeout: DefaultHTTPTimeout}).DialContext
+	}
 	return &http.Client{
 		Timeout: DefaultHTTPTimeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return errors.New("directory fetch must not redirect")
 		},
 		Transport: &http.Transport{
-			DialContext:           safeDialContext,
+			DialContext:           dial,
 			TLSHandshakeTimeout:   DefaultHTTPTimeout,
 			ResponseHeaderTimeout: DefaultHTTPTimeout,
 			DisableKeepAlives:     true,

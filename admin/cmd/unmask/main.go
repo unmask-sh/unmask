@@ -397,6 +397,11 @@ func cmdServe(args []string) error {
 	h.WebBotAuth.AllowOperator = func(host string) bool {
 		return h.SnapshotSettings().Nginx.WebBotAuth.IsOperatorAllowed(host)
 	}
+	// Private-network directories (= intranet operators / test rigs).  Dial
+	// policy is baked into the default client per call, but we read it once
+	// here at boot: flipping the setting needs a daemon restart, unlike the
+	// live-read allowlist above.
+	h.WebBotAuth.AllowPrivateDial = h.SnapshotSettings().Nginx.WebBotAuth.AllowPrivateNetworks
 
 	// IP range subscribe loop: pull aggregated bypass-IP prefixes from the
 	// unmask.sh hub daily (± jitter) and overlay them onto the embed

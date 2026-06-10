@@ -55,56 +55,65 @@ if ($unmask_banned_effective = "1") {
 }
 
 {{ if .WebBotAuthEnabled }}
-# Web Bot Auth (= hybrid pattern, v0.2).  When the native plugin reports that
-# the request carries an RFC 9421 Signature-Input header, hand the request
-# off to admin /_unmask/check for cryptographic verification — the verifier
-# lives in admin (= pure-Go ed25519 + JWK directory cache), so the plugin
-# only needs to detect the header.  Verified signed agents pass through;
-# everything else falls back to the regular native flow on the next pass.
+# Web Bot Auth (RFC 9421 HTTP Message Signatures).  The native plugin only
+# DETECTS the Signature-Input header ($unmask_has_signed_agent); the
+# cryptographic verification lives in the admin daemon (= pure-Go ed25519 +
+# JWK directory cache), consulted via the auth_request below.
 #
-# Unsigned traffic (= the vast majority) skips this branch entirely — the
-# fast pure-native path is unchanged, no subrequest overhead.
-if ($unmask_has_signed_agent = "1") {
+# $unmask_signed_gate (http.inc) fires only for a signed MAIN request that is
+# about to be challenged ($final_challenge=1) and is not already on an unmask
+# mount.  Everything else — unsigned traffic, signed traffic on a bypass path
+# or with a valid _bv — stays on the fast native path with zero subrequest
+# overhead.  The ban if-blocks above run first, so a banned client never
+# reaches this gate.  Server-scope rewrites run once per request (internal
+# redirects re-enter at location search), so the re-entry below cannot loop.
+if ($unmask_signed_gate = "1") {
     rewrite ^ /_unmask/_signed_route$request_uri last;
 }
 
-# Internal route for signed-agent verification.  auth_request consults admin;
-# X-Unmask-Action=pass (= signature valid + operator allowed) lets through.
-# Both verification failures (= 401/403: bad / absent signature) AND admin
-# errors (= 5xx: the daemon is down, restarting, or erroring) fall back to the
-# original URI via @unmask_signed_fallback, so the visitor always gets the
-# regular flow rather than a flat reject.  The 5xx codes matter: this branch
-# fires at SERVER scope on any request carrying a Signature-Input header (= a
-# feed fetcher / signed bot, before any path bypass), so without them a brief
-# daemon blip -- a restart, a flap -- would surface a raw 500/502 to that agent
-# (e.g. an RSS fetcher hammering /rss/) instead of degrading to the normal path
-# where its bypass/challenge applies.  This is fail-to-normal-flow, NOT
-# fail-to-granted-pass: a daemon that IS reachable still denies via 403 (the
-# verifier fails closed on a bad signature / recovered panic), and only an
-# UNREACHABLE/erroring daemon degrades here.
+# Verification detour.  The auth_request consults admin /_unmask/check; its
+# X-Unmask-Action answer is captured into $unmask_signed_action.  EVERY
+# outcome then converges on @unmask_signed_continue, which re-enters the
+# original URI on the normal native flow:
+#   - verified + operator allowed  -> action "pass"   -> protect.inc's
+#     $final_challenge_eff sees $unmask_signed_verified=1 and skips the
+#     challenge (= the signed agent reaches the site's own content/proxy
+#     locations -- never served off this location's filesystem, which is
+#     what 404'd proxy sites before v0.1.2).
+#   - bad signature / not allowlisted -> 401/403       -> action stays unset
+#     or non-pass -> the normal challenge applies.
+#   - daemon down / erroring          -> 5xx (incl. auth_request's "unexpected
+#     status" 500) -> same degradation: normal challenge, no raw 5xx leaks to
+#     the agent.
+# try_files always misses the sentinel and lands in the named location — it
+# is the post-access way to re-enter; it never serves content.
 location ^~ /_unmask/_signed_route/ {
     internal;
     auth_request /_unmask/_signed_verify;
     auth_request_set $unmask_signed_action $upstream_http_x_unmask_action;
-    error_page 401 403 500 502 503 504 = @unmask_signed_fallback;
-
-    rewrite ^/_unmask/_signed_route(/.*)$ $1 break;
-    try_files $uri $uri/ =404;
+    error_page 401 403 500 502 503 504 = @unmask_signed_continue;
+    try_files /__unmask_signed_continue__ @unmask_signed_continue;
 }
 
-# Verification failed (= bad signature, expired, operator not in allowlist):
-# strip the marker prefix and let the request fall through to the regular
-# native flow.  The plugin's verdict / ban / honeypot logic still applies.
-location @unmask_signed_fallback {
+# Strip the detour prefix and re-enter location matching at the original URI.
+# $unmask_signed_action (auth_request_set above) survives the internal
+# redirect, so protect.inc / http.inc maps can see the daemon's verdict.
+location @unmask_signed_continue {
     rewrite ^/_unmask/_signed_route(/.*)$ $1 last;
 }
 
 # Subrequest target for /_unmask/_signed_route's auth_request.  Pumps the
-# call into the admin upstream's /_unmask/check endpoint (= same one
-# forward-auth mode uses).  Body is dropped to keep the subrequest cheap.
+# call into the admin daemon's /unmask/api/check endpoint (= the same
+# forward-auth handler Apache / Caddy use).  Body is dropped to keep the
+# subrequest cheap.
+# The plugin reports $unmask_has_signed_agent=0 for subrequests and
+# $unmask_uri_is_unmask=1 for this URI, so the signed-route gate cannot
+# hijack this subrequest away from the proxy (both guards are sufficient
+# alone; pre-v0.1.2 the unguarded gate did exactly that and the daemon was
+# never consulted).
 location = /_unmask/_signed_verify {
     internal;
-    proxy_pass http://unmask/_unmask/check;
+    proxy_pass http://unmask/unmask/api/check;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
     proxy_set_header X-Original-URI    $request_uri;

@@ -478,10 +478,19 @@ type Nginx struct {
 //
 // CacheTTLSec caps how long the in-memory directory cache holds a fetched
 // JWK set per operator.  Default 3600s.
+//
+// AllowPrivateNetworks relaxes the directory-fetch SSRF dial guard so an
+// operator whose key directory lives on a private / loopback address (= an
+// intranet bot platform, or a test rig) can be fetched.  TLS verification,
+// the https-only rule, and the redirect refusal stay in force.  Leave false
+// unless every allowlisted operator is under your own control: with public
+// operators this guard is what stops a forged Signature-Agent from steering
+// the daemon's fetch at internal services.
 type WebBotAuthConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	AllowedOperators []string `yaml:"allowed_operators,omitempty"`
-	CacheTTLSec      int      `yaml:"cache_ttl_sec,omitempty"`
+	Enabled              bool     `yaml:"enabled"`
+	AllowedOperators     []string `yaml:"allowed_operators,omitempty"`
+	CacheTTLSec          int      `yaml:"cache_ttl_sec,omitempty"`
+	AllowPrivateNetworks bool     `yaml:"allow_private_networks,omitempty"`
 }
 
 // ResolvedCacheTTLSec returns CacheTTLSec or 3600 (= 1h) when unset.
