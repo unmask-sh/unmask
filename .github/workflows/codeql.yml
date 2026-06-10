@@ -25,22 +25,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Per-language build modes.  JS extracts from source (none).  Go gets
+        # an explicit manual build: the CodeQL CLI rejects `none` for Go
+        # ("Go does not support the none build mode" — every run failed and Go
+        # was never scanned), and autobuild trips on the module living in
+        # admin/ rather than the repo root.
         include:
           - language: go
+            build-mode: manual
           - language: javascript-typescript
+            build-mode: none
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      # build-mode: none — CodeQL extracts both Go and JS from source without a
-      # build, so no setup-go / explicit build step is needed.  This is the
-      # v4-recommended flow and avoids the v3 autobuilder "configuration error"
-      # (the admin module lives in admin/, not at the repo root, which tripped
-      # the old tracing build).
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: matrix.language == 'go'
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+
       - uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
           queries: security-extended
+
+      # Manual tracing build for Go (= what CodeQL observes).  Mirrors the
+      # ci.yml build of the admin module.
+      - name: Build Go for CodeQL tracing
+        if: matrix.language == 'go'
+        run: cd admin && go build ./...
 
       - uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
         with:

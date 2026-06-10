@@ -494,10 +494,14 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // Configuration:
 //   - settings.Nginx.AdminAllowFrom — IP / CIDR list (e.g. "192.168.0.0/24").
 //   - settings.Nginx.AdminAllowedHosts — Host-header list (e.g. "admin.example.com").
-//   - Either list empty = allow all (legacy behavior; avoids locking out
-//     existing installs).  Wizard sets AdminAllowFrom to a non-empty list on
-//     fresh installs; AdminAllowedHosts is opt-in for the "single nginx serves
-//     many domains but only one should expose the admin UI" pattern.
+//   - Either list empty = allow all.  That IS the shipped default: the install
+//     wizard deliberately does not write AdminAllowFrom (an auto-guessed CIDR
+//     would lock a roaming operator out of the very UI needed to fix it, with
+//     config.yml editing as the only recovery), so until the operator fills it
+//     in under settings → nginx, the admin UI is gated by login + CSRF + the
+//     per-IP login rate-limit only.  AdminAllowedHosts is opt-in for the
+//     "single nginx serves many domains but only one should expose the admin
+//     UI" pattern.
 //
 // The rendered nginx server.conf emits the equivalent IP allow / deny, but
 // existing integrated deployments that don't include the rendered conf

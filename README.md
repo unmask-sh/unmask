@@ -22,7 +22,7 @@ preservation as the default posture.
 - **JA4 fingerprint** — Computed from the TLS handshake. Exposes headless Chromium / Puppeteer / Playwright through their UA disguise.
 - **Behavioral CAPTCHA** — 5-axis score from mouseTrail / scroll / window-size. Harder to defeat than a plain checkbox or PoW.
 - **Web Bot Auth (RFC 9421)** — ed25519 + RSA-PSS HTTP Message Signature verify with JWK thumbprint dedup. Signed AI agents (Anthropic / OpenAI / etc.) pass through without challenge.
-- **Community Bans (opt-in)** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. GDPR by design (= per-day salted IP hashes, 30-day prune, raw IPs never stored).
+- **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default (CAPTCHA-only enforcement, so a mismatched human still passes; flip `subscribe_mode` off to disconnect); submitting your own reports and sharing country info are opt-in. GDPR by design (= per-day salted IP hashes, 30-day prune, raw IPs never stored).
 - **Built-in admin UI** — dashboard / hunt / abuse signals / settings. bcrypt + cookie session + CSRF + per-IP login rate-limit.
 - **Two deploy modes** — native nginx dynamic module (~0.05 ms post-cookie) or forward-auth fallback for Apache / Caddy / Traefik / Envoy / HAProxy.
 

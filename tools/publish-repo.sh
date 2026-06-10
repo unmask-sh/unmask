@@ -56,12 +56,14 @@ if [ "${UNMASK_PUBLISH_SKIP_APK:-0}" = "1" ]; then
 fi
 
 echo "==> rsync $SRC/ -> $USER@$HOST:$DEST_PATH"
-# Note: feed/ is an artifact produced on the remote side by a separate
-# application (= the feed-server cron).  It does not exist under repo/, so
-# exclude it so --delete-after does not nuke it.
+# Note: feed/ and ipgeo/ are remote-only artifacts that do not exist under
+# repo/ — feed/ is produced by the feed-server cron, ipgeo/ is the GeoIP
+# (DB-IP Lite) mirror that ipgeo/install.go fetches as its primary mmdb
+# source.  Exclude both so --delete-after does not nuke them.
 rsync -avhz $DRY \
     --delete-after \
     --exclude=feed/ \
+    --exclude=ipgeo/ \
     $APK_EXCLUDE \
     --info=progress2 \
     --copy-unsafe-links \

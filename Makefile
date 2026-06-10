@@ -680,6 +680,27 @@ release: clean
 	# postinstall picks the best match for host nginx, so one file ships everywhere.
 	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64 || \
 		echo "!!! fat plugin build failed (continuing)"
+	# Web-server integration packages + the unmask-release repo bootstrap --
+	# the rest of the advertised install set.  Without these, build-repo.sh
+	# (which globs dist/*) would silently republish whatever stale
+	# unmask-web-* / unmask-release files were left over from an earlier build.
+	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION)
+	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION)
+	$(MAKE) package-web-caddy UNMASK_VERSION=$(UNMASK_VERSION)
+	$(MAKE) package-release UNMASK_VERSION=$(UNMASK_VERSION)
+	# Completeness gate: refuse to call a partial set a release.  Every
+	# package family the docs / repo advertise must exist in dist/ -- and the
+	# main package must exist at THIS version in all three formats -- before
+	# checksums are emitted.
+	@echo ">>> asserting the full artifact set in $(DIST)/"
+	@cd $(DIST) && fail=0; \
+	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-web-caddy unmask-release; do \
+		ls $$fam* >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam* in dist/"; fail=1; }; \
+	done; \
+	for ext in rpm deb apk; do \
+		ls unmask?$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! main package .$$ext at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
+	done; \
+	[ $$fail -eq 0 ] || { echo "!!! aborting: incomplete release set (see above)"; exit 1; }
 	@echo ">>> generating checksums.txt"
 	cd $(DIST) && sha256sum unmask-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
 	# GPG-sign checksums.txt so a direct download (= GitHub release asset, not the

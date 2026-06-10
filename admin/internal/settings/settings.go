@@ -1754,10 +1754,13 @@ func defaults() Settings {
 			// admin and nginx in separate network namespaces (= docker
 			// compose, k8s) can set it explicitly to e.g. "admin:9477".
 			SeenVersion: "v0.1", // baseline for new-preset NEW-badge gating
-			// AdminAllowFrom defaults to empty: avoids silently locking down
-			// existing installs (= deployments behind an LB) to loopback only.
-			// The install wizard forces a non-empty value. The nginx render
-			// path falls back to loopback via defaultAllow.
+			// AdminAllowFrom defaults to empty = NO IP restriction on the
+			// admin UI (login + CSRF + login rate-limit still apply).  The
+			// wizard intentionally leaves it empty — an auto-guessed CIDR
+			// would lock a roaming operator out of the UI needed to fix it —
+			// so restricting it is a documented post-setup operator step
+			// (settings → nginx).  Enforcement lives in
+			// handlers.AdminIPAllowMiddleware, not in the rendered nginx conf.
 			AdminAllowFrom:   nil,
 			MetricsAllowFrom: nil,
 			// All shipped crawler IP-range presets are ON by default -- this is
