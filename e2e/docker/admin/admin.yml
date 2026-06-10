@@ -106,6 +106,15 @@ nginx:
       cidrs:
         - 0.0.0.0/0
         - ::/0
+  # Scenario 34: Web Bot Auth (RFC 9421).  The fake operator's JWK directory
+  # is served by the nginx container at https://nginx:9444/ (= a compose
+  # private address, hence allow_private_networks).  Fixtures + signer key
+  # live in e2e/docker/wba/.
+  web_bot_auth:
+    enabled: true
+    allowed_operators:
+      - "nginx:9444"
+    allow_private_networks: true
   geo:
     default_action: skip
     rules:

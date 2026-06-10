@@ -21,6 +21,12 @@ RUN apk add --no-cache ca-certificates tzdata
 COPY --from=build /out/unmask /usr/local/bin/unmask
 RUN mkdir -p /var/lib/unmask /run/unmask /etc/unmask
 COPY e2e/docker/admin/admin.yml /etc/unmask/admin.yml
+# Trust the e2e Web Bot Auth test CA (scenario 34): the daemon fetches the
+# fake operator's JWK directory over TLS from the nginx container.  System
+# trust store, exactly how a production operator would provision a private CA
+# — the product itself never embeds one.
+COPY e2e/docker/wba/ca.crt /usr/local/share/ca-certificates/unmask-e2e-wba-ca.crt
+RUN update-ca-certificates
 
 # admin listens on 9477 (= reachable as http://admin:9477/ from the nginx container in compose).
 EXPOSE 9477

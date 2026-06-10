@@ -58,6 +58,9 @@ services:
     volumes:
       - unmask-run:/run/unmask
       - unmask-conf:/etc/unmask:ro
+      # Web Bot Auth fixtures (scenario 34): TLS cert + JWK directory for the
+      # fake operator vhost on :9444 (compose-network only, not published).
+      - ./wba:/etc/wba:ro
     ports:
       - "8443:8443"
     healthcheck:
