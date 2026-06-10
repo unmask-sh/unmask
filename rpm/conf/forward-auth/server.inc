@@ -79,8 +79,9 @@ location ^~ /unmask/admin/ {
 
 # /unmask/challenge/ — challenge HTML (= PoW / CAPTCHA).  Passes various hint headers.
 # When the admin is down (= 502/503/504), fall back to @unmask_admin_down.
-# Default behavior is 503 + Retry-After, but overriding @unmask_admin_down in
-# a server block lets you fail-open (= pass through to the backend).
+# Default behavior is 503 + Retry-After; defining @unmask_admin_down BEFORE
+# this include (see the note at its definition below) switches to full
+# fail-open (= pass through to the backend).
 location ^~ /unmask/challenge/ {
     auth_request off;
     proxy_pass        http://unmask_admin;
@@ -270,13 +271,16 @@ location @unmask_fail_open {
 }
 
 # fail-open hook when the admin daemon is down.  Default is 503 + Retry-After
-# (= the LB notices via health check).  Overriding the same-named location in
-# the user's server block switches to full fail-open that passes through to
-# the backend.  Example:
+# (= the LB notices via health check).  To switch to full fail-open that
+# passes through to the backend, define the same-named location in the
+# user's server block BEFORE the `include` of this file — nginx keeps the
+# FIRST definition of a named location, so one placed after the include is
+# silently ignored.  Example (above the include line):
 #   location @unmask_admin_down {
 #       proxy_pass http://backend;
 #       proxy_set_header Host $host;
 #   }
+#   include /etc/unmask/forward-auth/server.inc;
 location @unmask_admin_down {
     add_header Retry-After "10" always;
     return 503 "unmask admin temporarily unavailable\n";
