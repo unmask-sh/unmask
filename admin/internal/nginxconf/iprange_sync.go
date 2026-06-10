@@ -26,6 +26,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -135,8 +136,27 @@ func (s *Sync) recordSuccess(written int) {
 
 func (s *Sync) recordError(err error) {
 	s.stateMu.Lock()
-	s.lastError = err.Error()
+	s.lastError = annotateSyncError(err.Error())
 	s.stateMu.Unlock()
+}
+
+// annotateSyncError appends an operator hint to a TLS-trust failure.  On an EOL
+// distro (CentOS 6/7) "x509: certificate signed by unknown authority" almost
+// always means the host's CA bundle is too old to trust the feed's Let's Encrypt
+// chain -- not an unmask bug.  unmask deliberately defers to the system trust
+// store (a security tool must not override the operator's CA policy), so the fix
+// is operator-side: refresh ca-certificates or add the ISRG roots, then restart.
+// The bundled snapshot keeps protecting search bots meanwhile (= best-effort).
+func annotateSyncError(msg string) string {
+	m := strings.ToLower(msg)
+	if strings.Contains(m, "x509:") ||
+		strings.Contains(m, "failed to verify certificate") ||
+		strings.Contains(m, "certificate signed by unknown authority") {
+		return msg + "  (hint: the host CA bundle can't verify the feed's TLS certificate -- " +
+			"common on EOL distros like CentOS 6/7. Refresh ca-certificates or add the ISRG roots, " +
+			"then restart unmask; the bundled snapshot stays in effect meanwhile. See https://unmask.sh/docs/distros/.)"
+	}
+	return msg
 }
 
 // NewSync returns a Sync with defaults filled in.
