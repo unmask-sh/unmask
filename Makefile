@@ -204,6 +204,10 @@ build-module-multi-openssl11:
 			continue; \
 		}; \
 	done
+	@# The builder runs as root, so the bind-mounted outputs land root-owned and
+	@# a later `make clean` cannot delete them.  Hand them back to the invoking
+	@# user from inside the same image (no sudo needed on the host).
+	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-openssl11 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-openssl11 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.1):"
 	@ls -la $(MULTI_OPENSSL11_DIR)/*/*.so 2>/dev/null || echo "  (none)"
@@ -237,6 +241,9 @@ build-module-multi-openssl10:
 			continue; \
 		}; \
 	done
+	@# Hand the root-owned bind-mount outputs back to the invoking user (see
+	@# the openssl11 target).
+	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-openssl10 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-openssl10 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.0):"
 	@ls -la $(MULTI_OPENSSL10_DIR)/*/*.so 2>/dev/null || echo "  (none)"
@@ -270,6 +277,9 @@ build-module-multi-glibc212:
 			continue; \
 		}; \
 	done
+	@# Hand the root-owned bind-mount outputs back to the invoking user (see
+	@# the openssl11 target).
+	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-centos6 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-glibc212 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (glibc 2.12):"
 	@ls -la $(MULTI_GLIBC212_DIR)/*/*.so 2>/dev/null || echo "  (none)"
