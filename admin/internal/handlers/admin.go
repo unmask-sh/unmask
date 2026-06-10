@@ -340,7 +340,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		ip := adminClientIP(r, h.snapshotSettings())
 		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
 			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
-			http.Error(w, "forbidden: your IP is not in admin_allow_from", http.StatusForbidden)
+			adminIPForbidden(w, ip)
 			return
 		}
 		secret := h.Settings.Secret.BVSecret
@@ -519,16 +519,32 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 		ip := adminClientIP(r, h.snapshotSettings())
 		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
 			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
-			http.Error(w, "forbidden: your IP is not in admin_allow_from", http.StatusForbidden)
+			adminIPForbidden(w, ip)
 			return
 		}
 		if !hostAllowed(r.Host, h.Settings.Nginx.AdminAllowedHosts) {
 			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, h.Settings.Nginx.AdminAllowedHosts)
-			http.Error(w, "forbidden: this Host is not in admin_allowed_hosts", http.StatusForbidden)
+			adminHostForbidden(w, r.Host)
 			return
 		}
 		next(w, r)
 	}
+}
+
+// adminIPForbidden / adminHostForbidden write a 403 with an operator hint: the
+// offending IP/Host (which the caller already knows about itself) + how to fix a
+// self-lockout.  Deliberately does NOT reveal the allowed list -- that would tell
+// an unauthorized visitor which IPs / Hosts are trusted.
+func adminIPForbidden(w http.ResponseWriter, ip string) {
+	http.Error(w, "Forbidden: your IP ("+ip+") is not allowed to reach the admin UI.\n"+
+		"If you locked yourself out, add this IP/CIDR to admin_allow_from in /etc/unmask/config.yml and "+
+		"restart unmask -- or edit it under Settings -> Network from an already-allowed IP.", http.StatusForbidden)
+}
+
+func adminHostForbidden(w http.ResponseWriter, host string) {
+	http.Error(w, "Forbidden: this Host ("+host+") is not allowed to reach the admin UI.\n"+
+		"If you locked yourself out, add this Host to admin_allowed_hosts in /etc/unmask/config.yml and "+
+		"restart unmask -- or edit it under Settings -> Network from an already-allowed Host.", http.StatusForbidden)
 }
 
 // hostAllowed reports whether the Host header matches any entry in allowList.

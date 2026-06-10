@@ -541,6 +541,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <textarea name="admin_allow_from">{{ range .Cur.AdminAllowFrom }}{{ . }}
 {{ end }}</textarea>
     </div>
+    <div class="field">
+      <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
+      <textarea name="admin_allowed_hosts">{{ range .Cur.AdminAllowedHosts }}{{ . }}
+{{ end }}</textarea>
+    </div>
   </div>
 
   <div class="bcd-card">

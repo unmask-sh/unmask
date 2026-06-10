@@ -953,7 +953,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
 	case "network":
-		if err := applyNetworkForm(&cur.Nginx, r, lang); err != nil {
+		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -1387,16 +1387,31 @@ func applyServerListenForm(s *settings.Server, r *http.Request, lang i18n.Lang) 
 	return nil
 }
 
-func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	// Both admin_allow_from and metrics_allow_from accept empty (= empty = allow all).
-	// Defaulted that way to avoid lockout when forgotten.
+func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP, curHost string) error {
+	// admin_allow_from / admin_allowed_hosts / metrics_allow_from all accept
+	// empty (= empty means allow all), so a forgotten list never locks you out.
+	// A NON-empty list that excludes the operator's own IP / Host is rejected
+	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
+	// resolved the same way the /admin/* gate resolves them).
 	allow := splitLines(r.FormValue("admin_allow_from"))
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
 		}
 	}
+	if len(allow) > 0 && !ipAllowed(curIP, allow) {
+		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_ip", curIP))
+	}
 	n.AdminAllowFrom = allow
+
+	// Host allowlist (= which domains may reach /admin/* when one nginx serves
+	// many vhosts).  Matched in-app, never written to nginx config, so no
+	// injection guard is needed beyond the self-lockout check.
+	hosts := splitLines(r.FormValue("admin_allowed_hosts"))
+	if len(hosts) > 0 && !hostAllowed(curHost, hosts) {
+		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
+	}
+	n.AdminAllowedHosts = hosts
 
 	mallow := splitLines(r.FormValue("metrics_allow_from"))
 	for _, a := range mallow {
