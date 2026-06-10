@@ -16,10 +16,15 @@ SupplementaryGroups=nginx
 Environment=UNMASK_CONFIG=/etc/unmask/config.yml
 ExecStart=/usr/sbin/unmask serve
 
-# Auto-create /run/unmask/ on startup (= 0750 unmask:unmask, on tmpfs).
-# admin binds log.sock here; group access is needed for sharing.
+# Auto-create /run/unmask/ on startup (= unmask:unmask, on tmpfs).  admin
+# binds log.sock and the optional unix:/run/unmask/http.sock here, and nginx
+# workers must TRAVERSE the directory to reach either.  0755 grants traverse
+# only — access control stays on each socket's own mode (the daemon chmods
+# them at bind).  0750 left the unix-socket admin bind 502ing whenever
+# nginx_log was off, because nginxlog.Start was the only code path that
+# widened the directory.
 RuntimeDirectory=unmask
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0755
 
 # Hardening (= systemd hardening)
 NoNewPrivileges=yes

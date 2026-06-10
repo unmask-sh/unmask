@@ -1089,8 +1089,10 @@ server:
   port: 9477
   base_path: /unmask
 
-# Authentication is the internal user DB.  At first start, an admin/superadmin
-# is auto-created and the random password is shown in the log exactly once.
+# Authentication is the internal user DB.  Create the first admin through the
+# setup wizard (= open /unmask/admin/ after install; the one-time token printed
+# by the package install / found in /etc/unmask/.setup-token guards it), or
+# from the shell: unmask user create.
 # CLI management: unmask user create / reset-password / set-role / delete
 `, bv, cb)
 

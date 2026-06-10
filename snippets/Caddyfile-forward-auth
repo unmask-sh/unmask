@@ -15,7 +15,25 @@
 example.com {
     # /unmask/* (= challenge HTML / verify API / admin UI) → proxy to admin.
     handle /unmask/* {
-        reverse_proxy 127.0.0.1:9477
+        reverse_proxy 127.0.0.1:9477 {
+            # Verdict-header strip: a visitor could otherwise send these
+            # headers itself and have the daemon record a forged verdict /
+            # honeypot hit / site identity (the shipped nginx snippets strip
+            # the same set).  If a trusted JA4-aware layer in front sets
+            # X-Client-JA4, drop that line.
+            header_up -X-Client-JA4
+            header_up -X-JA4-Verdict
+            header_up -X-JA4-Action
+            header_up -X-Honeypot-Hit
+            header_up -X-Protected-Mode
+            header_up -X-Banned
+            header_up -X-Unmask-Site
+            header_up -X-Original-URI
+            header_up -X-Original-IP
+            header_up -X-Original-UA
+            header_up -X-Original-Host
+            header_up -X-Original-Method
+        }
     }
 
     # Protect everything else with forward_auth.

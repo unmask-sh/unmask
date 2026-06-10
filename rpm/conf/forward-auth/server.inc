@@ -51,14 +51,24 @@ location ^~ /unmask/admin/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    # JA4 verdict forwarding (= HYBRID mode only).  $effective_ja4 / $ja4_verdict
-    # / $ja4_action are defined by the native plugin's http.inc maps.  In pure
-    # forward-auth mode (no plugin / no http.inc) they are undefined and abort
-    # `nginx -t`, so they are commented out by default.  Uncomment only if you
-    # also load the native http.inc on this vhost.
-    #proxy_set_header  X-Client-JA4  $effective_ja4;
-    #proxy_set_header  X-JA4-Verdict $ja4_verdict;
-    #proxy_set_header  X-JA4-Action  $ja4_action;
+    # Verdict-header strip: a visitor could otherwise send X-Client-JA4 /
+    # X-JA4-Verdict / X-Unmask-Site etc. itself and have the daemon record a
+    # forged verdict / honeypot hit / site identity (audit integrity; the
+    # native-mode rendered server.inc strips the same set).  Empty value =
+    # nginx removes the header.  HYBRID mode (= native http.inc also loaded on
+    # this vhost): replace the JA4 empties with the plugin maps —
+    # $effective_ja4 / $ja4_verdict / $ja4_action.
+    proxy_set_header  X-Client-JA4     "";
+    proxy_set_header  X-JA4-Verdict    "";
+    proxy_set_header  X-JA4-Action     "";
+    proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Protected-Mode "";
+    proxy_set_header  X-Banned         "";
+    proxy_set_header  X-Unmask-Site    "";
+    proxy_set_header  X-Original-Host  $host;
+    proxy_set_header  X-Original-URI   $request_uri;
+    proxy_set_header  X-Original-IP    $remote_addr;
+    proxy_set_header  X-Original-UA    $http_user_agent;
     # Disable buffering so SSE (= /admin/api/events/stream) flows through.
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
@@ -76,14 +86,21 @@ location ^~ /unmask/challenge/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # HYBRID-mode JA4 / native-verdict headers (= require the native http.inc
-    # maps; undefined in pure forward-auth, so commented out by default).
-    #proxy_set_header  X-Client-JA4     $effective_ja4;
-    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    #proxy_set_header  X-JA4-Action     $ja4_action;
-    #proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
-    #proxy_set_header  X-Protected-Mode $protected_mode;
-    #proxy_set_header  X-Banned         $unmask_banned;
+    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
+    # the empties with the native http.inc maps ($effective_ja4 /
+    # $ja4_verdict / $ja4_action / $serve_bot_challenge / $protected_mode /
+    # $unmask_banned).
+    proxy_set_header  X-Client-JA4     "";
+    proxy_set_header  X-JA4-Verdict    "";
+    proxy_set_header  X-JA4-Action     "";
+    proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Protected-Mode "";
+    proxy_set_header  X-Banned         "";
+    proxy_set_header  X-Unmask-Site    "";
+    proxy_set_header  X-Original-Host  $host;
+    proxy_set_header  X-Original-URI   $request_uri;
+    proxy_set_header  X-Original-IP    $remote_addr;
+    proxy_set_header  X-Original-UA    $http_user_agent;
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_admin_down;
 }
@@ -98,10 +115,19 @@ location ^~ /unmask/api/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    # HYBRID-mode JA4 headers (= commented out; undefined in pure forward-auth).
-    #proxy_set_header  X-Client-JA4  $effective_ja4;
-    #proxy_set_header  X-JA4-Verdict $ja4_verdict;
-    #proxy_set_header  X-JA4-Action  $ja4_action;
+    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
+    # the JA4 empties with $effective_ja4 / $ja4_verdict / $ja4_action.
+    proxy_set_header  X-Client-JA4     "";
+    proxy_set_header  X-JA4-Verdict    "";
+    proxy_set_header  X-JA4-Action     "";
+    proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Protected-Mode "";
+    proxy_set_header  X-Banned         "";
+    proxy_set_header  X-Unmask-Site    "";
+    proxy_set_header  X-Original-Host  $host;
+    proxy_set_header  X-Original-URI   $request_uri;
+    proxy_set_header  X-Original-IP    $remote_addr;
+    proxy_set_header  X-Original-UA    $http_user_agent;
 }
 
 # /unmask/static/  — assets (= challenge.js / flag PNG etc.).
@@ -117,13 +143,19 @@ location ^~ /unmask/_rl/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # HYBRID-mode JA4 / native-verdict headers (= undefined in pure forward-auth).
-    #proxy_set_header  X-Client-JA4     $effective_ja4;
-    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    #proxy_set_header  X-JA4-Action     $ja4_action;
-    #proxy_set_header  X-Honeypot-Hit   $serve_bot_challenge;
-    #proxy_set_header  X-Protected-Mode $protected_mode;
-    #proxy_set_header  X-Banned         $unmask_banned;
+    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
+    # the empties with the native http.inc maps.
+    proxy_set_header  X-Client-JA4     "";
+    proxy_set_header  X-JA4-Verdict    "";
+    proxy_set_header  X-JA4-Action     "";
+    proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Protected-Mode "";
+    proxy_set_header  X-Banned         "";
+    proxy_set_header  X-Unmask-Site    "";
+    proxy_set_header  X-Original-Host  $host;
+    proxy_set_header  X-Original-URI   $request_uri;
+    proxy_set_header  X-Original-IP    $remote_addr;
+    proxy_set_header  X-Original-UA    $http_user_agent;
     proxy_intercept_errors off;
 }
 location @unmask_rate_challenge {
@@ -162,10 +194,19 @@ location ^~ /unmask/test/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # HYBRID-mode JA4 headers (= undefined in pure forward-auth).
-    #proxy_set_header  X-Client-JA4     $effective_ja4;
-    #proxy_set_header  X-JA4-Verdict    $ja4_verdict;
-    #proxy_set_header  X-JA4-Action     $ja4_action;
+    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
+    # the JA4 empties with $effective_ja4 / $ja4_verdict / $ja4_action.
+    proxy_set_header  X-Client-JA4     "";
+    proxy_set_header  X-JA4-Verdict    "";
+    proxy_set_header  X-JA4-Action     "";
+    proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Protected-Mode "";
+    proxy_set_header  X-Banned         "";
+    proxy_set_header  X-Unmask-Site    "";
+    proxy_set_header  X-Original-Host  $host;
+    proxy_set_header  X-Original-URI   $request_uri;
+    proxy_set_header  X-Original-IP    $remote_addr;
+    proxy_set_header  X-Original-UA    $http_user_agent;
 }
 
 # /_unmask/check  — internal subrequest endpoint for forward-auth mode.
@@ -182,6 +223,16 @@ location = /_unmask/check {
     proxy_set_header X-Original-UA    $http_user_agent;
     proxy_set_header X-Original-Host  $host;
     proxy_set_header Cookie           $http_cookie;
+    # Verdict-header strip: the subrequest inherits the client's headers, so
+    # blank the spoofable verdict set (see /unmask/admin/ above).  HYBRID
+    # mode: set X-Client-JA4 to $effective_ja4 instead.
+    proxy_set_header X-Client-JA4     "";
+    proxy_set_header X-JA4-Verdict    "";
+    proxy_set_header X-JA4-Action     "";
+    proxy_set_header X-Honeypot-Hit   "";
+    proxy_set_header X-Protected-Mode "";
+    proxy_set_header X-Banned         "";
+    proxy_set_header X-Unmask-Site    "";
     proxy_connect_timeout 1s;
     proxy_read_timeout    2s;
     proxy_send_timeout    1s;

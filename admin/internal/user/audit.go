@@ -60,7 +60,9 @@ func (r *Repository) PruneOldAudit(ctx context.Context, retentionDays int) (int6
 	if retentionDays <= 0 || r.DB == nil {
 		return 0, nil
 	}
-	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	// .UTC(): `at` is stored UTC-at-rest; a host-local cutoff would skew the
+	// retention boundary by the host TZ offset under the sqlite driver.
+	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
 	res, err := r.DB.ExecContext(ctx, `DELETE FROM unmask_user_audit WHERE at < ?`, cutoff)
 	if err != nil {
 		return 0, err

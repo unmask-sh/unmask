@@ -183,7 +183,10 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 	// is DATETIME; the mysql driver parses time.Time, the glebarez/modernc
 	// driver compares ISO8601-ish strings -- the comparison "<" works for
 	// both, so we pass a time.Time bind and let the driver format it.
-	cutoff := time.Now().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	// .UTC() because rows are stored UTC-at-rest and the sqlite driver
+	// formats the bind in the value's own zone -- a host-local cutoff would
+	// skew the retention boundary by the host TZ offset.
+	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
 	res, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_event WHERE date_created < ?`, cutoff)
 	if err != nil {
@@ -248,7 +251,7 @@ func prepareInsertArgs(e *Event) []any {
 	}
 	occurred := e.OccurredAt
 	if occurred.IsZero() {
-		occurred = time.Now()
+		occurred = time.Now().UTC() // UTC-at-rest, matching the OccurredAt fill in InsertAsync
 	}
 	scheme := strings.ToLower(strings.TrimSpace(e.Scheme))
 	if scheme != "http" && scheme != "https" {

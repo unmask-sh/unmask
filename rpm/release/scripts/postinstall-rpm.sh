@@ -32,6 +32,11 @@ name=unmask repository
 baseurl=https://unmask.sh/dl/rpm/\$basearch
 enabled=1
 gpgcheck=1
+# repo_gpgcheck verifies the repo METADATA signature too (repomd.xml.asc,
+# emitted by build-repo.sh).  Without it only the rpms themselves are
+# verified, so tampered repodata could hide or reorder packages.  deb
+# (InRelease) and apk (signed APKINDEX) already enforce the equivalent.
+repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-unmask
 metadata_expire=300
 EOF
