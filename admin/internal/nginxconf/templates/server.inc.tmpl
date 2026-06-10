@@ -17,8 +17,9 @@
 # Contents: (1) access_log for dashboard aggregation of cookie-passed requests
 # (unmask_minimal), (2) BAN enforcement if-blocks (= deny / rewrite-to-challenge),
 # (3) @unmask_rate_challenge named location, (4) the `location ^~ /unmask/`
-# proxy to the admin daemon.  Any future server-scope directives consolidate
-# here.
+# proxy to the admin daemon, (5) @unmask_daemon_down fail-open (= serve the
+# original page when the daemon is unreachable).  Any future server-scope
+# directives consolidate here.
 #
 # Restricting which Host gets the admin UI: edit settings →
 # nginx.admin_allowed_hosts in admin (= HTTP-layer allowlist on /admin/*).
@@ -40,6 +41,19 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 {{- else }}
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}
+
+# Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
+# and by protect.inc's challenge gate).  Initialized here -- server rewrite
+# phase, which runs exactly once per request -- so the variables always exist
+# before any location-level logic reads them.
+#   $unmask_failopen  : "1" after @unmask_daemon_down replays a request,
+#                       suppressing the challenge gate on the replay pass.
+#   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
+#                       into /unmask/*; empty for direct /unmask/* requests.
+#   $unmask_orig_args : pre-challenge $args, restored on replay.
+set $unmask_failopen  "";
+set $unmask_orig_path "";
+set $unmask_orig_args "";
 
 # Persistent BAN application.  The native plugin reads the ban file and the
 # http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
@@ -134,6 +148,15 @@ location = /_unmask/_signed_verify {
 # admin serves as a challenge page (= "you're going too fast, prove you're
 # human").
 location @unmask_rate_challenge {
+    # Replayed requests (= $unmask_failopen set by @unmask_daemon_down) can
+    # trip limit_req a second time; the challenge endpoint is down, so answer
+    # a plain 429 instead of looping back into the dead proxy.
+    if ($unmask_failopen = "1") {
+        add_header Retry-After "10" always;
+        return 429 "rate limited\n";
+    }
+    set $unmask_orig_path $uri;
+    set $unmask_orig_args $args;
     rewrite ^ /unmask/_rl$request_uri last;
 }
 
@@ -196,6 +219,40 @@ location ^~ /unmask/ {
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
     proxy_buffering    off;
+    # Daemon unreachable -> fail open instead of surfacing a raw 502: bounce
+    # to @unmask_daemon_down, which replays the visitor's original request.
+    proxy_intercept_errors on;
+    error_page 502 503 504 = @unmask_daemon_down;
+}
+
+# Daemon-down fail-open.  Reached via error_page from the /unmask/* proxy
+# locations when the admin daemon cannot answer.  Two cases:
+#   - The request was internally rewritten into a challenge (protect.inc or
+#     @unmask_rate_challenge saved the original URI): replay the original
+#     request through the vhost's own locations.  The visitor gets the page
+#     they asked for -- the same behavior as not having unmask installed.
+#     $unmask_failopen suppresses the challenge gate on the replay pass, so
+#     the replay cannot loop back here.
+#   - A direct /unmask/* request (challenge assets mid-flow, admin UI):
+#     nothing to replay; answer 503 + Retry-After.
+# BAN enforcement still holds during an outage: deny entries return 403
+# without the daemon, and challenge-type ban rewrites happen at server scope
+# before any original URI is saved, so banned clients land in the 503 branch
+# rather than getting a free pass.
+location @unmask_daemon_down {
+    set $unmask_failopen "1";
+    # Replay only originals OUTSIDE /unmask/.  An empty original means a
+    # direct /unmask/* hit, and a saved /unmask/* original (= the challenge
+    # gate also covers the admin UI surface when protect.inc sits at server
+    # scope) would bounce straight back into the dead proxy -- error_page
+    # does not recurse, so that second 502 would surface raw.  Both cases
+    # take the 503 + Retry-After below instead.
+    if ($unmask_orig_path ~ "^/(?!unmask(/|$))") {
+        set $args $unmask_orig_args;
+        rewrite ^ $unmask_orig_path last;
+    }
+    add_header Retry-After "10" always;
+    return 503 "unmask admin temporarily unavailable\n";
 }
 {{ range .RatePresetLocations }}
 # Path-scoped rate-limit preset (= settings.RateLimit.Zones row with
@@ -208,6 +265,10 @@ location ^~ {{ .Path }} {
     limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
     limit_req_status 429;
     error_page 429 = @unmask_rate_challenge;
+    # Same daemon-down fail-open as `location ^~ /unmask/` (error_page is
+    # per-location, so the catch-all's directive does not inherit here).
+    proxy_intercept_errors on;
+    error_page 502 503 504 = @unmask_daemon_down;
     proxy_pass         http://unmask;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;

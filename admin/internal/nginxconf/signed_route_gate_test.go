@@ -46,7 +46,7 @@ func TestSignedRouteGatedByWebBotAuth(t *testing.T) {
 				t.Errorf("%s must omit all signed-agent machinery when Web Bot Auth is disabled", f)
 			}
 		}
-		if out := renderWBA(t, false, "protect.inc"); !strings.Contains(out, "if ($final_challenge = 1)") {
+		if out := renderWBA(t, false, "protect.inc"); !strings.Contains(out, `set $unmask_gate "${final_challenge}:${unmask_failopen}";`) {
 			t.Errorf("protect.inc must keep the plain $final_challenge decision when WBA is disabled")
 		}
 	})
@@ -109,10 +109,10 @@ func TestSignedRouteGatedByWebBotAuth(t *testing.T) {
 
 	t.Run("enabled_protect_inc_uses_eff", func(t *testing.T) {
 		out := renderWBA(t, true, "protect.inc")
-		if !strings.Contains(out, "if ($final_challenge_eff = 1)") {
+		if !strings.Contains(out, `set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";`) {
 			t.Errorf("protect.inc must enforce $final_challenge_eff when WBA is enabled")
 		}
-		if strings.Contains(out, "if ($final_challenge = 1)") {
+		if strings.Contains(out, `set $unmask_gate "${final_challenge}:${unmask_failopen}";`) {
 			t.Errorf("protect.inc must not also enforce the raw $final_challenge when WBA is enabled")
 		}
 	})

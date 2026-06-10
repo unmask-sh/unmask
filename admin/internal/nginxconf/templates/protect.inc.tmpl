@@ -27,15 +27,22 @@ error_page 429 = @unmask_rate_challenge;
 # the hunt page.  Note: $request_uri includes path + query, and nginx rewrite
 # args are not URL-encoded, so anything after a second `?` bleeds into args.
 # We accept this since aggregation is at the path level.
+# The gate folds in $unmask_failopen (set by server.inc's
+# @unmask_daemon_down): when the daemon is down the original request is
+# replayed through this location, and the "1:" match below intentionally
+# misses ("1:1"), so the replay reaches the real content instead of looping
+# back into the dead challenge endpoint.  $unmask_orig_path / _args feed
+# that replay.
 {{ if .WebBotAuthEnabled }}
 # Web Bot Auth: $final_challenge_eff = $final_challenge minus daemon-verified
 # signed agents (= $unmask_signed_action "pass" from the signed-route detour
 # in server.inc).  For everything unsigned the two variables are identical.
-if ($final_challenge_eff = 1) {
-    rewrite ^ /unmask/challenge/?_orig=$request_uri last;
-}
+set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";
 {{ else }}
-if ($final_challenge = 1) {
+set $unmask_gate "${final_challenge}:${unmask_failopen}";
+{{ end }}
+if ($unmask_gate = "1:") {
+    set $unmask_orig_path $uri;
+    set $unmask_orig_args $args;
     rewrite ^ /unmask/challenge/?_orig=$request_uri last;
 }
-{{ end }}

@@ -12,6 +12,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- (2026-06-11 00:50) **Native mode now fails open automatically when the admin
+  daemon is down** — no operator config required.  Previously an unreachable
+  daemon meant every not-yet-passed visitor got a raw 502 from the challenge
+  proxy (effectively a site outage for new visitors), and the only escape was
+  an operator-supplied named location that the native render never even
+  referenced.  Now the `/unmask/*` proxy locations carry
+  `error_page 502 503 504 = @unmask_daemon_down`; the named location replays
+  the visitor's original request through the vhost's own locations
+  (`$unmask_orig_path` / `$unmask_orig_args` saved at the challenge gate,
+  `$unmask_failopen` suppresses the gate on the replay pass so it cannot
+  loop).  The site behaves as if unmask were not installed until the daemon
+  returns.  Scope guards: BAN deny entries keep returning 403 (no daemon
+  involved), challenge-type ban rewrites land on 503 + Retry-After instead of
+  a free pass, rate-limit overflow during an outage answers a plain 429, and
+  direct `/unmask/*` requests (admin UI, mid-challenge asset / verify calls)
+  answer 503 + Retry-After.  Matches forward-auth mode, whose gate already
+  failed open (204) by default.  Covered end-to-end by e2e scenario 35
+  (stops/restarts the admin container and asserts original content with no
+  challenge, query-string survival, the 503 + Retry-After branch, and that
+  protection resumes on recovery).
+
 ### Fixed
 - (2026-06-10) **Web Bot Auth now actually works in native mode**.  The
   signed-route in server.inc had three fatal flaws: the server-scope
