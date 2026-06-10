@@ -14,8 +14,24 @@ fi
 
 log()      { printf '%b\n' "  $*"; }
 log_pass() { printf '%b\n' "  ${GREEN}PASS${RESET}  $*"; }
-log_fail() { printf '%b\n' "  ${RED}FAIL${RESET}  $*" >&2; }
+log_fail() { _E2E_FAILS=$((${_E2E_FAILS:-0} + 1)); printf '%b\n' "  ${RED}FAIL${RESET}  $*" >&2; }
 log_skip() { printf '%b\n' "  ${YELLOW}SKIP${RESET}  $*"; }
+
+# Exit guard: a scenario is a FAIL when ANY assertion failed, not just when
+# its LAST command happened to exit non-zero.  Without this, a mid-scenario
+# assert_eq failure is silently swallowed as long as the final assert passes
+# (run.sh only sees the script's exit code) — a green suite that didn't
+# actually hold all its assertions.  Counted via log_fail so assert_eq /
+# assert_in / direct log_fail calls all register.
+_E2E_FAILS=0
+_e2e_exit_guard() {
+    local rc=$?
+    if [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ]; then
+        printf '%b\n' "  ${RED}FAIL${RESET}  ${_E2E_FAILS} assertion(s) failed earlier in this scenario" >&2
+        exit 1
+    fi
+}
+trap _e2e_exit_guard EXIT
 
 # assert_eq EXPECTED ACTUAL DESC
 assert_eq() {
