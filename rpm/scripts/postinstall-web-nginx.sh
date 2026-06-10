@@ -152,8 +152,12 @@ if command -v nginx >/dev/null 2>&1; then
     # in forward-auth mode (no picker shipped).
     [ -f /usr/share/unmask/plugin/place-module.sh ] && sh /usr/share/unmask/plugin/place-module.sh --verify
     if nginx -t >/dev/null 2>&1; then
-        nginx -s reload >/dev/null 2>&1 || true
-        echo "unmask-web-nginx: nginx reload requested."
+        # Do NOT reload/restart nginx here -- touching the running web server is
+        # the operator's call (predictable blast radius).  We render + validate
+        # the config only; the operator applies it when they choose.
+        echo "unmask-web-nginx: config rendered, 'nginx -t' OK -- nginx NOT reloaded."
+        echo "  → apply when you choose:  sudo nginx -s reload  (config), or"
+        echo "    sudo service nginx restart  (REQUIRED to load a new plugin .so)."
     else
         echo "unmask-web-nginx: WARNING — 'nginx -t' did NOT pass."
         echo "  → check the conflict (often duplicate 'upstream' or 'server' definitions)."
