@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -591,6 +592,37 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		done += "?restart=1"
 	}
 	http.Redirect(w, r, done, http.StatusFound)
+	if old != conn {
+		// A DB switch orphaned the background workers (hourly aggregate / prune /
+		// event flusher still hold the now-closed boot handle), which silently
+		// breaks the funnel + serve recording until a restart.  Re-exec so they
+		// rebind to the new DB -- no manual restart needed.
+		scheduleReexec()
+	}
+}
+
+// reexecOnce guards the post-setup self-restart so a page refresh can't fire it twice.
+var reexecOnce sync.Once
+
+// scheduleReexec re-launches the daemon in place a few seconds after a DB switch,
+// once the setup-done response has flushed.  syscall.Exec keeps the PID, so the
+// sysv pidfile / systemd MainPID stay valid.  This rebinds the background workers
+// (hourly aggregate / prune / event flusher) that were left on the closed boot DB
+// handle.  On failure it is a no-op (the done page still names a manual restart).
+func scheduleReexec() {
+	reexecOnce.Do(func() {
+		go func() {
+			time.Sleep(3 * time.Second) // let the redirect + done page flush first
+			exe, err := os.Executable()
+			if err != nil {
+				exe = os.Args[0]
+			}
+			log.Printf("setup: re-exec %s to rebind background workers to the new DB", exe)
+			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+				log.Printf("setup: re-exec failed (%v); restart the daemon manually", err)
+			}
+		}()
+	})
 }
 
 // AdminSetupDone: GET {base}/admin/setup/done — completion screen (= links to login).
