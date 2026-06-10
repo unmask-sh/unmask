@@ -277,7 +277,7 @@ func readBody(t *testing.T, r io.Reader) string {
 	return string(b)
 }
 
-// TestIPAllowed: exact + CIDR matching for admin_allow_from.
+// TestIPAllowed: exact + CIDR matching for admin_allowed_ips.
 func TestIPAllowed(t *testing.T) {
 	cases := []struct {
 		name      string

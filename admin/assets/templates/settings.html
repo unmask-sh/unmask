@@ -535,18 +535,30 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </style>
 
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.network.admin" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_desc") }}</span></span></h2>
+    <h2>{{ t .Lang "settings.network.admin_ips" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_ips_desc") }}</span></span></h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.network.admin_ips_lead") }}</p>
+    <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if not .Cur.AdminAllowedIPs }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" (len .Cur.AdminAllowedIPs) }}{{ end }}</p>
     <div class="field">
-      <label>{{ t .Lang "settings.network.admin_allow_label" }}</label>
-      <textarea name="admin_allow_from">{{ range .Cur.AdminAllowFrom }}{{ . }}
+      <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
+      <textarea name="admin_allowed_ips">{{ range .Cur.AdminAllowedIPs }}{{ . }}
 {{ end }}</textarea>
     </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.admin_hosts" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_hosts_desc") }}</span></span></h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.network.admin_hosts_lead") }}</p>
+    <p class="desc admin-acl-state">{{ if not .Cur.AdminAllowedHosts }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" (len .Cur.AdminAllowedHosts) }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
       <textarea name="admin_allowed_hosts">{{ range .Cur.AdminAllowedHosts }}{{ . }}
 {{ end }}</textarea>
     </div>
   </div>
+  <style>
+  .admin-acl-state{font-size:.78rem;color:#475569;margin:.1rem 0 .5rem}
+  .admin-acl-state.admin-acl-warn{color:#b45309}
+  </style>
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>

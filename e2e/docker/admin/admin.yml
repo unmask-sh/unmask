@@ -70,7 +70,7 @@ nginx:
   # otherwise spoof them through the default proxy_pass_request_headers).
   trust_forwarded_ja4: true
   trust_forwarded_site: true
-  admin_allow_from:
+  admin_allowed_ips:
     - 0.0.0.0/0
   metrics_allow_from:
     - 0.0.0.0/0

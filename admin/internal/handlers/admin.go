@@ -334,12 +334,12 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
 			return
 		}
-		// Check the remote IP against the admin_allow_from list (enforced at the
+		// Check the remote IP against the admin_allowed_ips list (enforced at the
 		// handler layer so deployments that don't include the rendered nginx conf
 		// still get the restriction).
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
+		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowedIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowedIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
@@ -492,10 +492,10 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // control on /admin/*.
 //
 // Configuration:
-//   - settings.Nginx.AdminAllowFrom — IP / CIDR list (e.g. "192.168.0.0/24").
+//   - settings.Nginx.AdminAllowedIPs — IP / CIDR list (e.g. "192.168.0.0/24").
 //   - settings.Nginx.AdminAllowedHosts — Host-header list (e.g. "admin.example.com").
 //   - Either list empty = allow all.  That IS the shipped default: the install
-//     wizard deliberately does not write AdminAllowFrom (an auto-guessed CIDR
+//     wizard deliberately does not write AdminAllowedIPs (an auto-guessed CIDR
 //     would lock a roaming operator out of the very UI needed to fix it, with
 //     config.yml editing as the only recovery), so until the operator fills it
 //     in under settings → nginx, the admin UI is gated by login + CSRF + the
@@ -521,8 +521,8 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowFrom) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowFrom)
+		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowedIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowedIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
@@ -541,7 +541,7 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 // an unauthorized visitor which IPs / Hosts are trusted.
 func adminIPForbidden(w http.ResponseWriter, ip string) {
 	http.Error(w, "Forbidden: your IP ("+ip+") is not allowed to reach the admin UI.\n"+
-		"If you locked yourself out, add this IP/CIDR to admin_allow_from in /etc/unmask/config.yml and "+
+		"If you locked yourself out, add this IP/CIDR to admin_allowed_ips in /etc/unmask/config.yml and "+
 		"restart unmask -- or edit it under Settings -> Network from an already-allowed IP.", http.StatusForbidden)
 }
 

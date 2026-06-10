@@ -11,7 +11,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// applyNetworkForm must reject a save whose non-empty admin_allow_from /
+// applyNetworkForm must reject a save whose non-empty admin_allowed_ips /
 // admin_allowed_hosts would exclude the operator's own IP / Host (a self-
 // lockout), while accepting an empty list (= allow all) or one that includes
 // them.  curIP/curHost are the in-flight request's, resolved the same way the
@@ -21,7 +21,7 @@ func TestApplyNetworkFormLockout(t *testing.T) {
 
 	mk := func(allowFrom, allowedHosts string) *http.Request {
 		form := url.Values{}
-		form.Set("admin_allow_from", allowFrom)
+		form.Set("admin_allowed_ips", allowFrom)
 		form.Set("admin_allowed_hosts", allowedHosts)
 		form.Set("metrics_allow_from", "")
 		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/", strings.NewReader(form.Encode()))

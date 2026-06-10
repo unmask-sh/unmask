@@ -334,8 +334,11 @@ type renderData struct {
 	NginxLogEnabled bool
 	NginxLogSocket  string
 
-	AdminAllowFrom   []string
-	MetricsAllowFrom []string
+	// Admin / metrics IP allowlists are NOT rendered into nginx config: both
+	// are enforced at the admin HTTP layer (AdminIPAllowMiddleware /
+	// handlers.Metrics), which works identically across native and
+	// forward-auth modes.  They used to be copied into this struct anyway,
+	// which no template ever read — removed so the data flow matches reality.
 
 	LBIPRanges []LBIPRange // per-vendor LB IP range presets (= expand as geo $unmask_lb_<id>)
 
@@ -453,8 +456,6 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		BanFilePath:           trimSpaceAndQuotes(s.Nginx.Honeypot.BanFilePath),
 		NginxLogSocket:        s.NginxLog.SocketPath,
 		NginxLogEnabled:       s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
-		AdminAllowFrom:        defaultAllow(s.Nginx.AdminAllowFrom),
-		MetricsAllowFrom:      defaultAllow(s.Nginx.MetricsAllowFrom),
 		LBIPRanges:            effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
 		WebBotAuthEnabled:     s.Nginx.WebBotAuth.Enabled,
 	}
@@ -1039,13 +1040,6 @@ func defStr(v, fallback string) string {
 		return fallback
 	}
 	return v
-}
-
-func defaultAllow(xs []string) []string {
-	if len(xs) == 0 {
-		return []string{"127.0.0.1", "::1"}
-	}
-	return xs
 }
 
 // mergeBypassIPs: merge the official presets (= enabled) + user row-UI

@@ -13,6 +13,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-11) **`admin_allow_from` renamed to `admin_allowed_ips`, and the
+  admin access-control settings split into two cards**.  The old combined
+  card mixed two different axes — WHO may connect (source IP) and THROUGH
+  WHICH hostname the UI is exposed — under near-identical field names, and
+  its labels never said "allowlist"; in practice the IP list got read as a
+  deny list.  Each card now states the direction (allowlist), the
+  empty-semantics (empty = open), and a live effective state — including a
+  warning when a `/0` entry makes the list look restrictive while admitting
+  everyone.  The yaml key renames symmetrically to pair with
+  `admin_allowed_hosts` (pre-GA, no compat shim: an old `admin_allow_from`
+  key is dropped on load = no IP restriction, the shipped default).  The
+  rendered-conf copies of the admin/metrics allowlists were deleted — no
+  template ever consumed them; enforcement lives in the admin HTTP layer,
+  and the help text now says so instead of claiming nginx-side enforcement.
+
 - (2026-06-11 00:50) **Native mode now fails open automatically when the admin
   daemon is down** — no operator config required.  Previously an unreachable
   daemon meant every not-yet-passed visitor got a raw 502 from the challenge

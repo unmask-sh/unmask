@@ -1728,7 +1728,7 @@ func requestHost(r *http.Request) string {
 // adminClientIP resolves the client IP for the ADMIN allowlist check.  Unlike
 // clientIP it trusts X-Real-IP / X-Forwarded-For ONLY when the connection peer
 // is a configured trusted proxy -- otherwise anyone who can reach the admin
-// port could spoof X-Real-IP to satisfy admin_allow_from.  (Mirrors the
+// port could spoof X-Real-IP to satisfy admin_allowed_ips.  (Mirrors the
 // peer-gating /api/check already applies to forwarded JA4 / site.)
 func adminClientIP(r *http.Request, cfg settings.Settings) string {
 	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {

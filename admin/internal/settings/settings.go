@@ -403,8 +403,13 @@ type Nginx struct {
 	// internal probes etc. that would otherwise be dashboard noise).  These IPs
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
 	// they never reach the funnel / cookie / crawler aggregation.
-	StatsExcludeIPs  []string `yaml:"stats_exclude_ips,omitempty"`
-	AdminAllowFrom   []string `yaml:"admin_allow_from"`
+	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
+	// AdminAllowedIPs: source-IP allowlist for /admin/* (= the admin UI),
+	// enforced at the admin handler layer (AdminIPAllowMiddleware).  Empty =
+	// no IP restriction (login + CSRF + login rate-limit still apply).
+	// Pairs with AdminAllowedHosts below: this is WHO may connect, that is
+	// WHICH hostname exposes the UI.
+	AdminAllowedIPs  []string `yaml:"admin_allowed_ips"`
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
 
 	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
@@ -1754,14 +1759,14 @@ func defaults() Settings {
 			// admin and nginx in separate network namespaces (= docker
 			// compose, k8s) can set it explicitly to e.g. "admin:9477".
 			SeenVersion: "v0.1", // baseline for new-preset NEW-badge gating
-			// AdminAllowFrom defaults to empty = NO IP restriction on the
+			// AdminAllowedIPs defaults to empty = NO IP restriction on the
 			// admin UI (login + CSRF + login rate-limit still apply).  The
 			// wizard intentionally leaves it empty — an auto-guessed CIDR
 			// would lock a roaming operator out of the UI needed to fix it —
 			// so restricting it is a documented post-setup operator step
 			// (settings → nginx).  Enforcement lives in
 			// handlers.AdminIPAllowMiddleware, not in the rendered nginx conf.
-			AdminAllowFrom:   nil,
+			AdminAllowedIPs:  nil,
 			MetricsAllowFrom: nil,
 			// All shipped crawler IP-range presets are ON by default -- this is
 			// the "search bot rescue" safety net required by the CLAUDE.md

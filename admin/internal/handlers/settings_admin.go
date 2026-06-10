@@ -513,10 +513,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":           bypassPathGroups,
 		"WebBotAuth":                 cur.WebBotAuth,
-		"ProtectedPresetGroups":      protectedPresetGroups,
-		"ProtectedPaths":             cur.ProtectedPaths,
-		"ProtectedPresetAction":      cur.ProtectedPaths.PresetAction,
-		"BypassPathsRules":           bypassPathRows(cur.BypassPaths.Paths),
+		// AdminIPsAllowAll: the IP allowlist contains a /0 entry, making it a
+		// no-op (= same as empty).  The network tab shows a warning state line
+		// so "restricted-looking but actually wide open" is visible at a glance.
+		"AdminIPsAllowAll":      adminIPsAllowAll(cur.AdminAllowedIPs),
+		"ProtectedPresetGroups": protectedPresetGroups,
+		"ProtectedPaths":        cur.ProtectedPaths,
+		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
+		"BypassPathsRules":      bypassPathRows(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --
@@ -1387,13 +1391,26 @@ func applyServerListenForm(s *settings.Server, r *http.Request, lang i18n.Lang) 
 	return nil
 }
 
+// adminIPsAllowAll reports whether the admin IP allowlist contains a /0
+// entry (0.0.0.0/0, ::/0, ...), which admits every address and makes the
+// list equivalent to empty.  Used by the settings network tab to surface a
+// "looks restricted, is actually wide open" state.
+func adminIPsAllowAll(list []string) bool {
+	for _, e := range list {
+		if strings.HasSuffix(strings.TrimSpace(e), "/0") {
+			return true
+		}
+	}
+	return false
+}
+
 func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP, curHost string) error {
-	// admin_allow_from / admin_allowed_hosts / metrics_allow_from all accept
+	// admin_allowed_ips / admin_allowed_hosts / metrics_allow_from all accept
 	// empty (= empty means allow all), so a forgotten list never locks you out.
 	// A NON-empty list that excludes the operator's own IP / Host is rejected
 	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
 	// resolved the same way the /admin/* gate resolves them).
-	allow := splitLines(r.FormValue("admin_allow_from"))
+	allow := splitLines(r.FormValue("admin_allowed_ips"))
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
@@ -1402,7 +1419,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	if len(allow) > 0 && !ipAllowed(curIP, allow) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_ip", curIP))
 	}
-	n.AdminAllowFrom = allow
+	n.AdminAllowedIPs = allow
 
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
 	// many vhosts).  Matched in-app, never written to nginx config, so no
