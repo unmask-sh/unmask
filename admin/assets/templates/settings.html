@@ -52,8 +52,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    discoverable: small font, secondary blue, push to the right with
    margin-left:auto so operator's eye finds it without it competing with
    the title text. */
-.settings-tab-preview{margin-left:auto;font-size:.78rem;font-weight:500;color:#1e40af;text-decoration:none;padding:.25rem .7rem;border:1px solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
-.settings-tab-preview:hover{background:#eff6ff;border-color:#3b82f6}
 @media(max-width:48rem){
   .settings-shell{grid-template-columns:1fr}
   .settings-nav{position:static;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
@@ -416,17 +414,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   {{ if .TabHelpKey }}
   <button type="button" class="ua-help-trigger" data-help-target="settings-tab-help" aria-label="?">?</button>
   <script type="text/html" id="settings-tab-help">{{ safeHTML (t .Lang .TabHelpKey) }}</script>
-  {{ end }}
-  {{/* Live preview link: gate-config tabs (rate-limit / honeypot / protected
-       / ua-filter / ja4-verdicts) get a shortcut to the real challenge page
-       so the operator can see exactly what visitors see when this gate
-       fires.  Carries the saved theme / brand context automatically (the
-       force-captcha endpoint reads the same settings as production). */}}
-  {{ if or (eq .Tab "rate-limit") (eq .Tab "honeypot") (eq .Tab "protected") (eq .Tab "ua-filter") (eq .Tab "ja4-verdicts") }}
-  <a class="settings-tab-preview" target="_blank" rel="noopener"
-     href="{{ .BasePath }}/admin/test/force-captcha">
-    {{ t .Lang "settings.preview_challenge_cta" }}
-  </a>
   {{ end }}
 </h1>
 
