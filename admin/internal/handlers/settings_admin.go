@@ -129,7 +129,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)
 	ja4Groups := make([]map[string]any, 0, len(nginxconf.JA4VerdictGroups))
 	for _, g := range nginxconf.JA4VerdictGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledV[g.ID]
 		if isNew {
 			enabled = false
@@ -155,7 +155,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	disabledTgt := toSet(cur.ChallengeTargets.DisabledPresets)
 	tgtGroups := make([]map[string]any, 0, len(nginxconf.ChallengeTargetGroups))
 	for _, g := range nginxconf.ChallengeTargetGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledTgt[g.ID]
 		if isNew {
 			enabled = false
@@ -174,7 +174,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	disabledHP := toSet(cur.Honeypot.DisabledPresets)
 	honeypotGroups := make([]map[string]any, 0, len(nginxconf.HoneypotPresetGroups))
 	for _, g := range nginxconf.HoneypotPresetGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledHP[g.ID]
 		if isNew {
 			enabled = false
@@ -196,7 +196,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	enabledBPath := toSet(cur.BypassPaths.EnabledPresets)
 	bypassPathGroups := make([]map[string]any, 0, len(nginxconf.BypassPathPresetGroups))
 	for _, g := range nginxconf.BypassPathPresetGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledBPath[g.ID]
 		if isNew {
 			enabled = false
@@ -218,7 +218,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	enabledPP := toSet(cur.ProtectedPaths.EnabledPresets)
 	protectedPresetGroups := make([]map[string]any, 0, len(nginxconf.ProtectedPathPresetGroups))
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledPP[g.ID]
 		if isNew {
 			enabled = false
@@ -239,7 +239,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	bypassPresetGroups := make([]map[string]any, 0, len(nginxconf.BypassIPGroups))
 	for i := range nginxconf.BypassIPGroups {
 		g := &nginxconf.BypassIPGroups[i]
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
+		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledBP[g.ID]
 		if isNew {
 			enabled = false
@@ -1115,8 +1115,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 	// Record the admin version at the moment the user saves the settings page.
 	// On the next render, presets with AddedIn newer than this are treated as
-	// new (= forced OFF + NEW badge).
-	cur.Nginx.SeenVersion = "v" + h.Version
+	// new (= forced OFF + NEW badge).  Dev / source builds carry a git hash as
+	// Version; stamping that would poison the gate (PresetIsNew reads it as
+	// unparseable), so keep the previous SeenVersion on such builds.
+	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
+		cur.Nginx.SeenVersion = v
+	}
 
 	// Conf diff: reload-prompt only when the rendered conf actually changed.
 	// Errors on either side conservatively assume a reload is needed.

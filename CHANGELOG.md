@@ -95,6 +95,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-11 22:50) **Saving settings on a dev / source build no longer
+  NEW-badges every preset and drops them from the rendered conf.**  Every
+  settings save stamps `seen_version: v<admin version>`; dev builds carry a
+  git hash there (`v6f94983`), which the version parser mapped to v0.0
+  (= oldest).  All preset groups (AddedIn >= v0.1) then counted as
+  "not yet seen": forced-off NEW checkboxes on every preset tab (re-saving
+  would wipe the enabled list), and enabled presets silently skipped at
+  render time — the JA4 verdict map rendered empty and honeypot /
+  bypass-path preset patterns vanished from http.inc.  An unparseable
+  seen_version now means "runs tip" (= nothing is new) at all 10 gate
+  sites (`PresetIsNew`), and saves keep the previous seen_version unless
+  `v<version>` parses as a release number.
 - (2026-06-10) **Web Bot Auth now actually works in native mode**.  The
   signed-route in server.inc had three fatal flaws: the server-scope
   header gate also fired inside the verification subrequest (nginx

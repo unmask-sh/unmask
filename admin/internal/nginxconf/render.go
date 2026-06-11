@@ -496,7 +496,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			if disabledTgt[g.ID] {
 				continue
 			}
-			if VersionLess(seenVer, g.AddedIn) {
+			if PresetIsNew(seenVer, g.AddedIn) {
 				continue
 			}
 			for _, p := range g.Patterns {
@@ -530,7 +530,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if disabledV[g.ID] {
 			continue
 		}
-		if VersionLess(seenVer, g.AddedIn) {
+		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		d.JA4Verdicts = append(d.JA4Verdicts, g.Rules...)
@@ -578,7 +578,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		} else if disabledHP[g.ID] {
 			continue
 		}
-		if VersionLess(seenVer, g.AddedIn) {
+		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		for _, p := range g.Patterns {
@@ -701,7 +701,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if !enabledBPath[g.ID] {
 			continue
 		}
-		if VersionLess(seenVer, g.AddedIn) {
+		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		for _, r := range g.Rules {
