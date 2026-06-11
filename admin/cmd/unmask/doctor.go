@@ -244,6 +244,7 @@ func cmdDoctor(args []string) error {
 	// curls and reports p50 / p95 / max latency.
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIPReminder(s, addWarn)
+	checkBVSecretSync(s, addOK, addWarn)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
 
@@ -282,6 +283,29 @@ func checkRealIPReminder(s settings.Settings, addWarn func(t, m string)) {
 	if len(s.Nginx.TrustedLBPresets) > 0 || len(s.Nginx.TrustedLBExtra) > 0 {
 		addWarn("real client IP (LB)", "a trusted LB is configured; confirm nginx has set_real_ip_from + real_ip_header for it, otherwise every visitor resolves to the LB's IP and challenge / ban / rate-limit hit all clients at once.")
 	}
+}
+
+// checkBVSecretSync compares the bv_secret baked into the rendered http.inc
+// against the daemon's config.  A mismatch means the rendered nginx config is
+// stale: the native plugin verifies the _bv cookie against http.inc's secret
+// while the daemon signs with its config secret, so every _bv is rejected and
+// the visitor loops on the challenge — the 2026-06-08 incident's root cause.
+// A reload won't fix it (the module isn't reloaded either); it needs a
+// re-render plus an nginx restart.  The daemon runs the same check at startup
+// (main.go) so a deploy that forgets the restart surfaces in the log too.
+func checkBVSecretSync(s settings.Settings, addOK, addWarn func(t, m string)) {
+	if strings.TrimSpace(s.Secret.BVSecret) == "" {
+		return // nothing to compare against
+	}
+	rendered := nginxconf.RenderedBVSecret(s.Nginx.OutputDir)
+	if rendered == "" {
+		return // not rendered (forward-auth mode / fresh install) or directive absent
+	}
+	if rendered == s.Secret.BVSecret {
+		addOK("bv_secret sync", "rendered http.inc matches the daemon config")
+		return
+	}
+	addWarn("bv_secret desync", "http.inc's unmask_bv_secret differs from the daemon config — the rendered nginx config is stale. Run `unmask render-nginx` and then RESTART nginx (a reload won't reload the module), otherwise the native plugin rejects every _bv the daemon issues and visitors loop on the challenge (the 2026-06-08 root cause).")
 }
 
 // runSLOCheck probes the locally-configured admin bind with N HTTP GETs to

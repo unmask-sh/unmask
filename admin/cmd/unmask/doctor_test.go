@@ -1,6 +1,8 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -124,6 +126,59 @@ func TestCheckRealIPReminder(t *testing.T) {
 		checkRealIPReminder(settings.Settings{Nginx: settings.Nginx{TrustedLBPresets: []string{"gcp"}}}, addWarn)
 		if len(cap.warn) != 1 || !strings.Contains(cap.warn[0], "real_ip_header") {
 			t.Errorf("expected 1 WARN mentioning real_ip_header, got %v", cap.warn)
+		}
+	})
+}
+
+// TestCheckBVSecretSync: rendered http.inc matching the config is OK; a stale
+// (mismatched) secret WARNs; a missing http.inc or empty config secret is
+// silent (nothing to compare).
+func TestCheckBVSecretSync(t *testing.T) {
+	dir := t.TempDir()
+	writeHTTPInc := func(body string) {
+		if err := os.WriteFile(filepath.Join(dir, "http.inc"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(secret, outDir string) settings.Settings {
+		var s settings.Settings
+		s.Secret.BVSecret = secret
+		s.Nginx.OutputDir = outDir
+		return s
+	}
+
+	t.Run("match -> OK", func(t *testing.T) {
+		writeHTTPInc(`unmask_bv_secret "samesecret";`)
+		cap, addOK, addWarn, _ := newCaptures()
+		checkBVSecretSync(mk("samesecret", dir), addOK, addWarn)
+		if len(cap.ok) != 1 || len(cap.warn) != 0 {
+			t.Fatalf("expected 1 OK / 0 WARN, got ok=%v warn=%v", cap.ok, cap.warn)
+		}
+	})
+	t.Run("mismatch -> WARN", func(t *testing.T) {
+		writeHTTPInc(`unmask_bv_secret "oldsecret";`)
+		cap, addOK, addWarn, _ := newCaptures()
+		checkBVSecretSync(mk("newsecret", dir), addOK, addWarn)
+		if len(cap.warn) != 1 || len(cap.ok) != 0 {
+			t.Fatalf("expected 1 WARN / 0 OK, got ok=%v warn=%v", cap.ok, cap.warn)
+		}
+		if !strings.Contains(cap.warn[0], "stale") {
+			t.Errorf("WARN should mention 'stale', got %q", cap.warn[0])
+		}
+	})
+	t.Run("no http.inc -> silent", func(t *testing.T) {
+		cap, addOK, addWarn, _ := newCaptures()
+		checkBVSecretSync(mk("x", t.TempDir()), addOK, addWarn)
+		if len(cap.ok)+len(cap.warn) != 0 {
+			t.Errorf("expected silent (no http.inc), got ok=%v warn=%v", cap.ok, cap.warn)
+		}
+	})
+	t.Run("empty config secret -> silent", func(t *testing.T) {
+		writeHTTPInc(`unmask_bv_secret "x";`)
+		cap, addOK, addWarn, _ := newCaptures()
+		checkBVSecretSync(mk("", dir), addOK, addWarn)
+		if len(cap.ok)+len(cap.warn) != 0 {
+			t.Errorf("expected silent (empty config secret), got ok=%v warn=%v", cap.ok, cap.warn)
 		}
 	})
 }

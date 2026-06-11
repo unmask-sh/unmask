@@ -184,6 +184,18 @@ func cmdServe(args []string) error {
 	if resolved := settings.ResolvePath(*configPath); resolved != "" {
 		handlers.SetSetupTokenDir(filepath.Dir(resolved))
 	}
+
+	// Startup self-check: a rendered http.inc whose bv_secret no longer matches
+	// the running config means the operator re-keyed or re-rendered but skipped
+	// the nginx RESTART the native module needs — every _bv the daemon issues is
+	// then rejected and visitors loop on the challenge.  This went unnoticed for
+	// hours on 2026-06-08, so surface it loudly at startup; a deploy that forgot
+	// the restart is then obvious in the journal.  No-op in forward-auth mode
+	// (no rendered http.inc) and on a fresh install.
+	if nginxconf.BVSecretDesynced(s.Nginx.OutputDir, s.Secret.BVSecret) {
+		log.Printf("unmask: WARNING: bv_secret desync — rendered http.inc differs from the running config; the native plugin rejects every _bv and loops visitors on the challenge. Run `unmask render-nginx` and RESTART nginx (a reload won't reload the module). See the 2026-06-08 incident.")
+	}
+
 	// Logging follows 12-factor: every log line goes to stderr and the init
 	// system (= systemd journald / OpenRC syslog / docker container runtime)
 	// handles routing + retention.  No app-side file rotation; see
