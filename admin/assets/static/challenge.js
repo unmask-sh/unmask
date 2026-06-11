@@ -59,13 +59,27 @@
       }
     } catch(e) {}
   }
-  // window.onerror: record exceptions thrown by challenge JS.  Routed through
-  // the unified 'error' phase with kind='js_exception'.  Other failure paths
-  // (ext_render_err / ext_exec_err / ext_unknown_provider) also funnel into
-  // 'error' with a kind discriminator so the server-side allowedPhases set
-  // stays small and the funnel SQL doesn't need to enumerate variants.
+  // window.onerror: record exceptions thrown on the challenge page.  Routed
+  // through the unified 'error' phase with a kind discriminator.  Other
+  // failure paths (ext_render_err / ext_exec_err / ext_unknown_provider)
+  // also funnel into 'error' so the server-side allowedPhases set stays
+  // small and the funnel SQL doesn't need to enumerate variants.
+  //
+  // Mobile pages are full of scripts unmask did not ship -- in-app webview
+  // bridges, extensions, carrier-injected JS -- and their failures land on
+  // this same global hook.  Classify by the reported source so the dashboard
+  // can separate "challenge code broke" from that ambient noise:
+  //   js_exception : this document (inline challenge script) or an /unmask/
+  //                  asset -- actionable
+  //   js_foreign   : cross-origin "Script error." (browsers mask message and
+  //                  filename for foreign scripts) or a source that is
+  //                  neither this document nor /unmask/*
   window.addEventListener('error', function(e){
-    try { _bcDebug('error', { kind:'js_exception', error_msg:String(e && e.message), error_filename:e && e.filename, error_lineno:e && e.lineno }); } catch(_){}
+    try {
+      var src = String((e && e.filename) || '');
+      var own = src && (src.split('#')[0] === location.href.split('#')[0] || src.indexOf('/unmask/') !== -1);
+      _bcDebug('error', { kind: own ? 'js_exception' : 'js_foreign', error_msg:String(e && e.message), error_filename:src, error_lineno:e && e.lineno });
+    } catch(_){}
   });
 
   // --- i18n ---

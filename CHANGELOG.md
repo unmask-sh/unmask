@@ -13,6 +13,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-11 10:30) **JS-error card separates foreign-script noise from
+  challenge failures**.  Mobile pages are full of scripts unmask did not
+  ship — in-app webview bridges, extensions, carrier-injected JS — and
+  their failures landed on the challenge page's global error hook as
+  indistinguishable `js_exception` rows ("Script error." being the masked
+  message browsers emit for cross-origin scripts).  challenge.js now
+  classifies by the reported source (`js_foreign` when it is neither the
+  challenge document nor an /unmask/ asset), and the dashboard card lists
+  challenge-code errors as before while collapsing foreign rows behind a
+  count toggle (rows ingested before the classification are caught by the
+  "Script error." message).  Raw events stay verbatim either way; the
+  funnel's JS-error column still counts both, and its popover says so.
+
 - (2026-06-11) **`admin_allow_from` renamed to `admin_allowed_ips`, and the
   admin access-control settings split into two cards**.  The old combined
   card mixed two different axes — WHO may connect (source IP) and THROUGH

@@ -529,6 +529,37 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{end}}
     </tbody>
   </table>
+  {{/* Foreign-script errors (extensions / in-app webview injections): stored
+       verbatim like every raw event, but collapsed here so ambient mobile
+       noise doesn't bury real challenge-JS failures. */}}
+  <p class="muted" id="jsfe-toggle" style="font-size:.85rem;margin:.6rem 0 0;cursor:pointer;user-select:none"><span id="jsfe-arrow">▸</span> {{ tf .Lang "dashboard.js_error.foreign_toggle" .JSForeignCount }}</p>
+  <table class="bcd-table" id="jsfe-table" style="display:none;margin-top:.4rem" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ua" }}</th><th class="bcd-num">{{ t .Lang "th.flags" }}</th><th>{{ t .Lang "th.error" }}</th><th>{{ t .Lang "th.date" }}</th></tr></thead>
+    <tbody>
+      {{range .JSForeignErrors}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+        <td class="bcd-mono{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-num">{{.Flags}}</td>
+        <td class="bcd-mono">{{.Error}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  <script>
+  (function(){
+    var t = document.getElementById('jsfe-toggle'), tbl = document.getElementById('jsfe-table');
+    if (!t || !tbl) return;
+    t.addEventListener('click', function(){
+      var open = tbl.style.display === 'none';
+      tbl.style.display = open ? '' : 'none';
+      document.getElementById('jsfe-arrow').textContent = open ? '▾' : '▸';
+    });
+  })();
+  </script>
 </div>
 
 <!-- 9) Cookie error -->

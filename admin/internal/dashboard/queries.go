@@ -2076,13 +2076,28 @@ type JSErrorRow struct {
 	CountryCode string
 }
 
-func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]JSErrorRow, error) {
+// jsForeignCond: error-phase rows whose source is NOT unmask's own code.
+// challenge.js classifies at capture time (payload kind=js_foreign: in-app
+// webview bridges, extensions, carrier-injected scripts); rows ingested
+// before that classification existed are caught by the masked message
+// cross-origin scripts always produce ("Script error.").
+func jsForeignCond(d *db.DB) string {
+	kind := jsonExtract(d, "payload_json", "$.kind")
 	errMsg := jsonExtract(d, "payload_json", "$.error_msg")
+	return fmt.Sprintf("(COALESCE(%s,'') = 'js_foreign' OR COALESCE(%s,'') = 'Script error.')", kind, errMsg)
+}
+
+func jsErrorRows(ctx context.Context, d *db.DB, site string, hosts []string, hours int, foreign bool, limit int) ([]JSErrorRow, error) {
+	errMsg := jsonExtract(d, "payload_json", "$.error_msg")
+	cond := "NOT " + jsForeignCond(d)
+	if foreign {
+		cond = jsForeignCond(d)
+	}
 	stmt := fmt.Sprintf(`
         SELECT ip_address, user_agent, flags, %s AS err, date_created
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='error'
-        ORDER BY id DESC LIMIT 30`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
+        WHERE date_created > %s%s AND phase='error' AND %s
+        ORDER BY id DESC LIMIT %d`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), cond, limit)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2104,6 +2119,34 @@ func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours 
 		})
 	}
 	return out, rows.Err()
+}
+
+// JSErrors: failures attributable to the challenge page itself (inline page
+// script / /unmask/ assets / external CAPTCHA provider kinds).
+func JSErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]JSErrorRow, error) {
+	return jsErrorRows(ctx, d, site, hosts, hours, false, 30)
+}
+
+// JSForeignErrors: ambient noise from scripts unmask did not ship.  Stored
+// verbatim like every raw event; only the dashboard presentation separates
+// them so they don't bury real challenge-JS failures.
+func JSForeignErrors(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]JSErrorRow, error) {
+	return jsErrorRows(ctx, d, site, hosts, hours, true, 15)
+}
+
+// JSForeignErrorCount: window total of foreign-script error rows (the list
+// above is capped at 15, the count shows the real volume).
+func JSForeignErrorCount(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (int, error) {
+	stmt := fmt.Sprintf(`
+        SELECT COUNT(*)
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase='error' AND %s`,
+		d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), jsForeignCond(d))
+	var n int
+	if err := d.QueryRowContext(ctx, stmt).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 // DailyBucket: daily trend series.

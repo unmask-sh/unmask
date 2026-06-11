@@ -1026,6 +1026,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		cookieFails     []dashboard.CookieFailRow
 		stealth         []dashboard.StealthRow
 		jsErrs          []dashboard.JSErrorRow
+		jsForeign       []dashboard.JSErrorRow
+		jsForeignCount  int
 		aiTraffic       []dashboard.AITrafficRow
 		aiTrafficAll    []AITrafficRow
 		dailyKind       []dashboard.DailyKindBucket
@@ -1149,6 +1151,16 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		return e
 	})
 	run("JSErrors", func() error { var e error; jsErrs, e = dashboard.JSErrors(ctx, h.DB, site, hosts, hours); return e })
+	run("JSForeignErrors", func() error {
+		var e error
+		jsForeign, e = dashboard.JSForeignErrors(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("JSForeignErrorCount", func() error {
+		var e error
+		jsForeignCount, e = dashboard.JSForeignErrorCount(ctx, h.DB, site, hosts, hours)
+		return e
+	})
 	run("AITrafficBreakdown", func() error {
 		var e error
 		aiTraffic, e = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours)
@@ -1246,6 +1258,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	dashboard.ApplyDisplayLoc(cookieFails, loc)
 	dashboard.ApplyDisplayLoc(stealth, loc)
 	dashboard.ApplyDisplayLoc(jsErrs, loc)
+	dashboard.ApplyDisplayLoc(jsForeign, loc)
 	dashboard.ApplyDisplayLoc(dailyKind, loc)
 	dashboard.ApplyDisplayLoc(dailyTotal, loc)
 	dashboard.ApplyDisplayLoc(dailyServeKind, loc)
@@ -1301,6 +1314,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	}
 	for i := range jsErrs {
 		jsErrs[i].CountryCode = lookupCC(jsErrs[i].IP)
+	}
+	for i := range jsForeign {
+		jsForeign[i].CountryCode = lookupCC(jsForeign[i].IP)
 	}
 
 	type kindPt struct {
@@ -1394,6 +1410,8 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"CookieFails":        cookieFails,
 		"Stealth":            stealth,
 		"JSErrors":           jsErrs,
+		"JSForeignErrors":    jsForeign,
+		"JSForeignCount":     jsForeignCount,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"DailyKindJSON":      template.JS(dailyKindJSON),
