@@ -1265,6 +1265,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <strong><span class="upstream-overall-enabled">{{ .UpstreamRescueEnabled }}</span> / {{ .UpstreamRescueTotal }}</strong>
       {{ t .Lang "settings.ua.upstream.overall_unit" }}
     </div>
+    <p style="background:#f1f5f9;border-left:.1875rem solid #6366f1;padding:.5rem .7rem;border-radius:.25rem;font-size:.82rem;line-height:1.65;margin:.4rem 0 .9rem;color:#334155">{{ safeHTML (t .Lang "settings.ua.upstream.spoof_note") }}</p>
     {{ range $cat, $entries := .UpstreamRescue }}
     {{ $mode := index $.UpstreamGroupMode $cat }}
     {{ $act := index $.UpstreamGroupAction $cat }}
