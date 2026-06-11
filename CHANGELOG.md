@@ -111,6 +111,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-11 23:30) **A fresh box no longer contacts the hub before setup is
+  finished.**  community-bans register / pull and the managed-mmdb auto-fetch
+  fired on the first daemon start whenever a config path was set — before the
+  operator had opened the install wizard — so an unconfigured box POSTed its
+  public IP + version + publish-country flag to unmask.sh/api/feed/register,
+  and an air-gapped box logged alarming register / fetch failures, both
+  contradicting the README's opt-in framing.  All three are now gated on setup
+  completion (an admin user existing); the wizard's post-completion auto
+  re-exec starts them on the next boot.  The default subscribe mode is
+  unchanged — only the timing of the first contact moves to after the operator
+  has actually set the box up.  Verified: a DB-connected box with no admin user
+  makes zero hub calls; creating the admin user and restarting starts them.
 - (2026-06-11 23:00) **Event writes are no longer dropped on a transient DB
   error.**  The async event flusher logged an insertBulk failure and then
   cleared the batch, permanently losing those unmask_event rows on a brief

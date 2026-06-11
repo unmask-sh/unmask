@@ -232,6 +232,21 @@ func cmdServe(args []string) error {
 		userRepo = user.New(conn)
 	}
 
+	// setupComplete reports whether the install wizard has been finished — i.e.
+	// an admin user exists.  First contact with the hub (community-bans register
+	// / pull) and the managed-mmdb auto-fetch are gated on it so a fresh box does
+	// NOT phone home before the operator has opened the wizard and consented: the
+	// README frames Community Bans as opt-in, and an air-gapped box would
+	// otherwise log alarming register / fetch failures before setup even starts.
+	// The wizard's post-completion auto re-exec re-evaluates this, so the first
+	// pull fires right after setup is done.
+	setupComplete := false
+	if userRepo != nil {
+		if n, err := userRepo.Count(context.Background()); err == nil && n > 0 {
+			setupComplete = true
+		}
+	}
+
 	gip := ipgeo.Open(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath)
 	defer gip.Close()
 	if s.IPGeo.MMDBPath != "" {
@@ -251,7 +266,9 @@ func cmdServe(args []string) error {
 	// First-run: pull a missing managed DB-IP Lite mmdb in the background (from
 	// the unmask.sh mirror, CC BY 4.0) so geo features come up without a manual
 	// install-ipgeo, whatever the install method was.  Reloads gip on success.
-	if s.IPGeo.AutoFetch {
+	// Gated on setupComplete so a pre-wizard / air-gapped box doesn't reach out
+	// to the mirror (and log a fetch failure) before the operator consents.
+	if s.IPGeo.AutoFetch && setupComplete {
 		ipgeo.AutoFetchMissing(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
 	}
 
@@ -392,7 +409,14 @@ func cmdServe(args []string) error {
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
 		}
-		go h.CommunityBans.Run(context.Background(), time.Hour)
+		// Build the client unconditionally (the BAN button's share path needs
+		// it), but only start the register + periodic-pull loop once setup is
+		// complete, so a fresh box doesn't register with the hub before the
+		// operator has finished the wizard.  The post-setup auto re-exec starts
+		// it on the next boot.
+		if setupComplete {
+			go h.CommunityBans.Run(context.Background(), time.Hour)
+		}
 	}
 
 	// Hub-server endpoints (= /api/feed/register, /api/feed/submit) moved
