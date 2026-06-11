@@ -234,9 +234,46 @@ func cmdDoctor(args []string) error {
 	// + error rate on the configured admin bind).  When admin is not running,
 	// produces a single WARN and skips.  When running, fires 30 sequential
 	// curls and reports p50 / p95 / max latency.
+	checkAdminBind(s, addOK, addWarn)
+	checkRealIPReminder(s, addWarn)
+
 	runSLOCheck(s, addOK, addWarn, addErr)
 
 	return printSummary(checks)
+}
+
+// checkAdminBind warns when the admin API (cleartext HTTP — TLS is the front
+// proxy's job) is bound to something routable.  A loopback / unix bind keeps
+// it private; a wildcard (0.0.0.0 / ::) or routable IP exposes the cleartext
+// admin port directly.
+func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
+	rawBind := strings.TrimSpace(s.Server.Bind)
+	isUnix := strings.HasPrefix(rawBind, "unix:") || strings.HasPrefix(rawBind, "/")
+	bindHost := rawBind
+	if !isUnix {
+		if h, _, err := net.SplitHostPort(rawBind); err == nil {
+			bindHost = h
+		}
+	}
+	loopback := isUnix || bindHost == "" || bindHost == "127.0.0.1" ||
+		strings.HasPrefix(bindHost, "127.") || bindHost == "::1" || bindHost == "localhost"
+	if loopback {
+		addOK("admin bind", rawBind+" (loopback/unix — not directly exposed)")
+		return
+	}
+	addWarn("admin bind exposure", fmt.Sprintf("server.bind=%q is not loopback/unix; the admin API talks cleartext HTTP, so a routable bind exposes it without TLS. Bind to 127.0.0.1 or a unix socket and front it with a TLS-terminating proxy.", rawBind))
+}
+
+// checkRealIPReminder fires when a trusted LB is configured (native mode):
+// the LB's X-Client-JA4 is trusted, but the visitor IP still comes from
+// $remote_addr unless nginx is told to rewrite it.  Without set_real_ip_from
+// + real_ip_header every visitor resolves to the LB IP, so challenge / ban /
+// rate-limit apply to all of them at once.  doctor can't read the vhost, so
+// this is a reminder rather than a hard check.
+func checkRealIPReminder(s settings.Settings, addWarn func(t, m string)) {
+	if len(s.Nginx.TrustedLBPresets) > 0 || len(s.Nginx.TrustedLBExtra) > 0 {
+		addWarn("real client IP (LB)", "a trusted LB is configured; confirm nginx has set_real_ip_from + real_ip_header for it, otherwise every visitor resolves to the LB's IP and challenge / ban / rate-limit hit all clients at once.")
+	}
 }
 
 // runSLOCheck probes the locally-configured admin bind with N HTTP GETs to

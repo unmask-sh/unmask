@@ -73,6 +73,61 @@ func TestCheckMMDBPath(t *testing.T) {
 	}
 }
 
+// TestCheckAdminBind: loopback / unix binds are OK; wildcard or routable
+// binds WARN (the admin API is cleartext HTTP).
+func TestCheckAdminBind(t *testing.T) {
+	cases := []struct {
+		bind   string
+		expect string // "ok" / "warn"
+	}{
+		{"127.0.0.1:9477", "ok"},
+		{"127.0.0.1", "ok"},
+		{"::1", "ok"},
+		{"localhost:9477", "ok"},
+		{"unix:/run/unmask/http.sock", "ok"},
+		{"/run/unmask/http.sock", "ok"},
+		{"", "ok"}, // empty resolves to the loopback default
+		{"0.0.0.0:9477", "warn"},
+		{"0.0.0.0", "warn"},
+		{"::", "warn"},
+		{"10.0.0.5:9477", "warn"},
+		{"192.168.1.10", "warn"},
+	}
+	for _, c := range cases {
+		t.Run(c.bind, func(t *testing.T) {
+			cap, addOK, addWarn, _ := newCaptures()
+			checkAdminBind(settings.Settings{Server: settings.Server{Bind: c.bind}}, addOK, addWarn)
+			if c.expect == "ok" {
+				if len(cap.ok) != 1 || len(cap.warn) != 0 {
+					t.Fatalf("bind %q: expected 1 OK / 0 WARN, got ok=%v warn=%v", c.bind, cap.ok, cap.warn)
+				}
+			} else {
+				if len(cap.warn) != 1 || len(cap.ok) != 0 {
+					t.Fatalf("bind %q: expected 1 WARN / 0 OK, got ok=%v warn=%v", c.bind, cap.ok, cap.warn)
+				}
+			}
+		})
+	}
+}
+
+// TestCheckRealIPReminder: the reminder fires only when a trusted LB is set.
+func TestCheckRealIPReminder(t *testing.T) {
+	t.Run("no LB -> silent", func(t *testing.T) {
+		cap, _, addWarn, _ := newCaptures()
+		checkRealIPReminder(settings.Settings{}, addWarn)
+		if len(cap.warn) != 0 {
+			t.Errorf("expected silent, got %v", cap.warn)
+		}
+	})
+	t.Run("preset LB -> WARN", func(t *testing.T) {
+		cap, _, addWarn, _ := newCaptures()
+		checkRealIPReminder(settings.Settings{Nginx: settings.Nginx{TrustedLBPresets: []string{"gcp"}}}, addWarn)
+		if len(cap.warn) != 1 || !strings.Contains(cap.warn[0], "real_ip_header") {
+			t.Errorf("expected 1 WARN mentioning real_ip_header, got %v", cap.warn)
+		}
+	})
+}
+
 // TestCheckGeoRules covers:
 //  1. empty rules list -> no-op
 //  2. all valid country codes -> OK with count
