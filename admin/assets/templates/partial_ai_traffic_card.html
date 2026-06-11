@@ -26,12 +26,12 @@
     <button class="ai-tab" data-tab="served" role="tab">{{ t .Lang "ai_traffic.tab.served" }}</button>
   </div>
   <div class="ai-pane" data-pane="all">
-    <table class="bcd-table ai-traffic">
+    <table class="bcd-table ai-traffic" data-total-label="{{ t .Lang "ai_traffic.total_label" }}">
       <thead><tr><th>{{ t .Lang "ai_traffic.col.tag" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.total" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.served" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.passed" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.pass_rate" }}</th></tr></thead>
       <tbody>
         {{ range .AITraffic }}
         <tr{{ if eq .Total 0 }} class="muted-row" style="color:#94a3b8"{{ end }}>
-          <td><span class="ai-cat ai-cat-{{ .Category }}">{{ .Category }}</span></td>
+          <td><span class="ai-cat ai-cat-{{ .Category }}" data-info="{{ t $.Lang (printf "ai_traffic.examples.%s" .Category) }}">{{ .Category }}</span></td>
           <td class="bcd-num">{{ if .Total }}{{ comma .Total }}{{ else }}<span class="muted">0</span>{{ end }}</td>
           <td class="bcd-num">{{ if .Served }}{{ comma .Served }}{{ else }}<span class="muted">0</span>{{ end }}</td>
           <td class="bcd-num">{{ if .Passed }}{{ comma .Passed }}{{ else }}<span class="muted">0</span>{{ end }}</td>
@@ -43,12 +43,12 @@
   </div>
   <div class="ai-pane" data-pane="served" style="display:none">
     <p class="muted" style="margin:.5rem 0;font-size:.8rem">{{ safeHTML (t .Lang "ai_traffic.tab.served.note") }}</p>
-    <table class="bcd-table ai-traffic">
+    <table class="bcd-table ai-traffic" data-total-label="{{ t .Lang "ai_traffic.total_label" }}">
       <thead><tr><th>{{ t .Lang "ai_traffic.col.tag" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.count" }}</th><th class="bcd-num">{{ t .Lang "ai_traffic.col.uniq_ip" }}</th></tr></thead>
       <tbody>
         {{ range .AITrafficServed }}
         <tr{{ if eq .Count 0 }} class="muted-row" style="color:#94a3b8"{{ end }}>
-          <td><span class="ai-cat ai-cat-{{ .Tag }}">{{ .Tag }}</span></td>
+          <td><span class="ai-cat ai-cat-{{ .Tag }}" data-info="{{ t $.Lang (printf "ai_traffic.examples.%s" .Tag) }}">{{ .Tag }}</span></td>
           <td class="bcd-num">{{ if .Count }}{{ comma .Count }}{{ else }}<span class="muted">0</span>{{ end }}</td>
           <td class="bcd-num">{{ if .UniqIP }}{{ comma .UniqIP }}{{ else }}<span class="muted">0</span>{{ end }}</td>
         </tr>
@@ -86,6 +86,8 @@
 .ai-cat-feed-reader   {background:#ccfbf1;color:#115e59}
 .ai-cat-archiver      {background:#e2e8f0;color:#475569}
 .ai-cat-academic      {background:#f3e8ff;color:#6b21a8}
+.ai-traffic-card .ai-cat[data-info]{cursor:help}
+.ai-traffic-card table.ai-traffic tfoot td{padding:.4rem .5rem;border-top:.125rem solid #cbd5e1;background:#f8fafc;font-variant-numeric:tabular-nums;color:#334155;font-weight:700}
 </style>
 <script>
 (function(){
@@ -99,6 +101,64 @@
         panes.forEach(function(p){ p.style.display = (p.getAttribute('data-pane') === which) ? '' : 'none'; });
       });
     });
+  });
+})();
+(function(){
+  // Append a totals row to each AI-traffic table.  Sum the numeric columns;
+  // the all-traffic pass-rate column is recomputed from the summed
+  // passed/total rather than averaged, so it stays a true overall rate.
+  document.querySelectorAll('.ai-traffic-card table.ai-traffic').forEach(function(tbl){
+    var tbody = tbl.querySelector('tbody');
+    if (!tbody || tbl.querySelector('tfoot')) return;
+    var rows = tbody.querySelectorAll('tr');
+    if (rows.length < 2) return;
+    var ncol = tbl.querySelectorAll('thead th').length;
+    var sums = new Array(ncol).fill(0);
+    rows.forEach(function(tr){
+      var tds = tr.querySelectorAll('td');
+      for (var i = 1; i < tds.length && i < ncol; i++){
+        var v = parseFloat(tds[i].textContent.replace(/[,%\s]/g, ''));
+        if (!isNaN(v)) sums[i] += v;
+      }
+    });
+    var label = tbl.getAttribute('data-total-label') || 'Total';
+    var html = '<td>' + label + '</td>';
+    if (ncol === 5){
+      // all-traffic: total / served / passed / pass-rate
+      html += '<td class="bcd-num">' + sums[1].toLocaleString() + '</td>';
+      html += '<td class="bcd-num">' + sums[2].toLocaleString() + '</td>';
+      html += '<td class="bcd-num">' + sums[3].toLocaleString() + '</td>';
+      html += '<td class="bcd-num">' + (sums[1] > 0 ? (sums[3] / sums[1] * 100).toFixed(1) + '%' : '—') + '</td>';
+    } else {
+      // served-only: count / uniq-ip
+      for (var i = 1; i < ncol; i++) html += '<td class="bcd-num">' + sums[i].toLocaleString() + '</td>';
+    }
+    var tfoot = document.createElement('tfoot');
+    var tr = document.createElement('tr');
+    tr.innerHTML = html;
+    tfoot.appendChild(tr);
+    tbl.appendChild(tfoot);
+  });
+})();
+(function(){
+  // Hover/click popover of representative services for each tag.  Scoped to
+  // the ai-cat tags only (not a document-wide [data-info] handler) so it
+  // never picks up other data-info badges on the same page.  Reuses the
+  // shared popoverPin (loaded via popover_pin_assets) for styling + pinning.
+  if (!window.popoverPin) return;
+  var cats = document.querySelectorAll('.ai-traffic-card .ai-cat[data-info]');
+  if (!cats.length) return;
+  var pop = document.createElement('div');
+  pop.setAttribute('data-popover', 'info');
+  document.body.appendChild(pop);
+  var pin = window.popoverPin.install(pop);
+  function fmt(t){ return '<div style="max-width:26rem;font-size:.82rem;line-height:1.5;white-space:normal">' + t + '</div>'; }
+  cats.forEach(function(el){
+    var info = el.getAttribute('data-info');
+    if (!info) return;
+    el.addEventListener('mouseenter', function(e){ pin.showHover(fmt(info), e.pageX, e.pageY, el); });
+    el.addEventListener('mouseleave', function(){ if (!pin.hasPinFor(el)) pin.hideHover(); });
+    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(fmt(info), e.pageX, e.pageY, el); });
   });
 })();
 </script>
