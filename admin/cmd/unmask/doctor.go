@@ -20,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	iofs "io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -72,7 +73,14 @@ func cmdDoctor(args []string) error {
 	// 1. load + parse config
 	s, err := settings.Load(resolved)
 	if err != nil {
-		addErr("config load", err.Error())
+		msg := err.Error()
+		// config.yml is usually root/admin-owned (it holds bv_secret etc.),
+		// so a plain-user run hits EACCES.  Nudge toward sudo rather than
+		// leaving the operator to decode "permission denied".
+		if errors.Is(err, iofs.ErrPermission) {
+			msg += " — try: sudo unmask doctor"
+		}
+		addErr("config load", msg)
 		printSummary(checks)
 		return errors.New("doctor failed at config load")
 	}
