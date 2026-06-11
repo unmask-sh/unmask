@@ -13,6 +13,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-11 23:10) **doctor and the daemon now self-check three operator
+  mistakes that previously stayed silent**.  `unmask doctor` gained — and the
+  daemon now also warns about at startup — a **bv_secret desync**: when the
+  rendered http.inc carries a different `unmask_bv_secret` than the running
+  config, the native plugin verifies _bv against the stale secret and loops
+  every visitor on the challenge (the 2026-06-08 incident's root cause, which
+  went unnoticed for ~14h because nothing surfaced it).  The startup WARNING
+  makes a deploy that re-rendered but forgot the nginx RESTART obvious in the
+  journal.  doctor also flags a **cleartext admin bind** (the admin API is
+  HTTP, so a non-loopback/unix bind exposes it without TLS) and **reminds about
+  real_ip** when a trusted LB is configured (without set_real_ip_from every
+  visitor resolves to the LB IP, so challenge / ban / rate-limit hit all
+  clients at once), and it now suggests `sudo` when config.yml is unreadable
+  instead of a bare "permission denied".  The over-block breaker still catches
+  the challenge-loop *symptom*; these name the *cause* up front.
+
 - (2026-06-11 12:30) **Removed the UI-hidden built-in UA whitelist presets so
   the search/AI rescue has a single, operator-controllable source**.  The
   ua-filter tab rescued search bots via two independent paths: the upstream
@@ -95,6 +111,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-11 23:00) **Event writes are no longer dropped on a transient DB
+  error.**  The async event flusher logged an insertBulk failure and then
+  cleared the batch, permanently losing those unmask_event rows on a brief
+  SQLite-busy or MariaDB blip.  It now retains the batch and retries on the
+  next tick (matching nginxlog's flushOnce), bounded so a persistent outage
+  can't grow it without limit — overflow drops the oldest events and counts
+  them in a droppedOnError metric kept distinct from the queue-full drop
+  counter.
 - (2026-06-11 22:50) **Saving settings on a dev / source build no longer
   NEW-badges every preset and drops them from the rendered conf.**  Every
   settings save stamps `seen_version: v<admin version>`; dev builds carry a
