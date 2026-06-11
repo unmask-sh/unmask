@@ -460,21 +460,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		WebBotAuthEnabled:     s.Nginx.WebBotAuth.Enabled,
 	}
 
-	// search bots: merge enabled presets + extras.
-	// Skip "presets newer than the user's seen_version" (= prevents
-	// silent activation.  Treated as disabled until the user reviews
-	// + saves on the settings page).
+	// search bots: operator-added extras + the upstream auto-rescue below.
+	// The old hand-maintained whitelist presets (Googlebot / Bingbot / ... )
+	// were removed: every operator they covered is already rescued via the
+	// crawler-user-agents.json upstream path (see classify), and keeping a
+	// second, UI-hidden source meant turning a category off in the UI did not
+	// actually stop the rescue.  seenVer is still used by the challenge-target
+	// / JA4 NEW-badge gating below.
 	seenVer := s.Nginx.SeenVersion
-	disabledBots := toSet(s.Nginx.SearchBots.DisabledPresets)
-	for _, g := range SearchBotGroups {
-		if disabledBots[g.ID] {
-			continue
-		}
-		if VersionLess(seenVer, g.AddedIn) && !g.DefaultOnWhenNew {
-			continue
-		}
-		d.SearchBotPatterns = append(d.SearchBotPatterns, g.Patterns...)
-	}
 	for i, p := range s.Nginx.SearchBots.Extra {
 		// ExtraDisabled[i]=true means temporarily OFF.  Don't emit into rendered conf.
 		if i < len(s.Nginx.SearchBots.ExtraDisabled) && s.Nginx.SearchBots.ExtraDisabled[i] {

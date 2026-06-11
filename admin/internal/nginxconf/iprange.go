@@ -30,7 +30,7 @@ import (
 // Enabled per-group via config.yml's nginx.bypass_ip_enabled_presets (= list
 // of IDs to turn ON).  Defaults() ships every group ID in that list so a
 // fresh install rescues crawlers out of the box.  IDs are NOT in the same
-// namespace as SearchBotGroups (= managed separately).
+// namespace as the UA whitelist (= managed separately).
 type BypassIPGroup struct {
 	ID      string // stable identifier (= "google-common", "bing", "openai-gptbot", etc.)
 	Label   string // UI display name

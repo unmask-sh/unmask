@@ -13,6 +13,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-11 12:30) **Removed the UI-hidden built-in UA whitelist presets so
+  the search/AI rescue has a single, operator-controllable source**.  The
+  ua-filter tab rescued search bots via two independent paths: the upstream
+  crawler-user-agents.json categories (white/none/black in the UI) AND a
+  legacy hand-maintained preset list (Googlebot / Bingbot / ...) whose
+  checkboxes were `display:none` "for backwards-compatible YAML" — invisible,
+  always-on, and impossible to switch off.  An operator who set the
+  `search-engine` category to `none` to stop UA-spoof pass-through found
+  Googlebot still rescued by the hidden presets, so the documented "turn it
+  off" did nothing.  The hidden presets are gone (render path, both decision
+  modes, the settings card, the `search_bots.disabled_presets` config key,
+  and the data.go table); search/AI rescue now flows only through the
+  upstream categories plus the operator's own Extra UA rules.  Verified every
+  brand the presets covered (Googlebot / Bingbot / Yahoo / Yandex / Naver /
+  Baidu / GPTBot / ClaudeBot / ... — 31 cases) still classifies as search_ai
+  through the upstream path alone (new regression test), and that setting
+  `search-engine` to `none` now actually drops Googlebot from the rendered
+  `is_search_bot` map while ai-training (GPTBot) stays under its own category.
+  e2e 05/15 (native + forward-auth search-bot rescue) green.  Pre-GA, no
+  compat shim: a leftover `disabled_presets:` key is ignored on load.
+
 - (2026-06-11 11:30) **Native daemon-down fail-open trips fast when the daemon
   is unreachable on another host**.  The `/unmask/*` proxy locations had no
   `proxy_connect_timeout`, so a TCP upstream that became unreachable (= admin

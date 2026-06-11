@@ -1157,21 +1157,10 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 	if ua == "" {
 		return "", ""
 	}
-	// SearchBots: the rescue list (= Googlebot / GPTBot etc.)
-	disabledSB := map[string]bool{}
-	for _, id := range n.SearchBots.DisabledPresets {
-		disabledSB[strings.TrimSpace(id)] = true
-	}
-	for _, g := range nginxconf.SearchBotGroups {
-		if disabledSB[g.ID] {
-			continue
-		}
-		for _, p := range g.Patterns {
-			if matchedRegex(p, ua) {
-				return g.ID, "search_ai"
-			}
-		}
-	}
+	// SearchBots rescue list.  The built-in Googlebot / GPTBot / ... presets
+	// were removed (the crawler-user-agents.json upstream path in
+	// classify.IsBot already covers them, and isSearchBotUA checks that
+	// first); only the operator's own extra patterns remain here.
 	for i, p := range n.SearchBots.Extra {
 		if i < len(n.SearchBots.ExtraDisabled) && n.SearchBots.ExtraDisabled[i] {
 			continue

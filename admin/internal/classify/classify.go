@@ -365,7 +365,7 @@ func IsOldBrowser(ua string) bool {
 // UpstreamRescueEntry is one UA pattern auto-rescued via crawler-user-agents.json
 // (= tagged search-engine / ai-crawler / advertising → SearchAI → pass).
 // Exposed for the settings UI ua-filter tab so the maintainer can see exactly
-// which patterns are pass-listed beyond the explicit SearchBotGroups presets.
+// which patterns are pass-listed (the operator's extra UA rules).
 type UpstreamRescueEntry struct {
 	Pattern      string   `json:"pattern"`
 	Tags         []string `json:"tags"`

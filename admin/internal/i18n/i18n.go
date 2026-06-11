@@ -1190,7 +1190,7 @@ var dict = map[Lang]map[string]string{
 両方 match の場合は白が優先 (= 順位事故防止).<br>
 どちらにも match しない場合は素通し (= challenge 対象外).`,
 		"settings.ua.white_h":                         "ホワイトリスト (= match → 必ず素通し)",
-		"settings.ua.white_desc":                      "検索 / AI / 広告 bot UA など、 challenge 適用対象から完全に外したい UA. 検索順位事故防止のため Googlebot 等は ON 推奨.",
+		"settings.ua.white_desc":                      "ここに追加した UA は challenge 対象から完全に外れる (= 必ず素通し). 検索 / AI bot (Googlebot / GPTBot 等) の救済は上の自動振り分け card で管理するので、 ここは独自に通したい UA だけを足す.",
 		"settings.ua.white_extra_h":                   "ホワイトリスト — 独自 UA pattern",
 		"settings.ua.white_extra_desc":                "1 行 1 pattern. case-insensitive substring として展開. compile error の行は無視.",
 		"settings.ua.black_h":                         "ブラックリスト (= match + signal → challenge)",
@@ -2544,7 +2544,7 @@ Black-list match + bot signal (JA4 bot / honeypot) → challenge.<br>
 If both match, white wins (to avoid SEO incidents).<br>
 If neither matches, the request passes through (no challenge).`,
 		"settings.ua.white_h":                         "White list (match → always pass)",
-		"settings.ua.white_desc":                      "Search / AI / ad bot UAs that should never be challenged. Keep Googlebot etc. ON to avoid SEO incidents.",
+		"settings.ua.white_desc":                      "UAs added here are never challenged (always passed). Search / AI bots (Googlebot / GPTBot etc.) are handled by the auto-rescue card above; use this only for your own additional pass-through UAs.",
 		"settings.ua.white_extra_h":                   "White list — custom UA patterns",
 		"settings.ua.white_extra_desc":                "One pattern per line. Expanded as a case-insensitive substring. Lines that fail to compile are skipped.",
 		"settings.ua.black_h":                         "Black list (match + signal → challenge)",

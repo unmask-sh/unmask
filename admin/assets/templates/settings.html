@@ -1318,35 +1318,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     {{ end }}
   </div><!-- /.bcd-card preset -->
 
-  <!-- whitelist parent card (= custom whitelist patterns only.  Upstream
-       presets moved to the preset card above; the legacy SearchBotGroups
-       checkboxes inside are display:none for backwards-compatible YAML.) -->
+  <!-- whitelist parent card (= operator-added custom UA patterns.  The
+       built-in brand presets (Googlebot / Bingbot / ...) were removed: the
+       upstream rescue card above (search-engine / ai-* categories) already
+       covers them, and a second hidden source meant turning a category off
+       there did not actually stop the rescue. -->
   <div class="bcd-card" style="border-left:.25rem solid #16a34a">
     <h2 style="color:#15803d">✓ {{ t .Lang "settings.ua.white_h" }}</h2>
     <p class="desc">{{ t .Lang "settings.ua.white_desc" }}</p>
-
-    <!-- preset sub-section (= legacy hard-coded brand-level presets.  Hidden
-         from the UI now that the upstream list provides equivalent coverage
-         (= Google / Bing / Yahoo / Yandex / Naver are all inside the
-         search-engine group below).  The form state is preserved so existing
-         config.yml values remain valid; full removal will follow in a later
-         pass once the new preset surface is confirmed. -->
-    <div class="ua-section" style="display:none">
-      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
-      {{ range .SearchBotGroups }}
-      <div class="preset{{ if .IsNew }} is-new{{ end }}">
-        <input type="checkbox" name="white_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="white-{{ .ID }}">
-        <label for="white-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
-        </label>
-        <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
-        <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
-        <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
-        <button type="button" class="rule-del-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">🗑</button>
-      </div>
-      {{ end }}
-    </div>
 
     <!-- custom sub-section -->
     <div class="ua-section">

@@ -125,25 +125,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}
 	}
 
-	// search bots: per-preset-group enable state + detailed patterns.
-	// IsNew = AddedIn > SeenVersion → force unchecked + show NEW badge in UI.
-	disabledBots := toSet(cur.SearchBots.DisabledPresets)
-	searchBotGroups := make([]map[string]any, 0, len(nginxconf.SearchBotGroups))
-	for _, g := range nginxconf.SearchBotGroups {
-		isNew := nginxconf.VersionLess(seenVer, g.AddedIn)
-		enabled := !disabledBots[g.ID]
-		if isNew && !g.DefaultOnWhenNew {
-			enabled = false
-		}
-		searchBotGroups = append(searchBotGroups, map[string]any{
-			"ID":       g.ID,
-			"Label":    g.Label,
-			"Patterns": g.Patterns,
-			"Enabled":  enabled,
-			"AddedIn":  g.AddedIn,
-			"IsNew":    isNew,
-		})
-	}
 	// JA4 verdicts: same shape
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)
 	ja4Groups := make([]map[string]any, 0, len(nginxconf.JA4VerdictGroups))
@@ -484,7 +465,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}(),
 		"LBPresets":                  buildLBPresetView(cur),
 		"LBExtras":                   buildLBExtraView(cur),
-		"SearchBotGroups":            searchBotGroups,
 		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
 		"UpstreamRescue":             upstreamRescue,
 		"UpstreamDisabled":           upstreamDisabledSet,
@@ -1757,18 +1737,10 @@ func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
 // Internally writes into the legacy SearchBots / ChallengeTargets structs
 // (= preserves the YAML schema so no migration is needed).
 func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
-	// ── allowlist (= legacy search-bots) ─────────────────
-	whiteEnabled := map[string]bool{}
-	for _, id := range r.Form["white_presets"] {
-		whiteEnabled[id] = true
-	}
-	whiteDisabled := []string{}
-	for _, g := range nginxconf.SearchBotGroups {
-		if !whiteEnabled[g.ID] {
-			whiteDisabled = append(whiteDisabled, g.ID)
-		}
-	}
-	n.SearchBots.DisabledPresets = whiteDisabled
+	// ── allowlist (= operator-added extra UA patterns) ───
+	// The built-in whitelist presets were removed; only the operator's own
+	// extra rules persist here.  Upstream auto-rescue (below) is the managed
+	// search/AI bypass path.
 	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraUpdatedAt = pairExtras(
 		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_updated_at"])
 

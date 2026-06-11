@@ -889,8 +889,11 @@ type ChallengeTargetsConfig struct {
 // Compatible with older yml (= no title / disabled): missing values default
 // to empty string / false.
 type SearchBotsConfig struct {
-	DisabledPresets []string `yaml:"disabled_presets"`
-	Extra           []string `yaml:"extra"`
+	// DisabledPresets was removed with the built-in whitelist presets
+	// (Googlebot / Bingbot / ...).  Search/AI rescue now flows through the
+	// upstream crawler-user-agents.json path (UpstreamGroupMode) plus Extra;
+	// any leftover `disabled_presets:` key in an old config.yml is ignored.
+	Extra          []string `yaml:"extra"`
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"` // unix sec. analogous to preset's AddedIn
