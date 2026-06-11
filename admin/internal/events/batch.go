@@ -40,7 +40,8 @@ type Flusher struct {
 	wg   sync.WaitGroup
 
 	// metrics (= dropped etc.  For future dashboard visualization).
-	dropped atomic.Uint64
+	dropped        atomic.Uint64 // queue-full drops (Submit on a full channel)
+	droppedOnError atomic.Uint64 // overflow drops after a DB-error retry backlog
 }
 
 // NewFlusher: start one flusher and return it.  The worker goroutine starts.
@@ -111,6 +112,16 @@ func (f *Flusher) DroppedCount() uint64 {
 	return f.dropped.Load()
 }
 
+// DroppedOnErrorCount: cumulative events dropped because a DB-error retry
+// backlog exceeded the retained-buffer cap.  Distinct from DroppedCount
+// (queue-full) so the two failure modes are attributable separately.
+func (f *Flusher) DroppedOnErrorCount() uint64 {
+	if f == nil {
+		return 0
+	}
+	return f.droppedOnError.Load()
+}
+
 func (f *Flusher) run() {
 	defer f.wg.Done()
 	defer safe.Recover("events-flusher") // a panic here must not crash the daemon
@@ -129,7 +140,21 @@ func (f *Flusher) run() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := insertBulk(ctx, f.d, buf); err != nil {
-			log.Printf("events batch flush (n=%d): %v", len(buf), err)
+			// Retain the batch and retry on the next tick (mirrors
+			// nginxlog.flushOnce) instead of dropping it, so a transient DB
+			// error — SQLite busy past the timeout, a brief MariaDB blip —
+			// doesn't permanently lose the batch.  Bound the retained buffer
+			// so a persistent outage can't grow it without limit: overflow
+			// drops the OLDEST events and counts them separately from the
+			// queue-full drop metric.
+			const maxRetain = 5000
+			if over := len(buf) - maxRetain; over > 0 {
+				f.droppedOnError.Add(uint64(over))
+				buf = append(buf[:0], buf[over:]...) // keep newest maxRetain, compact
+			}
+			log.Printf("events batch flush (n=%d): %v -- retained for retry", len(buf), err)
+			lastFlush = time.Now() // back off one interval before retrying
+			return
 		}
 		buf = buf[:0]
 		lastFlush = time.Now()
