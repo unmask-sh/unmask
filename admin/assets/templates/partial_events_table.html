@@ -58,7 +58,7 @@
         {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
-      <th style="width:2.5rem">flags</th>
+      <th style="width:3.4rem">flags <span class="info-tip" tabindex="0" aria-label="flags help">?<span class="info-popup">{{ safeHTML (t .Lang "help.flags.flags") }}</span></span></th>
       <th>URL</th>
       <th>UA</th>
       {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
