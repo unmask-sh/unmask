@@ -172,6 +172,12 @@ location @unmask_rate_challenge {
 # proxies on every Host.  See settings → nginx.admin_allowed_hosts.
 # The upstream `unmask` is declared at the tail of http.inc.
 location ^~ /unmask/ {
+    # Cap the connect wait so a daemon that has become unreachable (= a TCP
+    # upstream on another host that went down, not a same-host ECONNREFUSED
+    # which is instant) trips @unmask_daemon_down in ~2s instead of hanging
+    # on the default 60s connect timeout.  read/send stay at the default so
+    # slow challenge renders and the SSE stream are unaffected.
+    proxy_connect_timeout 2s;
     proxy_pass         http://unmask;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;
@@ -269,6 +275,12 @@ location ^~ {{ .Path }} {
     # per-location, so the catch-all's directive does not inherit here).
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_daemon_down;
+    # Cap the connect wait so a daemon that has become unreachable (= a TCP
+    # upstream on another host that went down, not a same-host ECONNREFUSED
+    # which is instant) trips @unmask_daemon_down in ~2s instead of hanging
+    # on the default 60s connect timeout.  read/send stay at the default so
+    # slow challenge renders and the SSE stream are unaffected.
+    proxy_connect_timeout 2s;
     proxy_pass         http://unmask;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;

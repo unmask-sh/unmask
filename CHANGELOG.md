@@ -13,6 +13,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-11 11:30) **Native daemon-down fail-open trips fast when the daemon
+  is unreachable on another host**.  The `/unmask/*` proxy locations had no
+  `proxy_connect_timeout`, so a TCP upstream that became unreachable (= admin
+  on a separate host that went down, as opposed to a same-host ECONNREFUSED
+  which is instant) hung on nginx's default 60s connect timeout before
+  `@unmask_daemon_down` could fail open — visitors waited seconds for the
+  original page.  Capped at 2s; read/send stay at the default so slow
+  challenge renders and the SSE stream are unaffected.  Completes the native
+  fail-open added earlier this cycle; e2e scenario 35 exercises the
+  container-stop path end-to-end.
+
 - (2026-06-11 10:30) **JS-error card separates foreign-script noise from
   challenge failures**.  Mobile pages are full of scripts unmask did not
   ship — in-app webview bridges, extensions, carrier-injected JS — and
