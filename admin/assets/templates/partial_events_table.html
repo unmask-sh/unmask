@@ -58,7 +58,6 @@
         {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
-      <th style="width:3.4rem">flags <span class="info-tip" tabindex="0" aria-label="flags help">?<span class="info-popup">{{ safeHTML (t .Lang "help.flags.flags") }}</span></span></th>
       <th>URL</th>
       <th>UA</th>
       {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
@@ -71,8 +70,7 @@
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
-      <td class="num">{{ .Flags }}{{ if gt .ReloadCount 0 }} <span class="muted">↻{{ .ReloadCount }}</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{ if not $.HideActions }}
@@ -100,7 +98,7 @@
       {{ end }}
     </tr>
     {{ else }}
-    <tr><td colspan="{{ if .HideActions }}8{{ else }}9{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    <tr><td colspan="{{ if .HideActions }}7{{ else }}8{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
     {{ end }}
   </tbody>
 </table>
