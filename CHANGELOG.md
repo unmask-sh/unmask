@@ -111,6 +111,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-11 23:45) **A config that omits secret.bv_secret no longer passes
+  doctor while silently breaking the site.**  Load() fills an empty bv_secret
+  with a per-process random key that is never persisted, so render-nginx and
+  the daemon sign / verify _bv with different keys and every visitor loops on
+  the challenge — yet `unmask doctor` checked the post-Load value (a
+  healthy-looking 24-byte string) and reported a false green.  Load() now logs
+  a loud WARNING when it has to fabricate the key, and doctor reads the RAW
+  config so a missing secret is an [ERR], not an [OK].  Only hand-rolled
+  configs are affected (package install runs config-init; docker persists one).
 - (2026-06-11 23:30) **A fresh box no longer contacts the hub before setup is
   finished.**  community-bans register / pull and the managed-mmdb auto-fetch
   fired on the first daemon start whenever a config path was set — before the

@@ -221,7 +221,13 @@ func cmdDoctor(args []string) error {
 	}
 
 	// 9. Ensure the secret is not still the default (= a weak seed lets attackers forge cookies)
-	if isDefaultSecret(s.Secret.BVSecret) {
+	// Read the RAW config first: Load() fabricates a per-process random key when
+	// the file omits secret.bv_secret, so s.Secret.BVSecret here would look like
+	// a healthy 24-byte value (false green) while render-nginx and the daemon
+	// actually sign with different keys -> permanent challenge loop.
+	if !settings.RawBVSecretPresent(resolved) {
+		addErr("bv_secret", "not set in config — the daemon falls back to a per-process random key that render-nginx can't match, so every visitor loops on the challenge. Set secret.bv_secret or run `unmask config-init`.")
+	} else if isDefaultSecret(s.Secret.BVSecret) {
 		addErr("bv_secret", "still default.  regenerate via unmask config-init")
 	} else if len(s.Secret.BVSecret) < 16 {
 		addWarn("bv_secret", "too short (= recommend 16+ chars)")

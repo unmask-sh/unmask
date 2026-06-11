@@ -1842,6 +1842,30 @@ func ResolvePath(path string) string {
 	return ""
 }
 
+// RawBVSecretPresent reports whether the config FILE at path sets a non-empty
+// secret.bv_secret, BEFORE Load()'s random fill-in.  doctor uses it to flag a
+// config that omits the secret: Load would otherwise fabricate a per-process
+// key (different in every process), so render-nginx and the daemon disagree
+// and the challenge loops forever — while a post-Load check sees a 24-char
+// value and reports a false green.  A missing / unreadable / unparsable file
+// returns false (= treat as "not set"); doctor's own config-load check reports
+// the read error separately.
+func RawBVSecretPresent(path string) bool {
+	raw, err := os.ReadFile(ResolvePath(path))
+	if err != nil {
+		return false
+	}
+	var probe struct {
+		Secret struct {
+			BVSecret string `yaml:"bv_secret"`
+		} `yaml:"secret"`
+	}
+	if yaml.Unmarshal(raw, &probe) != nil {
+		return false
+	}
+	return strings.TrimSpace(probe.Secret.BVSecret) != ""
+}
+
 // Load reads the config file (path or auto-detected) and overlays it on top
 // of defaults. If no config file is found, defaults are returned.
 //
@@ -1873,6 +1897,13 @@ func Load(path string) (Settings, error) {
 	}
 	if s.Secret.BVSecret == "" {
 		s.Secret.BVSecret = randomHex(24)
+		// A per-process random key is NOT persisted, so `render-nginx` and the
+		// daemon each invent their own and sign / verify _bv with different
+		// keys — every visitor loops on the challenge.  Package installs run
+		// config-init first and the docker entrypoint persists one, so this
+		// only bites a hand-rolled config that omits the secret block; warn
+		// loudly because the failure mode is a silent site-wide loop.
+		log.Printf("unmask: WARNING: secret.bv_secret is not set in %q — using a per-process random key that is NOT persisted, so render-nginx and the daemon sign _bv with different keys and every visitor loops on the challenge. Set a fixed secret.bv_secret or run `unmask config-init`.", resolved)
 	}
 	if s.Secret.CaptchaSecretBase == "" {
 		s.Secret.CaptchaSecretBase = randomHex(24)
