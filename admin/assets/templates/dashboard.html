@@ -86,7 +86,7 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-/* zero-row visibility. default = SHOWN (feedback_zero_row_policy);
+/* zero-row visibility. default = HIDDEN (operator unchecks to show);
    .bcd-zero-hidden on the card collapses zero rows.  Toggle is a checkbox
    inserted right after each table; state persists via localStorage. */
 .bcd-zero-row{display:table-row}
@@ -779,8 +779,10 @@ document.addEventListener('DOMContentLoaded', function(){
       card.classList.toggle('bcd-zero-hidden', hide);
     }
 
+    // Default = HIDE zero rows: a first-time visitor (no saved choice) gets
+    // them collapsed, and only an explicit "show" persists as visible.
     var saved = lsGet(key);
-    cb.checked = (saved === 'hide');
+    cb.checked = (saved !== 'show');
     applyState(cb.checked);
 
     cb.addEventListener('change', function(){

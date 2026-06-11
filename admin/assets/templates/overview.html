@@ -209,7 +209,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .ai-tab:hover{color:#0f172a}
 .ai-tab.active{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
-/* zero-row visibility (= shared with stats page).  Default: shown.
+/* zero-row visibility (= shared with stats page).  Default: hidden.
    .bcd-zero-hidden on the card collapses .bcd-zero-row entries. */
 .bcd-zero-row{display:table-row}
 .bcd-zero-hidden .bcd-zero-row{display:none}
@@ -219,10 +219,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </style>
 <script>
 // zero-row visibility (= mirrors the stats-page implementation; see
-// dashboard.html for the design rules).  Default = shown; the checkbox
-// inserted under each table hides them and the choice persists via
-// localStorage.  Shared key prefix so a "hide" set on stats carries
-// over to overview's twin card.
+// dashboard.html for the design rules).  Default = hidden (= collapsed for
+// a first-time visitor); the checkbox inserted under each table reveals
+// them and the choice persists via localStorage.  Shared key prefix so a
+// "show" set on stats carries over to overview's twin card.
 document.addEventListener('DOMContentLoaded', function(){
   function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
   function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
@@ -259,8 +259,10 @@ document.addEventListener('DOMContentLoaded', function(){
 
     function applyState(hide){ card.classList.toggle('bcd-zero-hidden', hide); }
 
+    // Default = HIDE zero rows: a first-time visitor (no saved choice) gets
+    // them collapsed, and only an explicit "show" persists as visible.
     var saved = lsGet(key);
-    cb.checked = (saved === 'hide');
+    cb.checked = (saved !== 'show');
     applyState(cb.checked);
 
     cb.addEventListener('change', function(){
