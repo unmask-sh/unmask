@@ -3,7 +3,8 @@
 # RHEL: /etc/httpd/conf.d/unmask-web.conf, Debian: /etc/apache2/conf-available/unmask-web.conf
 #
 #  1. apachectl configtest validates syntax (= fails if required modules are missing)
-#  2. If SELinux is enforcing, prints a hint about httpd_can_network_connect
+#  2. If SELinux is enforcing, auto-enables httpd_can_network_connect to match
+#     unmask-web-nginx (opt out with UNMASK_SKIP_SETSEBOOL=1)
 #  3. On pass, runs apachectl graceful (= reload).  Failures are not treated as errors.
 
 
