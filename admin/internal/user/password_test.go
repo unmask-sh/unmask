@@ -49,3 +49,26 @@ func TestHashPasswordReturnsDistinctSalts(t *testing.T) {
 		t.Fatalf("two HashPassword calls returned the same hash (= salt not randomised)")
 	}
 }
+
+func TestNeedsRehash(t *testing.T) {
+	// A hash freshly produced with the current defaults must not need rehashing.
+	cur, err := HashPassword("correct-horse-battery-staple")
+	if err != nil {
+		t.Fatalf("HashPassword: %v", err)
+	}
+	if NeedsRehash(cur) {
+		t.Error("current-parameter hash should not need rehash")
+	}
+	// A hash carrying weaker cost parameters (here: half the memory) must be
+	// flagged so a successful login can transparently upgrade it (AUTH-6).
+	weak := "$argon2id$v=19$m=32768,t=2,p=1$YWJjZGVmZ2hpamts$aGFzaGhhc2hoYXNo"
+	if !NeedsRehash(weak) {
+		t.Error("weaker-parameter hash should need rehash")
+	}
+	// Unparseable / legacy formats are upgraded on next login.
+	for _, bad := range []string{"", "not-a-hash", "$2y$10$abcdef", "$argon2id$v=19$broken"} {
+		if !NeedsRehash(bad) {
+			t.Errorf("malformed hash %q should need rehash", bad)
+		}
+	}
+}

@@ -140,6 +140,24 @@ func CheckPassword(hash, plain string) error {
 	return checkArgon2id(hash, plain)
 }
 
+// NeedsRehash reports whether a stored argon2id PHC hash was produced with cost
+// parameters that differ from the current HashPassword defaults, so a
+// successful login can transparently re-hash at the stronger cost (AUTH-6).  An
+// unparseable or non-argon2id string also returns true, upgrading a legacy
+// format on next login.
+func NeedsRehash(encoded string) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 || parts[1] != "argon2id" {
+		return true
+	}
+	var m, t uint32
+	var p uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
+		return true
+	}
+	return m != argon2Memory || t != argon2Time || p != argon2Threads
+}
+
 // errBadHash: parse failure or argon2id mismatch.  Returned as a single value
 // to avoid leaking which step failed (= argon2 verify is constant-time, so
 // don't unmask the failure mode either).
@@ -206,6 +224,18 @@ func (r *Repository) Count(ctx context.Context) (int, error) {
 // Create: a new user.  Pass plaintext for password.  Hashing happens here.
 // Clash with an existing username -> ErrUsernameTaken.
 func (r *Repository) Create(ctx context.Context, username, plainPassword, role string) (*User, error) {
+	hash, err := HashPassword(plainPassword)
+	if err != nil {
+		return nil, err
+	}
+	return r.CreateWithHash(ctx, username, hash, role)
+}
+
+// CreateWithHash is Create but takes an already-argon2id-hashed password (PHC
+// string) instead of plaintext.  The setup wizard hashes the operator password
+// the moment it is entered and never keeps the plaintext (AUTH-7), so install
+// commits the stored hash directly.
+func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash, role string) (*User, error) {
 	username = strings.TrimSpace(username)
 	if username == "" {
 		return nil, errors.New("username is empty")
@@ -213,11 +243,10 @@ func (r *Repository) Create(ctx context.Context, username, plainPassword, role s
 	if !IsValidRole(role) {
 		return nil, fmt.Errorf("invalid role: %q", role)
 	}
-	hash, err := HashPassword(plainPassword)
-	if err != nil {
-		return nil, err
+	if passwordHash == "" {
+		return nil, errors.New("password hash is empty")
 	}
-	row := db.User{Username: username, PasswordHash: hash, Role: role, CreatedAt: time.Now()}
+	row := db.User{Username: username, PasswordHash: passwordHash, Role: role, CreatedAt: time.Now()}
 	if err := r.DB.Gorm.WithContext(ctx).Select("Username", "PasswordHash", "Role").Create(&row).Error; err != nil {
 		// Both SQLite and MariaDB produce driver-specific UNIQUE violation
 		// messages, so do a coarse string check.

@@ -273,8 +273,9 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	if step == "user" && wstate != nil && wstate.UserSet {
 		// Pre-fill the username so the user can review / edit on backtrack.
 		// The password is *not* round-tripped via HTML (= the field stays
-		// blank); the user re-enters it.  Internally wstate.Password is
-		// still the previously-entered value until they submit again.
+		// blank); the user re-enters it.  Internally wstate.PasswordHash holds
+		// the argon2id hash of the previously-entered password (not the
+		// plaintext) until they submit again.
 		data["PrefillUsername"] = wstate.Username
 	}
 	if step == "review" && wstate != nil {
@@ -461,7 +462,14 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Username = username
-	s.Password = password
+	// Hash immediately and discard the plaintext so the wizard never holds an
+	// operator password in memory for the rest of its TTL (AUTH-7).
+	pwHash, err := user.HashPassword(password)
+	if err != nil {
+		redirErr("hash password: " + err.Error())
+		return
+	}
+	s.PasswordHash = pwHash
 	s.UserSet = true
 	touchWizardState(s)
 	http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
@@ -534,7 +542,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	// 2. create admin user (= superadmin)
 	repo := user.New(conn)
-	if _, err := repo.Create(r.Context(), s.Username, s.Password, user.RoleSuperadmin); err != nil {
+	if _, err := repo.CreateWithHash(r.Context(), s.Username, s.PasswordHash, user.RoleSuperadmin); err != nil {
 		if conn != h.DB {
 			_ = conn.Close()
 		}

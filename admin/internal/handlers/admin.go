@@ -804,6 +804,14 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 		rejectInvalid()
 		return
 	}
+	// Transparently upgrade the stored hash if the argon2 cost parameters have
+	// been raised since it was written (AUTH-6).  Best-effort: a failure here
+	// must not block an otherwise-valid login.
+	if user.NeedsRehash(u.PasswordHash) {
+		if err := h.UserRepo.SetPassword(r.Context(), u.ID, password); err != nil {
+			log.Printf("password rehash on login (user %d): %v", u.ID, err)
+		}
+	}
 	h.UserRepo.TouchLastLogin(r.Context(), u.ID)
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"

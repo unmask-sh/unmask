@@ -21,10 +21,10 @@ const wizardStateTTL = 1 * time.Hour
 type wizardState struct {
 	DBSet    bool
 	DB       settings.DB
-	UserSet  bool
-	Username string
-	Password string
-	expires  time.Time
+	UserSet      bool
+	Username     string
+	PasswordHash string // argon2id PHC; the plaintext is hashed at entry and never kept (AUTH-7)
+	expires      time.Time
 }
 
 // step returns the next-step name based on what's been collected so far.
