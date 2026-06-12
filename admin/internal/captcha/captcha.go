@@ -13,11 +13,12 @@
 //
 // Scoring (1.0 = clearly human):
 //
-//	no input device events                       -0.6
-//	clickAt < 500ms (= clicked immediately)      -0.5
-//	mouseEvents present yet mouseTrail < 5 pts   -0.3
-//	mouseTrail is a perfect line (mean dev <2px) -0.3
-//	windowSize = [0,0] / missing (= headless)    -0.4
+//	no input device events                        -0.6
+//	clickAt < 500ms (= clicked immediately)       -0.5
+//	mouseEvents present yet mouseTrail <=1 pt     -0.6  (= headless click, no mousemove run)
+//	mouseEvents present yet mouseTrail 2-4 pts    -0.3
+//	mouseTrail is a perfect line (mean dev <2px)  -0.3
+//	windowSize = [0,0] / missing (= headless)     -0.4
 package captcha
 
 import (
@@ -59,8 +60,19 @@ func Score(s *Signal) float64 {
 		score -= 0.5
 	}
 
-	if s.HasMouseEvents && len(s.MouseTrail) < 5 {
-		score -= 0.3
+	// A client that reports mouse events but almost no trail is contradictory:
+	// moving a cursor to the checkbox produces a stream of mousemove points, so
+	// a trail of <=1 point (just the click coordinate) is a headless-automation
+	// tell -- Playwright/Puppeteer .click() synthesizes the click without the
+	// human mousemove run, which is how a headless browser scored 0.7 and cleared
+	// the behavioral check on behavioral signal alone.  Penalize that hard; a
+	// merely short trail (2-4 pts, a fast but real cursor move) stays a soft -0.3.
+	if s.HasMouseEvents {
+		if len(s.MouseTrail) <= 1 {
+			score -= 0.6
+		} else if len(s.MouseTrail) < 5 {
+			score -= 0.3
+		}
 	}
 
 	// Straightness check: mean distance of mid-trail points from the first→last line.
