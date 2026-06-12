@@ -289,6 +289,11 @@ func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	switch ext {
 	case ".svg":
 		w.Header().Set("Content-Type", "image/svg+xml")
+		// An uploaded SVG can embed <script>/on*/<foreignObject>; served as a
+		// top-level document (not via <img>, which sandboxes it) that would run.
+		// A logo needs no script/object/external fetch, so lock it down with CSP
+		// rather than parsing+sanitizing the XML (L-C1).
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
 	case ".png":
 		w.Header().Set("Content-Type", "image/png")
 	case ".jpg", ".jpeg":

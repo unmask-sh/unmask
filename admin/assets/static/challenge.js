@@ -216,7 +216,17 @@
   try {
     var qs = new URLSearchParams(location.search);
     var isAdminTest = location.pathname.indexOf('/admin/test/') !== -1;
-    var isIframePreview = qs.get('_preview') === '1';
+    // _preview=1 is reachable without auth, so a phishing link
+    // (/unmask/challenge/?_preview=1&_preview_site_name=...) could rewrite the
+    // page's site name / footer.  Gate the free-text override on a same-origin
+    // /admin/ referrer: the theme-tab iframe carries it, a victim-facing link
+    // does not (M-C1).  /admin/test/ stays trusted via isAdminTest (auth path).
+    var isIframePreview = qs.get('_preview') === '1' && (function () {
+      try {
+        var ref = new URL(document.referrer);
+        return ref.origin === location.origin && ref.pathname.indexOf('/admin/') !== -1;
+      } catch (e) { return false; }
+    })();
     if (isAdminTest || isIframePreview) {
       var qp  = qs.get('_preview_preset');
       var qs2 = qs.get('_preview_site_name');
