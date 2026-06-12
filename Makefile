@@ -502,7 +502,22 @@ package-apk: build-admin
 #   dist/unmask-plugin-nginx-<unmask_ver>-1.<arch>.rpm
 #   dist/unmask-plugin-nginx_<unmask_ver>_<arch>.deb
 #   dist/unmask-plugin-nginx_<unmask_ver>_<arch>.apk
+# The auto-build prereq applies on amd64 only: the .so for other arches can
+# only be produced under qemu (see PRE-RELEASE step 0) — letting the host
+# toolchain "fill in" missing versions would drop x86 .so files into the
+# arm64 cache and poison the aarch64 package.  Non-amd64 packaging instead
+# hard-requires the pre-built cache below.
+ifeq ($(GOARCH),amd64)
 package-plugin-nginx-fat: build-module-multi-all
+endif
+package-plugin-nginx-fat:
+	@if [ "$(GOARCH)" != "amd64" ]; then \
+		ls $(MULTI_DIR)/*/*.so >/dev/null 2>&1 || { \
+			echo "!! $(MULTI_DIR) is missing/empty — build the $(GOARCH) .so cache under qemu first:"; \
+			echo "   docker run --rm --platform=linux/$(GOARCH) -v \$$PWD:/work -w /work debian:12 \\"; \
+			echo "     bash -c 'apt-get update -qq && apt-get install -y -qq build-essential make libpcre3-dev libpcre2-dev zlib1g-dev libssl-dev && make build-module-multi GOARCH=$(GOARCH)'"; \
+			exit 1; }; \
+	fi
 	mkdir -p $(DIST)/.tmp-pkg
 	# 1. Assemble the nfpm yml from rpm/templates/* (plugin-nginx-fat-body.yaml.in
 	#    ends with `contents:` and an empty list, ready for append).
