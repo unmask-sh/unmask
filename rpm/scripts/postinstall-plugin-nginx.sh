@@ -75,9 +75,31 @@ if [ -r "$NGINX_CONF" ]; then
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1)
     if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ]; then
         DROP="$INCLUDE_DIR/50-mod-unmask.conf"
-        echo "$LOAD_LINE" > "$DROP"
-        chmod 0644 "$DROP"
-        echo "  load_module conf: $DROP"
+        # Skip when the operator already loads the module elsewhere (a hand
+        # line in nginx.conf or their own conf in this dir) -- dropping ours
+        # next to theirs makes nginx -t fail with "module is already loaded".
+        # Matches place-module.sh (the fat variant's placer).
+        FOREIGN=""
+        if grep -q "load_module.*ngx_http_unmask_module" "$NGINX_CONF" 2>/dev/null; then
+            FOREIGN="$NGINX_CONF"
+        else
+            for f in "$INCLUDE_DIR"/*.conf; do
+                [ -f "$f" ] || continue
+                [ "$f" = "$DROP" ] && continue
+                if grep -q "load_module.*ngx_http_unmask_module" "$f" 2>/dev/null; then
+                    FOREIGN="$f"
+                    break
+                fi
+            done
+        fi
+        if [ -n "$FOREIGN" ]; then
+            rm -f "$DROP" 2>/dev/null
+            echo "  load_module already present in $FOREIGN (= operator-managed; idempotent skip)"
+        else
+            echo "$LOAD_LINE" > "$DROP"
+            chmod 0644 "$DROP"
+            echo "  load_module conf: $DROP"
+        fi
         LOAD_DROPPED=1
     fi
 fi

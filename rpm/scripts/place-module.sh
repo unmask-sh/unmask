@@ -323,9 +323,38 @@ if [ -r "$NGINX_CONF" ]; then
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1)
     if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ]; then
         DROP="$INCLUDE_DIR/50-mod-unmask.conf"
-        echo "$LOAD_LINE" > "$DROP"
-        chmod 0644 "$DROP"
-        echo "  load_module conf: $DROP"
+        # Idempotency across FOREIGN wiring, not just our own file.  An
+        # operator may already load the module themselves -- a hand-added
+        # line in nginx.conf (the docs used to show exactly that) or their
+        # own conf in this include dir.  This script runs before EVERY nginx
+        # start via the service drop-in, so unconditionally dropping ours
+        # next to theirs makes nginx -t fail with "module is already
+        # loaded", and the verify fail-safe below then strips the module --
+        # a self-inflicted outage on a perfectly healthy setup.  Skip (and
+        # remove a stale drop of ours) when any other load_module for this
+        # module exists; overwriting OUR OWN previous drop stays fine (= the
+        # normal re-pick path).
+        FOREIGN=""
+        if grep -q "load_module.*ngx_http_unmask_module" "$NGINX_CONF" 2>/dev/null; then
+            FOREIGN="$NGINX_CONF"
+        else
+            for f in "$INCLUDE_DIR"/*.conf; do
+                [ -f "$f" ] || continue
+                [ "$f" = "$DROP" ] && continue
+                if grep -q "load_module.*ngx_http_unmask_module" "$f" 2>/dev/null; then
+                    FOREIGN="$f"
+                    break
+                fi
+            done
+        fi
+        if [ -n "$FOREIGN" ]; then
+            rm -f "$DROP" 2>/dev/null
+            echo "  load_module already present in $FOREIGN (= operator-managed; idempotent skip)"
+        else
+            echo "$LOAD_LINE" > "$DROP"
+            chmod 0644 "$DROP"
+            echo "  load_module conf: $DROP"
+        fi
         LOAD_DROPPED=1
     fi
 fi

@@ -156,6 +156,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 21:20) **The module placer no longer duplicates an
+  operator-managed `load_module` — which used to escalate into the fail-safe
+  stripping a healthy module.**  `place-module.sh` (run before every nginx
+  start via the service drop-in) dropped its `50-mod-unmask.conf` autoload
+  unconditionally whenever a main-scope include dir existed.  If the operator
+  already loaded the module themselves — a hand-added `load_module` line in
+  nginx.conf, or their own conf file in that include dir — nginx saw the
+  directive twice, `nginx -t` failed with "module is already loaded", and the
+  placer's verify fail-safe classified that as an unmask-caused breakage and
+  stripped the module wiring **including the placed `.so`**, leaving the
+  operator's own (now dangling) `load_module` pointing at a deleted file:
+  nginx could not start at all.  Caught by the 9-distro install matrix (every
+  rpm/deb distro's native mode failed this way once the ExecStartPre re-pick
+  ran on restart).  The placer (and the slim plugin postinstall) now detect a
+  foreign `load_module ngx_http_unmask_module` in nginx.conf or any other
+  conf in the include dir, skip dropping their own, and remove a stale drop
+  of ours — self-healing an already-duplicated setup on the next start.
+  Overwriting our own previous drop (the normal re-pick path) is unaffected.
 - (2026-06-12 16:42) **The cookie_minute v1→kind/cnt migration is now safe to
   re-run, so an interrupted MariaDB upgrade can't double historical stats.**
   The copy INSERTs run in a transaction, but the table rename and the final
