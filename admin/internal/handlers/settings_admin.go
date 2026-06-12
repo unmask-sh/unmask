@@ -899,7 +899,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Carry the error text in a flash cookie rather than the URL
 			// (= avoids long, URL-encoded messages cluttering the address bar).
-			setFlash(w, base, "err", msg)
+			setFlash(w, r, base, "err", msg)
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
@@ -3646,7 +3646,7 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 			// main save handler here.
 			dst += "&saved=1&section=" + url.QueryEscape(tab)
 		} else {
-			setFlash(w, base, "err", msg)
+			setFlash(w, r, base, "err", msg)
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}

@@ -433,8 +433,21 @@ func extractStringField(payload, key string, maxLen int) string {
 		return ""
 	}
 	rest := payload[idx+len(needle):]
-	end := strings.IndexByte(rest, '"')
-	if end < 0 || end > maxLen {
+	// Find the closing quote, skipping \" (and any other \x) escapes so a value
+	// containing an escaped quote isn't truncated early (L-C2).  The returned
+	// slice keeps the JSON escaping; a caller needing literal text unescapes it.
+	end := -1
+	for i := 0; i < len(rest) && i <= maxLen; i++ {
+		if rest[i] == '\\' {
+			i++ // skip the escaped character
+			continue
+		}
+		if rest[i] == '"' {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
 		return ""
 	}
 	return rest[:end]

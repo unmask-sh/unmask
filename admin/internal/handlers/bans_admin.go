@@ -753,7 +753,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			dst += "?saved=1"
 		} else {
-			setFlash(w, base, "err", msg)
+			setFlash(w, r, base, "err", msg)
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}

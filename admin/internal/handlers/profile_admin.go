@@ -76,7 +76,7 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 		if msgKey == "" {
 			dst += "?saved=1"
 		} else {
-			setFlash(w, base, "err", i18n.T(lang, msgKey))
+			setFlash(w, r, base, "err", i18n.T(lang, msgKey))
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}

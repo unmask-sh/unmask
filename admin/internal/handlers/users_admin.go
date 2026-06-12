@@ -153,7 +153,7 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 			}
 			dst += sep + "saved=1"
 		} else {
-			setFlash(w, base, "err", msg)
+			setFlash(w, r, base, "err", msg)
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}

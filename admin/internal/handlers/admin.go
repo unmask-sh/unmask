@@ -461,13 +461,14 @@ const flashCookiePrefix = "unmask_flash_"
 // setFlash writes a flash message to a cookie just before a redirect.  Expires
 // after 60 seconds (safety net for cases where the next GET never happens;
 // normally readFlash deletes it on the next GET).
-func setFlash(w http.ResponseWriter, basePath, key, msg string) {
+func setFlash(w http.ResponseWriter, r *http.Request, basePath, key, msg string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     flashCookiePrefix + key,
 		Value:    url.QueryEscape(msg),
 		Path:     basePath + "/admin/",
 		MaxAge:   60,
 		HttpOnly: false,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -486,6 +487,7 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 		Path:     basePath + "/admin/",
 		MaxAge:   -1,
 		HttpOnly: false,
+		Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 		SameSite: http.SameSiteLaxMode,
 	})
 	v, err := url.QueryUnescape(c.Value)
