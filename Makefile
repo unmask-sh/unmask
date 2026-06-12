@@ -705,7 +705,9 @@ release: clean
 	@echo ">>> asserting the full artifact set in $(DIST)/"
 	@cd $(DIST) && fail=0; \
 	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-web-caddy unmask-release; do \
-		ls $$fam* >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam* in dist/"; fail=1; }; \
+		for ext in rpm deb apk; do \
+			ls $$fam*$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam .$$ext at $(UNMASK_VERSION) in dist/"; fail=1; }; \
+		done; \
 	done; \
 	for ext in rpm deb apk; do \
 		ls unmask?$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! main package .$$ext at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
