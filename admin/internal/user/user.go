@@ -429,9 +429,17 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 		_ = clearResetToken(ctx, r, u.ID)
 		return nil, ErrNotFound
 	}
-	// Consume (= one-shot).
-	if err := clearResetToken(ctx, r, u.ID); err != nil {
-		return nil, err
+	// Consume atomically by (id, token): once the winner nulls the token, a
+	// concurrent redeem of the same token updates 0 rows, so the token is truly
+	// one-shot even under the SELECT-then-UPDATE race (DB-7).
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).
+		Where("id = ? AND reset_token = ?", u.ID, token).
+		Updates(map[string]any{"reset_token": nil, "reset_token_expires_at": nil})
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, ErrNotFound // lost the race; the token was already consumed
 	}
 	return u, nil
 }
