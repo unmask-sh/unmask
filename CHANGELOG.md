@@ -12,6 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Removed
+- (2026-06-12 21:49) **Dropped Caddy support** (the `unmask-web-caddy` package,
+  the shipped `Caddyfile-forward-auth` snippet, and every install-path /
+  docs / UI mention) to keep the supported-surface honest about what is
+  actually maintained and exercised — the install matrix covers nginx and
+  Apache end-to-end, while the Caddy artifacts were never integration-tested.
+  Forward-auth itself is unchanged and HTTP-server-agnostic: `/unmask/api/check`
+  still speaks the standard contract (200/401/403 + `X-Unmask-Action` /
+  `X-Unmask-Reason`), so Caddy's `forward_auth` — like Envoy `ext_authz` or
+  HAProxy — can still be wired against it by hand; it is simply no longer a
+  shipped, documented integration.  The Traefik sample config remains.
+
 ### Added
 - (2026-06-12 20:25) **Roaming clients keep their challenge clearance across
   IP changes (silent rebind).**  `_bv` entries are IP-bound by design (replay

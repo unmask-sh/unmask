@@ -24,7 +24,7 @@ preservation as the default posture.
 - **Web Bot Auth (RFC 9421)** — ed25519 + RSA-PSS HTTP Message Signature verify with JWK thumbprint dedup. Signed AI agents (Anthropic / OpenAI / etc.) pass through without challenge.
 - **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default (CAPTCHA-only enforcement, so a mismatched human still passes; flip `subscribe_mode` off to disconnect); submitting your own reports and sharing country info are opt-in. GDPR by design (= per-day salted IP hashes, 30-day prune, raw IPs never stored).
 - **Built-in admin UI** — dashboard / hunt / abuse signals / settings. bcrypt + cookie session + CSRF + per-IP login rate-limit.
-- **Two deploy modes** — native nginx dynamic module (~0.05 ms post-cookie) or forward-auth fallback with shipped examples for Apache / Caddy / Traefik (the check endpoint speaks the standard forward-auth contract, so Envoy ext_authz / HAProxy and friends can wire it the same way).
+- **Two deploy modes** — native nginx dynamic module (~0.05 ms post-cookie) or forward-auth fallback with shipped examples for Apache / Traefik (the check endpoint speaks the standard forward-auth contract, so Envoy ext_authz / HAProxy and friends can wire it the same way).
 
 ## Install
 

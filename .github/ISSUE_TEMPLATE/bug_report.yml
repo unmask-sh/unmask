@@ -34,7 +34,7 @@ body:
     id: nginx-version
     attributes:
       label: HTTP server + version
-      description: From `nginx -v` / `httpd -v` / `caddy version`.
+      description: From `nginx -v` / `httpd -v`.
       placeholder: 'nginx/1.26.2'
     validations:
       required: false
@@ -56,7 +56,7 @@ body:
         - nginx native module
         - auth_request (nginx)
         - auth_request (Apache forward-auth)
-        - auth_request (Caddy / Traefik / other)
+        - auth_request (Traefik / other)
         - not applicable (= packaging issue)
     validations:
       required: true

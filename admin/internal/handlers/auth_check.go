@@ -2,7 +2,7 @@
 //
 // Flow:
 //
-//	client -> HTTP server (= nginx / Apache / Caddy / etc.)
+//	client -> HTTP server (= nginx / Apache / etc.)
 //	                    | subrequest (= auth_request / forward_auth / ext_authz)
 //	                    v
 //	       /unmask/api/check  <- this endpoint
@@ -167,7 +167,7 @@ func pickStrongest(decisions []axisDecision) (axisDecision, []string) {
 
 // AuthCheck: GET / POST /unmask/api/check (= auth_request endpoint).
 //
-// nginx's auth_request is GET, Caddy's forward_auth is GET, Apache's
+// nginx's auth_request is GET, Traefik's forwardAuth is GET, Apache's
 // ProxyPass + auth is GET, Envoy ext_authz is POST.  Accept all.
 func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// Fail CLOSED on a panic.  net/http recovers a handler panic but drops the
@@ -857,7 +857,7 @@ func forwardAuthTrustedPeers(cfg settings.Settings) []string {
 // (= no JA4; the ja4 axis stays silent).
 //
 // Why peer-based: the upstream proxy (nginx native plugin / nginx
-// auth_request / Apache mod_lua / Caddy forward_auth / an LB / CDN) is what
+// auth_request / Apache mod_lua / Traefik forwardAuth / an LB / CDN) is what
 // opens the TCP connection to /api/check, so r.RemoteAddr is that proxy's
 // address.  The visitor sits behind it and must never be used for this
 // trust decision.  Spoof defense is two-layer: this peer check, plus the

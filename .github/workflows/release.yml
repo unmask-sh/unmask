@@ -5,7 +5,7 @@
 #
 # Local release procedure (= after the tag is pushed):
 #
-#   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache,caddy}
+#   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache}
 #   make sign-rpm
 #   (cd dist && sha256sum *.rpm *.deb *.apk *-linux-* > checksums.txt \
 #                && gpg --detach-sign --armor -o checksums.txt.sig checksums.txt)
@@ -132,7 +132,7 @@ jobs:
 
             - `unmask-X.Y.Z.{rpm,deb,apk}` — main package (= admin binary + systemd unit + config skeleton)
             - `unmask-plugin-nginx-fat-X.Y.Z.{rpm,deb,apk}` — nginx dynamic module bundle (14 nginx versions × OpenSSL 1.0 / 1.1+ / 3.x)
-            - `unmask-web-{nginx,apache,caddy}-X.Y.Z.{rpm,deb,apk}` — per-web-server config snippets (= auth_request mode)
+            - `unmask-web-{nginx,apache}-X.Y.Z.{rpm,deb,apk}` — per-web-server config snippets (= auth_request mode)
             - `unmask-linux-{amd64,arm64}` — raw Go binary (= no system integration)
             - `checksums.txt` — SHA-256 hashes for all artifacts above
             - `checksums.txt.sig` — GPG detached signature (= verify with the unmask GPG public key)

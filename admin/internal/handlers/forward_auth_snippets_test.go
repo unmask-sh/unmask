@@ -12,16 +12,16 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The distro matrix installs nginx + Apache but never Caddy or Traefik (#203),
-// so the only thing tying the shipped Caddy/Traefik forward-auth snippets to
-// reality is that /api/check keeps speaking the same contract: a verdict in
-// X-Unmask-Action (pass|challenge|block), the matching 200/401/403 status, and
-// X-Unmask-Reason — the headers both snippets forward downstream and the status
-// codes their redirect/block branches switch on.  These tests pin both halves:
-// the handler's response contract, and the snippet files that depend on it.
+// The distro matrix installs nginx + Apache but never Traefik (#203), so the
+// only thing tying the shipped Traefik forward-auth snippet to reality is that
+// /api/check keeps speaking the same contract: a verdict in X-Unmask-Action
+// (pass|challenge|block), the matching 200/401/403 status, and X-Unmask-Reason
+// — the headers the snippet forwards downstream and the status codes its
+// redirect/block behavior relies on.  These tests pin both halves: the
+// handler's response contract, and the snippet file that depends on it.
 
 // driveAuthCheck runs the full AuthCheck handler against a forward-auth style
-// request (X-Original-* headers, as nginx/Caddy/Traefik send them) and returns
+// request (X-Original-* headers, as nginx/Traefik send them) and returns
 // the recorded response.  DB / BanMgr / RateLimiter stay nil — every decision
 // helper tolerates that, and event recording is nil-safe.
 func driveAuthCheck(t *testing.T, cfg settings.Settings, uri string) *http.Response {
@@ -107,13 +107,6 @@ func TestForwardAuthSnippetsMatchHandlerContract(t *testing.T) {
 		file     string
 		mustHave []string
 	}{
-		{"Caddyfile-forward-auth", []string{
-			"/unmask/api/check",  // forward_auth subrequest target
-			"/unmask/challenge/", // 401 -> challenge redirect lives in the snippet
-			"X-Unmask-Action",    // copy_headers (admin verdict, set by AuthCheck)
-			"X-Unmask-Reason",    // copy_headers
-			"127.0.0.1:9477",     // admin upstream
-		}},
 		{"traefik-forward-auth.yml", []string{
 			"/unmask/api/check", // forwardAuth address
 			"X-Unmask-Action",   // authResponseHeaders

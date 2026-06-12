@@ -69,7 +69,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-web-caddy release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-lifecycle distro-check vet fmt clean help repo repo-apk publish
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-lifecycle distro-check vet fmt clean help repo repo-apk publish
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -430,7 +430,7 @@ NFPM_TPL = rpm/templates
 
 # _nfpm_yaml — assemble one yml from the templates.
 #   $(1) kind            (= main / plugin-nginx / plugin-nginx-fat / release /
-#                          web-nginx / web-apache / web-caddy)
+#                          web-nginx / web-apache)
 #   $(2) PACKAGE_NAME    (= unmask / unmask-plugin-nginx / unmask-release / ...)
 #   $(3) PACKAGE_ARCH    (= $(GOARCH) for binaries, "all" for unmask-release)
 #   $(4) PACKAGE_VENDOR  (= "unmask" for product packages, "unmask project" for release)
@@ -606,7 +606,7 @@ package-plugin-nginx-apk: build-module
 # ----------------------------------------------------------------
 
 # Shared macro: assemble web-<server> yml + run nfpm.
-#   $(1) server name (nginx / apache / caddy)
+#   $(1) server name (nginx / apache)
 #   $(2) packager    (rpm / deb / apk)
 define _nfpm_web
 	$(call _nfpm_yaml,web-$(1),unmask-web-$(1),$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml)
@@ -625,12 +625,6 @@ package-web-apache:
 	$(call _nfpm_web,apache,rpm)
 	$(call _nfpm_web,apache,deb)
 	$(call _nfpm_web,apache,apk)
-
-## package-web-caddy  - generate the Caddy conf.d snippet as rpm/deb/apk
-package-web-caddy:
-	$(call _nfpm_web,caddy,rpm)
-	$(call _nfpm_web,caddy,deb)
-	$(call _nfpm_web,caddy,apk)
 
 ## package-all   - generate rpm/deb/apk for both amd64 and arm64 in one run
 # Note: cross-compiling the nginx module (arm64 host != build host) requires
@@ -696,7 +690,6 @@ release: clean
 	# unmask-web-* / unmask-release files were left over from an earlier build.
 	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION)
 	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION)
-	$(MAKE) package-web-caddy UNMASK_VERSION=$(UNMASK_VERSION)
 	$(MAKE) package-release UNMASK_VERSION=$(UNMASK_VERSION)
 	# Completeness gate: refuse to call a partial set a release.  Every
 	# package family the docs / repo advertise must exist in dist/ -- and the
@@ -704,7 +697,7 @@ release: clean
 	# checksums are emitted.
 	@echo ">>> asserting the full artifact set in $(DIST)/"
 	@cd $(DIST) && fail=0; \
-	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-web-caddy unmask-release; do \
+	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-release; do \
 		for ext in rpm deb apk; do \
 			ls $$fam*$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam .$$ext at $(UNMASK_VERSION) in dist/"; fail=1; }; \
 		done; \

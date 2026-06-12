@@ -291,7 +291,7 @@ type Server struct {
 	// For unix domain socket, "unix:/path/to.sock" form. When the "unix:"
 	// prefix is detected, Port is ignored and listen happens on the socket
 	// file (= no TCP listener). All major reverse proxies (nginx / Apache /
-	// Caddy / HAProxy / Envoy / Traefik) support unix-socket upstreams.
+	// HAProxy / Envoy / Traefik) support unix-socket upstreams.
 	// Benefits: no port collisions, no firewall config, slightly faster than
 	// TCP loopback, and OS-level access control via socket file owner/mode.
 	Bind     string `yaml:"bind"`
@@ -1434,7 +1434,7 @@ type Notifications struct {
 //     Users just paste the unmask block into server { } and rate-limit is wired up.
 //   - auth_request / forward-auth mode: counted by the admin's sliding-window
 //     counter (= internal/ratelimit). Works with any httpd
-//     (nginx / Apache / Caddy / Envoy).
+//     (nginx / Apache / Envoy).
 //
 // Zone resolution order:
 //  1. Scan Zones in index order. Adopt the first zone whose PathPatterns

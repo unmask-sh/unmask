@@ -67,7 +67,7 @@ if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [
         # The admin listens on localhost:9477.  External access is intended
         # to go through a web server at https://host/unmask/admin/setup/.
         # That's why the user is expected to install one of the next
-        # `unmask-web-{nginx,apache,caddy}` packages.
+        # `unmask-web-{nginx,apache}` packages.
         host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo your-host)
         echo ""
         echo "================================================================"
@@ -76,7 +76,6 @@ if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [
         echo "  next step: install web integration to expose the admin UI"
         echo "    sudo dnf install unmask-web-nginx     (= /etc/nginx/conf.d/ snippet)"
         echo "    sudo dnf install unmask-web-apache    (= /etc/httpd/conf.d/ snippet)"
-        echo "    sudo dnf install unmask-web-caddy     (= /etc/caddy/conf.d/ snippet)"
         echo "  -> once done, open https://${host}/unmask/admin/setup/ to launch the wizard."
         echo ""
         echo "  setup token (= enter in the wizard):"

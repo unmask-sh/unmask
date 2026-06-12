@@ -118,7 +118,7 @@ location @unmask_signed_continue {
 
 # Subrequest target for /_unmask/_signed_route's auth_request.  Pumps the
 # call into the admin daemon's /unmask/api/check endpoint (= the same
-# forward-auth handler Apache / Caddy use).  Body is dropped to keep the
+# forward-auth handler Apache / Traefik use).  Body is dropped to keep the
 # subrequest cheap.
 # The plugin reports $unmask_has_signed_agent=0 for subrequests and
 # $unmask_uri_is_unmask=1 for this URI, so the signed-route gate cannot
