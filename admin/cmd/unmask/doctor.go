@@ -181,6 +181,20 @@ func cmdDoctor(args []string) error {
 		addOK("roaming rebind", "disabled (rebind.disabled: true); IP changes re-challenge")
 	}
 
+	// 4.7. Admin allowlists: empty = "allow all" (reasonable behind a trusted
+	// proxy, but easy to leave open by accident).  Surface it so the operator
+	// knows the admin UI is reachable from any IP / Host (A-1 / A-2).
+	if len(s.Nginx.AdminAllowedIPs) == 0 {
+		addWarn("admin IP allowlist", "empty = admin UI reachable from any IP; set nginx.admin_allowed_ips (or rely on an upstream network ACL)")
+	} else {
+		addOK("admin IP allowlist", fmt.Sprintf("%d entr(ies)", len(s.Nginx.AdminAllowedIPs)))
+	}
+	if len(s.Nginx.AdminAllowedHosts) == 0 {
+		addWarn("admin Host allowlist", "empty = any Host header accepted for the admin UI; set nginx.admin_allowed_hosts when serving admin on a dedicated hostname")
+	} else {
+		addOK("admin Host allowlist", fmt.Sprintf("%d entr(ies)", len(s.Nginx.AdminAllowedHosts)))
+	}
+
 	// 5. ban file directory writable
 	if p := s.Nginx.Honeypot.BanFilePath; p != "" {
 		dir := filepath.Dir(p)
