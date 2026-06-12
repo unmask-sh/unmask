@@ -434,11 +434,26 @@ type GeoRuleRender struct {
 	Action  string // resolved action (= rule.Action || geo.DefaultAction)
 }
 
+// sanitizeConfPath strips characters that could break out of an nginx
+// `include <path>;` directive -- newline (a new directive), NUL, quotes, the
+// statement terminator, and braces.  These dir paths come from operator yaml, so
+// this is belt-and-suspenders against a malformed value reaching the rendered
+// config (L-2).  A legitimate filesystem path never contains them.
+func sanitizeConfPath(p string) string {
+	return strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', 0, '"', '\'', ';', '{', '}':
+			return -1
+		}
+		return r
+	}, p)
+}
+
 func buildRenderData(s settings.Settings, outDir, version string) (renderData, error) {
 	d := renderData{
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Version:     version,
-		OutputDir:   outDir,
+		OutputDir:   sanitizeConfPath(outDir),
 		BVSecret:    s.Secret.BVSecret,
 		// _bv HMAC validation runs in nginx with one shared secret + cookie
 		// window; per-site challenge fields (PowDifficulty, theme, branding
@@ -893,7 +908,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if md == "" {
 			md = "/var/lib/unmask/nginx"
 		}
-		d.CommunityBansMapDir = md
+		d.CommunityBansMapDir = sanitizeConfPath(md)
 
 		// Size the map hash for the community-bans maps -- emit only the directives
 		// the host nginx.conf lacks (a duplicate map_hash_* is a fatal nginx -t
