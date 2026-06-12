@@ -12,6 +12,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-06-12 23:30) **aarch64 (arm64) packages are now a first-class part of
+  the release set.**  `make release` builds the web integration packages for
+  both architectures and packages an arm64 fat plugin from a pre-built `.so`
+  cache (produced once under qemu: `docker run --platform=linux/arm64 …
+  make build-module-multi GOARCH=arm64`), and the completeness gate now
+  asserts every family × format × **arch** so an arm64-less build can no
+  longer call itself a release.  The arm64 plugin bundles the modern nginx
+  range (1.18.0–1.30.0, OpenSSL 3 ABI) — the OpenSSL 1.0/1.1 and glibc-2.12
+  compat bundles stay amd64-only, since no supported arm64 distro pairs an
+  OpenSSL 3 system with those nginx eras; the placer's fail-safe keeps nginx
+  running (module off, forward-auth unaffected) on anything unmatched.
+  Multi-module cache dirs are arch-suffixed so the arm64 package can never
+  silently bundle x86 `.so` files, and the Makefile's GOARCH fallback now
+  derives from `uname -m` instead of hardcoding amd64 (inside the Go-less
+  arm64 builder container the old fallback silently no-op'ed the whole build
+  against the amd64 cache).
+
 ### Removed
 - (2026-06-12 21:49) **Dropped Caddy support** (the `unmask-web-caddy` package,
   the shipped `Caddyfile-forward-auth` snippet, and every install-path /

@@ -29,7 +29,11 @@
 
 UNMASK_VERSION ?= 0.1.0
 GOOS           ?= linux
-GOARCH         ?= $(shell go env GOARCH 2>/dev/null || echo amd64)
+# Default from `go env`; on hosts without Go (e.g. the arm64 qemu builder
+# container running build-module-multi) fall back to uname -m, NOT a hardcoded
+# amd64 — that silently pointed MULTI_DIR at the amd64 cache inside an aarch64
+# container and turned the whole arm64 module build into a "cached" no-op.
+GOARCH         ?= $(shell go env GOARCH 2>/dev/null || uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 
 NGINX_VERSION  ?= 1.26.2
 NGINX_SRC      ?= build/nginx-$(NGINX_VERSION)
@@ -183,7 +187,16 @@ build-module-multi:
 # Output: dist/multi-modules-openssl11/<ver>/ngx_http_unmask_module.so.
 # Prereqs: docker installed + unmask-builder-openssl11 image already built.
 #   $ docker build -t unmask-builder-openssl11 build/docker-openssl11/
+# Arch-suffixed like MULTI_DIR: amd64 keeps the legacy un-suffixed path; other
+# arches get -$(GOARCH).  This also keeps package-plugin-nginx-fat honest for
+# arm64 — the openssl11/10/glibc212 bundles exist only for amd64 today, so the
+# arm64 package scan finds no files there instead of silently bundling x86 .so
+# files the placer could then install on an aarch64 host.
+ifeq ($(GOARCH),amd64)
 MULTI_OPENSSL11_DIR = $(DIST)/multi-modules-openssl11
+else
+MULTI_OPENSSL11_DIR = $(DIST)/multi-modules-openssl11-$(GOARCH)
+endif
 build-module-multi-openssl11:
 	@if ! docker image inspect unmask-builder-openssl11 >/dev/null 2>&1; then \
 		echo ">>> building unmask-builder-openssl11 image first"; \
@@ -219,7 +232,11 @@ build-module-multi-openssl11:
 # Output: dist/multi-modules-openssl10/<ver>/ngx_http_unmask_module.so.
 # Prereqs: docker installed + unmask-builder-openssl10 image already built.
 #   $ docker build -t unmask-builder-openssl10 build/docker-openssl10/
+ifeq ($(GOARCH),amd64)
 MULTI_OPENSSL10_DIR = $(DIST)/multi-modules-openssl10
+else
+MULTI_OPENSSL10_DIR = $(DIST)/multi-modules-openssl10-$(GOARCH)
+endif
 .PHONY: build-module-multi-openssl10
 build-module-multi-openssl10:
 	@if ! docker image inspect unmask-builder-openssl10 >/dev/null 2>&1; then \
@@ -255,7 +272,11 @@ build-module-multi-openssl10:
 # Output: dist/multi-modules-glibc212/<ver>/ngx_http_unmask_module.so.
 # Prereqs: docker installed + unmask-builder-centos6 image already built.
 #   $ docker build -t unmask-builder-centos6 build/docker-centos6/
+ifeq ($(GOARCH),amd64)
 MULTI_GLIBC212_DIR = $(DIST)/multi-modules-glibc212
+else
+MULTI_GLIBC212_DIR = $(DIST)/multi-modules-glibc212-$(GOARCH)
+endif
 .PHONY: build-module-multi-glibc212
 build-module-multi-glibc212:
 	@if ! docker image inspect unmask-builder-centos6 >/dev/null 2>&1; then \
@@ -684,26 +705,41 @@ release: clean
 	# postinstall picks the best match for host nginx, so one file ships everywhere.
 	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64 || \
 		echo "!!! fat plugin build failed (continuing)"
+	# arm64 fat plugin: packaged from the PRE-BUILT .so cache
+	# (dist/multi-modules-arm64/, produced once under qemu:
+	#   docker run --platform=linux/arm64 ... make build-module-multi).
+	# Building under qemu inside `make release` would add an hour+, so the
+	# cache is a hard prereq here; the per-arch completeness gate below fails
+	# the release if the arm64 plugin (or the cache) is missing.
+	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64 || \
+		echo "!!! arm64 fat plugin build failed (continuing; gate will catch a missing artifact)"
 	# Web-server integration packages + the unmask-release repo bootstrap --
 	# the rest of the advertised install set.  Without these, build-repo.sh
 	# (which globs dist/*) would silently republish whatever stale
 	# unmask-web-* / unmask-release files were left over from an earlier build.
-	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION)
-	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION)
+	# Built per-arch (the contents are identical text, but rpm/deb/apk
+	# resolvers only install arch-matching packages).
+	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64
+	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64
+	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64
+	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64
 	$(MAKE) package-release UNMASK_VERSION=$(UNMASK_VERSION)
 	# Completeness gate: refuse to call a partial set a release.  Every
 	# package family the docs / repo advertise must exist in dist/ -- and the
 	# main package must exist at THIS version in all three formats -- before
 	# checksums are emitted.
-	@echo ">>> asserting the full artifact set in $(DIST)/"
+	@echo ">>> asserting the full artifact set in $(DIST)/ (family x format x arch)"
 	@cd $(DIST) && fail=0; \
-	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-release; do \
-		for ext in rpm deb apk; do \
-			ls $$fam*$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam .$$ext at $(UNMASK_VERSION) in dist/"; fail=1; }; \
+	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache; do \
+		for spec in x86_64.rpm aarch64.rpm amd64.deb arm64.deb x86_64.apk aarch64.apk; do \
+			ls $$fam*$(UNMASK_VERSION)*$$spec >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam ($$spec) at $(UNMASK_VERSION) in dist/"; fail=1; }; \
 		done; \
 	done; \
 	for ext in rpm deb apk; do \
-		ls unmask?$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! main package .$$ext at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
+		ls unmask-release*$(UNMASK_VERSION)*.$$ext >/dev/null 2>&1 || { echo "!! unmask-release .$$ext at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
+	done; \
+	for spec in x86_64.rpm aarch64.rpm amd64.deb arm64.deb x86_64.apk aarch64.apk; do \
+		ls unmask?$(UNMASK_VERSION)*$$spec >/dev/null 2>&1 || { echo "!! main package ($$spec) at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
 	done; \
 	[ $$fail -eq 0 ] || { echo "!!! aborting: incomplete release set (see above)"; exit 1; }
 	@echo ">>> generating checksums.txt"
