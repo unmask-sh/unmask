@@ -75,9 +75,6 @@ table.bcd-table > thead > tr > th{border-bottom:2px solid #cbd5e1;background:#f8
 .country-row .cc-bar-wrap{position:relative;background:#f1f5f9;border-radius:.1rem;height:.7rem}
 .country-row .cc-bar{background:#3b82f6;height:100%;border-radius:.1rem;min-width:1px;transition:width .25s}
 .country-row .cc-count{color:#0f172a;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
-/* CC BY 4.0 attribution for the DB-IP Lite country data (required wherever it is shown). */
-.dbip-credit{font-size:.68rem;color:#94a3b8;margin:.15rem 0 0}
-.dbip-credit a{color:inherit;text-decoration:underline}
 tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
 tr.total td.bcd-num{font-weight:700}
 tr.rl-row td{background:#fff7ed}
@@ -644,7 +641,6 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_all_heading" }}</h6>
       <div id="country-chart-all" class="country-chart"></div>
       <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .CountriesAll) }}</p>
-      <p class="dbip-credit"><a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a> ↗ · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> ↗</p>
     </div>
     {{end}}
     <div>
@@ -680,7 +676,6 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_heading" }}</h6>
       <div id="country-chart" class="country-chart"></div>
       <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .Countries) }}</p>
-      <p class="dbip-credit"><a href="https://db-ip.com" target="_blank" rel="noopener">IP Geolocation by DB-IP</a> ↗ · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a> ↗</p>
     </div>
     {{else}}
     <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
