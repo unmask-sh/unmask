@@ -12,6 +12,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-06-12 20:25) **Roaming clients keep their challenge clearance across
+  IP changes (silent rebind).**  `_bv` entries are IP-bound by design (replay
+  defense), so a phone hopping cells (5G CGNAT churn) re-solved the PoW once
+  per network even though the multi-IP list absorbs a stable wifi/office set.
+  Solving a challenge now also issues `_bvj`, an admin-only companion cookie
+  carrying a signed, host-bound proof of the solve (JA4 + UA fingerprint
+  hashes, the solve-time ASN, a random lineage id).  When its holder lands on
+  the challenge route from a new IP, the admin re-binds a fresh per-IP `_bv`
+  entry and bounces straight back — no PoW — provided the fingerprints match,
+  the ASN veto passes (when an ASN mmdb is loaded; cap-only otherwise) and the
+  per-lineage cap has room (default 16 lifetime / 4 per hour, consumed
+  atomically in the DB so one stolen cookie fanned out across IPs cannot
+  double-spend).  Rebound entries carry `kind="rebind"` and cannot seed a
+  fresh budget via `/api/bvj`, closing the refill recursion.  Forced
+  challenges (honeypot / ja4_bot / banned / protected / rate-limit) never
+  rebind.  The native C plugin is unchanged — rolling this out is an
+  admin-binary swap.  On by default; the `rebind:` config block (no settings
+  UI) tunes or disables it, and `unmask doctor` reports how the gates resolve.
+
 ### Changed
 - (2026-06-12 17:16) **Non-systemd plugin installs now tell the operator how to
   re-pick the module after a host nginx upgrade.**  On systemd, the shipped
