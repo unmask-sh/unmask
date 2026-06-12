@@ -156,6 +156,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 21:15) **The placer's verify fail-safe no longer strips a healthy
+  native module over an error that merely mentions an unmask path.**  The
+  "is this nginx -t failure unmask's fault?" classifier matched any error
+  containing `unmask` — including an OPERATOR vhost whose
+  `include /etc/unmask/forward-auth/server.inc` (the documented forward-auth
+  wiring) pointed at a file that did not exist at that instant.  That is
+  exactly the mid-transaction state on a remove→reinstall: the plugin's
+  postinstall verify runs BEFORE unmask-web-nginx lays its files back down,
+  so the fail-safe deleted the just-placed `.so` and autoload conf — and the
+  strip could not even fix the error it reacted to (the operator's include
+  stays).  Found on the install matrix (AlmaLinux 8 carried such a vhost).
+  The classifier now keys on unmask's OWN wiring artifacts only
+  (`ngx_http_unmask*`, `00-unmask*`, `50-mod-unmask.conf`,
+  `/var/lib/unmask/nginx/`); anything else is a host config error that the
+  operator (or the rest of the same package transaction) resolves.
 - (2026-06-12 21:20) **The module placer no longer duplicates an
   operator-managed `load_module` — which used to escalate into the fail-safe
   stripping a healthy module.**  `place-module.sh` (run before every nginx

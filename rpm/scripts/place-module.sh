@@ -70,7 +70,18 @@ verify_or_disable() {
     if err=$(nginx -t 2>&1); then
         return 0
     fi
-    if printf '%s\n' "$err" | grep -qiE 'unmask|00-unmask|ngx_http_unmask'; then
+    # Classify by OUR OWN wiring artifacts only: the module itself
+    # (ngx_http_unmask...), our autoload/symlink confs (00-unmask*,
+    # 50-mod-unmask) and the render output (/var/lib/unmask/nginx/).  A bare
+    # "unmask" match is too broad: an OPERATOR conf that includes a shipped
+    # forward-auth snippet (/etc/unmask/forward-auth/server.inc, per the
+    # web-nginx install instructions) mentions an unmask path too -- and when
+    # that file is transiently absent (mid-transaction on a reinstall: this
+    # runs from the plugin postinstall BEFORE web-nginx lays its files down),
+    # the broad match stripped a perfectly healthy native module.  Stripping
+    # can never fix those errors anyway (we don't touch operator vhosts), so
+    # leave them to the operator / the rest of the transaction.
+    if printf '%s\n' "$err" | grep -qiE 'ngx_http_unmask|00-unmask|50-mod-unmask|/var/lib/unmask/nginx/'; then
         echo "  !! nginx -t failed and the error references unmask -- disabling unmask wiring (fail-safe) so nginx still starts:"
         printf '%s\n' "$err" | sed 's/^/       /'
         disable_unmask_module
