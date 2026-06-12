@@ -168,6 +168,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 22:47) **The forgot-password endpoint is now rate-limited like
+  login (AUTH-5).**  The per-IP admin-login zone (5/min, CAPTCHA on trip)
+  covered only `/admin/login`, leaving `/admin/forgot-password` open: a flood
+  could spam reset emails and clobber a pending reset token (each request
+  overwrites the previous), blocking a legitimate reset.  Both auth-credential
+  endpoints now share the one zone.
+- (2026-06-12 22:43) **An operator could be locked out of changing their own
+  password (AUTH-4).**  The profile form hard-capped new passwords at 72 bytes
+  (a bcrypt leftover) while every other path caps at 1024 (argon2), so after an
+  operator reset another user's >72-char passphrase they couldn't set their own
+  through the profile form.  Both paths now share `user.MaxPasswordLen`.
+- (2026-06-12 22:39) **A search/AI crawler landing on a honeypot URI could be
+  auto-banned, and a freshly added bypass IP was ignored until restart (M-3 /
+  DB-4).**  The ban manager's bypass allowlist was a literal-IP map snapshotted
+  at startup — it held no preset crawler ranges (Googlebot / Bingbot / GPTBot)
+  and no CIDRs, and never refreshed.  So a crawler range tripping a honeypot got
+  banned (the exact ranking accident the search-bot rescue exists to prevent),
+  and toggling a preset / adding a bypass IP in the admin UI didn't protect it
+  until the next restart.  The allowlist is now the same preset+CIDR matcher the
+  native geo block and forward-auth path use, injected over live settings so a
+  bypass change applies immediately.
 - (2026-06-12 21:15) **The placer's verify fail-safe no longer strips a healthy
   native module over an error that merely mentions an unmask path.**  The
   "is this nginx -t failure unmask's fault?" classifier matched any error
