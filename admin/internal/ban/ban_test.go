@@ -165,6 +165,31 @@ func TestAddManualIPOnly(t *testing.T) {
 	}
 }
 
+// TestValidateBanKeyRejectsSeparators: L-1 — an ip/ja4 carrying the ban-file
+// field separator '|' or a newline is rejected, so a manual entry can't corrupt
+// a line (or smuggle an extra entry) in the flushed ban file.
+func TestValidateBanKeyRejectsSeparators(t *testing.T) {
+	dir := t.TempDir()
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(dir, "t.db")})
+	if err != nil {
+		t.Fatalf("db open: %v", err)
+	}
+	if err := db.Migrate(d); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	mgr := New(d, filepath.Join(dir, "ban.list"), 0)
+	ctx := context.Background()
+	if err := mgr.AddManualWithScope(ctx, "1.2.3.4|evil", "jx", ScopeIPJA4, "r", "t", "deny", 0); err == nil {
+		t.Fatal("ip containing '|' must be rejected")
+	}
+	if err := mgr.AddManualWithScope(ctx, "1.2.3.4", "jx\nextra|deny", ScopeIPJA4, "r", "t", "deny", 0); err == nil {
+		t.Fatal("ja4 containing a newline must be rejected")
+	}
+	if err := mgr.AddManualWithScope(ctx, "1.2.3.4", "jx", ScopeIPJA4, "r", "t", "deny", 0); err != nil {
+		t.Fatalf("a clean entry should still succeed: %v", err)
+	}
+}
+
 // TestScopeCoexistsSameIPJA4: DB-3 — a honeypot ip_ja4 ban and a manual
 // ja4_only ban on the SAME (ip, ja4) are distinct rows now, not an overwrite.
 // Before scope joined the UNIQUE key, the second ban silently rewrote the

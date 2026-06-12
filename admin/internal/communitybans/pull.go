@@ -130,10 +130,18 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	return doc, nil
 }
 
-// redactURL: drops the query string for log output (= prevents token leaks).
+// redactURL: strips secret-bearing parts before logging a feed URL -- the query
+// string and any userinfo (scheme://user:token@host).  The path is kept for
+// debuggability; if a future feed URL carries a token in the path, mask it here
+// too (L-3).
 func redactURL(u string) string {
 	if i := strings.IndexByte(u, '?'); i > 0 {
-		return u[:i]
+		u = u[:i]
+	}
+	if at := strings.IndexByte(u, '@'); at > 0 {
+		if p := strings.Index(u, "://"); p >= 0 && p+3 < at {
+			u = u[:p+3] + u[at+1:]
+		}
 	}
 	return u
 }

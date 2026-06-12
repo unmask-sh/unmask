@@ -132,5 +132,9 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 func sessionSign(secret, body string) string {
 	h := hmac.New(sha256.New, []byte(secret))
 	h.Write([]byte(body))
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	// 128-bit signature (32 hex chars).  Was 64-bit ([:16]); widened so a forged
+	// session id resists offline brute force.  Both sign and verify route through
+	// here, so any in-flight 64-bit cookie simply fails verification and the
+	// operator re-logs in (acceptable pre-GA: single operator, no compat burden).
+	return hex.EncodeToString(h.Sum(nil))[:32]
 }

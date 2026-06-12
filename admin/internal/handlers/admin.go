@@ -443,7 +443,14 @@ func (h *Handler) RequireRole(min string, next http.HandlerFunc) http.HandlerFun
 // roleAtLeast reports whether role >= min.  superadmin > admin > viewer.
 func roleAtLeast(role, min string) bool {
 	rank := map[string]int{"viewer": 1, "admin": 2, "superadmin": 3}
-	return rank[role] >= rank[min]
+	rMin, ok := rank[min]
+	if !ok {
+		// An unknown/empty min must DENY, not allow everyone: rank[""]==0 would
+		// otherwise make every role "at least" it.  Current callers all pass a
+		// real role, so this is defense-in-depth against a future miswire.
+		return false
+	}
+	return rank[role] >= rMin
 }
 
 // flashCookiePrefix is the prefix for flash cookies ("unmask_flash_<key>").

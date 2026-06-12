@@ -277,6 +277,18 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 // action="" defers to settings.Bans.ManualDefaultAction at flush time;
 // pass a valid chain mode (= deny / pow_only / pow_then_captcha /
 // captcha_only) to override per row.
+// validateBanKey rejects an ip or ja4 containing the ban-file field separator
+// '|' or a newline, which would corrupt a line of the flushed ban file
+// ("<key>|<source>|<action>") and could smuggle an extra entry.  Manual entry
+// is admin-role only, so this is defense-in-depth against a self-inflicted
+// malformed file (L-1).
+func validateBanKey(ip, ja4 string) error {
+	if strings.ContainsAny(ip, "|\n\r") || strings.ContainsAny(ja4, "|\n\r") {
+		return errors.New("ip / ja4 must not contain '|' or newline characters")
+	}
+	return nil
+}
+
 func (m *Manager) AddManual(ctx context.Context, ip, ja4, reason, bannedBy, action string, expiresSec int64) error {
 	return m.AddManualWithScope(ctx, ip, ja4, "", reason, bannedBy, action, expiresSec)
 }
@@ -295,6 +307,9 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	}
 	if m.isWhitelisted(ip) {
 		return errors.New("ip is on bypass whitelist")
+	}
+	if err := validateBanKey(ip, ja4); err != nil {
+		return err
 	}
 	if scope == "" {
 		scope = DeriveScope(ip, ja4)
@@ -347,6 +362,9 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 	}
 	if m.isWhitelisted(ip) {
 		return errors.New("ip is on bypass whitelist")
+	}
+	if err := validateBanKey(ip, ja4); err != nil {
+		return err
 	}
 	if scope == "" {
 		scope = DeriveScope(ip, ja4)
