@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // Passthrough ("全通過モード") must issue a PROPERLY-SIGNED _bv.  The native C
@@ -14,7 +15,7 @@ import (
 // native mode -- the tool1-jp production loop where "全通過モードで復旧できない".
 func TestServeChallenge_PassthroughIssuesVerifiableBV(t *testing.T) {
 	h := newTestHandler(t)
-	h.Settings.Global.Passthrough = true
+	h.updateSettingsInMemory(func(s *settings.Settings) { s.Global.Passthrough = true })
 
 	req := httptest.NewRequest("GET", "/unmask/challenge/", nil)
 	req.Header.Set("X-Real-IP", "203.0.113.5")
@@ -41,7 +42,7 @@ func TestServeChallenge_PassthroughIssuesVerifiableBV(t *testing.T) {
 	}
 	// Must verify against the SAME ip+host the plugin folds into its HMAC, or
 	// the cookie is rejected on the next request and the visitor loops.
-	if !cookies.Verify(bv, h.Settings.Secret.BVSecret, "203.0.113.5", "shop.example.com", 604800, 1209600, 18) {
+	if !cookies.Verify(bv, h.cfg().Secret.BVSecret, "203.0.113.5", "shop.example.com", 604800, 1209600, 18) {
 		t.Errorf("passthrough _bv %q does not verify (native plugin would reject -> loop)", bv)
 	}
 }

@@ -61,7 +61,10 @@ func humanSize(n int64) string {
 	}
 }
 
-// settingsMu: serializes Handler.Settings swaps. GET races are tolerated (= read-only).
+// settingsMu serializes settings writers (the read-modify-publish sequences in
+// the save handlers, updateSettingsInMemory and UpdateSettings) so concurrent
+// saves don't interleave.  Readers don't take it: they Load the atomic pointer
+// via Handler.cfg() and get a race-free, consistent snapshot.
 var settingsMu sync.Mutex
 
 // AdminSettingsIndex: GET {base}/admin/settings/ — renders the tabbed UI.
@@ -367,7 +370,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			scopeHostSet[z.Site] = true
 		}
 	}
-	for _, h := range h.observedSitesFilteredForPicker(r, h.Settings.Sites) {
+	for _, h := range h.observedSitesFilteredForPicker(r, h.cfg().Sites) {
 		if h != "" {
 			scopeHostSet[h] = true
 		}
@@ -377,7 +380,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// stay visible in the scope picker even when no traffic has hit them
 	// yet -- otherwise a brand new vhost the operator just declared would
 	// not show up as a candidate until the first request lands.
-	for _, host := range h.Settings.Sites.Defined {
+	for _, host := range h.cfg().Sites.Defined {
 		if host != "" {
 			scopeHostSet[host] = true
 		}
@@ -391,14 +394,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	return map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
-		"BasePath":   h.Settings.Server.BasePath,
+		"BasePath":   h.cfg().Server.BasePath,
 		"Version":    h.Version,
 		"ConfigPath": h.ConfigPath,
 		// Self host id (= identifies which machine in a shared DB / aggregated dashboard).
 		// SelfHostID: resolved value (= config value → os.Hostname → "default", in priority order).
 		// ConfiguredHostID: raw value from config.yml. Empty means the hostname fallback was used.
 		"SelfHostID":       h.HostID,
-		"ConfiguredHostID": h.Settings.Server.HostID,
+		"ConfiguredHostID": h.cfg().Server.HostID,
 		// OSHostname: the raw os.Hostname() — shown next to the "use the OS
 		// hostname" radio so the operator sees what that option resolves to,
 		// even while a custom id is configured.
@@ -410,17 +413,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			return n
 		}(),
 		// listen mode (= TCP / unix socket). Distinguished by the "unix:" prefix on bind.
-		"ListenMode":            listenModeOf(h.Settings.Server),
-		"ListenBind":            h.Settings.Server.Bind,
-		"ListenPort":            h.Settings.Server.Port,
-		"ListenSockPath":        defStr(socketPathOf(h.Settings.Server), settings.DefaultListenSocket),
-		"ListenSockMode":        defStr(h.Settings.Server.SocketMode, "0660"),
-		"ListenSockGroup":       defStr(h.Settings.Server.SocketGroup, "nginx"),
-		"EventsRetentionDays":   h.Settings.EventsRetentionDays,
-		"EventsBatchSize":       h.Settings.EventsBatchSize,
-		"EventsBatchIntervalMs": h.Settings.EventsBatchIntervalMs,
+		"ListenMode":            listenModeOf(h.cfg().Server),
+		"ListenBind":            h.cfg().Server.Bind,
+		"ListenPort":            h.cfg().Server.Port,
+		"ListenSockPath":        defStr(socketPathOf(h.cfg().Server), settings.DefaultListenSocket),
+		"ListenSockMode":        defStr(h.cfg().Server.SocketMode, "0660"),
+		"ListenSockGroup":       defStr(h.cfg().Server.SocketGroup, "nginx"),
+		"EventsRetentionDays":   h.cfg().EventsRetentionDays,
+		"EventsBatchSize":       h.cfg().EventsBatchSize,
+		"EventsBatchIntervalMs": h.cfg().EventsBatchIntervalMs,
 		"EventsDropped":         events.GlobalFlusherDropped(),
-		"NginxLogEnabled":       h.Settings.NginxLog.Enabled,
+		"NginxLogEnabled":       h.cfg().NginxLog.Enabled,
 		"Retention":             retentionView,
 		"Tab":                   tab,
 		"TabHelpKey":            tabHelpKey(tab),
@@ -434,7 +437,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// No per-section static list -- the deterministic renderer means any
 		// conf-affecting field, in any section, flips this automatically.
 		"SavedReload":      r.URL.Query().Get("reload") == "1",
-		"Error":            readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":            readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":              cur,
 		"Global":           h.snapshotSettings().Global,
 		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
@@ -444,23 +447,23 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
-		"IPGeoCommonGeo": scanIPGeoPaths(ipgeoCommonGeoPaths, h.Settings.IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/", loc),
-		"IPGeoCommonASN": scanIPGeoPaths(ipgeoCommonASNPaths, h.Settings.IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/", loc),
+		"IPGeoCommonGeo": scanIPGeoPaths(ipgeoCommonGeoPaths, h.cfg().IPGeo.MMDBPath, "/var/lib/unmask/ipgeo/", loc),
+		"IPGeoCommonASN": scanIPGeoPaths(ipgeoCommonASNPaths, h.cfg().IPGeo.MMDBASNPath, "/var/lib/unmask/ipgeo/", loc),
 		// IPGeoMode / IPGeoASNMode: which radio is currently active.
 		//   "dbip"   -> saved path matches DefaultMMDBPath / DefaultASNPath
 		//   "custom" -> a non-default path
 		//   "none"   -> empty (ASN only; country always has a value)
-		"IPGeoMode":       ipgeoMode(h.Settings.IPGeo.MMDBPath, ipgeo.DefaultMMDBPath, false),
-		"IPGeoASNMode":    ipgeoMode(h.Settings.IPGeo.MMDBASNPath, ipgeo.DefaultASNPath, true),
+		"IPGeoMode":       ipgeoMode(h.cfg().IPGeo.MMDBPath, ipgeo.DefaultMMDBPath, false),
+		"IPGeoASNMode":    ipgeoMode(h.cfg().IPGeo.MMDBASNPath, ipgeo.DefaultASNPath, true),
 		"IPGeoDefault":    ipgeo.DefaultMMDBPath,
 		"IPGeoASNDefault": ipgeo.DefaultASNPath,
 		// Active-row metadata for the in-line vendor / build / size badges.
 		"IPGeoActiveInfo": func() IPGeoPathInfo {
-			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBPath, loc)
+			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBPath, loc)
 			return info
 		}(),
 		"IPGeoASNActiveInfo": func() IPGeoPathInfo {
-			info, _ := buildIPGeoPathInfo(h.Settings.IPGeo.MMDBASNPath, loc)
+			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBASNPath, loc)
 			return info
 		}(),
 		"LBPresets":                  buildLBPresetView(cur),
@@ -587,7 +590,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			if !brandingAllowedExt[ext] {
 				return ""
 			}
-			base := strings.TrimRight(h.Settings.Server.BasePath, "/")
+			base := strings.TrimRight(h.cfg().Server.BasePath, "/")
 			url := base + "/branding/logo"
 			if st, err := os.Stat(p); err == nil {
 				url += "?v=" + strconv.FormatInt(st.ModTime().Unix(), 10)
@@ -877,7 +880,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown section", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	// nginxReloadNeeded: set true after the form apply when the rendered nginx
 	// conf actually changed (= RenderSignature before != after).  This is the
 	// authoritative, per-save signal -- no per-section / per-field flags to
@@ -1076,8 +1079,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
-		// No need to restart the goroutine on change (= s.EventsRetentionDays is
-		// read via h.Settings, so the settingsMu swap takes effect from the next tick).
+		// No need to restart the goroutine on change (= EventsRetentionDays is
+		// read via h.cfg(), so the published swap takes effect from the next tick).
 		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_retention_days"))); err == nil {
 			if v < 0 {
 				v = 0
@@ -1146,7 +1149,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 	// in-memory swap (= the next GET sees the new values)
 	settingsMu.Lock()
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	settingsMu.Unlock()
 
 	// ipgeo hot-swap (= picks up mmdb path changes immediately, no restart)
@@ -1232,9 +1235,9 @@ func tabForSection(s string) string {
 }
 
 func (h *Handler) snapshotSettings() settings.Settings {
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
-	return h.Settings
+	// Load is atomic and the deref copies the struct, so no settingsMu needed
+	// here — the lock now serializes writers only.
+	return *h.cfg()
 }
 
 // SnapshotSettings: exported version of snapshotSettings. Entry point for safe
@@ -1245,7 +1248,7 @@ func (h *Handler) SnapshotSettings() settings.Settings { return h.snapshotSettin
 //  1. Re-load the latest from disk (= consistent with other processes / concurrent saves)
 //  2. Apply the mutator
 //  3. Atomic save to file
-//  4. Swap into h.Settings under settingsMu
+//  4. Publish the new snapshot (atomic Store under settingsMu)
 //
 // Returns ErrNoConfigPath and does nothing if ConfigPath is empty.
 //
@@ -1269,7 +1272,7 @@ func (h *Handler) UpdateSettings(mutate func(*settings.Settings)) error {
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
 	}
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	return nil
 }
 
@@ -3258,7 +3261,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	// Oldest unmask_event row as unix seconds.  The column is TEXT; convert
 	// driver-side so we don't have to parse multiple datetime formats in Go.
 	eventsOldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
-	if h.Settings.DB.Driver == "mariadb" {
+	if h.cfg().DB.Driver == "mariadb" {
 		eventsOldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
 	}
 	if err := h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS); err != nil {
@@ -3279,8 +3282,8 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		v.CookieMinuteOldestTS = oldestMin * 60
 		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 	}
-	if h.Settings.DB.Driver == "sqlite" && h.Settings.DB.SQLitePath != "" {
-		if st, err := os.Stat(h.Settings.DB.SQLitePath); err == nil {
+	if h.cfg().DB.Driver == "sqlite" && h.cfg().DB.SQLitePath != "" {
+		if st, err := os.Stat(h.cfg().DB.SQLitePath); err == nil {
 			v.DBSize = st.Size()
 			v.DBSizeStr = humanBytes(v.DBSize)
 		}
@@ -3624,7 +3627,7 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	// Carry scope back to the redirect so the operator lands on the same
 	// per-site form they just saved (= same picker option still selected).
 	// The deletes redirect to the Default form (= scope="") which is correct
@@ -3666,7 +3669,7 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 		redirBack("save: "+err.Error(), site)
 		return
 	}
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	// Stay on the just-saved scope even when the save dropped the entry
 	// (= operator unchecked "override on" + saved).  The redirect target is
 	// still ?scope=<host>, where the picker keeps the host selected and the

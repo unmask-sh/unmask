@@ -37,7 +37,7 @@ type GhostSite struct {
 // (no ghost concept) or on query error.  Not scoped by any picker — the ghost
 // report is a global, cross-site management view.
 func (h *Handler) ghostSites(ctx context.Context, hours int) []GhostSite {
-	sa := h.Settings.Sites
+	sa := h.cfg().Sites
 	if sa.ResolvedMode() != settings.SiteModeDefined {
 		return nil
 	}
@@ -98,7 +98,7 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 // does not affect the rendered nginx conf.  On success the row simply vanishes
 // from the ghost report on the next render (its own confirmation).
 func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
 		dst := base + "/admin/settings/?tab=sites"
 		if msg == "" {
@@ -142,7 +142,7 @@ func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 			username = u.Username
 		}
 		h.UserRepo.Record(r.Context(), pay.UserID, username, "site_promote",
-			site, fmt.Sprintf(`{"mode":%q}`, h.Settings.Sites.ResolvedMode()))
+			site, fmt.Sprintf(`{"mode":%q}`, h.cfg().Sites.ResolvedMode()))
 	}
 
 	redir("")
@@ -154,7 +154,7 @@ func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 // A disabled host drops out of the host picker and out of every dashboard
 // aggregation (hostCond excludes it); its events stay in the DB.  Reversible.
 func (h *Handler) AdminHostToggle(w http.ResponseWriter, r *http.Request) {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
 		dst := base + "/admin/settings/?tab=sites"
 		if msg == "" {
@@ -195,7 +195,7 @@ func (h *Handler) AdminHostToggle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// hot-swap the aggregation exclusion (= applied from the next query).
-	dashboard.SetDisabledHosts(h.Settings.Hosts.Disabled)
+	dashboard.SetDisabledHosts(h.cfg().Hosts.Disabled)
 
 	// audit trail: who disabled / enabled which host.
 	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {

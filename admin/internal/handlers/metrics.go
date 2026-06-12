@@ -88,7 +88,7 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	// all of /unmask/ to the admin with no allow/deny, so without an app-layer
 	// gate any internet client could read traffic/verdict stats.  Default to
 	// loopback-only; metrics_allow_from widens it.
-	allow := h.Settings.Nginx.MetricsAllowFrom
+	allow := h.cfg().Nginx.MetricsAllowFrom
 	if len(allow) == 0 {
 		allow = []string{"127.0.0.0/8", "::1/128"}
 	}

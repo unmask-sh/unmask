@@ -175,7 +175,7 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		needed, _ := h.SetupNeeded(r)
-		base := h.Settings.Server.BasePath
+		base := h.cfg().Server.BasePath
 		isSetupPath := strings.HasPrefix(r.URL.Path, base+"/admin/setup")
 		// done + on a setup endpoint -> kick to /admin/.
 		if !needed && isSetupPath {
@@ -206,7 +206,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	_, step := h.SetupNeeded(r)
 	if step == "" {
 		// Done.  Redirect anyway as a guard against a race where SetupGate didn't fire.
-		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/", http.StatusFound)
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/", http.StatusFound)
 		return
 	}
 	// Backward navigation: ?step=<earlier-step> lets the user revisit a
@@ -263,7 +263,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
-		"BasePath":    h.Settings.Server.BasePath,
+		"BasePath":    h.cfg().Server.BasePath,
 		"Version":     h.Version,
 		"Step":        step,
 		"Error":       q.Get("err"),
@@ -303,7 +303,7 @@ func (h *Handler) AdminSetupSaveToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	expected := readSetupToken()
 	if expected == "" {
 		// Environment that doesn't need a token (= dev).  Send straight to setup.
@@ -336,14 +336,14 @@ func (h *Handler) AdminSetupSaveToken(w http.ResponseWriter, r *http.Request) {
 // user can navigate back and forth without irreversible side effects).
 func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 	if !hasValidSetupToken(r) {
-		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	// On failure, round-trip the input values via the query string so the
 	// template can repopulate them (= driver / host / port / database /
 	// user travel via query.  password is sensitive and is not
@@ -419,14 +419,14 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 // row creation happens in AdminSetupInstall.
 func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 	if !hasValidSetupToken(r) {
-		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redirErr := func(msg string) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
 	}
@@ -475,7 +475,7 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 // wizard re-runnable.
 func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if !hasValidSetupToken(r) {
-		http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
 	}
 	// Defense in depth: never re-install against an already-provisioned
@@ -490,11 +490,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		if err == nil && n > 0 {
 			removeSetupToken()
-			http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/", http.StatusFound)
+			http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/", http.StatusFound)
 			return
 		}
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redirErr := func(msg string) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
 	}
@@ -515,7 +515,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	// until a restart.  A different DB (e.g. switching to MariaDB) still needs a
 	// fresh handle -- and a daemon restart, which the done page now demands.
 	var conn *db.DB
-	if h.DB != nil && s.DB == h.Settings.DB {
+	if h.DB != nil && s.DB == h.cfg().DB {
 		conn = h.DB
 	} else {
 		c, oerr := db.Open(s.DB)
@@ -563,13 +563,13 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	} else {
 		h.UserRepo = repo
 	}
-	settingsMu.Lock()
-	h.Settings.DB = s.DB
-	h.Settings.Nginx.ChallengeTargets.All = cur.Nginx.ChallengeTargets.All
-	// Setup wizard only touches the global Default record (= per-site
-	// overrides are introduced later via the settings tab).
-	h.Settings.Challenge.Default.ObserveOnly = cur.Challenge.Default.ObserveOnly
-	settingsMu.Unlock()
+	h.updateSettingsInMemory(func(live *settings.Settings) {
+		live.DB = s.DB
+		live.Nginx.ChallengeTargets.All = cur.Nginx.ChallengeTargets.All
+		// Setup wizard only touches the global Default record (= per-site
+		// overrides are introduced later via the settings tab).
+		live.Challenge.Default.ObserveOnly = cur.Challenge.Default.ObserveOnly
+	})
 	if old != nil && old != conn {
 		_ = old.Close()
 	}
@@ -634,7 +634,7 @@ func (h *Handler) AdminSetupDone(w http.ResponseWriter, r *http.Request) {
 	}
 	data := map[string]any{
 		"Lang":            i18n.Resolve(r),
-		"BasePath":        h.Settings.Server.BasePath,
+		"BasePath":        h.cfg().Server.BasePath,
 		"Version":         h.Version,
 		"Step":            "done",
 		"RestartRequired": r.URL.Query().Get("restart") == "1",

@@ -111,6 +111,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 14:37) **The live settings hot-swap is now race-free.**  The web
+  save handlers published a new `settings.Settings` by assigning the whole
+  struct value to a Handler field under a mutex, but every request read that
+  field lock-free — so a request in flight during a save could observe a torn
+  struct (some fields old, some new), which the race detector flags and which
+  could momentarily mis-evaluate a challenge / bypass / ban decision.  The
+  field is now an `atomic.Pointer[settings.Settings]`: writers publish a fresh
+  snapshot with `Store` (still serialized by settingsMu so concurrent saves
+  don't clobber), readers `Load` a stable pointer via a `cfg()` accessor and
+  always see one consistent snapshot.  No behaviour change for operators; a new
+  concurrency test drives 8 readers against 2 writers under `go test -race`.
 - (2026-06-11 23:45) **A config that omits secret.bv_secret no longer passes
   doctor while silently breaking the site.**  Load() fills an empty bv_secret
   with a per-process random key that is never persisted, so render-nginx and

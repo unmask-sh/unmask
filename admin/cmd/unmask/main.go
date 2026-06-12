@@ -375,7 +375,6 @@ func cmdServe(args []string) error {
 
 	h := &handlers.Handler{
 		DB:          conn,
-		Settings:    s,
 		ConfigPath:  settings.ResolvePath(*configPath),
 		Version:     Version,
 		HostID:      hostID,
@@ -387,6 +386,9 @@ func cmdServe(args []string) error {
 		Mailer:      mailerInst,
 		RateLimiter: limiter,
 	}
+	// Publish the initial settings snapshot.  settingsPtr is unexported, so the
+	// daemon seeds it through the exported setter rather than a struct literal.
+	h.SetSettings(s)
 
 	// Wire the ban file's per-source action resolver to live settings so a
 	// honeypot/manual/community_bans knob change picks up on the next 60s flush
@@ -464,18 +466,21 @@ func cmdServe(args []string) error {
 	mux := buildRouter(s, h)
 
 	// Prune old rows from unmask_event every 24h (those exceeding
-	// h.Settings.EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
+	// EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
 	// permanently.  retention <= 0 -> no-op.  Run once at startup to sweep
-	// backlog from immediately after install / restart.  Referring to
-	// h.Settings inside the goroutine hot-picks up web UI saves.
+	// backlog from immediately after install / restart.  Snapshotting settings
+	// per run inside the goroutine hot-picks up web UI saves.
 	if conn != nil {
 		go func() {
 			runPrune := func() {
 				defer safe.Recover("retention-prune") // a panic here must not kill the daemon
 				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 				defer cancel()
+				// One consistent snapshot for this run (settingsPtr is unexported;
+				// SnapshotSettings hot-picks up web UI saves on the next tick).
+				cfg := h.SnapshotSettings()
 				// Raw traffic events.
-				if retention := h.Settings.EventsRetentionDays; retention > 0 {
+				if retention := cfg.EventsRetentionDays; retention > 0 {
 					if n, err := events.PruneOldEvents(ctx, conn, retention); err != nil {
 						log.Printf("events prune: %v", err)
 					} else if n > 0 {
@@ -485,7 +490,7 @@ func cmdServe(args []string) error {
 				// Admin-action audit log (independent retention; checked
 				// separately so events_retention_days=0 doesn't disable it).
 				if h.UserRepo != nil {
-					if retention := h.Settings.AuditRetentionDays; retention > 0 {
+					if retention := cfg.AuditRetentionDays; retention > 0 {
 						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
 							log.Printf("audit prune: %v", err)
 						} else if n > 0 {

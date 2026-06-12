@@ -331,19 +331,19 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Referrer-Policy", "same-origin")
 		// During the install wizard, redirect every admin path to /admin/setup/.
 		if needed, _ := h.SetupNeeded(r); needed {
-			http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/setup/", http.StatusFound)
+			http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 			return
 		}
 		// Check the remote IP against the admin_allowed_ips list (enforced at the
 		// handler layer so deployments that don't include the rendered nginx conf
 		// still get the restriction).
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowedIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowedIPs)
+		if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.cfg().Nginx.AdminAllowedIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
-		secret := h.Settings.Secret.BVSecret
+		secret := h.cfg().Secret.BVSecret
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
 				// Re-check the user against the DB so a deleted or demoted account
@@ -357,7 +357,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 					} else if errors.Is(uerr, user.ErrNotFound) {
 						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 						http.SetCookie(w, clearSessionCookie(sec))
-						http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/login", http.StatusFound)
+						http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 						return
 					}
 				}
@@ -392,7 +392,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						return
 					}
 					if !verifyCSRF(r) {
-						if strings.HasPrefix(r.URL.Path, h.Settings.Server.BasePath+"/admin/api/") {
+						if strings.HasPrefix(r.URL.Path, h.cfg().Server.BasePath+"/admin/api/") {
 							writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "csrf"})
 							return
 						}
@@ -406,7 +406,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			}
 		}
 		// failure
-		if strings.HasPrefix(r.URL.Path, h.Settings.Server.BasePath+"/admin/api/") {
+		if strings.HasPrefix(r.URL.Path, h.cfg().Server.BasePath+"/admin/api/") {
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"ok": 0, "error": "unauthorized"})
 			return
 		}
@@ -414,7 +414,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		if r.URL.RawQuery != "" {
 			ret += "?" + r.URL.RawQuery
 		}
-		dst := h.Settings.Server.BasePath + "/admin/login?return=" + url.QueryEscape(ret)
+		dst := h.cfg().Server.BasePath + "/admin/login?return=" + url.QueryEscape(ret)
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
 }
@@ -521,13 +521,13 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.Settings.Nginx.AdminAllowedIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.Settings.Nginx.AdminAllowedIPs)
+		if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.cfg().Nginx.AdminAllowedIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
-		if !hostAllowed(r.Host, h.Settings.Nginx.AdminAllowedHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, h.Settings.Nginx.AdminAllowedHosts)
+		if !hostAllowed(r.Host, h.cfg().Nginx.AdminAllowedHosts) {
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, h.cfg().Nginx.AdminAllowedHosts)
 			adminHostForbidden(w, r.Host)
 			return
 		}
@@ -625,7 +625,7 @@ func ipAllowed(ip string, allowList []string) bool {
 // are skipped; BasePath / CSRFToken / picker data are always set.
 func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["BasePath"]; !ok {
-		data["BasePath"] = h.Settings.Server.BasePath
+		data["BasePath"] = h.cfg().Server.BasePath
 	}
 	if _, ok := data["CSRFToken"]; !ok {
 		data["CSRFToken"] = CSRFTokenFromRequest(r)
@@ -681,7 +681,7 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		}
 		// Disabled hosts (= retired / mis-configured instances) drop out of the
 		// picker; they remain in the DB and in the host inventory table.
-		if dis := h.Settings.Hosts.Disabled; len(dis) > 0 {
+		if dis := h.cfg().Hosts.Disabled; len(dis) > 0 {
 			disSet := make(map[string]bool, len(dis))
 			for _, d := range dis {
 				disSet[d] = true
@@ -717,10 +717,10 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	// shown as an extra option (so the dropdown matches the active filter),
 	// flagged as a ghost when in defined mode.
 	{
-		definedMode := h.Settings.Sites.ResolvedMode() == settings.SiteModeDefined
+		definedMode := h.cfg().Sites.ResolvedMode() == settings.SiteModeDefined
 		var opts []string
 		if definedMode {
-			opts = append(opts, h.Settings.Sites.Defined...)
+			opts = append(opts, h.cfg().Sites.Defined...)
 		} else {
 			opts, _ = events.DistinctSites(r.Context(), h.DB)
 		}
@@ -748,7 +748,7 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 	}
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
-		"BasePath":    h.Settings.Server.BasePath,
+		"BasePath":    h.cfg().Server.BasePath,
 		"Return":      r.URL.Query().Get("return"),
 		"Error":       r.URL.Query().Get("err"),
 		"MailEnabled": h.Mailer != nil && h.Mailer.Enabled(),
@@ -761,7 +761,7 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 
 // AdminLoginPost: POST {base}/admin/login — verify username + password, set cookie, then redirect.
 func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	ret := r.FormValue("return")
 	// Must be a local path (not "//" / "/\" = a protocol-relative off-site URL).
 	if !isLocalRedirect(ret) {
@@ -799,7 +799,7 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	remember := r.FormValue("remember") != ""
-	http.SetCookie(w, issueSessionCookie(h.Settings.Secret.BVSecret, u.ID, u.Role, secure, remember))
+	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, remember))
 	// Pair the session with a fresh CSRF token (= double-submit cookie).
 	// A token failure here is logged but not fatal: an operator can
 	// still navigate to GET pages, and the templates' AuthMiddleware
@@ -824,7 +824,7 @@ func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	http.SetCookie(w, clearSessionCookie(secure))
 	http.SetCookie(w, clearCSRFCookie(secure))
-	http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/login", http.StatusFound)
+	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 }
 
 // docs are consolidated at unmask.sh/docs/, so the in-admin docs handler
@@ -926,7 +926,7 @@ func (h *Handler) dashboardHosts(r *http.Request) []string {
 	// forbids the collapse — but a stale disabled entry whose host has no events
 	// is harmless (nothing for the two paths to disagree on).
 	disabled := map[string]bool{}
-	for _, d := range h.Settings.Hosts.Disabled {
+	for _, d := range h.cfg().Hosts.Disabled {
 		disabled[d] = true
 	}
 	sel := make(map[string]bool, len(hosts))
@@ -984,7 +984,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 
 	// Collect verdict names judged "action=bot or suspect" by the settings.
 	// Used by the SQL stealth count + classify bot judgment.
-	botVerdicts := dashboard.BotVerdictNames(h.Settings.Nginx)
+	botVerdicts := dashboard.BotVerdictNames(h.cfg().Nginx)
 
 	// Reverse map: verdict name -> action ("bot" / "suspect" / "ok").  Used by
 	// the template for badge judgment.  Combines preset rules + Extra rules.
@@ -996,7 +996,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			verdictAction[rule.Verdict] = rule.Action
 		}
 	}
-	for _, p := range h.Settings.Nginx.JA4Verdicts.Extra {
+	for _, p := range h.cfg().Nginx.JA4Verdicts.Extra {
 		verdictAction[p.Verdict] = p.Action
 	}
 
@@ -1552,7 +1552,7 @@ func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 	hosts := h.dashboardHosts(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	rows, err := dashboard.Funnel(ctx, h.DB, site, hosts, dashboard.RangeHours(rng), dashboard.BotVerdictNames(h.Settings.Nginx), h.VerdictRegistry())
+	rows, err := dashboard.Funnel(ctx, h.DB, site, hosts, dashboard.RangeHours(rng), dashboard.BotVerdictNames(h.cfg().Nginx), h.VerdictRegistry())
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": 0, "error": err.Error()})
 		return

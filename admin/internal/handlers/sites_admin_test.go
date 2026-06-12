@@ -27,16 +27,18 @@ func TestGhostSites(t *testing.T) {
 	ctx := context.Background()
 
 	// auto mode: no ghosts.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{Mode: settings.SiteModeAuto}
+	h.updateSettingsInMemory(func(s *settings.Settings) { s.Sites = settings.SiteAcceptanceConfig{Mode: settings.SiteModeAuto} })
 	if g := h.ghostSites(ctx, 24); len(g) != 0 {
 		t.Fatalf("auto mode: want 0 ghosts, got %d", len(g))
 	}
 
 	// defined mode, shop defined: blog is the only ghost.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{
-		Mode:    settings.SiteModeDefined,
-		Defined: []string{"shop.example.com"},
-	}
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Sites = settings.SiteAcceptanceConfig{
+			Mode:    settings.SiteModeDefined,
+			Defined: []string{"shop.example.com"},
+		}
+	})
 	g := h.ghostSites(ctx, 24)
 	if len(g) != 1 {
 		t.Fatalf("defined mode: want 1 ghost, got %d (%+v)", len(g), g)
@@ -49,10 +51,12 @@ func TestGhostSites(t *testing.T) {
 	}
 
 	// defined mode, both defined: no ghosts.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{
-		Mode:    settings.SiteModeDefined,
-		Defined: []string{"shop.example.com", "blog.example.com"},
-	}
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Sites = settings.SiteAcceptanceConfig{
+			Mode:    settings.SiteModeDefined,
+			Defined: []string{"shop.example.com", "blog.example.com"},
+		}
+	})
 	if g := h.ghostSites(ctx, 24); len(g) != 0 {
 		t.Fatalf("all defined: want 0 ghosts, got %d", len(g))
 	}
@@ -72,10 +76,12 @@ func TestSettingsSitesTabRender(t *testing.T) {
 		}
 	}
 	// defined mode with only shop defined -> blog is the lone ghost.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{
-		Mode:    settings.SiteModeDefined,
-		Defined: []string{"shop.example.com"},
-	}
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Sites = settings.SiteAcceptanceConfig{
+			Mode:    settings.SiteModeDefined,
+			Defined: []string{"shop.example.com"},
+		}
+	})
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=sites", nil)
 	rr := httptest.NewRecorder()
@@ -170,12 +176,12 @@ func TestAdminHostToggle(t *testing.T) {
 	}
 
 	post("retired-1", "disable")
-	if !h.Settings.Hosts.IsDisabled("retired-1") {
-		t.Fatalf("disable: retired-1 not in disabled list: %v", h.Settings.Hosts.Disabled)
+	if !h.cfg().Hosts.IsDisabled("retired-1") {
+		t.Fatalf("disable: retired-1 not in disabled list: %v", h.cfg().Hosts.Disabled)
 	}
 	// idempotent: disabling twice keeps a single entry.
 	post("retired-1", "disable")
-	if n := len(h.Settings.Hosts.Disabled); n != 1 {
+	if n := len(h.cfg().Hosts.Disabled); n != 1 {
 		t.Errorf("disable twice: want 1 entry, got %d", n)
 	}
 	// persisted to disk.
@@ -186,14 +192,14 @@ func TestAdminHostToggle(t *testing.T) {
 	}
 
 	post("retired-1", "enable")
-	if h.Settings.Hosts.IsDisabled("retired-1") {
+	if h.cfg().Hosts.IsDisabled("retired-1") {
 		t.Errorf("enable: retired-1 still disabled")
 	}
 
 	// a junk host id is rejected (charset guard).
 	post("bad host!", "disable")
-	if len(h.Settings.Hosts.Disabled) != 0 {
-		t.Errorf("junk host id should be rejected, got %v", h.Settings.Hosts.Disabled)
+	if len(h.cfg().Hosts.Disabled) != 0 {
+		t.Errorf("junk host id should be rejected, got %v", h.cfg().Hosts.Disabled)
 	}
 }
 
@@ -212,7 +218,7 @@ func TestSitePickerExcludesGhosts(t *testing.T) {
 	}
 
 	// auto mode: every observed site is listed.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{Mode: settings.SiteModeAuto}
+	h.updateSettingsInMemory(func(s *settings.Settings) { s.Sites = settings.SiteAcceptanceConfig{Mode: settings.SiteModeAuto} })
 	d := map[string]any{}
 	h.addMeToData(httptest.NewRequest(http.MethodGet, "/x", nil), d)
 	if opts, _ := d["SitePickerOptions"].([]string); len(opts) != 2 {
@@ -220,9 +226,11 @@ func TestSitePickerExcludesGhosts(t *testing.T) {
 	}
 
 	// defined mode: only the defined site; the ghost (blog) is excluded.
-	h.Settings.Sites = settings.SiteAcceptanceConfig{
-		Mode: settings.SiteModeDefined, Defined: []string{"shop.example.com"},
-	}
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Sites = settings.SiteAcceptanceConfig{
+			Mode: settings.SiteModeDefined, Defined: []string{"shop.example.com"},
+		}
+	})
 	d = map[string]any{}
 	h.addMeToData(httptest.NewRequest(http.MethodGet, "/x", nil), d)
 	opts, _ := d["SitePickerOptions"].([]string)

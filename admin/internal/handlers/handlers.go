@@ -90,8 +90,13 @@ func pickChallengeTheme(r *http.Request, configured string) string {
 }
 
 type Handler struct {
-	DB            *db.DB
-	Settings      settings.Settings
+	DB *db.DB
+	// settingsPtr holds the live settings snapshot.  Read it lock-free via
+	// cfg() — race-free because writers publish a fresh *settings.Settings with
+	// Store while readers Load a stable pointer (no torn struct).  Writers
+	// serialize through settingsMu and publish via SetSettings /
+	// updateSettingsInMemory / the save handlers.
+	settingsPtr   atomic.Pointer[settings.Settings]
 	ConfigPath    string                // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
 	Version       string                // unmask version (for display)
 	HostID        string                // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
@@ -109,6 +114,35 @@ type Handler struct {
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
 	overBlockTripped atomic.Bool
+}
+
+// cfg returns the live settings snapshot.  The returned pointer is shared and
+// MUST be treated as read-only — never mutate a field through it.  Lock-free
+// and race-free against concurrent publishers.  Nil-safe: a zero-value Handler
+// yields an empty (default) config rather than panicking.
+func (h *Handler) cfg() *settings.Settings {
+	if p := h.settingsPtr.Load(); p != nil {
+		return p
+	}
+	return &settings.Settings{}
+}
+
+// SetSettings atomically publishes a full settings snapshot.  Used for startup
+// wiring and by tests; the live web-save handlers swap via Store under
+// settingsMu.  The value is copied into the parameter, so the stored pointer is
+// never aliased by the caller.
+func (h *Handler) SetSettings(s settings.Settings) { h.settingsPtr.Store(&s) }
+
+// updateSettingsInMemory applies mutate to a copy of the current settings and
+// atomically publishes the result.  In-memory only (no disk persist); writers
+// serialize through settingsMu.  Used by the setup wizard's runtime hot-swap
+// and by tests — the web save path persists to disk then swaps separately.
+func (h *Handler) updateSettingsInMemory(mutate func(*settings.Settings)) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	cur := *h.cfg()
+	mutate(&cur)
+	h.settingsPtr.Store(&cur)
 }
 
 // Allowed characters for site name: lowercase alnum + dash, 1-32 chars, no leading/trailing dash.
@@ -279,7 +313,7 @@ func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
 // slash. Used when assembling visitor-facing URLs (e.g. the logo URL embedded
 // in challenge.html).
 func (h *Handler) basePath() string {
-	return strings.TrimRight(h.Settings.Server.BasePath, "/")
+	return strings.TrimRight(h.cfg().Server.BasePath, "/")
 }
 
 // loadChallengeHTML returns the challenge.html bytes.  Order:
@@ -297,7 +331,7 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	// challenge_html_path is treated as a global override (= same template
 	// for every site).  Per-site challenge HTML override is out of scope for
 	// v0.1 -- branding / preset / theme already cover the typical needs.
-	if p := h.Settings.Challenge.Default.ChallengeHTMLPath; p != "" {
+	if p := h.cfg().Challenge.Default.ChallengeHTMLPath; p != "" {
 		return os.ReadFile(p)
 	}
 	// A packaged /usr/share/unmask/challenge/challenge.html that predates the
@@ -469,7 +503,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	if action == "" && ja4 != "" {
-		if _, a := matchJA4(ja4, h.Settings.Nginx); a != "" {
+		if _, a := matchJA4(ja4, h.cfg().Nginx); a != "" {
 			action = a
 		}
 	}
@@ -584,7 +618,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// labels are free-form strings, so prefix matching is unreliable (the
 	// Action enum of preset / extra rules is the source of truth).
 	if action == "" && ja4 != "" {
-		if _, a := matchJA4(ja4, h.Settings.Nginx); a != "" {
+		if _, a := matchJA4(ja4, h.cfg().Nginx); a != "" {
 			action = a
 		}
 	}
@@ -669,8 +703,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte("<!--probe=ON force_reason="+forceReason+"-->"))
 	// Resolve per-site challenge + branding once; reuse for every placeholder
 	// substitution below.  Default verbatim when the site has no Sites entry.
-	ch := h.Settings.Challenge.Resolve(site)
-	br := h.Settings.Branding.Resolve(site)
+	ch := h.cfg().Challenge.Resolve(site)
+	br := h.cfg().Branding.Resolve(site)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
 		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(ch.CaptchaProvider)))
 	theme := pickChallengeTheme(r, ch.Theme)
@@ -712,7 +746,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// operator's Global.Passthrough, or the over-block circuit breaker tripping
 	// into auto-passthrough -- we short-circuit the challenge: issue a signed _bv
 	// and bounce the visitor to the original URL without showing PoW / CAPTCHA.
-	if forceQuery == "" && (h.Settings.Global.Passthrough || h.overBlockPassthrough()) {
+	if forceQuery == "" && (h.cfg().Global.Passthrough || h.overBlockPassthrough()) {
 		// Issue a PROPERLY-SIGNED _bv so the visitor doesn't loop back through
 		// nginx's challenge redirect.  This MUST be a real HMAC-signed cookie
 		// (IssueValue, same as the post-PoW / CAPTCHA success path): the native C
@@ -722,7 +756,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// + host the plugin folds into its HMAC, so the cookie verifies.  Skipped
 		// when ?_force= is set so the operator's test endpoint can still preview
 		// the page in passthrough mode.
-		val := cookies.IssueValue(h.Settings.Secret.BVSecret, clientIP(r), requestHost(r), "captcha")
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, clientIP(r), requestHost(r), "captcha")
 		h.setBVCookie(w, r, val)
 		target := "/"
 		if rlOrigURI != "" {
@@ -737,7 +771,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	chMode := h.Settings.RateLimit.Default.ResolvedChallengeMode()
+	chMode := h.cfg().RateLimit.Default.ResolvedChallengeMode()
 	if forceReason == "none" {
 		// "no-match" path: split the chain by whether the UA looks like
 		// a real browser.  Empty (= fresh install, never touched the
@@ -745,9 +779,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		ua := r.Header.Get("User-Agent")
 		var pick string
 		if classify.IsKnownBrowser(ua) {
-			pick = h.Settings.Global.KnownBrowserAction
+			pick = h.cfg().Global.KnownBrowserAction
 		} else {
-			pick = h.Settings.Global.UnknownUAAction
+			pick = h.cfg().Global.UnknownUAAction
 		}
 		if pick == "" {
 			pick = "pow_only" // strict default
@@ -759,38 +793,38 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if forceReason == "protected" {
 		// Protected-path default (= per-path preset/extra dispatch wired
 		// up later).  Falls through to ChallengeTargets if not set.
-		if act := strings.TrimSpace(h.Settings.Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		if act := strings.TrimSpace(h.cfg().Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
-		} else if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		} else if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "honeypot" {
 		// Honeypot trip default (= preset/custom path-based override
 		// wiring is a follow-up).
-		if act := strings.TrimSpace(h.Settings.Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		if act := strings.TrimSpace(h.cfg().Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {
 		// JA4 default → preset / custom override (per verdict name).
-		if act := strings.TrimSpace(h.Settings.Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		if act := strings.TrimSpace(h.cfg().Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
-		if pAct := resolveJA4PresetAction(verdict, h.Settings.Nginx.JA4Verdicts); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
+		if pAct := resolveJA4PresetAction(verdict, h.cfg().Nginx.JA4Verdicts); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
 			chMode = pAct
 		}
-		if eAct := resolveJA4ExtraAction(verdict, h.Settings.Nginx.JA4Verdicts); eAct != "" && settings.IsValidRateChallengeMode(eAct) {
+		if eAct := resolveJA4ExtraAction(verdict, h.cfg().Nginx.JA4Verdicts); eAct != "" && settings.IsValidRateChallengeMode(eAct) {
 			chMode = eAct
 		}
 	} else if forceReason != "rate_limit" {
-		if act := strings.TrimSpace(h.Settings.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 		// Per-group override: scan the UA against any upstream-rescue
 		// group resolved to "black" that carries an action override.
 		if ua := r.Header.Get("User-Agent"); ua != "" {
 			if grpAct := classify.ResolveActionForUA(ua,
-				h.Settings.Nginx.SearchBots.UpstreamGroupMode,
-				h.Settings.Nginx.SearchBots.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
+				h.cfg().Nginx.SearchBots.UpstreamGroupMode,
+				h.cfg().Nginx.SearchBots.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
 				chMode = grpAct
 			}
 			// Per-preset override (= ChallengeTargetGroups).  Same
@@ -802,11 +836,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 				specs = append(specs, classify.PresetGroupSpec{ID: g.ID, Patterns: g.Patterns})
 			}
 			disabledTgt := map[string]bool{}
-			for _, id := range h.Settings.Nginx.ChallengeTargets.DisabledPresets {
+			for _, id := range h.cfg().Nginx.ChallengeTargets.DisabledPresets {
 				disabledTgt[id] = true
 			}
 			if preAct := classify.ResolvePresetActionForUA(ua, specs,
-				h.Settings.Nginx.ChallengeTargets.PresetAction,
+				h.cfg().Nginx.ChallengeTargets.PresetAction,
 				disabledTgt); preAct != "" && settings.IsValidRateChallengeMode(preAct) {
 				chMode = preAct
 			}
@@ -874,7 +908,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// / replays to /api/debug.  Also embedded in the serve event's payload
 	// below so the hunt UI can group serve + all subsequent beacons (load /
 	// pow / bv_*) into one session row.
-	beaconToken := issueBeaconToken(h.Settings.Secret.CaptchaSecretBase, clientIP(r))
+	beaconToken := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
 	btJSON, _ := json.Marshal(beaconToken)
 	body = bytes.ReplaceAll(body, []byte(beaconTokenPlaceholder),
 		append([]byte(`/*__BEACON_TOKEN__*/`), btJSON...))
@@ -889,13 +923,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	chHost := requestHost(r)
 	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
 		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", issued)))
-	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.Settings.Secret.BVSecret, chIP, chHost, issued))
+	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.cfg().Secret.BVSecret, chIP, chHost, issued))
 	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
 		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
 	// ct: a server-issued, IP+time-bound proof-of-load token for the behavioral
 	// CAPTCHA submit, so a forged behavioral score can't be accepted from a blind
 	// POST that never fetched this challenge (see captcha.IssueToken).
-	ctJSON, _ := json.Marshal(captcha.IssueToken(h.Settings.Secret.CaptchaSecretBase, chIP))
+	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, chIP))
 	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
 		append([]byte(`/*__CT__*/`), ctJSON...))
 
@@ -1054,7 +1088,7 @@ func htmlEscape(s string) string {
 //	/unmask/admin/test/...  → /unmask/admin/test
 //	/unmask/test/...        → /unmask/test
 func (h *Handler) testPagePrefix(r *http.Request) string {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	if strings.Contains(r.URL.Path, base+"/admin/test/") || strings.HasSuffix(r.URL.Path, base+"/admin/test") {
 		return base + "/admin/test"
 	}
@@ -1451,8 +1485,8 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 
 	ip := clientIP(r)
 	host := requestHost(r) // binds the issued _bv to this vhost
-	site := siteFromRequest(r, h.Settings)
-	ch := h.Settings.Challenge.Resolve(site)
+	site := siteFromRequest(r, *h.cfg())
+	ch := h.cfg().Challenge.Resolve(site)
 	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
 	// kind is kept site-agnostic: a per-site _bv binding needs a dot-safe site
 	// encoding plus a site-aware native verifier — tracked as a later phase in
@@ -1479,7 +1513,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			ok = ok && res.Score >= min
 		}
 		if ok {
-			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
+			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
 			return
@@ -1499,7 +1533,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		// forgeable, so without this a bot clears the CAPTCHA with a single blind
 		// POST of a fabricated signal.  Require the server-issued ct token that
 		// binds this IP + a recent fetch of THIS challenge page.
-		if !captcha.VerifyToken(payload.Ct, h.Settings.Secret.CaptchaSecretBase, ip, 900) {
+		if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
 		}
@@ -1514,7 +1548,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			minScore = 0.5
 		}
 		if score >= minScore {
-			val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
+			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
@@ -1546,12 +1580,12 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	// already does).  The math token binds only the answer (a+b in [2,40], ~39
 	// values), so without this a bot harvests the few answer/token pairs from
 	// /api/captcha/new once and blind-POSTs them from any IP to mint _bv cookies.
-	if !captcha.VerifyToken(payload.Ct, h.Settings.Secret.CaptchaSecretBase, ip, 900) {
+	if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 		return
 	}
-	if captcha.VerifyMath(ans, payload.Token, h.Settings.Secret.CaptchaSecretBase) {
-		val := cookies.IssueValue(h.Settings.Secret.BVSecret, ip, host, kind)
+	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase) {
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 		h.setBVCookie(w, r, val)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
@@ -1561,11 +1595,11 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 
 // CaptchaNew: GET {base}/api/captcha/new
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
-	a, b, token := captcha.MathChallenge(h.Settings.Secret.CaptchaSecretBase)
+	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
 	// ct: proof-of-load bound to this IP + time, returned with the math
 	// challenge and required on the /verify math path -- so the answer/token
 	// can't be harvested once and blind-replayed from any IP forever.
-	ct := captcha.IssueToken(h.Settings.Secret.CaptchaSecretBase, clientIP(r))
+	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token, "ct": ct})
 }
 
@@ -1604,14 +1638,14 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	// server when the challenge page is served and echoed back by
 	// challenge.js.  Rejects blind POSTs / expired replays (an attack where
 	// a bot captures an old beacon payload to inflate phase counts).
-	if !verifyBeaconToken(p.BT, h.Settings.Secret.CaptchaSecretBase, ip) {
+	if !verifyBeaconToken(p.BT, h.cfg().Secret.CaptchaSecretBase, ip) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "bad_token"})
 		return
 	}
 
 	// per-IP rate limit (default 20 entries per 5 minutes).
 	cnt, err := events.CountRecentByIP(r.Context(), h.DB, pkt, 5)
-	if err == nil && cnt >= h.Settings.Challenge.Resolve(site).DebugRateLimitPer5Min {
+	if err == nil && cnt >= h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
@@ -1660,7 +1694,7 @@ func (h *Handler) setBVCookie(w http.ResponseWriter, r *http.Request, val string
 		Path:  "/",
 		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
 		// unnecessary for the browser-side Max-Age.
-		MaxAge: h.Settings.Challenge.Default.CookieMaxAgeSeconds(),
+		MaxAge: h.cfg().Challenge.Default.CookieMaxAgeSeconds(),
 		// Secure on HTTPS so the pass cookie isn't sent in cleartext on a same-
 		// host http request (it's HMAC+IP bound, but don't leak it on the wire).
 		// Not HttpOnly: challenge.js reads/sets _bv on the client.
@@ -1780,7 +1814,7 @@ func round3(x float64) float64 {
 // Rebuilt on every call (so settings changes apply immediately).  Overhead is
 // small at N=dozens.  Never returns nil.
 func (h *Handler) VerdictRegistry() *nginxconf.VerdictRegistry {
-	extras := h.Settings.Nginx.JA4Verdicts.Extra
+	extras := h.cfg().Nginx.JA4Verdicts.Extra
 	conv := make([]nginxconf.ExtraVerdict, 0, len(extras))
 	for _, e := range extras {
 		conv = append(conv, nginxconf.ExtraVerdict{

@@ -289,7 +289,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
-		"BasePath":   h.Settings.Server.BasePath,
+		"BasePath":   h.cfg().Server.BasePath,
 		"Version":    h.Version,
 		"Range":      rng,
 		"SinceMin":   sinceMin,
@@ -314,13 +314,13 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
 		),
 		"Saved": q.Get("saved") != "",
-		"Error": readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error": readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		// Static-assets tip: rendered as a dismissible banner above the
 		// range bar when paths matching the static-assets preset show up
 		// ≥ 20 times in the current page.
 		"ShowStaticAssetsTip": showStaticAssetsTip,
 		"StaticAssetsTipHits": staticAssetsTipHits,
-		"StaticAssetsTipHref": h.Settings.Server.BasePath + "/admin/settings/?tab=bypass-paths",
+		"StaticAssetsTipHref": h.cfg().Server.BasePath + "/admin/settings/?tab=bypass-paths",
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
 		// CommunityBansActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the
@@ -359,7 +359,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
 		dst := base + "/admin/hunt/?range=" + url.QueryEscape(r.FormValue("range"))
 		if msg == "" {
@@ -442,7 +442,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 							log.Printf("communitybans: accept_terms save: %v", err)
 						} else {
 							settingsMu.Lock()
-							h.Settings = cur
+							h.settingsPtr.Store(&cur)
 							settingsMu.Unlock()
 							if h.UserRepo != nil {
 								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
@@ -524,7 +524,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 							log.Printf("communitybans: accept_terms save: %v", err)
 						} else {
 							settingsMu.Lock()
-							h.Settings = cur
+							h.settingsPtr.Store(&cur)
 							settingsMu.Unlock()
 							if h.UserRepo != nil {
 								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
@@ -575,7 +575,7 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, username st
 		return err
 	}
 	settingsMu.Lock()
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_ua_blacklist",
@@ -621,7 +621,7 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 		return err
 	}
 	settingsMu.Lock()
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_ja4_bot",

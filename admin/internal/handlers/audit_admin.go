@@ -125,7 +125,7 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
-		"BasePath":   h.Settings.Server.BasePath,
+		"BasePath":   h.cfg().Server.BasePath,
 		"Version":    h.Version,
 		"Entries":    enriched,
 		"Offset":     offset,
@@ -134,7 +134,7 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 		"HasMore":    hasMore,
 		"HasPrev":    offset > 0,
 		"Saved":      r.URL.Query().Get("saved") != "",
-		"Error":      readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":      readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Pager":      pager,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -191,7 +191,7 @@ func (h *Handler) AdminSettingsSnapshot(w http.ResponseWriter, r *http.Request) 
 		h.UserRepo.Record(r.Context(), pay.UserID, username,
 			"settings_snapshot", name, string(blob))
 	}
-	http.Redirect(w, r, h.Settings.Server.BasePath+"/admin/audit/?saved=1", http.StatusFound)
+	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/audit/?saved=1", http.StatusFound)
 }
 
 // AdminSettingsExport: GET {base}/admin/settings/export — sends the current
@@ -236,7 +236,7 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad id", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
 		dst := base + "/admin/audit/"
 		if msg == "" {
@@ -281,7 +281,7 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	settingsMu.Lock()
-	h.Settings = restored
+	h.settingsPtr.Store(&restored)
 	settingsMu.Unlock()
 	if h.IPGeo != nil {
 		h.IPGeo.Reload(restored.IPGeo.MMDBPath, restored.IPGeo.MMDBASNPath)

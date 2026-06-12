@@ -28,7 +28,7 @@ func (h *Handler) AdminPlayground(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
 		"TZ":       resolveTZ(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Version":  h.Version,
 	}
 	h.addMeToData(r, data)

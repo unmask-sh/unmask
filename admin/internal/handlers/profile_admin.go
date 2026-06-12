@@ -42,10 +42,10 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
 		"TZ":       resolveTZ(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Version":  h.Version,
 		"Saved":    r.URL.Query().Get("saved") != "",
-		"Error":    readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 		"User":     me,
 	}
@@ -69,7 +69,7 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	lang := i18n.Resolve(r)
 	redir := func(msgKey string) {
 		dst := base + "/admin/profile/"

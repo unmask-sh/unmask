@@ -37,7 +37,7 @@ func (h *Handler) AdminForgotPasswordGet(w http.ResponseWriter, r *http.Request)
 	}
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
-		"BasePath":    h.Settings.Server.BasePath,
+		"BasePath":    h.cfg().Server.BasePath,
 		"MailEnabled": h.Mailer != nil && h.Mailer.Enabled(),
 		"Sent":        r.URL.Query().Get("sent") == "1",
 	}
@@ -53,7 +53,7 @@ func (h *Handler) AdminForgotPasswordGet(w http.ResponseWriter, r *http.Request)
 //   - User absent / no email / mail send failure all surface the same "sent" UI.
 //   - We record the cause in the log but never leak it to the client.
 func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request) {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	if h.UserRepo == nil || h.Mailer == nil || !h.Mailer.Enabled() {
 		http.Error(w, "mail not configured", http.StatusServiceUnavailable)
 		return
@@ -126,7 +126,7 @@ func (h *Handler) AdminResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 	}
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Token":    r.URL.Query().Get("token"),
 		"Error":    r.URL.Query().Get("err"),
 	}
@@ -138,7 +138,7 @@ func (h *Handler) AdminResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 
 // AdminResetPasswordPost: POST {base}/admin/reset-password — validate the token + update the password.
 func (h *Handler) AdminResetPasswordPost(w http.ResponseWriter, r *http.Request) {
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	if h.UserRepo == nil {
 		http.Error(w, "user repo not configured", http.StatusInternalServerError)
 		return

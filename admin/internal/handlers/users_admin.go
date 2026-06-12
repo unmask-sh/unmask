@@ -43,11 +43,11 @@ func (h *Handler) AdminUsersIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
 		"TZ":       resolveTZ(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Version":  h.Version,
 		"Users":    users,
 		"Saved":    r.URL.Query().Get("saved") != "",
-		"Error":    readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -73,9 +73,9 @@ func (h *Handler) AdminUsersNew(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
 		"TZ":       resolveTZ(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Version":  h.Version,
-		"Error":    readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -112,11 +112,11 @@ func (h *Handler) AdminUsersEdit(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":     i18n.Resolve(r),
 		"TZ":       resolveTZ(r),
-		"BasePath": h.Settings.Server.BasePath,
+		"BasePath": h.cfg().Server.BasePath,
 		"Version":  h.Version,
 		"User":     target,
 		"Saved":    r.URL.Query().Get("saved") != "",
-		"Error":    readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -136,7 +136,7 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	// Redirect target: the form's hidden "redirect" field can route back to
 	// the detail page.  Values are restricted to be under base (= open
 	// redirect prevention) + "?saved=1" appended as a query.

@@ -70,8 +70,8 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		return cc
 	}
 	banRows := make([]banRow, 0, len(entries))
-	bansCfg := h.Settings.Nginx.Bans
-	honeyDefault := h.Settings.Nginx.Honeypot.DefaultAction
+	bansCfg := h.cfg().Nginx.Bans
+	honeyDefault := h.cfg().Nginx.Honeypot.DefaultAction
 	for _, e := range entries {
 		resolved := strings.TrimSpace(e.Action)
 		if resolved == "" {
@@ -196,13 +196,13 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
-		"BasePath":                     h.Settings.Server.BasePath,
+		"BasePath":                     h.cfg().Server.BasePath,
 		"Version":                      h.Version,
 		"Entries":                      banRows,
-		"BanFilePath":                  h.Settings.Nginx.Honeypot.BanFilePath,
-		"Bans":                         h.Settings.Nginx.Bans,
+		"BanFilePath":                  h.cfg().Nginx.Honeypot.BanFilePath,
+		"Bans":                         h.cfg().Nginx.Bans,
 		"Saved":                        r.URL.Query().Get("saved") != "",
-		"Error":                        readFlash(w, r, h.Settings.Server.BasePath, "err"),
+		"Error":                        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"SubscribeMode":                cur.CommunityBans.ResolvedSubscribeMode(),
 		"MyHN":                         myHN,
 		"SourcePills":                  sourcePills,
@@ -410,7 +410,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	data := map[string]any{
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
-		"BasePath":                     h.Settings.Server.BasePath,
+		"BasePath":                     h.cfg().Server.BasePath,
 		"Version":                      h.Version,
 		"SubscribeMode":                cur.CommunityBans.ResolvedSubscribeMode(),
 		"MyHN":                         myHN,
@@ -604,7 +604,7 @@ func (h *Handler) AdminCommunityBansMuteToggle(w http.ResponseWriter, r *http.Re
 		http.Error(w, "key + action=mute|unmute required", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	cur, err := settings.Load(h.ConfigPath)
 	if err != nil {
 		http.Error(w, "load: "+err.Error(), http.StatusInternalServerError)
@@ -633,7 +633,7 @@ func (h *Handler) AdminCommunityBansMuteToggle(w http.ResponseWriter, r *http.Re
 		return
 	}
 	settingsMu.Lock()
-	h.Settings = cur
+	h.settingsPtr.Store(&cur)
 	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		username := ""
@@ -736,7 +736,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath
+	base := h.cfg().Server.BasePath
 	// return_to lets a form posted from a different page (= the subscribe
 	// toggle lives on both /admin/bans/ and /admin/community-bans/) come
 	// back to where it was submitted.  Whitelist to known admin sub-paths
@@ -875,7 +875,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		settingsMu.Lock()
-		h.Settings = cur
+		h.settingsPtr.Store(&cur)
 		settingsMu.Unlock()
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
@@ -906,7 +906,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		settingsMu.Lock()
-		h.Settings = cur
+		h.settingsPtr.Store(&cur)
 		settingsMu.Unlock()
 
 		// To keep the first pull right after turning this ON from hitting "no

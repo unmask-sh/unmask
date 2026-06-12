@@ -60,7 +60,7 @@ func (h *Handler) AdminRemovalRequestsIndex(w http.ResponseWriter, r *http.Reque
 	data := map[string]any{
 		"Lang":          i18n.Resolve(r),
 		"TZ":            resolveTZ(r),
-		"BasePath":      h.Settings.Server.BasePath,
+		"BasePath":      h.cfg().Server.BasePath,
 		"Version":       h.Version,
 		"FilterStatus":  status,
 		"Rows":          rows,
@@ -99,7 +99,7 @@ func (h *Handler) AdminRemovalRequestPatch(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "bad status", http.StatusBadRequest)
 		return
 	}
-	base := h.Settings.Server.BasePath + "/admin/community-bans/removals"
+	base := h.cfg().Server.BasePath + "/admin/community-bans/removals"
 	back := base + "?status=pending"
 	if err := cli.PatchRemoval(r.Context(), id, status); err != nil {
 		log.Printf("removal patch id=%d status=%s: %v", id, status, err)

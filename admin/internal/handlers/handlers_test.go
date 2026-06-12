@@ -75,7 +75,9 @@ func newTestHandler(t *testing.T) *Handler {
 			},
 		},
 	}
-	return &Handler{DB: conn, Settings: s}
+	h := &Handler{DB: conn}
+	h.SetSettings(s)
+	return h
 }
 
 // VerifyJSON: high score → 200 ok=1 + Set-Cookie _bv.
@@ -168,7 +170,7 @@ func TestDebugBeacon(t *testing.T) {
 	// In production ServeChallenge issues the beacon token and challenge.js
 	// echoes it back.  The test bypasses that by issuing a valid token here
 	// with the same secret + IP.
-	bt := issueBeaconToken(h.Settings.Secret.CaptchaSecretBase, "1.2.3.4")
+	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, "1.2.3.4")
 	body := `{"phase":"load","flags":3,"reload_count":1,"ua":"x","bt":"` + bt + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/debug", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
