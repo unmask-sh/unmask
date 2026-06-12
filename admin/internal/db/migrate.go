@@ -53,6 +53,9 @@ func Migrate(conn *DB) error {
 	if err := ensureBanActionColumn(conn); err != nil {
 		return fmt.Errorf("ensure ban action column: %w", err)
 	}
+	if err := ensureBanUniqueScope(conn); err != nil {
+		return fmt.Errorf("ensure ban unique scope: %w", err)
+	}
 	schema := schemaSQLite
 	if conn.Driver == DriverMariaDB {
 		schema = schemaMariaDB
@@ -69,6 +72,9 @@ func Migrate(conn *DB) error {
 	// Move data from the old schema (= already renamed to v1 by ensureCookieMinuteKind).
 	if err := ApplyCookieMinuteMigrationData(conn); err != nil {
 		return fmt.Errorf("apply cookie_minute v1 -> kind/cnt data migration: %w", err)
+	}
+	if err := ApplyBanUniqueScopeData(conn); err != nil {
+		return fmt.Errorf("apply ban unique-scope data migration: %w", err)
 	}
 	// numbered migration framework.  Apply the baseline marker + future deltas.
 	if err := RunMigrations(conn); err != nil {
@@ -495,6 +501,145 @@ func ApplyCookieMinuteMigrationData(conn *DB) error {
 	return nil
 }
 
+// banUniqueHasScope reports whether unmask_ban's UNIQUE key already covers the
+// scope column (= the DB-3 migration has run).  Driver-specific introspection:
+// the old key is UNIQUE(ip, ja4), the new one UNIQUE(ip, ja4, scope).
+func banUniqueHasScope(conn *DB) (bool, error) {
+	if conn.Driver == DriverMariaDB {
+		var n int
+		err := conn.QueryRow(`SELECT COUNT(*) FROM information_schema.STATISTICS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'unmask_ban'
+			  AND NON_UNIQUE = 0 AND COLUMN_NAME = 'scope'`).Scan(&n)
+		return n > 0, err
+	}
+	// sqlite: scan every UNIQUE index for a scope column.
+	rows, err := conn.Query(`PRAGMA index_list(unmask_ban)`)
+	if err != nil {
+		return false, err
+	}
+	var uniques []string
+	for rows.Next() {
+		// cols: seq, name, unique, origin, partial
+		var seq, uniq, partial int
+		var name, origin string
+		if err := rows.Scan(&seq, &name, &uniq, &origin, &partial); err != nil {
+			rows.Close()
+			return false, err
+		}
+		if uniq == 1 {
+			uniques = append(uniques, name)
+		}
+	}
+	rows.Close()
+	for _, name := range uniques {
+		ir, err := conn.Query(`PRAGMA index_info("` + name + `")`)
+		if err != nil {
+			return false, err
+		}
+		for ir.Next() {
+			// cols: seqno, cid, name
+			var seqno, cid int
+			var col sql.NullString
+			if err := ir.Scan(&seqno, &cid, &col); err != nil {
+				ir.Close()
+				return false, err
+			}
+			if col.String == "scope" {
+				ir.Close()
+				return true, nil
+			}
+		}
+		ir.Close()
+	}
+	return false, nil
+}
+
+// ensureBanUniqueScope migrates an old unmask_ban (UNIQUE(ip, ja4)) to the
+// scope-aware key (UNIQUE(ip, ja4, scope), DB-3).  Mirrors ensureCookieMinuteKind:
+// rename the old table here; the schema CREATE makes the new one; the rows are
+// copied afterward by ApplyBanUniqueScopeData.  No-op on a fresh install (the
+// schema creates the new key directly) or when already migrated.  A prior
+// interrupted run that left unmask_ban_preuq is handled by the data step.
+func ensureBanUniqueScope(conn *DB) error {
+	hasTbl, err := hasTable(conn, "unmask_ban")
+	if err != nil {
+		return fmt.Errorf("introspect: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	if pre, err := hasTable(conn, "unmask_ban_preuq"); err != nil {
+		return err
+	} else if pre {
+		return nil // interrupted mid-migration; leave for the data step
+	}
+	hasScope, err := banUniqueHasScope(conn)
+	if err != nil {
+		return fmt.Errorf("introspect ban unique: %w", err)
+	}
+	if hasScope {
+		return nil
+	}
+	if _, err := conn.Exec(`ALTER TABLE unmask_ban RENAME TO unmask_ban_preuq`); err != nil {
+		return fmt.Errorf("rename old ban table: %w", err)
+	}
+	return nil
+}
+
+// ApplyBanUniqueScopeData copies rows from the renamed unmask_ban_preuq into the
+// new scope-aware unmask_ban and drops the old table.  Re-run safe (clears the
+// destination before copying): the rename + drop are DDL that auto-commit
+// outside the copy tx on MariaDB, same caveat as ApplyCookieMinuteMigrationData.
+// IDs are not preserved -- the BAN UI re-reads rows after startup migration, and
+// nothing persists a ban id across a restart.
+func ApplyBanUniqueScopeData(conn *DB) error {
+	hasOld, err := hasTable(conn, "unmask_ban_preuq")
+	if err != nil || !hasOld {
+		return err
+	}
+	rows, err := conn.Query(`SELECT ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope FROM unmask_ban_preuq`)
+	if err != nil {
+		return fmt.Errorf("scan preuq: %w", err)
+	}
+	defer rows.Close()
+	tx, err := conn.Begin()
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err := tx.Exec(`DELETE FROM unmask_ban`); err != nil {
+		return fmt.Errorf("clear destination before copy: %w", err)
+	}
+	ins := `INSERT INTO unmask_ban (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	for rows.Next() {
+		var ip, ja4, source, action, scope string
+		var reason, bannedBy sql.NullString
+		var bannedAt, expiresAt int64
+		if err := rows.Scan(&ip, &ja4, &source, &reason, &bannedAt, &expiresAt, &bannedBy, &action, &scope); err != nil {
+			return fmt.Errorf("scan row: %w", err)
+		}
+		if _, err := tx.Exec(ins, ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action, scope); err != nil {
+			return fmt.Errorf("insert: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	committed = true
+	if _, err := conn.Exec(`DROP TABLE unmask_ban_preuq`); err != nil {
+		return fmt.Errorf("drop preuq: %w", err)
+	}
+	return nil
+}
+
 // BackfillVerdictIDs: for the ID-based linking migration.  Bulk-UPDATE
 // rows where unmask_event.ja4_verdict_id IS NULL but ja4_verdict matches
 // a known name.  The caller (= main / setup) builds the name -> id map
@@ -715,7 +860,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     banned_by   VARCHAR(64),
     action      VARCHAR(32) NOT NULL DEFAULT '',
     scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
-    UNIQUE (ip, ja4)
+    UNIQUE (ip, ja4, scope)
 );
 CREATE INDEX IF NOT EXISTS idx_ban_expires ON unmask_ban(expires_at);
 CREATE INDEX IF NOT EXISTS idx_ban_source  ON unmask_ban(source);
@@ -820,7 +965,7 @@ CREATE TABLE IF NOT EXISTS unmask_ban (
     action      VARCHAR(32) NOT NULL DEFAULT '',
     scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
     PRIMARY KEY (id),
-    UNIQUE KEY uk_ip_ja4 (ip, ja4),
+    UNIQUE KEY uk_ip_ja4_scope (ip, ja4, scope),
     KEY idx_expires (expires_at),
     KEY idx_source  (source)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

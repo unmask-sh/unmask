@@ -50,3 +50,60 @@ func TestMariaDB_RebindAllow(t *testing.T) {
 		t.Fatal("first rebind of the next window should pass")
 	}
 }
+
+// TestMariaDB_BanUniqueScopeMigration: DB-3 — verify on real MariaDB that an old
+// unmask_ban with UNIQUE(ip,ja4) migrates to UNIQUE(ip,ja4,scope) with rows
+// preserved and is idempotent.  Exercises the MariaDB information_schema
+// detection + rename/copy path the sqlite unit test can't cover.  Docker-gated.
+func TestMariaDB_BanUniqueScopeMigration(t *testing.T) {
+	conn, err := Open(mariadbSettingsFromEnv(t))
+	if err != nil {
+		t.Fatalf("open mariadb: %v", err)
+	}
+	defer conn.Close()
+	ctx := context.Background()
+	for _, q := range []string{
+		`DROP TABLE IF EXISTS unmask_ban_preuq`,
+		`DROP TABLE IF EXISTS unmask_ban`,
+		`CREATE TABLE unmask_ban (
+			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			ip VARCHAR(64) NOT NULL, ja4 VARCHAR(40) NOT NULL,
+			source VARCHAR(32) NOT NULL, reason VARCHAR(255),
+			banned_at BIGINT NOT NULL, expires_at BIGINT NOT NULL DEFAULT 0,
+			banned_by VARCHAR(64), action VARCHAR(32) NOT NULL DEFAULT '',
+			scope VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
+			PRIMARY KEY (id), UNIQUE KEY uk_ip_ja4 (ip, ja4),
+			KEY idx_expires (expires_at), KEY idx_source (source)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+		`INSERT INTO unmask_ban (ip, ja4, source, banned_at, scope) VALUES ('1.2.3.4','jx','honeypot',1,'ip_ja4')`,
+	} {
+		if _, err := conn.ExecContext(ctx, q); err != nil {
+			t.Fatalf("setup %q: %v", q, err)
+		}
+	}
+
+	if has, err := banUniqueHasScope(conn); err != nil || has {
+		t.Fatalf("pre-migration banUniqueHasScope = %v (err %v), want false", has, err)
+	}
+	if err := Migrate(conn); err != nil {
+		t.Fatalf("migrate (old->new): %v", err)
+	}
+	if has, err := banUniqueHasScope(conn); err != nil || !has {
+		t.Fatalf("post-migration banUniqueHasScope = %v (err %v), want true", has, err)
+	}
+	var n int
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_ban`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("preserved rows = %d (err %v), want 1", n, err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		`INSERT INTO unmask_ban (ip, ja4, source, banned_at, scope) VALUES ('1.2.3.4','jx','manual',1,'ja4_only')`); err != nil {
+		t.Fatalf("scope-aware insert after migration: %v", err)
+	}
+	if err := Migrate(conn); err != nil {
+		t.Fatalf("migrate re-run: %v", err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_ban WHERE ip='1.2.3.4' AND ja4='jx'`).Scan(&n); err != nil || n != 2 {
+		t.Fatalf("rows after re-run = %d (err %v), want 2", n, err)
+	}
+	_, _ = conn.ExecContext(ctx, `DROP TABLE IF EXISTS unmask_ban_preuq`)
+}

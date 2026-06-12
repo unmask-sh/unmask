@@ -370,12 +370,12 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 	// reaches the caller (= portable across sqlite / mariadb).
 	var dup int64
 	if err := m.DB.Gorm.WithContext(ctx).Model(&db.Ban{}).
-		Where("ip = ? AND ja4 = ? AND id <> ?", ip, ja4, id).
+		Where("ip = ? AND ja4 = ? AND scope = ? AND id <> ?", ip, ja4, scope, id).
 		Count(&dup).Error; err != nil {
 		return err
 	}
 	if dup > 0 {
-		return errors.New("another entry already covers this (ip, ja4)")
+		return errors.New("another entry already covers this (ip, ja4, scope)")
 	}
 	res := m.DB.Gorm.WithContext(ctx).Model(&db.Ban{}).
 		Where("id = ? AND source = ?", id, SourceManual).
@@ -435,9 +435,14 @@ func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, ba
 		BannedBy: bannedBy, Action: action, Scope: scope,
 	}
 	return m.DB.Gorm.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "ip"}, {Name: "ja4"}},
+		// scope is part of the conflict key (DB-3): a honeypot ip_ja4 ban and a
+		// manual ja4_only ban on the SAME (ip, ja4) are distinct rows, not an
+		// overwrite.  Without scope here the upsert silently rewrote one into the
+		// other -- which could widen a single-device ban into a JA4-wide ban
+		// (every IP with that JA4), the exact ranking accident CLAUDE.md #4 guards.
+		Columns: []clause.Column{{Name: "ip"}, {Name: "ja4"}, {Name: "scope"}},
 		DoUpdates: clause.AssignmentColumns([]string{
-			"source", "reason", "banned_at", "expires_at", "banned_by", "action", "scope",
+			"source", "reason", "banned_at", "expires_at", "banned_by", "action",
 		}),
 	}).Create(&row).Error
 }
