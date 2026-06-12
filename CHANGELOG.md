@@ -189,6 +189,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   conf in the include dir, skip dropping their own, and remove a stale drop
   of ours — self-healing an already-duplicated setup on the next start.
   Overwriting our own previous drop (the normal re-pick path) is unaffected.
+- (2026-06-12 21:14) **A headless browser could clear the behavioral check
+  without ever seeing the math fallback.**  The behavioral score penalized a
+  short `mouseTrail` by a flat -0.3, so a headless Chromium (Playwright /
+  Puppeteer) that reports `hasMouseEvents=true`, a non-zero `windowSize` and an
+  unhurried `clickAt` scored 0.7 and passed on behavioral signal alone — its
+  `.click()` synthesizes the click without the human mousemove run, so the
+  trail is just the single click coordinate.  A trail of ≤1 point (mouse events
+  claimed, yet no actual movement) is now penalized -0.6, dropping that score
+  to 0.4 so the math fallback engages; a merely short trail (2-4 points, a fast
+  but real cursor move) keeps the soft -0.3.  The fallback is math, not denial,
+  so a fast human with a near-empty trail solves an addition rather than being
+  locked out, and a human-like trail is unaffected.
 - (2026-06-12 16:42) **The cookie_minute v1→kind/cnt migration is now safe to
   re-run, so an interrupted MariaDB upgrade can't double historical stats.**
   The copy INSERTs run in a transaction, but the table rename and the final
