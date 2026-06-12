@@ -13,6 +13,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-12 17:16) **Non-systemd plugin installs now tell the operator how to
+  re-pick the module after a host nginx upgrade.**  On systemd, the shipped
+  `nginx.service` drop-in re-runs the module placer before every nginx start,
+  so a `yum/apt upgrade` of nginx is followed automatically.  Non-systemd hosts
+  have no equivalent hook — Alpine ships no nginx OpenRC service at all, SysV
+  nginx scripts are package-owned, and nfpm can't emit an apk trigger that
+  fires on a nginx upgrade — so the fat-plugin postinstall now prints a clear
+  reminder (re-run `place-module.sh`, or wire it into the nginx service's
+  pre-start) instead of staying silent, and `place-module.sh` documents the
+  same.  The placer's fail-safe (it strips the module so nginx still starts
+  when no bundled `.so` matches) means the worst case is a visible, recoverable
+  `nginx -t` failure, not the silent systemd-era outage this guards.
 - (2026-06-12 15:44) **The web / plugin sub-packages now pin the `unmask`
   daemon to the exact build version.**  Every sub-package
   (`unmask-web-nginx` / `-apache` / `-caddy`, `unmask-plugin-nginx` and the

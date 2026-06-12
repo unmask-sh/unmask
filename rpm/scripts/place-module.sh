@@ -9,6 +9,13 @@
 # WITHOUT the module instead of dying on an ABI-incompatible load_module.
 # Idempotent and ALWAYS exits 0 (= never blocks nginx).
 #
+# Only systemd hosts get the automatic per-start re-pick (via the drop-in).
+# Non-systemd hosts (Alpine OpenRC -- which ships no nginx service at all -- and
+# SysV) have no equivalent hook, so after upgrading the host nginx, re-run this
+# script manually, or call it from the nginx service's pre-start (OpenRC
+# start_pre) so every start re-picks.  The plugin postinstall prints the same
+# reminder on non-systemd installs.
+#
 # Flow:
 #   1. Get the host nginx version (= X.Y.Z) from `nginx -v`.
 #   2. Look up the host nginx's libcrypto dependency to determine the

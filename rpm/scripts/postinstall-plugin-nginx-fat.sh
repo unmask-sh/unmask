@@ -19,11 +19,21 @@ fi
 
 # Pick up the ExecStartPre drop-in (= /usr/lib/systemd/system/nginx.service.d/
 # 10-unmask-repick.conf, shipped by this package) so the next nginx (re)start
-# re-runs the placer.  No-op on non-systemd (= Alpine OpenRC): the placer still
-# ran above for the install-time pick; Alpine's host-nginx-upgrade re-pick is a
-# known follow-up (OpenRC start_pre / apk trigger).
+# re-runs the placer and a host nginx UPGRADE is re-picked automatically.
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl daemon-reload 2>/dev/null || true
+else
+    # Non-systemd hosts have no nginx unit to attach an ExecStartPre re-pick to
+    # (Alpine ships no nginx OpenRC service at all; SysV nginx scripts are
+    # package-owned), and nfpm cannot emit an apk trigger that fires on a nginx
+    # upgrade.  The install-time pick above is done, but a LATER host nginx
+    # upgrade is NOT re-picked automatically -- an ABI-mismatched .so would then
+    # fail `nginx -t`.  Point the operator at the manual / pre-start re-pick.
+    echo "unmask-plugin-nginx: no systemd here -- the module was placed for the current"
+    echo "  nginx, but a future host nginx UPGRADE needs a re-pick."
+    echo "  After upgrading nginx, run:  sh $PLACER"
+    echo "  (or call it from your nginx service's pre-start hook -- e.g. an OpenRC"
+    echo "   start_pre -- so every nginx start re-picks the matching module)."
 fi
 
 exit 0
