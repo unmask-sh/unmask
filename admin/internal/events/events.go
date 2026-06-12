@@ -28,7 +28,8 @@ const (
 	PhaseVerifyNG         Phase = "verify_ng"           // /verify rejected (= CAPTCHA failed)
 	PhaseError            Phase = "error"               // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
 	PhaseCookieErr        Phase = "cookie_err"
-	PhaseCheck            Phase = "check" // single auth_request /api/check hit
+	PhaseCheck            Phase = "check"     // single auth_request /api/check hit
+	PhaseBVRebind         Phase = "bv_rebind" // _bv silently re-bound to a new IP on the challenge route (roaming client, no PoW shown)
 )
 
 // allowedPhases gates which beacon phase strings the server accepts on
@@ -47,6 +48,7 @@ var allowedPhases = map[string]bool{
 	"error":               true,
 	"cookie_err":          true,
 	"check":               true,
+	"bv_rebind":           true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }

@@ -35,6 +35,7 @@ package cookies
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
@@ -108,6 +109,33 @@ func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaVali
 		}
 	}
 	return false
+}
+
+// MatchingEntryKind returns the kind of the first entry in the "~"-delimited
+// _bv list that verifies for remoteIP -- the 3rd segment for the server-issued
+// form ("captcha", "rebind", ...), "pow2" for the JS PoW form -- and ok=false
+// when none do.  /api/bvj uses the kind to refuse seeding a fresh rebind
+// budget off an entry that was itself minted by a rebind (kind "rebind"):
+// without that check, every rebound node could mint a fresh lineage at its new
+// IP and the per-lineage cap would never accumulate.
+func MatchingEntryKind(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) (string, bool) {
+	if value == "" {
+		return "", false
+	}
+	for i, entry := range strings.Split(value, "~") {
+		if i >= maxVerifyEntries {
+			break
+		}
+		if !verifyOne(entry, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty) {
+			continue
+		}
+		parts := strings.Split(entry, ".")
+		if len(parts) == 4 {
+			return "pow2", true
+		}
+		return parts[2], true
+	}
+	return "", false
 }
 
 // AppendEntry prepends entry to the "~"-delimited _bv list, keeping at most
@@ -269,4 +297,122 @@ func leadingZeroBits(b []byte) int {
 		return bits
 	}
 	return bits
+}
+
+// --------------------------------------------------------------------
+// _bvj: the roaming-rebind companion cookie
+// --------------------------------------------------------------------
+//
+// _bvj rides alongside _bv but is read ONLY by the admin -- the nginx C plugin
+// parses _bv and ignores _bvj entirely.  Its job: when a roaming client whose
+// IP changed (a 5G cell handoff hops to a new CGNAT address) lands on the
+// challenge route because its _bv no longer verifies for the new IP, the admin
+// re-binds a fresh _bv entry for that IP INSTEAD of issuing a PoW, provided the
+// request still looks like the same client that solved earlier.
+//
+// Format (7 dot-separated segments):
+//
+//	"<issued_unix>.<ja4h>.<uah>.<lineage>.<asn>.<kind>.<sig>"
+//	sig = first 16 hex of HMAC-SHA1(
+//	        "<issued>:<ja4h>:<uah>:<lineage>:<asn>:<kind>:<host>:bvj", BV_SECRET)
+//
+// Segments:
+//   - ja4h / uah : short hashes of the JA4 + User-Agent the admin saw at solve
+//     time (X-Client-JA4 + UA header).  Recomputed from the same headers at
+//     rebind time; a mismatch (a stolen cookie replayed by a client with a
+//     different TLS stack / UA) refuses rebind.  Both issuer and verifier are
+//     the admin reading the SAME headers, so unlike _bv (whose JA4 differs
+//     across an L7 LB and is therefore left out of its HMAC) these compare
+//     consistently in every deployment.
+//   - lineage : random id keying the server-side rebind cap (db.RebindLineage)
+//     -- bounds how many times / how fast one solve is re-bound, enforced
+//     fleet-wide on a shared DB and across daemon restarts.
+//   - asn : autonomous-system number of the IP at solve time (0 = unknown / no
+//     ASN db).  Compared to the new IP's ASN at rebind time as a veto: a
+//     datacenter replaying a residential solve mismatches and is refused.  With
+//     no ASN db loaded the veto is skipped and the cap alone bounds replay
+//     (see settings.RebindConfig).
+//   - The "bvj" suffix domain-separates this HMAC from the _bv CAPTCHA HMAC
+//     even though both key off BV_SECRET.
+//
+// The host binding mirrors _bv: a _bvj minted on site A can't drive a rebind on
+// site B (different host -> different signature).
+
+// JClaims is the validated payload of a _bvj cookie.
+type JClaims struct {
+	Issued  int64
+	JA4Hash string
+	UAHash  string
+	Lineage string
+	ASN     uint
+	Kind    string
+}
+
+// FingerprintHash returns a short, stable, NON-secret hash of s (a JA4 string
+// or a User-Agent) for embedding in _bvj.  It is a length reduction, not a
+// security primitive: an attacker who can reproduce the victim's JA4 / UA
+// reproduces this hash too.  _bvj's replay resistance comes from the signature,
+// the ASN veto and the server-side cap -- never from this hash being secret.
+func FingerprintHash(s string) string {
+	sum := sha1.Sum([]byte(s))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+// NewLineage returns a fresh random lineage id (24 hex chars) for a new solve.
+func NewLineage() (string, error) {
+	var b [12]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b[:]), nil
+}
+
+// IssueJValue builds the _bvj cookie value.  asn is the solve-time ASN (0 if
+// unknown / no ASN db).  Mirrors IssueValue's host binding.
+func IssueJValue(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string) string {
+	return issueJValueAt(bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, nowUnix())
+}
+
+func issueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
+	if kind == "" {
+		kind = "captcha"
+	}
+	asnS := strconv.FormatUint(uint64(asn), 10)
+	issuedS := strconv.FormatInt(issued, 10)
+	msg := issuedS + ":" + ja4Hash + ":" + uaHash + ":" + lineage + ":" + asnS + ":" + kind + ":" + host + ":bvj"
+	mac := hmac.New(sha1.New, []byte(bvSecret))
+	mac.Write([]byte(msg))
+	sig := hex.EncodeToString(mac.Sum(nil))[:16]
+	return issuedS + "." + ja4Hash + "." + uaHash + "." + lineage + "." + asnS + "." + kind + "." + sig
+}
+
+// ParseJValue validates a _bvj cookie's signature, host binding and age window,
+// returning the claims iff valid.  validSeconds should track the _bv solve
+// window so a _bvj never outlives the solve it represents.
+func ParseJValue(value, bvSecret, host string, validSeconds int) (JClaims, bool) {
+	var zero JClaims
+	if value == "" {
+		return zero, false
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) != 7 {
+		return zero, false
+	}
+	issued, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return zero, false
+	}
+	if !withinWindow(issued, validSeconds) {
+		return zero, false
+	}
+	ja4h, uah, lineage, asnS, kind := parts[1], parts[2], parts[3], parts[4], parts[5]
+	asn64, err := strconv.ParseUint(asnS, 10, 32)
+	if err != nil {
+		return zero, false
+	}
+	expected := issueJValueAt(bvSecret, ja4h, uah, lineage, uint(asn64), host, kind, issued)
+	if !hmac.Equal([]byte(expected), []byte(value)) {
+		return zero, false
+	}
+	return JClaims{Issued: issued, JA4Hash: ja4h, UAHash: uah, Lineage: lineage, ASN: uint(asn64), Kind: kind}, true
 }

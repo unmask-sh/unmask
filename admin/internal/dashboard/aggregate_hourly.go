@@ -177,8 +177,17 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// nginx-log pipeline), not a bucket-hour string, so it can't share
 	// dayAgoExpr — compute the cutoff minute directly.
 	minCutoff := time.Now().Unix()/60 - int64(hourlyKeep)*1440
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff); err != nil {
+		return err
+	}
+	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
+	// The solve windows are operator-tunable; 8 days comfortably exceeds the
+	// 3-day default, and an expired _bvj never consults its row again, so a
+	// generous fixed cutoff beats threading per-site settings in here.
 	_, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff)
+		`DELETE FROM unmask_rebind_lineage WHERE updated_at < ?`,
+		time.Now().Add(-8*24*time.Hour).Unix())
 	return err
 }
 

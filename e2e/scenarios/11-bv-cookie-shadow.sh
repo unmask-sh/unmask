@@ -43,7 +43,10 @@ curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -d "{\"token\":\"$token\",\"answer\":\"$((a+b))\",\"ct\":\"$ct\"}" \
     "${BASE_URL}/unmask/api/verify" > /dev/null
 
-bv=$(grep '_bv' "$ck" | awk '{print $7}')
+# Match the cookie-NAME column (6) exactly: the solve also sets a _bvj
+# (roaming-rebind credential) and a substring grep for '_bv' would capture
+# both, mangling the value.
+bv=$(awk '$6=="_bv"{print $7}' "$ck")
 [ -n "$bv" ] || { log_fail "_bv not issued"; exit 1; }
 log "valid _bv: ${bv:0:32}..."
 

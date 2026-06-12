@@ -1029,6 +1029,70 @@ func (c OverBlockConfig) MaxServesPerIPResolved() int {
 	return c.MaxServesPerIP
 }
 
+// RebindConfig: the roaming silent-rebind policy.  When a client's _bv no
+// longer verifies because its IP changed (a 5G cell handoff to a new CGNAT
+// address), the admin can re-bind a fresh _bv entry for the new IP on the
+// challenge route instead of issuing a PoW -- if the request carries a valid
+// _bvj proving an earlier solve AND still matches that solve's fingerprint.
+// This cuts re-challenges for mobile clients toward one per device rather than
+// one per cell.  Gated by three independent checks (see the _bvj doc in package
+// cookies):
+//   - signature + JA4/UA fingerprint match (the same client that solved)
+//   - ASN veto (the new IP shares the solve-time autonomous system) when an ASN
+//     db is loaded; skipped otherwise so the feature still works without one
+//   - a server-side per-lineage cap (lifetime count + hourly rate), which is
+//     the only bound left when no ASN db is present
+//
+// On by default; the operator opts out or tunes via config (no settings UI).
+type RebindConfig struct {
+	// Disabled turns silent rebind OFF.  Zero value = false = rebind runs out of
+	// the box (on unless the operator explicitly opts out).
+	Disabled bool `yaml:"disabled,omitempty"`
+	// AllowNoJA4 permits rebind even when no JA4 is available (a pure forward-auth
+	// deployment that doesn't forward X-Client-JA4): the JA4 match degenerates to
+	// empty==empty, leaving rebind to lean on the ASN veto + cap alone.  Default
+	// false = refuse rebind without a JA4 (safe side).
+	AllowNoJA4 bool `yaml:"allow_no_ja4,omitempty"`
+	// ASNVeto selects the ASN check: "auto" (default) applies it when an ASN db
+	// is loaded and skips it otherwise; "off" never applies it (cap-only, e.g.
+	// to avoid splitting a CGNAT carrier that spans multiple AS numbers).
+	ASNVeto string `yaml:"asn_veto,omitempty"`
+	// MaxRebinds caps how many times one solve (one lineage) is ever re-bound.
+	// Default 16.
+	MaxRebinds int `yaml:"max_rebinds,omitempty"`
+	// MaxRebindsPerHour caps re-binds per lineage within a rolling hour (a phone
+	// roaming naturally re-binds a few times; a stolen cookie fanned out across a
+	// proxy pool would burst).  Default 4.
+	MaxRebindsPerHour int `yaml:"max_rebinds_per_hour,omitempty"`
+}
+
+// RebindEnabled reports whether silent rebind is active.
+func (c RebindConfig) RebindEnabled() bool { return !c.Disabled }
+
+// ASNVetoResolved returns the normalized ASN-veto mode ("auto" | "off").
+func (c RebindConfig) ASNVetoResolved() string {
+	if c.ASNVeto == "off" {
+		return "off"
+	}
+	return "auto"
+}
+
+// MaxRebindsResolved returns the lifetime rebind cap, defaulting to 16.
+func (c RebindConfig) MaxRebindsResolved() int {
+	if c.MaxRebinds <= 0 {
+		return 16
+	}
+	return c.MaxRebinds
+}
+
+// MaxRebindsPerHourResolved returns the hourly rebind cap, defaulting to 4.
+func (c RebindConfig) MaxRebindsPerHourResolved() int {
+	if c.MaxRebindsPerHour <= 0 {
+		return 4
+	}
+	return c.MaxRebindsPerHour
+}
+
 type GlobalConfig struct {
 	// Passthrough = monitoring mode.  When true, the admin's serveBotChallenge
 	// short-circuits and bounces the user straight back to the original URL
@@ -1126,6 +1190,7 @@ type Settings struct {
 	SMTP          SMTP                 `yaml:"smtp,omitempty"`
 	Global        GlobalConfig         `yaml:"global,omitempty"`
 	OverBlock     OverBlockConfig      `yaml:"over_block_breaker,omitempty"`
+	Rebind        RebindConfig         `yaml:"rebind,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.

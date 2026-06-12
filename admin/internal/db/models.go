@@ -72,3 +72,22 @@ type UserAudit struct {
 }
 
 func (UserAudit) TableName() string { return "unmask_user_audit" }
+
+// RebindLineage caps how many times -- and how fast -- a single solved
+// challenge (identified by the random lineage id in its _bvj cookie) can be
+// silently re-bound to a new client IP.  Without it, a stolen _bv/_bvj pair
+// whose ASN happens to match the victim's (same carrier, or a residential proxy
+// in the same AS) could be re-bound onto unboundedly many IPs.  Keyed by
+// lineage so the cap holds fleet-wide on a shared DB and survives a daemon
+// restart (an in-memory counter would reset to zero each restart, handing an
+// attacker a fresh budget).  Pruned by the hourly goroutine once stale.
+type RebindLineage struct {
+	Lineage     string `gorm:"column:lineage;primaryKey"`
+	Host        string `gorm:"column:host;not null;default:''"`
+	Count       int    `gorm:"column:count;not null;default:0"`        // lifetime rebinds
+	WindowStart int64  `gorm:"column:window_start;not null;default:0"` // unix sec, rate-window anchor
+	WindowCount int    `gorm:"column:window_count;not null;default:0"` // rebinds in the current window
+	UpdatedAt   int64  `gorm:"column:updated_at;not null;default:0"`   // unix sec, for prune
+}
+
+func (RebindLineage) TableName() string { return "unmask_rebind_lineage" }

@@ -163,6 +163,24 @@ func cmdDoctor(args []string) error {
 	// neutralizing a rule.
 	checkGeoRules(s, addOK, addWarn)
 
+	// 4.6. Roaming rebind: surface how the silent-rebind gates resolve.  The
+	// feature still works without an ASN mmdb (the per-lineage cap alone
+	// bounds replay), but the operator should know the ASN veto is inactive
+	// and how to enable it.
+	if s.Rebind.RebindEnabled() {
+		if v := strings.TrimSpace(s.Rebind.ASNVeto); v != "" && v != "auto" && v != "off" {
+			addWarn("roaming rebind", fmt.Sprintf("rebind.asn_veto %q is not auto|off; treated as auto", v))
+		} else if s.Rebind.ASNVetoResolved() == "auto" && s.IPGeo.MMDBASNPath == "" {
+			addWarn("roaming rebind", "active without the ASN veto (= per-lineage cap only); set ipgeo.mmdb_asn_path to also pin rebinds to the solve-time network")
+		} else if s.Rebind.ASNVetoResolved() == "off" {
+			addOK("roaming rebind", "active, ASN veto off (= per-lineage cap only)")
+		} else {
+			addOK("roaming rebind", "active with ASN veto + per-lineage cap")
+		}
+	} else {
+		addOK("roaming rebind", "disabled (rebind.disabled: true); IP changes re-challenge")
+	}
+
 	// 5. ban file directory writable
 	if p := s.Nginx.Honeypot.BanFilePath; p != "" {
 		dir := filepath.Dir(p)

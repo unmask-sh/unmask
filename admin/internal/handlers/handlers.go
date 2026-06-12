@@ -691,6 +691,19 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		test = "1"
 	}
 
+	// Silent roaming rebind: a client that already solved (valid _bvj) and
+	// merely changed IP gets its _bv re-bound and bounced back instead of a
+	// PoW.  Plain path only -- every forced reason (ja4_bot / honeypot /
+	// banned / protected / rate-limit) and every test/preview path keeps
+	// serving the real challenge.  Placed before the serve event fires so a
+	// rebind never counts as a challenge serve (it isn't one, and inflating
+	// serves/IP here would feed the over-block breaker false positives).
+	if forceReason == "none" && rl == "0" && test == "0" && forceQuery == "" {
+		if h.tryRebind(w, r, site) {
+			return
+		}
+	}
+
 	body, err := h.loadChallengeHTML()
 	if err != nil {
 		log.Printf("challenge.html load failed: %v", err)
@@ -1515,6 +1528,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
+			h.mintBVJ(w, r, ip, host)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
 			return
 		}
@@ -1550,6 +1564,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		if score >= minScore {
 			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
+			h.mintBVJ(w, r, ip, host)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
 		}
@@ -1587,6 +1602,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase) {
 		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 		h.setBVCookie(w, r, val)
+		h.mintBVJ(w, r, ip, host)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
 	}

@@ -842,6 +842,14 @@
   // After PoW completion + cookie set (read back immediately to verify the set succeeded)
   var _bv_set_ok = /(?:^|;\s*)_bv=/.test(document.cookie);
   _bcDebug('bv_pow_only', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });
+  // Fetch the roaming-rebind credential (_bvj) for this solve.  The server
+  // gates it on the _bv we just set, so this must run after the cookie write.
+  // keepalive lets the Set-Cookie land even if the redirect below wins the
+  // race; failures are non-fatal (the next network change re-challenges as
+  // before, same as without the feature).
+  if (_bv_set_ok) {
+    try { fetch(API_BASE + '/bvj', { method:'POST', keepalive:true }).catch(function(){}); } catch (_) {}
+  }
 
   // If the cookie can't be written, reloading won't help, so show an error and give up
   if (!_bv_set_ok) {

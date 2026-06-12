@@ -58,7 +58,10 @@ verify=$(curl -sk -A "$UA_BROWSER" -c "$ck" -H "X-Forwarded-For: $CLIENT_IP" \
     -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\"}" \
     "${ADMIN_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "step 2: verify returns ok=1" || fails=$((fails+1))
-bv=$(grep '_bv' "$ck" | awk '{print $7}')
+# Match the cookie-NAME column (6) exactly: the solve also sets a _bvj
+# (roaming-rebind credential) and a substring grep for '_bv' would capture
+# both, mangling the value.
+bv=$(awk '$6=="_bv"{print $7}' "$ck")
 [ -n "$bv" ] || { log_fail "Set-Cookie: _bv not received"; exit 1; }
 
 # 3. retry the original /unmask/api/check with the _bv cookie attached.

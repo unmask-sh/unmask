@@ -753,6 +753,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/api/{site}/captcha/new", h.CaptchaNew)
 	mux.HandleFunc("POST "+base+"/api/debug", h.DebugBeacon)
 	mux.HandleFunc("POST "+base+"/api/{site}/debug", h.DebugBeacon)
+	mux.HandleFunc("POST "+base+"/api/bvj", h.IssueBVJ)
+	mux.HandleFunc("POST "+base+"/api/{site}/bvj", h.IssueBVJ)
 
 	// admin: login / logout are not behind session middleware (they're the
 	// auth endpoints themselves), but IP allow_from is checked upfront to
