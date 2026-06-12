@@ -70,6 +70,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 16<<20)).Decode(&doc); err != nil {
 		return FeedDocument{}, fmt.Errorf("decode feed: %w", err)
 	}
+	capFeedText(doc.Entries)
 
 	// Always cache the browse doc in memory (= both fetch and fetch_apply
 	// show the list).  Replaces the legacy /etc/unmask/community-bans-doc.json
@@ -128,6 +129,32 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	}
 	c.logf("communitybans: pulled %d entries from %s", cnt, redactURL(url))
 	return doc, nil
+}
+
+// capFeedText bounds each free-text field of a feed entry (Reason / Reasoning /
+// per-Comment text) so a hostile or buggy hub entry with a multi-KB string can't
+// make the community-bans page's html/template render slow per entry (L-4).  The
+// whole body is already capped to 16 MiB at decode; this caps each field.  Byte
+// cap backed off to a UTF-8 boundary so the trim never leaves a half rune.
+func capFeedText(entries []FeedEntry) {
+	const max = 2000
+	clip := func(s string) string {
+		if len(s) <= max {
+			return s
+		}
+		n := max
+		for n > 0 && s[n]&0xC0 == 0x80 { // back off mid-rune continuation bytes
+			n--
+		}
+		return s[:n]
+	}
+	for i := range entries {
+		entries[i].Reason = clip(entries[i].Reason)
+		entries[i].Reasoning = clip(entries[i].Reasoning)
+		for j := range entries[i].Comments {
+			entries[i].Comments[j].Text = clip(entries[i].Comments[j].Text)
+		}
+	}
 }
 
 // redactURL: strips secret-bearing parts before logging a feed URL -- the query
