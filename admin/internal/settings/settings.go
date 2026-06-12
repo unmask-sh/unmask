@@ -1492,9 +1492,14 @@ func builtInRateLimitPresets() []RateZone {
 			// attempt fires the zone.  Burst 0 collapses to the render
 			// default (= 50) which is too lenient, so we set this
 			// explicitly.
-			Burst:         5,
-			WindowSec:     60,
-			PathPatterns:  []string{"/unmask/admin/login"},
+			Burst:     5,
+			WindowSec: 60,
+			// Both the login and the forgot-password POST are auth-credential
+			// endpoints, so they share one per-IP zone: a flood of either —
+			// login brute-force, or forgot-password email-spam / reset-token
+			// clobbering (AUTH-5) — trips the same 5/min gate.  The admin login
+			// zone only covered /admin/login, leaving forgot-password unguarded.
+			PathPatterns:  []string{"/unmask/admin/login", "/unmask/admin/forgot-password"},
 			ChallengeMode: RateChallengeCaptchaOnly,
 		},
 	}
