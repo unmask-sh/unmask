@@ -30,8 +30,8 @@ func TestHashPasswordRejectsEmpty(t *testing.T) {
 }
 
 func TestHashPasswordRejectsTooLong(t *testing.T) {
-	if _, err := HashPassword(strings.Repeat("x", maxPasswordLen+1)); err == nil {
-		t.Fatalf("password longer than %d bytes must be rejected", maxPasswordLen)
+	if _, err := HashPassword(strings.Repeat("x", MaxPasswordLen+1)); err == nil {
+		t.Fatalf("password longer than %d bytes must be rejected", MaxPasswordLen)
 	}
 }
 

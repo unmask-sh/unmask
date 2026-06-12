@@ -117,7 +117,10 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			redir("profile.err.mismatch")
 			return
 		}
-		if len(newPass) > 72 {
+		// Use the shared argon2 limit (1024), not the old bcrypt 72-byte cap:
+		// the operator can reset another user's >72-char passphrase, so blocking
+		// it only here left them unable to change their own password.
+		if len(newPass) > user.MaxPasswordLen {
 			redir("profile.err.too_long")
 			return
 		}

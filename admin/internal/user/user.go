@@ -91,10 +91,10 @@ const (
 	argon2Threads uint8  = 1
 	argon2KeyLen  uint32 = 32
 	argon2SaltLen        = 16
-	// maxPasswordLen: argon2 itself has no length limit, but a multi-MB
+	// MaxPasswordLen: argon2 itself has no length limit, but a multi-MB
 	// password input would force the host to hash megabytes per login attempt.
 	// 1 KiB is well over any realistic passphrase.
-	maxPasswordLen = 1024
+	MaxPasswordLen = 1024
 )
 
 // MinPasswordLen is the minimum length for a new admin password.  Shared by the
@@ -108,8 +108,8 @@ func ValidatePassword(plain string) error {
 	if len(plain) < MinPasswordLen {
 		return fmt.Errorf("password must be at least %d characters", MinPasswordLen)
 	}
-	if len(plain) > maxPasswordLen {
-		return fmt.Errorf("password too long (max %d bytes)", maxPasswordLen)
+	if len(plain) > MaxPasswordLen {
+		return fmt.Errorf("password too long (max %d bytes)", MaxPasswordLen)
 	}
 	return nil
 }
@@ -121,8 +121,8 @@ func HashPassword(plain string) (string, error) {
 	if plain == "" {
 		return "", errors.New("password is empty")
 	}
-	if len(plain) > maxPasswordLen {
-		return "", fmt.Errorf("password too long (max %d bytes)", maxPasswordLen)
+	if len(plain) > MaxPasswordLen {
+		return "", fmt.Errorf("password too long (max %d bytes)", MaxPasswordLen)
 	}
 	salt := make([]byte, argon2SaltLen)
 	if _, err := rand.Read(salt); err != nil {
