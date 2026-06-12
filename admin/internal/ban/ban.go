@@ -119,9 +119,16 @@ type Manager struct {
 	DB        *db.DB
 	filePath  string
 	duration  time.Duration // default TTL for honeypot/auto bans.  0 = permanent
-	whitelist map[string]bool
-	mu        sync.Mutex
-	dirty     bool
+	// whitelistFn reports whether an IP is on the bypass allowlist (= preset
+	// crawler ranges + operator bypass_ips, CIDR-aware).  Injected by the admin
+	// via SetWhitelist over the live settings' IPBypassMatcher, so toggling a
+	// preset / adding a bypass IP takes effect without a manager restart; nil =
+	// nothing whitelisted.  wlMu guards it because honeypot auto-bans (the flush
+	// goroutine via AddWithSource) read it while AdminSettingsSave swaps it.
+	whitelistFn func(ip string) bool
+	wlMu        sync.RWMutex
+	mu          sync.Mutex
+	dirty       bool
 	stopCh    chan struct{}
 	doneCh    chan struct{}
 
@@ -144,20 +151,40 @@ func (m *Manager) SetActionResolver(r ActionResolver) {
 	m.mu.Unlock()
 }
 
+// SetWhitelist installs the bypass-allowlist test.  Safe to call after Start
+// (= reads happen on the flush goroutine + admin handlers).  The admin injects
+// a closure over the live settings' IPBypassMatcher so a bypass change applies
+// without a restart, and so honeypot auto-bans respect preset crawler CIDRs
+// (Googlebot / Bingbot / GPTBot).  The previous literal-IP map could do neither
+// -- the M-3 / DB-4 bug: a crawler that landed on a honeypot URI got banned,
+// and a freshly added bypass IP was ignored until the next restart.
+func (m *Manager) SetWhitelist(fn func(ip string) bool) {
+	m.wlMu.Lock()
+	m.whitelistFn = fn
+	m.wlMu.Unlock()
+}
+
+// isWhitelisted reports whether ip is on the bypass allowlist.  An empty ip or
+// a nil fn (= not yet wired / test stub) means "not whitelisted".
+func (m *Manager) isWhitelisted(ip string) bool {
+	if ip == "" {
+		return false
+	}
+	m.wlMu.RLock()
+	fn := m.whitelistFn
+	m.wlMu.RUnlock()
+	return fn != nil && fn(ip)
+}
+
 // New: initialize the ban manager.  filePath="" disables file flush
 // (= test stub).
-func New(d *db.DB, filePath string, duration time.Duration, whitelist []string) *Manager {
-	wl := map[string]bool{}
-	for _, ip := range whitelist {
-		wl[strings.TrimSpace(ip)] = true
-	}
+func New(d *db.DB, filePath string, duration time.Duration) *Manager {
 	return &Manager{
-		DB:        d,
-		filePath:  filePath,
-		duration:  duration,
-		whitelist: wl,
-		stopCh:    make(chan struct{}),
-		doneCh:    make(chan struct{}),
+		DB:       d,
+		filePath: filePath,
+		duration: duration,
+		stopCh:   make(chan struct{}),
+		doneCh:   make(chan struct{}),
 	}
 }
 
@@ -222,7 +249,7 @@ func (m *Manager) AddWithSource(ctx context.Context, ip, ja4, source, reason, ba
 	if ip == "" {
 		return
 	}
-	if m.whitelist[ip] {
+	if m.isWhitelisted(ip) {
 		return
 	}
 	now := time.Now().Unix()
@@ -266,7 +293,7 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	if ip == "" && ja4 == "" {
 		return errors.New("ip or ja4 is required")
 	}
-	if ip != "" && m.whitelist[ip] {
+	if m.isWhitelisted(ip) {
 		return errors.New("ip is on bypass whitelist")
 	}
 	if scope == "" {
@@ -318,7 +345,7 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 	if ip == "" && ja4 == "" {
 		return errors.New("ip or ja4 is required")
 	}
-	if ip != "" && m.whitelist[ip] {
+	if m.isWhitelisted(ip) {
 		return errors.New("ip is on bypass whitelist")
 	}
 	if scope == "" {

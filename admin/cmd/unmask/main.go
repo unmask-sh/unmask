@@ -292,7 +292,7 @@ func cmdServe(args []string) error {
 		// Per-site BanDurationSec was considered and dropped: BAN list is
 		// keyed on IP+JA4, not on the visited host.
 		banDur := time.Duration(s.Nginx.Honeypot.ResolvedBanDurationSec()) * time.Second
-		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur, s.Nginx.BypassIPs)
+		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur)
 		banMgr.Start()
 		defer banMgr.Close()
 		nlog.SetHoneypotCallback(banMgr.Add)
@@ -398,6 +398,15 @@ func cmdServe(args []string) error {
 		banMgr.SetActionResolver(func(source string) string {
 			cur := h.SnapshotSettings()
 			return cur.Nginx.Bans.ResolveAction(source, cur.Nginx.Honeypot.DefaultAction)
+		})
+		// Bypass allowlist for the honeypot auto-ban + manual BAN guard.  A
+		// closure over live settings so toggling a preset / adding a bypass IP
+		// applies without a restart, and so it is preset + CIDR-aware: a
+		// crawler range (Googlebot / Bingbot / GPTBot) landing on a honeypot
+		// URI is never auto-banned (CLAUDE.md #4).  The map-based whitelist this
+		// replaces saw only literal operator IPs, not presets or CIDRs.
+		banMgr.SetWhitelist(func(ip string) bool {
+			return nginxconf.NewIPBypassMatcher(h.SnapshotSettings().Nginx).Match(ip)
 		})
 	}
 
