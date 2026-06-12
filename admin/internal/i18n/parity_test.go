@@ -1,6 +1,10 @@
 package i18n
 
-import "testing"
+import (
+	"regexp"
+	"slices"
+	"testing"
+)
 
 // TestLocaleParity guards that every dict key exists in both ja and en.  A
 // key present in only one locale silently falls back to the other (T() prefers
@@ -26,6 +30,47 @@ func TestLocaleParity(t *testing.T) {
 	for k := range en {
 		if _, ok := ja[k]; !ok {
 			t.Errorf("key %q present in EN but missing in JA", k)
+		}
+	}
+}
+
+// formatVerbRE matches a Go fmt directive (%s, %d, %q, %5.2f, %#x, ...).  A
+// space is deliberately NOT allowed as a flag so prose like "100% increase"
+// (a space after the percent) is not mistaken for a verb.  The catalog uses no
+// %% escapes or explicit %[n] indices, so neither needs special handling.
+var formatVerbRE = regexp.MustCompile(`%[#+\-0-9.]*[bcdeEfFgGopqstvxXU]`)
+
+// verbsOf returns the ordered verb letters of every fmt directive in s
+// (e.g. "%d-%d 件" -> ["d","d"]).
+func verbsOf(s string) []string {
+	m := formatVerbRE.FindAllString(s, -1)
+	out := make([]string, len(m))
+	for i, v := range m {
+		out[i] = v[len(v)-1:] // the trailing verb letter
+	}
+	return out
+}
+
+// TestLocaleFormatVerbParity guards that a key's ja and en strings carry the
+// SAME ordered fmt verbs.  Tf(lang, key, args...) runs ONE args list through
+// fmt.Sprintf against whichever locale's string is selected, so if a
+// translation drops a %d, gains a %s, or swaps %s/%d order, the other locale
+// renders garbage for the same call -- Go appends "%!(EXTRA ...)" when the
+// string has fewer verbs than args and "%!d(MISSING)" when it has more.
+// TestLocaleParity proves the keys line up; this proves their verbs do too.
+func TestLocaleFormatVerbParity(t *testing.T) {
+	ja := dict[LangJA]
+	en := dict[LangEN]
+	for k, jv := range ja {
+		ev, ok := en[k]
+		if !ok {
+			continue // key-presence drift is TestLocaleParity's job
+		}
+		jverbs := verbsOf(jv)
+		everbs := verbsOf(ev)
+		if !slices.Equal(jverbs, everbs) {
+			t.Errorf("key %q: fmt-verb mismatch ja=%v en=%v\n  ja=%q\n  en=%q",
+				k, jverbs, everbs, jv, ev)
 		}
 	}
 }

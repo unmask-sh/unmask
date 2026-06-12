@@ -111,6 +111,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 15:24) **The English community-bans "not applied" tooltip no
+  longer shows raw `%d` / `%s`.**  Two catalog strings
+  (`community_bans.below_threshold_title` / `reports_only_title`) carried
+  `fmt.Sprintf` placeholders, but the badge renders them through the plain
+  (non-formatting) `t` template helper, so English readers saw the literal
+  `currently %d` and a bogus `href="%s"` link in the hover popover; the
+  Japanese strings were already placeholder-free.  Rewrote the English to be
+  self-contained.  A new locale test (`TestLocaleFormatVerbParity`) now fails
+  the build if any key's ja/en strings carry mismatched format verbs, so this
+  class of drift can't return.
 - (2026-06-12 14:37) **The live settings hot-swap is now race-free.**  The web
   save handlers published a new `settings.Settings` by assigning the whole
   struct value to a Handler field under a mutex, but every request read that
