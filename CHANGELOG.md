@@ -186,6 +186,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-13 00:07) **A manual ban could silently widen a honeypot ban into a
+  JA4-wide block (DB-3).**  The ban list keyed UNIQUE(ip, ja4), so manually
+  banning an (ip, ja4) that a honeypot had already auto-banned overwrote the
+  existing row — including its scope.  An `ip_ja4` ban rewritten to `ja4_only`
+  silently expands "this one device" into "every IP presenting this JA4", the
+  exact ranking accident the search-bot rescue (CLAUDE.md #4) guards against,
+  with no signal to the operator.  Scope now joins the conflict/UNIQUE key so a
+  honeypot `ip_ja4` ban and a manual `ja4_only` ban on the same (ip, ja4)
+  coexist as separate rows (the native plugin already matches each scope
+  independently).  Existing databases migrate in place, rows preserved.
 - (2026-06-12 22:47) **The forgot-password endpoint is now rate-limited like
   login (AUTH-5).**  The per-IP admin-login zone (5/min, CAPTCHA on trip)
   covered only `/admin/login`, leaving `/admin/forgot-password` open: a flood
