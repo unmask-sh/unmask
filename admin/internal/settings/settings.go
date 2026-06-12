@@ -894,9 +894,9 @@ type SearchBotsConfig struct {
 	// upstream crawler-user-agents.json path (UpstreamGroupMode) plus Extra;
 	// any leftover `disabled_presets:` key in an old config.yml is ignored.
 	Extra          []string `yaml:"extra"`
-	ExtraTitle      []string `yaml:"extra_title,omitempty"`
-	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
-	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"` // unix sec. analogous to preset's AddedIn
+	ExtraTitle     []string `yaml:"extra_title,omitempty"`
+	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
+	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"` // unix sec. analogous to preset's AddedIn
 	// UpstreamDisabled: per-pattern disable list applied to the upstream
 	// crawler-user-agents.json auto-rescue.  Patterns listed here will not
 	// be auto-passed via the search_ai branch, even if they match a
