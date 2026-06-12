@@ -13,6 +13,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-06-12 15:44) **The web / plugin sub-packages now pin the `unmask`
+  daemon to the exact build version.**  Every sub-package
+  (`unmask-web-nginx` / `-apache` / `-caddy`, `unmask-plugin-nginx` and the
+  fat variant) declared an UNVERSIONED `depends: unmask`, so a snippet or the
+  native `.so` could be installed or upgraded against a mismatched daemon —
+  and the `.so` verifies `_bv` / computes JA4 against the daemon's contract,
+  while the web snippets carry the version-coupled `/unmask/*` + forward-auth
+  routing.  Each now pins `unmask = <build version>` in its packager-native
+  syntax (rpm `=`, deb `(= )`, apk `=`), so the suite can only move in
+  lockstep.  All packages already share one `${UNMASK_VERSION}` and ship from
+  a single `make release`, so a normal `dnf upgrade` / `apt full-upgrade`
+  resolves the whole set in one transaction; only a partial daemon-only
+  upgrade is now (intentionally) held until the matching components publish.
 - (2026-06-11 23:10) **doctor and the daemon now self-check three operator
   mistakes that previously stayed silent**.  `unmask doctor` gained — and the
   daemon now also warns about at startup — a **bv_secret desync**: when the

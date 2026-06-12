@@ -28,12 +28,12 @@ depends:
 overrides:
   rpm:
     depends:
-      - unmask
+      - "unmask = ${UNMASK_VERSION}"
       - httpd
       - /usr/lib64/httpd/modules/mod_lua.so
   deb:
     depends:
-      - unmask
+      - "unmask (= ${UNMASK_VERSION})"
       - apache2
       - lua-socket
   apk:
@@ -41,7 +41,7 @@ overrides:
       scripts:
         postupgrade: ./scripts/postinstall-web-apache.sh
     depends:
-      - unmask
+      - "unmask=${UNMASK_VERSION}"
       - apache2
       - apache2-lua
       - apache2-proxy

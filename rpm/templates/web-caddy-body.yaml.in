@@ -21,12 +21,22 @@ depends:
   - unmask
 
 overrides:
+  # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
+  # apk `=`) so the Caddy forward_auth snippet can't run against a mismatched
+  # daemon.  nfpm overrides REPLACE the top-level depends.  caddy stays an
+  # apk-only hard dep (see the note above the top-level depends).
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
   apk:
     apk:
       scripts:
         postupgrade: ./scripts/postinstall-web-caddy.sh
     depends:
-      - unmask
+      - "unmask=${UNMASK_VERSION}"
       - caddy
 
 contents:

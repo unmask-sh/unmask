@@ -44,9 +44,25 @@ contents:
   # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.
 
 overrides:
-  # apk: re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # The unmask dependency is pinned to the EXACT build version in each
+  # packager's own constraint syntax (rpm `=`, deb `(= )`, apk `=`), so a
+  # web snippet can never be installed/upgraded against a mismatched daemon
+  # (the /unmask/* routing + forward-auth contract are version-coupled).
+  # nfpm `overrides` REPLACE the top-level depends, so each lists its full set.
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - nginx
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - nginx
+  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
   # script runs otherwise) so symlinks/maphash are re-applied.
   apk:
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - nginx
     apk:
       scripts:
         postupgrade: ./scripts/postinstall-web-nginx.sh

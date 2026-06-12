@@ -7,7 +7,9 @@
 # (= __NGINX_VERSION__), and preinstall.sh aborts if the host nginx differs.
 #
 # Depends:
-#   - unmask >= 0.1.0 (= main package)
+#   - unmask = <build version> (= main package, pinned exactly: the .so verifies
+#     _bv / computes JA4 against the daemon's contract, so a version skew would
+#     break verification.  Pin lives in the per-packager overrides below.)
 #
 # Build:
 #   make package-plugin-nginx UNMASK_VERSION=0.1.0 NGINX_VERSION=1.18.0
@@ -35,9 +37,24 @@ contents:
       mode: 0644
 
 overrides:
-  # apk: re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
+  # apk `=`): the .so and the daemon share the _bv / JA4 contract, so a mixed
+  # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends,
+  # so each lists nginx too.
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - nginx
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - nginx
+  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
   # script runs otherwise) so the new .so is re-placed.
   apk:
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - nginx
     apk:
       scripts:
         postupgrade: ./scripts/postinstall-plugin-nginx.sh
