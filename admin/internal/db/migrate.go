@@ -446,6 +446,18 @@ func ApplyCookieMinuteMigrationData(conn *DB) error {
 			_ = tx.Rollback()
 		}
 	}()
+	// Idempotency guard.  The rename (in ensureCookieMinuteKind) and the DROP
+	// below are DDL, which auto-commits OUTSIDE this transaction on MariaDB --
+	// so rename/copy/drop can't be one atomic unit.  If a prior run committed
+	// these INSERTs but was interrupted before DROP-ing v1 (e.g. a dropped
+	// MariaDB connection in that gap), v1 still exists and re-running would
+	// double every row.  This runs inside Migrate() at startup, before the
+	// daemon serves, and Migrate aborts on any error here -- so a lingering v1
+	// means the destination holds at most a partial/duplicate copy and nothing
+	// else writes it.  Clear it before recopying so the migration is re-run safe.
+	if _, err := tx.Exec(`DELETE FROM unmask_cookie_minute`); err != nil {
+		return fmt.Errorf("clear destination before copy: %w", err)
+	}
 	for rows.Next() {
 		var bucketMin int64
 		var site string

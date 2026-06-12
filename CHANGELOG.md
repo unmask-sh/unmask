@@ -124,6 +124,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   protection resumes on recovery).
 
 ### Fixed
+- (2026-06-12 16:42) **The cookie_minute v1→kind/cnt migration is now safe to
+  re-run, so an interrupted MariaDB upgrade can't double historical stats.**
+  The copy INSERTs run in a transaction, but the table rename and the final
+  `DROP TABLE …_v1` are DDL, which auto-commits OUTSIDE that transaction on
+  MariaDB — so a dropped connection in the gap between COMMIT and DROP left the
+  v1 table in place, and the next startup re-ran the copy on top of the
+  already-committed rows, doubling every cookie_minute bucket the dashboard
+  aggregates.  The copy now clears the destination inside its transaction
+  before re-inserting (safe: the migration runs at startup before the daemon
+  serves, and Migrate aborts on error, so a lingering v1 means the table holds
+  only migration output).  Covered by a re-run test that doubles the rows
+  without the guard.
 - (2026-06-12 15:24) **The English community-bans "not applied" tooltip no
   longer shows raw `%d` / `%s`.**  Two catalog strings
   (`community_bans.below_threshold_title` / `reports_only_title`) carried
