@@ -836,33 +836,65 @@ func splitStatements(sql string) []string {
 		lines = append(lines, l)
 	}
 	body := strings.Join(lines, "\n")
-	parts := strings.Split(body, ";")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		if strings.TrimSpace(p) != "" {
-			out = append(out, p)
+	// Split on ';' but ignore any ';' that sits inside a trailing "-- ..." line
+	// comment or a '...' string literal (a column/table COMMENT or a trailing
+	// note may legitimately contain one).  A naive strings.Split(body, ";")
+	// would cut a statement in half there.
+	var out []string
+	var cur strings.Builder
+	inStr, inComment := false, false
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case inComment:
+			cur.WriteByte(c)
+			if c == '\n' {
+				inComment = false
+			}
+		case inStr:
+			cur.WriteByte(c)
+			if c == '\'' {
+				inStr = false
+			}
+		case c == '-' && i+1 < len(body) && body[i+1] == '-':
+			inComment = true
+			cur.WriteByte(c)
+		case c == '\'':
+			inStr = true
+			cur.WriteByte(c)
+		case c == ';':
+			if strings.TrimSpace(cur.String()) != "" {
+				out = append(out, cur.String())
+			}
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
 		}
+	}
+	if strings.TrimSpace(cur.String()) != "" {
+		out = append(out, cur.String())
 	}
 	return out
 }
 
 const schemaSQLite = `
+-- unmask_event: per-request log of challenge / verdict events; the dashboards and funnels read from here.
 CREATE TABLE IF NOT EXISTS unmask_event (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    site            VARCHAR(64) NOT NULL DEFAULT 'default',
-    host            VARCHAR(64) NOT NULL DEFAULT 'default',
-    ip_address      BLOB NOT NULL,
-    user_agent      VARCHAR(255),
-    ja4             VARCHAR(40),
-    ja4_verdict     VARCHAR(40),
-    ja4_verdict_id  INTEGER,
-    phase           VARCHAR(32) NOT NULL,
-    flags           INTEGER NOT NULL DEFAULT 0,
-    reload_count    INTEGER NOT NULL DEFAULT 0,
-    cookie_bv       VARCHAR(80),
-    cookie_br       VARCHAR(8),
-    payload_json    TEXT,
-    date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,           -- surrogate row id
+    site            VARCHAR(64) NOT NULL DEFAULT 'default',      -- logical site/vhost the request belongs to
+    host            VARCHAR(64) NOT NULL DEFAULT 'default',      -- request Host header (per-host breakdown)
+    ip_address      BLOB NOT NULL,                               -- client IP as raw bytes (4 for v4, 16 for v6)
+    user_agent      VARCHAR(255),                               -- request User-Agent, truncated to 255 chars
+    ja4             VARCHAR(40),                                 -- JA4 TLS fingerprint of the client
+    ja4_verdict     VARCHAR(40),                                -- classification label for the JA4 (bot_* / suspect_* / ok)
+    ja4_verdict_id  INTEGER,                                     -- numeric id of the matched verdict rule
+    phase           VARCHAR(32) NOT NULL,                        -- pipeline phase the event was emitted at (e.g. challenge, bv_pow)
+    flags           INTEGER NOT NULL DEFAULT 0,                  -- bitmask of behavioral / detection flags
+    reload_count    INTEGER NOT NULL DEFAULT 0,                  -- times the challenge page was reloaded in this flow
+    cookie_bv       VARCHAR(80),                                 -- the _bv cookie value carried on the request, if any
+    cookie_br       VARCHAR(8),                                  -- short branch/route marker cookie
+    payload_json    TEXT,                                        -- extra structured event data (JSON)
+    date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP  -- event timestamp (UTC)
 );
 CREATE INDEX IF NOT EXISTS idx_unmask_event_date     ON unmask_event(date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_ip_date  ON unmask_event(ip_address, date_created);
@@ -872,19 +904,21 @@ CREATE INDEX IF NOT EXISTS idx_unmask_event_verdict_id  ON unmask_event(ja4_verd
 CREATE INDEX IF NOT EXISTS idx_unmask_event_site     ON unmask_event(site, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_host     ON unmask_event(host, date_created);
 
+-- unmask_aggregate: legacy per-UTC-day rollup counters; superseded by the minute / hourly tables (kept for back-compat reads).
 CREATE TABLE IF NOT EXISTS unmask_aggregate (
-    bucket_date     DATE NOT NULL,
-    bucket_kind     VARCHAR(16) NOT NULL,
-    bucket_key      VARCHAR(64) NOT NULL,
-    cnt             INTEGER NOT NULL,
+    bucket_date     DATE NOT NULL,         -- UTC day the bucket covers
+    bucket_kind     VARCHAR(16) NOT NULL,  -- counter family (e.g. verdict, country)
+    bucket_key      VARCHAR(64) NOT NULL,  -- counter key within the family
+    cnt             INTEGER NOT NULL,      -- count for this bucket
     PRIMARY KEY (bucket_date, bucket_kind, bucket_key)
 );
 CREATE INDEX IF NOT EXISTS idx_unmask_aggregate_date ON unmask_aggregate(bucket_date);
 
+-- unmask_aggregate_state: per-job cursor so incremental rollups resume without rescanning unmask_event.
 CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
-    name        VARCHAR(32) PRIMARY KEY,
-    last_id     INTEGER NOT NULL DEFAULT 0,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    name        VARCHAR(32) PRIMARY KEY,                      -- aggregation job name
+    last_id     INTEGER NOT NULL DEFAULT 0,                   -- highest unmask_event.id already folded in
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP   -- last time this cursor advanced (UTC)
 );
 
 -- unmask_cookie_minute: per (minute, site, kind) aggregation bucket.
@@ -895,10 +929,10 @@ CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
 --   "challenge_served" : the request was answered with challenge HTML
 --   Any new kind the plugin emits later is recorded as additional rows with no schema change.
 CREATE TABLE IF NOT EXISTS unmask_cookie_minute (
-    bucket_min  INTEGER NOT NULL,
-    site        VARCHAR(64) NOT NULL,
-    kind        VARCHAR(32) NOT NULL,
-    cnt         INTEGER NOT NULL DEFAULT 0,
+    bucket_min  INTEGER NOT NULL,            -- minute bucket (unix epoch seconds / 60)
+    site        VARCHAR(64) NOT NULL,        -- logical site/vhost
+    kind        VARCHAR(32) NOT NULL,        -- counter kind (total / captcha / pow / challenge_served / ...)
+    cnt         INTEGER NOT NULL DEFAULT 0,  -- count for this (minute, site, kind)
     PRIMARY KEY (bucket_min, site, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_cookie_minute_site_min
@@ -906,45 +940,48 @@ CREATE INDEX IF NOT EXISTS idx_cookie_minute_site_min
 CREATE INDEX IF NOT EXISTS idx_cookie_minute_kind_min
     ON unmask_cookie_minute(kind, bucket_min);
 
+-- unmask_user: dashboard admin accounts.
 CREATE TABLE IF NOT EXISTS unmask_user (
-    id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-    username                 VARCHAR(64) NOT NULL UNIQUE,
+    id                       INTEGER PRIMARY KEY AUTOINCREMENT,            -- surrogate user id
+    username                 VARCHAR(64) NOT NULL UNIQUE,                  -- login name (unique)
     -- 128 chars holds the argon2id PHC string ($argon2id$v=19$m=65536,t=2,p=1$<22b64>$<43b64> = 97 chars)
     -- with headroom for future params bumps.  72 was a bcrypt-era leftover that
     -- truncated the argon2 hash on MariaDB STRICT installs (= login broken).
-    password_hash            VARCHAR(128) NOT NULL,
-    role                     VARCHAR(16) NOT NULL,
-    email                    VARCHAR(255),
-    alert_opt_out            INTEGER NOT NULL DEFAULT 0,
-    reset_token              VARCHAR(64),
-    reset_token_expires_at   INTEGER,
-    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login               DATETIME
+    password_hash            VARCHAR(128) NOT NULL,                        -- argon2id PHC hash
+    role                     VARCHAR(16) NOT NULL,                         -- superadmin / admin / viewer
+    email                    VARCHAR(255),                                -- optional contact for notifications / password reset (unique when set)
+    alert_opt_out            INTEGER NOT NULL DEFAULT 0,                   -- 1 = suppress alert emails to this user
+    reset_token              VARCHAR(64),                                 -- one-time password-reset token (opaque)
+    reset_token_expires_at   INTEGER,                                     -- reset token expiry (unix seconds, UTC)
+    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- account creation time (UTC)
+    last_login               DATETIME                                     -- last successful login time (UTC)
 );
 
+-- unmask_user_audit: append-only audit trail of admin actions.
 CREATE TABLE IF NOT EXISTS unmask_user_audit (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id     INTEGER,
-    username    VARCHAR(64) NOT NULL,
-    action      VARCHAR(64) NOT NULL,
-    target      VARCHAR(128),
-    detail      TEXT,
-    at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,            -- surrogate row id
+    user_id     INTEGER,                                     -- acting user id (NULL if that user was later deleted)
+    username    VARCHAR(64) NOT NULL,                         -- acting user name at the time
+    action      VARCHAR(64) NOT NULL,                         -- action performed (e.g. login, create_user, ban_add)
+    target      VARCHAR(128),                                -- object acted on (e.g. a username or ban key)
+    detail      TEXT,                                        -- free-form detail / JSON
+    at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP  -- when the action happened (UTC)
 );
 CREATE INDEX IF NOT EXISTS idx_user_audit_at      ON unmask_user_audit(at);
 CREATE INDEX IF NOT EXISTS idx_user_audit_user_at ON unmask_user_audit(user_id, at);
 
+-- unmask_ban: ban list; exported to a file the C plugin reads on each request.
 CREATE TABLE IF NOT EXISTS unmask_ban (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    ip          VARCHAR(64) NOT NULL,
-    ja4         VARCHAR(40) NOT NULL,
-    source      VARCHAR(32) NOT NULL,
-    reason      VARCHAR(255),
-    banned_at   INTEGER NOT NULL,
-    expires_at  INTEGER NOT NULL DEFAULT 0,
-    banned_by   VARCHAR(64),
-    action      VARCHAR(32) NOT NULL DEFAULT '',
-    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,      -- surrogate row id
+    ip          VARCHAR(64) NOT NULL,                   -- banned client IP (empty string for ja4_only scope)
+    ja4         VARCHAR(40) NOT NULL,                   -- banned JA4 fingerprint (empty string for ip_only scope)
+    source      VARCHAR(32) NOT NULL,                   -- who added it (manual / honeypot / community / ...)
+    reason      VARCHAR(255),                           -- human-readable reason
+    banned_at   INTEGER NOT NULL,                       -- when the ban was created (unix seconds, UTC)
+    expires_at  INTEGER NOT NULL DEFAULT 0,             -- expiry (unix seconds, UTC; 0 = never)
+    banned_by   VARCHAR(64),                            -- admin username for a manual ban
+    action      VARCHAR(32) NOT NULL DEFAULT '',        -- per-row challenge-action override resolved against settings ('' = source default)
+    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',  -- match scope: ip_ja4 / ip_only / ja4_only
     UNIQUE (ip, ja4, scope)
 );
 CREATE INDEX IF NOT EXISTS idx_ban_expires ON unmask_ban(expires_at);
@@ -953,21 +990,21 @@ CREATE INDEX IF NOT EXISTS idx_ban_source  ON unmask_ban(source);
 
 const schemaMariaDB = `
 CREATE TABLE IF NOT EXISTS unmask_event (
-    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    site            VARCHAR(64) NOT NULL DEFAULT 'default',
-    host            VARCHAR(64) NOT NULL DEFAULT 'default',
-    ip_address      VARBINARY(16) NOT NULL,
-    user_agent      VARCHAR(255),
-    ja4             VARCHAR(40),
-    ja4_verdict     VARCHAR(40),
-    ja4_verdict_id  INT NULL,
-    phase           VARCHAR(32) NOT NULL,
-    flags           INT NOT NULL DEFAULT 0,
-    reload_count    INT NOT NULL DEFAULT 0,
-    cookie_bv       VARCHAR(80),
-    cookie_br       VARCHAR(8),
-    payload_json    LONGTEXT,
-    date_created    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'surrogate row id',
+    site            VARCHAR(64) NOT NULL DEFAULT 'default' COMMENT 'logical site/vhost the request belongs to',
+    host            VARCHAR(64) NOT NULL DEFAULT 'default' COMMENT 'request Host header (per-host breakdown)',
+    ip_address      VARBINARY(16) NOT NULL COMMENT 'client IP as raw bytes (4 for v4, 16 for v6)',
+    user_agent      VARCHAR(255) COMMENT 'request User-Agent, truncated to 255 chars',
+    ja4             VARCHAR(40) COMMENT 'JA4 TLS fingerprint of the client',
+    ja4_verdict     VARCHAR(40) COMMENT 'classification label for the JA4 (bot_* / suspect_* / ok)',
+    ja4_verdict_id  INT NULL COMMENT 'numeric id of the matched verdict rule',
+    phase           VARCHAR(32) NOT NULL COMMENT 'pipeline phase the event was emitted at (e.g. challenge, bv_pow)',
+    flags           INT NOT NULL DEFAULT 0 COMMENT 'bitmask of behavioral / detection flags',
+    reload_count    INT NOT NULL DEFAULT 0 COMMENT 'times the challenge page was reloaded in this flow',
+    cookie_bv       VARCHAR(80) COMMENT 'the _bv cookie value carried on the request, if any',
+    cookie_br       VARCHAR(8) COMMENT 'short branch/route marker cookie',
+    payload_json    LONGTEXT COMMENT 'extra structured event data (JSON)',
+    date_created    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'event timestamp (UTC)',
     PRIMARY KEY (id),
     KEY idx_date         (date_created),
     KEY idx_ip_date      (ip_address, date_created),
@@ -976,82 +1013,82 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     KEY idx_verdict_id   (ja4_verdict_id, date_created),
     KEY idx_site         (site, date_created),
     KEY idx_host         (host, date_created)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-request log of challenge / verdict events; dashboards and funnels read from here';
 
 CREATE TABLE IF NOT EXISTS unmask_aggregate (
-    bucket_date     DATE NOT NULL,
-    bucket_kind     VARCHAR(16) NOT NULL,
-    bucket_key      VARCHAR(64) NOT NULL,
-    cnt             INT NOT NULL,
+    bucket_date     DATE NOT NULL COMMENT 'UTC day the bucket covers',
+    bucket_kind     VARCHAR(16) NOT NULL COMMENT 'counter family (e.g. verdict, country)',
+    bucket_key      VARCHAR(64) NOT NULL COMMENT 'counter key within the family',
+    cnt             INT NOT NULL COMMENT 'count for this bucket',
     PRIMARY KEY (bucket_date, bucket_kind, bucket_key),
     KEY idx_date (bucket_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Legacy per-UTC-day rollup counters; superseded by the minute / hourly tables';
 
 CREATE TABLE IF NOT EXISTS unmask_aggregate_state (
-    name        VARCHAR(32) NOT NULL,
-    last_id     BIGINT UNSIGNED NOT NULL DEFAULT 0,
-    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    name        VARCHAR(32) NOT NULL COMMENT 'aggregation job name',
+    last_id     BIGINT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'highest unmask_event.id already folded in',
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'last time this cursor advanced (UTC)',
     PRIMARY KEY (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-job cursor so incremental rollups resume without rescanning unmask_event';
 
 -- unmask_cookie_minute: per (minute, site, kind) aggregation bucket.
 -- kind values: "total" / "captcha" / "pow" / "challenge_served" / future additions.
 -- The plugin can emit new kinds without a schema change (= normalized form).
 CREATE TABLE IF NOT EXISTS unmask_cookie_minute (
-    bucket_min  BIGINT NOT NULL,
-    site        VARCHAR(64) NOT NULL,
-    kind        VARCHAR(32) NOT NULL,
-    cnt         INT NOT NULL DEFAULT 0,
+    bucket_min  BIGINT NOT NULL COMMENT 'minute bucket (unix epoch seconds / 60)',
+    site        VARCHAR(64) NOT NULL COMMENT 'logical site/vhost',
+    kind        VARCHAR(32) NOT NULL COMMENT 'counter kind (total / captcha / pow / challenge_served / ...)',
+    cnt         INT NOT NULL DEFAULT 0 COMMENT 'count for this (minute, site, kind)',
     PRIMARY KEY (bucket_min, site, kind),
     KEY idx_site_min (site, bucket_min),
     KEY idx_kind_min (kind, bucket_min)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-(minute, site, kind) repeater / funnel counters';
 
 CREATE TABLE IF NOT EXISTS unmask_user (
-    id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    username                 VARCHAR(64) NOT NULL,
+    id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'surrogate user id',
+    username                 VARCHAR(64) NOT NULL COMMENT 'login name (unique)',
     -- 128 chars holds the argon2id PHC string ($argon2id$v=19$m=65536,t=2,p=1$<22b64>$<43b64> = 97 chars)
     -- with headroom for future params bumps.  72 was a bcrypt-era leftover that
     -- truncated the argon2 hash on MariaDB STRICT installs (= login broken).
-    password_hash            VARCHAR(128) NOT NULL,
-    role                     VARCHAR(16) NOT NULL,
-    email                    VARCHAR(255),
-    alert_opt_out            TINYINT NOT NULL DEFAULT 0,
-    reset_token              VARCHAR(64),
-    reset_token_expires_at   BIGINT,
-    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login               DATETIME,
+    password_hash            VARCHAR(128) NOT NULL COMMENT 'argon2id PHC hash',
+    role                     VARCHAR(16) NOT NULL COMMENT 'superadmin / admin / viewer',
+    email                    VARCHAR(255) COMMENT 'optional contact for notifications / password reset (unique when set)',
+    alert_opt_out            TINYINT NOT NULL DEFAULT 0 COMMENT '1 = suppress alert emails to this user',
+    reset_token              VARCHAR(64) COMMENT 'one-time password-reset token (opaque)',
+    reset_token_expires_at   BIGINT COMMENT 'reset token expiry (unix seconds, UTC)',
+    created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'account creation time (UTC)',
+    last_login               DATETIME COMMENT 'last successful login time (UTC)',
     PRIMARY KEY (id),
     UNIQUE KEY uk_username (username)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Dashboard admin accounts';
 
 CREATE TABLE IF NOT EXISTS unmask_user_audit (
-    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    user_id     BIGINT UNSIGNED,
-    username    VARCHAR(64) NOT NULL,
-    action      VARCHAR(64) NOT NULL,
-    target      VARCHAR(128),
-    detail      LONGTEXT,
-    at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'surrogate row id',
+    user_id     BIGINT UNSIGNED COMMENT 'acting user id (NULL if that user was later deleted)',
+    username    VARCHAR(64) NOT NULL COMMENT 'acting user name at the time',
+    action      VARCHAR(64) NOT NULL COMMENT 'action performed (e.g. login, create_user, ban_add)',
+    target      VARCHAR(128) COMMENT 'object acted on (e.g. a username or ban key)',
+    detail      LONGTEXT COMMENT 'free-form detail / JSON',
+    at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'when the action happened (UTC)',
     PRIMARY KEY (id),
     KEY idx_at      (at),
     KEY idx_user_at (user_id, at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Append-only audit trail of admin actions';
 
 CREATE TABLE IF NOT EXISTS unmask_ban (
-    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    ip          VARCHAR(64) NOT NULL,
-    ja4         VARCHAR(40) NOT NULL,
-    source      VARCHAR(32) NOT NULL,
-    reason      VARCHAR(255),
-    banned_at   BIGINT NOT NULL,
-    expires_at  BIGINT NOT NULL DEFAULT 0,
-    banned_by   VARCHAR(64),
-    action      VARCHAR(32) NOT NULL DEFAULT '',
-    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4',
+    id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'surrogate row id',
+    ip          VARCHAR(64) NOT NULL COMMENT 'banned client IP (empty string for ja4_only scope)',
+    ja4         VARCHAR(40) NOT NULL COMMENT 'banned JA4 fingerprint (empty string for ip_only scope)',
+    source      VARCHAR(32) NOT NULL COMMENT 'who added it (manual / honeypot / community / ...)',
+    reason      VARCHAR(255) COMMENT 'human-readable reason',
+    banned_at   BIGINT NOT NULL COMMENT 'when the ban was created (unix seconds, UTC)',
+    expires_at  BIGINT NOT NULL DEFAULT 0 COMMENT 'expiry (unix seconds, UTC; 0 = never)',
+    banned_by   VARCHAR(64) COMMENT 'admin username for a manual ban',
+    action      VARCHAR(32) NOT NULL DEFAULT '' COMMENT 'per-row challenge-action override resolved against settings (empty = source default)',
+    scope       VARCHAR(16) NOT NULL DEFAULT 'ip_ja4' COMMENT 'match scope: ip_ja4 / ip_only / ja4_only',
     PRIMARY KEY (id),
     UNIQUE KEY uk_ip_ja4_scope (ip, ja4, scope),
     KEY idx_expires (expires_at),
     KEY idx_source  (source)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Ban list; exported to a file the C plugin reads on each request';
 `
