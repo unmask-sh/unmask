@@ -87,6 +87,33 @@ func TestSetupSuperadmin_AcceptsSuperadmin(t *testing.T) {
 	}
 }
 
+// TestWizardKey_SuperadminOnEmptyDB is the regression guard for the "setup
+// session expired; reload and re-enter the token" loop: after switching to a
+// fresh / empty DB the live table has no admin (setupHasAdmin()==false), but a
+// superadmin holding a session from before the switch must keep driving the
+// wizard.  Keying the state off setupHasAdmin() dropped them into the bootstrap
+// token branch (no token on a configured install) -> empty key -> getWizardState
+// nil -> "session expired".  Auth must win.
+func TestWizardKey_SuperadminOnEmptyDB(t *testing.T) {
+	h, _ := reconfHandler(t, false) // migrated, NO admin -> setupHasAdmin()==false
+	if h.setupHasAdmin() {
+		t.Fatal("precondition: the DB must have no admin")
+	}
+	req := httptest.NewRequest("GET", "/admin/setup/", nil)
+	req.AddCookie(superadminCookie(1)) // a cookie that predates the DB switch
+	// The user row is absent in the empty DB, so setupSuperadmin falls back to
+	// the (HMAC-signed) cookie role and still recognizes the superadmin.
+	if h.setupSuperadmin(req) == nil {
+		t.Fatal("a valid superadmin session must pass even when the live DB is empty")
+	}
+	if k := h.wizardStateKey(req); k != "sess:1" {
+		t.Errorf("want session-keyed wizard state on an empty DB, got %q (the bug returned \"\")", k)
+	}
+	if h.getWizardState(req) == nil {
+		t.Error("getWizardState must not be nil for an authed superadmin (nil triggers 'session expired')")
+	}
+}
+
 // --- SetupGate ---
 
 func TestSetupGate_ConfiguredRejectsUnauthed(t *testing.T) {

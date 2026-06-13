@@ -230,19 +230,22 @@ func (h *Handler) setupCSRFOK(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// wizardStateKey derives the key for the in-flight wizard state.  Bootstrap
-// keys by the setup-token cookie; reconfigure (admin exists + authed superadmin)
-// keys by the session so the deferred-commit flow works without a token.  Empty
-// when the request may not hold any state.
+// wizardStateKey derives the key for the in-flight wizard state.  A logged-in
+// superadmin always keys by session (reconfigure) so the deferred-commit flow
+// works without a token -- checked FIRST so it still holds when the live DB has
+// no admin (e.g. mid-switch to a fresh / empty DB).  Keying off setupHasAdmin()
+// first would instead drop the operator into the token branch, which has no
+// token on an already-configured install, and lock them out with "re-enter the
+// token".  A tokenless bootstrap (no admin, no session) keys by the setup-token
+// cookie.  Empty when the request may not hold any state.
 func (h *Handler) wizardStateKey(r *http.Request) string {
-	if h.setupHasAdmin() {
-		if pay := h.setupSuperadmin(r); pay != nil {
-			return "sess:" + strconv.FormatInt(pay.UserID, 10)
-		}
-		return ""
+	if pay := h.setupSuperadmin(r); pay != nil {
+		return "sess:" + strconv.FormatInt(pay.UserID, 10)
 	}
-	if c, err := r.Cookie(SetupTokenCookieName); err == nil {
-		return c.Value
+	if !h.setupHasAdmin() {
+		if c, err := r.Cookie(SetupTokenCookieName); err == nil {
+			return c.Value
+		}
 	}
 	return ""
 }
@@ -341,11 +344,12 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	// Reconfigure mode: an authenticated superadmin re-running setup on an
-	// already-configured install.  The bootstrap token step is skipped (SetupGate
-	// already gated access via auth); the wizard starts at the DB step and runs
-	// off session-keyed state.
-	reconfigure := h.setupHasAdmin() && h.setupSuperadmin(r) != nil
+	// Reconfigure mode: an authenticated superadmin re-running setup.  Keyed on
+	// auth ALONE (not setupHasAdmin) so it still holds when the live DB has no
+	// admin yet -- e.g. mid-switch to a fresh DB -- instead of falling back to the
+	// bootstrap token step.  The wizard starts at the DB step on session-keyed
+	// state.
+	reconfigure := h.setupSuperadmin(r) != nil
 	var step string
 	if reconfigure {
 		if ws := h.getWizardState(r); ws != nil {
@@ -716,10 +720,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	redirErr := func(msg string) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
 	}
-	// Reconfigure: an authenticated superadmin re-running setup on a configured
-	// install (SetupGate already enforced the auth).  Bootstrap installs instead
-	// require the setup token and refuse to run against an already-provisioned DB.
-	reconfigure := h.setupHasAdmin() && h.setupSuperadmin(r) != nil
+	// Reconfigure: an authenticated superadmin re-running setup (SetupGate already
+	// enforced the auth).  Keyed on auth ALONE so it still holds when the live DB
+	// has no admin (mid-switch to a fresh DB); a tokenless bootstrap install
+	// instead requires the setup token and refuses to run against a provisioned DB.
+	reconfigure := h.setupSuperadmin(r) != nil
 	if !reconfigure {
 		if !hasValidSetupToken(r) {
 			http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
