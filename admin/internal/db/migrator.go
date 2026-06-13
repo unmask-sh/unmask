@@ -86,16 +86,16 @@ func ensureSchemaMigrationsTable(conn *DB) error {
 	var stmt string
 	if conn.Driver == DriverMariaDB {
 		stmt = `CREATE TABLE IF NOT EXISTS schema_migrations (
-            version    INT NOT NULL,
-            name       VARCHAR(128) NOT NULL,
-            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            version    INT NOT NULL COMMENT 'numbered migration version applied',
+            name       VARCHAR(128) NOT NULL COMMENT 'migration file name (e.g. 0006_aggregate_hourly)',
+            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'when this migration was applied (UTC)',
             PRIMARY KEY (version)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Applied-migration version history for the numbered migration framework'`
 	} else {
 		stmt = `CREATE TABLE IF NOT EXISTS schema_migrations (
-            version    INTEGER PRIMARY KEY,
-            name       TEXT NOT NULL,
-            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            version    INTEGER PRIMARY KEY,                                  -- numbered migration version applied
+            name       TEXT NOT NULL,                                        -- migration file name (e.g. 0006_aggregate_hourly)
+            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP           -- when this migration was applied (UTC)
         )`
 	}
 	_, err := conn.Exec(stmt)
