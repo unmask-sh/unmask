@@ -184,14 +184,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
       </div>
       <div class="field">
         <label>{{ t .Lang "setup.user.password_confirm" }}</label>
-        <input type="password" name="password_confirm" autocomplete="new-password" required minlength="8">
+        <input type="password" name="password_confirm" id="su_pwc" autocomplete="new-password" required minlength="8" data-mismatch="{{ t .Lang "setup.err.password_mismatch" }}">
       </div>
       <div class="actions">
         <a href="?step=db" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_db" }}</a>
-        {{ if and .Reconfigure .TargetHasUser }}<button type="submit" name="action" value="skip" formnovalidate class="btn btn-secondary" title="{{ t .Lang "setup.btn.skip_user_hint" }}">{{ t .Lang "setup.btn.skip_user" }}</button>{{ end }}
-        <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
+        <button type="submit" class="btn" style="order:2">{{ t .Lang "setup.btn.next" }}</button>
+        {{ if and .Reconfigure .TargetHasUser }}<button type="submit" name="action" value="skip" formnovalidate class="btn btn-secondary" style="order:1" title="{{ t .Lang "setup.btn.skip_user_hint" }}">{{ t .Lang "setup.btn.skip_user" }}</button>{{ end }}
       </div>
     </form>
+    <script>
+    (function(){
+      var p=document.querySelector('input[name="password"]'), c=document.getElementById('su_pwc');
+      if(!p||!c) return;
+      function chk(){ c.setCustomValidity(c.value && p.value!==c.value ? (c.dataset.mismatch||'') : ''); }
+      p.addEventListener('input',chk); c.addEventListener('input',chk);
+    })();
+    </script>
     {{ end }}
 
     {{ if eq .Step "review" }}
