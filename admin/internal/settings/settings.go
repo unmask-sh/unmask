@@ -1966,14 +1966,17 @@ func Load(path string) (Settings, error) {
 		}
 	}
 	if s.Secret.BVSecret == "" {
-		s.Secret.BVSecret = randomHex(24)
-		// A per-process random key is NOT persisted, so `render-nginx` and the
-		// daemon each invent their own and sign / verify _bv with different
-		// keys — every visitor loops on the challenge.  Package installs run
-		// config-init first and the docker entrypoint persists one, so this
-		// only bites a hand-rolled config that omits the secret block; warn
-		// loudly because the failure mode is a silent site-wide loop.
-		log.Printf("unmask: WARNING: secret.bv_secret is not set in %q — using a per-process random key that is NOT persisted, so render-nginx and the daemon sign _bv with different keys and every visitor loops on the challenge. Set a fixed secret.bv_secret or run `unmask config-init`.", resolved)
+		// Neither config.yml nor config-init supplied a key.  A per-process
+		// random key makes render-nginx and the daemon sign / verify _bv with
+		// different keys, looping every visitor; instead persist one to a
+		// sidecar so every process that loads this config converges on it (DB-5).
+		sec, persisted := loadOrCreateBVSecret()
+		s.Secret.BVSecret = sec
+		if persisted {
+			log.Printf("unmask: secret.bv_secret was unset in %q — using an auto-generated key persisted to %s so render-nginx and the daemon share it. Set secret.bv_secret explicitly or run `unmask config-init` to silence this.", resolved, bvSecretSidecarPath())
+		} else {
+			log.Printf("unmask: WARNING: secret.bv_secret is not set in %q and the auto-generated key could NOT be persisted (%s unwritable) — render-nginx and the daemon will sign _bv with different keys and every visitor loops on the challenge. Set a fixed secret.bv_secret or run `unmask config-init`.", resolved, bvSecretSidecarPath())
+		}
 	}
 	if s.Secret.CaptchaSecretBase == "" {
 		s.Secret.CaptchaSecretBase = randomHex(24)
@@ -2029,6 +2032,37 @@ func rateLimitPresetBackfill(rl *RateLimitConfig, now int64) {
 	if err := os.MkdirAll(filepath.Dir(stampPath), 0o755); err == nil {
 		_ = os.WriteFile(stampPath, []byte(strconv.FormatInt(rl.PresetsBackfilledAt, 10)+"\n"), 0o644)
 	}
+}
+
+// bvSecretSidecarPath returns where an auto-generated _bv HMAC key is persisted
+// so render-nginx (CLI) and the daemon -- separate processes that each call
+// Load -- converge on ONE key instead of each inventing its own and looping
+// every visitor (DB-5).  Lives next to runtime state (= writable by the admin
+// uid without sudo) and is mode-0600 because it is a signing secret (NOT 0644
+// like the preset stamp -- a world-readable bv_secret leaks the _bv key).
+func bvSecretSidecarPath() string {
+	return "/var/lib/unmask/bv_secret"
+}
+
+// loadOrCreateBVSecret returns a persisted _bv key for the case where config.yml
+// omits one.  It reads the sidecar if present so every process shares the same
+// key; on first call it generates one and writes it 0600.  A read/write failure
+// falls back to a per-process key (= the pre-DB-5 behavior) and reports
+// persisted=false so the caller can warn that the loop is still possible.
+func loadOrCreateBVSecret() (secret string, persisted bool) {
+	p := bvSecretSidecarPath()
+	if data, err := os.ReadFile(p); err == nil {
+		if sec := strings.TrimSpace(string(data)); sec != "" {
+			return sec, true
+		}
+	}
+	sec := randomHex(24)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err == nil {
+		if err := os.WriteFile(p, []byte(sec+"\n"), 0o600); err == nil {
+			return sec, true
+		}
+	}
+	return sec, false
 }
 
 // BrowserCookieMaxAgeSeconds is the fixed Max-Age set on _bv cookies sent
