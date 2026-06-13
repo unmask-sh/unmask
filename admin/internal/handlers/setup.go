@@ -418,6 +418,15 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		// plaintext) until they submit again.
 		data["PrefillUsername"] = wstate.Username
 	}
+	if step == "user" && reconfigure && wstate != nil && wstate.DBSet {
+		// Whether the SELECTED target DB already has an admin.  Only then is
+		// "skip user creation" valid -- skipping against an empty DB (e.g. a
+		// fresh MariaDB you just switched to) would leave no way to log in, so
+		// the button is hidden and an admin must be created.
+		u, _ := h.targetDBStats(wstate.DB)
+		data["TargetHasUser"] = u > 0
+		data["TargetUsers"] = u
+	}
 	if step == "review" && wstate != nil {
 		// Final summary screen renders driver + admin for confirmation.
 		// Bot-detection posture is configured later in the Operating mode tab so
