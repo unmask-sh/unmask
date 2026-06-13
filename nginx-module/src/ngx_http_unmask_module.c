@@ -540,7 +540,10 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
 static int64_t
 ngx_unmask_atoll(const u_char *s, size_t n)
 {
-    if (n == 0 || n > 19) return -1;
+    /* Cap at 18 digits: a 19-digit decimal can exceed INT64_MAX and overflow
+     * the accumulator on the final v*10 (signed overflow = UB). Legitimate day
+     * and unix-second values are <= 10 digits, so 18 leaves ample headroom. */
+    if (n == 0 || n > 18) return -1;
     int64_t v = 0;
     for (size_t i = 0; i < n; i++) {
         if (s[i] < '0' || s[i] > '9') return -1;
