@@ -100,3 +100,20 @@ func TestReset(t *testing.T) {
 		t.Fatalf("expected hit=false after Reset, got %+v", r)
 	}
 }
+
+func TestEvictOldest(t *testing.T) {
+	l := New()
+	for i, last := range []int64{50, 10, 30, 20, 40} {
+		l.m[string(rune('a'+i))] = &window{hits: []int64{last}}
+	}
+	l.evictOldest(2)
+	if len(l.m) != 3 {
+		t.Fatalf("want 3 keys after evicting 2, got %d", len(l.m))
+	}
+	if _, ok := l.m["b"]; ok {
+		t.Error("key b (last=10) should have been evicted")
+	}
+	if _, ok := l.m["d"]; ok {
+		t.Error("key d (last=20) should have been evicted")
+	}
+}

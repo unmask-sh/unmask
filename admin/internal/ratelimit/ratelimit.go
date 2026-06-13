@@ -13,6 +13,7 @@
 package ratelimit
 
 import (
+	"sort"
 	"sync"
 	"time"
 )
@@ -22,6 +23,7 @@ type Limiter struct {
 	mu    sync.Mutex
 	m     map[string]*window
 	nowFn func() time.Time // for testability.  Defaults to time.Now.
+	base  time.Time        // captured when the clock is set; window math uses elapsed-since-base so it rides the monotonic clock (RL-1).
 }
 
 type window struct {
@@ -30,10 +32,12 @@ type window struct {
 
 // New: return a fresh Limiter.
 func New() *Limiter {
-	return &Limiter{
+	l := &Limiter{
 		m:     make(map[string]*window),
 		nowFn: time.Now,
 	}
+	l.base = l.nowFn()
+	return l
 }
 
 // SetClock: inject a clock for tests.
@@ -41,6 +45,15 @@ func (l *Limiter) SetClock(fn func() time.Time) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.nowFn = fn
+	l.base = fn()
+}
+
+// nowSec returns seconds elapsed since base.  It is built on time.Time.Sub,
+// which uses the monotonic clock reading when present (= production time.Now),
+// so a wall-clock step (e.g. NTP correction) cannot move the rate window
+// backwards (RL-1).  Callers hold l.mu.
+func (l *Limiter) nowSec() int64 {
+	return int64(l.nowFn().Sub(l.base) / time.Second)
 }
 
 const (
@@ -49,6 +62,10 @@ const (
 	// this is past any reasonable rate window, so it's safe to drop.
 	rlSweepThreshold = 100_000
 	rlStaleSeconds   = 600
+	// rlHardCap: absolute ceiling on map size.  If sweeping stale keys still
+	// leaves us at/above this (= every window is inside the stale window, i.e. an
+	// active key-rotation flood), evict the oldest keys so memory stays bounded (RL-2).
+	rlHardCap = 120_000
 )
 
 // sweepStale drops windows idle longer than rlStaleSeconds.  Caller holds l.mu.
@@ -58,6 +75,36 @@ func (l *Limiter) sweepStale(now int64) {
 		if len(w.hits) == 0 || w.hits[len(w.hits)-1] < cutoff {
 			delete(l.m, k)
 		}
+	}
+}
+
+// evictOldest removes the n keys whose most-recent hit is oldest.  Caller holds
+// l.mu.  This is the hard backstop for RL-2: it runs only when sweepStale can't
+// get the map under rlHardCap, i.e. under an active key-rotation flood.  Evicted
+// keys are recreated on their next hit (= counter reset), trading exactness for
+// a bounded map.
+func (l *Limiter) evictOldest(n int) {
+	if n <= 0 {
+		return
+	}
+	type keyAge struct {
+		key  string
+		last int64
+	}
+	ages := make([]keyAge, 0, len(l.m))
+	for k, w := range l.m {
+		var last int64
+		if len(w.hits) > 0 {
+			last = w.hits[len(w.hits)-1]
+		}
+		ages = append(ages, keyAge{k, last})
+	}
+	sort.Slice(ages, func(i, j int) bool { return ages[i].last < ages[j].last })
+	if n > len(ages) {
+		n = len(ages)
+	}
+	for i := 0; i < n; i++ {
+		delete(l.m, ages[i].key)
 	}
 }
 
@@ -93,7 +140,7 @@ func (l *Limiter) Hit(key string, spec Spec) Result {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	now := l.nowFn().Unix()
+	now := l.nowSec()
 	cutoff := now - int64(spec.WindowSec)
 
 	w, ok := l.m[key]
@@ -103,6 +150,9 @@ func (l *Limiter) Hit(key string, spec Spec) Result {
 		// is large, evict keys idle past any reasonable window before adding.
 		if len(l.m) >= rlSweepThreshold {
 			l.sweepStale(now)
+			if len(l.m) >= rlHardCap {
+				l.evictOldest(len(l.m) - rlHardCap + 1)
+			}
 		}
 		w = &window{hits: make([]int64, 0, 16)}
 		l.m[key] = w
@@ -137,7 +187,7 @@ func (l *Limiter) Purge() {
 	const stale = 3600 // 1h
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	now := l.nowFn().Unix()
+	now := l.nowSec()
 	cutoff := now - stale
 	for k, w := range l.m {
 		if len(w.hits) == 0 || w.hits[len(w.hits)-1] < cutoff {
