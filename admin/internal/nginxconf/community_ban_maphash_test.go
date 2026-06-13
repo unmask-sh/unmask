@@ -69,6 +69,35 @@ func TestCommunityBansMapHashSizing(t *testing.T) {
 		}
 	})
 
+	t.Run("host_map_block_skip_both_and_warn", func(t *testing.T) {
+		// Alpine 3.23's stock nginx.conf opens `map $http_upgrade $connection_upgrade {}`
+		// before the unmask include.  nginx forbids map_hash_bucket_size after a
+		// map block, so emitting ours in http.inc would be a fatal duplicate --
+		// Render must skip BOTH directives and warn.
+		d := build(t, "http {\n  map $http_upgrade $connection_upgrade { default upgrade; '' close; }\n}\n", settings.SubscribeFetchApply)
+		if d.CommunityBansMapHashBucket || d.CommunityBansMapHashMax {
+			t.Errorf("host opens a map block: must skip both, got bucket=%v max=%v", d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax)
+		}
+		if d.mapHashWarning == "" {
+			t.Error("host map block + no map_hash directive: expected a warning")
+		}
+		if !strings.Contains(d.mapHashWarning, "map") {
+			t.Errorf("warning should mention the map block: %s", d.mapHashWarning)
+		}
+	})
+
+	t.Run("host_map_block_but_adequate_bucket_no_warn", func(t *testing.T) {
+		// Operator set map_hash_bucket_size BEFORE the map block (the correct
+		// placement): we skip (host declares it) and there is no problem to warn about.
+		d := build(t, "http {\n  map_hash_bucket_size 256;\n  map $http_upgrade $x { default 0; }\n}\n", settings.SubscribeFetchApply)
+		if d.CommunityBansMapHashBucket {
+			t.Error("host declares bucket 256: must not emit")
+		}
+		if d.mapHashWarning != "" {
+			t.Errorf("operator sized it correctly before the map block: want no warning, got: %s", d.mapHashWarning)
+		}
+	})
+
 	t.Run("host_set_only_max_emit_only_bucket", func(t *testing.T) {
 		d := build(t, "map_hash_max_size 8192;\nhttp {\n}\n", settings.SubscribeFetchApply)
 		if !d.CommunityBansMapHashBucket {

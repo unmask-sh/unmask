@@ -933,13 +933,30 @@ func resolveMapHash(s settings.Settings) (emitBucket, emitMax bool, warning stri
 		confPath = "/etc/nginx/nginx.conf"
 	}
 	const wantBucket = 256
-	hb, hmax, readable := readHostMapHash(confPath)
+	hb, hmax, hasMapBlock, readable := readHostMapHash(confPath)
 	if !readable {
 		// Missing or unreadable (e.g. 0600-hardened) host config: emit ours and
 		// note it -- any duplicate surfaces as a clear `nginx -t` error.
 		return true, true, fmt.Sprintf("could not read %s to check for an existing map_hash_bucket_size; "+
 			"emitting map_hash_bucket_size %d + map_hash_max_size 4096 in http.inc. If you set them in nginx.conf "+
 			"yourself, ensure map_hash_bucket_size >= %d and remove the duplicate.", confPath, wantBucket, wantBucket)
+	}
+	if hasMapBlock && hb == 0 {
+		// The host nginx.conf opens a map / geo / split_clients block (e.g.
+		// Alpine 3.23's stock `map $http_upgrade $connection_upgrade {}` for
+		// websocket proxying) BEFORE unmask's http.inc include, which lands late
+		// in http{} via http.d/conf.d.  nginx requires map_hash_bucket_size to
+		// precede EVERY map block, so emitting ours from http.inc -- after the
+		// host's block -- is a fatal "directive is duplicate" `nginx -t` error
+		// (the placer's fail-safe then strips the whole module).  Skip emission:
+		// the community-bans maps fall back to nginx's default bucket (64), which
+		// is fine for an empty feed or IPv4 ip:ja4 keys (~55 chars), and warn so
+		// the operator can size it themselves for a large IPv6 feed.
+		return false, false, fmt.Sprintf("%s opens a map/geo/split_clients block before unmask's http.inc include; "+
+			"nginx forbids map_hash_bucket_size after a map block, so unmask cannot size the community-bans maps from "+
+			"http.inc (they use nginx's default bucket, 64).  If the community-bans feed carries long IPv6 ip:ja4 keys "+
+			"(~76 chars), add `map_hash_bucket_size %d;` + `map_hash_max_size 4096;` to the TOP of your nginx.conf "+
+			"http{} block (before the first map).", confPath, wantBucket)
 	}
 	if hb > 0 && hb < wantBucket {
 		warning = fmt.Sprintf("%s sets map_hash_bucket_size %d, but unmask community-bans map keys reach ~76 chars "+
@@ -962,19 +979,28 @@ func MapHashAdvice(s settings.Settings) string {
 }
 
 // readHostMapHash scans an nginx config file for top-level map_hash_bucket_size
-// / map_hash_max_size declarations and returns their values (0 when absent).
-// readable is false when the file can't be read (missing / permission denied),
-// letting the caller fall back to emitting its own.  Best-effort line scan: it
-// does not follow include directives, matching the postinstall's old grep.
-func readHostMapHash(path string) (bucket, maxsz int, readable bool) {
+// / map_hash_max_size declarations (returning their values, 0 when absent) and
+// whether the file opens any map / geo / split_clients block (hasMapBlock) --
+// these finalize the map-hash params, so a later map_hash_bucket_size is a fatal
+// duplicate.  readable is false when the file can't be read (missing / permission
+// denied), letting the caller fall back to emitting its own.  Best-effort line
+// scan: it does not follow include directives, matching the postinstall's old grep.
+func readHostMapHash(path string) (bucket, maxsz int, hasMapBlock, readable bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, false, false
 	}
 	for _, line := range strings.Split(string(b), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 || strings.HasPrefix(f[0], "#") {
 			continue
+		}
+		// map / geo / split_clients are always block directives in nginx; their
+		// opener line (e.g. `map $http_upgrade $connection_upgrade {`) marks the
+		// point after which map_hash_bucket_size can no longer be set.
+		switch f[0] {
+		case "map", "geo", "split_clients":
+			hasMapBlock = true
 		}
 		val := strings.TrimRight(f[1], ";")
 		switch f[0] {
@@ -988,7 +1014,7 @@ func readHostMapHash(path string) (bucket, maxsz int, readable bool) {
 			}
 		}
 	}
-	return bucket, maxsz, true
+	return bucket, maxsz, hasMapBlock, true
 }
 
 func toSet(xs []string) map[string]bool {
