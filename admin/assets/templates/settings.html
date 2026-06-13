@@ -83,6 +83,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .field .note{font-size:.75rem;color:#64748b;margin-top:.25rem;line-height:1.45}
 /* settings overview (= the "top" tab landing page) */
 .settings-top-grp{margin-bottom:1.4rem}
+/* About tab: nav item (bottom of the left menu) + content */
+.settings-nav-about{margin-top:1.1rem}
+.nav-dot{display:inline-block;width:.45rem;height:.45rem;border-radius:50%;background:#f59e0b;vertical-align:middle;margin-left:.15rem}
+.settings-about{font-size:.9rem;color:#334155;max-width:42rem}
+.about-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
+.about-badge{font-size:.72rem;padding:.1rem .5rem;border-radius:.8rem}
+.about-badge.ok{background:#f1f5f9;color:#64748b}
+.about-badge.upd{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.about-update{margin:.9rem 0 0;padding:.7rem .9rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.4rem}
+.about-sub{margin:.5rem 0 .25rem;font-weight:600;font-size:.8rem;color:#475569}
+.about-sub:first-child{margin-top:0}
+.about-cmd{margin:0;padding:.5rem .7rem;background:#0f172a;color:#e2e8f0;border-radius:.3rem;font-size:.82rem;overflow-x:auto}
+.about-note{margin:.35rem 0 0;font-size:.75rem;color:#94a3b8}
+.about-history{margin:.3rem 0 0;padding-left:1.1rem;font-size:.82rem}
+.about-history li{margin:.3rem 0}
+.about-date{color:#94a3b8;font-size:.92em}
+.about-notes{white-space:pre-line;color:#475569;margin:.15rem 0 0}
+.about-links{margin:1rem 0 0;font-size:.8rem;color:#64748b}
+.about-links a{color:#3b82f6;text-decoration:none}
 .settings-top-grp > h3{font-size:.82rem;color:#475569;font-weight:600;margin:0 0 .5rem;padding-bottom:.25rem;border-bottom:1px solid #e2e8f0}
 .sti{display:block;padding:.6rem .75rem;border:1px solid #e2e8f0;border-radius:.35rem;margin-bottom:.4rem;text-decoration:none;transition:background .1s,border-color .1s}
 .sti:hover{background:#f8fafc;border-color:#94a3b8}
@@ -400,6 +419,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <ul>
     <li><a href="?tab=community-bans" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
   </ul>
+  <ul class="settings-nav-about">
+    <li><a href="?tab=about" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
+  </ul>
 </aside>
 <section class="settings-content">
 
@@ -466,28 +488,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <a class="sti" href="?tab=community-bans"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
 </div>
+{{ end }}
 
-<style>
-.settings-about{margin-top:1.4rem;padding-top:1rem;border-top:1px solid #e2e8f0}
-.settings-about h3{margin:0 0 .6rem;font-size:.95rem}
-.about-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;font-size:.9rem}
-.about-badge{font-size:.72rem;padding:.1rem .5rem;border-radius:.8rem}
-.about-badge.ok{background:#f1f5f9;color:#64748b}
-.about-badge.upd{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
-.about-update{margin:.7rem 0 0;padding:.7rem .9rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.4rem}
-.about-sub{margin:.5rem 0 .25rem;font-weight:600;font-size:.8rem;color:#475569}
-.about-sub:first-child{margin-top:0}
-.about-cmd{margin:0;padding:.5rem .7rem;background:#0f172a;color:#e2e8f0;border-radius:.3rem;font-size:.82rem;overflow-x:auto}
-.about-note{margin:.35rem 0 0;font-size:.75rem;color:#94a3b8}
-.about-history{margin:.3rem 0 0;padding-left:1.1rem;font-size:.82rem}
-.about-history li{margin:.3rem 0}
-.about-date{color:#94a3b8;font-size:.92em}
-.about-notes{white-space:pre-line;color:#475569;margin:.15rem 0 0}
-.about-links{margin:.8rem 0 0;font-size:.8rem;color:#64748b}
-.about-links a{color:#3b82f6;text-decoration:none}
-</style>
+{{ if eq .Tab "about" }}
 <div class="settings-about">
-  <h3>{{ t .Lang "settings.about.heading" }}</h3>
   <div class="about-row">
     <code>unmask {{ .VersionStatus.Current }}</code>
     {{ if .VersionStatus.Checked }}
