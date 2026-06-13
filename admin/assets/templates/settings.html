@@ -508,7 +508,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     {{ if .VersionStatus.UpdateCommand }}
     <p class="about-sub">{{ t .Lang "settings.about.update_cmd" }}</p>
     <pre class="about-cmd">{{ .VersionStatus.UpdateCommand }}</pre>
-    <p class="about-note">{{ t .Lang "settings.about.update_cmd_note" }}</p>
     {{ else if .VersionStatus.ManualInstall }}
     <p class="about-note">{{ safeHTML (t .Lang "settings.about.manual") }}</p>
     {{ end }}
