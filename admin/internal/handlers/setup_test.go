@@ -135,9 +135,8 @@ func TestSetupWizardFullInstall(t *testing.T) {
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("db step: want 302, got %d", res.StatusCode)
 	}
-	peek := httptest.NewRequest(http.MethodGet, "/x", nil)
-	peek.AddCookie(setupTokenCookie(token))
-	if st := getWizardState(peek); st == nil || !st.DBSet {
+	// Bootstrap keys wizard state by the setup-token value.
+	if st := wizardStateForKey(token); st == nil || !st.DBSet {
 		t.Fatal("db step did not record DBSet in wizard state")
 	}
 

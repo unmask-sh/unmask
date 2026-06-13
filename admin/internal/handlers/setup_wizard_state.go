@@ -7,7 +7,6 @@
 package handlers
 
 import (
-	"net/http"
 	"sync"
 	"time"
 
@@ -19,9 +18,10 @@ import (
 const wizardStateTTL = 1 * time.Hour
 
 type wizardState struct {
-	DBSet    bool
-	DB       settings.DB
+	DBSet        bool
+	DB           settings.DB
 	UserSet      bool
+	UserSkipped  bool // reconfigure: keep the target DB's existing admin instead of creating one
 	Username     string
 	PasswordHash string // argon2id PHC; the plaintext is hashed at entry and never kept (AUTH-7)
 	expires      time.Time
@@ -35,7 +35,7 @@ func (w *wizardState) step() string {
 	if !w.DBSet {
 		return "db"
 	}
-	if !w.UserSet {
+	if !w.UserSet && !w.UserSkipped {
 		return "user"
 	}
 	return "review"
@@ -57,22 +57,22 @@ func gcExpiredLocked(now time.Time) {
 	}
 }
 
-// getWizardState returns the current state for the request, allocating
-// an empty one if none exists yet.  Returns nil if the request has no
-// valid setup token cookie (= caller must redirect to the token step).
-func getWizardState(r *http.Request) *wizardState {
-	c, err := r.Cookie(SetupTokenCookieName)
-	if err != nil || c.Value == "" {
+// wizardStateForKey returns the in-flight state for key, allocating an empty
+// one if none exists.  The caller derives key from the bootstrap token cookie
+// or, when reconfiguring, the authenticated superadmin session (see
+// Handler.wizardStateKey).  An empty key yields nil so the caller can redirect.
+func wizardStateForKey(key string) *wizardState {
+	if key == "" {
 		return nil
 	}
 	now := time.Now()
 	wizardStateMu.Lock()
 	defer wizardStateMu.Unlock()
 	gcExpiredLocked(now)
-	s := wizardStates[c.Value]
+	s := wizardStates[key]
 	if s == nil {
 		s = &wizardState{expires: now.Add(wizardStateTTL)}
-		wizardStates[c.Value] = s
+		wizardStates[key] = s
 	}
 	return s
 }

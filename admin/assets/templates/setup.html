@@ -76,6 +76,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
   </div>
   <div class="wizard-body">
     {{ if .Error }}<div class="alert alert-error">{{ .Error }}</div>{{ end }}
+    {{ if .Reconfigure }}<div class="alert" style="background:#1e293b;border:1px solid #334155;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#cbd5e1">&#9881; <strong>Reconfiguring</strong> &mdash; you're signed in as a superadmin, so the setup token isn't required. Change the database connection below; your existing admin account is preserved.</div>{{ end }}
 
     {{ if eq .Step "token" }}
     <h2>{{ t .Lang "setup.token.h" }}</h2>
@@ -145,6 +146,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
           </div>
         </div>
       </div>
+      {{ if .Reconfigure }}<div class="hint" style="background:#3b2f1e;border:1px solid #6b4f1e;border-radius:.4rem;padding:.6rem .8rem;margin:.6rem 0;color:#fcd34d;font-size:.8rem">&#9888; Switching the database points unmask at the new target. The existing database is <strong>not deleted</strong> and its data is <strong>not copied over</strong> &mdash; events, bans and admin users start fresh in the new DB.</div>{{ end }}
       <div class="actions">
         <span class="hint" style="font-size:.78rem;color:#94a3b8">{{ t .Lang "setup.db.note" }}</span>
         <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
@@ -185,6 +187,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
       </div>
       <div class="actions">
         <a href="?step=db" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_db" }}</a>
+        {{ if .Reconfigure }}<button type="submit" name="action" value="skip" formnovalidate class="btn btn-secondary" title="Keep the admin account already in the target database">Skip — keep current admin</button>{{ end }}
         <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
       </div>
     </form>
@@ -197,7 +200,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
       <tr><th>{{ t .Lang "setup.review.db" }}</th>
           <td>{{ if eq .ReviewDriver "sqlite" }}SQLite — <code>{{ .ReviewSQLitePath }}</code>{{ else }}MariaDB / MySQL — {{ .ReviewMariaDBUser }}@{{ .ReviewMariaDBHost }}:{{ .ReviewMariaDBPort }}/{{ .ReviewMariaDBDB }}{{ end }}</td></tr>
       <tr><th>{{ t .Lang "setup.review.admin" }}</th>
-          <td><code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }})</td></tr>
+          <td>{{ if .ReviewUsername }}<code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }}){{ else }}<em>keeping the existing admin (no new user created)</em>{{ end }}</td></tr>
     </table>
     <form method="post" action="{{ .BasePath }}/admin/setup/install">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">

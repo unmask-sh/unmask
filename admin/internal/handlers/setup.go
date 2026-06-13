@@ -142,7 +142,7 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 		if !hasValidSetupToken(r) {
 			return true, "token"
 		}
-		s := getWizardState(r)
+		s := h.getWizardState(r)
 		if s == nil {
 			return true, "token"
 		}
@@ -168,23 +168,119 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 	return false, ""
 }
 
-// SetupGate: setup-wizard middleware.  When setup is needed, redirect
-// everything except the setup endpoints to /admin/setup/.  Once setup
-// completes, hitting /admin/setup/* sends you back to /admin/ (= can't
-// re-run the wizard).
+// setupHasAdmin reports whether an admin account already exists (= setup has
+// been completed at least once).  A nil DB or a query error is treated as "no
+// admin" so a fresh / not-yet-migrated install still reaches the wizard.
+func (h *Handler) setupHasAdmin() bool {
+	if h.DB == nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var n int
+	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n); err != nil {
+		return false
+	}
+	return n > 0
+}
+
+// setupSuperadmin returns the session payload IFF the request is an
+// authenticated superadmin that also clears the admin IP allowlist.  Once setup
+// is complete the bootstrap token is gone, so re-running the wizard is gated by
+// the same auth as the rest of the admin (= a logged-in superadmin), not a
+// token.  Returns nil otherwise.
+func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
+	// Same IP allowlist every other admin route enforces.
+	ip := adminClientIP(r, h.snapshotSettings())
+	if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
+		return nil
+	}
+	c, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return nil
+	}
+	pay := verifySessionCookie(h.cfg().Secret.BVSecret, c.Value)
+	if pay == nil {
+		return nil
+	}
+	// Honor the CURRENT DB role so a demoted account can't reconfigure on a
+	// frozen cookie (mirrors AuthMiddleware).
+	if h.UserRepo != nil {
+		if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
+			pay.Role = u.Role
+		}
+	}
+	if !roleAtLeast(pay.Role, user.RoleSuperadmin) {
+		return nil
+	}
+	return pay
+}
+
+// setupCSRFOK guards a setup POST against CSRF.  Reconfigure POSTs are made by
+// an authenticated superadmin, so they MUST echo the CSRF token (a malicious
+// page could otherwise drive a logged-in superadmin into repointing the DB);
+// bootstrap POSTs carry no session and are instead protected by the unguessable
+// setup token, so they skip the check.  ParseForm must have run for url-encoded
+// bodies.  Writes 403 and returns false on failure.
+func (h *Handler) setupCSRFOK(w http.ResponseWriter, r *http.Request) bool {
+	if h.setupSuperadmin(r) != nil && !verifyCSRF(r) {
+		http.Error(w, "forbidden (csrf)", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+// wizardStateKey derives the key for the in-flight wizard state.  Bootstrap
+// keys by the setup-token cookie; reconfigure (admin exists + authed superadmin)
+// keys by the session so the deferred-commit flow works without a token.  Empty
+// when the request may not hold any state.
+func (h *Handler) wizardStateKey(r *http.Request) string {
+	if h.setupHasAdmin() {
+		if pay := h.setupSuperadmin(r); pay != nil {
+			return "sess:" + strconv.FormatInt(pay.UserID, 10)
+		}
+		return ""
+	}
+	if c, err := r.Cookie(SetupTokenCookieName); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+// getWizardState returns the in-flight wizard state for the request using the
+// mode-aware key, or nil when the request isn't authorized to hold any.
+func (h *Handler) getWizardState(r *http.Request) *wizardState {
+	return wizardStateForKey(h.wizardStateKey(r))
+}
+
+// SetupGate guards the setup endpoints and the bootstrap forced-redirect.
+//
+//   - Bootstrap (no admin yet): setup is mandatory.  Non-setup paths bounce to
+//     the wizard; the wizard itself is gated by the setup token inside the
+//     handlers.
+//   - Configured (admin exists): setup is complete and /setup/ becomes a
+//     superadmin-only reconfigure surface.  A non-superadmin (or unauthenticated)
+//     request to /setup/ is bounced to /admin/; everything else passes through.
 func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		needed, _ := h.SetupNeeded(r)
 		base := h.cfg().Server.BasePath
 		isSetupPath := strings.HasPrefix(r.URL.Path, base+"/admin/setup")
-		// done + on a setup endpoint -> kick to /admin/.
-		if !needed && isSetupPath {
-			http.Redirect(w, r, base+"/admin/", http.StatusFound)
+
+		if !h.setupHasAdmin() {
+			// Bootstrap: the token gates the wizard; force everything else to it.
+			needed, _ := h.SetupNeeded(r)
+			if needed && !isSetupPath {
+				http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
+				return
+			}
+			next(w, r)
 			return
 		}
-		// still needed + on a different endpoint -> redirect to setup.
-		if needed && !isSetupPath {
-			http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
+
+		// Configured: /setup/ is reconfigure-only, gated by superadmin auth
+		// (token no longer applies).  Other paths are unaffected.
+		if isSetupPath && h.setupSuperadmin(r) == nil {
+			http.Redirect(w, r, base+"/admin/", http.StatusFound)
 			return
 		}
 		next(w, r)
@@ -203,11 +299,25 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	_, step := h.SetupNeeded(r)
-	if step == "" {
-		// Done.  Redirect anyway as a guard against a race where SetupGate didn't fire.
-		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/", http.StatusFound)
-		return
+	// Reconfigure mode: an authenticated superadmin re-running setup on an
+	// already-configured install.  The bootstrap token step is skipped (SetupGate
+	// already gated access via auth); the wizard starts at the DB step and runs
+	// off session-keyed state.
+	reconfigure := h.setupHasAdmin() && h.setupSuperadmin(r) != nil
+	var step string
+	if reconfigure {
+		if ws := h.getWizardState(r); ws != nil {
+			step = ws.step()
+		} else {
+			step = "db"
+		}
+	} else {
+		_, step = h.SetupNeeded(r)
+		if step == "" {
+			// Done.  Redirect anyway as a guard against a race where SetupGate didn't fire.
+			http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/", http.StatusFound)
+			return
+		}
 	}
 	// Backward navigation: ?step=<earlier-step> lets the user revisit a
 	// step they've already passed (= fixing a typo in admin username after
@@ -215,7 +325,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	// is strictly earlier than the natural one (= can't skip forward).
 	if req := r.URL.Query().Get("step"); req != "" {
 		order := map[string]int{"token": 0, "db": 1, "user": 2, "review": 3, "done": 4}
-		if order[req] < order[step] && hasValidSetupToken(r) {
+		if order[req] < order[step] && (reconfigure || hasValidSetupToken(r)) {
 			step = req
 		}
 	}
@@ -223,7 +333,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	// Start with the saved-on-disk DB config (= bootstrap defaults).  If
 	// the wizard state already has DB values entered, overlay them so the
 	// form is pre-filled when the user navigates back.
-	wstate := getWizardState(r)
+	wstate := h.getWizardState(r)
 	if wstate != nil && wstate.DBSet {
 		cur = wstate.DB
 	}
@@ -269,6 +379,14 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":       q.Get("err"),
 		"DB":          cur,
 		"LangOptions": langOpts,
+		// Reconfigure: a superadmin re-running setup on a configured install.
+		// Drives the "you're reconfiguring" banner, the skip-user option, and
+		// the "switching DB doesn't move data / keeps the old DB" warning.
+		"Reconfigure": reconfigure,
+		// CSRF token for the form hidden fields.  Empty in bootstrap (no session
+		// yet, and bootstrap POSTs are token-gated, not CSRF-gated); the logged-in
+		// superadmin's token in reconfigure, where the POSTs DO verify CSRF.
+		"CSRFToken": CSRFTokenFromRequest(r),
 	}
 	if step == "user" && wstate != nil && wstate.UserSet {
 		// Pre-fill the username so the user can review / edit on backtrack.
@@ -336,12 +454,17 @@ func (h *Handler) AdminSetupSaveToken(w http.ResponseWriter, r *http.Request) {
 // hot-swap happens in AdminSetupInstall (= deferred-commit model so the
 // user can navigate back and forth without irreversible side effects).
 func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
-	if !hasValidSetupToken(r) {
+	// Bootstrap requires the token; reconfigure is gated by superadmin auth
+	// (SetupGate already enforced it).
+	if h.setupSuperadmin(r) == nil && !hasValidSetupToken(r) {
 		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
 	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
+		return
+	}
+	if !h.setupCSRFOK(w, r) {
 		return
 	}
 	base := h.cfg().Server.BasePath
@@ -387,6 +510,14 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 		cfg.MariaDB.Database = strings.TrimSpace(r.FormValue("mariadb_database"))
 		cfg.MariaDB.User = strings.TrimSpace(r.FormValue("mariadb_user"))
 		cfg.MariaDB.Password = r.FormValue("mariadb_password")
+		// Reconfigure: a blank password field means "keep the current one" (the
+		// form shows a placeholder, never the real secret), as long as the
+		// current config is already MariaDB so there is one to keep.
+		if cfg.MariaDB.Password == "" && h.setupSuperadmin(r) != nil {
+			if curDB := h.snapshotSettings().DB; curDB.Driver == "mariadb" {
+				cfg.MariaDB.Password = curDB.MariaDB.Password
+			}
+		}
 		if cfg.MariaDB.Database == "" || cfg.MariaDB.User == "" {
 			redirErr("MariaDB host/database/user are required")
 			return
@@ -404,7 +535,7 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = conn.Close()
 
-	s := getWizardState(r)
+	s := h.getWizardState(r)
 	if s == nil {
 		redirErr("setup session expired; reload and re-enter the token")
 		return
@@ -419,7 +550,8 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 // username + password and store them in wizard state.  Actual unmask_user
 // row creation happens in AdminSetupInstall.
 func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
-	if !hasValidSetupToken(r) {
+	// Bootstrap requires the token; reconfigure is gated by superadmin auth.
+	if h.setupSuperadmin(r) == nil && !hasValidSetupToken(r) {
 		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
 		return
 	}
@@ -427,9 +559,28 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	if !h.setupCSRFOK(w, r) {
+		return
+	}
 	base := h.cfg().Server.BasePath
 	redirErr := func(msg string) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
+	}
+
+	// Reconfigure: "skip" keeps the target DB's existing admin instead of
+	// creating one (only an authenticated superadmin may skip; bootstrap must
+	// create the first user).  Install re-validates the target DB has a user.
+	if r.FormValue("action") == "skip" && h.setupSuperadmin(r) != nil {
+		s := h.getWizardState(r)
+		if s == nil || !s.DBSet {
+			redirErr("complete the DB step first")
+			return
+		}
+		s.UserSet = false
+		s.UserSkipped = true
+		touchWizardState(s)
+		http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
+		return
 	}
 
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -448,7 +599,7 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s := getWizardState(r)
+	s := h.getWizardState(r)
 	if s == nil {
 		redirErr("setup session expired; reload and re-enter the token")
 		return
@@ -482,32 +633,52 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 // in-flight wizard state.  Any error before the token removal leaves the
 // wizard re-runnable.
 func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
-	if !hasValidSetupToken(r) {
-		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
-		return
-	}
-	// Defense in depth: never re-install against an already-provisioned
-	// instance.  If the live DB already has a user, setup was completed before
-	// (a stale token slipped through) -- re-installing would migrate a fresh DB
-	// and rewrite config.yml's DB block to SQLite, orphaning the real backend.
-	// Clear the stale token and bounce to the dashboard.
-	if h.DB != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		var n int
-		err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n)
-		cancel()
-		if err == nil && n > 0 {
-			removeSetupToken()
-			http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/", http.StatusFound)
-			return
-		}
-	}
 	base := h.cfg().Server.BasePath
 	redirErr := func(msg string) {
 		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
 	}
-	s := getWizardState(r)
-	if s == nil || !s.DBSet || !s.UserSet {
+	// Reconfigure: an authenticated superadmin re-running setup on a configured
+	// install (SetupGate already enforced the auth).  Bootstrap installs instead
+	// require the setup token and refuse to run against an already-provisioned DB.
+	reconfigure := h.setupHasAdmin() && h.setupSuperadmin(r) != nil
+	if !reconfigure {
+		if !hasValidSetupToken(r) {
+			http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
+			return
+		}
+		// Defense in depth: never re-install against an already-provisioned
+		// instance via the bootstrap path.  If the live DB already has a user,
+		// setup was completed before (a stale token slipped through) --
+		// re-installing would migrate a fresh DB and rewrite config.yml's DB
+		// block to SQLite, orphaning the real backend.  Clear the stale token
+		// and bounce to the dashboard.
+		if h.DB != nil {
+			ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+			var n int
+			err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n)
+			cancel()
+			if err == nil && n > 0 {
+				removeSetupToken()
+				http.Redirect(w, r, base+"/admin/", http.StatusFound)
+				return
+			}
+		}
+	}
+	// Reconfigure installs carry a session, so enforce CSRF (bootstrap installs
+	// are protected by the unguessable setup token instead).
+	_ = r.ParseForm()
+	if !h.setupCSRFOK(w, r) {
+		return
+	}
+	stateKey := h.wizardStateKey(r)
+	s := wizardStateForKey(stateKey)
+	if s == nil || !s.DBSet {
+		redirErr("setup session incomplete; complete the DB step before installing")
+		return
+	}
+	// The admin-user step is mandatory on a bootstrap install but optional when
+	// reconfiguring -- the target DB may already have an admin (validated below).
+	if !reconfigure && !s.UserSet {
 		redirErr("setup session incomplete; complete every step before installing")
 		return
 	}
@@ -540,14 +711,35 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		redirErr("db migrate: " + err.Error())
 		return
 	}
-	// 2. create admin user (= superadmin)
+	// 2. create admin user (= superadmin), or skip when reconfiguring and the
+	// target DB already has one (else the operator would be locked out).
 	repo := user.New(conn)
-	if _, err := repo.CreateWithHash(r.Context(), s.Username, s.PasswordHash, user.RoleSuperadmin); err != nil {
-		if conn != h.DB {
-			_ = conn.Close()
+	if s.UserSet {
+		if _, err := repo.CreateWithHash(r.Context(), s.Username, s.PasswordHash, user.RoleSuperadmin); err != nil {
+			if conn != h.DB {
+				_ = conn.Close()
+			}
+			redirErr("create user: " + err.Error())
+			return
 		}
-		redirErr("create user: " + err.Error())
-		return
+	} else {
+		// User step skipped (reconfigure only): the selected DB must already
+		// hold an admin, or there'd be no way to log in afterward.
+		n, cerr := repo.Count(r.Context())
+		if cerr != nil {
+			if conn != h.DB {
+				_ = conn.Close()
+			}
+			redirErr("count users in selected DB: " + cerr.Error())
+			return
+		}
+		if n == 0 {
+			if conn != h.DB {
+				_ = conn.Close()
+			}
+			redirErr("the selected DB has no admin user; go back and create one")
+			return
+		}
 	}
 	// 3. apply protection-mode preset onto current settings and persist
 	cur, err := settings.Load(h.ConfigPath)
@@ -581,15 +773,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if old != nil && old != conn {
 		_ = old.Close()
 	}
-	// 5. seal the wizard
-	tokenValue := ""
-	if c, err := r.Cookie(SetupTokenCookieName); err == nil {
-		tokenValue = c.Value
-	}
+	// 5. seal the wizard.  removeSetupToken is a no-op when reconfiguring (the
+	// bootstrap token is already gone); drop the in-flight state by the same
+	// mode-aware key it was stored under (stateKey was captured pre-swap).
 	removeSetupToken()
-	if tokenValue != "" {
-		dropWizardState(tokenValue)
-	}
+	dropWizardState(stateKey)
 	// A DB switch (e.g. to MariaDB) opened a fresh handle and closed the boot
 	// one; the background workers are still bound to the old handle, so only a
 	// restart re-binds them.  Flag it so the done page makes the restart
