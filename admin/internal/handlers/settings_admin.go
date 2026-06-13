@@ -3430,8 +3430,16 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 		_ = os.Remove(cur.LogoPath)
 	}
 	path := filepath.Join(dir, "logo"+ext)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	// Write to a temp file in the same dir and rename into place so a concurrent
+	// reader (the /branding/logo serve) never sees a half-written file, matching
+	// the atomic tmp+rename pattern used for every other on-disk write.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return fmt.Errorf("logo: write failed: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("logo: rename failed: %w", err)
 	}
 	cur.LogoPath = path
 	return nil
