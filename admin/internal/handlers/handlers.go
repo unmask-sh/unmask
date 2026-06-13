@@ -1604,7 +1604,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 		return
 	}
-	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase) {
+	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
 		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 		h.setBVCookie(w, r, val)
 		h.mintBVJ(w, r, ip, host)
@@ -1616,7 +1616,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 
 // CaptchaNew: GET {base}/api/captcha/new
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
-	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
+	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
 	// ct: proof-of-load bound to this IP + time, returned with the math
 	// challenge and required on the /verify math path -- so the answer/token
 	// can't be harvested once and blind-replayed from any IP forever.

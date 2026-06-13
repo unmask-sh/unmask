@@ -113,21 +113,26 @@ func Score(s *Signal) float64 {
 	return score
 }
 
-// MathChallenge returns (a, b, token).  Verify the answer with VerifyMath.
-//
-// token is HMAC(answer, secret_for_today).  secret rotates daily, so old
-// challenges naturally expire.
-func MathChallenge(captchaSecretBase string) (int, int, string) {
+// MathChallenge returns (a, b, token) for the client at ip.  token is
+// "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, today), "math:<issued>:<ip>:<a+b>"),
+// so a solved (answer, token) pair is bound to the issuing IP and a freshness
+// window (see VerifyMath) -- it can't be harvested once and replayed from
+// another IP, nor reused after it goes stale.  True single-use is intentionally
+// not enforced: math is a trivially-solvable fallback behind PoW, and the
+// /verify path additionally requires the IP-bound ct proof-of-load token.
+func MathChallenge(captchaSecretBase, ip string) (int, int, string) {
 	a := randomInt(1, 20)
 	b := randomInt(1, 20)
-	token := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	token.Write([]byte(strconv.Itoa(a + b)))
-	return a, b, hex.EncodeToString(token.Sum(nil))
+	issued := time.Now().Unix()
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + ip + ":" + strconv.Itoa(a+b)))
+	return a, b, strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-// VerifyMath returns true iff answerStr is a non-negative integer whose HMAC
-// matches token.
-func VerifyMath(answerStr, token, captchaSecretBase string) bool {
+// VerifyMath returns true iff answerStr is a non-negative integer and token is a
+// fresh, IP-matching HMAC for that answer: issued within validSecs for ip and
+// signed with today's secret.  Returns false on any malformation.
+func VerifyMath(answerStr, token, captchaSecretBase, ip string, validSecs int64) bool {
 	s := strings.TrimSpace(answerStr)
 	if s == "" {
 		return false
@@ -137,10 +142,23 @@ func VerifyMath(answerStr, token, captchaSecretBase string) bool {
 			return false
 		}
 	}
+	dot := strings.IndexByte(token, '.')
+	if dot <= 0 || dot >= len(token)-1 {
+		return false
+	}
+	issuedStr, sig := token[:dot], token[dot+1:]
+	issued, err := strconv.ParseInt(issuedStr, 10, 64)
+	if err != nil {
+		return false
+	}
+	now := time.Now().Unix()
+	if issued > now+60 || now-issued > validSecs {
+		return false
+	}
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	mac.Write([]byte(s))
+	mac.Write([]byte("math:" + issuedStr + ":" + ip + ":" + s))
 	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(token))
+	return hmac.Equal([]byte(expected), []byte(sig))
 }
 
 // IssueToken returns a proof-of-load token bound to the client IP and the

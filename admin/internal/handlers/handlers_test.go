@@ -232,8 +232,11 @@ func TestCaptchaNew(t *testing.T) {
 	if resp.A < 1 || resp.A > 20 || resp.B < 1 || resp.B > 20 {
 		t.Errorf("a/b out of [1,20]: %+v", resp)
 	}
-	if len(resp.Token) != 64 {
-		t.Errorf("token length expected 64 (sha256 hex), got %d", len(resp.Token))
+	// token format is "<issued>.<hmac>": a unix-second timestamp, a dot, then
+	// the 64-char sha256 hex (now IP/time-bound, see captcha.MathChallenge).
+	issued, sig, ok := strings.Cut(resp.Token, ".")
+	if !ok || issued == "" || len(sig) != 64 {
+		t.Errorf("token format want <issued>.<64-hex sha256>, got %q", resp.Token)
 	}
 }
 

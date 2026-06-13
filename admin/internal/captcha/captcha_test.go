@@ -84,19 +84,28 @@ func TestScore_StraightLine(t *testing.T) {
 
 func TestVerifyMath(t *testing.T) {
 	const base = "test-base-secret"
-	a, b, token := MathChallenge(base)
+	const ip = "203.0.113.7"
+	a, b, token := MathChallenge(base, ip)
 	correct := []byte{'0' + byte((a+b)/10), '0' + byte((a+b)%10)}
 	correctStr := string(correct)
 	if a+b < 10 {
 		correctStr = correctStr[1:]
 	}
-	if !VerifyMath(correctStr, token, base) {
+	if !VerifyMath(correctStr, token, base, ip, 900) {
 		t.Errorf("correct answer should verify (a=%d b=%d ans=%s)", a, b, correctStr)
 	}
-	if VerifyMath("0", token, base) && a+b != 0 {
+	if VerifyMath("0", token, base, ip, 900) && a+b != 0 {
 		t.Error("zero answer should not verify (unless a+b==0)")
 	}
-	if VerifyMath("not a number", token, base) {
+	if VerifyMath("not a number", token, base, ip, 900) {
 		t.Error("non-numeric answer should fail")
+	}
+	// IP binding: a solved token must not verify from a different IP.
+	if VerifyMath(correctStr, token, base, "198.51.100.9", 900) {
+		t.Error("token bound to one IP should not verify from another")
+	}
+	// Freshness: validSecs=-1 forces the stale branch (now-issued >= 0 > -1).
+	if VerifyMath(correctStr, token, base, ip, -1) {
+		t.Error("token outside the freshness window should not verify")
 	}
 }
