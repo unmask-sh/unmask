@@ -392,11 +392,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	sort.Strings(scopeHosts)
 
 	return map[string]any{
-		"Lang":       i18n.Resolve(r),
-		"TZ":         resolveTZ(r),
-		"BasePath":   h.cfg().Server.BasePath,
-		"Version":    h.Version,
-		"ConfigPath": h.ConfigPath,
+		"Lang":          i18n.Resolve(r),
+		"TZ":            resolveTZ(r),
+		"BasePath":      h.cfg().Server.BasePath,
+		"Version":       h.Version,
+		"VersionStatus": h.versionStatus(),
+		"ConfigPath":    h.ConfigPath,
 		// Self host id (= identifies which machine in a shared DB / aggregated dashboard).
 		// SelfHostID: resolved value (= config value → os.Hostname → "default", in priority order).
 		// ConfiguredHostID: raw value from config.yml. Empty means the hostname fallback was used.

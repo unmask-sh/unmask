@@ -1250,6 +1250,10 @@ type Settings struct {
 	Rebind        RebindConfig         `yaml:"rebind,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
+	// VersionCheckURL: where the admin overview checks for the latest unmask
+	// release + changelog.  Empty -> the default (unmask.sh); "off" -> disabled
+	// (no outbound call at all, for operators who want zero external requests).
+	VersionCheckURL string `yaml:"version_check_url,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a
@@ -1382,6 +1386,23 @@ const (
 	DefaultCommunityBansFeedURL      = "https://unmask.sh/api/feed/list.json"
 	DefaultCommunityBansAggregateURL = "https://unmask.sh/api/feed/aggregate"
 )
+
+// DefaultVersionCheckURL: the unmask.sh endpoint the admin overview polls for
+// the latest release + changelog.  Overridable via Settings.VersionCheckURL.
+const DefaultVersionCheckURL = "https://unmask.sh/api/version"
+
+// VersionCheckURLResolved returns the effective update-check URL: the default
+// when the field is empty, "" when explicitly turned off (so the admin makes no
+// outbound call), else the operator's override.
+func (s Settings) VersionCheckURLResolved() string {
+	switch strings.ToLower(strings.TrimSpace(s.VersionCheckURL)) {
+	case "":
+		return DefaultVersionCheckURL
+	case "off", "none", "-", "disabled":
+		return ""
+	}
+	return strings.TrimSpace(s.VersionCheckURL)
+}
 
 // Subscribe mode values.
 const (

@@ -466,6 +466,65 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <a class="sti" href="?tab=community-bans"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
 </div>
+
+<style>
+.settings-about{margin-top:1.4rem;padding-top:1rem;border-top:1px solid #e2e8f0}
+.settings-about h3{margin:0 0 .6rem;font-size:.95rem}
+.about-row{display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;font-size:.9rem}
+.about-badge{font-size:.72rem;padding:.1rem .5rem;border-radius:.8rem}
+.about-badge.ok{background:#f1f5f9;color:#64748b}
+.about-badge.upd{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.about-update{margin:.7rem 0 0;padding:.7rem .9rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.4rem}
+.about-sub{margin:.5rem 0 .25rem;font-weight:600;font-size:.8rem;color:#475569}
+.about-sub:first-child{margin-top:0}
+.about-cmd{margin:0;padding:.5rem .7rem;background:#0f172a;color:#e2e8f0;border-radius:.3rem;font-size:.82rem;overflow-x:auto}
+.about-note{margin:.35rem 0 0;font-size:.75rem;color:#94a3b8}
+.about-history{margin:.3rem 0 0;padding-left:1.1rem;font-size:.82rem}
+.about-history li{margin:.3rem 0}
+.about-date{color:#94a3b8;font-size:.92em}
+.about-notes{white-space:pre-line;color:#475569;margin:.15rem 0 0}
+.about-links{margin:.8rem 0 0;font-size:.8rem;color:#64748b}
+.about-links a{color:#3b82f6;text-decoration:none}
+</style>
+<div class="settings-about">
+  <h3>{{ t .Lang "settings.about.heading" }}</h3>
+  <div class="about-row">
+    <code>unmask {{ .VersionStatus.Current }}</code>
+    {{ if .VersionStatus.Checked }}
+      {{ if .VersionStatus.UpdateAvailable }}
+      <span class="about-badge upd">{{ tf .Lang "settings.about.update_available" .VersionStatus.Latest }}</span>
+      {{ else }}
+      <span class="about-badge ok">{{ t .Lang "settings.about.uptodate" }}</span>
+      {{ end }}
+    {{ end }}
+  </div>
+
+  {{ if .VersionStatus.UpdateAvailable }}
+  <div class="about-update">
+    {{ if .VersionStatus.UpdateCommand }}
+    <p class="about-sub">{{ t .Lang "settings.about.update_cmd" }}</p>
+    <pre class="about-cmd">{{ .VersionStatus.UpdateCommand }}</pre>
+    <p class="about-note">{{ t .Lang "settings.about.update_cmd_note" }}</p>
+    {{ else if .VersionStatus.ManualInstall }}
+    <p class="about-note">{{ safeHTML (t .Lang "settings.about.manual") }}</p>
+    {{ end }}
+    {{ if .VersionStatus.History }}
+    <p class="about-sub">{{ t .Lang "settings.about.history_heading" }}</p>
+    <ul class="about-history">
+      {{ range .VersionStatus.History }}
+      <li><b>{{ .Version }}</b>{{ if .Date }} <span class="about-date">{{ .Date }}</span>{{ end }}{{ if .Notes }}<div class="about-notes">{{ .Notes }}</div>{{ end }}</li>
+      {{ end }}
+    </ul>
+    {{ end }}
+  </div>
+  {{ end }}
+
+  <p class="about-links">
+    <a href="https://github.com/unmask-sh/unmask" target="_blank" rel="noopener">GitHub ↗</a> ·
+    <a href="https://unmask.sh/docs/" target="_blank" rel="noopener">Docs ↗</a> ·
+    <a href="https://unmask.sh/" target="_blank" rel="noopener">unmask.sh ↗</a>
+  </p>
+</div>
 {{ end }}
 
 {{ if eq .Tab "network" }}
