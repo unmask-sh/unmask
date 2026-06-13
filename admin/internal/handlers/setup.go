@@ -309,6 +309,26 @@ func (h *Handler) targetDBStats(dbcfg settings.DB) (users, events int) {
 	return users, events
 }
 
+// targetDBHasUsername reports whether username already exists in the target DB,
+// so the user step can reject a duplicate immediately instead of letting it fail
+// at install.  A missing table / unopenable DB returns false (= install stays
+// the backstop).
+func (h *Handler) targetDBHasUsername(dbcfg settings.DB, username string) bool {
+	var conn *db.DB
+	if h.DB != nil && dbcfg == h.cfg().DB {
+		conn = h.DB
+	} else {
+		c, err := db.Open(dbcfg)
+		if err != nil {
+			return false
+		}
+		defer c.Close()
+		conn = c
+	}
+	u, err := user.New(conn).GetByUsername(context.Background(), username)
+	return err == nil && u != nil
+}
+
 // AdminSetupIndex: GET {base}/admin/setup/  — render the current step.
 //
 // step order: token -> db -> user -> done.
@@ -662,6 +682,13 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 	// jumping them around.
 	if !s.DBSet {
 		redirErr("setup session was reset (likely an admin restart); please complete the DB step again")
+		return
+	}
+	// Reconfigure: reject a username that already exists in the target DB now
+	// (the unique constraint would otherwise only surface at install).  The
+	// operator can pick a different name or use Skip to keep the existing admin.
+	if h.setupSuperadmin(r) != nil && h.targetDBHasUsername(s.DB, username) {
+		redirErr(i18n.T(lang, "setup.err.username_taken"))
 		return
 	}
 	s.Username = username
