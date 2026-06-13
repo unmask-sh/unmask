@@ -10,10 +10,10 @@
 -- served   : the subset that did NOT pass straight through (= was challenged)
 --            passed is derived as total - served.
 CREATE TABLE IF NOT EXISTS unmask_crawler_minute (
-    bucket_min  INTEGER NOT NULL,
-    category    VARCHAR(16) NOT NULL,
-    total       INTEGER NOT NULL DEFAULT 0,
-    served      INTEGER NOT NULL DEFAULT 0,
+    bucket_min  INTEGER NOT NULL,            -- minute bucket (unix epoch seconds / 60)
+    category    VARCHAR(16) NOT NULL,        -- crawler category (search / training / agent / scraper / collector)
+    total       INTEGER NOT NULL DEFAULT 0,  -- every request from that category in the minute
+    served      INTEGER NOT NULL DEFAULT 0,  -- subset that was challenged (passed = total - served)
     PRIMARY KEY (bucket_min, category)
 );
 CREATE INDEX IF NOT EXISTS idx_crawler_minute_min ON unmask_crawler_minute(bucket_min);

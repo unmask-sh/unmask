@@ -14,10 +14,10 @@
 --               ccip -> key '<country-code>'   distinct IP per country (phase=serve)
 -- sketch      : 1024-byte HLL register array (precision p=10)
 CREATE TABLE IF NOT EXISTS unmask_aggregate_hll (
-    bucket       VARCHAR(13) NOT NULL,
-    bucket_kind  VARCHAR(16) NOT NULL,
-    bucket_key   VARCHAR(128) NOT NULL,
-    sketch       BLOB NOT NULL,
+    bucket       VARCHAR(13) NOT NULL,   -- 'YYYY-MM-DD HH' (vdip, hourly) or 'YYYY-MM-DD' (ccip, daily)
+    bucket_kind  VARCHAR(16) NOT NULL,   -- vdip (distinct IP per verdict) / ccip (distinct IP per country)
+    bucket_key   VARCHAR(128) NOT NULL,  -- verdict or 2-letter country code
+    sketch       BLOB NOT NULL,          -- 1024-byte HLL register array (precision p=10)
     PRIMARY KEY (bucket, bucket_kind, bucket_key)
 );
 

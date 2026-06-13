@@ -19,9 +19,9 @@
 --               srl -> key '<vid>|<verdict>'          phase=serve, payload rl=1
 -- cnt         : event count in the bucket
 CREATE TABLE IF NOT EXISTS unmask_aggregate_hourly (
-    bucket_hour  VARCHAR(13) NOT NULL,
-    bucket_kind  VARCHAR(16) NOT NULL,
-    bucket_key   VARCHAR(128) NOT NULL,
-    cnt          INTEGER NOT NULL DEFAULT 0,
+    bucket_hour  VARCHAR(13) NOT NULL,        -- 'YYYY-MM-DD HH' (DB clock, from date_created)
+    bucket_kind  VARCHAR(16) NOT NULL,        -- rollup family: fnl (verdict x phase) / lf0 (load, flags=0) / srl (serve, rl=1)
+    bucket_key   VARCHAR(128) NOT NULL,       -- key within the family (e.g. '<vid>|<verdict>|<phase>')
+    cnt          INTEGER NOT NULL DEFAULT 0,  -- event count in the bucket
     PRIMARY KEY (bucket_hour, bucket_kind, bucket_key)
 );

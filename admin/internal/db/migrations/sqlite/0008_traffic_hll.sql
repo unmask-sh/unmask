@@ -18,9 +18,9 @@
 -- Written by nginxlog.Reader on each minute flush (read-merge-write so a
 -- restart / late datagram does not lose a bucket); merged + estimated on read.
 CREATE TABLE IF NOT EXISTS unmask_traffic_hll (
-    bucket_min  INTEGER NOT NULL,
-    site        VARCHAR(64) NOT NULL,
-    kind        VARCHAR(8) NOT NULL,
-    sketch      BLOB NOT NULL,
+    bucket_min  INTEGER NOT NULL,      -- unix epoch minute (time.Unix()/60), same clock as unmask_cookie_minute
+    site        VARCHAR(64) NOT NULL,  -- request $host
+    kind        VARCHAR(8) NOT NULL,   -- ip (all clients) / ipc (challenged) / ipp (carried a pow/captcha _bv)
+    sketch      BLOB NOT NULL,         -- 1024-byte HLL register array (precision p=10)
     PRIMARY KEY (bucket_min, site, kind)
 );

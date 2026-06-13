@@ -21,11 +21,11 @@
 -- Written by nginxlog.Reader on each hour flush (UPSERT with cnt accumulate).
 -- Pruned alongside unmask_aggregate_hourly retention.
 CREATE TABLE IF NOT EXISTS unmask_traffic_country_hourly (
-    bucket_hour INTEGER NOT NULL,
-    site        VARCHAR(64) NOT NULL,
-    country     VARCHAR(2) NOT NULL,
-    kind        VARCHAR(16) NOT NULL,
-    cnt         INTEGER NOT NULL DEFAULT 0,
+    bucket_hour INTEGER NOT NULL,         -- unix epoch hour (time.Unix() / 3600)
+    site        VARCHAR(64) NOT NULL,     -- request $host
+    country     VARCHAR(2) NOT NULL,      -- 2-letter ISO code from ipgeo (empty when unmappable / mmdb absent)
+    kind        VARCHAR(16) NOT NULL,     -- total / captcha / pow / challenge_served
+    cnt         INTEGER NOT NULL DEFAULT 0,  -- accumulated count for the bucket
     PRIMARY KEY (bucket_hour, site, country, kind)
 );
 CREATE INDEX IF NOT EXISTS idx_traffic_country_hourly_bucket
