@@ -697,8 +697,8 @@ func (m *Manager) flush() error {
 	buf.WriteString("# unmask ban list (= managed by unmask; do not edit)\n")
 	buf.WriteString("# format: <key>|<source>|<action> per line; key is one of\n")
 	buf.WriteString("#         <ip>|<ja4>  (exact tuple),  |<ja4>  (ja4-only),  <ip>|  (ip-only)\n")
-	buf.WriteString(fmt.Sprintf("# count: %d\n", len(lines)))
-	buf.WriteString(fmt.Sprintf("# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339)))
+	fmt.Fprintf(&buf, "# count: %d\n", len(lines))
+	fmt.Fprintf(&buf, "# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339))
 	for _, e := range lines {
 		buf.WriteString(e.key)
 		buf.WriteByte('|')
@@ -738,9 +738,3 @@ func (m *Manager) flush() error {
 	m.mu.Unlock()
 	return nil
 }
-
-// Wrapper around sql.Result for callers that need to thread it.
-type sqlResult struct{ res sql.Result }
-
-func (s sqlResult) RowsAffected() (int64, error) { return s.res.RowsAffected() }
-func (s sqlResult) LastInsertId() (int64, error) { return s.res.LastInsertId() }

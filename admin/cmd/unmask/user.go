@@ -28,7 +28,7 @@ import (
 
 func cmdUser(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: unmask user <list|create|reset-password|set-role|delete> ...")
+		return errors.New("usage: unmask user <list|create|reset-password|set-role|delete> [args]")
 	}
 	sub := args[0]
 	rest := args[1:]

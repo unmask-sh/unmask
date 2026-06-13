@@ -283,12 +283,6 @@ func (v *Verifier) now() time.Time {
 	return time.Now()
 }
 
-func (v *Verifier) logf(format string, args ...any) {
-	if v.Logger != nil {
-		v.Logger.Printf(format, args...)
-	}
-}
-
 // Verify checks the request's signature headers.  No headers → Result{}
 // (zero value; OK=false).  Any error path yields OK=false with a Reason
 // the caller can log without leaking key material.

@@ -1117,7 +1117,7 @@ type CookieStatusRow struct {
 // so all-zero rows are returned (= the card itself is still rendered).
 func CookieStatus(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CookieStatusRow, error) {
 	// bucket_min = unix sec / 60. cutoff is computed in the same unit.
-	cutoffMin := d.NowMinusMinutes(hours * 60)
+	var cutoffMin string
 	if d.Driver == db.DriverSQLite {
 		// SQLite: strftime('%s','now','-N minutes') / 60
 		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", hours*60)
@@ -3038,16 +3038,6 @@ func truncate(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
-}
-
-func scalarString(v any) string {
-	switch s := v.(type) {
-	case string:
-		return s
-	case []byte:
-		return string(s)
-	}
-	return fmt.Sprintf("%v", v)
 }
 
 // Pinger: dashboard health helper.
