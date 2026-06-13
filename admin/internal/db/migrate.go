@@ -7,6 +7,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 )
@@ -75,6 +76,11 @@ func Migrate(conn *DB) error {
 	}
 	if err := ApplyBanUniqueScopeData(conn); err != nil {
 		return fmt.Errorf("apply ban unique-scope data migration: %w", err)
+	}
+	// DB-6: enforce one account per email.  Runs AFTER the schema CREATE so the
+	// table exists on a fresh install; guarded against pre-existing duplicates.
+	if err := ensureUserEmailUnique(conn); err != nil {
+		return fmt.Errorf("ensure user email unique: %w", err)
 	}
 	// numbered migration framework.  Apply the baseline marker + future deltas.
 	if err := RunMigrations(conn); err != nil {
@@ -552,6 +558,85 @@ func banUniqueHasScope(conn *DB) (bool, error) {
 		ir.Close()
 	}
 	return false, nil
+}
+
+// hasIndexNamed reports whether an index of the given name exists on table.
+func hasIndexNamed(conn *DB, table, indexName string) (bool, error) {
+	if conn.Driver == DriverMariaDB {
+		var n int
+		err := conn.QueryRow(`SELECT COUNT(*) FROM information_schema.STATISTICS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ?`,
+			table, indexName).Scan(&n)
+		return n > 0, err
+	}
+	// sqlite: PRAGMA can't bind the table name, so build it (table is an internal
+	// constant here, never user input).
+	rows, err := conn.Query(`PRAGMA index_list("` + table + `")`)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		// cols: seq, name, unique, origin, partial
+		var seq, uniq, partial int
+		var name, origin string
+		if err := rows.Scan(&seq, &name, &uniq, &origin, &partial); err != nil {
+			return false, err
+		}
+		if name == indexName {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
+// ensureUserEmailUnique adds a UNIQUE index on unmask_user.email (DB-6) so two
+// accounts can't share an address -- forgot-password would otherwise act on the
+// lowest-id match.  GetByEmail already defends with ORDER BY id LIMIT 1; this
+// closes it at the schema.  NULL emails are exempt (both SQLite and MariaDB
+// allow multiple NULLs in a UNIQUE index) and empty strings are normalized to
+// NULL first so "no email" accounts don't collide.  Called after the schema
+// CREATE so the table exists on a fresh install (empty = no dupes = index made);
+// on an existing table it is guarded -- real duplicates can't be indexed, so it
+// logs them and SKIPS rather than failing startup.  Idempotent once the index
+// exists.
+func ensureUserEmailUnique(conn *DB) error {
+	has, err := hasIndexNamed(conn, "unmask_user", "uk_user_email")
+	if err != nil {
+		return fmt.Errorf("introspect email index: %w", err)
+	}
+	if has {
+		return nil
+	}
+	if _, err := conn.Exec(`UPDATE unmask_user SET email = NULL WHERE email = ''`); err != nil {
+		return fmt.Errorf("normalize empty email: %w", err)
+	}
+	rows, err := conn.Query(`SELECT email, COUNT(*) FROM unmask_user WHERE email IS NOT NULL GROUP BY email HAVING COUNT(*) > 1`)
+	if err != nil {
+		return fmt.Errorf("scan duplicate emails: %w", err)
+	}
+	var dupes []string
+	for rows.Next() {
+		var email string
+		var c int
+		if err := rows.Scan(&email, &c); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan dup row: %w", err)
+		}
+		dupes = append(dupes, fmt.Sprintf("%q(x%d)", email, c))
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate dup rows: %w", err)
+	}
+	if len(dupes) > 0 {
+		log.Printf("unmask: WARNING: unmask_user has duplicate emails %s — skipping UNIQUE(email) (DB-6). De-duplicate these accounts and restart to enforce it; GetByEmail resolves to the lowest id meanwhile.", strings.Join(dupes, ", "))
+		return nil
+	}
+	if _, err := conn.Exec(`CREATE UNIQUE INDEX uk_user_email ON unmask_user (email)`); err != nil {
+		return fmt.Errorf("create unique email index: %w", err)
+	}
+	return nil
 }
 
 // ensureBanUniqueScope migrates an old unmask_ban (UNIQUE(ip, ja4)) to the
