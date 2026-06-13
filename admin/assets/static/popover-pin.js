@@ -385,6 +385,8 @@ window.popoverPin = window.popoverPin || (function(){
     }
     var pins = new Map();
     function showAt(p, html, x, y){
+      // CONTRACT: html must be trusted server-rendered markup, never a
+      // user-derived string -- this is an innerHTML sink (L-C3/L-C4).
       p.innerHTML = html;
       // measure off-screen with visibility:hidden so we can pre-clamp before paint
       p.style.visibility = 'hidden';
@@ -413,6 +415,7 @@ window.popoverPin = window.popoverPin || (function(){
       // body wrapper — CSS target for collapse mode.  Wraps flat text + <br> in a single element.
       var body = document.createElement('div');
       body.className = 'popover-body';
+      // CONTRACT: html must be trusted server-rendered markup (innerHTML sink, L-C3/L-C4).
       body.innerHTML = html;
       clone.appendChild(body);
       // Self-unpin callback the global ESC handler invokes for LIFO close.
@@ -691,7 +694,14 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root, op
       clone.style.display = 'block';
       var body = document.createElement('div');
       body.className = 'popover-body';
-      body.innerHTML = popup.innerHTML;
+      // Clone the server-rendered popup content node-for-node instead of
+      // round-tripping through innerHTML: node cloning never re-parses a
+      // string, so a future template change can't turn this into an
+      // HTML-injection sink (L-C3/L-C4: popover content is trusted server
+      // markup only).
+      for (var cn = popup.firstChild; cn; cn = cn.nextSibling) {
+        body.appendChild(cn.cloneNode(true));
+      }
       clone.appendChild(body);
       // tools = Windows-style title bar (= full-width strip, drag region on
       // the bar itself, collapse + close at the right).  Mirrors the bar
