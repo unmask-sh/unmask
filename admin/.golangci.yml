@@ -44,6 +44,14 @@ linters:
         - G101        # cookie / header / token NAMES + i18n strings trip this; no real secret is hardcoded
         - G401        # HMAC-SHA1 for the _bv cookie is an intentional, documented design (SHA-1 collisions don't weaken HMAC)
         - G505        # crypto/sha1 import backs that same _bv HMAC
+        # Perms (G301/302/306): unmask is an nginx integration, so it deliberately
+        # writes nginx-readable config / community-bans maps / GeoIP mmdb + the
+        # traversable dirs that hold them.  Reviewed -- every flagged write is
+        # non-secret; the only secret-bearing file (http.inc, carries
+        # unmask_bv_secret) is forced to 0640 in the postinstall, never via these.
+        - G301        # nginx-traversable dirs (0755) so nginx, a different user, reaches the rendered configs
+        - G302        # 0640 / 0644 config / maps / mmdb -- group/world-read for nginx + the daemon group
+        - G306        # WriteFile of those same nginx-read maps + non-secret sync metadata
     revive:
       rules:
         - name: blank-imports

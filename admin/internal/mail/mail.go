@@ -161,7 +161,7 @@ func sendStartTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg 
 	if ok, _ := c.Extension("STARTTLS"); ok {
 		tlsCfg := &tls.Config{
 			ServerName:         cfg.Host,
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
+			InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // operator opt-in (default false) for self-signed local SMTP relays
 		}
 		if err := c.StartTLS(tlsCfg); err != nil {
 			return fmt.Errorf("smtp starttls: %w", err)
@@ -196,7 +196,7 @@ func sendStartTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg 
 func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte) error {
 	tlsCfg := &tls.Config{
 		ServerName:         cfg.Host,
-		InsecureSkipVerify: cfg.InsecureSkipVerify,
+		InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // operator opt-in (default false) for self-signed local SMTP relays
 	}
 	conn, err := tls.Dial("tcp", addr, tlsCfg)
 	if err != nil {

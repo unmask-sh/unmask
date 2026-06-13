@@ -825,13 +825,16 @@ func (v *Verifier) fetchDirectory(ctx context.Context, agentURL string) ([]direc
 	u.Path = WellKnownPath
 	u.RawQuery = ""
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	// agentURL is allowlist-gated (fail-closed empty list) + https-only, and the
+	// httpClient's dialer refuses private / loopback / link-local / cloud-metadata
+	// addresses -- so the SSRF taint gosec flags here is defended, not open.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/http-message-signatures-directory")
 
-	resp, err := v.httpClient().Do(req)
+	resp, err := v.httpClient().Do(req) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
