@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>unmask · package repository</title>
-<meta name="description" content="Signed rpm / deb / apk repositories for unmask (x86_64 + aarch64). Browse the tree or grab the signing keys.">
+<title>unmask · パッケージリポジトリ</title>
+<meta name="description" content="unmask の署名付き rpm / deb / apk リポジトリ (x86_64 + aarch64)。ツリーの閲覧と署名鍵の取得。">
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/png" href="/static/icon.png">
 <link rel="apple-touch-icon" href="/static/icon.png">
@@ -18,9 +18,9 @@
 .repo-list li{display:flex;align-items:baseline;gap:.9rem;padding:.7rem .2rem;border-bottom:1px solid var(--line)}
 .repo-list a.name{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-weight:600;font-size:.92rem;color:var(--accent);text-decoration:none;flex:0 0 7rem}
 .repo-list a.name:hover{text-decoration:underline}
-.repo-list .desc{font-size:.84rem;color:var(--fg-mute);line-height:1.5}
+.repo-list .desc{font-size:.84rem;color:var(--fg-mute);line-height:1.6}
 .repo-list .desc code{font-size:.82em}
-.keyline{font-size:.84rem;color:var(--fg-mute);line-height:1.7;margin:.2rem 0 0}
+.keyline{font-size:.84rem;color:var(--fg-mute);line-height:1.8;margin:.2rem 0 0}
 .keyline a{color:var(--accent);text-decoration:none}.keyline a:hover{text-decoration:underline}
 .kv{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:.74rem;color:var(--fg-light);word-break:break-all}
 </style>
@@ -29,14 +29,14 @@
 
 <header class="topnav">
   <div class="wrap topnav-row">
-    <a href="/" class="brand">
+    <a href="/ja/" class="brand">
       <span class="logo-mark"></span>
       <span class="brand-name">unmask</span>
     </a>
     <nav class="nav">
-      <a href="/">TOP</a>
-      <a href="/install/">install</a>
-      <a href="/docs/">docs</a>
+      <a href="/ja/">TOP</a>
+      <a href="/ja/install/">install</a>
+      <a href="/ja/docs/">docs</a>
       <a href="https://github.com/unmask-sh/unmask">GitHub</a>
     </nav>
   </div>
@@ -46,12 +46,12 @@
 
   <section class="docs-head">
     <div class="wrap">
-      <h1 class="page-title">package repository</h1>
+      <h1 class="page-title">パッケージリポジトリ</h1>
       <p class="page-lede">
-        Signed <code>rpm</code> / <code>deb</code> / <code>apk</code> repositories for
-        <strong>x86_64</strong> and <strong>aarch64</strong>. To install, use the guided setup at
-        <a href="/install/">unmask.sh/install</a> — the directories below are the raw repository tree
-        (browse for exact filenames, sizes, and checksums).
+        <strong>x86_64</strong> と <strong>aarch64</strong> 向けの署名付き
+        <code>rpm</code> / <code>deb</code> / <code>apk</code> リポジトリです。インストールは
+        <a href="/ja/install/">unmask.sh/install</a> のガイド付きセットアップから。
+        以下のディレクトリは生のリポジトリツリーで、正確なファイル名・サイズ・チェックサムを確認できます。
       </p>
     </div>
   </section>
@@ -59,15 +59,15 @@
   <div class="wrap">
     <article class="bcd-card">
       <ul class="repo-list">
-        <li><a class="name" href="/dl/rpm/">rpm/</a>   <span class="desc">DNF / YUM repository &mdash; RHEL · Alma · Rocky · Fedora (<code>x86_64</code>, <code>aarch64</code>).</span></li>
-        <li><a class="name" href="/dl/deb/">deb/</a>   <span class="desc">APT repository &mdash; Debian · Ubuntu (<code>pool/</code> + signed <code>dists/</code>).</span></li>
-        <li><a class="name" href="/dl/apk/">apk/</a>   <span class="desc">Alpine repository &mdash; signed <code>APKINDEX</code> (<code>x86_64</code>, <code>aarch64</code>).</span></li>
-        <li><a class="name" href="/dl/keys/">keys/</a> <span class="desc">GPG + apk signing public keys (for manual verification).</span></li>
-        <li><a class="name" href="/dl/ipgeo/">ipgeo/</a> <span class="desc">DB-IP Lite GeoIP mirror (CC BY 4.0) used by <code>unmask install-ipgeo</code>.</span></li>
-        <li><a class="name" href="/dl/feed/">feed/</a> <span class="desc">Aggregated community-bans bot-IP / JA4 feed.</span></li>
+        <li><a class="name" href="/dl/rpm/">rpm/</a>   <span class="desc">DNF / YUM リポジトリ &mdash; RHEL · Alma · Rocky · Fedora (<code>x86_64</code>, <code>aarch64</code>)</span></li>
+        <li><a class="name" href="/dl/deb/">deb/</a>   <span class="desc">APT リポジトリ &mdash; Debian · Ubuntu (<code>pool/</code> + 署名済 <code>dists/</code>)</span></li>
+        <li><a class="name" href="/dl/apk/">apk/</a>   <span class="desc">Alpine リポジトリ &mdash; 署名済 <code>APKINDEX</code> (<code>x86_64</code>, <code>aarch64</code>)</span></li>
+        <li><a class="name" href="/dl/keys/">keys/</a> <span class="desc">GPG / apk 署名用の公開鍵(手動検証向け)</span></li>
+        <li><a class="name" href="/dl/ipgeo/">ipgeo/</a> <span class="desc">DB-IP Lite GeoIP ミラー (CC BY 4.0)。<code>unmask install-ipgeo</code> が利用</span></li>
+        <li><a class="name" href="/dl/feed/">feed/</a> <span class="desc">community-bans の bot IP / JA4 集約フィード</span></li>
       </ul>
       <p class="keyline">
-        Verify by hand: <a href="/dl/keys/RPM-GPG-KEY-unmask">RPM-GPG-KEY-unmask</a> (rpm / deb) ·
+        手動で検証する場合: <a href="/dl/keys/RPM-GPG-KEY-unmask">RPM-GPG-KEY-unmask</a> (rpm / deb) ·
         <a href="/dl/keys/unmask.rsa.pub">unmask.rsa.pub</a> (apk)<br>
         <span class="kv">gpg fpr&nbsp; C03D D45E 28C4 446F DDC4&nbsp; 8EFC 34A3 20B5 44B2 8158</span>
       </p>
@@ -82,11 +82,11 @@
       <span>unmask</span>
     </p>
     <nav class="footer-nav">
-      <a href="/">TOP</a>
-      <a href="/install/">install</a>
-      <a href="/docs/">docs</a>
+      <a href="/ja/">TOP</a>
+      <a href="/ja/install/">install</a>
+      <a href="/ja/docs/">docs</a>
       <a href="https://github.com/unmask-sh/unmask">GitHub</a>
-      <a href="/dl/ja/">日本語</a>
+      <a href="/dl/">English</a>
     </nav>
   </div>
 </footer>

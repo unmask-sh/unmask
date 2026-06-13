@@ -147,6 +147,12 @@ if [ -f "$ROOT/tools/dl-index.html" ]; then
     cp "$ROOT/tools/dl-index.html" "$OUT/index.html"
     echo "  -> dl/index.html (custom repo landing)"
 fi
+# Japanese landing, reachable only from the EN page's footer language link.
+if [ -f "$ROOT/tools/dl-index.ja.html" ]; then
+    mkdir -p "$OUT/ja"
+    cp "$ROOT/tools/dl-index.ja.html" "$OUT/ja/index.html"
+    echo "  -> dl/ja/index.html (custom repo landing, JP)"
+fi
 # Theme assets for the autoindex sub-directory listings (rpm/, deb/, ...).
 # Served from /dl/ (auth-free pre-GA, unlike /static) and injected into the
 # stock autoindex HTML via sub_filter; must live in $OUT to survive
