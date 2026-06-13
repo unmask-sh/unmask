@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>unmask · package repository</title>
+<meta name="description" content="Signed rpm / deb / apk repositories for unmask. Browse packages, grab the GPG keys, or mirror for air-gapped installs.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/static/icon.png">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/docs.css">
+<style>
+.dl-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem;margin:.8rem 0}
+.dl-tile{border:1px solid var(--line);border-radius:.6rem;padding:1rem 1.1rem;background:#fff;display:flex;flex-direction:column;gap:.5rem}
+.dl-tile h3{margin:0;font-size:1rem;display:flex;align-items:center;gap:.5rem}
+.dl-tile .fmt{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:.7rem;font-weight:600;letter-spacing:.02em;padding:.05rem .45rem;border-radius:.25rem;background:#eef2ff;color:#4338ca}
+.dl-tile p{margin:0;font-size:.82rem;color:var(--fg-mute);line-height:1.55}
+.dl-tile .cmd{margin:.2rem 0 0;font-size:.78rem}
+.dl-tile .links{display:flex;flex-wrap:wrap;gap:.1rem .9rem;margin-top:auto;padding-top:.4rem;font-size:.82rem}
+.dl-tile .links a{color:var(--accent);text-decoration:none;font-weight:500}
+.dl-tile .links a:hover{text-decoration:underline}
+.dl-tile .links a::after{content:" ↗";opacity:0}
+.dl-tile .links a.dir::after{content:" →";opacity:1;font-weight:600}
+.kv{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--fg-light);word-break:break-all}
+.callout{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:.4rem;background:var(--bg-alt);padding:.85rem 1.1rem;margin:.6rem 0;font-size:.9rem;line-height:1.6}
+.callout strong{color:var(--fg)}
+.muted-note{font-size:.78rem;color:var(--fg-light);line-height:1.6}
+</style>
+</head>
+<body class="page-docs">
+
+<header class="topnav">
+  <div class="wrap topnav-row">
+    <a href="/" class="brand">
+      <span class="logo-mark"></span>
+      <span class="brand-name">unmask</span>
+    </a>
+    <nav class="nav">
+      <a href="/">TOP</a>
+      <a href="/install/">install</a>
+      <a href="/docs/">docs</a>
+      <a href="https://github.com/unmask-sh/unmask">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <section class="docs-head">
+    <div class="wrap">
+      <h1 class="page-title">package repository</h1>
+      <p class="page-lede">
+        Signed <code>rpm</code> / <code>deb</code> / <code>apk</code> repositories for unmask, for
+        <strong>x86_64</strong> and <strong>aarch64</strong>. Browse the artifacts, grab the signing
+        keys, or mirror the tree for air-gapped installs.
+      </p>
+    </div>
+  </section>
+
+  <div class="wrap">
+
+    <div class="callout">
+      <strong>Just want to install?</strong> Use the guided setup at
+      <a href="/install/" style="color:var(--accent);font-weight:600">unmask.sh/install</a> — it adds
+      the right repo for your distro with GPG verification, no <code>curl | sh</code>. These pages are
+      for direct browsing, manual download, and signature verification.
+    </div>
+
+    <article class="bcd-card">
+      <h2>Add the repository</h2>
+      <p>Each line installs the <code>unmask-release</code> bootstrap package, which drops the repo
+        definition + signing key in place. After that, <code>install unmask unmask-plugin-nginx
+        unmask-web-nginx</code> pulls the rest. For arm64, swap <code>x86_64</code> → <code>aarch64</code>.</p>
+
+      <div class="dl-grid">
+        <div class="dl-tile">
+          <h3>RHEL / Alma / Rocky / Fedora <span class="fmt">dnf</span></h3>
+          <pre class="cmd">sudo dnf install -y \
+  https://unmask.sh/dl/rpm/x86_64/RPMS/unmask-release-latest.noarch.rpm</pre>
+          <div class="links">
+            <a class="dir" href="/dl/rpm/x86_64/">browse x86_64</a>
+            <a class="dir" href="/dl/rpm/aarch64/">browse aarch64</a>
+          </div>
+        </div>
+
+        <div class="dl-tile">
+          <h3>Debian / Ubuntu <span class="fmt">apt</span></h3>
+          <pre class="cmd">wget https://unmask.sh/dl/deb/pool/main/u/unmask/unmask-release_latest_all.deb
+sudo apt install -y ./unmask-release_latest_all.deb</pre>
+          <div class="links">
+            <a class="dir" href="/dl/deb/">browse pool / dists</a>
+          </div>
+        </div>
+
+        <div class="dl-tile">
+          <h3>Alpine <span class="fmt">apk</span></h3>
+          <pre class="cmd">wget https://unmask.sh/dl/apk/main/x86_64/unmask-release-latest.apk
+sudo apk add --allow-untrusted ./unmask-release-latest.apk</pre>
+          <div class="links">
+            <a class="dir" href="/dl/apk/main/x86_64/">browse x86_64</a>
+            <a class="dir" href="/dl/apk/main/aarch64/">browse aarch64</a>
+          </div>
+        </div>
+      </div>
+      <p class="muted-note">Full per-distro walkthrough (CentOS 6/7, EPEL notes, forward-auth vs native):
+        <a href="/install/" style="color:var(--accent)">unmask.sh/install</a>.</p>
+    </article>
+
+    <article class="bcd-card">
+      <h2>Signing keys &amp; verification</h2>
+      <p>The repositories are GPG-signed (rpm/deb) and RSA-signed (apk); the <code>unmask-release</code>
+        package installs these keys for you. To verify by hand, fetch them here:</p>
+      <div class="dl-grid">
+        <div class="dl-tile">
+          <h3>GPG public key <span class="fmt">rpm · deb</span></h3>
+          <p>RSA-4096. Verifies the dnf / apt repository metadata and the GitHub release
+            <code>checksums.txt.asc</code>.</p>
+          <p class="kv">fpr C03D D45E 28C4 446F DDC4&nbsp; 8EFC 34A3 20B5 44B2 8158</p>
+          <div class="links"><a href="/dl/keys/RPM-GPG-KEY-unmask">RPM-GPG-KEY-unmask</a></div>
+        </div>
+        <div class="dl-tile">
+          <h3>apk public key <span class="fmt">apk</span></h3>
+          <p>RSA. Lands in <code>/etc/apk/keys/</code> so <code>apk add</code> trusts the APKINDEX.</p>
+          <div class="links"><a href="/dl/keys/unmask.rsa.pub">unmask.rsa.pub</a></div>
+        </div>
+      </div>
+    </article>
+
+    <article class="bcd-card">
+      <h2>Other artifacts</h2>
+      <div class="dl-grid">
+        <div class="dl-tile">
+          <h3>GeoIP mirror <span class="fmt">mmdb</span></h3>
+          <p>DB-IP Lite country / ASN databases (CC BY 4.0), mirrored so
+            <code>unmask install-ipgeo</code> works without a signup.</p>
+          <div class="links"><a class="dir" href="/dl/ipgeo/">browse ipgeo</a></div>
+        </div>
+        <div class="dl-tile">
+          <h3>Community-bans feed <span class="fmt">json</span></h3>
+          <p>The aggregated bot-IP / JA4 feed unmask instances can subscribe to.</p>
+          <div class="links"><a class="dir" href="/dl/feed/">browse feed</a></div>
+        </div>
+      </div>
+      <p class="muted-note">Everything under <code>/dl/</code> is plain directory-listed below this page —
+        each format directory is browsable for exact filenames, sizes, and checksums.</p>
+    </article>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-row">
+    <p class="footer-brand">
+      <span class="logo-mark"></span>
+      <span>unmask</span>
+    </p>
+    <nav class="footer-nav">
+      <a href="/">TOP</a>
+      <a href="/install/">install</a>
+      <a href="/docs/">docs</a>
+      <a href="https://github.com/unmask-sh/unmask">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

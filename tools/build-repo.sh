@@ -139,6 +139,15 @@ echo
 echo "==> output: $OUT  (stage=$STAGE)"
 mkdir -p "$OUT"/{rpm,deb,apk,keys}
 
+# ---- /dl/ landing page (= the custom index served at unmask.sh/dl/) ----
+# Evergreen (links to dirs + /install/, no per-build data), so always refresh.
+# Must live in $OUT: publish-repo.sh rsyncs with --delete-after, which would
+# nuke a hand-placed dl/index.html that is not part of the build output.
+if [ -f "$ROOT/tools/dl-index.html" ]; then
+    cp "$ROOT/tools/dl-index.html" "$OUT/index.html"
+    echo "  -> dl/index.html (custom repo landing)"
+fi
+
 # ---- keys (= always overwrite with the latest public key. idempotent because the files are small) ----
 # Only refresh keys/ on a full run.  apk-only invocations (= the Alpine
 # container path) deliberately leave keys/ alone -- the existing files may be
