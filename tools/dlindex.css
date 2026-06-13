@@ -1,0 +1,71 @@
+/* dlindex.css — progressive-enhancement theme for nginx autoindex pages under
+ * /dl/. Loaded only via sub_filter injection into the stock autoindex HTML.
+ * Self-contained (no /static dependency: that path is auth-walled pre-GA).
+ * All rules are scoped to .dlx-* so the JS-built table cannot affect the
+ * hand-written /dl/ landing page. No-JS visitors keep the raw <pre> listing. */
+
+.dlx-root{
+  --dlx-bg:#ffffff; --dlx-fg:#0f172a; --dlx-mute:#475569; --dlx-light:#64748b;
+  --dlx-line:#e2e8f0; --dlx-accent:#2563eb; --dlx-row:#f8fafc;
+  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  color:var(--dlx-fg); max-width:60rem; margin:0 auto; padding:1.4rem 1.1rem 3rem;
+}
+.dlx-mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* header / breadcrumb */
+.dlx-head{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
+  padding-bottom:.8rem;border-bottom:1px solid var(--dlx-line);margin-bottom:.2rem}
+.dlx-brand{font-weight:700;font-size:1.05rem;letter-spacing:-.01em;color:var(--dlx-fg);text-decoration:none}
+.dlx-brand:hover{color:var(--dlx-accent)}
+.dlx-crumbs{font-size:.86rem;color:var(--dlx-light)}
+.dlx-crumbs a{color:var(--dlx-mute);text-decoration:none}
+.dlx-crumbs a:hover{color:var(--dlx-accent);text-decoration:underline}
+.dlx-crumbs .sep{color:#cbd5e1;margin:0 .1rem}
+.dlx-crumbs .cur{color:var(--dlx-fg);font-weight:600}
+.dlx-spacer{flex:1}
+.dlx-count{font-size:.78rem;color:var(--dlx-light)}
+
+/* filter box */
+.dlx-tools{display:flex;align-items:center;gap:.6rem;margin:.9rem 0 .3rem}
+.dlx-filter{flex:1;max-width:22rem;font:inherit;font-size:.86rem;
+  padding:.42rem .7rem;border:1px solid var(--dlx-line);border-radius:.45rem;
+  color:var(--dlx-fg);background:var(--dlx-bg);outline:none}
+.dlx-filter:focus{border-color:var(--dlx-accent);box-shadow:0 0 0 3px rgba(37,99,235,.12)}
+.dlx-filter::placeholder{color:#94a3b8}
+
+/* table */
+.dlx-table{width:100%;border-collapse:collapse;font-size:.88rem}
+.dlx-table th{text-align:left;font-weight:600;font-size:.74rem;letter-spacing:.03em;
+  text-transform:uppercase;color:var(--dlx-light);padding:.5rem .6rem;
+  border-bottom:1px solid var(--dlx-line);cursor:pointer;user-select:none;white-space:nowrap}
+.dlx-table th:hover{color:var(--dlx-accent)}
+.dlx-table th .arr{opacity:.5;font-size:.7rem;margin-left:.2rem}
+.dlx-table th.sorted .arr{opacity:1;color:var(--dlx-accent)}
+.dlx-table td{padding:.46rem .6rem;border-bottom:1px solid var(--dlx-line);vertical-align:middle}
+.dlx-table tbody tr:hover{background:var(--dlx-row)}
+.dlx-name{display:flex;align-items:center;gap:.55rem;min-width:0}
+.dlx-name a{color:var(--dlx-accent);text-decoration:none;font-weight:500;word-break:break-all}
+.dlx-name a:hover{text-decoration:underline}
+.dlx-dir .dlx-name a{color:var(--dlx-fg);font-weight:600}
+.dlx-ico{flex:0 0 auto;width:1.5rem;height:1.5rem;display:inline-flex;align-items:center;
+  justify-content:center;border-radius:.3rem;font-size:.64rem;font-weight:700;
+  font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:.02em}
+.dlx-ico.dir{background:#eef2ff;color:#4338ca}
+.dlx-ico.pkg{background:#ecfdf5;color:#047857}
+.dlx-ico.key{background:#fef3c7;color:#b45309}
+.dlx-ico.meta{background:#f1f5f9;color:#475569}
+.dlx-ico.up{background:#f1f5f9;color:#475569}
+.dlx-size,.dlx-date{color:var(--dlx-mute);white-space:nowrap;font-size:.82rem}
+.dlx-size{text-align:right}
+.col-size{text-align:right}
+.dlx-empty{color:var(--dlx-light);font-size:.86rem;padding:1.2rem .6rem}
+
+.dlx-foot{margin-top:1.4rem;padding-top:.9rem;border-top:1px solid var(--dlx-line);
+  font-size:.78rem;color:var(--dlx-light)}
+.dlx-foot a{color:var(--dlx-mute);text-decoration:none}
+.dlx-foot a:hover{color:var(--dlx-accent);text-decoration:underline}
+
+@media (max-width:34rem){
+  .dlx-date{display:none}
+  .dlx-table th.col-date{display:none}
+}
