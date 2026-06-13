@@ -114,6 +114,28 @@ func TestWizardKey_SuperadminOnEmptyDB(t *testing.T) {
 	}
 }
 
+// TestReconfigureNoOp covers the "nothing to apply" detection that hides the
+// review-step install button (and short-circuits a direct install POST): the
+// selected DB is the one the daemon already runs AND no new admin is created.
+func TestReconfigureNoOp(t *testing.T) {
+	h, _ := reconfHandler(t, true) // admin exists; targetDBStats reuses h.DB
+	live := h.cfg().DB
+
+	if !h.reconfigureNoOp(&wizardState{DB: live, DBSet: true, UserSkipped: true}) {
+		t.Error("same DB + existing admin + no new user should be a no-op")
+	}
+	if h.reconfigureNoOp(&wizardState{DB: live, DBSet: true, UserSet: true, Username: "extra"}) {
+		t.Error("creating a new admin is a real change, not a no-op")
+	}
+	other := settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(t.TempDir(), "other.sqlite")}
+	if h.reconfigureNoOp(&wizardState{DB: other, DBSet: true, UserSkipped: true}) {
+		t.Error("switching to a different DB is a change, not a no-op")
+	}
+	if h.reconfigureNoOp(nil) {
+		t.Error("a nil wizard state must not be treated as a no-op")
+	}
+}
+
 // --- SetupGate ---
 
 func TestSetupGate_ConfiguredRejectsUnauthed(t *testing.T) {

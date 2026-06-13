@@ -332,6 +332,19 @@ func (h *Handler) targetDBHasUsername(dbcfg settings.DB, username string) bool {
 	return err == nil && u != nil
 }
 
+// reconfigureNoOp reports whether running install against the wizard's selected
+// DB would change nothing: it targets the DB the daemon already runs (so no
+// swap, and migrate is idempotent) AND creates no new admin (the target already
+// has one that install would adopt).  The review step hides the install button
+// for this case and a direct install POST short-circuits back to the dashboard.
+func (h *Handler) reconfigureNoOp(s *wizardState) bool {
+	if s == nil || s.UserSet || s.DB != h.cfg().DB {
+		return false
+	}
+	u, _ := h.targetDBStats(s.DB)
+	return u > 0
+}
+
 // AdminSetupIndex: GET {base}/admin/setup/  — render the current step.
 //
 // step order: token -> db -> user -> done.
@@ -473,6 +486,11 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 			data["TargetUsers"] = u
 			data["TargetEvents"] = e
 			data["TargetHasData"] = u > 0 || e > 0
+			// No-op guard: the wizard ended up pointed at the DB the daemon already
+			// runs, adopting its existing admin (no new user).  Installing would
+			// rewrite config + hot-swap the live handle for zero net change, so the
+			// review step hides the install button and offers a way back instead.
+			data["NoChange"] = h.reconfigureNoOp(wstate)
 		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -765,6 +783,15 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	// reconfiguring -- the target DB may already have an admin (validated below).
 	if !reconfigure && !s.UserSet {
 		redirErr(i18n.T(lang, "setup.err.incomplete_all"))
+		return
+	}
+	// No-op reconfigure: the wizard is pointed at the DB the daemon already runs
+	// and creates no new admin (it adopts the existing one).  Installing would
+	// rewrite config.yml and hot-swap the live handle for zero net change, so skip
+	// the work and return to the dashboard.  The review step normally hides the
+	// button for this case; this guards a direct POST.
+	if reconfigure && h.reconfigureNoOp(s) {
+		http.Redirect(w, r, base+"/admin/", http.StatusFound)
 		return
 	}
 
