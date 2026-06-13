@@ -100,7 +100,10 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 	}
 	body := value[:idx]
 	sig := value[idx+1:]
-	if len(sig) != 16 {
+	// 32 hex chars = the 128-bit signature sessionSign emits.  (This length
+	// gate was left at 16 when AUTH-3 widened the signature, which rejected
+	// every cookie and broke login; sign and verify must agree.)
+	if len(sig) != 32 {
 		return nil
 	}
 	expected := sessionSign(secret, body)
