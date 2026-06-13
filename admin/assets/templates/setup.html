@@ -76,7 +76,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
   </div>
   <div class="wizard-body">
     {{ if .Error }}<div class="alert alert-error">{{ .Error }}</div>{{ end }}
-    {{ if .Reconfigure }}<div class="alert" style="background:#1e293b;border:1px solid #334155;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#cbd5e1">{{ safeHTML (t .Lang "setup.reconfigure.banner") }}</div>{{ end }}
+    {{ if and .Reconfigure (eq .Step "db") }}<div class="alert" style="background:#1e293b;border:1px solid #334155;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#cbd5e1">{{ safeHTML (t .Lang "setup.reconfigure.banner") }}</div>{{ end }}
 
     {{ if eq .Step "token" }}
     <h2>{{ t .Lang "setup.token.h" }}</h2>
