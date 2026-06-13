@@ -53,13 +53,17 @@
 .dlx-table th.sorted .arr{opacity:1;color:var(--dlx-accent)}
 .dlx-table td{padding:.46rem .6rem;border-bottom:1px solid var(--dlx-line);vertical-align:middle}
 .dlx-table tbody tr:hover{background:var(--dlx-row)}
-.dlx-name{display:flex;align-items:center;gap:.55rem;min-width:0}
-.dlx-name a{color:var(--dlx-accent);text-decoration:none;font-weight:500;word-break:break-all}
-.dlx-name a:hover{text-decoration:underline}
-.dlx-dir .dlx-name a{color:var(--dlx-fg);font-weight:600}
+/* Whole-cell link: negative margin makes the <a> cover the td's padding too,
+   so the entire name cell (icon + label + trailing space) is a click target. */
+.dlx-namelink{display:flex;align-items:center;gap:.55rem;min-width:0;
+  margin:-.46rem -.6rem;padding:.46rem .6rem;
+  color:var(--dlx-accent);text-decoration:none;font-weight:500}
+.dlx-namelink:hover .dlx-label{text-decoration:underline}
+.dlx-dir .dlx-namelink{color:var(--dlx-fg);font-weight:600}
+.dlx-label{min-width:0;word-break:break-all}
 .dlx-ico{flex:0 0 auto;width:1.5rem;height:1.5rem;display:inline-flex;align-items:center;
-  justify-content:center;border-radius:.3rem;font-size:.64rem;font-weight:700;
-  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em}
+  justify-content:center;border-radius:.35rem}
+.dlx-ico svg{width:.95rem;height:.95rem}
 .dlx-ico.dir{background:#eef2ff;color:#4338ca}
 .dlx-ico.pkg{background:#ecfdf5;color:#047857}
 .dlx-ico.key{background:#fef3c7;color:#b45309}

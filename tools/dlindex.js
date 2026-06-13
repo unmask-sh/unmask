@@ -70,17 +70,40 @@
     return Date.UTC(+m[3], mo, +m[1], +m[4], +m[5]);
   }
   function classify(e) {
-    if (e.isDir) return { cls: "dir", tag: "DIR" };
+    if (e.isDir) return { cls: "dir", icon: "dir" };
     var ext = (e.name.split(".").pop() || "").toLowerCase();
-    if (ext === "rpm" || ext === "deb" || ext === "apk") return { cls: "pkg", tag: ext.toUpperCase() };
-    if (ext === "asc" || ext === "gpg" || ext === "pub" || ext === "rsa" || ext === "key") return { cls: "key", tag: "KEY" };
-    return { cls: "meta", tag: (ext || "•").slice(0, 4).toUpperCase() };
+    if (ext === "rpm" || ext === "deb" || ext === "apk") return { cls: "pkg", icon: "pkg" };
+    if (ext === "asc" || ext === "gpg" || ext === "pub" || ext === "rsa" || ext === "key") return { cls: "key", icon: "key" };
+    return { cls: "meta", icon: "file" };
   }
   function el(tag, cls, txt) {
     var x = document.createElement(tag);
     if (cls) x.className = cls;
     if (txt != null) x.textContent = txt;
     return x;
+  }
+  // Inline line icons (Lucide-style), tinted by the .dlx-ico color class via
+  // currentColor. Clearer at a glance than 2-3 letter text badges.
+  var ICONS = {
+    dir: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+    up: '<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+    pkg: '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+    key: '<path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L21 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>',
+    file: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/>'
+  };
+  function iconEl(cls, key) {
+    var s = el("span", "dlx-ico " + cls);
+    s.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (ICONS[key] || ICONS.file) + "</svg>";
+    return s;
+  }
+  // Whole-cell link: icon + label inside one <a> that fills the name column, so
+  // the entire row width (not just the short text) is a click target.
+  function nameLink(href, cls, icon, label) {
+    var a = el("a", "dlx-namelink");
+    a.href = href;
+    a.appendChild(iconEl(cls, icon));
+    a.appendChild(el("span", "dlx-label", label));
+    return a;
   }
 
   // ---- breadcrumb (always rooted at /dl/) ----
@@ -177,12 +200,7 @@
     if (hasParent) { // pinned ".." row, first and unfiltered
       var up = el("tr", "dlx-dir dlx-up");
       var utd = el("td");
-      var uw = el("span", "dlx-name");
-      uw.appendChild(el("span", "dlx-ico up", "↑"));
-      var ua = el("a", null, "..");
-      ua.href = "../";
-      uw.appendChild(ua);
-      utd.appendChild(uw);
+      utd.appendChild(nameLink("../", "up", "up", ".."));
       up.appendChild(utd);
       up.appendChild(el("td", "dlx-size", DASH));
       up.appendChild(el("td", "dlx-date", ""));
@@ -195,12 +213,7 @@
       var k = classify(e);
       var tr = el("tr", e.isDir ? "dlx-dir" : null);
       var tdN = el("td");
-      var nameWrap = el("span", "dlx-name");
-      nameWrap.appendChild(el("span", "dlx-ico " + k.cls, k.tag));
-      var a = el("a", null, e.name + (e.isDir ? "/" : ""));
-      a.href = e.href;
-      nameWrap.appendChild(a);
-      tdN.appendChild(nameWrap);
+      tdN.appendChild(nameLink(e.href, k.cls, k.icon, e.name + (e.isDir ? "/" : "")));
       var tdS = el("td", "dlx-size", e.isDir ? DASH : fmtSize(e.size));
       var tdD = el("td", "dlx-date", e.date || "");
       tr.appendChild(tdN); tr.appendChild(tdS); tr.appendChild(tdD);
