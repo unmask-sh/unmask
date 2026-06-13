@@ -459,8 +459,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoASNDefault": ipgeo.DefaultASNPath,
 		// Roaming: how many networks one _bv pass cookie stays valid on, and the
 		// active new-IP rebind mode (strict / asn / any) for the radio group.
+		// ASNDBLoaded drives the "asn mode but no ASN db -> behaves like any" note.
 		"RoamingCap":  h.cfg().Rebind.MaxEntriesResolved(),
 		"RoamingMode": h.cfg().Rebind.RebindMode(),
+		"ASNDBLoaded": h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Active-row metadata for the in-line vendor / build / size badges.
 		"IPGeoActiveInfo": func() IPGeoPathInfo {
 			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBPath, loc)

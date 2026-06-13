@@ -2447,20 +2447,28 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="roaming-mode-help">{{ safeHTML (t .Lang "settings.roaming.mode_help") }}</script>
       {{ $rm := .RoamingMode }}
+      {{/* ordered loosest -> strictest so the trade-off reads top to bottom */}}
+      <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
+        <input type="radio" name="rebind_mode" value="any" {{ if eq $rm "any" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.roaming.mode_any" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_any_sub") }}</span>
+      </label>
       <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
         <input type="radio" name="rebind_mode" value="asn" {{ if eq $rm "asn" }}checked{{ end }}>
         <strong>{{ t .Lang "settings.roaming.mode_asn" }}</strong>
         <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_asn_sub") }}</span>
       </label>
+      {{ if and (eq $rm "asn") (not .ASNDBLoaded) }}
+      {{/* asn is selected but no ASN db is loaded, so the same-ASN gate can't
+           apply -- it currently behaves like "any".  Exception-only note. */}}
+      <div style="margin:-.05rem 0 .5rem 1.6rem;padding:.5rem .7rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:.35rem;font-size:.8rem;color:#92400e;line-height:1.6">
+        {{ safeHTML (t .Lang "settings.roaming.mode_asn_no_db") }}
+      </div>
+      {{ end }}
       <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
         <input type="radio" name="rebind_mode" value="strict" {{ if eq $rm "strict" }}checked{{ end }}>
         <strong>{{ t .Lang "settings.roaming.mode_strict" }}</strong>
         <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_strict_sub") }}</span>
-      </label>
-      <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
-        <input type="radio" name="rebind_mode" value="any" {{ if eq $rm "any" }}checked{{ end }}>
-        <strong>{{ t .Lang "settings.roaming.mode_any" }}</strong>
-        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_any_sub") }}</span>
       </label>
     </div>
     {{ end }}

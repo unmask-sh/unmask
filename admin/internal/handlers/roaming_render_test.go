@@ -16,7 +16,7 @@ func TestSettingsChallengeTabRoaming(t *testing.T) {
 	h := newTestHandler(t)
 	h.updateSettingsInMemory(func(s *settings.Settings) {
 		s.Rebind.MaxEntries = 12
-		s.Rebind.SetRebindMode("any")
+		s.Rebind.SetRebindMode("asn")
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=challenge", nil)
 	rr := httptest.NewRecorder()
@@ -27,17 +27,19 @@ func TestSettingsChallengeTabRoaming(t *testing.T) {
 	body := rr.Body.String()
 	for _, want := range []string{
 		`name="roaming_cap"`,
+		`name="rebind_mode" value="any"`,
 		`name="rebind_mode" value="asn"`,
 		`name="rebind_mode" value="strict"`,
-		`name="rebind_mode" value="any"`,
-		`</html>`, // page must not truncate mid-template
+		`value="asn" checked`, // the saved mode is the checked radio
+		`</html>`,             // page must not truncate mid-template
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("challenge tab Roaming render missing %q", want)
 		}
 	}
-	// the saved mode ("any") is the checked radio.
-	if !strings.Contains(body, `value="any" checked`) {
-		t.Errorf("saved rebind mode (any) must be the checked radio")
+	// asn is selected but the test handler has no ASN db, so the "degrades to
+	// any" warning must show, linking to the network tab to install one.
+	if !strings.Contains(body, `?tab=network`) {
+		t.Errorf("asn mode without an ASN db must render the degrade warning (network-tab link)")
 	}
 }
