@@ -4,6 +4,16 @@
  * All rules are scoped to .dlx-* so the JS-built table cannot affect the
  * hand-written /dl/ landing page. No-JS visitors keep the raw <pre> listing. */
 
+/* Anti-FOUC: hide the raw autoindex markup (<h1>/<hr>/<pre>) before first
+ * paint so it never flashes before dlindex.js builds the table. Gated on
+ * .dlx-js, which the injected inline loader sets only when JS is running, so
+ * no-JS browsers (and dnf/apt) still get the raw listing. dlindex.css is
+ * render-blocking, so this applies before the listing can paint; a safety
+ * timeout in the loader reverts if the script never builds .dlx-root. */
+.dlx-js body > h1,
+.dlx-js body > hr,
+.dlx-js body > pre{display:none}
+
 .dlx-root{
   --dlx-bg:#ffffff; --dlx-fg:#0f172a; --dlx-mute:#475569; --dlx-light:#64748b;
   --dlx-line:#e2e8f0; --dlx-accent:#2563eb; --dlx-row:#f8fafc;
