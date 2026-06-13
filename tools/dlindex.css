@@ -17,10 +17,10 @@
 .dlx-root{
   --dlx-bg:#ffffff; --dlx-fg:#0f172a; --dlx-mute:#475569; --dlx-light:#64748b;
   --dlx-line:#e2e8f0; --dlx-accent:#2563eb; --dlx-row:#f8fafc;
-  font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   color:var(--dlx-fg); max-width:60rem; margin:0 auto; padding:1.4rem 1.1rem 3rem;
 }
-.dlx-mono{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace}
+.dlx-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 
 /* header / breadcrumb */
 .dlx-head{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;
@@ -59,7 +59,7 @@
 .dlx-dir .dlx-name a{color:var(--dlx-fg);font-weight:600}
 .dlx-ico{flex:0 0 auto;width:1.5rem;height:1.5rem;display:inline-flex;align-items:center;
   justify-content:center;border-radius:.3rem;font-size:.64rem;font-weight:700;
-  font-family:'JetBrains Mono',ui-monospace,monospace;letter-spacing:.02em}
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;letter-spacing:.02em}
 .dlx-ico.dir{background:#eef2ff;color:#4338ca}
 .dlx-ico.pkg{background:#ecfdf5;color:#047857}
 .dlx-ico.key{background:#fef3c7;color:#b45309}

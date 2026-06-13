@@ -355,6 +355,17 @@ else
     echo "==> apk stage: skip (= apk absent / keeping existing $OUT/apk)"
 fi
 
+# ---- static directory indexes (= styled listing per dir; no autoindex/JS) ----
+# Pre-render each sub-directory's listing as final HTML so the browse pages
+# paint instantly (no flash of the raw autoindex, no client-side table rebuild).
+# Runs last, after every rpm/deb/apk stage has populated $OUT.  The /dl/ root
+# keeps its hand-written landing -- dl-gen-index.py skips the root dir.
+if command -v python3 >/dev/null 2>&1; then
+    python3 "$ROOT/tools/dl-gen-index.py" "$OUT" /dl
+else
+    echo "  -> WARNING: python3 missing -> static dir indexes NOT generated (autoindex fallback)"
+fi
+
 # ---- summary ----
 echo
 echo "==> repo built at: $OUT"

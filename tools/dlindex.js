@@ -146,13 +146,7 @@
   table.appendChild(tbody);
   root.appendChild(table);
 
-  var foot = el("div", "dlx-foot");
-  if (segs.length > 1) {
-    var back = el("a", null, "↑ up one level");
-    back.href = "../";
-    foot.appendChild(back);
-  }
-  root.appendChild(foot);
+  var hasParent = segs.length > 1; // don't offer ".." above the /dl/ repo root
 
   // ---- sort state + render ----
   var sortKey = "name", sortDir = 1; // dirs always float to the top within name sort
@@ -180,6 +174,20 @@
     });
     var q = filter.value.trim().toLowerCase();
     tbody.textContent = "";
+    if (hasParent) { // pinned ".." row, first and unfiltered
+      var up = el("tr", "dlx-dir dlx-up");
+      var utd = el("td");
+      var uw = el("span", "dlx-name");
+      uw.appendChild(el("span", "dlx-ico up", "↑"));
+      var ua = el("a", null, "..");
+      ua.href = "../";
+      uw.appendChild(ua);
+      utd.appendChild(uw);
+      up.appendChild(utd);
+      up.appendChild(el("td", "dlx-size", DASH));
+      up.appendChild(el("td", "dlx-date", ""));
+      tbody.appendChild(up);
+    }
     var shown = 0;
     sorted().forEach(function (e) {
       if (q && e.name.toLowerCase().indexOf(q) < 0) return;
