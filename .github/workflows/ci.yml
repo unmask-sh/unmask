@@ -45,10 +45,11 @@ jobs:
         run: go tool cover -func=coverage.out | tail -5
 
   # --------------------------------------------------------------------
-  # C JA4 ClientHello parser unit test.  This parser runs on every TLS
-  # request (the most security-sensitive C in the tree), yet its real test
-  # target (make test-plugin-parser, 27 cases) was never wired into CI -- a
-  # coverage gap the pre-GA audit flagged.
+  # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
+  # every request) and the _bv pass-cookie parser (a fully client-set cookie)
+  # are the two untrusted-input C parsers in the tree -- the most
+  # security-sensitive C.  Both get the unit test AND an ASan/UBSan fuzz here,
+  # closing the coverage gap the pre-GA audit flagged.
   # --------------------------------------------------------------------
   plugin-parser:
     runs-on: ubuntu-latest
@@ -56,6 +57,8 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: test JA4 parser
         run: make test-plugin-parser
+      - name: fuzz JA4 + _bv parsers (ASan/UBSan)
+        run: make fuzz-plugin FUZZ_ITERS=3000000
 
   # --------------------------------------------------------------------
   # golangci-lint (= bundle of ~10 linters incl. staticcheck, gosec, revive)

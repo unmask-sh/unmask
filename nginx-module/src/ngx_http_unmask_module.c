@@ -46,6 +46,7 @@
 #include <openssl/hmac.h>
 
 #include "ja4_parser.h"
+#include "bv_parser.h"
 
 #define NGX_JA4_MAX 64
 
@@ -536,21 +537,8 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
  * otherwise "0". Also returns "0" if bv_secret was not configured.
  * -------------------------------------------------------------------- */
 
-/* Read decimal int from `s` (length n). Negative on parse failure. */
-static int64_t
-ngx_unmask_atoll(const u_char *s, size_t n)
-{
-    /* Cap at 18 digits: a 19-digit decimal can exceed INT64_MAX and overflow
-     * the accumulator on the final v*10 (signed overflow = UB). Legitimate day
-     * and unix-second values are <= 10 digits, so 18 leaves ample headroom. */
-    if (n == 0 || n > 18) return -1;
-    int64_t v = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (s[i] < '0' || s[i] > '9') return -1;
-        v = v * 10 + (s[i] - '0');
-    }
-    return v;
-}
+/* Decimal day / unix parsing lives in bv_parser.c as bv_atoll() so the
+ * fuzz harness (bv_parser_fuzz.c) exercises it; see the #include above. */
 
 /* hex-encode a byte buffer into `dst` (must be 2*n bytes). */
 static void
@@ -647,7 +635,7 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     if (nonce_n == 0 || nonce_n > 13) return 0;
     if (difficulty < 8 || difficulty > 32) difficulty = 18;
 
-    int64_t cookie_unix = ngx_unmask_atoll(day_s, day_n);
+    int64_t cookie_unix = bv_atoll(day_s, day_n);
     if (cookie_unix < 0) return 0;
     int64_t now = (int64_t)ngx_time();
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
@@ -759,69 +747,36 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
                          ngx_http_ja4_main_conf_t *mcf,
                          ngx_str_t cookie)
 {
-    if (cookie.len < 4 || cookie.len > 80) {
+    /* Structural decode (dot-splitting + per-segment length bounds) lives in
+     * the pure, fuzzed bv_parse_entry (see bv_parser.c / bv_parser_fuzz.c) so
+     * the untrusted-input path that handles a fully client-controlled cookie is
+     * exercised under ASan exactly as it runs here. */
+    bv_fields_t fields;
+    if (!bv_parse_entry(cookie.data, cookie.len, &fields)) {
         return UNMASK_BV_KIND_NONE;
     }
 
-    /* Split: CAPTCHA path = "day.sig.kind" (3 seg); PoW path = "day.sig.target.flags" (4 seg). */
-    u_char *dot1 = ngx_strlchr(cookie.data, cookie.data + cookie.len, '.');
-    if (dot1 == NULL) return UNMASK_BV_KIND_NONE;
-    u_char *dot2 = ngx_strlchr(dot1 + 1, cookie.data + cookie.len, '.');
-    if (dot2 == NULL) return UNMASK_BV_KIND_NONE;
-    u_char *dot3 = ngx_strlchr(dot2 + 1, cookie.data + cookie.len, '.');
-
-    /* PoW path (4 seg): "day.sig.target.flags".  Issued client-side by
-     * challenge.js after PoW passes.  No HMAC secret needed (= public
-     * hash + verify).
-     *
-     * Supports two formats:
-     *   parts[1]="pow2"  : SHA-256 hashcash (= v0.1+; challenge.js v0.1+)
-     *   parts[1]=base36  : legacy djb2 (= v0.0 deprecated; expires in 1 cycle)
-     * The server re-runs the same logic to decide. */
-    if (dot3 != NULL) {
-        size_t day_n = (size_t)(dot1 - cookie.data);
-        size_t sig_n = (size_t)(dot2 - (dot1 + 1));
-        size_t tgt_n = (size_t)(dot3 - (dot2 + 1));
-        if (day_n == 0 || day_n > 10) return UNMASK_BV_KIND_NONE;
-        if (sig_n == 0 || sig_n > 13) return UNMASK_BV_KIND_NONE;
-        if (tgt_n == 0 || tgt_n > 13) return UNMASK_BV_KIND_NONE;
-
+    /* PoW path: bv_parse_entry only accepts the "pow2" SHA-256 hashcash form
+     * (a 4-segment _bv whose parts[1] != "pow2" is rejected -- the removed v0.0
+     * djb2 fallback verified an UNKEYED checksum = offline-mintable bypass).
+     * Issued client-side by challenge.js after PoW passes; no HMAC secret. */
+    if (fields.format == BV_FMT_POW2) {
         int valid_seconds = (mcf->bv_pow_valid_seconds > 0)
             ? (int)mcf->bv_pow_valid_seconds : 86400 * 3;
-
-        /* SHA-256 path detection: parts[1] == "pow2" (= 4 bytes) */
-        if (sig_n == 4
-            && (dot1 + 1)[0] == 'p' && (dot1 + 1)[1] == 'o'
-            && (dot1 + 1)[2] == 'w' && (dot1 + 1)[3] == '2') {
-            int difficulty = (int)mcf->bv_pow_difficulty;
-            if (ngx_unmask_verify_pow_sha256_cookie(
-                    cookie.data, day_n,
-                    dot2 + 1, tgt_n,
-                    valid_seconds, difficulty,
-                    mcf->bv_secret, r->connection->addr_text,
-                    ngx_unmask_get_host(r)) == 1) {
-                return UNMASK_BV_KIND_POW;
-            }
-            return UNMASK_BV_KIND_NONE;
+        int difficulty = (int)mcf->bv_pow_difficulty;
+        if (ngx_unmask_verify_pow_sha256_cookie(
+                cookie.data + fields.day_off,  fields.day_len,
+                cookie.data + fields.tail_off, fields.tail_len,
+                valid_seconds, difficulty,
+                mcf->bv_secret, r->connection->addr_text,
+                ngx_unmask_get_host(r)) == 1) {
+            return UNMASK_BV_KIND_POW;
         }
-
-        /* A 4-segment _bv that is NOT "pow2" is rejected.  The removed v0.0 djb2
-         * fallback verified an UNKEYED checksum with no difficulty check, so an
-         * attacker could mint a valid PoW cookie offline = full native-mode
-         * bypass.  challenge.js only ever emits the pow2 form, so nothing legit
-         * relied on it (no back-compat needed pre-GA). */
         return UNMASK_BV_KIND_NONE;
     }
 
-    size_t day_len  = dot1 - cookie.data;
-    size_t sig_len  = dot2 - (dot1 + 1);
-    size_t kind_len = (cookie.data + cookie.len) - (dot2 + 1);
-
-    if (day_len == 0 || day_len > 10) return UNMASK_BV_KIND_NONE;
-    if (sig_len != 16) return UNMASK_BV_KIND_NONE;
-    if (kind_len == 0 || kind_len > 32) return UNMASK_BV_KIND_NONE;
-
-    int64_t cookie_unix = ngx_unmask_atoll(cookie.data, day_len);
+    /* CAPTCHA path: "day.sig.kind", sig = 16 hex of HMAC-SHA1. */
+    int64_t cookie_unix = bv_atoll(cookie.data + fields.day_off, fields.day_len);
     if (cookie_unix < 0) return NGX_OK;
 
     /* Validity window in seconds.  Small forward tolerance absorbs clock
@@ -846,14 +801,14 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     /* Build "<day>:<remote>:<host>:<kind>" in a pool buffer.  JA4 is deliberately
      * NOT included (behind an LB the issuer's forwarded JA4 and the verifier's
      * handshake JA4 diverge); remote_ip + host binding carry the replay defense. */
-    size_t msg_len = day_len + 1 + remote.len + 1 + host.len + 1 + kind_len;
+    size_t msg_len = fields.day_len + 1 + remote.len + 1 + host.len + 1 + fields.tail_len;
     u_char *msg = ngx_pnalloc(r->pool, msg_len);
     if (msg == NULL) return UNMASK_BV_KIND_NONE;
     u_char *p = msg;
-    p = ngx_cpymem(p, cookie.data, day_len);  *p++ = ':';
+    p = ngx_cpymem(p, cookie.data + fields.day_off, fields.day_len);  *p++ = ':';
     p = ngx_cpymem(p, remote.data, remote.len); *p++ = ':';
     if (host.len) { p = ngx_cpymem(p, host.data, host.len); } *p++ = ':';
-    p = ngx_cpymem(p, dot2 + 1, kind_len);
+    p = ngx_cpymem(p, cookie.data + fields.tail_off, fields.tail_len);
 
     /* HMAC-SHA1. */
     unsigned char mac[20];
@@ -868,7 +823,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     char expected[40];
     ngx_unmask_hex(expected, mac, 20);
     /* Compare first 16 hex chars (= 8 bytes of mac, but we compare hex). */
-    if (ngx_unmask_ct_memcmp(expected, dot1 + 1, 16) == 0) {
+    if (ngx_unmask_ct_memcmp(expected, cookie.data + fields.sig_off, 16) == 0) {
         return UNMASK_BV_KIND_CAPTCHA;
     }
     return UNMASK_BV_KIND_NONE;

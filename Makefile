@@ -819,6 +819,20 @@ test-plugin-parser:
 		-o $(DIST)/ja4_parser_test
 	$(DIST)/ja4_parser_test
 
+## fuzz-plugin  - ASan/UBSan fuzz of the pure ClientHello + _bv cookie parsers.
+## Both handle fully untrusted input (raw TLS bytes / a client-set cookie).
+## clang bundles the sanitizer runtime; override FUZZ_CC=gcc (+ dnf install libasan).
+FUZZ_CC    ?= clang
+FUZZ_FLAGS ?= -fsanitize=address,undefined -fno-sanitize-recover=all -g -O1
+FUZZ_ITERS ?= 1000000
+.PHONY: fuzz-plugin
+fuzz-plugin:
+	mkdir -p $(DIST)
+	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/ja4_parser.c nginx-module/src/ja4_parser_fuzz.c -o $(DIST)/ja4_parser_fuzz
+	$(DIST)/ja4_parser_fuzz $(FUZZ_ITERS)
+	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/bv_parser.c nginx-module/src/bv_parser_fuzz.c -o $(DIST)/bv_parser_fuzz
+	$(DIST)/bv_parser_fuzz $(FUZZ_ITERS)
+
 ## test-mariadb  - docker-gated MariaDB smoke (idempotent migrate + UTC + dialect aggregate)
 .PHONY: test-mariadb
 test-mariadb:
