@@ -148,8 +148,8 @@ if [ -f "$ROOT/tools/dl-index.html" ]; then
     echo "  -> dl/index.html (custom repo landing)"
 fi
 # The Japanese landing lives at the site path /ja/dl/ (not under /dl/), so it is
-# NOT placed in the repo tree here -- it ships with the site (deployed to
-# /var/www/unmask.sh/ja/dl/index.html from tools/dl-index.ja.html).
+# NOT placed in the repo tree here -- it is a site page (site/ja/dl/index.html,
+# excluded from apply-layout) shipped by the normal site rsync.
 # Theme assets for the autoindex sub-directory listings (rpm/, deb/, ...).
 # Served from /dl/ (auth-free pre-GA, unlike /static) and injected into the
 # stock autoindex HTML via sub_filter; must live in $OUT to survive
