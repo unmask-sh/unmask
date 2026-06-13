@@ -287,6 +287,28 @@ func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// targetDBStats returns the admin-user and event-record counts of the DB the
+// wizard is about to install against, for the reconfigure review summary.  A
+// table that doesn't exist yet (= a fresh DB) counts as 0.  The live handle is
+// reused when the target matches the current config; otherwise a throwaway
+// connection is opened and closed.
+func (h *Handler) targetDBStats(dbcfg settings.DB) (users, events int) {
+	var conn *db.DB
+	if h.DB != nil && dbcfg == h.cfg().DB {
+		conn = h.DB
+	} else {
+		c, err := db.Open(dbcfg)
+		if err != nil {
+			return 0, 0
+		}
+		defer c.Close()
+		conn = c
+	}
+	_ = conn.QueryRow(`SELECT COUNT(*) FROM unmask_user`).Scan(&users)
+	_ = conn.QueryRow(`SELECT COUNT(*) FROM unmask_event`).Scan(&events)
+	return users, events
+}
+
 // AdminSetupIndex: GET {base}/admin/setup/  — render the current step.
 //
 // step order: token -> db -> user -> done.
@@ -407,6 +429,14 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		data["ReviewMariaDBDB"] = wstate.DB.MariaDB.Database
 		data["ReviewMariaDBUser"] = wstate.DB.MariaDB.User
 		data["ReviewUsername"] = wstate.Username
+		if reconfigure {
+			// Show what's already in the target DB so the operator knows whether
+			// install will adopt existing data or create a fresh schema.
+			u, e := h.targetDBStats(wstate.DB)
+			data["TargetUsers"] = u
+			data["TargetEvents"] = e
+			data["TargetHasData"] = u > 0 || e > 0
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "setup.html", data); err != nil {
