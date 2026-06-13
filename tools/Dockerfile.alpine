@@ -19,13 +19,13 @@
 #
 # License: Apache-2.0 (see LICENSE at the repo root).
 
-FROM alpine:3.20
+FROM alpine:3.21
 
 # abuild ships abuild-sign / abuild-keygen.
 # apk-tools provides the `apk index` subcommand used by build-repo.sh.
 # The rest (bash / coreutils / findutils / sed / grep / tar / gzip / gawk / gnupg)
 # are present in build-repo.sh's portable code paths.  Pinning them here keeps
-# the image deterministic across Alpine 3.20 point releases.
+# the image deterministic across Alpine 3.21 point releases.
 RUN apk add --no-cache \
         abuild \
         apk-tools \

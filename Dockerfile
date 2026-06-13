@@ -38,7 +38,7 @@ RUN cd admin && \
 # runtime stage: scratch + ca-certs + tzdata only.  Pure-Go binary, so no
 # shell needed.  Alpine base allows `docker exec` for debugging.
 # -------------------------------------------------------------------------
-FROM alpine:3.20 AS runtime
+FROM alpine:3.21 AS runtime
 RUN apk add --no-cache ca-certificates tzdata && \
     addgroup -S unmask && \
     adduser  -S -G unmask -H -h /var/lib/unmask -s /sbin/nologin unmask && \
