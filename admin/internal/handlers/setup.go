@@ -410,13 +410,17 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		// superadmin's token in reconfigure, where the POSTs DO verify CSRF.
 		"CSRFToken": CSRFTokenFromRequest(r),
 	}
-	if step == "user" && wstate != nil && wstate.UserSet {
-		// Pre-fill the username so the user can review / edit on backtrack.
-		// The password is *not* round-tripped via HTML (= the field stays
-		// blank); the user re-enters it.  Internally wstate.PasswordHash holds
-		// the argon2id hash of the previously-entered password (not the
-		// plaintext) until they submit again.
-		data["PrefillUsername"] = wstate.Username
+	if step == "user" {
+		// Pre-fill the username so it survives a validation-error round-trip
+		// (?username=) or a backtrack to this step (wizard state).  The password
+		// is *not* round-tripped via HTML (= the field stays blank); the user
+		// re-enters it.  Internally wstate.PasswordHash holds the argon2id hash
+		// of the previously-entered password until they submit again.
+		if u := q.Get("username"); u != "" {
+			data["PrefillUsername"] = u
+		} else if wstate != nil && wstate.UserSet {
+			data["PrefillUsername"] = wstate.Username
+		}
 	}
 	if step == "user" && reconfigure && wstate != nil && wstate.DBSet {
 		// Whether the SELECTED target DB already has an admin.  Only then is
@@ -604,7 +608,14 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 	}
 	base := h.cfg().Server.BasePath
 	redirErr := func(msg string) {
-		http.Redirect(w, r, base+"/admin/setup/?err="+urlEncodeShort(msg), http.StatusFound)
+		q := url.Values{}
+		q.Set("err", msg)
+		// Round-trip the entered username so a validation error doesn't wipe it
+		// (the password is intentionally not round-tripped; the user re-enters it).
+		if u := strings.TrimSpace(r.FormValue("username")); u != "" {
+			q.Set("username", u)
+		}
+		http.Redirect(w, r, base+"/admin/setup/?"+q.Encode(), http.StatusFound)
 	}
 
 	// Reconfigure: "skip" keeps the target DB's existing admin instead of
