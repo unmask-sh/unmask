@@ -507,6 +507,7 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.cfg().Server.BasePath
+	lang := i18n.Resolve(r)
 	// On failure, round-trip the input values via the query string so the
 	// template can repopulate them (= driver / host / port / database /
 	// user travel via query.  password is sensitive and is not
@@ -525,7 +526,7 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 
 	driver := strings.TrimSpace(r.FormValue("driver"))
 	if driver != "sqlite" && driver != "mariadb" {
-		redirErr("driver must be sqlite or mariadb")
+		redirErr(i18n.T(lang, "setup.err.driver_invalid"))
 		return
 	}
 	cfg := settings.DB{Driver: driver}
@@ -558,7 +559,7 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if cfg.MariaDB.Database == "" || cfg.MariaDB.User == "" {
-			redirErr("MariaDB host/database/user are required")
+			redirErr(i18n.T(lang, "setup.err.mariadb_required"))
 			return
 		}
 	}
@@ -569,7 +570,7 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 	// in the schema.
 	conn, err := db.Open(cfg)
 	if err != nil {
-		redirErr("connect: " + err.Error())
+		redirErr(i18n.T(lang, "setup.err.connect") + ": " + err.Error())
 		return
 	}
 	_ = conn.Close()
@@ -622,15 +623,16 @@ func (h *Handler) AdminSetupSaveUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	lang := i18n.Resolve(r)
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 	confirm := r.FormValue("password_confirm")
 	if username == "" || password == "" {
-		redirErr("username and password are required")
+		redirErr(i18n.T(lang, "setup.err.user_required"))
 		return
 	}
 	if password != confirm {
-		redirErr("password confirmation mismatch")
+		redirErr(i18n.T(lang, "setup.err.password_mismatch"))
 		return
 	}
 	if err := user.ValidatePassword(password); err != nil {
@@ -709,16 +711,17 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	if !h.setupCSRFOK(w, r) {
 		return
 	}
+	lang := i18n.Resolve(r)
 	stateKey := h.wizardStateKey(r)
 	s := wizardStateForKey(stateKey)
 	if s == nil || !s.DBSet {
-		redirErr("setup session incomplete; complete the DB step before installing")
+		redirErr(i18n.T(lang, "setup.err.incomplete_db"))
 		return
 	}
 	// The admin-user step is mandatory on a bootstrap install but optional when
 	// reconfiguring -- the target DB may already have an admin (validated below).
 	if !reconfigure && !s.UserSet {
-		redirErr("setup session incomplete; complete every step before installing")
+		redirErr(i18n.T(lang, "setup.err.incomplete_all"))
 		return
 	}
 
@@ -776,7 +779,13 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			if conn != h.DB {
 				_ = conn.Close()
 			}
-			redirErr("the selected DB has no admin user; go back and create one")
+			// The target DB has no admin to keep, so "skip" is invalid.  Rather
+			// than a dead-end error, send the operator back to the user step --
+			// where the "new/empty DB: create an admin" hint shows in their
+			// language -- and clear the skip flag so that step is the natural one.
+			s.UserSkipped = false
+			touchWizardState(s)
+			http.Redirect(w, r, base+"/admin/setup/?step=user", http.StatusFound)
 			return
 		}
 	}
