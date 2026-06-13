@@ -343,13 +343,22 @@ elif [ "$HAVE_APK" = 1 ]; then
         ( cd "$d" && apk index --quiet --allow-untrusted --description "unmask repository (single-path)" -o APKINDEX.tar.gz *.apk )
         if [ -n "${UNMASK_RSA_PRIVKEY:-}" ] && [ -f "$UNMASK_RSA_PRIVKEY" ]; then
             # -p sets the pub-key NAME embedded in the index signature filename
-            # (= `.SIGN.RSA.<pubname>` inside APKINDEX.tar.gz).  apk-tools looks
+            # (= `.SIGN.RSA256.<pubname>` inside APKINDEX.tar.gz).  apk-tools looks
             # up `/etc/apk/keys/<pubname>` on the client.  Without -p,
             # abuild-sign tries to read `${UNMASK_RSA_PRIVKEY}.pub` from disk
             # which we do not ship -- the public key is distributed separately
             # via the unmask-release package (= /etc/apk/keys/oss@unmask.sh-260509.rsa.pub).
+            #
+            # -t RSA256 (= SHA-256) is REQUIRED for Alpine 3.23+ (apk-tools
+            # 3.0.x).  abuild-sign's default type RSA signs the index with SHA-1;
+            # apk-tools 3.0.6 treats our SHA-1-signed index as an UNTRUSTED
+            # signature (= verified on the Alpine 3.23 install gate -- the whole
+            # repo then goes invisible and `apk add unmask` fails with "no such
+            # package", even though /etc/apk/keys/ holds the matching pubkey).
+            # SHA-256 (`.SIGN.RSA256.`) is accepted by both apk-tools v2 (>= 2.7,
+            # Alpine <= 3.22) and v3, so it stays backward compatible.
             pubname="${UNMASK_RSA_PUBNAME:-$(basename "$UNMASK_RSA_PRIVKEY").pub}"
-            abuild-sign -k "$UNMASK_RSA_PRIVKEY" -p "$pubname" "$d/APKINDEX.tar.gz"
+            abuild-sign -t RSA256 -k "$UNMASK_RSA_PRIVKEY" -p "$pubname" "$d/APKINDEX.tar.gz"
         else
             echo "  -> WARNING: UNMASK_RSA_PRIVKEY unset or missing -> APKINDEX NOT signed (apk add will reject the repo)"
         fi
