@@ -248,7 +248,7 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
        textContent when window.__brand.footer_text is set. -->
   <div id="brand-foot" style="display:none;margin-top:1.2em;color:#94a3b8;font-size:.8em"></div>
 </div>
-<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"default", challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/1500, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", brand: /*__BRANDING__*/null};
+<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"default", challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/1500, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, brand: /*__BRANDING__*/null};
 (function(){
   // apply the theme to body class right after document construction (= prevent flash).
   var t=(window.UNMASK.theme||'default').replace(/[^a-z0-9_-]/gi,'');

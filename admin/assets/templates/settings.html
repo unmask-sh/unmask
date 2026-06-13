@@ -2424,6 +2424,46 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ end }}
       </div>
     </div>
+    {{ if $scopeDefault }}
+    {{/* Roaming is a global policy (cur.Rebind), so only the default scope shows
+         it; per-site challenge forms POST to a different endpoint. */}}
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:1.4rem 0">
+    <h4 style="margin:0 0 .25rem;font-size:.95rem">{{ t .Lang "settings.roaming.section" }}</h4>
+    <p class="desc" style="margin:0 0 .9rem;font-size:.82rem;color:#64748b">{{ safeHTML (t .Lang "settings.roaming.section_desc") }}</p>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label for="roaming-cap">{{ t .Lang "settings.roaming.cap_label" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="roaming-cap-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="roaming-cap-help">{{ safeHTML (t .Lang "settings.roaming.cap_help") }}</script>
+      <input type="number" id="roaming-cap" name="roaming_cap" min="1" max="16" step="1"
+             value="{{ .RoamingCap }}" style="width:6rem">
+      <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.roaming.cap_unit" }}</span>
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.roaming.mode_label" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="roaming-mode-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="roaming-mode-help">{{ safeHTML (t .Lang "settings.roaming.mode_help") }}</script>
+      {{ $rm := .RoamingMode }}
+      <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
+        <input type="radio" name="rebind_mode" value="asn" {{ if eq $rm "asn" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.roaming.mode_asn" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_asn_sub") }}</span>
+      </label>
+      <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
+        <input type="radio" name="rebind_mode" value="strict" {{ if eq $rm "strict" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.roaming.mode_strict" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_strict_sub") }}</span>
+      </label>
+      <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
+        <input type="radio" name="rebind_mode" value="any" {{ if eq $rm "any" }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.roaming.mode_any" }}</strong>
+        <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.roaming.mode_any_sub") }}</span>
+      </label>
+    </div>
+    {{ end }}
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>

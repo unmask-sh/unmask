@@ -112,7 +112,7 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	ch := cfg.Challenge.Resolve(site)
 	kind, ok := "", false
 	for _, c := range r.Cookies() {
-		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 512 {
+		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
 		if k, m := cookies.MatchingEntryKind(c.Value, cfg.Secret.BVSecret, ip, host,
@@ -212,7 +212,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			JA4Verdict:   verdict,
 			JA4VerdictID: h.VerdictNameToID(verdict),
 			Phase:        string(events.PhaseBVRebind),
-			CookieBV:     readCookieMax(r, "_bv", 320),
+			CookieBV:     readCookieMax(r, "_bv", 1024),
 			Payload: map[string]any{
 				"lineage":   claims.Lineage,
 				"solve_asn": claims.ASN,

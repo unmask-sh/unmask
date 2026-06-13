@@ -457,6 +457,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoASNMode":    ipgeoMode(h.cfg().IPGeo.MMDBASNPath, ipgeo.DefaultASNPath, true),
 		"IPGeoDefault":    ipgeo.DefaultMMDBPath,
 		"IPGeoASNDefault": ipgeo.DefaultASNPath,
+		// Roaming: how many networks one _bv pass cookie stays valid on, and the
+		// active new-IP rebind mode (strict / asn / any) for the radio group.
+		"RoamingCap":  h.cfg().Rebind.MaxEntriesResolved(),
+		"RoamingMode": h.cfg().Rebind.RebindMode(),
 		// Active-row metadata for the in-line vendor / build / size badges.
 		"IPGeoActiveInfo": func() IPGeoPathInfo {
 			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBPath, loc)
@@ -1000,6 +1004,19 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if err := applyChallengeFormV2(&cur.Challenge, r); err != nil {
 			redirBack(err.Error())
 			return
+		}
+		// Roaming: how many networks one _bv pass cookie stays valid on, and the
+		// new-IP rebind policy (strict / asn / any).  Both live on cur.Rebind.
+		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("roaming_cap"))); err == nil {
+			if v < 1 {
+				v = 1
+			} else if v > 16 {
+				v = 16
+			}
+			cur.Rebind.MaxEntries = v
+		}
+		if m := strings.TrimSpace(r.FormValue("rebind_mode")); m != "" {
+			cur.Rebind.SetRebindMode(m)
 		}
 	case "rate_limit":
 		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {

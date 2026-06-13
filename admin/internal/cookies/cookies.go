@@ -79,23 +79,28 @@ func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	return strconv.FormatInt(issued, 10) + "." + sig + "." + kind
 }
 
-// MaxBVEntries caps how many per-IP signatures one _bv accumulates (= how many
-// networks a roaming client stays verified on at once).  The issuer (CAPTCHA
-// path here, PoW path in challenge.js) prepends the newest and drops the oldest
-// past this.  MUST match the cap challenge.js uses.
-const MaxBVEntries = 8
+// DefaultBVMaxEntries is the default roaming cap -- how many per-IP signatures
+// one _bv accumulates (= how many networks a roaming client stays verified on at
+// once) when the operator hasn't configured one.  The cap is configurable via
+// settings (Rebind.MaxEntries) and clamped to [1, maxVerifyEntries]; the issuer
+// (CAPTCHA path here, PoW path in challenge.js) prepends the newest and drops the
+// oldest past the cap.  challenge.js reads the same cap from window.UNMASK.
+const DefaultBVMaxEntries = 16
 
 // maxVerifyEntries bounds how many ~-joined entries the verifier inspects, so an
-// oversized hostile cookie can't force unbounded HMAC/SHA-256 hashing.
+// oversized hostile cookie can't force unbounded HMAC/SHA-256 hashing.  It is
+// also the hard ceiling for the configurable issuer cap: raising the cap past it
+// would also need the native C plugin's matching `n < 16` loop bumped (an atomic
+// issuer+plugin redeploy), so AppendEntry and settings both clamp to it.
 const maxVerifyEntries = 16
 
 // Verify returns true iff ANY entry in the "~"-delimited _bv list verifies for
 // remoteIP within its kind-specific window.  A single-entry value (no "~") is a
 // one-element list, so this stays backward compatible.  The any-match lets a
 // roaming client hold one signature per IP it verified on (5G / wifi / office),
-// so switching networks doesn't re-challenge; the issuer caps the list at
-// MaxBVEntries, and a botnet rotating thousands of IPs gains nothing because it
-// rarely revisits the same IP (each still costs a fresh solve).
+// so switching networks doesn't re-challenge; the issuer caps the list at the
+// configured roaming cap, and a botnet rotating thousands of IPs gains nothing
+// because it rarely revisits the same IP (each still costs a fresh solve).
 func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) bool {
 	if value == "" {
 		return false
@@ -139,18 +144,25 @@ func MatchingEntryKind(value, bvSecret, remoteIP, host string, powValidSeconds, 
 }
 
 // AppendEntry prepends entry to the "~"-delimited _bv list, keeping at most
-// MaxBVEntries (newest first, oldest dropped); blank entries and an exact dup of
-// the just-added entry are skipped.  Used by the CAPTCHA issuer (Go) and mirrored
-// by challenge.js for the PoW path so a roaming client accumulates one signature
-// per IP instead of overwriting the previous network's.
-func AppendEntry(existing, entry string) string {
+// `max` entries (newest first, oldest dropped); blank entries and an exact dup of
+// the just-added entry are skipped.  `max` is clamped to [1, maxVerifyEntries] so
+// a bad config can't push the list past what the verifier inspects.  Used by the
+// CAPTCHA issuer (Go) and mirrored by challenge.js for the PoW path so a roaming
+// client accumulates one signature per IP instead of overwriting the previous
+// network's.
+func AppendEntry(existing, entry string, max int) string {
+	if max < 1 {
+		max = 1
+	} else if max > maxVerifyEntries {
+		max = maxVerifyEntries
+	}
 	entry = strings.TrimSpace(entry)
 	if entry == "" {
 		return existing
 	}
 	out := []string{entry}
 	for _, e := range strings.Split(existing, "~") {
-		if len(out) >= MaxBVEntries {
+		if len(out) >= max {
 			break
 		}
 		if e = strings.TrimSpace(e); e == "" || e == entry {

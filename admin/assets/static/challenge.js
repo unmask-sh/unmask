@@ -841,10 +841,12 @@
   // (= cookies.MaxBVEntries), skip blanks + an exact dup.  Server + native
   // plugin any-match the "~"-list, so each network the client solved on stays
   // passed and switching 5G<->wifi doesn't re-challenge.
+  var _bvMax = (window.UNMASK && window.UNMASK.bv_max_entries) | 0;
+  if (_bvMax < 1 || _bvMax > 16) { _bvMax = 8; } // clamp to the verifier ceiling; default
   var _bvList = tok, _bvN = 1;
   if (_bvOld) {
     var _bvP = _bvOld.split('~');
-    for (var _k = 0; _k < _bvP.length && _bvN < 8; _k++) {
+    for (var _k = 0; _k < _bvP.length && _bvN < _bvMax; _k++) {
       if (_bvP[_k] && _bvP[_k] !== tok) { _bvList += '~' + _bvP[_k]; _bvN++; }
     }
   }

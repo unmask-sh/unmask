@@ -1064,10 +1064,67 @@ type RebindConfig struct {
 	// roaming naturally re-binds a few times; a stolen cookie fanned out across a
 	// proxy pool would burst).  Default 4.
 	MaxRebindsPerHour int `yaml:"max_rebinds_per_hour,omitempty"`
+	// MaxEntries caps how many per-IP signatures one _bv accumulates -- the number
+	// of networks a roaming client (home wifi/5G, office, cafes, ...) stays
+	// verified on at once before the oldest is dropped.  Clamped to [1, 16]; 16 is
+	// the verifier ceiling (Go cookies.maxVerifyEntries and the native plugin's
+	// matching loop).  Default 16.  Independent of rebind: it bounds the _bv list
+	// even when silent rebind is off.
+	MaxEntries int `yaml:"max_entries,omitempty"`
 }
 
 // RebindEnabled reports whether silent rebind is active.
 func (c RebindConfig) RebindEnabled() bool { return !c.Disabled }
+
+// bvMaxEntriesCeiling mirrors cookies.maxVerifyEntries (kept as a literal to
+// avoid a settings->cookies import); AppendEntry re-clamps to the same value.
+const bvMaxEntriesCeiling = 16
+
+// MaxEntriesResolved returns the roaming network cap (how many per-IP _bv
+// signatures accumulate), defaulting to the ceiling and clamped to [1, 16].
+func (c RebindConfig) MaxEntriesResolved() int {
+	if c.MaxEntries <= 0 {
+		return bvMaxEntriesCeiling
+	}
+	if c.MaxEntries > bvMaxEntriesCeiling {
+		return bvMaxEntriesCeiling
+	}
+	return c.MaxEntries
+}
+
+// RebindMode collapses Disabled + ASNVeto into one operator-facing mode:
+//
+//	"strict" = silent rebind off; only the accumulated per-IP _bv list works, so
+//	           every genuinely new IP re-challenges (most conservative).
+//	"asn"    = rebind on, ASN-gated: a new IP is rebound silently only when it
+//	           shares the solve-time autonomous system (same carrier).  Default.
+//	"any"    = rebind on, no ASN gate: any new IP with the same JA4/UA/lineage is
+//	           rebound (still cap- and budget-bounded).  Loosest.
+func (c RebindConfig) RebindMode() string {
+	if c.Disabled {
+		return "strict"
+	}
+	if c.ASNVetoResolved() == "off" {
+		return "any"
+	}
+	return "asn"
+}
+
+// SetRebindMode applies a RebindMode() value back onto Disabled + ASNVeto.
+// Unknown values fall back to the safe default ("asn").
+func (c *RebindConfig) SetRebindMode(mode string) {
+	switch mode {
+	case "strict":
+		c.Disabled = true
+		c.ASNVeto = ""
+	case "any":
+		c.Disabled = false
+		c.ASNVeto = "off"
+	default: // "asn"
+		c.Disabled = false
+		c.ASNVeto = "auto"
+	}
+}
 
 // ASNVetoResolved returns the normalized ASN-veto mode ("auto" | "off").
 func (c RebindConfig) ASNVetoResolved() string {

@@ -1235,9 +1235,9 @@ func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string
 		if c.Name != "_bv" {
 			continue
 		}
-		// Upper bound generous enough for a full MaxBVEntries "~"-list of per-IP
+		// Upper bound generous enough for a full 16-entry "~"-list of per-IP
 		// signatures (~35 bytes each); cookies.Verify any-matches the entries.
-		if c.Value == "" || len(c.Value) > 512 {
+		if c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
 		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip, host,

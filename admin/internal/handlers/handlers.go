@@ -55,13 +55,14 @@ const (
 	// /unmask/test/ pages override this via `?_pow_display=N` to slow the
 	// spinner down for visual inspection.  Production traffic always sees
 	// the real PoW solve time.
-	powMinDisplayMsPH      = "/*__POW_MIN_DISPLAY_MS__*/0"
-	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
-	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
-	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
-	powSeedPlaceholder     = `/*__POW_SEED__*/""`
-	ctTokenPlaceholder     = `/*__CT__*/""`
-	defaultSite            = "default"
+	powMinDisplayMsPH       = "/*__POW_MIN_DISPLAY_MS__*/0"
+	origPathPlaceholder     = `/*__ORIG_PATH__*/""`
+	beaconTokenPlaceholder  = `/*__BEACON_TOKEN__*/""`
+	issuedAtPlaceholder     = `/*__ISSUED_AT__*/0`
+	powSeedPlaceholder      = `/*__POW_SEED__*/""`
+	ctTokenPlaceholder      = `/*__CT__*/""`
+	bvMaxEntriesPlaceholder = `/*__BV_MAX_ENTRIES__*/8`
+	defaultSite             = "default"
 )
 
 // challengeThemes is the allowlist applied to the challenge page.  ?theme=
@@ -882,6 +883,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// leading-zero-bits used by challenge.js's SHA-256 hashcash).
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
 		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", ch.ResolvedPowDifficulty())))
+	// bv_max_entries: the roaming cap challenge.js uses when prepending the new
+	// PoW signature to the _bv "~"-list (must match the Go issuer's cap).
+	body = bytes.ReplaceAll(body, []byte(bvMaxEntriesPlaceholder),
+		[]byte(fmt.Sprintf("/*__BV_MAX_ENTRIES__*/%d", h.cfg().Rebind.MaxEntriesResolved())))
 
 	// PoW spinner floor.  Production sees no floor (real PoW timing); the
 	// /unmask/test/ pages opt into a slowdown via `?_pow_display=N` so an
@@ -1671,7 +1676,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cookieBV := readCookieMax(r, "_bv", 320) // wide enough for a full MaxBVEntries "~"-list
+	cookieBV := readCookieMax(r, "_bv", 1024) // wide enough for a full 16-entry "~"-list
 	cookieBR := readCookieMax(r, "_br", 8)
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
@@ -1704,14 +1709,15 @@ func (h *Handler) setBVCookie(w http.ResponseWriter, r *http.Request, val string
 	// Accumulate one per-IP signature instead of overwriting: a roaming client
 	// (5G <-> wifi) keeps a valid _bv for each network it solved on, so switching
 	// networks doesn't re-challenge.  AppendEntry prepends the new entry and caps
-	// the list at MaxBVEntries; the native plugin + Go verify both any-match it.
+	// the list at the configured roaming cap; the native plugin + Go verify both
+	// any-match it.
 	existing := ""
 	if c, err := r.Cookie("_bv"); err == nil {
 		existing = c.Value
 	}
 	c := &http.Cookie{
 		Name:  "_bv",
-		Value: cookies.AppendEntry(existing, val),
+		Value: cookies.AppendEntry(existing, val, h.cfg().Rebind.MaxEntriesResolved()),
 		Path:  "/",
 		// CookieMaxAgeSeconds is a fixed constant -- per-site Resolve is
 		// unnecessary for the browser-side Max-Age.
