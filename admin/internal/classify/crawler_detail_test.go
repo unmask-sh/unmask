@@ -45,6 +45,19 @@ func TestCrawlerDisplayName(t *testing.T) {
 		`filterdb\.iss\.net\/c`: "filterdb.iss.net/c",
 		`BLP_bbot`:              "BLP_bbot",
 		`^$`:                    "other", // pathological: nothing literal -> fallback
+		// case-variant character classes resolve to a representative letter
+		// (prefers the uppercase one) instead of collapsing onto "other".
+		`[cC]laude[bB]ot`: "ClaudeBot",
+		`[pP]ingdom`:      "Pingdom",
+		`[Cc]urebot`:      "Curebot",
+		// leading anchors / anchor-only groups are skipped so the literal after
+		// them survives.
+		`^BW\/`:         "BW",
+		`^LCC `:         "LCC",
+		`(^| )sentry\/`: "sentry",
+		`(^| )PTST\/`:   "PTST",
+		// a group with real alternatives yields the first one's literal.
+		`(sistrix|SISTRIX) [cC]rawler`: "sistrix Crawler",
 	}
 	for pat, want := range cases {
 		if got := crawlerDisplayName(pat); got != want {

@@ -114,33 +114,66 @@ func LookupCrawlerIn(ua, tag string) string {
 }
 
 // crawlerDisplayName turns a crawler-user-agents.json regex pattern into a
-// readable crawler token: it unescapes backslashes and stops at the first
-// regex-construct character, leaving the literal name.
+// readable crawler token.  It walks the pattern left-to-right, unescaping
+// backslashes and resolving the handful of regex constructs these patterns use
+// for case-insensitive matching (anchors, simple character classes, leading
+// groups) so a name still falls out -- otherwise common crawlers whose pattern
+// happens to start with a construct (e.g. ClaudeBot = `[cC]laude[bB]ot`) would
+// all collapse onto "other".
 //
 //	`Googlebot\/`            -> "Googlebot"
-//	`AdsBot-Google([^-]|$)`  -> "AdsBot-Google"
-//	`filterdb\.iss\.net\/cr` -> "filterdb.iss.net/cr"
+//	`AdsBot-Google([^-]|$)`  -> "AdsBot-Google"   (trailing group is a qualifier)
+//	`[cC]laude[bB]ot`        -> "ClaudeBot"        (case-variant char classes)
+//	`[pP]ingdom`             -> "Pingdom"
+//	`^BW\/`                  -> "BW"               (leading anchor skipped)
+//	`(^| )sentry\/`          -> "sentry"           (leading anchor-only group skipped)
 func crawlerDisplayName(pattern string) string {
-	const construct = "([{|^$*+?"
 	var b []byte
-	for i := 0; i < len(pattern); i++ {
+	i, n := 0, len(pattern)
+	for i < n {
 		c := pattern[i]
-		if c == '\\' && i+1 < len(pattern) {
-			i++
-			b = append(b, pattern[i]) // the escaped byte, literally
-			continue
-		}
-		stop := false
-		for j := 0; j < len(construct); j++ {
-			if c == construct[j] {
-				stop = true
+		switch {
+		case c == '\\' && i+1 < n:
+			b = append(b, pattern[i+1]) // the escaped byte, literally
+			i += 2
+		case c == '^' || c == '$':
+			i++ // anchor: contributes no literal
+		case c == '[':
+			// Character class: emit a representative letter for a simple
+			// case/letter set (`[cC]` -> 'C'); skip a complex one (ranges /
+			// negation).  Scan to the matching ']'.
+			j := i + 1
+			for j < n && pattern[j] != ']' {
+				j++
+			}
+			if j >= n { // unterminated '[': treat as a plain stop
+				i = n
 				break
 			}
+			if rep := classRep(pattern[i+1 : j]); rep != 0 {
+				b = append(b, rep)
+			}
+			i = j + 1
+		case c == '(':
+			// Group.  Once a real literal is in hand the group is a trailing
+			// qualifier (`AdsBot-Google([^-]|$)`) -> stop.  A leading group is
+			// usually an anchor/alternation wrapper (`(^| )PTST`) -> emit its
+			// first literal alternative, if any, and continue past it.
+			end := groupEnd(pattern, i)
+			if len(strings.Trim(string(b), "/.-_ ")) >= 2 {
+				i = n
+				break
+			}
+			if lit := firstAltLiteral(pattern[i+1 : end]); lit != "" {
+				b = append(b, lit...)
+			}
+			i = end + 1
+		case c == '|' || c == '*' || c == '+' || c == '?' || c == '{':
+			i = n // remaining constructs: stop here
+		default:
+			b = append(b, c)
+			i++
 		}
-		if stop {
-			break
-		}
-		b = append(b, c)
 	}
 	name := strings.Trim(string(b), "/.-_ ")
 	if name == "" {
@@ -150,4 +183,101 @@ func crawlerDisplayName(pattern string) string {
 		name = name[:48]
 	}
 	return name
+}
+
+// classRep returns a representative byte for a character-class body, or 0 when
+// the class carries no clean letter (a range `a-z` or negation `^...`).  It
+// prefers an uppercase ASCII letter (so `[cC]` -> 'C', matching the usual
+// capitalisation of the crawler name) and otherwise takes the first letter.
+func classRep(inner string) byte {
+	if strings.IndexByte(inner, '-') >= 0 || strings.IndexByte(inner, '^') >= 0 {
+		return 0
+	}
+	var first byte
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		if c >= 'A' && c <= 'Z' {
+			return c
+		}
+		if first == 0 && c >= 'a' && c <= 'z' {
+			first = c
+		}
+	}
+	return first
+}
+
+// groupEnd returns the index of the ')' closing the '(' at start, accounting
+// for nesting; if unterminated it returns the last index.
+func groupEnd(s string, start int) int {
+	depth := 0
+	for i := start; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(s) - 1
+}
+
+// firstAltLiteral splits a group body on top-level '|' and returns the first
+// alternative's leading literal run (letters / digits / -._/), or "" when no
+// alternative starts with one (e.g. `^| ` -> "").
+func firstAltLiteral(body string) string {
+	for _, alt := range splitTopAlt(body) {
+		var b []byte
+		for i := 0; i < len(alt); i++ {
+			c := alt[i]
+			if c == '\\' && i+1 < len(alt) {
+				i++
+				b = append(b, alt[i])
+				continue
+			}
+			if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+				c == '-' || c == '.' || c == '_' || c == '/' {
+				b = append(b, c)
+				continue
+			}
+			break
+		}
+		if s := strings.Trim(string(b), "/.-_ "); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// splitTopAlt splits on '|' that are not nested inside parentheses or a
+// character class.
+func splitTopAlt(body string) []string {
+	var out []string
+	depth, start := 0, 0
+	inClass := false
+	for i := 0; i < len(body); i++ {
+		switch body[i] {
+		case '\\':
+			i++ // skip the escaped byte
+		case '[':
+			inClass = true
+		case ']':
+			inClass = false
+		case '(':
+			if !inClass {
+				depth++
+			}
+		case ')':
+			if !inClass && depth > 0 {
+				depth--
+			}
+		case '|':
+			if depth == 0 && !inClass {
+				out = append(out, body[start:i])
+				start = i + 1
+			}
+		}
+	}
+	return append(out, body[start:])
 }
