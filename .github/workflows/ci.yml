@@ -66,10 +66,11 @@ jobs:
   golangci-lint:
     runs-on: ubuntu-latest
     needs: go-test
-    # Non-blocking until the v0.1 lint debt is paid down (= 113 findings that
-    # surfaced once the gofmt gate was fixed and this job actually ran for the
-    # first time).  Tracked in ROADMAP; go-test / build / e2e stay hard gates.
-    continue-on-error: true
+    # Hard gate: the v0.1 lint debt is paid down -- dead code removed, the
+    # conventional errcheck calls + reviewed taint-analysis gosec rules are
+    # excluded with per-rule rationale in admin/.golangci.yml.  go-test /
+    # build / e2e are hard gates too.
+    continue-on-error: false
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5

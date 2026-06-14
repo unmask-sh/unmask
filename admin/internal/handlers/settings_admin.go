@@ -2160,38 +2160,6 @@ func pairExtras(patterns, titles, enabled, updatedAt []string) ([]string, []stri
 	return outP, outT, outD, outU
 }
 
-// cleanInputs: sanitize a form slice ([]string) by trim + drop-empty + reject
-// control chars. Feed each row-UI <input> directly into this
-// (= replacement for textarea + splitLines).
-func cleanInputs(values []string) []string {
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		// nginx config injection guard (= same blocklist as splitLines)
-		if strings.ContainsAny(v, "\"\\\x00\r\n") {
-			continue
-		}
-		out = append(out, v)
-	}
-	return out
-}
-
-// compileValid: drop lines that fail to compile as regex and return the rest.
-// Early validation to avoid nginx startup failures.
-func compileValid(lines []string) []string {
-	out := lines[:0]
-	for _, e := range lines {
-		if _, err := regexp.Compile(e); err != nil {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
-}
-
 func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	enabled := map[string]bool{}
 	for _, id := range r.Form["enabled_presets"] {
@@ -3433,7 +3401,7 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 	if err != nil {
 		return fmt.Errorf("logo: read upload: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	ext, ok := pickLogoExt(fh.Filename)
 	if !ok {
 		return fmt.Errorf("logo: unsupported extension (allowed: png, jpg, jpeg, svg, webp, gif)")
@@ -3710,13 +3678,6 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 	// truly want to leave the per-site view do so via the side menu (which
 	// drops scope intentionally) or by typing default into the scope picker.
 	redirBack("", site)
-}
-
-// applyRateLimitFormV2: top-level entry point for the rate-limit tab save.
-// Edits the Default record only; per-site cards have their own endpoints.
-// Also receives the install-wide Key + Zones from the same form.
-func applyRateLimitFormV2(cur *settings.RateLimitConfig, r *http.Request) error {
-	return applyRateLimitForm(cur, r)
 }
 
 // applyRateLimitValuesForm was used by the v2 per-site rate-limit card

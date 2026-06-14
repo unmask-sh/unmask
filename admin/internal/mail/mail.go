@@ -204,7 +204,7 @@ func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, m
 	}
 	c, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("smtp newclient: %w", err)
 	}
 	defer c.Close()

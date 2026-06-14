@@ -35,6 +35,22 @@ linters:
         - (*strings.Builder).WriteRune
         - (*bytes.Buffer).WriteString
         - (*bytes.Buffer).Write
+        # Best-effort defer Close + diagnostic Fprint/Write whose error is
+        # conventionally dropped (cleanup paths, CLI / metrics output).
+        - (*os.File).Close
+        - (*os.File).Write
+        - os.Remove
+        - os.RemoveAll
+        - (net.Listener).Close
+        - (net.Conn).Close
+        - (io.ReadCloser).Close
+        - (*compress/gzip.Reader).Close
+        - (*net/smtp.Client).Close
+        - (*github.com/oschwald/maxminddb-golang.Reader).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Sscanf
     gosec:
       excludes:
         - G104        # we deliberately ignore some err returns in best-effort cleanup paths
@@ -52,6 +68,19 @@ linters:
         - G301        # nginx-traversable dirs (0755) so nginx, a different user, reaches the rendered configs
         - G302        # 0640 / 0644 config / maps / mmdb -- group/world-read for nginx + the daemon group
         - G306        # WriteFile of those same nginx-read maps + non-secret sync metadata
+        # Taint-analysis rules (flow-insensitive; can't see cross-function
+        # validation).  Every flagged site reviewed -- notes per rule:
+        - G118        # ban-apply / hunt goroutines intentionally outlive the request ctx
+        - G120        # every ParseMultipartForm passes an explicit 4<<20 byte limit
+        - G203        # template.HTML/JS wrap server i18n / computed JSON, never visitor input
+        - G204        # subprocess = fixed package-manager update commands / self re-exec
+        - G702        # syscall.Exec self re-exec uses the resolved own-binary path, not user input
+        - G703        # ReadFile paths come from settings / env (crawler-list, config), validated
+        - G704        # outbound pulls use the operator-set FeedURL, not a visitor value
+        - G705        # Write / Fprintf targets are challenge HTML / metrics, server-generated
+        - G706        # log.Printf of ip / path -- admin-only logs, no untrusted sink
+        - G710        # redirects pass isLocalRedirect (rejects //host and /\host) upstream
+        - G124        # cookies set Secure dynamically from request TLS (setup wizard needs HTTP)
     revive:
       rules:
         - name: blank-imports

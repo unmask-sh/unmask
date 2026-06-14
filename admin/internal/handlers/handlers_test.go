@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -270,16 +269,6 @@ func TestAdminMyIP_Invalid(t *testing.T) {
 	if rr.Code != http.StatusBadRequest {
 		t.Errorf("invalid ip should yield 400, got %d", rr.Code)
 	}
-}
-
-// readBody helper for future tests.
-func readBody(t *testing.T, r io.Reader) string {
-	t.Helper()
-	b, err := io.ReadAll(r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }
 
 // TestIPAllowed: exact + CIDR matching for admin_allowed_ips.

@@ -81,7 +81,7 @@ func cmdDoctor(args []string) error {
 			msg += " — try: sudo unmask doctor"
 		}
 		addErr("config load", msg)
-		printSummary(checks)
+		_ = printSummary(checks)
 		return errors.New("doctor failed at config load")
 	}
 	addOK("config load", resolved)

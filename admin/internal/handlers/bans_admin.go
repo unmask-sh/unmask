@@ -143,7 +143,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	// what the operator sees in the BAN table directly above.
 	sourceCounts := make(map[string]int, 4)
 	for _, br := range banRows {
-		s := strings.TrimSpace(br.Entry.Source)
+		s := strings.TrimSpace(br.Source)
 		if s == "" {
 			s = "manual"
 		}

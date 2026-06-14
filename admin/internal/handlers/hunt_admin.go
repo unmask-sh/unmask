@@ -99,7 +99,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	rng := q.Get("range")
-	sinceMin := 60
+	var sinceMin int
 	switch rng {
 	case "1h", "":
 		rng = "1h"
@@ -267,7 +267,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		!isHuntTipDismissed(r, "static-assets") {
 		pats := compileStaticAssetsTipPatterns()
 		for _, e := range enriched {
-			p := e.Row.Path
+			p := e.Path
 			if p == "" {
 				continue
 			}

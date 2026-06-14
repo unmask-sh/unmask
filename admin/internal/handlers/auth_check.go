@@ -222,9 +222,12 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	matchers := h.bypassMatchers(cfg.Nginx, site)
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
 
-	action := "pass"
-	reason := "ok"
-	status := http.StatusOK
+	// Fail-open defaults: the decision pipeline below reassigns these on every
+	// path, but keeping the explicit "pass" leaves the verdict safe if a future
+	// axis is ever added without setting them.
+	action := "pass"        //nolint:ineffassign // intentional fail-open default
+	reason := "ok"          //nolint:ineffassign // intentional fail-open default
+	status := http.StatusOK //nolint:ineffassign // intentional fail-open default
 
 	// Web Bot Auth (RFC 9421) is an explicit veto-pass axis: a valid signed
 	// request joins the search-bot rescue path instead of running through
@@ -311,7 +314,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			if d, ok := h.geoDecide(ip, cfg); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := honeypotDecide(uri, matchers, cfg, h.BanMgr, r.Context(), ip); ok {
+			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip); ok {
 				decisions = append(decisions, d)
 			}
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
@@ -576,8 +579,8 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 // Side effect: adds an entry to the persistent BAN list (= regardless of
 // whether honeypot wins the max — the trap counts even if a stronger axis
 // is the visible verdict).
-func honeypotDecide(uri string, matchers pathMatchers, cfg settings.Settings,
-	banMgr *ban.Manager, ctx context.Context, ip string) (axisDecision, bool) {
+func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg settings.Settings,
+	banMgr *ban.Manager, ip string) (axisDecision, bool) {
 	if !matchPath(uri, matchers.honeypot) {
 		return axisDecision{}, false
 	}

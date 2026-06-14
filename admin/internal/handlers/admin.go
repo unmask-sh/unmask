@@ -53,8 +53,8 @@ func resolveTZ(r *http.Request) string {
 	}
 	// safety: cookie value is expected to be an IANA tz name (e.g. "Asia/Tokyo").  Accept only alnum + / + _ + -.
 	for _, ch := range v {
-		if !(ch >= 'A' && ch <= 'Z') && !(ch >= 'a' && ch <= 'z') &&
-			!(ch >= '0' && ch <= '9') && ch != '/' && ch != '_' && ch != '-' && ch != '+' {
+		if (ch < 'A' || ch > 'Z') && (ch < 'a' || ch > 'z') &&
+			(ch < '0' || ch > '9') && ch != '/' && ch != '_' && ch != '-' && ch != '+' {
 			return ""
 		}
 	}
