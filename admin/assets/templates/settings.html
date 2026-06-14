@@ -37,7 +37,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
  * as the operator scrolls down, until the bottom item (= community-bans)
  * reaches the viewport bottom -- at that moment sticky engages and the nav
  * stops scrolling, keeping community-bans visible while the right pane continues. */
-.settings-nav{position:sticky;bottom:0;font-size:.875rem}
+/* pin the nav to the top and let it scroll on its own when taller than the
+   viewport, instead of sticky-bottom (which drifts in two stages as the
+   content scrolls). */
+.settings-nav{position:sticky;top:.75rem;align-self:start;max-height:calc(100vh - 1.5rem);overflow-y:auto;font-size:.875rem}
 .settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
 .settings-nav h3:first-child{margin-top:0}
 .settings-nav ul{list-style:none;padding:0;margin:0}
@@ -54,7 +57,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    the title text. */
 @media(max-width:48rem){
   .settings-shell{grid-template-columns:1fr}
-  .settings-nav{position:static;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
+  .settings-nav{position:static;max-height:none;overflow:visible;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
   .settings-nav ul{display:flex;flex-wrap:wrap;gap:.2rem .4rem;margin-bottom:.4rem}
   .settings-nav h3{margin:.6rem 0 .25rem;font-size:.65rem}
   .settings-nav a{padding:.25rem .55rem;border-left:none;border-bottom:2px solid transparent;border-radius:.2rem}
