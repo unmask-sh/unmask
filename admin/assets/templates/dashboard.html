@@ -108,7 +108,9 @@ dl.flow dd{margin:0;color:#334155}
  * Only dashboard-specific deltas override here (= font-size / line-height / "ip" h3 size). */
 [data-popover="ip"]{font-size:.9rem}
 [data-popover="ip"] h3{font-size:1rem;font-family:inherit}
-.ipclick{cursor:help;text-decoration:underline dotted #94a3b8}
+/* nowrap so a full-width IPv4 (3-digit octets) never breaks between the flag
+   and the address -- matches overview / hunt, which already pin their IP cells. */
+.ipclick{cursor:help;text-decoration:underline dotted #94a3b8;white-space:nowrap}
 /* unified IP display across all cards: "flag + IP + popover" (= same as bans / hunt). */
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 [data-help]{cursor:help;text-decoration:underline dotted #94a3b8}
