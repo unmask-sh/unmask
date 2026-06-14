@@ -33,6 +33,6 @@ of the system, etc. -->
 - [ ] One logical change (= split unrelated edits into separate PRs).
 - [ ] gofmt clean (= `gofmt -l admin/` is empty).
 - [ ] `go test ./...` passes in admin/.
-- [ ] `make e2e-docker` passes locally (= for nginx / auth_request / Apache scenarios).
+- [ ] `make e2e-docker` passes locally (= for nginx / forward-auth / Apache scenarios).
 - [ ] CHANGELOG.md updated under the active release.
 - [ ] Docs / install page updated if the change affects the install flow.

@@ -36,7 +36,7 @@ rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — st
 
 Official docs: **https://unmask.sh/docs/**
 
-Mode selection (native / auth_request), JA4 via load balancer, per-server config examples, FAQ.
+Mode selection (native / forward-auth), JA4 via load balancer, per-server config examples, FAQ.
 
 ## Contributing
 
