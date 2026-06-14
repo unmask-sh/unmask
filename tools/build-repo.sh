@@ -147,6 +147,14 @@ if [ -f "$ROOT/tools/dl-index.html" ]; then
     cp "$ROOT/tools/dl-index.html" "$OUT/index.html"
     echo "  -> dl/index.html (custom repo landing)"
 fi
+# releases.json: the product's version + changelog, served at /dl/releases.json
+# and read by the site's /api/version (= the admin update check).  Version-
+# controlled in tools/releases.json; bump it on a release and it publishes with
+# the repo (no hand-edit on the server).  Must live in $OUT (--delete-after).
+if [ -f "$ROOT/tools/releases.json" ]; then
+    cp "$ROOT/tools/releases.json" "$OUT/releases.json"
+    echo "  -> dl/releases.json (admin update-check feed)"
+fi
 # The Japanese landing lives at the site path /ja/dl/ (not under /dl/), so it is
 # NOT placed in the repo tree here -- it is a site page (site/ja/dl/index.html,
 # excluded from apply-layout) shipped by the normal site rsync.
