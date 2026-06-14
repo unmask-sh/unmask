@@ -10,6 +10,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -248,12 +249,14 @@ func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficR
 // AICrawlerRow: one individual crawler's traffic within a category, for the
 // drill-down popover on the AI/crawler card's "all" tab.  Total = every
 // request from that crawler; Served = the subset that was challenged; Passed =
-// Total - Served.
+// Total - Served.  Spark is the polyline "points" of a tiny trend sparkline
+// (total volume over the window, downsampled), "" when there's nothing to draw.
 type AICrawlerRow struct {
 	Crawler string
 	Total   int
 	Served  int
 	Passed  int
+	Spark   string
 }
 
 // aiTrafficDrilldown reads the per-crawler breakdown that backs the card's
@@ -261,37 +264,74 @@ type AICrawlerRow struct {
 // is unmask_crawler_detail_hourly -- the same access-log pipeline as
 // aiTrafficSummary, resolved one level finer (category -> individual crawler).
 //
-// The window matches aiTrafficSummary's `minutes` as closely as the hourly
-// grain allows: it snaps the lower bound down to the containing hour, so the
-// popover never under-counts vs the category row above it (a slight over-count
-// at the window's leading edge is acceptable for a drill-down).  Only crawlers
-// actually seen produce rows, so "record every crawler" stays cheap to show --
-// the map holds just the categories + crawlers that had traffic.  Best-effort.
+// It pulls the per-hour rows (not a pre-summed total) so it can also build a
+// trend sparkline per crawler: the window's hours are downsampled into ~32
+// equal chunks and the per-chunk volume becomes the sparkline.  The chunks are
+// label-less (a shape, not dated axes), so they need no operator TZ -- an hour
+// is an hour regardless of zone.  Total/Served are the series sums, so the
+// popover numbers and the sparkline come from one query.  The lower bound snaps
+// down to the containing hour, so the totals never under-count vs the category
+// row above.  Only crawlers actually seen produce rows.  Best-effort.
 func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string][]AICrawlerRow {
 	if h.DB == nil {
 		return nil
 	}
+	nowHour := time.Now().Unix() / 3600
 	sinceHour := (time.Now().Unix() - int64(minutes)*60) / 3600
+	// Downsample the window's hours into ~32 chunks for the sparkline.
+	const sparkTarget = 32
+	spanHours := nowHour - sinceHour + 1
+	if spanHours < 1 {
+		spanHours = 1
+	}
+	chunkHours := (spanHours + sparkTarget - 1) / sparkTarget // ceil
+	if chunkHours < 1 {
+		chunkHours = 1
+	}
+	nBuckets := int((spanHours + chunkHours - 1) / chunkHours) // ceil
+
 	rows, err := h.DB.QueryContext(ctx,
-		`SELECT category, crawler, SUM(total), SUM(served) FROM unmask_crawler_detail_hourly
-		 WHERE bucket_hour >= ? GROUP BY category, crawler`, sinceHour)
+		`SELECT category, crawler, bucket_hour, total, served FROM unmask_crawler_detail_hourly
+		 WHERE bucket_hour >= ?`, sinceHour)
 	if err != nil {
 		log.Printf("aiTrafficDrilldown: %v", err)
 		return nil
 	}
 	defer rows.Close()
-	byCat := map[string][]AICrawlerRow{}
+
+	type agg struct {
+		total, served int
+		series        []int
+	}
+	byKey := map[[2]string]*agg{} // {category, crawler} -> agg
 	for rows.Next() {
 		var cat, crawler string
+		var bucketHour int64
 		var total, served int
-		if err := rows.Scan(&cat, &crawler, &total, &served); err != nil {
+		if err := rows.Scan(&cat, &crawler, &bucketHour, &total, &served); err != nil {
 			continue
 		}
 		if total <= 0 {
 			continue
 		}
-		byCat[cat] = append(byCat[cat], AICrawlerRow{
-			Crawler: crawler, Total: total, Served: served, Passed: total - served,
+		k := [2]string{cat, crawler}
+		a := byKey[k]
+		if a == nil {
+			a = &agg{series: make([]int, nBuckets)}
+			byKey[k] = a
+		}
+		a.total += total
+		a.served += served
+		if bi := int((bucketHour - sinceHour) / chunkHours); bi >= 0 && bi < nBuckets {
+			a.series[bi] += total
+		}
+	}
+
+	byCat := map[string][]AICrawlerRow{}
+	for k, a := range byKey {
+		byCat[k[0]] = append(byCat[k[0]], AICrawlerRow{
+			Crawler: k[1], Total: a.total, Served: a.served, Passed: a.total - a.served,
+			Spark: sparkPoints(a.series),
 		})
 	}
 	// Per-category: Total DESC, then crawler name ASC for a stable, readable
@@ -306,6 +346,39 @@ func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string
 		})
 	}
 	return byCat
+}
+
+// sparkPoints renders a series of per-chunk counts as the "points" attribute of
+// an SVG <polyline> in a 64x16 box (1px inset so the stroke stays inside).  The
+// y-axis is anchored at 0 and scaled to the series max, so a crawler that ramped
+// from nothing reads as a clear rise.  Returns "" when there's nothing to draw
+// (fewer than 2 points, or all-zero).
+func sparkPoints(series []int) string {
+	n := len(series)
+	if n < 2 {
+		return ""
+	}
+	max := 0
+	for _, v := range series {
+		if v > max {
+			max = v
+		}
+	}
+	if max <= 0 {
+		return ""
+	}
+	const w, h, pad = 64.0, 16.0, 1.0
+	uw, uh := w-2*pad, h-2*pad
+	var b strings.Builder
+	for i, v := range series {
+		x := pad + float64(i)/float64(n-1)*uw
+		y := pad + (1-float64(v)/float64(max))*uh
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		fmt.Fprintf(&b, "%.1f,%.1f", x, y)
+	}
+	return b.String()
 }
 
 // countEvents: count of unmask_event rows in the last `minutes`.  Empty phase

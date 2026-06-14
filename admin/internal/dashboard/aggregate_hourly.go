@@ -181,6 +181,16 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff); err != nil {
 		return err
 	}
+	// unmask_crawler_minute is per-minute (keyed on bucket_min) and only feeds
+	// the AI/crawler card's "all" tab, whose window never exceeds the stats
+	// page's 30-day range — so cap it at the same 32-day window as the other
+	// minute/hour aggregates.  (The per-hour, per-crawler drill-down table is
+	// pruned separately on the operator's events-retention setting, since the
+	// trend sparkline wants deeper history.)
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
+		return err
+	}
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The solve windows are operator-tunable; 8 days comfortably exceeds the
 	// 3-day default, and an expired _bvj never consults its row again, so a
@@ -189,6 +199,26 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		`DELETE FROM unmask_rebind_lineage WHERE updated_at < ?`,
 		time.Now().Add(-8*24*time.Hour).Unix())
 	return err
+}
+
+// PruneCrawlerDetailHourly drops per-hour, per-crawler rows older than keepDays.
+// This is the source for the drill-down trend sparkline, so its retention is the
+// operator's events-retention setting (not the fixed 32-day aggregate window) --
+// the trend can then reach back as far as raw events do.  keepDays <= 0 is a
+// no-op (= keep forever), mirroring events_retention_days=0.
+func PruneCrawlerDetailHourly(ctx context.Context, d *db.DB, keepDays int) (int64, error) {
+	if d == nil || keepDays <= 0 {
+		return 0, nil
+	}
+	// bucket_hour is unix-seconds/3600; cut everything before keepDays ago.
+	cutoffHour := time.Now().Unix()/3600 - int64(keepDays)*24
+	res, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_crawler_detail_hourly WHERE bucket_hour < ?`, cutoffHour)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }
 
 func hourlyLastID(ctx context.Context, d *db.DB) (int64, error) {

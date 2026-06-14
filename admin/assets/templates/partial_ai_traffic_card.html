@@ -67,10 +67,10 @@
     {{ range $cat, $rows := .AITrafficDetail }}
     <div class="ai-detail-pop" data-cat="{{ $cat }}">
       <table class="ai-detail-table">
-        <thead><tr><th></th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.total" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.served" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.passed" }}</th></tr></thead>
+        <thead><tr><th></th><th></th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.total" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.served" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.passed" }}</th></tr></thead>
         <tbody>
           {{ range $rows }}
-          <tr><td class="ai-detail-name">{{ .Crawler }}</td><td class="bcd-num">{{ comma .Total }}</td><td class="bcd-num">{{ comma .Served }}</td><td class="bcd-num">{{ comma .Passed }}</td></tr>
+          <tr><td class="ai-detail-name">{{ .Crawler }}</td><td class="ai-spark-cell">{{ if .Spark }}<svg class="ai-spark" viewBox="0 0 64 16" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ .Spark }}"></polyline></svg>{{ end }}</td><td class="bcd-num">{{ comma .Total }}</td><td class="bcd-num">{{ comma .Served }}</td><td class="bcd-num">{{ comma .Passed }}</td></tr>
           {{ end }}
         </tbody>
       </table>
@@ -118,6 +118,9 @@
 .ai-detail-table thead th:first-child{text-align:left}
 .ai-detail-table td{padding:.2rem .4rem;border-bottom:1px solid #f1f5f9;text-align:right}
 .ai-detail-table td.ai-detail-name{text-align:left;font-family:ui-monospace,Menlo,monospace;color:#0f172a;word-break:break-all}
+.ai-detail-table td.ai-spark-cell{width:4rem;padding:.1rem .4rem}
+.ai-spark{display:block;width:4rem;height:1rem}
+.ai-spark polyline{fill:none;stroke:#3b82f6;stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
 </style>
 <script>
 (function(){

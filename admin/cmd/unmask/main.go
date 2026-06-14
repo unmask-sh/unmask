@@ -498,6 +498,13 @@ func cmdServe(args []string) error {
 					} else if n > 0 {
 						log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
 					}
+					// Per-hour, per-crawler drill-down: same retention as raw
+					// events (it's derived history that backs the trend sparkline).
+					if n, err := dashboard.PruneCrawlerDetailHourly(ctx, conn, retention); err != nil {
+						log.Printf("crawler-detail prune: %v", err)
+					} else if n > 0 {
+						log.Printf("crawler-detail prune: deleted %d row(s) older than %d days", n, retention)
+					}
 				}
 				// Admin-action audit log (independent retention; checked
 				// separately so events_retention_days=0 doesn't disable it).

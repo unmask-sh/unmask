@@ -3,10 +3,12 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -69,6 +71,112 @@ func TestAITrafficDrilldownQuery(t *testing.T) {
 	}
 }
 
+// TestSparkPoints checks the sparkline polyline generator: degenerate series
+// draw nothing, and a ramp rises (its last/peak point sits higher on screen =
+// a smaller y than the first).
+func TestSparkPoints(t *testing.T) {
+	for _, s := range [][]int{nil, {5}, {0, 0, 0}} {
+		if got := sparkPoints(s); got != "" {
+			t.Errorf("sparkPoints(%v) = %q, want empty", s, got)
+		}
+	}
+	pts := sparkPoints([]int{0, 0, 5, 10})
+	coords := strings.Fields(pts)
+	if len(coords) != 4 {
+		t.Fatalf("sparkPoints ramp = %q (%d points), want 4", pts, len(coords))
+	}
+	yOf := func(c string) float64 {
+		var x, y float64
+		fmt.Sscanf(c, "%f,%f", &x, &y)
+		return y
+	}
+	first, last := yOf(coords[0]), yOf(coords[len(coords)-1])
+	if last >= first {
+		t.Errorf("ramp: last y=%.1f should be above (smaller than) first y=%.1f", last, first)
+	}
+	if last > 2 { // peak normalised to the top of the 1px-inset box
+		t.Errorf("ramp peak y=%.1f, want near the top", last)
+	}
+}
+
+// TestAITrafficDrilldownSparkline seeds a crawler ramping over several hours and
+// checks the drill-down attaches a non-empty sparkline plus the summed total.
+func TestAITrafficDrilldownSparkline(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{DB: d}
+
+	nowHour := time.Now().Unix() / 3600
+	ramp := []int{2, 5, 9, 20, 50} // last 5 hours, rising
+	for i, v := range ramp {
+		hour := nowHour - int64(len(ramp)-1-i)
+		if _, err := d.Exec(
+			`INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served) VALUES (?,?,?,?,?)`,
+			hour, "ai-training", "ClaudeBot", v, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := aiTrafficDrilldown(context.Background(), h, 24*60) // 24h window
+	rows := got["ai-training"]
+	if len(rows) != 1 || rows[0].Crawler != "ClaudeBot" {
+		t.Fatalf("want one ClaudeBot row, got %+v", rows)
+	}
+	if rows[0].Total != 86 { // 2+5+9+20+50
+		t.Errorf("total=%d, want 86", rows[0].Total)
+	}
+	if rows[0].Spark == "" {
+		t.Error("ramping crawler should have a non-empty sparkline")
+	}
+}
+
+// TestPruneCrawlerDetailHourly checks the retention cut: rows past keepDays go,
+// rows inside stay, and keepDays<=0 is a no-op (keep forever).
+func TestPruneCrawlerDetailHourly(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	nowHour := time.Now().Unix() / 3600
+	ins := func(hoursAgo int64, name string) {
+		if _, err := d.Exec(
+			`INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served) VALUES (?,?,?,?,?)`,
+			nowHour-hoursAgo, "ai-training", name, 10, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ins(1, "recent")       // 1h ago
+	ins(24*5, "five-days") // 5d ago
+	ins(24*100, "old")     // 100d ago
+
+	n, err := dashboard.PruneCrawlerDetailHourly(context.Background(), d, 90)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("pruned %d rows, want 1 (the 100-day row)", n)
+	}
+	var cnt int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM unmask_crawler_detail_hourly`).Scan(&cnt); err != nil {
+		t.Fatal(err)
+	}
+	if cnt != 2 {
+		t.Errorf("remaining=%d, want 2 (recent + five-days)", cnt)
+	}
+	if n2, _ := dashboard.PruneCrawlerDetailHourly(context.Background(), d, 0); n2 != 0 {
+		t.Errorf("keepDays=0 pruned %d, want 0 (keep forever)", n2)
+	}
+}
+
 // TestAITrafficCardDrilldownRender executes the shared ai_traffic_card partial
 // with a populated AITrafficDetail map and checks the drill-down store renders
 // -- including that semi-trusted crawler names are HTML-escaped, since the
@@ -87,7 +195,7 @@ func TestAITrafficCardDrilldownRender(t *testing.T) {
 		"AITrafficServed": nil,
 		"AITrafficDetail": map[string][]AICrawlerRow{
 			"search-engine": {
-				{Crawler: "Googlebot", Total: 10000, Served: 3000, Passed: 7000},
+				{Crawler: "Googlebot", Total: 10000, Served: 3000, Passed: 7000, Spark: "1.0,15.0 32.0,8.0 63.0,1.0"},
 				{Crawler: "Bing<bot", Total: 5000, Served: 2000, Passed: 3000}, // hostile name -> must escape
 			},
 		},
@@ -121,6 +229,13 @@ func TestAITrafficCardDrilldownRender(t *testing.T) {
 	}
 	if !strings.Contains(out, "Bing&lt;bot") {
 		t.Error("expected escaped crawler name Bing&lt;bot")
+	}
+	// a row with a Spark renders the sparkline SVG with its points intact.
+	if !strings.Contains(out, `<svg class="ai-spark"`) {
+		t.Error("expected an ai-spark sparkline svg for the row carrying Spark")
+	}
+	if !strings.Contains(out, `points="1.0,15.0 32.0,8.0 63.0,1.0"`) {
+		t.Error("sparkline polyline points missing or altered")
 	}
 }
 
