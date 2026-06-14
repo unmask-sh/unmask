@@ -38,6 +38,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
  * reaches the viewport bottom -- at that moment sticky engages and the nav
  * stops scrolling, keeping community-bans visible while the right pane continues. */
 .settings-nav{position:sticky;bottom:0;font-size:.875rem}
+/* The shared layout's <main> has bottom padding.  On a viewport shorter than
+   the nav that leaves the same slack below the sticky nav's grid area, so the
+   nav drifts one extra step the moment the content reaches the very bottom.
+   Drop it here (settings page only) and move the breathing room inside the
+   content, so the nav settles in a single position with no late shift. */
+.unmask-main{padding-bottom:0}
 .settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
 .settings-nav h3:first-child{margin-top:0}
 .settings-nav ul{list-style:none;padding:0;margin:0}
@@ -45,7 +51,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-nav a{display:block;padding:.4rem .7rem;border-radius:.3rem;color:#475569;text-decoration:none;font-weight:500;border-left:2px solid transparent;line-height:1.4}
 .settings-nav a:hover{background:#f8fafc;color:#0f172a}
 .settings-nav a.active{background:#eff6ff;color:#1e40af;border-left-color:#3b82f6;font-weight:600}
-.settings-content{min-width:0}
+.settings-content{min-width:0;padding-bottom:1.5rem}
 .settings-tab-title{font-size:1.4rem;font-weight:700;color:#0f172a;margin:0 0 .6rem;display:flex;align-items:center;gap:.5rem;line-height:1}
 /* Live-preview link sits at the right side of the gate-tab title (= rate-
    limit / honeypot / protected / ua-filter / ja4-verdicts).  Subtle but
