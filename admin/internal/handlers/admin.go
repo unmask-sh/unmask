@@ -1047,6 +1047,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		jsForeignCount  int
 		aiTraffic       []dashboard.AITrafficRow
 		aiTrafficAll    []AITrafficRow
+		aiTrafficDetail map[string][]AICrawlerRow
 		dailyKind       []dashboard.DailyKindBucket
 		dailyTotal      []dashboard.DailyTotal
 		dailyServeKind  []dashboard.DailyKindBucket
@@ -1188,6 +1189,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// doesn't narrow it, but we still expose the data so the stats card
 	// can show the "all" tab alongside the site-scoped "served" view.
 	run("AITrafficAll", func() error { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60); return nil })
+	// Per-crawler drill-down for the "all" tab's popover (= same window as
+	// AITrafficAll, resolved category -> individual crawler).
+	run("AITrafficDetail", func() error { aiTrafficDetail = aiTrafficDrilldown(ctx, h, hours*60); return nil })
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).
@@ -1431,6 +1435,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"JSForeignCount":     jsForeignCount,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
+		"AITrafficDetail":    aiTrafficDetail,
 		"DailyKindJSON":      template.JS(dailyKindJSON),
 		"DailyTotal":         dailyTotal,
 		"PassSumTotal":       sumTotal,

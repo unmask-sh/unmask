@@ -142,6 +142,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// bypassed crawlers, useful for operators who tweaked the rescue
 	// presets).  Both run cheap so they share the overview render budget.
 	aiRows := aiTrafficSummary(ctx, h, 1440)
+	aiDetail := aiTrafficDrilldown(ctx, h, 1440)
 	aiServed, _ := dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24)
 	// Over-block circuit breaker health -- a global signal, so it lives on the
 	// landing rather than the per-site stats dashboard.
@@ -175,6 +176,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// (= the actual deep-dive destination) keeps the action column on.
 		"HideActions":     true,
 		"AITraffic":       aiRows,
+		"AITrafficDetail": aiDetail,
 		"AITrafficServed": aiServed,
 		"OverBlock":       overBlock,
 	}
@@ -241,6 +243,69 @@ func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficR
 	// Zero-row tags fall to the bottom but stay visible (feedback_zero_row_policy).
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Total > out[j].Total })
 	return out
+}
+
+// AICrawlerRow: one individual crawler's traffic within a category, for the
+// drill-down popover on the AI/crawler card's "all" tab.  Total = every
+// request from that crawler; Served = the subset that was challenged; Passed =
+// Total - Served.
+type AICrawlerRow struct {
+	Crawler string
+	Total   int
+	Served  int
+	Passed  int
+}
+
+// aiTrafficDrilldown reads the per-crawler breakdown that backs the card's
+// "all"-tab popover, keyed by category (= classify.CrawlerTagOrder).  Source
+// is unmask_crawler_detail_hourly -- the same access-log pipeline as
+// aiTrafficSummary, resolved one level finer (category -> individual crawler).
+//
+// The window matches aiTrafficSummary's `minutes` as closely as the hourly
+// grain allows: it snaps the lower bound down to the containing hour, so the
+// popover never under-counts vs the category row above it (a slight over-count
+// at the window's leading edge is acceptable for a drill-down).  Only crawlers
+// actually seen produce rows, so "record every crawler" stays cheap to show --
+// the map holds just the categories + crawlers that had traffic.  Best-effort.
+func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string][]AICrawlerRow {
+	if h.DB == nil {
+		return nil
+	}
+	sinceHour := (time.Now().Unix() - int64(minutes)*60) / 3600
+	rows, err := h.DB.QueryContext(ctx,
+		`SELECT category, crawler, SUM(total), SUM(served) FROM unmask_crawler_detail_hourly
+		 WHERE bucket_hour >= ? GROUP BY category, crawler`, sinceHour)
+	if err != nil {
+		log.Printf("aiTrafficDrilldown: %v", err)
+		return nil
+	}
+	defer rows.Close()
+	byCat := map[string][]AICrawlerRow{}
+	for rows.Next() {
+		var cat, crawler string
+		var total, served int
+		if err := rows.Scan(&cat, &crawler, &total, &served); err != nil {
+			continue
+		}
+		if total <= 0 {
+			continue
+		}
+		byCat[cat] = append(byCat[cat], AICrawlerRow{
+			Crawler: crawler, Total: total, Served: served, Passed: total - served,
+		})
+	}
+	// Per-category: Total DESC, then crawler name ASC for a stable, readable
+	// order (map-scan order is otherwise non-deterministic).
+	for cat := range byCat {
+		list := byCat[cat]
+		sort.Slice(list, func(i, j int) bool {
+			if list[i].Total != list[j].Total {
+				return list[i].Total > list[j].Total
+			}
+			return list[i].Crawler < list[j].Crawler
+		})
+	}
+	return byCat
 }
 
 // countEvents: count of unmask_event rows in the last `minutes`.  Empty phase

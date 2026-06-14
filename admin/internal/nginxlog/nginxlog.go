@@ -566,6 +566,9 @@ func (r *Reader) bumpCrawler(ua string, served bool) {
 		b.served++
 	}
 	if haveDetail {
+		if r.crawlerDetailBuckets == nil { // defensive: Start() inits it; direct-construct callers may not
+			r.crawlerDetailBuckets = map[crawlerDetailKey]*crawlerBucket{}
+		}
 		db := r.crawlerDetailBuckets[dkey]
 		if db == nil {
 			db = &crawlerBucket{}

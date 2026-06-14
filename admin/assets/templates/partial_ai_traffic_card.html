@@ -31,7 +31,7 @@
       <tbody>
         {{ range .AITraffic }}
         <tr{{ if eq .Total 0 }} class="muted-row" style="color:#94a3b8"{{ end }}>
-          <td><span class="ai-cat ai-cat-{{ .Category }}" data-info="{{ t $.Lang (printf "ai_traffic.examples.%s" .Category) }}">{{ .Category }}</span></td>
+          <td><span class="ai-cat ai-cat-{{ .Category }}" data-info="{{ t $.Lang (printf "ai_traffic.examples.%s" .Category) }}"{{ if index $.AITrafficDetail .Category }} data-detail-cat="{{ .Category }}"{{ end }}>{{ .Category }}</span></td>
           <td class="bcd-num">{{ if .Total }}{{ comma .Total }}{{ else }}<span class="muted">0</span>{{ end }}</td>
           <td class="bcd-num">{{ if .Served }}{{ comma .Served }}{{ else }}<span class="muted">0</span>{{ end }}</td>
           <td class="bcd-num">{{ if .Passed }}{{ comma .Passed }}{{ else }}<span class="muted">0</span>{{ end }}</td>
@@ -56,6 +56,28 @@
       </tbody>
     </table>
   </div>
+  {{/*
+    Per-category drill-down content for the "all" tab popover, rendered hidden
+    and read by the popover JS on click.  Crawler names come from the embedded
+    crawler-user-agents.json (semi-trusted): html/template auto-escapes them
+    here so the JS can safely lift this innerHTML into the popover.
+  */}}
+  {{ if .AITrafficDetail }}
+  <div class="ai-detail-store" hidden aria-hidden="true">
+    {{ range $cat, $rows := .AITrafficDetail }}
+    <div class="ai-detail-pop" data-cat="{{ $cat }}">
+      <table class="ai-detail-table">
+        <thead><tr><th></th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.total" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.served" }}</th><th class="bcd-num">{{ t $.Lang "ai_traffic.col.passed" }}</th></tr></thead>
+        <tbody>
+          {{ range $rows }}
+          <tr><td class="ai-detail-name">{{ .Crawler }}</td><td class="bcd-num">{{ comma .Total }}</td><td class="bcd-num">{{ comma .Served }}</td><td class="bcd-num">{{ comma .Passed }}</td></tr>
+          {{ end }}
+        </tbody>
+      </table>
+    </div>
+    {{ end }}
+  </div>
+  {{ end }}
 </div>
 {{ end }}
 
@@ -87,7 +109,15 @@
 .ai-cat-archiver      {background:#e2e8f0;color:#475569}
 .ai-cat-academic      {background:#f3e8ff;color:#6b21a8}
 .ai-traffic-card .ai-cat[data-info]{cursor:help}
+.ai-traffic-card .ai-cat[data-detail-cat]{cursor:pointer}
+.ai-traffic-card .ai-cat[data-detail-cat]::after{content:"\25be";margin-left:.25rem;font-size:.8em;opacity:.65}
 .ai-traffic-card table.ai-traffic tfoot td{padding:.4rem .5rem;border-top:.125rem solid #cbd5e1;background:#f8fafc;font-variant-numeric:tabular-nums;color:#334155;font-weight:700}
+.ai-detail-wrap{margin-top:.5rem;max-height:14rem;overflow-y:auto}
+.ai-detail-table{width:100%;border-collapse:collapse;font-size:.78rem;font-variant-numeric:tabular-nums}
+.ai-detail-table thead th{position:sticky;top:0;text-align:right;padding:.2rem .4rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600}
+.ai-detail-table thead th:first-child{text-align:left}
+.ai-detail-table td{padding:.2rem .4rem;border-bottom:1px solid #f1f5f9;text-align:right}
+.ai-detail-table td.ai-detail-name{text-align:left;font-family:ui-monospace,Menlo,monospace;color:#0f172a;word-break:break-all}
 </style>
 <script>
 (function(){
@@ -153,12 +183,26 @@
   document.body.appendChild(pop);
   var pin = window.popoverPin.install(pop);
   function fmt(t){ return '<div style="max-width:26rem;font-size:.82rem;line-height:1.5;white-space:normal">' + t + '</div>'; }
+  // detailFor: the hidden per-category drill-down table for el's category, if
+  // present (only the "all" tab's tags carry data-detail-cat).  The store's
+  // innerHTML was html/template-escaped server-side, so lifting it is safe.
+  function detailFor(el){
+    var cat = el.getAttribute('data-detail-cat');
+    if (!cat) return '';
+    var card = el.closest('.ai-traffic-card');
+    if (!card) return '';
+    var sel = (window.CSS && CSS.escape) ? CSS.escape(cat) : cat;
+    var store = card.querySelector('.ai-detail-store .ai-detail-pop[data-cat="' + sel + '"]');
+    return store ? '<div class="ai-detail-wrap">' + store.innerHTML + '</div>' : '';
+  }
   cats.forEach(function(el){
     var info = el.getAttribute('data-info');
     if (!info) return;
+    // Hover shows the short examples hint; clicking a tag that has a breakdown
+    // pins the hint + the per-crawler table (the small "v" caret signals it).
     el.addEventListener('mouseenter', function(e){ pin.showHover(fmt(info), e.pageX, e.pageY, el); });
     el.addEventListener('mouseleave', function(){ if (!pin.hasPinFor(el)) pin.hideHover(); });
-    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(fmt(info), e.pageX, e.pageY, el); });
+    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(fmt(info + detailFor(el)), e.pageX, e.pageY, el); });
   });
 })();
 </script>

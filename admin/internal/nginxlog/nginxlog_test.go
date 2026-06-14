@@ -93,6 +93,140 @@ func TestCrawlerAggregation(t *testing.T) {
 	}
 }
 
+// TestCrawlerDetailAggregation drives bumpCrawler with a namer wired and
+// checks the per-crawler rows land in unmask_crawler_detail_hourly, and that
+// they sum back to the unmask_crawler_minute category total (the card + its
+// drill-down popover must agree).
+func TestCrawlerDetailAggregation(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Reader{
+		d:                    d,
+		buckets:              map[bucketKey]*bucket{},
+		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
+	}
+	r.SetCrawlerClassifier(func(ua string) string {
+		if strings.Contains(ua, "Googlebot") || strings.Contains(ua, "bingbot") {
+			return "search-engine"
+		}
+		return ""
+	})
+	r.SetCrawlerNamer(func(ua, tag string) string {
+		switch {
+		case strings.Contains(ua, "Googlebot"):
+			return "Googlebot"
+		case strings.Contains(ua, "bingbot"):
+			return "Bingbot"
+		default:
+			return "other"
+		}
+	})
+
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)  // Googlebot served
+	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false)   // Bingbot passed
+	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false) // not a crawler -> ignored
+
+	r.flushOnce(true)
+
+	ctx := context.Background()
+	got := map[string][2]int{} // crawler -> {total, served}
+	rows, err := d.QueryContext(ctx,
+		`SELECT crawler, total, served FROM unmask_crawler_detail_hourly WHERE category = 'search-engine'`)
+	if err != nil {
+		t.Fatalf("query crawler_detail_hourly: %v", err)
+	}
+	for rows.Next() {
+		var name string
+		var total, served int
+		if err := rows.Scan(&name, &total, &served); err != nil {
+			t.Fatal(err)
+		}
+		got[name] = [2]int{total, served}
+	}
+	rows.Close()
+
+	if got["Googlebot"] != [2]int{3, 1} {
+		t.Errorf("Googlebot detail = %v, want [3 1]", got["Googlebot"])
+	}
+	if got["Bingbot"] != [2]int{1, 0} {
+		t.Errorf("Bingbot detail = %v, want [1 0]", got["Bingbot"])
+	}
+	if len(got) != 2 {
+		t.Errorf("want exactly 2 detail crawlers, got %d (%v)", len(got), got)
+	}
+
+	// Consistency: the detail rows must sum to the crawler_minute category total.
+	var catTotal, catServed int
+	if err := d.QueryRowContext(ctx,
+		`SELECT total, served FROM unmask_crawler_minute WHERE category = 'search-engine'`).
+		Scan(&catTotal, &catServed); err != nil {
+		t.Fatalf("query crawler_minute: %v", err)
+	}
+	var sumTotal, sumServed int
+	for _, v := range got {
+		sumTotal += v[0]
+		sumServed += v[1]
+	}
+	if sumTotal != catTotal || sumServed != catServed {
+		t.Errorf("detail sum (total=%d served=%d) != category (total=%d served=%d)",
+			sumTotal, sumServed, catTotal, catServed)
+	}
+}
+
+// TestCrawlerDetailNamerUnset: with a classifier but no namer, only the
+// per-category crawler_minute aggregation runs -- the detail table stays empty
+// (the drill-down degrades cleanly to "no breakdown").
+func TestCrawlerDetailNamerUnset(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{
+		d:                    d,
+		buckets:              map[bucketKey]*bucket{},
+		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
+	}
+	r.SetCrawlerClassifier(func(ua string) string {
+		if strings.Contains(ua, "Googlebot") {
+			return "search-engine"
+		}
+		return ""
+	})
+	// no SetCrawlerNamer
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)
+	r.flushOnce(true)
+	var nDetail, nCat int
+	if err := d.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM unmask_crawler_detail_hourly`).Scan(&nDetail); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.QueryRowContext(context.Background(),
+		`SELECT COUNT(*) FROM unmask_crawler_minute`).Scan(&nCat); err != nil {
+		t.Fatal(err)
+	}
+	if nDetail != 0 {
+		t.Errorf("namer unset: want 0 detail rows, got %d", nDetail)
+	}
+	if nCat != 1 {
+		t.Errorf("namer unset: per-category aggregation should still run, want 1 row, got %d", nCat)
+	}
+}
+
 // TestCrawlerClassifierUnset: with no classifier, bumpCrawler is a no-op (the
 // feature degrades cleanly rather than panicking).
 func TestCrawlerClassifierUnset(t *testing.T) {
