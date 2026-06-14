@@ -23,13 +23,22 @@ echo "unmask-web-nginx: installing nginx integration..."
 # update the server line to match.
 UPSTREAM_SRC=/etc/unmask/upstream.conf
 [ -d /etc/unmask ] || mkdir -p /etc/unmask
+# Follow server.port from config.yml (default 9477) so the upstream tracks a
+# non-default admin port instead of hard-coding it.  Scoped to the top-level
+# `server:` block so an unrelated `port:` (e.g. mariadb) is never picked up.
+UNMASK_PORT=$(awk '
+    /^server:/        { s=1; next }
+    /^[^[:space:]]/   { s=0 }
+    s && /^[[:space:]]+port:/ { v=$2; gsub(/[^0-9]/,"",v); if (v != "") { print v; exit } }
+' /etc/unmask/config.yml 2>/dev/null)
+[ -n "$UNMASK_PORT" ] || UNMASK_PORT=9477
 if [ ! -e "$UPSTREAM_SRC" ] || ! grep -q 'upstream unmask_admin' "$UPSTREAM_SRC" 2>/dev/null; then
-    cat > "$UPSTREAM_SRC" <<'UPSTREAM'
-# unmask admin upstream for forward-auth mode.  Default admin bind is
-# 127.0.0.1:9477 (= server.bind / server.port in /etc/unmask/config.yml).
-# Keep the server line below in sync if you change that.
+    cat > "$UPSTREAM_SRC" <<UPSTREAM
+# unmask admin upstream for forward-auth mode.  Port read from server.port in
+# /etc/unmask/config.yml at install (= $UNMASK_PORT here; default 9477).  If you
+# change server.port afterwards, update the server line or reinstall the package.
 upstream unmask_admin {
-    server 127.0.0.1:9477;
+    server 127.0.0.1:$UNMASK_PORT;
     keepalive 16;
 }
 UPSTREAM
@@ -100,6 +109,10 @@ rm -f /etc/nginx/conf.d/00-unmask-maphash.conf /etc/nginx/http.d/00-unmask-mapha
 # fires -- the visitor lands on the backend as if unmask were absent.  Auto-
 # enable so install-and-go works; opt out by setting UNMASK_SKIP_SETSEBOOL=1
 # before install.  Bool is persistent (-P) so it survives reboots.
+# Scope note: httpd_can_network_connect is HOST-WIDE -- it lets every httpd_t
+# process make outbound connections, not just unmask's nginx.  A custom policy
+# module scoped to the admin port would be tighter (= v0.2 hardening); the
+# conditional + opt-out here keeps this broad grant operator-visible.
 if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] \
    && command -v getenforce >/dev/null 2>&1 \
    && [ "$(getenforce 2>/dev/null)" = "Enforcing" ] \

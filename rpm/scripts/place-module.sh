@@ -364,6 +364,9 @@ if [ -r "$NGINX_CONF" ]; then
         else
             echo "$LOAD_LINE" > "$DROP"
             chmod 0644 "$DROP"
+            # SELinux: a file created by this script in the include dir can land
+            # with the wrong type; relabel it so nginx (httpd_t) can read it.
+            command -v restorecon >/dev/null 2>&1 && restorecon -F "$DROP" 2>/dev/null || true
             echo "  load_module conf: $DROP"
         fi
         LOAD_DROPPED=1

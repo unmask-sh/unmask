@@ -214,7 +214,9 @@ if [ "${UNMASK_AUTO_INSTALL_MMDB:-0}" = "1" ]; then
             || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask install-ipgeo\` later)"
     else
         # Alpine / minimal systems may lack runuser; fall back to su.
-        su unmask -c "/usr/sbin/unmask install-ipgeo -quiet" 2>&1 \
+        # -s /bin/sh: the unmask service user's login shell is nologin, so a
+        # plain `su unmask` fails on PAM-strict hosts; force a shell explicitly.
+        su -s /bin/sh unmask -c "/usr/sbin/unmask install-ipgeo -quiet" 2>&1 \
             || echo "unmask: WARNING: install-ipgeo failed (offline? run \`unmask install-ipgeo\` later)"
     fi
 fi

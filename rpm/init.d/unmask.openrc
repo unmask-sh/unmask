@@ -13,7 +13,19 @@ description="unmask admin server (JA4 bot challenge backend)"
 command="/usr/sbin/unmask"
 command_args="serve -config /etc/unmask/config.yml"
 command_user="unmask:unmask"
-command_background=true
+# supervise-daemon (vs the older start-stop-daemon `command_background`) lets us
+# add the no-new-privs hardening below.  `unmask serve` runs in the foreground,
+# which is exactly what supervise-daemon supervises.
+supervisor="supervise-daemon"
+
+# Hardening (= the subset OpenRC supports; systemd hosts get the full set via
+# rpm/unmask.service).  --no-new-privs matches NoNewPrivileges=yes; the daemon
+# already drops to the unmask user (command_user) and binds an unprivileged
+# port, so it needs no capabilities.  Fuller confinement (ProtectSystem /
+# namespaces / syscall filter) has no OpenRC equivalent -- the Alpine/OpenRC
+# constraint.
+supervise_daemon_args="--no-new-privs"
+rc_ulimit="-n 65536"
 
 pidfile="/var/run/unmask/unmask.pid"
 # 12-factor logging: admin writes to stderr.  OpenRC's start-stop-daemon

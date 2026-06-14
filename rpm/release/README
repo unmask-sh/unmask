@@ -2,7 +2,7 @@ unmask-release
 ==============
 
 This package configures your system to use the unmask package repository
-hosted at https://dl.unmask.sh/.
+hosted at https://unmask.sh/dl/.
 
 Files installed:
 
@@ -16,7 +16,7 @@ Files installed:
 
   Alpine:
     /etc/apk/keys/unmask-release@unmask.sh.rsa.pub  RSA public signing key
-    /etc/apk/repositories.d/unmask                  apk repository entry
+    /etc/apk/repositories                           apk repository (one line appended)
 
 After installing this package you can install unmask with:
 

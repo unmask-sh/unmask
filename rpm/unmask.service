@@ -56,7 +56,10 @@ KeyringMode=private
 UMask=0027
 # /etc/unmask needs write access so the web settings UI can update config.yml + nginx-rendered*.conf.
 ReadWritePaths=/var/lib/unmask /run/unmask /etc/unmask
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK is required: glibc getaddrinfo() opens a NETLINK_ROUTE socket for
+# RFC 3484 source-address selection, so without it DNS lookups (community-bans
+# feed pull / MariaDB host / SMTP host) intermittently fail or skip IPv6.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 
