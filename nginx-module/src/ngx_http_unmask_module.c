@@ -120,6 +120,8 @@ static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_ja4_commands[] = {
     { ngx_string("unmask_bv_secret"),
@@ -207,6 +209,13 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
      * pure-native fast path for unsigned traffic (= subrequest 0). */
     { ngx_string("unmask_has_signed_agent"), NULL,
       ngx_http_unmask_has_signed_agent_variable, 0,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_client_net: the rate-limit key -- the client IP folded to a
+     * network granularity (IPv4 = /32, IPv6 = /64) so a v6 client can't
+     * multiply its rate budget by rotating privacy addresses within its /64.
+     * Used by the limit_req_zone key in native mode (= rendered server.inc). */
+    { ngx_string("unmask_client_net"), NULL,
+      ngx_http_unmask_client_net_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     ngx_http_null_variable
 };
@@ -1316,5 +1325,66 @@ ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
             return NGX_OK;
         }
     }
+    return NGX_OK;
+}
+
+/* unmask_client_net: the rate-limit key.  Reads the (realip-rewritten)
+ * connection address -- exactly like $binary_remote_addr -- and folds it to a
+ * network granularity so one client can't multiply its rate budget by rotating
+ * source addresses:
+ *   IPv4          -> the 4 address bytes (= /32, same as $binary_remote_addr)
+ *   IPv4-mapped v6-> the embedded IPv4 (4 bytes), so it keys identically to v4
+ *   IPv6          -> the /64 (first 8 bytes); a v6 client owns a whole /64 and
+ *                    its privacy-extension addresses rotate within it
+ * Binary value (like $binary_remote_addr); mirrors the _bv cookie's IPv6 /64
+ * binding so the two layers agree on "a /64 is one client". */
+static ngx_int_t
+ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    struct sockaddr *sa = r->connection->sockaddr;
+    u_char *p;
+
+    (void) data;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+
+    if (sa != NULL && sa->sa_family == AF_INET6) {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) sa;
+        u_char *a = sin6->sin6_addr.s6_addr;
+        ngx_uint_t i, mapped = 1;
+        for (i = 0; i < 10; i++) {
+            if (a[i] != 0) { mapped = 0; break; }
+        }
+        if (mapped && a[10] == 0xff && a[11] == 0xff) {
+            /* IPv4-mapped -> key on the embedded IPv4. */
+            p = ngx_pnalloc(r->pool, 4);
+            if (p == NULL) return NGX_ERROR;
+            ngx_memcpy(p, a + 12, 4);
+            v->data = p; v->len = 4;
+        } else {
+            /* /64 = the first 8 bytes. */
+            p = ngx_pnalloc(r->pool, 8);
+            if (p == NULL) return NGX_ERROR;
+            ngx_memcpy(p, a, 8);
+            v->data = p; v->len = 8;
+        }
+        return NGX_OK;
+    }
+
+    if (sa != NULL && sa->sa_family == AF_INET) {
+        struct sockaddr_in *sin = (struct sockaddr_in *) sa;
+        p = ngx_pnalloc(r->pool, 4);
+        if (p == NULL) return NGX_ERROR;
+        ngx_memcpy(p, &sin->sin_addr.s_addr, 4);
+        v->data = p; v->len = 4;
+        return NGX_OK;
+    }
+
+    /* Unknown family (= unix socket, etc.): empty key (degenerate but safe -- a
+     * non-IP connection never reaches the public rate-limited paths). */
+    v->data = (u_char *) "";
+    v->len = 0;
     return NGX_OK;
 }

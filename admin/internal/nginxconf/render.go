@@ -352,10 +352,15 @@ type renderData struct {
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
 	// RateLimitKeyExpr: nginx variable expression for the limit_req zone key.
-	//   "ip"     -> "$binary_remote_addr"
+	//   "ip"     -> "$unmask_client_net"
 	//   "ja4"    -> "$effective_ja4"
-	//   "ip+ja4" -> "$binary_remote_addr$effective_ja4"
-	// Empty Key falls back to "ip" (= the default).
+	//   "ip+ja4" -> "$unmask_client_net$effective_ja4"
+	// Empty Key falls back to "ip" (= the default).  $unmask_client_net is the
+	// plugin-provided client IP folded to a network granularity (IPv4 = /32,
+	// IPv6 = /64) so a v6 client can't multiply its budget by rotating privacy
+	// addresses within its /64; native-only (the plugin sets it), which is the
+	// only mode render.go emits -- forward-auth's static snippets keep
+	// $binary_remote_addr.
 	RateLimitKeyExpr string
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
@@ -790,9 +795,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	case settings.RateLimitKeyJA4:
 		d.RateLimitKeyExpr = "$effective_ja4"
 	case settings.RateLimitKeyIPAndJA4:
-		d.RateLimitKeyExpr = "$binary_remote_addr$effective_ja4"
+		d.RateLimitKeyExpr = "$unmask_client_net$effective_ja4"
 	default:
-		d.RateLimitKeyExpr = "$binary_remote_addr"
+		d.RateLimitKeyExpr = "$unmask_client_net"
 	}
 	// Zone naming: per-site zones get a "<site-fragment>__" prefix on the
 	// rendered nginx zone name so an identical "shop_api" zone configured for
