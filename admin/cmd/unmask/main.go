@@ -303,6 +303,9 @@ func cmdServe(args []string) error {
 		})
 		// crawler funnel: classify each access-log UA into AI/crawler buckets.
 		nlog.SetCrawlerClassifier(classify.LookupTag)
+		// crawler drill-down: resolve the individual crawler within its category
+		// (Googlebot, Bingbot, ...), folded into unmask_crawler_detail_hourly.
+		nlog.SetCrawlerNamer(classify.LookupCrawlerIn)
 		// country breakdown for the 30-day chart: per-packet IP -> country
 		// lookup, folded into unmask_traffic_country_hourly on the hour flush.
 		nlog.SetIPGeo(gip)

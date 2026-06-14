@@ -75,6 +75,7 @@ type Reader struct {
 	mu                   sync.Mutex
 	buckets              map[bucketKey]*bucket
 	crawlerBuckets       map[crawlerKey]*crawlerBucket
+	crawlerDetailBuckets map[crawlerDetailKey]*crawlerBucket
 	countryHourlyBuckets map[countryHourKey]*countryHourBucket
 
 	// geo: ipgeo reader for per-packet country lookup.  Drives the
@@ -100,6 +101,14 @@ type Reader struct {
 	// SetCrawlerClassifier(classify.LookupTag).  Set once at startup before
 	// traffic; nil-safe (no crawler aggregation when unset).
 	classifyCrawler func(ua string) string
+
+	// crawlerNamer: (UA, category) -> individual crawler name within that
+	// category (= classify.LookupCrawlerIn -- "Googlebot", "Bingbot", ...).
+	// Wired by main via SetCrawlerNamer.  Drives the per-crawler drill-down
+	// aggregation (unmask_crawler_detail_hourly) layered on top of the
+	// per-category crawler_minute one.  nil-safe (no detail aggregation when
+	// unset); takes the category from classifyCrawler so the two always agree.
+	crawlerNamer func(ua, tag string) string
 
 	stop  chan struct{}
 	doneA chan struct{} // recv goroutine completion signal
@@ -133,6 +142,17 @@ func (r *Reader) SetCrawlerClassifier(f func(ua string) string) {
 	r.classifyCrawler = f
 }
 
+// SetCrawlerNamer: register the (UA, category) -> individual-crawler-name
+// function (= classify.LookupCrawlerIn).  Layers the per-crawler drill-down
+// aggregation on top of the per-category one.  Without it, only the per-
+// category crawler_minute aggregation runs (= the drill-down stays empty).
+func (r *Reader) SetCrawlerNamer(f func(ua, tag string) string) {
+	if r == nil {
+		return
+	}
+	r.crawlerNamer = f
+}
+
 // SetIPGeo: register the ipgeo reader for per-packet country lookup.  Without
 // it (or when the mmdb is not loaded), the country-hourly aggregation rolls
 // every request into country="" — the read side renders this as "Unknown".
@@ -159,6 +179,16 @@ type crawlerKey struct {
 type crawlerBucket struct {
 	total  int
 	served int
+}
+
+// crawlerDetailKey: per-hour, per-(category, individual-crawler) aggregation
+// for the crawler-traffic drill-down (= unmask_crawler_detail_hourly).  Hourly
+// (not per-minute like crawlerKey) to keep the row count bounded; the popover
+// only shows window totals.  Reuses crawlerBucket (total / served).
+type crawlerDetailKey struct {
+	hour     int64
+	category string
+	crawler  string
 }
 
 // countryHourKey / countryHourBucket: per-hour, per-(site, country) request
@@ -211,6 +241,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		d:                    d,
 		buckets:              map[bucketKey]*bucket{},
 		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
 		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
 		stop:                 make(chan struct{}),
 		doneA:                make(chan struct{}),
@@ -511,7 +542,19 @@ func (r *Reader) bumpCrawler(ua string, served bool) {
 	if cat == "" {
 		return
 	}
-	key := crawlerKey{minute: time.Now().Unix() / 60, category: cat}
+	now := time.Now().Unix()
+	key := crawlerKey{minute: now / 60, category: cat}
+	// Resolve the individual crawler within the category (= the drill-down
+	// dimension) outside the lock -- regex matching must not hold r.mu.  Empty
+	// when the namer is unwired (= only per-category aggregation runs).
+	var dkey crawlerDetailKey
+	haveDetail := false
+	if r.crawlerNamer != nil {
+		if name := r.crawlerNamer(ua, cat); name != "" {
+			dkey = crawlerDetailKey{hour: now / 3600, category: cat, crawler: name}
+			haveDetail = true
+		}
+	}
 	r.mu.Lock()
 	b := r.crawlerBuckets[key]
 	if b == nil {
@@ -521,6 +564,17 @@ func (r *Reader) bumpCrawler(ua string, served bool) {
 	b.total++
 	if served {
 		b.served++
+	}
+	if haveDetail {
+		db := r.crawlerDetailBuckets[dkey]
+		if db == nil {
+			db = &crawlerBucket{}
+			r.crawlerDetailBuckets[dkey] = db
+		}
+		db.total++
+		if served {
+			db.served++
+		}
 	}
 	r.mu.Unlock()
 }
@@ -571,6 +625,10 @@ func (r *Reader) flushOnce(final bool) {
 		key crawlerKey
 		b   crawlerBucket
 	}
+	type crawlerDetailEntry struct {
+		key crawlerDetailKey
+		b   crawlerBucket
+	}
 	type countryEntry struct {
 		key countryHourKey
 		b   countryHourBucket
@@ -598,6 +656,15 @@ func (r *Reader) flushOnce(final bool) {
 			delete(r.crawlerBuckets, k)
 		}
 	}
+	// crawler-detail buckets flush every tick (including the current hour),
+	// same as country-hourly: the UPSERT accumulates, so re-flushing the same
+	// (hour, category, crawler) keeps adding the new delta and the popover is
+	// fresh within ~60s instead of waiting for an hour boundary.
+	crawlerDetailReady := make([]crawlerDetailEntry, 0, len(r.crawlerDetailBuckets))
+	for k, b := range r.crawlerDetailBuckets {
+		crawlerDetailReady = append(crawlerDetailReady, crawlerDetailEntry{k, *b})
+		delete(r.crawlerDetailBuckets, k)
+	}
 	countryReady := make([]countryEntry, 0, len(r.countryHourlyBuckets))
 	for k, b := range r.countryHourlyBuckets {
 		// country buckets flush every tick (including the current hour) so the
@@ -614,7 +681,7 @@ func (r *Reader) flushOnce(final bool) {
 	}
 	r.mu.Unlock()
 
-	if len(ready) == 0 && len(crawlerReady) == 0 && len(countryReady) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(countryReady) == 0 {
 		return
 	}
 
@@ -654,6 +721,15 @@ func (r *Reader) flushOnce(final bool) {
 			} else {
 				bb := e.b
 				r.crawlerBuckets[e.key] = &bb
+			}
+		}
+		for _, e := range crawlerDetailReady {
+			if b, ok := r.crawlerDetailBuckets[e.key]; ok {
+				b.total += e.b.total
+				b.served += e.b.served
+			} else {
+				bb := e.b
+				r.crawlerDetailBuckets[e.key] = &bb
 			}
 		}
 		for _, e := range countryReady {
@@ -733,6 +809,14 @@ func (r *Reader) flushOnce(final bool) {
 			return
 		}
 	}
+	stmtCrawlerDetail := crawlerDetailUpsertStmt(r.d.Driver)
+	for _, e := range crawlerDetailReady {
+		if _, err := tx.ExecContext(ctx, stmtCrawlerDetail,
+			e.key.hour, e.key.category, e.key.crawler, e.b.total, e.b.served); err != nil {
+			log.Printf("nginxlog: flush exec(crawler-detail %s/%s): %v", e.key.category, e.key.crawler, err)
+			return
+		}
+	}
 	stmtCountry := countryHourlyUpsertStmt(r.d.Driver)
 	for _, e := range countryReady {
 		// 1 row for kind="total" + 1 row per non-empty kind, mirroring the
@@ -786,6 +870,22 @@ func crawlerUpsertStmt(drv db.Driver) string {
 	}
 	return `INSERT INTO unmask_crawler_minute (bucket_min, category, total, served)
 		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			total = total + VALUES(total), served = served + VALUES(served)`
+}
+
+// crawlerDetailUpsertStmt: accumulate total + served with (bucket_hour,
+// category, crawler) as the unique key, into unmask_crawler_detail_hourly.
+// The per-crawler drill-down layered on crawlerUpsertStmt's per-category one.
+func crawlerDetailUpsertStmt(drv db.Driver) string {
+	if drv == db.DriverSQLite {
+		return `INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(bucket_hour, category, crawler) DO UPDATE SET
+				total = total + excluded.total, served = served + excluded.served`
+	}
+	return `INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served)
+		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			total = total + VALUES(total), served = served + VALUES(served)`
 }
