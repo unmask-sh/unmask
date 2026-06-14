@@ -47,6 +47,7 @@
 
 #include "ja4_parser.h"
 #include "bv_parser.h"
+#include "ja4_build.h"
 
 #define NGX_JA4_MAX 64
 
@@ -213,32 +214,10 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
 /* GREASE detection moved into ja4_parser.c (= removed from module.c
  * when the old callback was retired). */
 
-static void ngx_ja4_hex4(char *out, unsigned int v) {
-    static const char hex[] = "0123456789abcdef";
-    out[0] = hex[(v >> 12) & 0xF];
-    out[1] = hex[(v >> 8) & 0xF];
-    out[2] = hex[(v >> 4) & 0xF];
-    out[3] = hex[v & 0xF];
-}
-
-/* qsort comparator for uint16 ascending */
-static int u16_cmp(const void *a, const void *b) {
-    unsigned int x = *(const unsigned int *)a;
-    unsigned int y = *(const unsigned int *)b;
-    return (x < y) ? -1 : (x > y) ? 1 : 0;
-}
-
-/* SHA256(hex) -> first 12 hex chars */
-static void ngx_ja4_sha12(const char *in, size_t inlen, char *out12) {
-    static const char hex[] = "0123456789abcdef";
-    unsigned char h[SHA256_DIGEST_LENGTH];
-    SHA256((const unsigned char *)in, inlen, h);
-    /* JA4 spec: take first 6 bytes hex = 12 chars */
-    for (int i = 0; i < 6; i++) {
-        out12[i*2]     = hex[(h[i] >> 4) & 0xF];
-        out12[i*2 + 1] = hex[h[i] & 0xF];
-    }
-}
+/* The JA4 string assembly (hex4 / uint16 sort / SHA-256[:12] + the
+ * JA4_a / JA4_b / JA4_c builder) moved to ja4_build.c so it can be
+ * unit-tested + ASan/UBSan fuzzed without nginx / SSL.  See
+ * ja4_build_string(), called from ngx_ja4_compute_and_store() below. */
 
 /*
  * ngx_ja4_compute_and_store: build the JA4 string from ja4_parsed_t
@@ -251,20 +230,6 @@ static void ngx_ja4_sha12(const char *in, size_t inlen, char *out12) {
  */
 static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ngx_http_ja4_ctx_t *ctx;
-    int tlsver;
-    char tlscode[3];
-    char ja4_a[16];
-    int  n_a;
-    int  cipher_count_disp;
-    int  ext_count_disp;
-    char buf[2048];
-    char *bp;
-    int  i, nexts_c;
-    unsigned int sorted[JA4_MAX_CIPHERS];
-    unsigned int sorted_e[JA4_MAX_EXTENSIONS];
-    char ja4_b[13];
-    char ja4_c[13];
-    int  outlen;
 
     if (ngx_http_ja4_ssl_ex_data_idx < 0) return;
 
@@ -279,90 +244,12 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     if (!ctx) return;
     ngx_memzero(ctx, sizeof(*ctx));
 
-    /* JA4 spec: prefer the supported_versions ext value (= the maximum
-     * presented); fall back to legacy_version if absent. */
-    tlsver = (parsed->supported_versions_max != 0)
-           ? (int)parsed->supported_versions_max
-           : (int)parsed->legacy_version;
-
-    switch (tlsver) {
-    case 0x0304: ngx_memcpy(tlscode, "13", 2); break; /* TLS 1.3 */
-    case 0x0303: ngx_memcpy(tlscode, "12", 2); break; /* TLS 1.2 */
-    case 0x0302: ngx_memcpy(tlscode, "11", 2); break;
-    case 0x0301: ngx_memcpy(tlscode, "10", 2); break;
-    case 0x0300: ngx_memcpy(tlscode, "s3", 2); break;
-    case 0xfeff: ngx_memcpy(tlscode, "d1", 2); break;
-    case 0xfefd: ngx_memcpy(tlscode, "d2", 2); break;
-    case 0xfefc: ngx_memcpy(tlscode, "d3", 2); break;
-    default:     ngx_memcpy(tlscode, "00", 2); break;
-    }
-    tlscode[2] = '\0';
-
-    /* === JA4_a (10 chars) === */
-    cipher_count_disp = parsed->ncipher > 99 ? 99 : parsed->ncipher;
-    ext_count_disp    = parsed->nexts   > 99 ? 99 : parsed->nexts;
-    n_a = ngx_snprintf((u_char *)ja4_a, sizeof(ja4_a), "t%s%c%02d%02d%c%c",
-                       tlscode,
-                       parsed->sni_present_domain ? 'd' : 'i',
-                       cipher_count_disp,
-                       ext_count_disp,
-                       parsed->alpn_first, parsed->alpn_last)
-        - (u_char *)ja4_a;
-    if (n_a < (int)sizeof(ja4_a)) ja4_a[n_a] = '\0';
-    else ja4_a[sizeof(ja4_a) - 1] = '\0';
-
-    /* === JA4_b: sorted ciphers in hex, comma-joined -> first 12 hex chars
-     * of SHA-256 === */
-    bp = buf;
-    if (parsed->ncipher > 0) {
-        ngx_memcpy(sorted, parsed->ciphers,
-                   parsed->ncipher * sizeof(unsigned int));
-        qsort(sorted, parsed->ncipher, sizeof(unsigned int), u16_cmp);
-        for (i = 0; i < parsed->ncipher; i++) {
-            if (i) *bp++ = ',';
-            ngx_ja4_hex4(bp, sorted[i]);
-            bp += 4;
-        }
-    }
-    ngx_ja4_sha12(buf, bp - buf, ja4_b);
-    ja4_b[12] = '\0';
-
-    /* === JA4_c: sorted extensions (excluding SNI=0, ALPN=16), then "_"
-     * + sig_algs (= presentation order) === */
-    bp = buf;
-    nexts_c = 0;
-    for (i = 0; i < parsed->nexts; i++) {
-        if (parsed->extensions[i] == 0 || parsed->extensions[i] == 16) continue;
-        sorted_e[nexts_c++] = parsed->extensions[i];
-    }
-    qsort(sorted_e, nexts_c, sizeof(unsigned int), u16_cmp);
-    for (i = 0; i < nexts_c; i++) {
-        if (i) *bp++ = ',';
-        ngx_ja4_hex4(bp, sorted_e[i]);
-        bp += 4;
-    }
-    if (parsed->has_sig_algs) {
-        /* JA4 spec: append "_" + sig_algs only if ext 13 was present in
-         * the ClientHello. The "_" itself is emitted even when sig_algs
-         * is empty (= matches the prior implementation). */
-        *bp++ = '_';
-        for (i = 0; i < parsed->nsig_algs; i++) {
-            if (i) *bp++ = ',';
-            ngx_ja4_hex4(bp, parsed->sig_algs[i]);
-            bp += 4;
-        }
-    }
-    ngx_ja4_sha12(buf, bp - buf, ja4_c);
-    ja4_c[12] = '\0';
-
-    /* === Final JA4 ===
-     * Write directly into ctx's ja4_buf (= no separate OPENSSL_malloc;
-     * eliminates the double-free window). */
-    outlen = ngx_snprintf(ctx->ja4_buf, NGX_JA4_MAX, "%s_%s_%s",
-                          ja4_a, ja4_b, ja4_c) - ctx->ja4_buf;
-    if (outlen >= NGX_JA4_MAX) outlen = NGX_JA4_MAX - 1;
+    /* Build the JA4 string directly into ctx's fixed buffer (= no separate
+     * OPENSSL_malloc; eliminates the double-free window).  The assembly logic
+     * lives in ja4_build.c so it is unit-tested + ASan/UBSan fuzzed without
+     * nginx / SSL; this function keeps only the ex_data storage. */
+    ctx->ja4.len  = ja4_build_string(parsed, (char *)ctx->ja4_buf, NGX_JA4_MAX);
     ctx->ja4.data = ctx->ja4_buf;
-    ctx->ja4.len  = outlen;
 
     SSL_set_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx, ctx);
 }

@@ -809,7 +809,7 @@ release-github:
 test: test-plugin-parser
 	cd admin && go test ./...
 
-## test-plugin-parser - run the stand-alone test in nginx-module/src/ja4_parser_test.c
+## test-plugin-parser - run the stand-alone C tests (ja4_parser_test.c + ja4_build_test.c)
 .PHONY: test-plugin-parser
 test-plugin-parser:
 	mkdir -p $(DIST)
@@ -818,8 +818,13 @@ test-plugin-parser:
 		nginx-module/src/ja4_parser_test.c \
 		-o $(DIST)/ja4_parser_test
 	$(DIST)/ja4_parser_test
+	gcc -std=gnu99 -Wall -Wextra \
+		nginx-module/src/ja4_build.c \
+		nginx-module/src/ja4_build_test.c \
+		-lcrypto -o $(DIST)/ja4_build_test
+	$(DIST)/ja4_build_test
 
-## fuzz-plugin  - ASan/UBSan fuzz of the pure ClientHello + _bv cookie parsers.
+## fuzz-plugin  - ASan/UBSan fuzz of the ClientHello parser, JA4 builder + _bv cookie parser.
 ## Both handle fully untrusted input (raw TLS bytes / a client-set cookie).
 ## clang bundles the sanitizer runtime; override FUZZ_CC=gcc (+ dnf install libasan).
 FUZZ_CC    ?= clang
@@ -832,6 +837,8 @@ fuzz-plugin:
 	$(DIST)/ja4_parser_fuzz $(FUZZ_ITERS)
 	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/bv_parser.c nginx-module/src/bv_parser_fuzz.c -o $(DIST)/bv_parser_fuzz
 	$(DIST)/bv_parser_fuzz $(FUZZ_ITERS)
+	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/ja4_parser.c nginx-module/src/ja4_build.c nginx-module/src/ja4_build_fuzz.c -lcrypto -o $(DIST)/ja4_build_fuzz
+	$(DIST)/ja4_build_fuzz $(FUZZ_ITERS)
 
 ## test-mariadb  - docker-gated MariaDB smoke (idempotent migrate + UTC + dialect aggregate)
 .PHONY: test-mariadb
