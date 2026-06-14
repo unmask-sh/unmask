@@ -198,11 +198,14 @@
   cats.forEach(function(el){
     var info = el.getAttribute('data-info');
     if (!info) return;
-    // Hover shows the short examples hint; clicking a tag that has a breakdown
-    // pins the hint + the per-crawler table (the small "v" caret signals it).
-    el.addEventListener('mouseenter', function(e){ pin.showHover(fmt(info), e.pageX, e.pageY, el); });
+    // Hover and click both show the examples hint + (when present) the per-
+    // crawler breakdown table -- so the detail is visible on hover, not only
+    // once pinned.  Clicking pins it (the small "v" caret signals a breakdown)
+    // so a long list can be scrolled without the popover chasing the cursor.
+    var content = fmt(info + detailFor(el));
+    el.addEventListener('mouseenter', function(e){ pin.showHover(content, e.pageX, e.pageY, el); });
     el.addEventListener('mouseleave', function(){ if (!pin.hasPinFor(el)) pin.hideHover(); });
-    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(fmt(info + detailFor(el)), e.pageX, e.pageY, el); });
+    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(content, e.pageX, e.pageY, el); });
   });
 })();
 </script>
