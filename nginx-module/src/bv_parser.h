@@ -53,4 +53,19 @@ int bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out);
  */
 int64_t bv_atoll(const unsigned char *s, size_t n);
 
+/*
+ * unmask_bind_ip_token: fold a client IP text into the token used in the _bv
+ * HMAC seed.  IPv6 privacy extensions rotate a client's address within its /64,
+ * so binding the cookie to the full /128 re-challenges on every rotation;
+ * folding IPv6 to its /64 lets all of one client's addresses share a signature.
+ *
+ *   IPv4 / IPv4-mapped / unparseable -> returns 0 (caller uses the original IP)
+ *   pure IPv6                        -> writes the /64 (first 8 bytes) as 16
+ *                                       lowercase hex chars to out, returns 16
+ *
+ * Pure (POSIX inet_pton + hex), so the fuzz / parity harness exercises it.  MUST
+ * stay byte-identical to cookies.bindIP() in the Go admin.  out must hold 16.
+ */
+size_t unmask_bind_ip_token(const char *ip, size_t len, char *out);
+
 #endif /* UNMASK_BV_PARSER_H */

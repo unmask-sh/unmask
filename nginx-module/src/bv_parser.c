@@ -5,7 +5,8 @@
  */
 #include "bv_parser.h"
 
-#include <string.h>  /* memchr */
+#include <string.h>      /* memchr, memcpy */
+#include <arpa/inet.h>   /* inet_pton, AF_INET6 */
 
 int64_t
 bv_atoll(const unsigned char *s, size_t n)
@@ -84,4 +85,34 @@ bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out)
     out->sig_off  = (size_t)((dot1 + 1) - data);    out->sig_len  = sig_len;
     out->tail_off = (size_t)((dot2 + 1) - data);    out->tail_len = kind_len;  /* kind */
     return 1;
+}
+
+size_t
+unmask_bind_ip_token(const char *ip, size_t len, char *out)
+{
+    /* IPv4 (no colon) and anything implausibly long pass through unchanged, so
+     * v4 cookies stay byte-identical and we never overflow the parse buffer. */
+    if (ip == NULL || len == 0 || len >= 46) return 0;
+    if (memchr(ip, ':', len) == NULL) return 0;
+
+    char buf[46];
+    memcpy(buf, ip, len);
+    buf[len] = '\0';
+
+    unsigned char a[16];
+    if (inet_pton(AF_INET6, buf, a) != 1) return 0;  /* unparseable -> as-is */
+
+    /* IPv4-mapped ::ffff:a.b.c.d carries IPv4 semantics; leave it unchanged so
+     * this matches Go's net.IP.To4() != nil branch exactly. */
+    size_t i = 0;
+    while (i < 10 && a[i] == 0) i++;
+    if (i == 10 && a[10] == 0xff && a[11] == 0xff) return 0;
+
+    /* /64 = first 8 bytes as 16 lowercase hex chars (matches Go hex.Encode). */
+    static const char H[] = "0123456789abcdef";
+    for (i = 0; i < 8; i++) {
+        out[i * 2]     = H[(a[i] >> 4) & 0xF];
+        out[i * 2 + 1] = H[a[i] & 0xF];
+    }
+    return 16;
 }

@@ -106,14 +106,49 @@ static void fuzz_edges(void) {
     (void)bv_atoll((const unsigned char *)"99999999999999999999", 20);
 }
 
+/* unmask_bind_ip_token: fixed vectors pin the C output to the Go admin's
+ * cookies.bindIP() (a drift here = IPv6 cookies that mint in Go but fail in the
+ * plugin = a challenge loop), then an OOB sweep over assorted lengths/bytes. */
+static void check_bind_ip(void) {
+    char out[16];
+    struct { const char *ip; const char *want; } v[] = {
+        {"1.2.3.4", NULL},                            /* IPv4        -> as-is */
+        {"203.0.113.5", NULL},
+        {"2001:db8::1", "20010db800000000"},          /* IPv6        -> /64   */
+        {"2001:db8:1:2:3:4:5:6", "20010db800010002"},
+        {"fe80::1", "fe80000000000000"},
+        {"::ffff:1.2.3.4", NULL},                     /* v4-mapped   -> as-is */
+        {"not-an-ip", NULL},                          /* unparseable -> as-is */
+        {"", NULL},
+    };
+    for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++) {
+        size_t n = unmask_bind_ip_token(v[i].ip, strlen(v[i].ip), out);
+        if (v[i].want == NULL) {
+            assert(n == 0);
+        } else {
+            assert(n == 16 && memcmp(out, v[i].want, 16) == 0);
+        }
+    }
+    /* ASan / UBSan: must never read outside [ip, ip+len) for any input. */
+    unsigned char buf[64];
+    for (size_t n = 0; n <= sizeof(buf); n++) {
+        for (size_t i = 0; i < n; i++) {
+            uint32_t x = rng_next();
+            buf[i] = (x & 7) == 0 ? ':' : (unsigned char)(x & 0xff); /* bias colons */
+        }
+        (void)unmask_bind_ip_token((const char *)buf, n, out);
+    }
+}
+
 int main(int argc, char **argv) {
     size_t iters = (argc > 1) ? (size_t)strtoul(argv[1], NULL, 10) : 1000000;
     rng_state = (uint32_t)time(NULL) | 1u;
 
+    check_bind_ip();
     fuzz_edges();
     fuzz_truncated();
     fuzz_random(iters);
 
-    printf("bv_parser_fuzz: %zu random iters + truncation sweep + edges — no crash\n", iters);
+    printf("bv_parser_fuzz: %zu random iters + truncation sweep + edges + bind-ip parity — no crash\n", iters);
     return 0;
 }

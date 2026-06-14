@@ -626,6 +626,27 @@ ngx_unmask_next_bv_value(ngx_str_t header, size_t *off, ngx_str_t *value)
     return 0;
 }
 
+/* ngx_unmask_bind_ip: the per-request client IP folded for the _bv HMAC seed.
+ * The pure logic lives in unmask_bind_ip_token (bv_parser.c, fuzz/parity-tested);
+ * this wraps it with a pool allocation.  IPv4 / IPv4-mapped / unparseable -> the
+ * original addr_text (so v4 cookies stay byte-identical); pure IPv6 -> its /64
+ * as 16 hex chars, so a client's rotating privacy addresses within one /64
+ * don't each re-challenge.  MUST mirror cookies.bindIP() in the Go admin. */
+static ngx_str_t
+ngx_unmask_bind_ip(ngx_str_t in, ngx_pool_t *pool)
+{
+    char tok[16];
+    if (unmask_bind_ip_token((const char *)in.data, in.len, tok) == 16) {
+        u_char *out = ngx_pnalloc(pool, 16);
+        if (out != NULL) {
+            ngx_memcpy(out, tok, 16);
+            ngx_str_t r = { 16, out };
+            return r;
+        }
+    }
+    return in;
+}
+
 /* Verify a single `_bv` cookie value.  Returns the cookie kind on success
  * (POW / CAPTCHA) or NONE on parse / verify failure.  Called once per
  * candidate cookie by bv_kind_compute. */
@@ -643,6 +664,10 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         return UNMASK_BV_KIND_NONE;
     }
 
+    /* Client IP folded for the HMAC seed (IPv6 -> /64).  Computed once and used
+     * by both the PoW and CAPTCHA branches so they bind identically. */
+    ngx_str_t remote = ngx_unmask_bind_ip(r->connection->addr_text, r->pool);
+
     /* PoW path: bv_parse_entry only accepts the "pow2" SHA-256 hashcash form
      * (a 4-segment _bv whose parts[1] != "pow2" is rejected -- the removed v0.0
      * djb2 fallback verified an UNKEYED checksum = offline-mintable bypass).
@@ -655,7 +680,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
                 cookie.data + fields.day_off,  fields.day_len,
                 cookie.data + fields.tail_off, fields.tail_len,
                 valid_seconds, difficulty,
-                mcf->bv_secret, r->connection->addr_text,
+                mcf->bv_secret, remote,
                 ngx_unmask_get_host(r)) == 1) {
             return UNMASK_BV_KIND_POW;
         }
@@ -673,10 +698,9 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return UNMASK_BV_KIND_NONE;
     if (now - cookie_unix > mcf->bv_captcha_valid_seconds) return UNMASK_BV_KIND_NONE;
 
-    /* Read remote_addr.  After realip module application this is the
-     * actual client IP even behind an upstream LB / proxy (= matches
-     * admin-side clientIP()). */
-    ngx_str_t remote = r->connection->addr_text;
+    /* `remote` (= client IP folded to /64 for IPv6) was computed once at the top
+     * of this function from r->connection->addr_text -- after realip this is the
+     * real client IP behind an LB, and matches the admin issuer's bindIP(). */
 
     /* $host (lowercased + port-stripped) binds the cookie to the vhost: a cookie
      * minted while solving site A's challenge fails on site B (different host ->

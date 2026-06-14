@@ -39,10 +39,36 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"net"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// bindIP folds a client IP into the token used in the _bv HMAC seed.  IPv6
+// privacy extensions (default on iOS / Android / Windows / macOS) rotate a
+// client's address within its /64, so binding to the full /128 re-challenges on
+// every rotation; binding IPv6 to the /64 -- the first 8 bytes as 16 lowercase
+// hex chars -- lets all of a client's addresses share one signature (the
+// roaming list then holds one entry per network, not per address).  IPv4 and
+// IPv4-mapped pass through unchanged, so existing IPv4 cookies stay byte-
+// identical.  MUST stay identical to the C plugin's unmask_bind_ip_token; a
+// /64 is typically one device / subscriber, so widening replay to it is an
+// accepted trade for the far smaller IPv6 re-challenge rate.
+func bindIP(ip string) string {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ip // unparseable -> as-is (defensive; matches C)
+	}
+	if parsed.To4() != nil {
+		return ip // IPv4 or IPv4-mapped -> unchanged
+	}
+	b := parsed.To16()
+	if b == nil {
+		return ip
+	}
+	return hex.EncodeToString(b[:8]) // IPv6 /64 prefix
+}
 
 // futureSkewToleranceSeconds: a cookie whose issued_unix is up to this many
 // seconds in the future is still accepted.  Server clocks (admin + nginx +
@@ -72,6 +98,7 @@ func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	if kind == "" {
 		kind = "captcha"
 	}
+	remoteIP = bindIP(remoteIP) // IPv6 -> /64 so privacy-address rotation doesn't re-challenge
 	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":" + kind
 	mac := hmac.New(sha1.New, []byte(bvSecret))
 	mac.Write([]byte(msg))
@@ -260,6 +287,7 @@ func withinWindow(issued int64, validSeconds int) bool {
 // for the validity window).  HMAC-SHA1 mirrors the CAPTCHA path so the C plugin
 // reuses the same primitive; MUST stay byte-identical to ngx_unmask_pow_seed().
 func PowSeed(bvSecret, remoteIP, host string, issued int64) string {
+	remoteIP = bindIP(remoteIP) // IPv6 -> /64 (see bindIP); same token as the C verifier
 	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":pow_seed"
 	mac := hmac.New(sha1.New, []byte(bvSecret))
 	mac.Write([]byte(msg))
