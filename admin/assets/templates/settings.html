@@ -102,6 +102,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .about-notes{white-space:pre-line;color:#475569;margin:.15rem 0 0}
 .about-links{margin:1rem 0 0;font-size:.8rem;color:#64748b}
 .about-links a{color:#3b82f6;text-decoration:none}
+.about-check{display:flex;align-items:center;gap:.7rem;margin:1.2rem 0 0;font-size:.82rem;color:#475569}
+.about-check label{display:flex;align-items:center;gap:.4rem;cursor:pointer}
+.about-check input{margin:0}
+.about-check button{padding:.3rem .8rem;font-size:.78rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;cursor:pointer}
+.about-check button:hover{background:#1e293b}
 .settings-top-grp > h3{font-size:.82rem;color:#475569;font-weight:600;margin:0 0 .5rem;padding-bottom:.25rem;border-bottom:1px solid #e2e8f0}
 .sti{display:block;padding:.6rem .75rem;border:1px solid #e2e8f0;border-radius:.35rem;margin-bottom:.4rem;text-decoration:none;transition:background .1s,border-color .1s}
 .sti:hover{background:#f8fafc;border-color:#94a3b8}
@@ -522,10 +527,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   {{ end }}
 
+  <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check">
+    <label><input type="checkbox" name="version_check" value="1" {{ if .VersionCheckEnabled }}checked{{ end }}> {{ t .Lang "settings.about.check_toggle" }}</label>
+    <button type="submit">{{ t .Lang "settings.about.check_save" }}</button>
+  </form>
+
   <p class="about-links">
-    <a href="https://github.com/unmask-sh/unmask" target="_blank" rel="noopener">GitHub ↗</a> ·
-    <a href="https://unmask.sh/docs/" target="_blank" rel="noopener">Docs ↗</a> ·
-    <a href="https://unmask.sh/" target="_blank" rel="noopener">unmask.sh ↗</a>
+    <a href="https://unmask.sh/" target="_blank" rel="noopener">unmask.sh ↗</a> ·
+    <a href="https://github.com/unmask-sh/unmask" target="_blank" rel="noopener">GitHub ↗</a>
   </p>
 </div>
 {{ end }}

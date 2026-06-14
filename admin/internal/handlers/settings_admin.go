@@ -392,12 +392,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	sort.Strings(scopeHosts)
 
 	return map[string]any{
-		"Lang":          i18n.Resolve(r),
-		"TZ":            resolveTZ(r),
-		"BasePath":      h.cfg().Server.BasePath,
-		"Version":       h.Version,
-		"VersionStatus": h.versionStatus(),
-		"ConfigPath":    h.ConfigPath,
+		"Lang":                i18n.Resolve(r),
+		"TZ":                  resolveTZ(r),
+		"BasePath":            h.cfg().Server.BasePath,
+		"Version":             h.Version,
+		"VersionStatus":       h.versionStatus(),
+		"VersionCheckEnabled": h.cfg().VersionCheckURLResolved() != "",
+		"ConfigPath":          h.ConfigPath,
 		// Self host id (= identifies which machine in a shared DB / aggregated dashboard).
 		// SelfHostID: resolved value (= config value → os.Hostname → "default", in priority order).
 		// ConfiguredHostID: raw value from config.yml. Empty means the hostname fallback was used.
@@ -881,7 +882,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1097,6 +1098,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cur.Server.HostID = ""
 		}
+	case "about":
+		// version_check checkbox: present (= ticked) means enabled; an absent
+		// field (unticked) disables the update check entirely.
+		cur.VersionCheckDisabled = r.FormValue("version_check") == ""
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= EventsRetentionDays is

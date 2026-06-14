@@ -91,7 +91,7 @@ func TestVersionStatus(t *testing.T) {
 		t.Error("0.1.0 vs 0.1.0 must not be an update")
 	}
 
-	h.SetSettings(settings.Settings{VersionCheckURL: "off"})
+	h.SetSettings(settings.Settings{VersionCheckDisabled: true})
 	if st := h.versionStatus(); st.Checked || st.UpdateAvailable {
 		t.Error("a disabled check must report nothing")
 	}
