@@ -76,3 +76,20 @@ func loadHLL(b []byte) *hll {
 	copy(h[:], b)
 	return &h
 }
+
+// mergeBytes unions a stored BLOB form directly into h without allocating an
+// intermediate sketch. This is the hot path when folding tens of thousands of
+// per-minute rows (= DailyUniqueIPs / RollupTrafficHLL), where loadHLL's
+// per-row 1 KiB allocation dominated the GC time. A short blob merges only its
+// prefix; bytes past the register array are ignored.
+func (h *hll) mergeBytes(b []byte) {
+	n := len(b)
+	if n > hllM {
+		n = hllM
+	}
+	for i := 0; i < n; i++ {
+		if b[i] > h[i] {
+			h[i] = b[i]
+		}
+	}
+}

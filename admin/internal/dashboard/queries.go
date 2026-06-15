@@ -2749,56 +2749,118 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
 	return out, nil
 }
 
-// DailyUniqueIPs: per-day unique client-IP estimate.  Computed by merging the
-// per-minute HLL sketches in unmask_traffic_hll(kind='ip') across each day's
-// 1440 minute buckets and reading the cardinality off the merged sketch.
+// DailyUniqueIPs: per-day unique client-IP estimate, read off merged HLL
+// sketches. Days are bucketed using the operator's cookie TZ so the labels
+// align with DailyPassByDay's output.
 //
-// Data source: unmask_traffic_hll, written by nginxlog.Reader.  When the
-// pipeline is not running, the table is empty and the function returns an
-// empty slice.  Days are bucketed using the server-local TZ so the labels
-// align with DailyPassByDay's DATE() output.
+// The window is split at the RollupTrafficHLL cursor: settled hours come
+// pre-merged from unmask_aggregate_hll(bucket_kind=hkTrafficIP, ~24 sketches
+// per day), and everything after the cursor is read live from the per-minute
+// unmask_traffic_hll(kind='ip') table so the current hours never lag. Folding
+// ~720 hourly sketches + a short tail keeps this well under the card timeout;
+// merging all ~65k per-minute rows directly took ~15s and tripped it. When the
+// rollup is behind (fresh start / post-downtime) the live side simply covers
+// more hours and stays correct — the background rollup then catches up and
+// later reads get fast again. When neither table has data the result is empty.
 func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *time.Location) ([]DailyUniq, error) {
 	if tz == nil {
 		tz = time.UTC
 	}
 	cutoffMin := time.Now().Unix()/60 - int64(days)*1440
-	args := []any{cutoffMin}
-	cond := ""
-	if site != "" {
-		cond = " AND site = ?"
-		args = append(args, site)
-	}
-	stmt := `SELECT bucket_min, sketch FROM unmask_traffic_hll
-        WHERE bucket_min >= ? AND kind = 'ip'` + cond
-	rows, err := d.QueryContext(ctx, stmt, args...)
+	cursor, err := trafficRollupCursor(ctx, d)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+
 	by := map[string]*hll{}
 	var order []string
-	for rows.Next() {
-		var bm int64
-		var blob []byte
-		if err := rows.Scan(&bm, &blob); err != nil {
-			return nil, err
-		}
-		date := time.Unix(bm*60, 0).In(tz).Format("2006-01-02")
+	get := func(date string) *hll {
 		s, ok := by[date]
 		if !ok {
 			s = &hll{}
 			by[date] = s
 			order = append(order, date)
 		}
-		s.merge(loadHLL(blob))
+		return s
 	}
-	if err := rows.Err(); err != nil {
+
+	// 1) settled hours from the hourly rollup (bucket = UTC 'YYYY-MM-DD HH',
+	//    chronologically ordered as a fixed-width string).
+	if cursor >= 0 {
+		cutoffHour := time.Unix(cutoffMin*60, 0).UTC().Format("2006-01-02 15")
+		upToHour := time.Unix(cursor*3600, 0).UTC().Format("2006-01-02 15")
+		args := []any{hkTrafficIP, cutoffHour, upToHour}
+		cond := ""
+		if site != "" {
+			cond = " AND bucket_key = ?"
+			args = append(args, site)
+		}
+		rows, err := d.QueryContext(ctx,
+			`SELECT bucket, sketch FROM unmask_aggregate_hll
+            WHERE bucket_kind = ? AND bucket >= ? AND bucket <= ?`+cond, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var bucket string
+			var blob []byte
+			if err := rows.Scan(&bucket, &blob); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			t, perr := time.ParseInLocation("2006-01-02 15", bucket, time.UTC)
+			if perr != nil {
+				continue // unparseable bucket: skip rather than mis-date
+			}
+			get(t.In(tz).Format("2006-01-02")).mergeBytes(blob)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	// 2) live tail from the per-minute table: minutes after the cursor's last
+	//    settled hour (or the whole window when nothing is rolled yet), never
+	//    before the 30-day cutoff.
+	liveMin := cutoffMin
+	if cursor >= 0 {
+		if m := (cursor + 1) * 60; m > liveMin {
+			liveMin = m
+		}
+	}
+	args := []any{liveMin}
+	cond := ""
+	if site != "" {
+		cond = " AND site = ?"
+		args = append(args, site)
+	}
+	rows, err := d.QueryContext(ctx,
+		`SELECT bucket_min, sketch FROM unmask_traffic_hll
+        WHERE kind = 'ip' AND bucket_min >= ?`+cond, args...)
+	if err != nil {
 		return nil, err
 	}
+	for rows.Next() {
+		var bm int64
+		var blob []byte
+		if err := rows.Scan(&bm, &blob); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		get(time.Unix(bm*60, 0).In(tz).Format("2006-01-02")).mergeBytes(blob)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
 	sort.Strings(order)
 	out := make([]DailyUniq, 0, len(order))
-	for _, d := range order {
-		out = append(out, DailyUniq{Date: d, UniqIPs: int64(by[d].estimate())})
+	for _, date := range order {
+		out = append(out, DailyUniq{Date: date, UniqIPs: int64(by[date].estimate())})
 	}
 	return out, nil
 }

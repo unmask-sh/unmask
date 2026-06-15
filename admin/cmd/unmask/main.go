@@ -550,6 +550,11 @@ func cmdServe(args []string) error {
 				if err := dashboard.AggregateHourly(ctx, conn, gip); err != nil {
 					log.Printf("hourly aggregate: %v", err)
 				}
+				// Fold per-minute traffic sketches into hourly rollups so the
+				// DailyUniqueIPs card merges ~720 sketches, not ~65k rows.
+				if err := dashboard.RollupTrafficHLL(ctx, conn); err != nil {
+					log.Printf("traffic-hll rollup: %v", err)
+				}
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")

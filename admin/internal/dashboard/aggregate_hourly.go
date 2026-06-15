@@ -54,6 +54,7 @@ const (
 	hkFlagsIP        = "flip"  // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
 	hkAITagIP        = "atip"  // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
 	hkAITagSiteIP    = "atsip" // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
+	hkTrafficIP      = "tip"   // hourly bucket, key '<site>' distinct IP, ALL traffic — rolled up from unmask_traffic_hll(kind='ip') per-minute rows by RollupTrafficHLL (DailyUniqueIPs source)
 )
 
 const (
