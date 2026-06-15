@@ -108,9 +108,13 @@
 .ai-cat-feed-reader   {background:#ccfbf1;color:#115e59}
 .ai-cat-archiver      {background:#e2e8f0;color:#475569}
 .ai-cat-academic      {background:#f3e8ff;color:#6b21a8}
-.ai-traffic-card .ai-cat[data-info]{cursor:help}
-.ai-traffic-card .ai-cat[data-detail-cat]{cursor:pointer}
-.ai-traffic-card .ai-cat[data-detail-cat]::after{content:"\25be";margin-left:.25rem;font-size:.8em;opacity:.65}
+/* Interactive tags carry the dotted "more on hover" underline used for IPs /
+   scores elsewhere, so they read as inspectable at a glance; clicking pins the
+   popover.  Drill-down tags add a clear caret for the per-crawler breakdown. */
+.ai-traffic-card .ai-cat[data-info]{cursor:pointer;text-decoration:underline dotted;text-decoration-color:#94a3b8;text-underline-offset:.2em;transition:box-shadow .12s,filter .12s}
+.ai-traffic-card .ai-cat[data-info]:hover{text-decoration-color:currentColor;box-shadow:0 0 0 .125rem rgba(15,23,42,.22);filter:brightness(.98)}
+.ai-traffic-card .ai-cat[data-detail-cat]::after{content:"\25be";margin-left:.35rem;font-size:.85em;opacity:.95;font-weight:700}
+.ai-traffic-card .ai-cat[data-detail-cat]:hover::after{opacity:1}
 .ai-traffic-card table.ai-traffic tfoot td{padding:.4rem .5rem;border-top:.125rem solid #cbd5e1;background:#f8fafc;font-variant-numeric:tabular-nums;color:#334155;font-weight:700}
 .ai-detail-wrap{margin-top:.5rem;max-height:14rem;overflow-y:auto}
 .ai-detail-table{width:100%;border-collapse:collapse;font-size:.78rem;font-variant-numeric:tabular-nums}
