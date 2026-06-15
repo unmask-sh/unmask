@@ -89,10 +89,10 @@
   // P-table presets (friendly / neutral / minimal) via the operator's
   // selection; the 16 other languages currently fall back to the L row.
   // To keep the visitor experience consistent across languages, the L
-  // verify wording was rewritten away from the "Verifying your browser..."
-  // baseline (= triggered "is my browser infected?" anxiety in real users)
-  // toward a destination-focused loading message.  Title / desc / note /
-  // wrong / error were also softened to avoid an accusatory tone.
+  // verify wording uses a calm, destination-focused loading message rather
+  // than phrasing that made some real users worry their device was
+  // compromised.  Title / desc / note / wrong / error were also softened
+  // to avoid an accusatory tone.
   var L={
     en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.'},
     ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください.',error:'うまくいきませんでした. 少し時間をおいてからお試しください.'},
