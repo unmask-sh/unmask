@@ -212,7 +212,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 {{ if .FailedCards }}
 <div role="alert" style="margin:1rem 0;padding:.6rem .9rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;font-size:.82rem;line-height:1.45">
-  ⚠ Some dashboard cards failed to load &mdash; the data shown may be incomplete (a query errored; see the admin log). Affected:
+  {{ t .Lang "dashboard.cards_failed" }}
   <span style="display:block;margin-top:.2rem;color:#b45309;font-size:.76rem">{{ range $i, $c := .FailedCards }}{{ if $i }}, {{ end }}{{ $c }}{{ end }}</span>
 </div>
 {{ end }}
