@@ -73,7 +73,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-lifecycle distro-check vet fmt clean help repo repo-apk publish
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk publish
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -704,7 +704,7 @@ docker-buildx:
 # Plugin (nginx native module): one per version in NGINX_VERSIONS.
 # Default is latest stable + the highly-compatible 1.18 / 1.20.  To extend, pass via env.
 NGINX_VERSIONS ?= 1.20.2 1.18.0
-release: clean
+release: release-clean
 	@echo ">>> building release v$(UNMASK_VERSION)"
 	# Main package (admin only / no nginx-module)
 	$(MAKE) build-admin GOARCH=amd64
@@ -907,3 +907,14 @@ fmt:
 ## clean         - remove dist/, build/
 clean:
 	rm -rf $(DIST) build
+
+## release-clean  - clean for a release, but KEEP the arm64 qemu module caches
+# The arm64 fat plugin is packaged straight from the pre-built .so cache
+# (dist/multi-modules*-arm64/), which takes ~2h to regenerate under qemu, so a
+# release must not wipe the very cache it then requires.  Everything else in
+# dist/ is rebuilt, and a plain `make clean` still does a full wipe.
+release-clean:
+	rm -rf build
+	@if [ -d $(DIST) ]; then \
+		find $(DIST) -mindepth 1 -maxdepth 1 ! -name 'multi-modules*-arm64' -exec rm -rf {} +; \
+	fi
