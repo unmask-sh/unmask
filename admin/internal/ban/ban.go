@@ -116,9 +116,9 @@ type ActionResolver func(source string) string
 // filePath is empty, file flushing is skipped (= used in tests where
 // nginx integration is unnecessary).
 type Manager struct {
-	DB        *db.DB
-	filePath  string
-	duration  time.Duration // default TTL for honeypot/auto bans.  0 = permanent
+	DB       *db.DB
+	filePath string
+	duration time.Duration // default TTL for honeypot/auto bans.  0 = permanent
 	// whitelistFn reports whether an IP is on the bypass allowlist (= preset
 	// crawler ranges + operator bypass_ips, CIDR-aware).  Injected by the admin
 	// via SetWhitelist over the live settings' IPBypassMatcher, so toggling a
@@ -129,8 +129,8 @@ type Manager struct {
 	wlMu        sync.RWMutex
 	mu          sync.Mutex
 	dirty       bool
-	stopCh    chan struct{}
-	doneCh    chan struct{}
+	stopCh      chan struct{}
+	doneCh      chan struct{}
 
 	// actionResolver: per-source action picker injected by the admin.
 	// Read on every flush() so a settings change reflects on the next

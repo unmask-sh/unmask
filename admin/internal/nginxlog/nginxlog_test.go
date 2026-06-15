@@ -130,10 +130,10 @@ func TestCrawlerDetailAggregation(t *testing.T) {
 		}
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)  // Googlebot served
-	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false)   // Bingbot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)   // Googlebot served
+	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false)    // Bingbot passed
 	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false) // not a crawler -> ignored
 
 	r.flushOnce(true)
