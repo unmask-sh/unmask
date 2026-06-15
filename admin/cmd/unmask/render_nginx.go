@@ -36,6 +36,16 @@ func cmdRenderNginx(args []string) error {
 		return err
 	}
 
+	// Load the hub-pulled bypass IP ranges (Googlebot / Bingbot / AI crawlers)
+	// the daemon keeps under SyncDefaultDir, exactly as cmdServe's iprange Sync
+	// does, so a standalone render-nginx produces the SAME bypass map as the
+	// running daemon.  Without this the command was embed-only: re-rendering on
+	// a node that has already pulled would drop those ranges and the native
+	// plugin would start challenging search bots (= ranking accident).  Empty /
+	// absent dir falls back to the embedded snapshot, so installs that never
+	// pulled are unaffected.
+	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
+
 	// renderedFiles: the files nginxconf.Render writes, relative to outDir.
 	// Keep in sync with internal/nginxconf/render.go::Render.
 	renderedFiles := []string{
