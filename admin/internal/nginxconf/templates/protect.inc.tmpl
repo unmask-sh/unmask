@@ -18,6 +18,11 @@
 # http.inc (http {} scope).  limit_req_status 429 overrides the
 # default 503 to 429, then error_page 429 chains into `@unmask_rate_challenge`.
 limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
+{{- range .RatePathZones }}
+# Path-scoped zone "{{ .ZoneName }}": its key ({{ .KeyVar }}) is "" off-path, so
+# this limit only counts on the zone's PathPatterns (= no shadow location).
+limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
+{{- end }}
 limit_req_status 429;
 error_page 429 = @unmask_rate_challenge;
 

@@ -171,30 +171,20 @@ location @unmask_rate_challenge {
 # layer by admin's settings.Nginx.AdminAllowedHosts allowlist; nginx itself
 # proxies on every Host.  See settings → nginx.admin_allowed_hosts.
 # The upstream `unmask` is declared at the tail of http.inc.
-location ^~ /unmask/ {
-    # Cap the connect wait so a daemon that has become unreachable (= a TCP
-    # upstream on another host that went down, not a same-host ECONNREFUSED
-    # which is instant) trips @unmask_daemon_down in ~2s instead of hanging
-    # on the default 60s connect timeout.  read/send stay at the default so
+# Shared admin-daemon proxy directives.  Rendered into both the protected
+# /unmask/admin/ location and the unprotected machinery catch-all via this
+# define, so there is one source copy (no separate .inc file) yet each location
+# carries the identical proxy / header set (incl. the X-Original-* spoof strip).
+{{ define "unmask_daemon_proxy" }}
+    # Cap the connect wait so an unreachable daemon trips @unmask_daemon_down in
+    # ~2s instead of hanging on the 60s default.  read/send stay at default so
     # slow challenge renders and the SSE stream are unaffected.
     proxy_connect_timeout 2s;
     proxy_pass         http://unmask;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;
-    # Server-side scheme / port injection.  The admin trusts these when
-    # building public URLs (= the hunt page's "open / copy" buttons).
-    #
-    # If a load balancer in front terminated TLS and forwarded its decision via
-    # X-Forwarded-Proto / X-Forwarded-Port, use that value (= the LB knows
-    # whether the visitor is on https).  Otherwise fall back to the local
-    # $scheme / $server_port (= no LB in front, this nginx itself terminated
-    # the connection).  Bare $scheme would always be 'http' on an LB-fronted
-    # backend and the hunt URLs would lose their https:// prefix.
-    #
-    # set_real_ip_from + real_ip_header is the operator's responsibility for
-    # the visitor IP; X-Forwarded-Proto pass-through assumes the backend is
-    # not directly reachable from the internet -- the standard LB / CDN
-    # deployment shape.
+    # If an LB terminated TLS and forwarded X-Forwarded-Proto/Port, use it; else
+    # fall back to local $scheme/$server_port so the hunt page's URLs keep https.
     proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
     proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
     proxy_set_header   X-Client-JA4     $effective_ja4;
@@ -203,32 +193,45 @@ location ^~ /unmask/ {
     proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
     proxy_set_header   X-Protected-Mode $protected_mode;
     proxy_set_header   X-Banned         $unmask_banned;
-    # Override every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a
-    # visitor can't smuggle a lenient site's identity through a header (=
-    # would otherwise reach handlers.go siteFromRequest's fallback chain and
-    # resolve a different site's Challenge / Honeypot / Bypass config).  The
-    # peer-gated X-Unmask-Site check on the admin side covers cooperating
-    # proxies; this strip closes the path on the public-facing nginx itself.
+    # Strip every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a visitor
+    # can't smuggle a lenient site's identity through a header (= would reach
+    # handlers.go siteFromRequest's fallback chain and resolve a different
+    # site's Challenge / Honeypot / Bypass config).
     proxy_set_header   X-Original-Host  $host;
     proxy_set_header   X-Forwarded-Host $host;
     proxy_set_header   X-Original-URI   $request_uri;
     proxy_set_header   X-Original-IP    $remote_addr;
     proxy_set_header   X-Original-UA    $http_user_agent;
     proxy_set_header   X-Unmask-Site    "";
-    # Branding tab uploads a logo image (= /admin/settings/save?section=branding
-    # / appearance, multipart/form-data).  The admin caps the body at 4 MiB
-    # itself; nginx's default 1 MiB limit would 413 before the request reached
-    # the handler, so lift it to match.  Other /unmask/* endpoints are small
-    # JSON / GET-only -- the larger ceiling here costs nothing for them.
+    # Branding logo upload is multipart up to 4 MiB; lift nginx's 1 MiB cap.
     client_max_body_size 4m;
     # SSE (= /unmask/admin/api/events/stream) needs unbuffered HTTP/1.1.
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
     proxy_buffering    off;
-    # Daemon unreachable -> fail open instead of surfacing a raw 502: bounce
-    # to @unmask_daemon_down, which replays the visitor's original request.
+    # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_daemon_down;
+{{ end }}
+
+# /unmask/admin/ — the admin UI runs through the SAME protection as a normal
+# site path.  include protect.inc so a _bv-less visitor hits the protected-path
+# challenge (the "unmask" preset = captcha) plus the admin_login rate zone (via
+# its path-conditional key in protect.inc), while a visitor with a valid _bv
+# passes straight through.  More specific than ^~ /unmask/ below, so nginx
+# prefers it for admin paths; the machinery paths stay on the unprotected
+# catch-all so the challenge page itself never loops.
+location ^~ /unmask/admin/ {
+    include {{ .OutputDir }}/protect.inc;
+    {{ template "unmask_daemon_proxy" . }}
+}
+
+# /unmask/ machinery catch-all — proxied straight to the daemon WITHOUT
+# protect.inc (challenge HTML, verify API, rate-limit replay, healthz, static
+# assets, metrics).  These must never be challenged: the challenge page is
+# served from here, so protecting it would loop.
+location ^~ /unmask/ {
+    {{ template "unmask_daemon_proxy" . }}
 }
 
 # Daemon-down fail-open.  Reached via error_page from the /unmask/* proxy
@@ -260,41 +263,10 @@ location @unmask_daemon_down {
     add_header Retry-After "10" always;
     return 503 "unmask admin temporarily unavailable\n";
 }
-{{ range .RatePresetLocations }}
-# Path-scoped rate-limit preset (= settings.RateLimit.Zones row with
-# PathPatterns).  More-specific than `^~ /unmask/` above so nginx picks
-# this block for {{ .Path }}; otherwise the proxy / header set is the
-# same as the catch-all admin location.  Rate-limit hits chain into
-# @unmask_rate_challenge, identical to the default zone's protect.inc
-# wiring, so the challenge UX matches the rest of the install.
-location ^~ {{ .Path }} {
-    limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
-    limit_req_status 429;
-    error_page 429 = @unmask_rate_challenge;
-    # Same daemon-down fail-open as `location ^~ /unmask/` (error_page is
-    # per-location, so the catch-all's directive does not inherit here).
-    proxy_intercept_errors on;
-    error_page 502 503 504 = @unmask_daemon_down;
-    # Cap the connect wait so a daemon that has become unreachable (= a TCP
-    # upstream on another host that went down, not a same-host ECONNREFUSED
-    # which is instant) trips @unmask_daemon_down in ~2s instead of hanging
-    # on the default 60s connect timeout.  read/send stay at the default so
-    # slow challenge renders and the SSE stream are unaffected.
-    proxy_connect_timeout 2s;
-    proxy_pass         http://unmask;
-    proxy_set_header   Host             $host;
-    proxy_set_header   X-Real-IP        $remote_addr;
-    proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
-    proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
-    proxy_set_header   X-Client-JA4     $effective_ja4;
-    proxy_set_header   X-JA4-Verdict    $ja4_verdict;
-    proxy_set_header   X-JA4-Action     $ja4_action;
-    proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
-    proxy_set_header   X-Protected-Mode $protected_mode;
-    proxy_set_header   X-Banned         $unmask_banned;
-    client_max_body_size 4m;
-    proxy_http_version 1.1;
-    proxy_set_header   Connection "";
-    proxy_buffering    off;
-}
-{{ end }}
+# Path-scoped rate-limit zones (settings.RateLimit.Zones rows with
+# PathPatterns, e.g. unmask_admin_login) are NOT rendered as their own
+# locations any more -- a more-specific location would shadow protect.inc and
+# silently disable the challenge / honeypot / ban / geo protections for that
+# path.  Instead each such zone's limit_req lives in protect.inc with a
+# path-conditional key (http.inc $rl_<zone>_key), so it only counts on its
+# patterns yet composes with every other protection in the same location.

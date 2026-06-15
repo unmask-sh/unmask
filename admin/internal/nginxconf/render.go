@@ -345,9 +345,9 @@ type renderData struct {
 	// RateZones: derived from settings.RateLimit.  Render limit_req_zone into http {}.
 	// [0] is the default zone (= when there's no name, use "unmask_rate").
 	RateZones []RateZoneRender
-	// RatePresetLocations: path-pattern zones materialised as nginx
-	// locations in server.inc.  See RatePresetLocationRender.
-	RatePresetLocations []RatePresetLocationRender
+	// RatePathZones: path-pattern zones applied with a path-conditional key in
+	// protect.inc (= no shadow location).  See RatePathZoneRender.
+	RatePathZones []RatePathZoneRender
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
@@ -413,24 +413,31 @@ type renderData struct {
 	mapHashWarning string
 }
 
-// RateZoneRender: zone values used to generate the nginx config.
+// RateZoneRender: zone values used to generate the nginx config.  KeyVar is
+// the limit_req_zone key variable: "$rate_limit_key" for install-wide zones,
+// or a path-conditional "$rl_<zone>_key" for zones restricted to PathPatterns.
 type RateZoneRender struct {
 	Name           string
 	RequestsPerMin int
 	Burst          int
+	KeyVar         string
 }
 
-// RatePresetLocationRender: one preset zone that resolved to a concrete
-// path-scoped nginx location.  Each entry becomes a `location ^~ <Path>
-// { limit_req zone=<ZoneName> burst=<Burst> nodelay; ... }` block in
-// server.inc, so a zone with a PathPatterns list is enforced in native
-// mode without operator-side vhost editing.  Empty PathPatterns zones
-// (= install-wide) do not appear here -- those rely on the default
-// zone's limit_req in protect.inc.
-type RatePresetLocationRender struct {
-	Path     string
+// RatePathZoneRender: a rate-limit zone restricted to specific path patterns.
+// Instead of a dedicated nginx location (which, being more specific, would
+// shadow the operator's protect.inc and silently disable the challenge /
+// honeypot / ban / geo protections for that path), the zone is applied with a
+// path-conditional key: $rl_<zone>_key resolves to the normal IP key when the
+// request URI matches one of Patterns, else "" (= nginx skips limiting).  The
+// limit_req sits in protect.inc next to the default zone, so a rate-limited
+// path keeps every other protection -- the two features compose in one
+// location.  MatchVar / KeyVar name the two maps emitted in http.inc.
+type RatePathZoneRender struct {
 	ZoneName string
 	Burst    int
+	MatchVar string   // $rl_<zone>_match  (= "1" when $request_uri matches)
+	KeyVar   string   // $rl_<zone>_key    (= IP key when matched, else "")
+	Patterns []string // path patterns (anchored as ~*^<pattern> in the map)
 }
 
 // GeoRuleRender: one entry of the $unmask_geo_action map.
@@ -788,6 +795,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Name:           defaultName,
 		RequestsPerMin: defaultRPM,
 		Burst:          defaultBurst,
+		KeyVar:         "$rate_limit_key",
 	})
 	d.DefaultRateZoneName = defaultName
 	d.DefaultRateZoneBurst = defaultBurst
@@ -829,33 +837,37 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if burst <= 0 {
 			burst = defaultBurst
 		}
+		// PathPatterns wiring: instead of a dedicated nginx location (which
+		// would shadow protect.inc and strip the challenge / honeypot / ban /
+		// geo protections for that path), the zone is applied with a
+		// path-conditional key.  The key var is "" for non-matching URIs so
+		// nginx skips the limit there, and the limit_req lives in protect.inc
+		// next to the default zone -- so rate-limit and protection compose in
+		// the same location.  Site-scoped zones match on URI only (nginx has
+		// no Host in a map key here); Host isolation is via AdminAllowedHosts.
+		patterns := make([]string, 0, len(z.PathPatterns))
+		for _, p := range z.PathPatterns {
+			if p = strings.TrimSpace(p); p != "" {
+				patterns = append(patterns, p)
+			}
+		}
+		keyVar := "$rate_limit_key"
+		if len(patterns) > 0 {
+			keyVar = "$rl_" + rendered + "_key"
+			d.RatePathZones = append(d.RatePathZones, RatePathZoneRender{
+				ZoneName: rendered,
+				Burst:    burst,
+				MatchVar: "$rl_" + rendered + "_match",
+				KeyVar:   keyVar,
+				Patterns: patterns,
+			})
+		}
 		d.RateZones = append(d.RateZones, RateZoneRender{
 			Name:           rendered,
 			RequestsPerMin: rpm,
 			Burst:          burst,
+			KeyVar:         keyVar,
 		})
-		// Native-mode preset wiring: any zone that carries a
-		// PathPatterns list materialises here as one nginx location
-		// per pattern.  Server.inc.tmpl picks RatePresetLocations up
-		// and renders a `location ^~ <Path> { limit_req zone=<rendered>
-		// ... ; <admin proxy> }` block, so an install with
-		// `unmask_admin_login` (= path /unmask/admin/login) gets
-		// per-IP rate limiting at the path even without operator-side
-		// vhost edits.  Site-scoped zones (z.Site != "") still emit
-		// the location -- nginx selects on URI, not on Host, so an
-		// operator who really wants Host-isolation should add the
-		// preset zone's PathPattern to AdminAllowedHosts upstream.
-		for _, p := range z.PathPatterns {
-			p = strings.TrimSpace(p)
-			if p == "" {
-				continue
-			}
-			d.RatePresetLocations = append(d.RatePresetLocations, RatePresetLocationRender{
-				Path:     p,
-				ZoneName: rendered,
-				Burst:    burst,
-			})
-		}
 	}
 
 	// Geo (native mode): walk the mmdb once at render time to materialise a

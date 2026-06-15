@@ -41,6 +41,13 @@ rate_limit:
   default:
     requests_per_min: 30
     burst: 10
+  # scenario 37: the admin_login path-zone exercises the path-conditional key
+  # (= no shadow location) and the rate-limit / protected-path composition.
+  zones:
+    - name: "unmask_admin_login"
+      requests_per_min: 5
+      burst: 5
+      path_patterns: ["/unmask/admin/login"]
 
 # Match the e2e scenarios' "regular UA passes through by default" assumption.
 # The per-axis triggers (honeypot trap / JA4 verdict / UA blacklist / rate-limit)
@@ -153,6 +160,10 @@ nginx:
   #   - scenario 20: a CAPTCHA gate on /login/ that fires for every visitor
   #     on the native nginx path and the Apache forward-auth path
   protected_paths:
+    # scenario 37: the "unmask" preset gates /unmask/admin/ with a captcha, so a
+    # _bv-less visitor hitting the admin login is challenged (the admin UI now
+    # runs through protect.inc like any protected path).
+    enabled_presets: ["unmask"]
     paths:
       - path: "^/admin-shop/"
         mode: "captcha"

@@ -697,12 +697,31 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
     "~^.:.:.:1$"  "";
 }
 
+# Path-scoped zone keys: a zone with PathPatterns is applied everywhere
+# protect.inc is included, but its key is "" (= nginx skips the limit) unless
+# the request URI matches.  This composes the rate-limit with the challenge /
+# honeypot / ban / geo protections in the SAME location, instead of a separate
+# `location` that would shadow protect.inc and silently disable them.
+{{- range .RatePathZones }}
+map $request_uri {{ .MatchVar }} {
+    default 0;
+{{- range .Patterns }}
+    "~*^{{ . }}" 1;
+{{- end }}
+}
+map {{ .MatchVar }} {{ .KeyVar }} {
+    default "";
+    "1" $rate_limit_key;
+}
+{{- end }}
+
 # Zone definitions: auto-rendered from settings.rate_limit.  Users just
 # `include /var/lib/unmask/nginx/protect.inc;` and the default zone applies to
-# each location.  Named zones can be switched per-location by manually writing
-# `limit_req zone=...` to use a different rate.
+# each location.  Path-scoped zones carry a conditional key (above); the rest
+# use $rate_limit_key.  Named zones can also be switched per-location by
+# manually writing `limit_req zone=...`.
 {{- range .RateZones }}
-limit_req_zone $rate_limit_key zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
+limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
 # Distinguish whether the request went through rate-limit (i.e. carries ?_rl=1).
