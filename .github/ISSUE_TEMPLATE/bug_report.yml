@@ -56,7 +56,7 @@ body:
         - nginx native module
         - forward-auth (nginx)
         - forward-auth (Apache)
-        - forward-auth (Traefik / other)
+        - forward-auth
         - not applicable (= packaging issue)
     validations:
       required: true

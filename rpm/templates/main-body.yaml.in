@@ -35,8 +35,6 @@ contents:
     dst: /usr/share/unmask/snippets/apache-unmask-auth.sh
     file_info:
       mode: 0755
-  - src: ../snippets/traefik-forward-auth.yml
-    dst: /usr/share/unmask/snippets/traefik-forward-auth.yml
 
   # vts integration example (= needs a separate module, so we don't include by default — manual copy)
   - src: ../nginx/vts.conf.example

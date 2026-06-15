@@ -290,8 +290,8 @@ type Server struct {
 	// Bind: an IP for TCP (= "127.0.0.1" / "0.0.0.0" / a specific IP).
 	// For unix domain socket, "unix:/path/to.sock" form. When the "unix:"
 	// prefix is detected, Port is ignored and listen happens on the socket
-	// file (= no TCP listener). All major reverse proxies (nginx / Apache /
-	// HAProxy / Envoy / Traefik) support unix-socket upstreams.
+	// file (= no TCP listener). All major reverse proxies (nginx / Apache,
+	// etc.) support unix-socket upstreams.
 	// Benefits: no port collisions, no firewall config, slightly faster than
 	// TCP loopback, and OS-level access control via socket file owner/mode.
 	Bind     string `yaml:"bind"`
@@ -452,7 +452,7 @@ type Nginx struct {
 	// Custom definitions for LBs not in the preset list. Merged in parallel
 	// with presets into the effective list. Example:
 	//   trusted_lb_extra:
-	//     - id: "internal-haproxy"
+	//     - id: "internal-lb"
 	//       cidrs: ["10.0.1.0/24"]
 	//       header: "$http_x_client_ja4"
 	TrustedLBExtra []TrustedLBExtra `yaml:"trusted_lb_extra,omitempty"`
@@ -1515,7 +1515,7 @@ type Notifications struct {
 //     Users just paste the unmask block into server { } and rate-limit is wired up.
 //   - auth_request / forward-auth mode: counted by the admin's sliding-window
 //     counter (= internal/ratelimit). Works with any httpd
-//     (nginx / Apache / Envoy).
+//     (nginx / Apache).
 //
 // Zone resolution order:
 //  1. Scan Zones in index order. Adopt the first zone whose PathPatterns

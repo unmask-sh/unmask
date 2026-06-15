@@ -957,14 +957,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-list" data-rule-name="lb_extra">
         {{ range .LBExtras }}
         <div class="rule-row editing">
-          <input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+          <input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="id (= e.g. internal-lb)" class="rule-pat">
           <input type="text" name="lb_extra_cidrs" value="{{ .CIDRs }}" placeholder="CIDR list (comma-separated)" class="rule-verd">
           <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
           <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         </div>
         {{ else }}
         <div class="rule-row editing">
-          <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+          <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-lb)" class="rule-pat">
           <input type="text" name="lb_extra_cidrs" placeholder="CIDR list (comma-separated)" class="rule-verd">
           <input type="text" name="lb_extra_header" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
           <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
@@ -972,7 +972,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ end }}
         <template class="rule-row-template">
           <div class="rule-row editing">
-            <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-haproxy)" class="rule-pat">
+            <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-lb)" class="rule-pat">
             <input type="text" name="lb_extra_cidrs" placeholder="CIDR list (comma-separated)" class="rule-verd">
             <input type="text" name="lb_extra_header" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
             <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>

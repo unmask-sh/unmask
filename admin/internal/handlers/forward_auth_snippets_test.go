@@ -12,16 +12,15 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The distro matrix installs nginx + Apache but never Traefik (#203), so the
-// only thing tying the shipped Traefik forward-auth snippet to reality is that
-// /api/check keeps speaking the same contract: a verdict in X-Unmask-Action
+// The shipped forward-auth snippets stay correct only as long as /api/check
+// keeps speaking the same contract: a verdict in X-Unmask-Action
 // (pass|challenge|block), the matching 200/401/403 status, and X-Unmask-Reason
 // — the headers the snippet forwards downstream and the status codes its
 // redirect/block behavior relies on.  These tests pin both halves: the
-// handler's response contract, and the snippet file that depends on it.
+// handler's response contract, and the shipped snippet that depends on it.
 
 // driveAuthCheck runs the full AuthCheck handler against a forward-auth style
-// request (X-Original-* headers, as nginx/Traefik send them) and returns
+// request (X-Original-* headers, as the nginx snippet sends them) and returns
 // the recorded response.  DB / BanMgr / RateLimiter stay nil — every decision
 // helper tolerates that, and event recording is nil-safe.
 func driveAuthCheck(t *testing.T, cfg settings.Settings, uri string) *http.Response {
@@ -107,11 +106,11 @@ func TestForwardAuthSnippetsMatchHandlerContract(t *testing.T) {
 		file     string
 		mustHave []string
 	}{
-		{"traefik-forward-auth.yml", []string{
-			"/unmask/api/check", // forwardAuth address
-			"X-Unmask-Action",   // authResponseHeaders
-			"X-Unmask-Reason",   // authResponseHeaders
-			"127.0.0.1:9477",    // admin service
+		{"nginx-forward-auth.conf", []string{
+			"/unmask/api/check",              // subrequest -> admin /api/check
+			"127.0.0.1:9477",                 // admin upstream
+			"$upstream_http_x_unmask_action", // reads back the verdict header
+			"@unmask_challenge",              // 401 -> challenge handoff
 		}},
 	}
 	for _, c := range cases {
