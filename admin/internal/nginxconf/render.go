@@ -396,6 +396,14 @@ type renderData struct {
 	CommunityBansMapHashBucket bool
 	CommunityBansMapHashMax    bool
 
+	// EmitVariablesHash: emit variables_hash_max_size / _bucket_size at the top
+	// of http.inc.  unmask's many maps (rate-limit / per-site / challenge axes)
+	// push nginx's variables hash past its 1024 default, so nginx warns "could
+	// not build optimal variables_hash" on every reload.  Unlike map_hash these
+	// are not tied to a preceding map block, so it is emitted whenever the host
+	// nginx.conf does not already declare one (a duplicate is a fatal error).
+	EmitVariablesHash bool
+
 	// WebBotAuthEnabled mirrors settings.WebBotAuth.Enabled.  The signed-agent
 	// branch in server.inc (= the RFC 9421 / Web Bot Auth detect + auth_request
 	// + try_files machinery) is rendered ONLY when this is true.  With WBA
@@ -933,7 +941,41 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax, d.mapHashWarning = resolveMapHash(s)
 	}
 
+	// Size the variables hash: unmask's maps push the variable count past
+	// nginx's 1024 default, so it warns "could not build optimal variables_hash"
+	// on every reload.  Emit ours unless the host nginx.conf already declares
+	// one (a duplicate is fatal); an unreadable conf falls through to emitting
+	// and letting any duplicate surface as a clear nginx -t error.
+	d.EmitVariablesHash = !hostHasVariablesHash(s)
+
 	return d, nil
+}
+
+// hostHasVariablesHash reports whether the host nginx.conf already declares a
+// variables_hash_max_size / variables_hash_bucket_size at top level, so unmask
+// does not emit a duplicate (a fatal nginx -t error).  Unlike map_hash these
+// are not constrained to precede a map block, so the scan only checks for the
+// directive's presence.  Unreadable conf -> false (emit ours; any duplicate
+// surfaces clearly).  Best-effort line scan; does not follow includes.
+func hostHasVariablesHash(s settings.Settings) bool {
+	confPath := strings.TrimSpace(s.Nginx.ConfPath)
+	if confPath == "" {
+		confPath = "/etc/nginx/nginx.conf"
+	}
+	b, err := os.ReadFile(confPath)
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || strings.HasPrefix(f[0], "#") {
+			continue
+		}
+		if f[0] == "variables_hash_max_size" || f[0] == "variables_hash_bucket_size" {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveMapHash probes the host nginx.conf (Nginx.ConfPath, default

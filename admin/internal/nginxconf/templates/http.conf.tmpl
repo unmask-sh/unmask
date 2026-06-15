@@ -37,6 +37,14 @@ map_hash_bucket_size 256;  # unmask: community-bans ipja4 keys reach ~76 chars (
 {{- if .CommunityBansMapHashMax }}
 map_hash_max_size 4096;    # unmask: community-bans feed can exceed the 2048 default
 {{- end }}
+{{- if .EmitVariablesHash }}
+# unmask's maps (rate-limit / per-site / challenge axes) push the variable count
+# past nginx's 1024 default, so nginx warns "could not build optimal
+# variables_hash" on every reload.  Size it up.  Skipped when the host
+# nginx.conf already declares either directive (a duplicate is fatal).
+variables_hash_max_size 2048;
+variables_hash_bucket_size 128;
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
