@@ -1245,15 +1245,15 @@ var dict = map[Lang]map[string]string{
 		"settings.ua.help_label": "概要を見る",
 		"settings.ua.intro": `<strong>ホワイトリスト</strong> と <strong>ブラックリスト</strong> で UA を仕分け.<br>
 ホワイトリスト match → bot signal を無視して素通し (= 検索 bot / 信頼 crawler).<br>
-ブラックリスト match + bot signal (= JA4 bot / honeypot) → challenge.<br>
+ブラックリスト match → bot signal に関わらず challenge (= 黒 match = PoW 必須).<br>
 両方 match の場合は白が優先 (= 順位事故防止).<br>
-どちらにも match しない場合は素通し (= challenge 対象外).`,
+どちらにも match しない場合は動作モードの判定に従う (= 既定は既知ブラウザに透過 PoW).`,
 		"settings.ua.white_h":                         "ホワイトリスト (= match → 必ず素通し)",
 		"settings.ua.white_desc":                      "ここに追加した UA は challenge 対象から完全に外れる (= 必ず素通し). 検索 / AI bot (Googlebot / GPTBot 等) の救済は上の自動振り分け card で管理するので、 ここは独自に通したい UA だけを足す.",
 		"settings.ua.white_extra_h":                   "ホワイトリスト — 独自 UA pattern",
 		"settings.ua.white_extra_desc":                "1 行 1 pattern. case-insensitive substring として展開. compile error の行は無視.",
 		"settings.ua.black_h":                         "ブラックリスト (= match + signal → challenge)",
-		"settings.ua.black_desc":                      "challenge を撃つ対象 UA を決める. default は全 UA を対象 (= self-host 向けに curl / lib 含め bot を広く弾く安全側. 検索 / AI bot は SearchBots + 公式 IP range の二段救済で確実に通すので順位事故は起きない). category 単位で対象を絞ることも可能.",
+		"settings.ua.black_desc":                      "ブラックリストに match した UA は bot signal に関わらず challenge する (= 黒 match = PoW 必須). 白にも match する場合は白優先で素通し (= 順位事故防止).",
 		"settings.ua.black_action_h":                  "ブラック match 時の default 挙動",
 		"settings.ua.black_action_help":               "ブラックリスト UA に match した request へ challenge を撃つ時の chain。保護パスなど、専用の default action を持たない経路の fallback としても使われる。rate-limit hit の chain は rate-limit タブで独立に設定する。",
 		"settings.ua.black_extra_h":                   "ブラックリスト — 独自 UA pattern",
@@ -2659,15 +2659,15 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.ua.help_label": "Show overview",
 		"settings.ua.intro": `<strong>White list</strong> and <strong>black list</strong> classify UAs.<br>
 White-list match → ignore bot signals and pass through (search bots / trusted crawlers).<br>
-Black-list match + bot signal (JA4 bot / honeypot) → challenge.<br>
+Black-list match → challenge regardless of bot signal (a black-list match must clear PoW).<br>
 If both match, white wins (to avoid SEO incidents).<br>
-If neither matches, the request passes through (no challenge).`,
+If neither matches, the Operating mode tab decides (default: a transparent PoW for known browsers).`,
 		"settings.ua.white_h":                         "White list (match → always pass)",
 		"settings.ua.white_desc":                      "UAs added here are never challenged (always passed). Search / AI bots (Googlebot / GPTBot etc.) are handled by the auto-rescue card above; use this only for your own additional pass-through UAs.",
 		"settings.ua.white_extra_h":                   "White list — custom UA patterns",
 		"settings.ua.white_extra_desc":                "One pattern per line. Expanded as a case-insensitive substring. Lines that fail to compile are skipped.",
 		"settings.ua.black_h":                         "Black list (match + signal → challenge)",
-		"settings.ua.black_desc":                      "Chooses which UAs are challenge targets. The default targets every UA (= a safe self-hosting default that broadly excludes bots, incl. curl / libraries; search / AI bots are reliably passed via the SearchBots + official IP-range two-tier rescue, so no SEO incidents). Scoping by category is also possible.",
+		"settings.ua.black_desc":                      "A UA that matches the black list is challenged regardless of any bot signal (a black-list match must clear PoW). If it also matches the white list, white wins (to avoid SEO incidents).",
 		"settings.ua.black_action_h":                  "Black-list match default action",
 		"settings.ua.black_action_help":               "Chain used when a black-list UA match triggers a challenge. Also serves as the fallback for routes without their own default action (e.g. protected paths). Rate-limit hits have an independent chain on the Rate limit tab.",
 		"settings.ua.black_extra_h":                   "Black list — custom UA patterns",
