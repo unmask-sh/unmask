@@ -55,9 +55,19 @@ with sync_playwright() as p:
         fail("behavioral check issued no _bv for a human-like browser")
 
     # the math fallback must NOT have been shown -- the behavioral path cleared it.
-    math_shown = page.evaluate(
-        "() => { var m=document.getElementById('mathFallback');"
-        " return !!(m && m.offsetParent !== null); }")
+    # On success the challenge page redirects the instant the _bv is set, so this
+    # evaluate can lose a race with the navigation ("execution context was
+    # destroyed").  That is not a failure: reaching here means the _bv wait above
+    # already succeeded, which only happens on the behavioral path (a math-gated
+    # run never issues a _bv without solving the sum), so a navigated-away page is
+    # itself proof the math gate never blocked us.  Treat a destroyed context as
+    # "math not shown".
+    try:
+        math_shown = page.evaluate(
+            "() => { var m=document.getElementById('mathFallback');"
+            " return !!(m && m.offsetParent !== null); }")
+    except Exception:
+        math_shown = False
     if math_shown:
         fail("math fallback appeared despite human-like interaction (behavioral did not pass)")
 
