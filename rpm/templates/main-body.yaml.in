@@ -12,7 +12,7 @@
 description: |
   unmask — JA4 TLS-fingerprint based bot challenge.
   Admin server (Go static binary), challenge HTML/JS, configuration UI,
-  and integration snippets for nginx / Apache / Traefik / HAProxy.
+  and integration snippets for nginx / Apache.
   By default operates in forward-auth mode (= HTTP-server-agnostic).
   Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
 
