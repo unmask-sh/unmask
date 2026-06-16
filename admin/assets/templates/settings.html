@@ -2696,6 +2696,33 @@ document.addEventListener("DOMContentLoaded", function(){
     </datalist>
     <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
+
+  {{/* Deny-page copy lives HERE (with the rate-limit config), not in the
+       challenge-appearance tab: the deny page is a rate-limit *outcome* (the
+       JS-free 403 a "deny" mode zone serves), not a per-site challenge skin.
+       Empty fields fall back to the Accept-Language-localized built-in. */}}
+  <div class="bcd-card" style="margin-top:.6rem">
+    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
+      {{ t .Lang "settings.rate_limit.deny_page_heading" }}
+    </div>
+    <p class="note" style="margin:0 0 .55rem;color:#64748b;font-size:.78rem;line-height:1.5">
+      {{ safeHTML (t .Lang "settings.rate_limit.deny_page_intro") }}
+    </p>
+    <div class="field">
+      <label for="rl-deny-title">{{ t .Lang "settings.rate_limit.deny_page_title_label" }}</label>
+      <input type="text" id="rl-deny-title" name="rate_deny_title" maxlength="120"
+             value="{{ .RateLimit.RateDenyTitle }}" placeholder="{{ t .Lang "settings.rate_limit.deny_page_title_placeholder" }}"
+             style="width:100%;max-width:24rem">
+    </div>
+    <div class="field" style="margin-top:.5rem">
+      <label for="rl-deny-body">{{ t .Lang "settings.rate_limit.deny_page_body_label" }}</label>
+      <textarea id="rl-deny-body" name="rate_deny_body" maxlength="400" rows="2"
+                placeholder="{{ t .Lang "settings.rate_limit.deny_page_body_placeholder" }}"
+                style="width:100%;max-width:24rem;font-family:inherit">{{ .RateLimit.RateDenyBody }}</textarea>
+      <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.rate_limit.deny_page_desc" }}</p>
+    </div>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 <script>
@@ -3111,28 +3138,6 @@ document.addEventListener("DOMContentLoaded", function(){
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
       </div>
-    </div>
-  </div>
-
-  <div class="bcd-card" style="margin-top:.4rem">
-    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
-      {{ t .Lang "settings.branding.ratedeny_heading" }}
-    </div>
-    <p class="note" style="margin:0 0 .55rem;color:#64748b;font-size:.78rem;line-height:1.5">
-      {{ safeHTML (t .Lang "settings.branding.ratedeny_intro") }}
-    </p>
-    <div class="field">
-      <label for="branding-ratedeny-title">{{ t .Lang "settings.branding.ratedeny_title_label" }}</label>
-      <input type="text" id="branding-ratedeny-title" name="branding_rate_deny_title" maxlength="120"
-             value="{{ .BrandingValues.RateDenyTitle }}" placeholder="{{ t .Lang "settings.branding.ratedeny_title_placeholder" }}"
-             style="width:100%;max-width:24rem">
-    </div>
-    <div class="field" style="margin-top:.5rem">
-      <label for="branding-ratedeny-body">{{ t .Lang "settings.branding.ratedeny_body_label" }}</label>
-      <textarea id="branding-ratedeny-body" name="branding_rate_deny_body" maxlength="400" rows="2"
-                placeholder="{{ t .Lang "settings.branding.ratedeny_body_placeholder" }}"
-                style="width:100%;max-width:24rem;font-family:inherit">{{ .BrandingValues.RateDenyBody }}</textarea>
-      <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.ratedeny_desc" }}</p>
     </div>
   </div>
 

@@ -2811,6 +2811,17 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		}
 		c.Default.ChallengeMode = v
 	}
+	// Deny-page copy override (= the JS-free hard-cap 403 a "deny" zone serves).
+	// Install-wide; empty falls back to the Accept-Language-localized built-in.
+	// Caps mirror the branding fields so a runaway paste can't bloat the config.
+	c.RateDenyTitle = strings.TrimSpace(r.FormValue("rate_deny_title"))
+	c.RateDenyBody = strings.TrimSpace(r.FormValue("rate_deny_body"))
+	if n := len([]rune(c.RateDenyTitle)); n > 120 {
+		c.RateDenyTitle = string([]rune(c.RateDenyTitle)[:120])
+	}
+	if n := len([]rune(c.RateDenyBody)); n > 400 {
+		c.RateDenyBody = string([]rune(c.RateDenyBody)[:400])
+	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"
@@ -3372,8 +3383,6 @@ var (
 func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
-	cur.RateDenyTitle = strings.TrimSpace(r.FormValue("branding_rate_deny_title"))
-	cur.RateDenyBody = strings.TrimSpace(r.FormValue("branding_rate_deny_body"))
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
 		cur.CopyPreset = p
 	} else {
@@ -3386,12 +3395,6 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 	}
 	if n := len([]rune(cur.FooterText)); n > 160 {
 		cur.FooterText = string([]rune(cur.FooterText)[:160])
-	}
-	if n := len([]rune(cur.RateDenyTitle)); n > 120 {
-		cur.RateDenyTitle = string([]rune(cur.RateDenyTitle)[:120])
-	}
-	if n := len([]rune(cur.RateDenyBody)); n > 400 {
-		cur.RateDenyBody = string([]rune(cur.RateDenyBody)[:400])
 	}
 	// Logo handling: explicit clear takes priority over file upload.
 	if r.FormValue("branding_logo_clear") == "1" {

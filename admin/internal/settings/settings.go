@@ -228,14 +228,6 @@ type BrandingValues struct {
 	// "friendly" (= default / reassurance-leaning) | "neutral" (= status-quo
 	// compatible) | "minimal" (= short text). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
-	// RateDenyTitle / RateDenyBody: optional operator override for the
-	// deny-mode rate-limit page (= the hard-cap "too many requests" 403 served
-	// JS-free at /unmask/_rl... for a "deny" zone).  Empty falls back to the
-	// built-in message localized by the visitor's Accept-Language; a non-empty
-	// value is shown verbatim to ALL visitors (a single operator-chosen copy).
-	// Plain text; HTML-escaped at render time.
-	RateDenyTitle string `yaml:"rate_deny_title,omitempty"`
-	RateDenyBody  string `yaml:"rate_deny_body,omitempty"`
 	// Disabled: when true, Resolve(site) returns the Default record even
 	// though this entry exists.  Used to express "operator turned override
 	// off but wants the carefully-edited values kept for next time" so the
@@ -1558,6 +1550,15 @@ type RateLimitConfig struct {
 	//              one NAT IP are counted separately)
 	// Empty -> "ip" default.
 	Key string `yaml:"key,omitempty"`
+	// RateDenyTitle / RateDenyBody: optional operator copy for the deny-mode
+	// rate-limit page (the JS-free hard-cap 403 a "deny" zone serves).  This
+	// is install-wide -- the deny page is a rate-limit outcome, not a
+	// per-site challenge appearance, so it lives with the rate-limit config
+	// rather than Branding.  Empty falls back to the built-in message
+	// localized by the visitor's Accept-Language; a non-empty value is shown
+	// verbatim to every visitor regardless of language.
+	RateDenyTitle string `yaml:"rate_deny_title,omitempty"`
+	RateDenyBody  string `yaml:"rate_deny_body,omitempty"`
 	// PresetsBackfilledAt: unix seconds when the install last had its
 	// built-in preset zones backfilled.  Lets BackfillRateLimitPresets()
 	// run exactly once per preset family; an operator who deletes a preset

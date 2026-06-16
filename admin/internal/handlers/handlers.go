@@ -654,10 +654,11 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 		})
 		return
 	}
-	br := h.cfg().Branding.Resolve(site)
+	cfg := h.cfg()
+	br := cfg.Branding.Resolve(site)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write(renderRateDeny(br, r.Header.Get("Accept-Language"), h.basePath()))
+	_, _ = w.Write(renderRateDeny(br, cfg.RateLimit.RateDenyTitle, cfg.RateLimit.RateDenyBody, r.Header.Get("Accept-Language"), h.basePath()))
 }
 
 // ServeChallenge: GET {base}/challenge/
