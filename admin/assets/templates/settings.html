@@ -3116,6 +3116,28 @@ document.addEventListener("DOMContentLoaded", function(){
 
   <div class="bcd-card" style="margin-top:.4rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
+      {{ t .Lang "settings.branding.ratedeny_heading" }}
+    </div>
+    <p class="note" style="margin:0 0 .55rem;color:#64748b;font-size:.78rem;line-height:1.5">
+      {{ safeHTML (t .Lang "settings.branding.ratedeny_intro") }}
+    </p>
+    <div class="field">
+      <label for="branding-ratedeny-title">{{ t .Lang "settings.branding.ratedeny_title_label" }}</label>
+      <input type="text" id="branding-ratedeny-title" name="branding_rate_deny_title" maxlength="120"
+             value="{{ .BrandingValues.RateDenyTitle }}" placeholder="{{ t .Lang "settings.branding.ratedeny_title_placeholder" }}"
+             style="width:100%;max-width:24rem">
+    </div>
+    <div class="field" style="margin-top:.5rem">
+      <label for="branding-ratedeny-body">{{ t .Lang "settings.branding.ratedeny_body_label" }}</label>
+      <textarea id="branding-ratedeny-body" name="branding_rate_deny_body" maxlength="400" rows="2"
+                placeholder="{{ t .Lang "settings.branding.ratedeny_body_placeholder" }}"
+                style="width:100%;max-width:24rem;font-family:inherit">{{ .BrandingValues.RateDenyBody }}</textarea>
+      <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.ratedeny_desc" }}</p>
+    </div>
+  </div>
+
+  <div class="bcd-card" style="margin-top:.4rem">
+    <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
       {{ t .Lang "settings.branding.template_heading" }}
     </div>
     <p class="note" style="margin:0 0 .55rem;color:#64748b;font-size:.78rem;line-height:1.5">

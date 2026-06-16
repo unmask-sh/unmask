@@ -228,6 +228,14 @@ type BrandingValues struct {
 	// "friendly" (= default / reassurance-leaning) | "neutral" (= status-quo
 	// compatible) | "minimal" (= short text). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
+	// RateDenyTitle / RateDenyBody: optional operator override for the
+	// deny-mode rate-limit page (= the hard-cap "too many requests" 403 served
+	// JS-free at /unmask/_rl... for a "deny" zone).  Empty falls back to the
+	// built-in message localized by the visitor's Accept-Language; a non-empty
+	// value is shown verbatim to ALL visitors (a single operator-chosen copy).
+	// Plain text; HTML-escaped at render time.
+	RateDenyTitle string `yaml:"rate_deny_title,omitempty"`
+	RateDenyBody  string `yaml:"rate_deny_body,omitempty"`
 	// Disabled: when true, Resolve(site) returns the Default record even
 	// though this entry exists.  Used to express "operator turned override
 	// off but wants the carefully-edited values kept for next time" so the

@@ -611,42 +611,6 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	h.Notifier.ChallengeServed()
 }
 
-// rateDenyHTML is a tiny, dependency-free 403 page for a deny-mode rate-limit
-// hit.  No JS, no challenge assets, no escape hatch -- a "deny" zone is a hard
-// cap the operator chose, not a puzzle.  The "unmask:rate-deny" marker lets the
-// e2e suite (and an operator grepping a capture) tell a deny from a challenge
-// without parsing the page.
-const rateDenyHTML = `<!doctype html>
-<html lang="en">
-<!-- unmask:rate-deny -->
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="robots" content="noindex, nofollow">
-<title>Too many requests</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-         margin: 0; min-height: 100vh; display: grid; place-items: center;
-         background: #f6f7f9; color: #1d2433; }
-  main { max-width: 28rem; padding: 2rem; text-align: center; }
-  h1 { font-size: 1.5rem; margin: 0 0 0.75rem; }
-  p { margin: 0; line-height: 1.6; color: #5a6473; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #15181d; color: #e6e9ee; }
-    p { color: #9aa4b2; }
-  }
-</style>
-</head>
-<body>
-<main>
-<h1>Too many requests</h1>
-<p>You've made too many requests in a short time. Please wait a moment, then try again.</p>
-</main>
-</body>
-</html>
-`
-
 // serveRateDeny writes the hard-cap response for a "deny"-mode rate-limit zone.
 // Unlike a challenge serve it offers NO escape hatch (no PoW / CAPTCHA): the
 // limit already counts _bv holders, so handing out a fresh challenge would just
@@ -690,9 +654,10 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 		})
 		return
 	}
+	br := h.cfg().Branding.Resolve(site)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = io.WriteString(w, rateDenyHTML)
+	_, _ = w.Write(renderRateDeny(br, r.Header.Get("Accept-Language"), h.basePath()))
 }
 
 // ServeChallenge: GET {base}/challenge/

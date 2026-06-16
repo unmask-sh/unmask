@@ -3372,6 +3372,8 @@ var (
 func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
+	cur.RateDenyTitle = strings.TrimSpace(r.FormValue("branding_rate_deny_title"))
+	cur.RateDenyBody = strings.TrimSpace(r.FormValue("branding_rate_deny_body"))
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
 		cur.CopyPreset = p
 	} else {
@@ -3384,6 +3386,12 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 	}
 	if n := len([]rune(cur.FooterText)); n > 160 {
 		cur.FooterText = string([]rune(cur.FooterText)[:160])
+	}
+	if n := len([]rune(cur.RateDenyTitle)); n > 120 {
+		cur.RateDenyTitle = string([]rune(cur.RateDenyTitle)[:120])
+	}
+	if n := len([]rune(cur.RateDenyBody)); n > 400 {
+		cur.RateDenyBody = string([]rune(cur.RateDenyBody)[:400])
 	}
 	// Logo handling: explicit clear takes priority over file upload.
 	if r.FormValue("branding_logo_clear") == "1" {
