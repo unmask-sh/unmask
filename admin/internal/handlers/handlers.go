@@ -1273,6 +1273,12 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	if l := strings.TrimSpace(q.Get("lang")); l != "" {
 		accept = l
 	}
+	// Relax the admin's default X-Frame-Options: DENY (set in AuthMiddleware)
+	// to SAMEORIGIN so the settings page can show this preview in an <iframe>.
+	// Safe: the route is auth-gated and read-only (no state-changing actions),
+	// and SAMEORIGIN / frame-ancestors 'self' still blocks cross-origin framing.
+	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
