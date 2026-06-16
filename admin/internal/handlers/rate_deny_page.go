@@ -77,6 +77,10 @@ func denyLangFromAccept(accept string) string {
 
 type rateDenyData struct {
 	Lang, Dir, Title, Body, SiteName, Footer, LogoURL string
+	// Theme is "auto" | "light" | "dark"; it drives the <html data-theme>
+	// attribute that the static CSS keys off.  Keeping it an attribute value
+	// (not interpolated CSS) sidesteps html/template's CSS-context sanitizer.
+	Theme string
 	// Marker is injected as known-safe HTML because html/template elides HTML
 	// comments from the template TEXT; passing it as a value emits it verbatim
 	// so the "unmask:rate-deny" detection marker survives.
@@ -92,7 +96,7 @@ const rateDenyMarkerStr = "<!-- unmask:rate-deny -->"
 // "unmask:rate-deny" marker lets the e2e suite (and an operator grepping a
 // capture) tell a deny from a challenge without parsing the page.
 var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
-<html lang="{{.Lang}}" dir="{{.Dir}}">
+<html lang="{{.Lang}}" dir="{{.Dir}}" data-theme="{{.Theme}}">
 {{.Marker}}
 <head>
 <meta charset="utf-8">
@@ -100,7 +104,8 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 <meta name="robots" content="noindex, nofollow">
 <title>{{.Title}}</title>
 <style>
-  :root { color-scheme: light dark; }
+  /* Light is the base palette; data-theme (set from the operator's choice)
+     forces a scheme, and "auto" additionally follows prefers-color-scheme. */
   body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
          margin: 0; min-height: 100vh; display: grid; place-items: center;
          background: #f6f7f9; color: #1d2433; }
@@ -110,10 +115,16 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
   h1 { font-size: 1.5rem; margin: 0 0 0.75rem; }
   p { margin: 0; line-height: 1.6; color: #5a6473; }
   footer { margin: 1.75rem 0 0; font-size: 0.8rem; color: #8a93a2; }
+  html[data-theme="light"] { color-scheme: light; }
+  html[data-theme="dark"] { color-scheme: dark; }
+  html[data-theme="dark"] body { background: #15181d; color: #e6e9ee; }
+  html[data-theme="dark"] p { color: #9aa4b2; }
+  html[data-theme="dark"] footer { color: #79828f; }
+  html[data-theme="auto"] { color-scheme: light dark; }
   @media (prefers-color-scheme: dark) {
-    body { background: #15181d; color: #e6e9ee; }
-    p { color: #9aa4b2; }
-    footer { color: #79828f; }
+    html[data-theme="auto"] body { background: #15181d; color: #e6e9ee; }
+    html[data-theme="auto"] p { color: #9aa4b2; }
+    html[data-theme="auto"] footer { color: #79828f; }
   }
 </style>
 </head>
@@ -134,12 +145,18 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 // the built-in localized by the visitor's Accept-Language.  There is no
 // operator copy override: a verbatim custom string would be shown to every
 // visitor in one language, undermining the 18-language built-in, so the page
-// deliberately relies on branding + localization only.  basePath is the
-// /unmask mount used to reach the logo route.
-func renderRateDeny(br settings.BrandingValues, acceptLanguage, basePath string) []byte {
+// deliberately relies on branding + localization only.  theme is the deny-page
+// light/dark choice ("auto" | "light" | "dark"; anything else clamps to auto).
+// basePath is the /unmask mount used to reach the logo route.
+func renderRateDeny(br settings.BrandingValues, theme, acceptLanguage, basePath string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
 	m := denyI18N[lang]
 	title, body := m.Title, m.Body
+	switch theme {
+	case settings.DenyThemeLight, settings.DenyThemeDark, settings.DenyThemeAuto:
+	default:
+		theme = settings.DenyThemeAuto
+	}
 	logoURL := ""
 	if br.LogoPath != "" {
 		logoURL = basePath + "/branding/logo"
@@ -153,6 +170,7 @@ func renderRateDeny(br settings.BrandingValues, acceptLanguage, basePath string)
 		SiteName: br.SiteName,
 		Footer:   br.FooterText,
 		LogoURL:  logoURL,
+		Theme:    theme,
 		Marker:   template.HTML(rateDenyMarkerStr), //nolint:gosec // constant literal, no user input
 	}); err != nil {
 		return []byte(rateDenyFallback) // never expected; keep a 403 body regardless

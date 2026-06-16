@@ -1550,6 +1550,13 @@ type RateLimitConfig struct {
 	//              one NAT IP are counted separately)
 	// Empty -> "ip" default.
 	Key string `yaml:"key,omitempty"`
+	// DenyTheme: light/dark appearance of the JS-free deny page.  This is a
+	// visual choice (unlike a copy override it is language-independent, so it
+	// does not undermine the localized built-in message).
+	//   "" / "auto" : follow the visitor's OS (prefers-color-scheme; default)
+	//   "light"     : force the light palette
+	//   "dark"      : force the dark palette
+	DenyTheme string `yaml:"deny_theme,omitempty"`
 	// PresetsBackfilledAt: unix seconds when the install last had its
 	// built-in preset zones backfilled.  Lets BackfillRateLimitPresets()
 	// run exactly once per preset family; an operator who deletes a preset
@@ -1689,6 +1696,31 @@ func (rl RateLimitConfig) ResolvedKey() string {
 		return RateLimitKeyIP
 	}
 	return rl.Key
+}
+
+// Deny-page theme values (= the allowlist).  "auto" follows the visitor's OS.
+const (
+	DenyThemeAuto  = "auto"
+	DenyThemeLight = "light"
+	DenyThemeDark  = "dark"
+)
+
+// IsValidDenyTheme reports whether s is a known deny-page theme.
+func IsValidDenyTheme(s string) bool {
+	switch s {
+	case DenyThemeAuto, DenyThemeLight, DenyThemeDark:
+		return true
+	}
+	return false
+}
+
+// ResolvedDenyTheme returns DenyTheme clamped to a known value, defaulting to
+// "auto" (the empty/unset value) so the deny page follows the visitor's OS.
+func (rl RateLimitConfig) ResolvedDenyTheme() string {
+	if IsValidDenyTheme(rl.DenyTheme) {
+		return rl.DenyTheme
+	}
+	return DenyThemeAuto
 }
 
 // RateZone: definition of one named path-scoped rate-limit zone.  Zones

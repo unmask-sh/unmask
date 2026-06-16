@@ -2811,6 +2811,15 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		}
 		c.Default.ChallengeMode = v
 	}
+	// Deny-page theme (light/dark of the JS-free deny page).  "auto" is the
+	// default, normalized to empty so it stays out of the persisted config.
+	if v := strings.TrimSpace(r.FormValue("deny_theme")); v == "" || v == settings.DenyThemeAuto {
+		c.DenyTheme = ""
+	} else if settings.IsValidDenyTheme(v) {
+		c.DenyTheme = v
+	} else {
+		return fmt.Errorf("deny_theme must be one of auto / light / dark (got %q)", v)
+	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"

@@ -2697,11 +2697,11 @@ document.addEventListener("DOMContentLoaded", function(){
     <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
 
-  {{/* The deny page itself is not configurable: it is the JS-free 403 a "deny"
+  {{/* The deny page copy is not configurable: it is the JS-free 403 a "deny"
        mode zone serves, rendered from per-site branding (logo / site name /
        footer) + the localized built-in message (18 languages).  No copy fields
        -- a verbatim custom string would override the localization for every
-       visitor.  This card just explains that and offers a preview. */}}
+       visitor.  The one knob is the light/dark theme (language-independent). */}}
   <div class="bcd-card" style="margin-top:.6rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
       {{ t .Lang "settings.rate_limit.deny_page_heading" }}
@@ -2709,11 +2709,24 @@ document.addEventListener("DOMContentLoaded", function(){
     <p class="note" style="margin:0 0 .6rem;color:#64748b;font-size:.78rem;line-height:1.5">
       {{ safeHTML (t .Lang "settings.rate_limit.deny_page_intro") }}
     </p>
-    {{/* Preview link: opens the deny page (branding + localized built-in) in a
-         new tab.  No save needed -- there is nothing to configure.  ↗ marks _blank. */}}
-    <a href="{{ .BasePath }}/admin/test/rate-deny" target="_blank" rel="noopener"
-       style="font-size:.85rem;color:#1e40af;text-decoration:none;font-weight:500">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
-    <span class="note" style="margin-left:.5rem;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preview_hint" }}</span>
+    <div class="field">
+      <label for="rl-deny-theme">{{ t .Lang "settings.rate_limit.deny_page_theme_label" }}</label>
+      {{ $dt := .RateLimit.ResolvedDenyTheme }}
+      <select id="rl-deny-theme" name="deny_theme" style="width:16rem">
+        <option value="auto"  {{ if eq $dt "auto"  }}selected{{ end }}>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</option>
+        <option value="light" {{ if eq $dt "light" }}selected{{ end }}>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</option>
+        <option value="dark"  {{ if eq $dt "dark"  }}selected{{ end }}>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</option>
+      </select>
+    </div>
+    {{/* Preview link: opens the deny page in a new tab.  The onclick passes the
+         CURRENTLY-SELECTED theme so an unsaved choice previews too; with JS off
+         the plain href previews the saved theme.  ↗ marks _blank. */}}
+    <div style="margin-top:.7rem">
+      <a href="{{ .BasePath }}/admin/test/rate-deny" target="_blank" rel="noopener"
+         onclick="var u=this.getAttribute('href').split('?')[0];var t=document.getElementById('rl-deny-theme').value;window.open(u+'?theme='+encodeURIComponent(t),'_blank','noopener');return false;"
+         style="font-size:.85rem;color:#1e40af;text-decoration:none;font-weight:500">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+      <span class="note" style="margin-left:.5rem;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preview_hint" }}</span>
+    </div>
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
