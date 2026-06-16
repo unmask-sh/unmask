@@ -194,15 +194,17 @@ build-module-multi:
 # files the placer could then install on an aarch64 host.
 ifeq ($(GOARCH),amd64)
 MULTI_OPENSSL11_DIR = $(DIST)/multi-modules-openssl11
+BUILDER_OPENSSL11   = unmask-builder-openssl11
 else
 MULTI_OPENSSL11_DIR = $(DIST)/multi-modules-openssl11-$(GOARCH)
+BUILDER_OPENSSL11   = unmask-builder-openssl11-$(GOARCH)
 endif
 build-module-multi-openssl11:
-	@if ! docker image inspect unmask-builder-openssl11 >/dev/null 2>&1; then \
-		echo ">>> building unmask-builder-openssl11 image first"; \
-		docker build -t unmask-builder-openssl11 build/docker-openssl11/; \
+	@if ! docker image inspect $(BUILDER_OPENSSL11) >/dev/null 2>&1; then \
+		echo ">>> building $(BUILDER_OPENSSL11) image first (--platform=linux/$(GOARCH))"; \
+		docker build --platform=linux/$(GOARCH) -t $(BUILDER_OPENSSL11) build-docker/openssl11/; \
 	fi
-	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (OpenSSL 1.1 via docker AlmaLinux 8)"
+	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (OpenSSL 1.1 via AlmaLinux 8, $(GOARCH))"
 	@mkdir -p $(MULTI_OPENSSL11_DIR)
 	@for v in $(PLUGIN_NGINX_VERSIONS); do \
 		echo ""; \
@@ -212,7 +214,7 @@ build-module-multi-openssl11:
 			echo "  cached: $$out (rm to rebuild)"; \
 			continue; \
 		fi; \
-		docker run --rm -v "$$(pwd):/work" unmask-builder-openssl11 $$v || { \
+		docker run --rm --platform=linux/$(GOARCH) -v "$$(pwd):/work" $(BUILDER_OPENSSL11) $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
@@ -220,7 +222,7 @@ build-module-multi-openssl11:
 	@# The builder runs as root, so the bind-mounted outputs land root-owned and
 	@# a later `make clean` cannot delete them.  Hand them back to the invoking
 	@# user from inside the same image (no sudo needed on the host).
-	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-openssl11 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-openssl11 2>/dev/null || true
+	@docker run --rm --platform=linux/$(GOARCH) -v "$$(pwd):/work" --entrypoint chown $(BUILDER_OPENSSL11) -R "$$(id -u):$$(id -g)" /work/$(MULTI_OPENSSL11_DIR) 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.1):"
 	@ls -la $(MULTI_OPENSSL11_DIR)/*/*.so 2>/dev/null || echo "  (none)"
@@ -307,7 +309,15 @@ build-module-multi-glibc212:
 
 # build-module-multi-all: build OpenSSL 3 + 1.1 + 1.0 + glibc 2.12 ABIs (for unmask-plugin-nginx-fat).
 .PHONY: build-module-multi-all
+ifeq ($(GOARCH),amd64)
 build-module-multi-all: build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212
+else
+# Non-amd64 (= arm64): ship only OpenSSL 3 + OpenSSL 1.1.  The OpenSSL 1.0
+# (CentOS 7 / RHEL 7) and glibc-2.12 (CentOS 6) ABIs target x86-only / EOL
+# distros with no arm64 install base -- CentOS 6 never had aarch64 at all -- so
+# the arm64 fat plugin bundles just the two modern ABIs.
+build-module-multi-all: build-module-multi build-module-multi-openssl11
+endif
 
 ## build-demo    - demo nginx binary + nginx module (same source tree).  For long-running dev environments.
 # Unlike build-module, also generates the nginx binary (objs/nginx).  Not needed at distribution time.
