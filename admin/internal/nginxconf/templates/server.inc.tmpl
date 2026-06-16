@@ -250,6 +250,27 @@ location ^~ /unmask/ {
 # rather than getting a free pass.
 location @unmask_daemon_down {
     set $unmask_failopen "1";
+{{- if .ComposeMode }}
+    # Compose mode cleared $unmask_orig_path: the ACCESS-phase internal_redirect
+    # restarted the phase engine, re-running this file's SERVER_REWRITE reset
+    # (the classic gates use `rewrite ... last`, which skips SERVER_REWRITE, so
+    # their save survives -- compose's does not).  Recover the original the
+    # handler carried in the redirect, split into a clean path + args by
+    # http.inc's maps: the _orig arg for the challenge route, the /unmask/_rl URI
+    # suffix for the rate route.  Both only fire while $unmask_orig_path is empty,
+    # so a classic save (when present) is never overwritten.  The source maps are
+    # gated on $unmask_compose=1 (http.inc), so a banned client's crafted _orig /
+    # a direct /unmask/_rl hit cannot smuggle a replay target past the ban -- they
+    # leave $unmask_orig_path empty and fall through to the 503 below.
+    if ($unmask_orig_path = "") {
+        set $unmask_orig_path $unmask_orig_arg_path;
+        set $unmask_orig_args $unmask_orig_arg_args;
+    }
+    if ($unmask_orig_path = "") {
+        set $unmask_orig_path $unmask_rl_orig;
+        set $unmask_orig_args $args;
+    }
+{{- end }}
     # Replay only originals OUTSIDE /unmask/.  An empty original means a
     # direct /unmask/* hit, and a saved /unmask/* original (= the challenge
     # gate also covers the admin UI surface when protect.inc sits at server

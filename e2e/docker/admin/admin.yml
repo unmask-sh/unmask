@@ -65,6 +65,15 @@ rate_limit:
       burst: 2
       path_patterns: ["/chal-test/"]
       challenge_mode: "captcha_only"
+    # scenario 39 (B): a deny zone on the GLOBAL protected path /pdeny/ (gated by
+    # protected_paths below).  In compose mode the deny wins over the captcha once
+    # over the cap -- the REWRITE-phase captcha gate would otherwise pre-empt
+    # limit_req.  Within the cap a _bv-less visitor still gets the captcha.
+    - name: "deny_protected"
+      requests_per_min: 5
+      burst: 2
+      path_patterns: ["/pdeny/"]
+      challenge_mode: "deny"
 
 # Match the e2e scenarios' "regular UA passes through by default" assumption.
 # The per-axis triggers (honeypot trap / JA4 verdict / UA blacklist / rate-limit)
@@ -192,6 +201,11 @@ nginx:
       # browser can't auto-clear them).
       - path: "^/pow-gate/"
         mode: "pow"
+      # scenario 39 (B): a GLOBAL protected path (no site) that also carries a
+      # deny rate-zone (below).  Compose mode must let the deny win over this
+      # captcha once over the cap.
+      - path: "^/pdeny/"
+        mode: "captcha"
 
   # Bypass-paths custom row used by scenario 18 to verify that a natural
   # path-anchored regex (`^/e2e-bypass-only/`) is rendered into the nginx

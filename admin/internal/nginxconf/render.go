@@ -351,6 +351,13 @@ type renderData struct {
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
+	// ComposeMode: true when any rate zone resolves to "deny".  Switches
+	// protect.inc to the unified flow -- limit_req runs in dry-run and the
+	// plugin's ACCESS-phase handler composes the rate + captcha decision, so a
+	// deny zone can win over the protected captcha (which the REWRITE-phase gate
+	// would otherwise pre-empt).  Off -> the classic error_page-429 + rewrite
+	// flow (unchanged -- non-deny configs are unaffected).
+	ComposeMode bool
 	// RateLimitKeyExpr: nginx variable expression for the limit_req zone key.
 	//   "ip"     -> "$unmask_client_net"
 	//   "ja4"    -> "$effective_ja4"
@@ -809,6 +816,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	})
 	d.DefaultRateZoneName = defaultName
 	d.DefaultRateZoneBurst = defaultBurst
+	if s.RateLimit.Default.ResolvedChallengeMode() == settings.RateChallengeDeny {
+		d.ComposeMode = true // a global "deny" default also needs the unified flow
+	}
 	switch s.RateLimit.ResolvedKey() {
 	case settings.RateLimitKeyJA4:
 		d.RateLimitKeyExpr = "$effective_ja4"
@@ -871,6 +881,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			baseKey := "$rate_limit_key"
 			if z.ResolvedChallengeMode() == settings.RateChallengeDeny {
 				baseKey = "$rate_limit_key_deny"
+				d.ComposeMode = true
 			}
 			d.RatePathZones = append(d.RatePathZones, RatePathZoneRender{
 				ZoneName: rendered,

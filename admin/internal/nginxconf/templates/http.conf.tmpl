@@ -750,6 +750,50 @@ map $args $rl_hit {
     default "0";
     "~_rl=1" "1";
 }
+{{ if .ComposeMode }}
+# Compose-mode fail-open recovery maps (a deny zone exists).  In compose mode the
+# plugin's ACCESS-phase handler does the challenge / rate redirect via
+# ngx_http_internal_redirect, which restarts the phase engine from POST_READ --
+# re-running server.inc's SERVER_REWRITE `set $unmask_orig_path ""`, clearing the
+# saved original before @unmask_daemon_down's fail-open replay can read it.  (The
+# classic `rewrite ... last` jumps to FIND_CONFIG, skipping SERVER_REWRITE, so it
+# survives there.)  So @unmask_daemon_down instead recovers the original from what
+# the handler carried in the redirect; these maps split it back into a clean path
+# + args.
+#   - challenge route: the _orig query arg holds the original request URI
+#     ($arg__orig = "<path>" or "<path>?<query>").
+#   - rate route: the original is the /unmask/_rl URI suffix ($uri minus the
+#     prefix); its args ride along in $args.
+#
+# SECURITY: gated on $unmask_compose=1, which only protect.inc's compose branch
+# sets (and which survives to @unmask_daemon_down -- nothing resets it at server
+# scope).  A server-scope BAN rewrite (-> /unmask/challenge/, preserving the
+# client's raw args) and a direct /unmask/_rl hit both leave $unmask_compose
+# UNSET, so a client-supplied `?_orig=` or a crafted /unmask/_rl/<path> is NOT
+# honored -- those keep landing in the 503 branch, preserving the "bans hold
+# during a daemon outage" contract.  Without the gate a banned client could
+# craft `?_orig=/wherever` and have the outage replay smuggle them past the ban.
+map $unmask_compose $unmask_co_orig {
+    default "";
+    "1" $arg__orig;                 # expose the carried _orig only for compose
+}
+map $unmask_co_orig $unmask_orig_arg_path {
+    default $unmask_co_orig;        # no query -> the whole arg is the path
+    "~^(?<__op>[^?]*)\?" $__op;     # has query -> everything before the ?
+}
+map $unmask_co_orig $unmask_orig_arg_args {
+    default "";
+    "~^[^?]*\?(?<__oa>.*)$" $__oa;  # everything after the first ?
+}
+map $unmask_compose $unmask_co_uri {
+    default "";
+    "1" $uri;                       # expose $uri to the rate-route strip only for compose
+}
+map $unmask_co_uri $unmask_rl_orig {
+    default "";
+    "~^/unmask/_rl(?<__rp>/.*)$" $__rp;
+}
+{{ end }}
 
 # -----------------------------------------------------------------------------
 # $unmask_site: the site key the native module binds the _bv cookie to.  Kept

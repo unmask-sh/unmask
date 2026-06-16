@@ -343,6 +343,111 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     return NGX_OK;
 }
 
+/* read an nginx flag variable: true when its value starts with '1'. */
+static ngx_uint_t
+ngx_unmask_var_is_one(ngx_http_request_t *r, ngx_str_t *name)
+{
+    ngx_http_variable_value_t *v =
+        ngx_http_get_variable(r, name, ngx_hash_key(name->data, name->len));
+    return (v && !v->not_found && v->len && v->data[0] == '1') ? 1 : 0;
+}
+
+/* ----------------------------------------------------------------------
+ * Rate-limit / protected composition (ACCESS phase).  On "compose" locations
+ * (the render switches a protected location to the unified flow when a deny
+ * zone exists), this replaces the REWRITE-phase captcha gate + the
+ * error_page-429 trigger with a single post-limit_req decision -- so a "deny"
+ * rate-zone can take precedence over the protected captcha (the REWRITE rewrite
+ * would otherwise pre-empt limit_req).  ACCESS phase runs after the whole
+ * preaccess phase, so r->main->limit_req_status (set by limit_req_dry_run) is
+ * available; a PREACCESS handler is NOT reliably ordered after limit_req.
+ *
+ *   over the cap  -> /unmask/_rl<uri>  (daemon decides deny vs challenge from
+ *                    the matched zone; a deny zone yields a hard 403)
+ *   within, gate  -> /unmask/challenge/?_orig=<uri>  (protected captcha)
+ *   within, ok    -> DECLINED (pass)
+ *
+ * Unmask-internal, NOT a public directive: gated on the render-emitted
+ * $unmask_compose.  Redirect loops are prevented by an explicit /unmask/ URI
+ * guard -- the compose flag is a cacheable `set` variable that persists across
+ * the internal_redirect, so it cannot be relied on for that.
+ * -------------------------------------------------------------------- */
+static ngx_int_t
+ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
+{
+    if (r != r->main) {
+        return NGX_DECLINED;            /* main request only */
+    }
+
+    /* loop prevention: decline on the internal-redirect TARGETS only --
+     * /unmask/_rl<uri> and /unmask/challenge/.  $unmask_compose is a cacheable
+     * `set` var that persists "1" across the redirect, so this URI guard (not
+     * the compose flag) is what stops re-entry.  Scoped to the two targets, NOT
+     * all of /unmask/, so a protected path under /unmask/ (e.g. /unmask/admin/)
+     * still gets composed.  Other /unmask/ machinery never sets $unmask_compose,
+     * so the compose gate below declines it. */
+    if ((r->uri.len >= (sizeof("/unmask/_rl") - 1)
+         && ngx_strncmp(r->uri.data, "/unmask/_rl", sizeof("/unmask/_rl") - 1) == 0)
+        || (r->uri.len >= (sizeof("/unmask/challenge/") - 1)
+            && ngx_strncmp(r->uri.data, "/unmask/challenge/",
+                           sizeof("/unmask/challenge/") - 1) == 0))
+    {
+        return NGX_DECLINED;
+    }
+
+    static ngx_str_t compose_var = ngx_string("unmask_compose");
+    if (!ngx_unmask_var_is_one(r, &compose_var)) {
+        return NGX_DECLINED;            /* not a unified-flow location */
+    }
+
+    /* $unmask_gate = "<final_challenge>:<failopen>".  When the daemon is down
+     * server.inc sets failopen=1 (gate "X:1", len 3): the /unmask/ routes we'd
+     * redirect to are served by that dead daemon, so fail open = pass everything
+     * (the classic flow's exact "1:" rewrite match likewise misses on "1:1"). */
+    static ngx_str_t gate_var = ngx_string("unmask_gate");
+    ngx_http_variable_value_t *gv = ngx_http_get_variable(
+        r, &gate_var, ngx_hash_key(gate_var.data, gate_var.len));
+    if (gv != NULL && !gv->not_found && gv->len > 2) {
+        return NGX_DECLINED;            /* fail open (daemon down) */
+    }
+
+    /* over the rate cap?  limit_req_dry_run set r->main->limit_req_status.
+     * 5 = NGX_HTTP_LIMIT_REQ_REJECTED_DRY_RUN (would-have-been rejected).  Route
+     * to /unmask/_rl<uri> -- the daemon resolves deny vs challenge from the
+     * matched zone (a deny zone yields a hard 403). */
+    if (r->main->limit_req_status == 5) {
+        static const u_char rl_prefix[] = "/unmask/_rl";
+        ngx_str_t uri;
+        uri.len = (sizeof(rl_prefix) - 1) + r->uri.len;
+        uri.data = ngx_pnalloc(r->pool, uri.len);
+        if (uri.data == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_memcpy(ngx_cpymem(uri.data, rl_prefix, sizeof(rl_prefix) - 1),
+                   r->uri.data, r->uri.len);
+        return ngx_http_internal_redirect(r, &uri, &r->args);
+    }
+
+    /* within the cap: captcha gate exactly "1:" -> protected challenge. */
+    if (gv != NULL && !gv->not_found && gv->len == 2
+        && gv->data[0] == '1' && gv->data[1] == ':')
+    {
+        static ngx_str_t chal = ngx_string("/unmask/challenge/");
+        static const u_char orig_prefix[] = "_orig=";
+        ngx_str_t args;
+        args.len = (sizeof(orig_prefix) - 1) + r->unparsed_uri.len;
+        args.data = ngx_pnalloc(r->pool, args.len);
+        if (args.data == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_memcpy(ngx_cpymem(args.data, orig_prefix, sizeof(orig_prefix) - 1),
+                   r->unparsed_uri.data, r->unparsed_uri.len);
+        return ngx_http_internal_redirect(r, &chal, &args);
+    }
+
+    return NGX_DECLINED;                /* within cap, no challenge -> pass */
+}
+
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     /* Register $client_ja4 variable */
     for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
@@ -369,6 +474,18 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     ngx_http_core_main_conf_t *cmcf;
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
     if (!cmcf) return NGX_OK;
+
+    /* Rate-deny composition handler: ACCESS phase, so it runs after the ENTIRE
+     * preaccess phase -- where limit_req sets r->main->limit_req_status.  (A
+     * PREACCESS handler is NOT reliably ordered after limit_req: this dynamic
+     * module's handler lands *before* limit_req there, observed empirically as
+     * lrs=0.)  access_phase's checker returns NGX_OK on our NGX_DONE (from
+     * ngx_http_internal_redirect), and skips subrequests, both of which suit us.
+     * Unmask-internal -- no public directive (gates on $unmask_compose). */
+    ngx_http_handler_pt *rdh =
+        ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+    if (rdh == NULL) return NGX_ERROR;
+    *rdh = ngx_http_unmask_ratedeny_handler;
 
     ngx_http_core_srv_conf_t **cscfp = cmcf->servers.elts;
     extern ngx_module_t ngx_http_ssl_module;

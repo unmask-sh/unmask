@@ -14,18 +14,17 @@
 #  generated_at: {{ .GeneratedAt }}
 #  unmask_version: {{ .Version }}
 
-# rate-limit.  The zone itself is declared via `limit_req_zone` in
-# http.inc (http {} scope).  limit_req_status 429 overrides the
-# default 503 to 429, then error_page 429 chains into `@unmask_rate_challenge`.
+# rate-limit.  The zone itself is declared via `limit_req_zone` in http.inc
+# (http {} scope).  The over-limit trigger differs by mode (see below):
+# classic  = limit_req_status 429 + error_page -> @unmask_rate_challenge;
+# compose  = limit_req_dry_run + the plugin's ACCESS handler composes the
+#            rate + captcha decision (emitted only when a deny zone exists).
 limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
 {{- range .RatePathZones }}
 # Path-scoped zone "{{ .ZoneName }}": its key ({{ .KeyVar }}) is "" off-path, so
 # this limit only counts on the zone's PathPatterns (= no shadow location).
 limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 {{- end }}
-limit_req_status 429;
-error_page 429 = @unmask_rate_challenge;
-
 # JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
 # force challenge.  The original URI is passed to the challenge handler via the
 # `_orig` query, so unmask can record "URL the user originally tried" on
@@ -46,8 +45,36 @@ set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";
 {{ else }}
 set $unmask_gate "${final_challenge}:${unmask_failopen}";
 {{ end }}
+{{ if .ComposeMode }}
+# Compose mode (a deny rate-zone exists): the limit_req directives above run in
+# DRY-RUN (count, never reject), and the unmask plugin's ACCESS-phase handler
+# composes the rate + captcha decision -- so a deny zone wins over the captcha,
+# which the REWRITE-phase rewrite (classic branch below) would otherwise
+# pre-empt.  The handler reads $unmask_gate + limit_req's status and
+# internal-redirects to /unmask/_rl<uri> (over the cap; the daemon resolves deny
+# vs challenge from the matched zone) or /unmask/challenge/ (captcha needed),
+# else lets the request pass.  Hence no error_page-429 trigger and no rewrite
+# gate in this variant.  Activated only when a deny zone exists -- non-deny
+# configs keep the classic flow unchanged.
+limit_req_dry_run on;
+set $unmask_compose 1;
+# Fail-open replay: we do NOT save $unmask_orig_path here.  The ACCESS-phase
+# handler redirects via ngx_http_internal_redirect, which restarts the phase
+# engine from POST_READ -- re-running server.inc's SERVER_REWRITE `set
+# $unmask_orig_path ""`, so any value saved in this REWRITE-phase block is
+# cleared before @unmask_daemon_down runs.  (The classic branch's `rewrite ...
+# last` jumps straight to FIND_CONFIG, skipping SERVER_REWRITE, so its save
+# survives -- which is why only the classic branch saves here.)  Instead,
+# @unmask_daemon_down recovers the original from what the handler carried in the
+# redirect: the _orig query arg (challenge route) or the /unmask/_rl URI suffix
+# (rate route).  See the compose recovery in server.inc + the split maps in
+# http.inc.
+{{ else }}
+limit_req_status 429;
+error_page 429 = @unmask_rate_challenge;
 if ($unmask_gate = "1:") {
     set $unmask_orig_path $uri;
     set $unmask_orig_args $args;
     rewrite ^ /unmask/challenge/?_orig=$request_uri last;
 }
+{{ end }}
