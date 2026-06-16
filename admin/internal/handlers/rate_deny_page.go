@@ -12,44 +12,103 @@ import (
 // serves at /unmask/_rl... (see serveRateDeny).  Unlike the challenge page --
 // which localizes client-side via challenge.js's navigator.language -- this
 // page runs no JS, so it localizes SERVER-side from Accept-Language against the
-// built-in table below.  There is no operator copy override -- the page relies
-// on branding (logo / site name / footer) plus the localized built-in text.
+// built-in tables below.  There is no free-text operator override (a verbatim
+// string would be shown to every visitor in one language, defeating the
+// localization); instead the wording follows the operator's branding copy
+// preset (friendly / neutral / minimal), exactly like the challenge page, and
+// every preset is translated into all supported languages so the visitor still
+// reads it in their own.
 
 type denyMsg struct {
 	Title string
 	Body  string
-	Dir   string // "rtl" for Arabic, else "ltr"
 }
 
-// denyI18N mirrors challenge.js's language set (ar de en es fr hi id it ja ko
-// pl pt ru th tr vi zh zh-Hant) so the deny page localizes the same way the
-// challenge does.  English is the fallback.
-var denyI18N = map[string]denyMsg{
-	"en":      {"Too many requests", "You've made too many requests in a short time. Please wait a moment, then try again.", "ltr"},
-	"ja":      {"リクエストが多すぎます", "短時間に多くのリクエストが送信されました。少し待ってから、もう一度お試しください。", "ltr"},
-	"de":      {"Zu viele Anfragen", "Sie haben in kurzer Zeit zu viele Anfragen gesendet. Bitte warten Sie einen Moment und versuchen Sie es erneut.", "ltr"},
-	"es":      {"Demasiadas solicitudes", "Has realizado demasiadas solicitudes en poco tiempo. Espera un momento e inténtalo de nuevo.", "ltr"}, //nolint:misspell // "momento" is Spanish for "moment"
-	"fr":      {"Trop de requêtes", "Vous avez effectué trop de requêtes en peu de temps. Veuillez patienter un instant, puis réessayer.", "ltr"},
-	"it":      {"Troppe richieste", "Hai effettuato troppe richieste in poco tempo. Attendi un momento e riprova.", "ltr"},          //nolint:misspell // "momento" is Italian for "moment"
-	"pt":      {"Muitas solicitações", "Você fez muitas solicitações em pouco tempo. Aguarde um momento e tente novamente.", "ltr"}, //nolint:misspell // "momento" is Portuguese for "moment"
-	"ru":      {"Слишком много запросов", "Вы отправили слишком много запросов за короткое время. Подождите немного и повторите попытку.", "ltr"},
-	"ko":      {"요청이 너무 많습니다", "짧은 시간에 너무 많은 요청을 보냈습니다. 잠시 기다린 후 다시 시도해 주세요.", "ltr"},
-	"zh":      {"请求过多", "您在短时间内发送了过多请求。请稍候片刻，然后重试。", "ltr"},
-	"zh-Hant": {"請求過多", "您在短時間內發送了過多請求。請稍候片刻，然後重試。", "ltr"},
-	"ar":      {"طلبات كثيرة جدًا", "لقد أرسلت طلبات كثيرة جدًا في وقت قصير. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى.", "rtl"},
-	"hi":      {"बहुत अधिक अनुरोध", "आपने कम समय में बहुत अधिक अनुरोध भेजे हैं। कृपया थोड़ी देर प्रतीक्षा करें, फिर पुनः प्रयास करें।", "ltr"},
-	"id":      {"Terlalu banyak permintaan", "Anda mengirim terlalu banyak permintaan dalam waktu singkat. Harap tunggu sebentar, lalu coba lagi.", "ltr"},
-	"pl":      {"Zbyt wiele żądań", "Wysłano zbyt wiele żądań w krótkim czasie. Poczekaj chwilę i spróbuj ponownie.", "ltr"},
-	"th":      {"คำขอมากเกินไป", "คุณส่งคำขอมากเกินไปในเวลาอันสั้น โปรดรอสักครู่แล้วลองอีกครั้ง", "ltr"},
-	"tr":      {"Çok fazla istek", "Kısa sürede çok fazla istek gönderdiniz. Lütfen biraz bekleyip tekrar deneyin.", "ltr"},
-	"vi":      {"Quá nhiều yêu cầu", "Bạn đã gửi quá nhiều yêu cầu trong thời gian ngắn. Vui lòng đợi một lát rồi thử lại.", "ltr"},
+// denyDir returns the text direction for a built-in language: "rtl" for Arabic
+// (the only RTL language in the set), "ltr" otherwise.
+func denyDir(lang string) string {
+	if lang == "ar" {
+		return "rtl"
+	}
+	return "ltr"
+}
+
+// denyMsgs holds the deny-page copy per branding copy preset, each localized to
+// the same 18 languages the challenge supports (ar de en es fr hi id it ja ko
+// pl pt ru th tr vi zh zh-Hant).  BrandingValues.CopyPreset picks the tone; the
+// visitor's Accept-Language picks the language.  "friendly" is the fallback
+// preset and English the fallback language.  The "neutral" set is the original
+// matter-of-fact wording; "friendly" is warmer/apologetic and "minimal" terse,
+// mirroring the challenge presets' tone.
+var denyMsgs = map[string]map[string]denyMsg{
+	settings.BrandingPresetFriendly: {
+		"en":      {"Just a moment", "We're getting a lot of requests right now. Please wait a moment and try again. Thanks for your patience."},
+		"ja":      {"少々お待ちください", "現在アクセスが集中しています。少し時間をおいてから、もう一度お試しください。ご協力ありがとうございます。"},
+		"de":      {"Einen Moment bitte", "Im Moment erreichen uns sehr viele Anfragen. Bitte warten Sie kurz und versuchen Sie es dann erneut. Danke für Ihre Geduld."},
+		"es":      {"Un momento", "Estamos recibiendo muchas solicitudes ahora mismo. Espera un momento y vuelve a intentarlo. Gracias por tu paciencia."}, //nolint:misspell // "momento" is Spanish for "moment"
+		"fr":      {"Un instant", "Nous recevons beaucoup de requêtes en ce moment. Veuillez patienter un instant, puis réessayer. Merci de votre patience."},
+		"it":      {"Un momento", "Stiamo ricevendo molte richieste in questo momento. Attendi un attimo e riprova. Grazie per la pazienza."},          //nolint:misspell // "momento" is Italian for "moment"
+		"pt":      {"Um momento", "Estamos recebendo muitas solicitações no momento. Aguarde um instante e tente novamente. Obrigado pela paciência."}, //nolint:misspell // "momento" is Portuguese for "moment"
+		"ru":      {"Один момент", "Сейчас поступает много запросов. Пожалуйста, подождите немного и повторите попытку. Спасибо за терпение."},
+		"ko":      {"잠시만 기다려 주세요", "현재 요청이 많이 들어오고 있습니다. 잠시 후 다시 시도해 주세요. 기다려 주셔서 감사합니다."},
+		"zh":      {"请稍候", "当前请求量较大，请稍等片刻后再试。感谢您的耐心。"},
+		"zh-Hant": {"請稍候", "目前請求量較大，請稍待片刻後再試。感謝您的耐心。"},
+		"ar":      {"لحظة من فضلك", "نتلقى عددًا كبيرًا من الطلبات حاليًا. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى. شكرًا لصبرك."},
+		"hi":      {"कृपया एक क्षण रुकें", "अभी हमें बहुत सारे अनुरोध मिल रहे हैं। कृपया थोड़ी देर रुककर फिर से प्रयास करें। आपके धैर्य के लिए धन्यवाद।"},
+		"id":      {"Mohon tunggu sebentar", "Saat ini kami menerima banyak permintaan. Silakan tunggu sebentar, lalu coba lagi. Terima kasih atas kesabaran Anda."},
+		"pl":      {"Chwileczkę", "Otrzymujemy teraz wiele żądań. Poczekaj chwilę i spróbuj ponownie. Dziękujemy za cierpliwość."},
+		"th":      {"กรุณารอสักครู่", "ขณะนี้มีคำขอเข้ามาจำนวนมาก กรุณารอสักครู่แล้วลองใหม่อีกครั้ง ขอบคุณสำหรับความอดทน"},
+		"tr":      {"Bir dakika lütfen", "Şu anda çok sayıda istek alıyoruz. Lütfen biraz bekleyip tekrar deneyin. Sabrınız için teşekkürler."},
+		"vi":      {"Vui lòng chờ một lát", "Hiện chúng tôi đang nhận được rất nhiều yêu cầu. Vui lòng đợi một lát rồi thử lại. Cảm ơn sự kiên nhẫn của bạn."},
+	},
+	settings.BrandingPresetNeutral: {
+		"en":      {"Too many requests", "You've made too many requests in a short time. Please wait a moment, then try again."},
+		"ja":      {"リクエストが多すぎます", "短時間に多くのリクエストが送信されました。少し待ってから、もう一度お試しください。"},
+		"de":      {"Zu viele Anfragen", "Sie haben in kurzer Zeit zu viele Anfragen gesendet. Bitte warten Sie einen Moment und versuchen Sie es erneut."},
+		"es":      {"Demasiadas solicitudes", "Has realizado demasiadas solicitudes en poco tiempo. Espera un momento e inténtalo de nuevo."}, //nolint:misspell // "momento" is Spanish for "moment"
+		"fr":      {"Trop de requêtes", "Vous avez effectué trop de requêtes en peu de temps. Veuillez patienter un instant, puis réessayer."},
+		"it":      {"Troppe richieste", "Hai effettuato troppe richieste in poco tempo. Attendi un momento e riprova."},          //nolint:misspell // "momento" is Italian for "moment"
+		"pt":      {"Muitas solicitações", "Você fez muitas solicitações em pouco tempo. Aguarde um momento e tente novamente."}, //nolint:misspell // "momento" is Portuguese for "moment"
+		"ru":      {"Слишком много запросов", "Вы отправили слишком много запросов за короткое время. Подождите немного и повторите попытку."},
+		"ko":      {"요청이 너무 많습니다", "짧은 시간에 너무 많은 요청을 보냈습니다. 잠시 기다린 후 다시 시도해 주세요."},
+		"zh":      {"请求过多", "您在短时间内发送了过多请求。请稍候片刻，然后重试。"},
+		"zh-Hant": {"請求過多", "您在短時間內發送了過多請求。請稍候片刻，然後重試。"},
+		"ar":      {"طلبات كثيرة جدًا", "لقد أرسلت طلبات كثيرة جدًا في وقت قصير. يرجى الانتظار قليلًا ثم المحاولة مرة أخرى."},
+		"hi":      {"बहुत अधिक अनुरोध", "आपने कम समय में बहुत अधिक अनुरोध भेजे हैं। कृपया थोड़ी देर प्रतीक्षा करें, फिर पुनः प्रयास करें।"},
+		"id":      {"Terlalu banyak permintaan", "Anda mengirim terlalu banyak permintaan dalam waktu singkat. Harap tunggu sebentar, lalu coba lagi."},
+		"pl":      {"Zbyt wiele żądań", "Wysłano zbyt wiele żądań w krótkim czasie. Poczekaj chwilę i spróbuj ponownie."},
+		"th":      {"คำขอมากเกินไป", "คุณส่งคำขอมากเกินไปในเวลาอันสั้น โปรดรอสักครู่แล้วลองอีกครั้ง"},
+		"tr":      {"Çok fazla istek", "Kısa sürede çok fazla istek gönderdiniz. Lütfen biraz bekleyip tekrar deneyin."},
+		"vi":      {"Quá nhiều yêu cầu", "Bạn đã gửi quá nhiều yêu cầu trong thời gian ngắn. Vui lòng đợi một lát rồi thử lại."},
+	},
+	settings.BrandingPresetMinimal: {
+		"en":      {"Too many requests", "Please try again shortly."},
+		"ja":      {"リクエストが多すぎます", "しばらくしてから再度お試しください。"},
+		"de":      {"Zu viele Anfragen", "Bitte versuchen Sie es in Kürze erneut."},
+		"es":      {"Demasiadas solicitudes", "Inténtalo de nuevo en breve."},
+		"fr":      {"Trop de requêtes", "Veuillez réessayer dans un instant."},
+		"it":      {"Troppe richieste", "Riprova tra poco."},
+		"pt":      {"Muitas solicitações", "Tente novamente em breve."},
+		"ru":      {"Слишком много запросов", "Повторите попытку позже."},
+		"ko":      {"요청이 너무 많습니다", "잠시 후 다시 시도해 주세요."},
+		"zh":      {"请求过多", "请稍后重试。"},
+		"zh-Hant": {"請求過多", "請稍後重試。"},
+		"ar":      {"طلبات كثيرة جدًا", "يرجى المحاولة مرة أخرى بعد قليل."},
+		"hi":      {"बहुत अधिक अनुरोध", "कृपया कुछ देर बाद पुनः प्रयास करें।"},
+		"id":      {"Terlalu banyak permintaan", "Silakan coba lagi sebentar lagi."},
+		"pl":      {"Zbyt wiele żądań", "Spróbuj ponownie za chwilę."},
+		"th":      {"คำขอมากเกินไป", "โปรดลองใหม่อีกครั้งในภายหลัง"},
+		"tr":      {"Çok fazla istek", "Lütfen birazdan tekrar deneyin."},
+		"vi":      {"Quá nhiều yêu cầu", "Vui lòng thử lại sau giây lát."},
+	},
 }
 
 // denyLangFromAccept picks the best built-in language from an Accept-Language
 // header, defaulting to English.  Tags are tried in header order (q-values are
 // not weighted -- the first supported tag wins, which is good enough for a
 // static error page).  Traditional-Chinese locales map to zh-Hant; every other
-// region falls back to its primary subtag.
+// region falls back to its primary subtag.  The language set is identical
+// across presets, so the neutral table is the canonical membership check.
 func denyLangFromAccept(accept string) string {
 	for _, part := range strings.Split(accept, ",") {
 		tag := strings.TrimSpace(part)
@@ -68,11 +127,24 @@ func denyLangFromAccept(accept string) string {
 		if i := strings.IndexByte(primary, '-'); i >= 0 {
 			primary = primary[:i]
 		}
-		if _, ok := denyI18N[primary]; ok {
+		if _, ok := denyMsgs[settings.BrandingPresetNeutral][primary]; ok {
 			return primary
 		}
 	}
 	return "en"
+}
+
+// denyMsgForPreset returns the (preset, lang) message, clamping an unknown
+// preset to friendly and an unknown lang to English.
+func denyMsgForPreset(preset, lang string) denyMsg {
+	table, ok := denyMsgs[preset]
+	if !ok {
+		table = denyMsgs[settings.BrandingPresetFriendly]
+	}
+	if m, ok := table[lang]; ok {
+		return m
+	}
+	return table["en"]
 }
 
 type rateDenyData struct {
@@ -141,17 +213,15 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 `))
 
 // renderRateDeny builds the branded, localized deny page.  The visual shell
-// (logo / site name / footer) comes from per-site Branding; the message text is
-// the built-in localized by the visitor's Accept-Language.  There is no
-// operator copy override: a verbatim custom string would be shown to every
-// visitor in one language, undermining the 18-language built-in, so the page
-// deliberately relies on branding + localization only.  theme is the deny-page
-// light/dark choice ("auto" | "light" | "dark"; anything else clamps to auto).
-// basePath is the /unmask mount used to reach the logo route.
+// (logo / site name / footer) comes from per-site Branding, the wording from
+// the branding copy preset localized to the visitor's Accept-Language (no
+// free-text override -- a verbatim string would override the localization for
+// every visitor).  theme is the deny-page light/dark choice ("auto" | "light"
+// | "dark"; anything else clamps to auto).  basePath is the /unmask mount used
+// to reach the logo route.
 func renderRateDeny(br settings.BrandingValues, theme, acceptLanguage, basePath string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	m := denyI18N[lang]
-	title, body := m.Title, m.Body
+	m := denyMsgForPreset(br.ResolvedCopyPreset(), lang)
 	switch theme {
 	case settings.DenyThemeLight, settings.DenyThemeDark, settings.DenyThemeAuto:
 	default:
@@ -164,9 +234,9 @@ func renderRateDeny(br settings.BrandingValues, theme, acceptLanguage, basePath 
 	var buf bytes.Buffer
 	if err := rateDenyTmpl.Execute(&buf, rateDenyData{
 		Lang:     lang,
-		Dir:      m.Dir,
-		Title:    title,
-		Body:     body,
+		Dir:      denyDir(lang),
+		Title:    m.Title,
+		Body:     m.Body,
 		SiteName: br.SiteName,
 		Footer:   br.FooterText,
 		LogoURL:  logoURL,

@@ -28,11 +28,11 @@ func TestDenyLangFromAccept(t *testing.T) {
 }
 
 func TestRenderRateDeny(t *testing.T) {
-	// default English + marker + branding fields all present
+	// default English (preset defaults to friendly) + marker + branding fields.
 	br := settings.BrandingValues{SiteName: "ACME", FooterText: "Operated by ACME", LogoPath: "/x/logo.png"}
 	out := string(renderRateDeny(br, "auto", "en-US,en;q=0.9", "/unmask"))
 	for _, want := range []string{
-		"<!-- unmask:rate-deny -->", `lang="en"`, "Too many requests",
+		"<!-- unmask:rate-deny -->", `lang="en"`, "Thanks for your patience.",
 		"ACME", "Operated by ACME", `src="/unmask/branding/logo"`,
 	} {
 		if !strings.Contains(out, want) {
@@ -40,9 +40,9 @@ func TestRenderRateDeny(t *testing.T) {
 		}
 	}
 
-	// localized (ja) by Accept-Language
+	// localized (ja) by Accept-Language (friendly default)
 	ja := string(renderRateDeny(settings.BrandingValues{}, "auto", "ja,en;q=0.8", "/unmask"))
-	if !strings.Contains(ja, `lang="ja"`) || !strings.Contains(ja, "リクエストが多すぎます") {
+	if !strings.Contains(ja, `lang="ja"`) || !strings.Contains(ja, "少々お待ちください") {
 		t.Errorf("ja render not localized:\n%s", ja)
 	}
 
@@ -72,14 +72,40 @@ func TestRenderRateDeny(t *testing.T) {
 		}
 	}
 
-	// every built-in language renders with the marker + a non-empty title/body
-	for lang := range denyI18N {
-		body := string(renderRateDeny(settings.BrandingValues{}, "auto", lang, "/unmask"))
-		if !strings.Contains(body, "<!-- unmask:rate-deny -->") {
-			t.Errorf("lang %q render missing marker", lang)
+	// the copy preset picks the tone; same language, different wording
+	for _, tc := range []struct{ preset, wantBody string }{
+		{settings.BrandingPresetFriendly, "Thanks for your patience."},
+		{settings.BrandingPresetNeutral, "made too many requests in a short time."},
+		{settings.BrandingPresetMinimal, "Please try again shortly."},
+	} {
+		got := string(renderRateDeny(settings.BrandingValues{CopyPreset: tc.preset}, "auto", "en", "/unmask"))
+		if !strings.Contains(got, tc.wantBody) {
+			t.Errorf("preset %q: want body %q in:\n%s", tc.preset, tc.wantBody, got)
 		}
-		if m := denyI18N[lang]; m.Title == "" || m.Body == "" || (m.Dir != "ltr" && m.Dir != "rtl") {
-			t.Errorf("lang %q has incomplete entry: %+v", lang, m)
+	}
+	// an unknown preset falls back to friendly (via ResolvedCopyPreset)
+	if fb := string(renderRateDeny(settings.BrandingValues{CopyPreset: "bogus"}, "auto", "en", "/unmask")); !strings.Contains(fb, "Thanks for your patience.") {
+		t.Errorf("unknown preset should fall back to friendly:\n%s", fb)
+	}
+
+	// every preset is complete: same language set as neutral, non-empty
+	// title/body, and each (preset, lang) renders with the marker.
+	neutral := denyMsgs[settings.BrandingPresetNeutral]
+	for preset, table := range denyMsgs {
+		if len(table) != len(neutral) {
+			t.Errorf("preset %q has %d languages, want %d (parity with neutral)", preset, len(table), len(neutral))
+		}
+		for lang, m := range table {
+			if _, ok := neutral[lang]; !ok {
+				t.Errorf("preset %q language %q is absent from neutral", preset, lang)
+			}
+			if m.Title == "" || m.Body == "" {
+				t.Errorf("preset %q lang %q has empty title/body: %+v", preset, lang, m)
+			}
+			body := string(renderRateDeny(settings.BrandingValues{CopyPreset: preset}, "auto", lang, "/unmask"))
+			if !strings.Contains(body, "<!-- unmask:rate-deny -->") {
+				t.Errorf("preset %q lang %q render missing marker", preset, lang)
+			}
 		}
 	}
 }
