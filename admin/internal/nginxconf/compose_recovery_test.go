@@ -49,6 +49,44 @@ func challengeZones() []settings.RateZone {
 	}}
 }
 
+// renderDefaultDeny renders with the GLOBAL default rate zone in "deny" mode --
+// the OTHER ComposeMode trigger (render.go flips compose for a deny default as
+// well as for a deny path-zone), exercised by no test above.
+func renderDefaultDeny(t *testing.T, file string) string {
+	t.Helper()
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "nginx.conf")
+	if err := os.WriteFile(conf, []byte("http {\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var s settings.Settings
+	s.Nginx.OutputDir = dir
+	s.Nginx.ConfPath = conf
+	s.RateLimit.Default.ChallengeMode = settings.RateChallengeDeny
+	if err := Render(s, dir, "test"); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, file))
+	if err != nil {
+		t.Fatalf("read %s: %v", file, err)
+	}
+	return string(b)
+}
+
+// TestComposeFromGlobalDenyDefault: a deny DEFAULT zone (no path-zones) must
+// also flip the render into compose mode -- guards render.go's second
+// ComposeMode trigger, which the path-zone tests above don't reach.
+func TestComposeFromGlobalDenyDefault(t *testing.T) {
+	httpInc := renderDefaultDeny(t, "http.inc")
+	protect := renderDefaultDeny(t, "protect.inc")
+	if !strings.Contains(httpInc, "map $unmask_compose $unmask_co_orig {") {
+		t.Error("a deny DEFAULT zone must render the compose-gated recovery maps")
+	}
+	if !strings.Contains(protect, "set $unmask_compose 1;") {
+		t.Error("a deny DEFAULT zone must put protect.inc into compose mode")
+	}
+}
+
 // TestComposeFailOpenRecovery: when a deny zone exists the render emits compose
 // mode.  Its fail-open replay can't reuse the classic save: the ACCESS-phase
 // internal_redirect restarts the phase engine and re-runs server.inc's
