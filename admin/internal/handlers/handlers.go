@@ -1249,6 +1249,48 @@ func (h *Handler) ForcePoWThenCaptcha(w http.ResponseWriter, r *http.Request) {
 	h.ServeChallenge(w, r)
 }
 
+// PreviewRateDeny: GET {base}/admin/test/rate-deny — auth-gated preview of the
+// deny-mode rate-limit page (the JS-free 403 a "deny" zone serves).  It lets an
+// operator see the page WITHOUT first configuring a deny zone and tripping a
+// real rate limit (which is what verifying it otherwise takes).  Query
+// overrides let unsaved edits be previewed straight from the settings form:
+//
+//	title= / body= : if either key is present, the two define the override copy
+//	                 (present-but-empty = no override = the localized built-in).
+//	                 Absent entirely -> the saved RateLimit config is shown.
+//	lang=          : force a language (fed through the same Accept-Language
+//	                 resolution), else the browser's Accept-Language.
+//
+// Always 200 (a preview, not an actual block) and records no event so the
+// dashboard funnel is not polluted.
+func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
+	cfg := h.cfg()
+	br := cfg.Branding.Resolve(siteFromRequest(r, h.snapshotSettings()))
+	q := r.URL.Query()
+	title, body := cfg.RateLimit.RateDenyTitle, cfg.RateLimit.RateDenyBody
+	if q.Has("title") || q.Has("body") {
+		// Mirror applyRateLimitForm's rune caps so the preview matches what a
+		// save would actually persist (a too-long paste shows truncated here too).
+		title, body = capRunes(q.Get("title"), 120), capRunes(q.Get("body"), 400)
+	}
+	accept := r.Header.Get("Accept-Language")
+	if l := strings.TrimSpace(q.Get("lang")); l != "" {
+		accept = l
+	}
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(renderRateDeny(br, title, body, accept, h.basePath()))
+}
+
+// capRunes limits s to at most n runes (multibyte-safe, unlike a byte slice).
+func capRunes(s string, n int) string {
+	if r := []rune(s); len(r) > n {
+		return string(r[:n])
+	}
+	return s
+}
+
 // PublicTestGate: gate for the public side (/unmask/test/*).  Returns 404
 // unless settings.Challenge.PublicTestPages is true.  When the per-site
 // PublicTestPagesPassword is also set, the request must additionally carry

@@ -769,6 +769,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/test/force-pow", h.AuthMiddleware(h.ForcePoW))
 	mux.HandleFunc("GET "+base+"/admin/test/force-captcha", h.AuthMiddleware(h.ForceCaptcha))
 	mux.HandleFunc("GET "+base+"/admin/test/force-pow-then-captcha", h.AuthMiddleware(h.ForcePoWThenCaptcha))
+	// Deny-mode rate-limit page preview (admin-only; no public variant -- the
+	// deny page is operator config, not a visitor-facing test surface).
+	mux.HandleFunc("GET "+base+"/admin/test/rate-deny", h.AuthMiddleware(h.PreviewRateDeny))
 
 	// API endpoints (default + per-site)
 	mux.HandleFunc("POST "+base+"/api/verify", h.VerifyJSON)

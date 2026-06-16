@@ -2721,6 +2721,15 @@ document.addEventListener("DOMContentLoaded", function(){
                 style="width:100%;max-width:24rem;font-family:inherit">{{ .RateLimit.RateDenyBody }}</textarea>
       <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.rate_limit.deny_page_desc" }}</p>
     </div>
+    {{/* Preview link: opens the deny page in a new tab.  The onclick passes the
+         CURRENTLY-TYPED title/body as query params so unsaved edits preview too;
+         with JS off, the plain href previews the saved state.  ↗ marks _blank. */}}
+    <div style="margin-top:.7rem">
+      <a href="{{ .BasePath }}/admin/test/rate-deny" target="_blank" rel="noopener"
+         onclick="var u=this.getAttribute('href').split('?')[0];var t=document.getElementById('rl-deny-title').value;var b=document.getElementById('rl-deny-body').value;window.open(u+'?title='+encodeURIComponent(t)+'&body='+encodeURIComponent(b),'_blank','noopener');return false;"
+         style="font-size:.85rem;color:#1e40af;text-decoration:none;font-weight:500">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+      <span class="note" style="margin-left:.5rem;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preview_hint" }}</span>
+    </div>
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
