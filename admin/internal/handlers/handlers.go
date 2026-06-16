@@ -422,6 +422,23 @@ func stripOrKeepCredit(body []byte, show bool) []byte {
 // HTML challenge UX, while API clients get a JSON 403 with a challenge_url
 // they can redirect the user to.
 func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
+	// A "deny"-mode rate-limit zone is a HARD CAP: over the limit it returns a
+	// 403 deny, NOT a challenge.  The native rate-limit hit arrives here as
+	// /unmask/_rl<orig URI>; resolve the matched zone from that URI and
+	// short-circuit before any challenge render -- otherwise a flooding client
+	// (including a _bv holder, whom the deny zone counts via $rate_limit_key_deny)
+	// could keep solving CAPTCHAs to buy itself more requests.
+	if i := strings.Index(r.URL.Path, "/_rl/"); i >= 0 {
+		orig := r.URL.Path[i+len("/_rl"):]
+		if orig == "" {
+			orig = "/"
+		}
+		site := siteFromRequest(r, h.snapshotSettings())
+		if h.cfg().RateLimit.ResolveZone(orig, site).ResolvedChallengeMode() == settings.RateChallengeDeny {
+			h.serveRateDeny(w, r, site)
+			return
+		}
+	}
 	if isHTMLNavigation(r) {
 		h.ServeChallenge(w, r)
 		return
@@ -594,10 +611,96 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	h.Notifier.ChallengeServed()
 }
 
+// rateDenyHTML is a tiny, dependency-free 403 page for a deny-mode rate-limit
+// hit.  No JS, no challenge assets, no escape hatch -- a "deny" zone is a hard
+// cap the operator chose, not a puzzle.  The "unmask:rate-deny" marker lets the
+// e2e suite (and an operator grepping a capture) tell a deny from a challenge
+// without parsing the page.
+const rateDenyHTML = `<!doctype html>
+<html lang="en">
+<!-- unmask:rate-deny -->
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Too many requests</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         margin: 0; min-height: 100vh; display: grid; place-items: center;
+         background: #f6f7f9; color: #1d2433; }
+  main { max-width: 28rem; padding: 2rem; text-align: center; }
+  h1 { font-size: 1.5rem; margin: 0 0 0.75rem; }
+  p { margin: 0; line-height: 1.6; color: #5a6473; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #15181d; color: #e6e9ee; }
+    p { color: #9aa4b2; }
+  }
+</style>
+</head>
+<body>
+<main>
+<h1>Too many requests</h1>
+<p>You've made too many requests in a short time. Please wait a moment, then try again.</p>
+</main>
+</body>
+</html>
+`
+
+// serveRateDeny writes the hard-cap response for a "deny"-mode rate-limit zone.
+// Unlike a challenge serve it offers NO escape hatch (no PoW / CAPTCHA): the
+// limit already counts _bv holders, so handing out a fresh challenge would just
+// sell more requests.  Browsers get the tiny self-contained page above; API
+// clients get a stable JSON body.  Both are 403.  A serve event is recorded
+// (payload.deny=1) so the dashboard funnel still counts the block.
+func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site string) {
+	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	if pkt := events.PackIP(clientIP(r)); pkt != nil {
+		events.InsertAsync(h.DB, &events.Event{
+			Site:         site,
+			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
+			Port:         portFromRequest(r),
+			IPPacked:     pkt,
+			UserAgent:    r.Header.Get("User-Agent"),
+			JA4:          safeJA4(ja4),
+			JA4Verdict:   verdict,
+			JA4VerdictID: h.VerdictNameToID(verdict),
+			Phase:        string(events.PhaseServe),
+			Payload: map[string]any{
+				"force_reason": "rate_limit",
+				"rl":           1,
+				"deny":         1,
+				"method":       r.Method,
+			},
+		})
+	}
+
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("Retry-After", "600")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	if !isHTMLNavigation(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":       "rate_limited",
+			"reason":      "rate_limit",
+			"retry_after": 600,
+		})
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = io.WriteString(w, rateDenyHTML)
+}
+
 // ServeChallenge: GET {base}/challenge/
 //
-// Rate-limit path (nginx rewrites to /unmask/challenge/rl1<orig URI>): detect
-// the "/rl1/" prefix, restore the original URI, and treat as rl=1.
+// Rate-limit path: nginx rewrites a 429 into /unmask/_rl<orig URI> (see
+// server.inc @unmask_rate_challenge).  ServeChallengeOrJSON routes the HTML
+// form here, where the "/_rl/" prefix is detected, the original URI restored,
+// and the request treated as rl=1.
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	site := siteFromRequest(r, h.snapshotSettings())
 	// Explicit operator-side force (= /test/force-pow / /admin/test/force-*

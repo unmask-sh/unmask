@@ -443,8 +443,10 @@ type RateZoneRender struct {
 type RatePathZoneRender struct {
 	ZoneName string
 	Burst    int
-	MatchVar string   // $rl_<zone>_match  (= "1" when $request_uri matches)
-	KeyVar   string   // $rl_<zone>_key    (= IP key when matched, else "")
+	MatchVar string // $rl_<zone>_match  (= "1" when $request_uri matches)
+	KeyVar   string // $rl_<zone>_key    (= IP key when matched, else "")
+	BaseKey  string // smart key fed in on match: $rate_limit_key, or
+	// $rate_limit_key_deny for a "deny" zone (counts _bv holders)
 	Patterns []string // path patterns (anchored as ~*^<pattern> in the map)
 }
 
@@ -862,11 +864,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		keyVar := "$rate_limit_key"
 		if len(patterns) > 0 {
 			keyVar = "$rl_" + rendered + "_key"
+			// A "deny" zone is a hard cap: on a URI match it feeds in
+			// $rate_limit_key_deny (counts _bv holders) rather than
+			// $rate_limit_key (which exempts them).  Trusted sources (search
+			// bot / bypass IP / bypass path) stay exempt in either map.
+			baseKey := "$rate_limit_key"
+			if z.ResolvedChallengeMode() == settings.RateChallengeDeny {
+				baseKey = "$rate_limit_key_deny"
+			}
 			d.RatePathZones = append(d.RatePathZones, RatePathZoneRender{
 				ZoneName: rendered,
 				Burst:    burst,
 				MatchVar: "$rl_" + rendered + "_match",
 				KeyVar:   keyVar,
+				BaseKey:  baseKey,
 				Patterns: patterns,
 			})
 		}

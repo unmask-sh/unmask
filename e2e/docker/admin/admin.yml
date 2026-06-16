@@ -48,6 +48,23 @@ rate_limit:
       requests_per_min: 5
       burst: 5
       path_patterns: ["/unmask/admin/login"]
+    # scenario 38: a "deny" path-zone is a HARD CAP.  Over the limit it returns a
+    # 403 deny (not a recoverable CAPTCHA), and -- unlike a challenge zone -- it
+    # counts _bv holders, so a human who already passed CAPTCHA still cannot
+    # flood past it.  Kept on a non-protected path so this isolates the deny
+    # enforcement from the protected-path phase-order issue.
+    - name: "deny_zone"
+      requests_per_min: 5
+      burst: 2
+      path_patterns: ["/deny-test/"]
+      challenge_mode: "deny"
+    # scenario 38 control: a captcha zone KEEPS the _bv exemption (a proven human
+    # is never re-challenged), so a _bv holder flooding it stays at 200.
+    - name: "chal_zone"
+      requests_per_min: 5
+      burst: 2
+      path_patterns: ["/chal-test/"]
+      challenge_mode: "captcha_only"
 
 # Match the e2e scenarios' "regular UA passes through by default" assumption.
 # The per-axis triggers (honeypot trap / JA4 verdict / UA blacklist / rate-limit)

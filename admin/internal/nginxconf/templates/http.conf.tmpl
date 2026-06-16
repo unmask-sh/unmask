@@ -705,6 +705,19 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
     "~^.:.:.:1$"  "";
 }
 
+# $rate_limit_key_deny: identical to $rate_limit_key but WITHOUT the _bv
+# exemption.  A "deny" zone is a HARD CAP -- a human who already passed a CAPTCHA
+# can still flood -- so _bv holders MUST be counted toward it (issuing CAPTCHAs
+# would just sell more requests).  Trusted sources (search bot / bypass IP /
+# bypass path) stay exempt in both.  nginx only evaluates this map when a
+# deny-mode path zone references it via its conditional key (below).
+map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
+    default      {{ .RateLimitKeyExpr }};
+    "~^1:"       "";
+    "~^.:1:"     "";
+    "~^.:.:1$"   "";
+}
+
 # Path-scoped zone keys: a zone with PathPatterns is applied everywhere
 # protect.inc is included, but its key is "" (= nginx skips the limit) unless
 # the request URI matches.  This composes the rate-limit with the challenge /
@@ -719,7 +732,7 @@ map $request_uri {{ .MatchVar }} {
 }
 map {{ .MatchVar }} {{ .KeyVar }} {
     default "";
-    "1" $rate_limit_key;
+    "1" {{ .BaseKey }};
 }
 {{- end }}
 
