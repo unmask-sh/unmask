@@ -58,14 +58,30 @@ fire 198.51.100.62 blog.example.com
 fire 198.51.100.63 API.Example.com:8443
 fire 198.51.100.64 anything.invalid -H "X-Unmask-Site: customsite"
 
-# InsertAsync batches event writes; the flusher interval is 1s.  Give it a
-# moment so the rows are on disk before the events CLI reads them.
-sleep 2
-
-# Tail the whole event table for ~4s and collect the lines.
-dump=$(timeout 4 docker compose -f "$COMPOSE" exec -T admin \
-    unmask events -config /etc/unmask/admin.yml --since 0 --poll-ms 200 \
-    2>/dev/null || true)
+# Read the event table back, polling until all four sites appear.  The events
+# CLI never self-exits (it tails), so each read is a `timeout`-bounded snapshot
+# of `--since 0` (= every event).  The old single fixed `timeout 4` read was
+# flaky for two compounding reasons: InsertAsync's 1s event flush can lag, and
+# `docker compose exec` startup alone eats ~3-4s under load -- so the 4s window
+# often expired before the CLI emitted a line, and `|| true` handed back an
+# empty dump (all four assertions then failed at once).  Measured: a 3s timeout
+# yields 0 lines, 5s yields the full dump.  So: use an 8s read window AND retry
+# the whole read until the expected sites are present (or a ~30s deadline).  The
+# checks below still run on the last dump, so a genuine miss is reported with it.
+want_sites="shop.example.com blog.example.com api.example.com customsite"
+dump=""
+deadline=$(( $(date +%s) + 30 ))
+while :; do
+    dump=$(timeout 8 docker compose -f "$COMPOSE" exec -T admin \
+        unmask events -config /etc/unmask/admin.yml --since 0 --poll-ms 100 \
+        2>/dev/null || true)
+    miss=0
+    for s in $want_sites; do
+        printf '%s' "$dump" | grep -qF "site=$s" || { miss=1; break; }
+    done
+    { [ "$miss" -eq 0 ] || [ "$(date +%s)" -ge "$deadline" ]; } && break
+    sleep 1
+done
 
 fails=0
 check_site() {
