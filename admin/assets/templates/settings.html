@@ -2731,20 +2731,36 @@ document.addEventListener("DOMContentLoaded", function(){
       {{ safeHTML (t .Lang "settings.rate_limit.deny_page_intro") }}
     </p>
     {{ $dt := .RateLimit.ResolvedDenyTheme }}
+    {{/* $dp is the preview's preset token: the saved DenyCopyPreset, or
+         "inherit" when unset (the preview route maps inherit -> branding). */}}
+    {{ $dp := .RateLimit.DenyCopyPreset }}{{ if eq $dp "" }}{{ $dp = "inherit" }}{{ end }}
+    {{/* Wording tone: independent of the branding/challenge preset.  "inherit"
+         (default) follows the Theme tab's copy preset; the others force a tone
+         for the deny page only. */}}
+    <div class="field" style="margin:0 0 .75rem">
+      <label for="rl-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
+      <select id="rl-deny-copy-preset" name="deny_copy_preset" style="width:18rem">
+        <option value="inherit"  {{ if eq $dp "inherit"  }}selected{{ end }}>{{ t .Lang "settings.rate_limit.deny_page_preset_inherit" }}</option>
+        <option value="friendly" {{ if eq $dp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
+        <option value="neutral"  {{ if eq $dp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
+        <option value="minimal"  {{ if eq $dp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
+      </select>
+      <p class="note" style="margin:.25rem 0 0;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preset_hint" }}</p>
+    </div>
     <div class="deny-theme-grid">
-      {{/* One card per theme; each iframe renders that exact theme via the
-           preview route (the operator's browser language fills the message).
-           The preview link sits at the bottom of the card (same place the
-           challenge theme cards put theirs) and opens the theme full-size. */}}
+      {{/* One card per theme; each iframe renders that theme at the selected
+           tone ($dp) via the preview route (the operator's browser language
+           fills the message).  The bottom preview link opens it full-size; the
+           JS below re-points both at the new tone when the selector changes. */}}
       <label class="deny-theme-card" data-deny-theme="auto">
         <div class="deny-theme-head">
           <input type="radio" name="deny_theme" value="auto" {{ if eq $dt "auto" }}checked{{ end }}>
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p>
-        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: auto" src="{{ .BasePath }}/admin/test/rate-deny?theme=auto"></iframe></div>
+        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: auto" src="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}"></iframe></div>
         <div class="deny-theme-actions" onclick="event.stopPropagation();">
-          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
         </div>
       </label>
       <label class="deny-theme-card" data-deny-theme="light">
@@ -2753,9 +2769,9 @@ document.addEventListener("DOMContentLoaded", function(){
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p>
-        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: light" src="{{ .BasePath }}/admin/test/rate-deny?theme=light"></iframe></div>
+        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: light" src="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}"></iframe></div>
         <div class="deny-theme-actions" onclick="event.stopPropagation();">
-          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=light" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
         </div>
       </label>
       <label class="deny-theme-card" data-deny-theme="dark">
@@ -2764,13 +2780,32 @@ document.addEventListener("DOMContentLoaded", function(){
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p>
-        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: dark" src="{{ .BasePath }}/admin/test/rate-deny?theme=dark"></iframe></div>
+        <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: dark" src="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}"></iframe></div>
         <div class="deny-theme-actions" onclick="event.stopPropagation();">
-          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
         </div>
       </label>
     </div>
   </div>
+  {{/* Re-point the three deny previews when the tone selector changes, so an
+       unsaved tone choice is reflected live (no save needed). */}}
+  <script>
+  (function(){
+    var sel = document.getElementById('rl-deny-copy-preset');
+    if (!sel) return;
+    var base = '{{ .BasePath }}/admin/test/rate-deny';
+    sel.addEventListener('change', function(){
+      var p = sel.value || 'inherit';
+      document.querySelectorAll('.deny-theme-grid .deny-theme-card').forEach(function(card){
+        var url = base + '?theme=' + encodeURIComponent(card.getAttribute('data-deny-theme')) + '&preset=' + encodeURIComponent(p);
+        var f = card.querySelector('iframe');
+        var a = card.querySelector('.deny-theme-preview-link');
+        if (f) f.src = url;
+        if (a) a.href = url;
+      });
+    });
+  })();
+  </script>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>

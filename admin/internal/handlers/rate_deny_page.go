@@ -213,15 +213,16 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 `))
 
 // renderRateDeny builds the branded, localized deny page.  The visual shell
-// (logo / site name / footer) comes from per-site Branding, the wording from
-// the branding copy preset localized to the visitor's Accept-Language (no
-// free-text override -- a verbatim string would override the localization for
-// every visitor).  theme is the deny-page light/dark choice ("auto" | "light"
-// | "dark"; anything else clamps to auto).  basePath is the /unmask mount used
-// to reach the logo route.
-func renderRateDeny(br settings.BrandingValues, theme, acceptLanguage, basePath string) []byte {
+// (logo / site name / footer) comes from per-site Branding; preset is the
+// already-resolved copy preset (friendly / neutral / minimal -- the deny page's
+// own DenyCopyPreset, which may inherit the branding one) whose wording is
+// localized to the visitor's Accept-Language (no free-text override -- a
+// verbatim string would override the localization for every visitor).  theme is
+// the light/dark choice ("auto" | "light" | "dark"; anything else clamps to
+// auto).  basePath is the /unmask mount used to reach the logo route.
+func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, basePath string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	m := denyMsgForPreset(br.ResolvedCopyPreset(), lang)
+	m := denyMsgForPreset(preset, lang)
 	switch theme {
 	case settings.DenyThemeLight, settings.DenyThemeDark, settings.DenyThemeAuto:
 	default:

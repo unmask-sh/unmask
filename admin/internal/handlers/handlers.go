@@ -656,9 +656,10 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 	}
 	cfg := h.cfg()
 	br := cfg.Branding.Resolve(site)
+	preset := cfg.RateLimit.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write(renderRateDeny(br, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
+	_, _ = w.Write(renderRateDeny(br, preset, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
 }
 
 // ServeChallenge: GET {base}/challenge/
@@ -1269,6 +1270,17 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	if t := strings.TrimSpace(q.Get("theme")); t != "" {
 		theme = t // renderRateDeny clamps an unknown value back to auto
 	}
+	// Preset: ?preset=friendly|neutral|minimal previews that tone; ?preset=inherit
+	// previews the branding preset (what "inherit" resolves to); absent -> the
+	// saved deny preset resolution.  Lets the settings page preview an unsaved
+	// selection of the deny copy-preset selector.
+	preset := cfg.RateLimit.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
+	switch p := strings.TrimSpace(q.Get("preset")); {
+	case p == "inherit":
+		preset = br.ResolvedCopyPreset()
+	case settings.IsValidBrandingPreset(p):
+		preset = p
+	}
 	accept := r.Header.Get("Accept-Language")
 	if l := strings.TrimSpace(q.Get("lang")); l != "" {
 		accept = l
@@ -1282,7 +1294,7 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write(renderRateDeny(br, theme, accept, h.basePath()))
+	_, _ = w.Write(renderRateDeny(br, preset, theme, accept, h.basePath()))
 }
 
 // PublicTestGate: gate for the public side (/unmask/test/*).  Returns 404

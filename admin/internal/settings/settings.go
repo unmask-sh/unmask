@@ -1557,6 +1557,13 @@ type RateLimitConfig struct {
 	//   "light"     : force the light palette
 	//   "dark"      : force the dark palette
 	DenyTheme string `yaml:"deny_theme,omitempty"`
+	// DenyCopyPreset overrides the wording tone of the deny page independently
+	// of the branding copy preset.  Empty = inherit the branding copy preset,
+	// so the deny voice matches the challenge by default; friendly / neutral /
+	// minimal force that tone for the deny page only (e.g. a firm "minimal"
+	// deny while the challenge stays friendly).  Same allowlist as branding
+	// (IsValidBrandingPreset).
+	DenyCopyPreset string `yaml:"deny_copy_preset,omitempty"`
 	// PresetsBackfilledAt: unix seconds when the install last had its
 	// built-in preset zones backfilled.  Lets BackfillRateLimitPresets()
 	// run exactly once per preset family; an operator who deletes a preset
@@ -1721,6 +1728,16 @@ func (rl RateLimitConfig) ResolvedDenyTheme() string {
 		return rl.DenyTheme
 	}
 	return DenyThemeAuto
+}
+
+// ResolvedDenyCopyPreset returns the deny page's copy preset: the explicit
+// DenyCopyPreset when set, otherwise brandingPreset (= inherit, so the deny
+// voice matches the challenge unless the operator overrides it).
+func (rl RateLimitConfig) ResolvedDenyCopyPreset(brandingPreset string) string {
+	if IsValidBrandingPreset(rl.DenyCopyPreset) {
+		return rl.DenyCopyPreset
+	}
+	return brandingPreset
 }
 
 // RateZone: definition of one named path-scoped rate-limit zone.  Zones

@@ -2820,6 +2820,16 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 	} else {
 		return fmt.Errorf("deny_theme must be one of auto / light / dark (got %q)", v)
 	}
+	// Deny-page copy preset (wording tone), independent of the branding preset.
+	// Empty / "inherit" -> follow the branding preset (normalized to empty so
+	// the default stays out of the persisted config).
+	if v := strings.TrimSpace(r.FormValue("deny_copy_preset")); v == "" || v == "inherit" {
+		c.DenyCopyPreset = ""
+	} else if settings.IsValidBrandingPreset(v) {
+		c.DenyCopyPreset = v
+	} else {
+		return fmt.Errorf("deny_copy_preset must be inherit / friendly / neutral / minimal (got %q)", v)
+	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"
