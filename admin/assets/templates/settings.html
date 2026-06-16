@@ -2716,11 +2716,12 @@ document.addEventListener("DOMContentLoaded", function(){
     .deny-theme-card:has(input:checked) .deny-theme-head{background:#eff6ff;border-bottom-color:#bfdbfe}
     .deny-theme-head input[type=radio]{margin:0;cursor:pointer}
     .deny-theme-head strong{font-size:.88rem;color:#0f172a}
-    .deny-theme-open{margin-left:auto;font-size:.85rem;color:#1e40af;text-decoration:none;padding:0 .15rem}
-    .deny-theme-open:hover{color:#3b82f6}
     .deny-theme-desc{font-size:.72rem;color:#64748b;padding:.4rem .65rem 0;margin:0}
-    .deny-theme-frame{margin:.5rem .65rem .65rem;border:.0625rem solid #e2e8f0;border-radius:.35rem;overflow:hidden;background:#f1f5f9;height:13rem;position:relative}
+    .deny-theme-frame{margin:.5rem .65rem 0;border:.0625rem solid #e2e8f0;border-radius:.35rem;overflow:hidden;background:#f1f5f9;height:13rem;position:relative}
     .deny-theme-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block;pointer-events:none}
+    .deny-theme-actions{display:flex;justify-content:flex-end;padding:.55rem .65rem .65rem}
+    .deny-theme-preview-link{font-size:.74rem;color:#1e40af;text-decoration:none;padding:.18rem .5rem;border:.0625rem solid #bfdbfe;border-radius:.3rem;background:#fff;white-space:nowrap}
+    .deny-theme-preview-link:hover{background:#eff6ff;border-color:#3b82f6}
   </style>
   <div class="bcd-card" style="margin-top:.6rem">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
@@ -2733,33 +2734,40 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="deny-theme-grid">
       {{/* One card per theme; each iframe renders that exact theme via the
            preview route (the operator's browser language fills the message).
-           The ↗ opens the theme full-size in a new tab. */}}
+           The preview link sits at the bottom of the card (same place the
+           challenge theme cards put theirs) and opens the theme full-size. */}}
       <label class="deny-theme-card" data-deny-theme="auto">
         <div class="deny-theme-head">
           <input type="radio" name="deny_theme" value="auto" {{ if eq $dt "auto" }}checked{{ end }}>
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong>
-          <a class="deny-theme-open" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto" target="_blank" rel="noopener" aria-label="{{ t .Lang "settings.rate_limit.deny_page_preview" }}">↗</a>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p>
         <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: auto" src="{{ .BasePath }}/admin/test/rate-deny?theme=auto"></iframe></div>
+        <div class="deny-theme-actions" onclick="event.stopPropagation();">
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+        </div>
       </label>
       <label class="deny-theme-card" data-deny-theme="light">
         <div class="deny-theme-head">
           <input type="radio" name="deny_theme" value="light" {{ if eq $dt "light" }}checked{{ end }}>
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong>
-          <a class="deny-theme-open" href="{{ .BasePath }}/admin/test/rate-deny?theme=light" target="_blank" rel="noopener" aria-label="{{ t .Lang "settings.rate_limit.deny_page_preview" }}">↗</a>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p>
         <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: light" src="{{ .BasePath }}/admin/test/rate-deny?theme=light"></iframe></div>
+        <div class="deny-theme-actions" onclick="event.stopPropagation();">
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=light" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+        </div>
       </label>
       <label class="deny-theme-card" data-deny-theme="dark">
         <div class="deny-theme-head">
           <input type="radio" name="deny_theme" value="dark" {{ if eq $dt "dark" }}checked{{ end }}>
           <strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong>
-          <a class="deny-theme-open" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark" target="_blank" rel="noopener" aria-label="{{ t .Lang "settings.rate_limit.deny_page_preview" }}">↗</a>
         </div>
         <p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p>
         <div class="deny-theme-frame"><iframe loading="lazy" title="deny preview: dark" src="{{ .BasePath }}/admin/test/rate-deny?theme=dark"></iframe></div>
+        <div class="deny-theme-actions" onclick="event.stopPropagation();">
+          <a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a>
+        </div>
       </label>
     </div>
   </div>
