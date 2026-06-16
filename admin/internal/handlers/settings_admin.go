@@ -2811,17 +2811,6 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		}
 		c.Default.ChallengeMode = v
 	}
-	// Deny-page copy override (= the JS-free hard-cap 403 a "deny" zone serves).
-	// Install-wide; empty falls back to the Accept-Language-localized built-in.
-	// Caps mirror the branding fields so a runaway paste can't bloat the config.
-	c.RateDenyTitle = strings.TrimSpace(r.FormValue("rate_deny_title"))
-	c.RateDenyBody = strings.TrimSpace(r.FormValue("rate_deny_body"))
-	if n := len([]rune(c.RateDenyTitle)); n > 120 {
-		c.RateDenyTitle = string([]rune(c.RateDenyTitle)[:120])
-	}
-	if n := len([]rune(c.RateDenyBody)); n > 400 {
-		c.RateDenyBody = string([]rune(c.RateDenyBody)[:400])
-	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"

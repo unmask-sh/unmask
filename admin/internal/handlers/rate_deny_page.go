@@ -12,8 +12,8 @@ import (
 // serves at /unmask/_rl... (see serveRateDeny).  Unlike the challenge page --
 // which localizes client-side via challenge.js's navigator.language -- this
 // page runs no JS, so it localizes SERVER-side from Accept-Language against the
-// built-in table below.  An operator override (RateLimit.RateDenyTitle/Body)
-// wins over the table and is shown verbatim to every visitor.
+// built-in table below.  There is no operator copy override -- the page relies
+// on branding (logo / site name / footer) plus the localized built-in text.
 
 type denyMsg struct {
 	Title string
@@ -130,20 +130,16 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 `))
 
 // renderRateDeny builds the branded, localized deny page.  The visual shell
-// (logo / site name / footer) comes from per-site Branding; the deny copy
-// override (denyTitle / denyBody) is install-wide rate-limit config and, when
-// non-empty, takes precedence over the localized built-in.  basePath is the
+// (logo / site name / footer) comes from per-site Branding; the message text is
+// the built-in localized by the visitor's Accept-Language.  There is no
+// operator copy override: a verbatim custom string would be shown to every
+// visitor in one language, undermining the 18-language built-in, so the page
+// deliberately relies on branding + localization only.  basePath is the
 // /unmask mount used to reach the logo route.
-func renderRateDeny(br settings.BrandingValues, denyTitle, denyBody, acceptLanguage, basePath string) []byte {
+func renderRateDeny(br settings.BrandingValues, acceptLanguage, basePath string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
 	m := denyI18N[lang]
 	title, body := m.Title, m.Body
-	if t := strings.TrimSpace(denyTitle); t != "" {
-		title = t
-	}
-	if b := strings.TrimSpace(denyBody); b != "" {
-		body = b
-	}
 	logoURL := ""
 	if br.LogoPath != "" {
 		logoURL = basePath + "/branding/logo"
