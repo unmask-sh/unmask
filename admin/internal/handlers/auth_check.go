@@ -365,8 +365,15 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	rlHit := false
 	rlCount := 0
 	rlAllowance := 0
+	// A valid _bv (already passed a challenge) exempts the client from
+	// CHALLENGE-mode rate-limits -- re-challenging someone who just proved
+	// human is pointless.  A "deny" zone is different: it is a HARD CAP, so a
+	// human who passed CAPTCHA must NOT buy a pass past it by flooding.  Only
+	// trusted sources (bypass IP / verified search bot / signed agent) stay
+	// exempt from a deny zone.
+	bvExemptFromCount := strings.HasPrefix(reason, "bv-") && chMode != settings.RateChallengeDeny
 	shouldCount := h.RateLimiter != nil &&
-		!strings.HasPrefix(reason, "bv-") &&
+		!bvExemptFromCount &&
 		reason != "bypass:ip" &&
 		reason != "bypass:path" &&
 		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
