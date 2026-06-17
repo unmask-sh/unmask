@@ -110,6 +110,46 @@ func TestRenderRateDeny(t *testing.T) {
 	}
 }
 
+func TestRenderBanDeny(t *testing.T) {
+	// English (default) + ban marker + "blocked" wording + branding
+	out := string(renderBanDeny(settings.BrandingValues{SiteName: "ACME"}, "auto", "en", "/unmask"))
+	for _, want := range []string{"<!-- unmask:ban-deny -->", `lang="en"`, "Access blocked", "ACME"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("ban render missing %q in:\n%s", want, out)
+		}
+	}
+	// distinct from the rate-limit deny: not the rate marker, not the "retry" copy
+	if strings.Contains(out, "unmask:rate-deny") || strings.Contains(out, "Too many requests") {
+		t.Errorf("ban page must not carry rate-limit deny marker/wording:\n%s", out)
+	}
+
+	// localized (ja) + rtl (ar) + theme honored
+	if ja := string(renderBanDeny(settings.BrandingValues{}, "auto", "ja", "/unmask")); !strings.Contains(ja, "ブロック") {
+		t.Errorf("ja ban not localized:\n%s", ja)
+	}
+	if ar := string(renderBanDeny(settings.BrandingValues{}, "dark", "ar", "/unmask")); !strings.Contains(ar, `dir="rtl"`) || !strings.Contains(ar, `data-theme="dark"`) {
+		t.Errorf("ar/dark ban render wrong:\n%s", ar)
+	}
+
+	// every language has a complete entry and renders with the ban marker; the
+	// ban language set matches the rate-limit deny set (same 18 languages)
+	neutral := denyMsgs[settings.BrandingPresetNeutral]
+	if len(banDenyMsgs) != len(neutral) {
+		t.Errorf("banDenyMsgs has %d languages, want %d", len(banDenyMsgs), len(neutral))
+	}
+	for lang, m := range banDenyMsgs {
+		if _, ok := neutral[lang]; !ok {
+			t.Errorf("ban language %q absent from the rate-limit deny set", lang)
+		}
+		if m.Title == "" || m.Body == "" {
+			t.Errorf("ban lang %q has empty title/body: %+v", lang, m)
+		}
+		if body := string(renderBanDeny(settings.BrandingValues{}, "auto", lang, "/unmask")); !strings.Contains(body, "<!-- unmask:ban-deny -->") {
+			t.Errorf("ban lang %q render missing marker", lang)
+		}
+	}
+}
+
 func TestResolvedDenyCopyPreset(t *testing.T) {
 	cases := []struct{ deny, branding, want string }{
 		{"", "friendly", "friendly"},       // unset -> inherit branding

@@ -662,6 +662,56 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 	_, _ = w.Write(renderRateDeny(br, preset, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
 }
 
+// ServeBanDeny writes the "blocked" page for a ban whose action is "deny".
+// nginx rewrites a ban-deny hit to /unmask/_ban<orig URI> (the native plugin
+// detects the ban without the daemon; only this page needs it, and nginx fails
+// closed -- a daemon-down request lands in @unmask_daemon_down with no saved
+// original and returns 503, never a free pass).  Like the rate-limit deny there
+// is no escape hatch, but a ban is persistent until the operator lifts it, so
+// the copy is "blocked" with no Retry-After / "try again" framing.
+func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
+	site := siteFromRequest(r, h.snapshotSettings())
+	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	if pkt := events.PackIP(clientIP(r)); pkt != nil {
+		events.InsertAsync(h.DB, &events.Event{
+			Site:         site,
+			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
+			Port:         portFromRequest(r),
+			IPPacked:     pkt,
+			UserAgent:    r.Header.Get("User-Agent"),
+			JA4:          safeJA4(ja4),
+			JA4Verdict:   verdict,
+			JA4VerdictID: h.VerdictNameToID(verdict),
+			Phase:        string(events.PhaseServe),
+			Payload: map[string]any{
+				"force_reason": "banned",
+				"deny":         1,
+				"ban":          1,
+				"method":       r.Method,
+			},
+		})
+	}
+
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	if !isHTMLNavigation(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  "blocked",
+			"reason": "banned",
+		})
+		return
+	}
+	cfg := h.cfg()
+	br := cfg.Branding.Resolve(site)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	_, _ = w.Write(renderBanDeny(br, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
+}
+
 // ServeChallenge: GET {base}/challenge/
 //
 // Rate-limit path: nginx rewrites a 429 into /unmask/_rl<orig URI> (see
@@ -1294,6 +1344,12 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// ?kind=ban previews the ban "blocked" page (same theme, no copy preset);
+	// anything else previews the rate-limit deny page.
+	if strings.TrimSpace(q.Get("kind")) == "ban" {
+		_, _ = w.Write(renderBanDeny(br, theme, accept, h.basePath()))
+		return
+	}
 	_, _ = w.Write(renderRateDeny(br, preset, theme, accept, h.basePath()))
 }
 

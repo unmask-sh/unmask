@@ -756,6 +756,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// challenge/{site} routing.  Method-agnostic so a POST /api/foo that
 	// trips `limit_req` and rewrites to /unmask/_rl/api/foo lands here.
 	mux.HandleFunc(base+"/_rl/", h.ServeChallengeOrJSON)
+	// Ban-deny path (nginx rewrites a deny-action ban into /unmask/_ban<orig URI>
+	// instead of returning a bare 403).  Always the branded "blocked" page --
+	// no challenge fallback, since a deny ban is a hard block.
+	mux.HandleFunc(base+"/_ban/", h.ServeBanDeny)
 	// debug / test pages (sanity checks).  Exposed via two paths:
 	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
 	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)

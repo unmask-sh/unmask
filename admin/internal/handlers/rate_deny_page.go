@@ -147,6 +147,41 @@ func denyMsgForPreset(preset, lang string) denyMsg {
 	return table["en"]
 }
 
+// banDenyMsgs is the deny page copy for a ban whose action is "deny".  Unlike a
+// rate-limit deny (transient -- clears once the client slows down, so its copy
+// invites a retry), a ban is persistent until the operator lifts it, so the
+// wording is "blocked" with no retry framing.  One tone only (a hard block does
+// not need the friendly/neutral/minimal spread), localized to the same 18
+// languages.  English is the fallback.
+var banDenyMsgs = map[string]denyMsg{
+	"en":      {"Access blocked", "Your access to this site has been blocked."},
+	"ja":      {"アクセスがブロックされています", "このサイトへのアクセスはブロックされています。"},
+	"de":      {"Zugriff blockiert", "Ihr Zugriff auf diese Website wurde blockiert."},
+	"es":      {"Acceso bloqueado", "Tu acceso a este sitio ha sido bloqueado."},
+	"fr":      {"Accès bloqué", "Votre accès à ce site a été bloqué."},
+	"it":      {"Accesso bloccato", "Il tuo accesso a questo sito è stato bloccato."},
+	"pt":      {"Acesso bloqueado", "Seu acesso a este site foi bloqueado."},
+	"ru":      {"Доступ заблокирован", "Ваш доступ к этому сайту заблокирован."},
+	"ko":      {"접근이 차단되었습니다", "이 사이트에 대한 접근이 차단되었습니다."},
+	"zh":      {"访问已被阻止", "您对本网站的访问已被阻止。"},
+	"zh-Hant": {"存取已遭封鎖", "您對本網站的存取已遭封鎖。"},
+	"ar":      {"تم حظر الوصول", "تم حظر وصولك إلى هذا الموقع."},
+	"hi":      {"पहुँच अवरुद्ध", "इस साइट तक आपकी पहुँच अवरुद्ध कर दी गई है।"},
+	"id":      {"Akses diblokir", "Akses Anda ke situs ini telah diblokir."},
+	"pl":      {"Dostęp zablokowany", "Twój dostęp do tej witryny został zablokowany."},
+	"th":      {"การเข้าถึงถูกบล็อก", "การเข้าถึงเว็บไซต์นี้ของคุณถูกบล็อก"},
+	"tr":      {"Erişim engellendi", "Bu siteye erişiminiz engellendi."},
+	"vi":      {"Quyền truy cập bị chặn", "Quyền truy cập của bạn vào trang web này đã bị chặn."},
+}
+
+// banDenyMsg returns the ban "blocked" message for lang, English as fallback.
+func banDenyMsg(lang string) denyMsg {
+	if m, ok := banDenyMsgs[lang]; ok {
+		return m
+	}
+	return banDenyMsgs["en"]
+}
+
 type rateDenyData struct {
 	Lang, Dir, Title, Body, SiteName, Footer, LogoURL string
 	// Theme is "auto" | "light" | "dark"; it drives the <html data-theme>
@@ -159,9 +194,14 @@ type rateDenyData struct {
 	Marker template.HTML
 }
 
-// rateDenyMarker is the e2e / capture detection comment kept out of the
-// template text (html/template would strip it) and injected as a value.
-const rateDenyMarkerStr = "<!-- unmask:rate-deny -->"
+// rateDenyMarker / banDenyMarker are the e2e / capture detection comments kept
+// out of the template text (html/template would strip them) and injected as a
+// value.  Distinct markers let a capture tell a rate-limit deny ("too many
+// requests", transient) from a ban deny ("blocked", persistent).
+const (
+	rateDenyMarkerStr = "<!-- unmask:rate-deny -->"
+	banDenyMarkerStr  = "<!-- unmask:ban-deny -->"
+)
 
 // rateDenyTmpl is the JS-free branded deny page.  No PoW / CAPTCHA / escape
 // hatch -- a "deny" zone is a hard cap the operator chose, not a puzzle.  The
@@ -222,7 +262,21 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 // auto).  basePath is the /unmask mount used to reach the logo route.
 func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, basePath string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	m := denyMsgForPreset(preset, lang)
+	return renderDenyPage(br, denyMsgForPreset(preset, lang), rateDenyMarkerStr, theme, lang, basePath)
+}
+
+// renderBanDeny builds the deny page for a ban whose action is "deny".  Same
+// branded, themed shell as the rate-limit deny, but the "blocked" wording and a
+// distinct marker -- a ban is persistent (no "retry" framing fits).
+func renderBanDeny(br settings.BrandingValues, theme, acceptLanguage, basePath string) []byte {
+	lang := denyLangFromAccept(acceptLanguage)
+	return renderDenyPage(br, banDenyMsg(lang), banDenyMarkerStr, theme, lang, basePath)
+}
+
+// renderDenyPage renders the shared JS-free deny template with a resolved
+// message + marker.  theme is the light/dark choice (clamped to auto on an
+// unknown value); basePath is the /unmask mount used to reach the logo route.
+func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, basePath string) []byte {
 	switch theme {
 	case settings.DenyThemeLight, settings.DenyThemeDark, settings.DenyThemeAuto:
 	default:
@@ -242,7 +296,7 @@ func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, b
 		Footer:   br.FooterText,
 		LogoURL:  logoURL,
 		Theme:    theme,
-		Marker:   template.HTML(rateDenyMarkerStr), //nolint:gosec // constant literal, no user input
+		Marker:   template.HTML(marker), //nolint:gosec // constant literal, no user input
 	}); err != nil {
 		return []byte(rateDenyFallback) // never expected; keep a 403 body regardless
 	}

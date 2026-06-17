@@ -62,7 +62,11 @@ set $unmask_orig_args "";
 # community_bans ban produces the same response in both modes (= settings.Bans
 # + Honeypot.DefaultAction resolved at ban-file flush time).
 if ($unmask_ban_action_effective = "deny") {
-    return 403;
+    # Branded "blocked" page (admin renders it at /unmask/_ban<orig URI>).  Still
+    # fails closed: a daemon-down request lands in @unmask_daemon_down with no
+    # saved original and returns 503, never a free pass.  /unmask/* is ban-blanked
+    # (http.inc) so the rewritten request does not re-trigger this branch.
+    rewrite ^ /unmask/_ban$request_uri last;
 }
 if ($unmask_banned_effective = "1") {
     rewrite ^ /unmask/challenge/ last;
@@ -224,6 +228,19 @@ location @unmask_rate_challenge {
 location ^~ /unmask/admin/ {
     include {{ .OutputDir }}/protect.inc;
     {{ template "unmask_daemon_proxy" . }}
+}
+
+# /unmask/_ban — the ban "blocked" page (rewrite target of the deny-action ban
+# above).  More specific than the /unmask/ catch-all so it can fail CLOSED: the
+# proxy template's error_page would fail open to @unmask_daemon_down's 503, but
+# a ban must hold during a daemon outage, so override it to a bare 403 (the same
+# response the branch returned before it routed through the admin for branding).
+location ^~ /unmask/_ban {
+    {{ template "unmask_daemon_proxy" . }}
+    error_page 502 503 504 = @unmask_ban_deny_down;
+}
+location @unmask_ban_deny_down {
+    return 403;
 }
 
 # /unmask/ machinery catch-all — proxied straight to the daemon WITHOUT
