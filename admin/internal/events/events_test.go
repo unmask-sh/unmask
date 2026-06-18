@@ -113,7 +113,7 @@ func TestSubsecondOrdering(t *testing.T) {
 		}
 	}
 
-	rows, err := FetchPaged(ctx, d, "", "", "", "", nil, 0, 100, 0)
+	rows, err := FetchPaged(ctx, d, "", "", "", "", "", nil, 0, 100, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

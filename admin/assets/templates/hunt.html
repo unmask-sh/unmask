@@ -397,6 +397,8 @@ function dismissHuntTip(id){
     <input type="hidden" name="range" value="{{ .Range }}">
     <input type="text" name="ip"  placeholder="IP {{ t .Lang "hunt.filter.exact" }}" value="{{ .IPFilter }}">
     <input type="text" name="ja4" placeholder="JA4 substring" value="{{ .JA4Filter }}">
+    <input type="text" name="ref" placeholder="Ref ID" value="{{ .RefFilter }}" style="width:11rem">
+    {{ if .RefFilter }}<span class="muted" style="font-size:.8rem">→ Ref ID: <code style="user-select:all">{{ .RefFilter }}</code></span>{{ end }}
     <select name="phase">
       <option value="">{{ t .Lang "hunt.filter.all_phase" }}</option>
       <option value="serve"               {{ if eq .Phase "serve"               }}selected{{ end }}>serve</option>

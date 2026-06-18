@@ -89,6 +89,31 @@ func bypassPathsPresetEnabled(b settings.BypassPathsConfig, id string) bool {
 	return false
 }
 
+// refFromQuery pulls the 16-hex support correlation id out of the hunt search
+// box.  The operator normally pastes just the id (it double-click-selects), but
+// tolerate a "Ref ID: <id>" paste by returning the first run of 16 hex chars.
+// "" (no run found) disables the filter.  Hex-only by construction, so the
+// FetchPaged LIKE pattern it feeds stays free of SQL/LIKE metacharacters.
+func refFromQuery(s string) string {
+	s = strings.ToLower(s)
+	run, start := 0, -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			if run == 0 {
+				start = i
+			}
+			run++
+			if run == 16 {
+				return s[start : start+16]
+			}
+		} else {
+			run = 0
+		}
+	}
+	return ""
+}
+
 // AdminHuntIndex: GET /admin/hunt/ — ranking + raw log + live tail.
 func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := loadDashboardTemplate()
@@ -115,6 +140,10 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	ipFilter := strings.TrimSpace(q.Get("ip"))
 	ja4Filter := strings.TrimSpace(q.Get("ja4"))
+	// ref: the support correlation id a blocked visitor quotes.  refFromQuery
+	// pulls the 16-hex id out (tolerating a "Ref ID: <id>" paste) so the search
+	// resolves the exact serve event.
+	refFilter := refFromQuery(q.Get("ref"))
 	phaseFilter := strings.TrimSpace(q.Get("phase"))
 	if !events.IsValidPhase(phaseFilter) {
 		phaseFilter = ""
@@ -133,7 +162,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const pageSize = 100
-	rows, err := events.FetchPaged(r.Context(), h.DB, ipFilter, ja4Filter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, err := events.FetchPaged(r.Context(), h.DB, ipFilter, ja4Filter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -295,6 +324,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"SinceMin":   sinceMin,
 		"IPFilter":   ipFilter,
 		"JA4Filter":  ja4Filter,
+		"RefFilter":  refFilter,
 		"Phase":      phaseFilter,
 		"Rows":       enriched,
 		"IPRank":     ipRank,

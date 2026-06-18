@@ -95,7 +95,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// group by beacon_token + collapse into one row showing the phase chain)
 	// still has roughly 10 visible sessions in the typical case where one
 	// fire contributes 3-5 raw rows.
-	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", site, hosts, 0, 40, 0)
+	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", "", site, hosts, 0, 40, 0)
 	if err != nil {
 		log.Printf("overview recent: %v", err)
 	}

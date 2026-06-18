@@ -631,7 +631,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 //	hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
-func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
+func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, ref, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 100
 	}
@@ -649,6 +649,13 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 	if ja4Substr != "" {
 		stmt += " AND ja4 LIKE ?"
 		args = append(args, "%"+ja4Substr+"%")
+	}
+	// ref: the support correlation id, matched exactly against payload "ref".
+	// The id is 16 hex chars (the caller validates) so the LIKE pattern carries
+	// no metacharacters; it pins the serve event the visitor's report names.
+	if ref != "" {
+		stmt += " AND payload_json LIKE ?"
+		args = append(args, `%"ref":"`+ref+`"%`)
 	}
 	// IP is packed binary ([]byte 4 / 16 bytes), so LIKE cannot narrow it.
 	// Only exact match is supported (pass a valid IP as ipSubstr).
