@@ -58,9 +58,10 @@ func beaconNonce() string {
 // pull up that exact event + its decision context when the visitor reports it.
 // NOT a security token -- just an opaque lookup key, deliberately hex (0-9a-f)
 // so it carries none of base32/base36's 0/O, 1/l/I transcription traps.  5 bytes
-// = 40 bits is ample to avoid collisions for a manual lookup; the dash makes it
-// easy to read back over phone / chat.  crypto/rand failure (vanishingly rare on
-// a running server) falls back to the nanosecond clock so a serve never blocks.
+// = 40 bits is ample to avoid collisions for a manual lookup.  No separators: a
+// single [0-9a-f] token selects in one double-click for the visitor to copy.
+// crypto/rand failure (vanishingly rare on a running server) falls back to the
+// nanosecond clock so a serve never blocks.
 func newRef() string {
 	var b [5]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -68,8 +69,7 @@ func newRef() string {
 		binary.BigEndian.PutUint64(t[:], uint64(time.Now().UnixNano()))
 		copy(b[:], t[3:])
 	}
-	s := hex.EncodeToString(b[:]) // 10 chars
-	return s[:5] + "-" + s[5:]
+	return hex.EncodeToString(b[:]) // 10 hex chars, no separator
 }
 
 // issueBeaconToken returns a fresh signed token bound to ip.

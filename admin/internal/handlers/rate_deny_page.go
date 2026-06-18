@@ -135,11 +135,11 @@ func denyLangFromAccept(accept string) string {
 }
 
 // refLabelText is the universal label that precedes the support correlation id
-// in the page footer ("Ref <id>").  Left untranslated on purpose -- the industry
-// norm (Cloudflare's Ray ID, Akamai's Reference #) keeps this a short, neutral
-// token rather than a localized phrase, which reads cleaner than a per-language
-// translation.
-const refLabelText = "Ref"
+// in the page footer ("Ref ID: <id>").  Left untranslated on purpose -- the
+// industry norm (Cloudflare's Ray ID, Akamai's Reference #) keeps this a short,
+// neutral token rather than a localized phrase, which reads cleaner than a
+// per-language translation.
+const refLabelText = "Ref ID:"
 
 // denyMsgForPreset returns the (preset, lang) message, clamping an unknown
 // preset to friendly and an unknown lang to English.

@@ -184,11 +184,27 @@ func TestDenyPageRef(t *testing.T) {
 	if b := string(renderBanDeny(settings.BrandingValues{}, "auto", "en", "/unmask", "9f8e7-6d5c4")); !strings.Contains(b, "9f8e7-6d5c4") {
 		t.Errorf("ref not shown on the ban page:\n%s", b)
 	}
-	// the label is the universal "Ref" token -- not per-language translated.
-	if en := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "a1b2c-3d4e5")); !strings.Contains(en, "Ref a1b2c-3d4e5") {
-		t.Errorf("ref label not 'Ref':\n%s", en)
+	// the label is the universal "Ref ID:" token -- not per-language translated.
+	if en := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "8e452e74ac")); !strings.Contains(en, "Ref ID: 8e452e74ac") {
+		t.Errorf("ref label not 'Ref ID:':\n%s", en)
 	}
-	if ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja", "/unmask", "a1b2c-3d4e5")); !strings.Contains(ja, "Ref a1b2c-3d4e5") {
-		t.Errorf("ja must use the same universal 'Ref' label, not a translation:\n%s", ja)
+	if ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja", "/unmask", "8e452e74ac")); !strings.Contains(ja, "Ref ID: 8e452e74ac") {
+		t.Errorf("ja must use the same universal 'Ref ID:' label, not a translation:\n%s", ja)
+	}
+}
+
+// TestNewRefFormat: a ref is 10 hex chars with NO separator, so a visitor can
+// select the whole id in a single double-click to copy into a support message.
+func TestNewRefFormat(t *testing.T) {
+	for i := 0; i < 64; i++ {
+		r := newRef()
+		if len(r) != 10 {
+			t.Fatalf("ref %q is %d chars, want 10", r, len(r))
+		}
+		for _, c := range r {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				t.Fatalf("ref %q has a non-hex char %q -- a separator breaks one-double-click selection", r, c)
+			}
+		}
 	}
 }
