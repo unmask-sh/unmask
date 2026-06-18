@@ -193,16 +193,18 @@ func TestDenyPageRef(t *testing.T) {
 	}
 }
 
-// TestNewRefFormat: a ref is 10 hex chars with NO separator, so a visitor can
-// select the whole id in a single double-click to copy into a support message.
+// TestNewRefFormat: a ref is 16 hex chars (64 bits, Cloudflare Ray ID width)
+// with NO separator, so a visitor can select the whole id in a single
+// double-click to copy into a support message.
 func TestNewRefFormat(t *testing.T) {
 	for i := 0; i < 64; i++ {
 		r := newRef()
-		if len(r) != 10 {
-			t.Fatalf("ref %q is %d chars, want 10", r, len(r))
+		if len(r) != 16 {
+			t.Fatalf("ref %q is %d chars, want 16", r, len(r))
 		}
 		for _, c := range r {
-			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			isHex := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')
+			if !isHex {
 				t.Fatalf("ref %q has a non-hex char %q -- a separator breaks one-double-click selection", r, c)
 			}
 		}

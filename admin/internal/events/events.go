@@ -379,10 +379,10 @@ func extractBeaconToken(payload string) string {
 }
 
 // extractRef pulls "ref" out of payload_json -- the short correlation id shown
-// on the challenge / deny / ban page.  Refs are base32 + a dash, so 16 chars is
-// ample headroom over the 11-char value the serve handlers mint.
+// on the challenge / deny / ban page.  Current refs are 16 hex chars; older rows
+// hold a 10-char or 11-char (dashed) value.  24 leaves headroom over all of them.
 func extractRef(payload string) string {
-	return extractStringField(payload, "ref", 16)
+	return extractStringField(payload, "ref", 24)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:

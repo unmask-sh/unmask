@@ -1141,11 +1141,12 @@ func truncForCLI(s string, n int) string {
 	return s
 }
 
-// validRef gates the `--ref` lookup value to the charset newRef mints (hex +
-// dash).  Besides catching typos, it keeps the value free of SQL/LIKE
-// metacharacters before it reaches FetchByRef's pattern.
+// validRef gates the `--ref` lookup value to the charset newRef mints (hex; a
+// dash is also accepted so an older dashed id still resolves).  Besides catching
+// typos, it keeps the value free of SQL/LIKE metacharacters before it reaches
+// FetchByRef's pattern.  24 covers the 16-char current id with headroom.
 func validRef(s string) bool {
-	if s == "" || len(s) > 16 {
+	if s == "" || len(s) > 24 {
 		return false
 	}
 	for _, c := range s {
