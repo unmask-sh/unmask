@@ -67,7 +67,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
       <td class="at">{{ if .Ts }}<time class="js-datetime" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -124,6 +124,17 @@
 .cellpop-actions{display:flex;gap:.4rem;margin-top:.5rem;font-family:system-ui,sans-serif}
 .cellpop-btn{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;font-size:.78rem;color:#0f172a;cursor:pointer;text-decoration:none}
 .cellpop-btn:hover{background:#e2e8f0}
+/* Datetime popover (= Ref ID + sub-second timestamp + UTC).  Colocated with
+   the partial so any host page (overview / hunt) renders it identically. */
+.dtpop{font-family:system-ui,sans-serif;min-width:12rem}
+.dtpop-row{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.35rem}
+.dtpop-k{flex:0 0 auto;font-size:.66rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.dtpop-v{font-family:ui-monospace,Menlo,Consolas,monospace}
+.dtpop-ref{user-select:all;-webkit-user-select:all;font-size:.92rem;color:#0f172a}
+.dtpop-time{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;letter-spacing:.01em}
+.dtpop-utc{color:#64748b;font-size:.78rem;margin-top:.15rem}
+.events td.at time.js-datetime.dtpop-trigger{cursor:help}
+.events td.at time.js-datetime.dtpop-trigger:hover{text-decoration:underline dotted rgba(100,116,139,.6);text-underline-offset:2px}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
@@ -199,6 +210,15 @@ document.addEventListener('DOMContentLoaded', function(){
         repTime.setAttribute('data-ts', oldestTime.getAttribute('data-ts'));
         repTime.textContent = oldestTime.textContent;
       }
+      // The Ref ID (= the correlation id a blocked visitor quotes) is minted at
+      // serve, so only the oldest row carries data-ref; the rep row is the
+      // latest phase (= bv_pow / captcha) and has none.  Promote it alongside
+      // the time so the datetime popover on the collapsed row surfaces the ref
+      // the operator searched for, plus data-ts-ms for sub-second precision.
+      var oref = oldest.getAttribute('data-ref');
+      if (oref && !rep.getAttribute('data-ref')) rep.setAttribute('data-ref', oref);
+      var oms = oldest.getAttribute('data-ts-ms');
+      if (oms) rep.setAttribute('data-ts-ms', oms);
     }
     var phaseCell = rep.querySelector('td:nth-child(5)');
     if (!phaseCell) return;
@@ -449,6 +469,80 @@ document.addEventListener('DOMContentLoaded', function(){
       e.stopPropagation();
       clearTimeout(timer);
       pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, val);
+    });
+  });
+
+  // Datetime popover.  The 'at' column shows a compact date to save width, but
+  // a support correlation needs the exact moment + the Ref ID the visitor
+  // quoted (= "I was blocked, here's my Ref ID").  Hover / click the <time> to
+  // open a popover carrying: the Ref ID (= selectable + copy-on-pin via the
+  // title bar), the sub-second timestamp in the operator's TZ (= JST etc.),
+  // and the UTC equivalent (= what raw server logs are stamped in).  Anchored
+  // on the <time> element specifically so it never collides with the host /
+  // site cellpop badges that share the 'at' cell.
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function fmtAt(ms, tz){
+    var d = new Date(ms);
+    // 'ja' locale = slash + 24h + readable tz abbreviation (JST / UTC),
+    // matching the header_tools js-datetime formatter.  fractionalSecondDigits
+    // adds the .mmm; engines too old to support it fall back to second
+    // precision rather than throwing the whole popover away.
+    var base = {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZoneName: 'short'
+    };
+    try {
+      return new Intl.DateTimeFormat('ja', Object.assign({fractionalSecondDigits: 3}, base)).format(d);
+    } catch (e) {
+      try { return new Intl.DateTimeFormat('ja', base).format(d); } catch (e2) { return ''; }
+    }
+  }
+  function dtMs(tr){
+    var ms = Number(tr.getAttribute('data-ts-ms') || 0);
+    if (!ms) ms = Number(tr.getAttribute('data-ts') || 0) * 1000;
+    return ms;
+  }
+  function dtPopHtml(tr){
+    var ms = dtMs(tr);
+    if (!ms) return '';
+    var ref = (tr.getAttribute('data-ref') || '').trim();
+    var tz = lsGet('unmask:tz') || undefined; // undefined -> browser-local TZ
+    var local = fmtAt(ms, tz);
+    var utc = fmtAt(ms, 'UTC');
+    var body = '';
+    if (ref){
+      body += '<div class="dtpop-row"><span class="dtpop-k">Ref ID</span>' +
+        '<code class="dtpop-v dtpop-ref">' + esc(ref) + '</code></div>';
+    }
+    // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
+    // are self-labelling -- no locale-specific "Local" / "Time" caption needed.
+    if (local) body += '<div class="dtpop-time">' + esc(local) + '</div>';
+    if (utc && utc !== local) body += '<div class="dtpop-time dtpop-utc">' + esc(utc) + '</div>';
+    return '<div class="dtpop">' + body + '</div>';
+  }
+  document.querySelectorAll('table.events tbody td.at time.js-datetime').forEach(function(el){
+    var tr = el.closest('tr');
+    if (!tr) return;
+    el.classList.add('dtpop-trigger');
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var html = dtPopHtml(tr);
+      if (!html) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      var html = dtPopHtml(tr);
+      if (!html) return;
+      var ref = (tr.getAttribute('data-ref') || '').trim();
+      pin.handleClick(html, e.pageX, e.pageY, el, ref || fmtAt(dtMs(tr), lsGet('unmask:tz') || undefined));
     });
   });
 })();

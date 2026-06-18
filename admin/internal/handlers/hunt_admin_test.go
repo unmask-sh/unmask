@@ -146,14 +146,14 @@ func indexQuery(s string) int {
 // FetchPaged LIKE it feeds is always hex-only.
 func TestRefFromQuery(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"9fe5aa2f1ef4c1d3", "9fe5aa2f1ef4c1d3"},        // clean id (the normal paste)
-		{"9FE5AA2F1EF4C1D3", "9fe5aa2f1ef4c1d3"},        // uppercased -> lowered
+		{"9fe5aa2f1ef4c1d3", "9fe5aa2f1ef4c1d3"},         // clean id (the normal paste)
+		{"9FE5AA2F1EF4C1D3", "9fe5aa2f1ef4c1d3"},         // uppercased -> lowered
 		{"Ref ID: 9fe5aa2f1ef4c1d3", "9fe5aa2f1ef4c1d3"}, // whole footer text pasted
-		{"  9fe5aa2f1ef4c1d3  ", "9fe5aa2f1ef4c1d3"},    // surrounding whitespace
-		{"9fe5aa2f1ef4c1d399", "9fe5aa2f1ef4c1d3"},      // first 16-run wins
-		{"deadbeef", ""},                                // < 16 hex -> no filter
-		{"", ""},                                        // empty
-		{"'; DROP TABLE x --", ""},                      // no hex run -> no filter (LIKE-safe)
+		{"  9fe5aa2f1ef4c1d3  ", "9fe5aa2f1ef4c1d3"},     // surrounding whitespace
+		{"9fe5aa2f1ef4c1d399", "9fe5aa2f1ef4c1d3"},       // first 16-run wins
+		{"deadbeef", ""},           // < 16 hex -> no filter
+		{"", ""},                   // empty
+		{"'; DROP TABLE x --", ""}, // no hex run -> no filter (LIKE-safe)
 	}
 	for _, c := range cases {
 		if got := refFromQuery(c.in); got != c.want {
