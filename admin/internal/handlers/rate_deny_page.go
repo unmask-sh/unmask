@@ -134,6 +134,28 @@ func denyLangFromAccept(accept string) string {
 	return "en"
 }
 
+// refLabels localizes the short label that precedes the support correlation id
+// in the page footer ("<label> <id>").  Keyed by the same built-in language set
+// as denyI18N; the value is the established loanword abbreviation "Ref." for
+// Latin-script locales (matching how Cloudflare / Akamai leave their Ray ID /
+// Reference # untranslated) and a localized term where that reads oddly.
+// Anything unmapped falls back to "Ref.".
+var refLabels = map[string]string{
+	"en": "Ref.", "ja": "参照番号", "ko": "참조 번호",
+	"zh": "参考编号", "zh-Hant": "參考編號",
+	"de": "Ref.", "es": "Ref.", "fr": "Réf.", "it": "Rif.", "pt": "Ref.",
+	"pl": "Nr ref.", "id": "Ref.", "tr": "Ref.", "vi": "Mã tham chiếu",
+	"ru": "Код", "ar": "مرجع", "hi": "संदर्भ", "th": "รหัสอ้างอิง",
+}
+
+// refLabel returns the localized "Ref." label for lang, falling back to "Ref.".
+func refLabel(lang string) string {
+	if v, ok := refLabels[lang]; ok {
+		return v
+	}
+	return "Ref."
+}
+
 // denyMsgForPreset returns the (preset, lang) message, clamping an unknown
 // preset to friendly and an unknown lang to English.
 func denyMsgForPreset(preset, lang string) denyMsg {
@@ -187,8 +209,8 @@ type rateDenyData struct {
 	// Ref is the short support correlation id printed at the foot of the page so
 	// a blocked visitor can quote it; the operator resolves it via
 	// `unmask events --ref`.  Auto-escaped by html/template (it is bare hex
-	// anyway).  Empty -> the line is omitted.
-	Ref string
+	// anyway).  Empty -> the line is omitted.  RefLabel is its localized prefix.
+	Ref, RefLabel string
 	// Theme is "auto" | "light" | "dark"; it drives the <html data-theme>
 	// attribute that the static CSS keys off.  Keeping it an attribute value
 	// (not interpolated CSS) sidesteps html/template's CSS-context sanitizer.
@@ -256,7 +278,7 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 <h1>{{.Title}}</h1>
 <p>{{.Body}}</p>
 {{if .Footer}}<footer>{{.Footer}}</footer>{{end}}
-{{if .Ref}}<div class="ref">Ref {{.Ref}}</div>{{end}}
+{{if .Ref}}<div class="ref">{{.RefLabel}} {{.Ref}}</div>{{end}}
 </main>
 </body>
 </html>
@@ -306,6 +328,7 @@ func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, 
 		Footer:   br.FooterText,
 		LogoURL:  logoURL,
 		Ref:      ref,
+		RefLabel: refLabel(lang),
 		Theme:    theme,
 		Marker:   template.HTML(marker), //nolint:gosec // constant literal, no user input
 	}); err != nil {

@@ -148,6 +148,10 @@ body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px 
 .unmask-credit a:hover{text-decoration:underline}
 .unmask-credit img{width:1.1em;height:1.1em;display:block;border-radius:.2em;flex:none}
 body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgba(15,23,42,.72);color:#e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+/* support correlation id, bottom-center; theme-aware muted color (light base,
+   lighter on dark/terminal so it stays legible-but-subtle on every theme). */
+.unmask-ref{position:absolute;left:0;right:0;bottom:.7rem;text-align:center;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;pointer-events:none}
+body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
 </style>
 </head>
 <body>
@@ -278,6 +282,6 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
 <!-- support correlation id: the server replaces the comment below with "Ref <id>".
      An un-substituted build / stripped footer leaves an empty element rather than
      a stray label.  Absolute-positioned so it never disturbs the centered card. -->
-<div class="unmask-ref" style="position:absolute;left:0;right:0;bottom:.7rem;text-align:center;font-size:.72rem;color:#8a93a2;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;pointer-events:none"><!--__REF__--></div>
+<div class="unmask-ref"><!--__REF__--></div>
 </body>
 </html>
