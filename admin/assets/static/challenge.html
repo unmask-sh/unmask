@@ -150,7 +150,7 @@ body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px 
 body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgba(15,23,42,.72);color:#e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 /* support correlation id, bottom-center; theme-aware muted color (light base,
    lighter on dark/terminal so it stays legible-but-subtle on every theme). */
-.unmask-ref{position:absolute;left:50%;transform:translateX(-50%);bottom:3rem;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
+.unmask-ref{margin-top:2em;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
 body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
 </style>
 </head>
@@ -256,6 +256,12 @@ body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
   <!-- Branding footer: optional "Operated by …" string.  challenge.js fills
        textContent when window.__brand.footer_text is set. -->
   <div id="brand-foot" style="display:none;margin-top:1.2em;color:#94a3b8;font-size:.8em"></div>
+  <!-- Support correlation id.  The server replaces the comment below with
+       "Ref ID <id>".  In normal flow as the box's last line (= a fixed gap
+       below the challenge copy, not pinned to the viewport bottom) so it
+       reads like a receipt footer right under the text.  An un-substituted
+       build leaves an empty element rather than a stray label. -->
+  <div class="unmask-ref"><!--__REF__--></div>
 </div>
 <script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"default", challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/1500, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, brand: /*__BRANDING__*/null};
 (function(){
@@ -279,9 +285,5 @@ body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
 })();</script>
 <script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>
 <!--UNMASK_CREDIT_START--><aside class="unmask-credit"><a href="https://unmask.sh" target="_blank" rel="noopener"><img src="/unmask/static/icon.png" alt="" width="14" height="14">protected by unmask</a></aside><!--UNMASK_CREDIT_END-->
-<!-- support correlation id: the server replaces the comment below with "Ref <id>".
-     An un-substituted build / stripped footer leaves an empty element rather than
-     a stray label.  Absolute-positioned so it never disturbs the centered card. -->
-<div class="unmask-ref"><!--__REF__--></div>
 </body>
 </html>
