@@ -9,13 +9,15 @@
 #
 #   pass      : browser UA → DECLINED → Apache serves its DocumentRoot (200)
 #   challenge : curl UA    → 302 redirect to /unmask/challenge/
+#   block     : geo-denied → 302 redirect to /unmask/_ban (branded "blocked" page)
 #   skip      : /unmask/*  → bypassed by the lua, ProxyPass'd to admin (200)
 #
 # This is what guards the apache-web package: break the lua handler or the
 # conf's ProxyPass wiring and this scenario goes red.
 #
-# block (403) is intentionally not covered here — it needs deterministic ban
-# state setup; the endpoint-level verdicts are already covered by scenario 05.
+# The block case uses a geo-denied IP (CN rule = deny via UNMASK_TEST_GEO_OVERRIDE)
+# so it needs no persistent ban state, yet exercises the same lua block path a
+# ban deny takes.
 #
 # Each case sends a distinct X-Forwarded-For IP (RFC 5737 TEST-NET-3).  The
 # e2e Apache trusts XFF via mod_remoteip, so r.useragent_ip — and thus the
@@ -53,6 +55,28 @@ loc=$(grep -i '^Location:' "$hdr" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
 rm -f "$hdr"
 assert_eq "302" "$code" "challenge: curl UA → 302" || fails=$((fails+1))
 assert_in "/unmask/challenge/" "$loc" "challenge: redirect to challenge page" || fails=$((fails+1))
+
+# --- block: a geo-denied visitor is redirected to the branded "blocked" page ---
+# 192.0.2.82 -> CN via UNMASK_TEST_GEO_OVERRIDE; the CN geo rule = deny, so the
+# lua redirects to /unmask/_ban (the same branded page native mode serves for a
+# deny ban -- distinct from the challenge's /unmask/challenge/).
+hdr="$(mktemp)"
+code=$(curl -s -o /dev/null -D "$hdr" -w '%{http_code}' \
+    -A "$UA_BROWSER" -H 'X-Forwarded-For: 192.0.2.82' "${APACHE_URL}/some/path")
+loc=$(grep -i '^Location:' "$hdr" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
+rm -f "$hdr"
+assert_eq "302" "$code" "block: geo-denied visitor → 302" || fails=$((fails+1))
+assert_in "/unmask/_ban/" "$loc" "block: redirect to the branded blocked page (not the challenge)" || fails=$((fails+1))
+
+# follow the redirect: /unmask/_ban/ (ProxyPass'd to admin) serves the branded
+# "blocked" page with a 403 + the ban-deny marker.
+bbody="$(mktemp)"
+bcode=$(curl -sL -o "$bbody" -w '%{http_code}' \
+    -A "$UA_BROWSER" -H 'X-Forwarded-For: 192.0.2.82' "${APACHE_URL}/some/path")
+assert_eq "403" "$bcode" "block: following the redirect lands on a 403 blocked page" || fails=$((fails+1))
+assert_in "unmask:ban-deny" "$(cat "$bbody")" "block: branded ban-deny page served via Apache ProxyPass" || fails=$((fails+1))
+assert_in "Access blocked" "$(cat "$bbody")" "block: persistent 'blocked' wording (not 'too many requests')" || fails=$((fails+1))
+rm -f "$bbody"
 
 # --- skip: /unmask/* is passed through by the lua and proxied to admin ---
 code=$(curl -s -o /dev/null -w '%{http_code}' "${APACHE_URL}/unmask/healthz")

@@ -6,7 +6,7 @@
 --                   └→ branch on status / X-Unmask-Action:
 --                       pass      → apache2.DECLINED  (= forward as usual)
 --                       challenge → 302 to /unmask/challenge/
---                       block     → 403
+--                       block     → 302 to /unmask/_ban/ (branded "blocked" page)
 --
 -- Requires the `lua-socket` package (RHEL: EPEL `lua-socket` /
 -- Debian: `lua-socket`).  mod_lua itself has no HTTP client and no subrequest
@@ -81,7 +81,14 @@ function handle_request(r)
     end
     if code == 403 or action == "block" then
         r:err("[unmask] block: " .. (headers["x-unmask-reason"] or ""))
-        return 403
+        -- Serve the branded, localized "blocked" page the same way the
+        -- challenge is served in this mode: redirect to the unmask-hosted page.
+        -- /unmask/_ban returns it with a 403 (the same page native + nginx
+        -- forward-auth render).  This is the persistent-block surface (ban /
+        -- geo / honeypot); a rate-limit deny lands here too in pure Apache mode
+        -- (no nginx limit_req in front), shown as "blocked".
+        r.headers_out["Location"] = "/unmask/_ban/"
+        return 302
     end
     if code == 401 or action == "challenge" then
         -- Redirect to the challenge HTML served by unmask.
