@@ -533,6 +533,30 @@ func (w WebBotAuthConfig) IsOperatorAllowed(host string) bool {
 type BansConfig struct {
 	ManualDefaultAction        string `yaml:"manual_default_action,omitempty"`
 	CommunityBansDefaultAction string `yaml:"community_bans_default_action,omitempty"`
+	// DenyTheme / DenyCopyPreset: design of the ban "blocked" page, configured
+	// independently of the rate-limit deny page (a ban is persistent, a
+	// rate-limit deny is transient).  Same shape/semantics as the matching
+	// RateLimitConfig fields: theme "" / auto / light / dark; copy preset
+	// "" (inherit branding) / friendly / neutral / minimal.
+	DenyTheme      string `yaml:"deny_theme,omitempty"`
+	DenyCopyPreset string `yaml:"deny_copy_preset,omitempty"`
+}
+
+// ResolvedDenyTheme returns the ban deny page theme, defaulting to "auto".
+func (b BansConfig) ResolvedDenyTheme() string {
+	if IsValidDenyTheme(b.DenyTheme) {
+		return b.DenyTheme
+	}
+	return DenyThemeAuto
+}
+
+// ResolvedDenyCopyPreset returns the ban deny page copy preset: the explicit
+// DenyCopyPreset when set, otherwise brandingPreset (= inherit).
+func (b BansConfig) ResolvedDenyCopyPreset(brandingPreset string) string {
+	if IsValidBrandingPreset(b.DenyCopyPreset) {
+		return b.DenyCopyPreset
+	}
+	return brandingPreset
 }
 
 // ResolveAction returns the effective action for a given ban source.

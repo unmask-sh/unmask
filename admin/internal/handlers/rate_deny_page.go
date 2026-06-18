@@ -157,36 +157,85 @@ func denyMsgForPreset(preset, lang string) denyMsg {
 // banDenyMsgs is the deny page copy for a ban whose action is "deny".  Unlike a
 // rate-limit deny (transient -- clears once the client slows down, so its copy
 // invites a retry), a ban is persistent until the operator lifts it, so the
-// wording is "blocked" with no retry framing.  One tone only (a hard block does
-// not need the friendly/neutral/minimal spread), localized to the same 18
-// languages.  English is the fallback.
-var banDenyMsgs = map[string]denyMsg{
-	"en":      {"Access blocked", "Your access to this site has been blocked."},
-	"ja":      {"アクセスがブロックされています", "このサイトへのアクセスはブロックされています。"},
-	"de":      {"Zugriff blockiert", "Ihr Zugriff auf diese Website wurde blockiert."},
-	"es":      {"Acceso bloqueado", "Tu acceso a este sitio ha sido bloqueado."},
-	"fr":      {"Accès bloqué", "Votre accès à ce site a été bloqué."},
-	"it":      {"Accesso bloccato", "Il tuo accesso a questo sito è stato bloccato."},
-	"pt":      {"Acesso bloqueado", "Seu acesso a este site foi bloqueado."},
-	"ru":      {"Доступ заблокирован", "Ваш доступ к этому сайту заблокирован."},
-	"ko":      {"접근이 차단되었습니다", "이 사이트에 대한 접근이 차단되었습니다."},
-	"zh":      {"访问已被阻止", "您对本网站的访问已被阻止。"},
-	"zh-Hant": {"存取已遭封鎖", "您對本網站的存取已遭封鎖。"},
-	"ar":      {"تم حظر الوصول", "تم حظر وصولك إلى هذا الموقع."},
-	"hi":      {"पहुँच अवरुद्ध", "इस साइट तक आपकी पहुँच अवरुद्ध कर दी गई है।"},
-	"id":      {"Akses diblokir", "Akses Anda ke situs ini telah diblokir."},
-	"pl":      {"Dostęp zablokowany", "Twój dostęp do tej witryny został zablokowany."},
-	"th":      {"การเข้าถึงถูกบล็อก", "การเข้าถึงเว็บไซต์นี้ของคุณถูกบล็อก"},
-	"tr":      {"Erişim engellendi", "Bu siteye erişiminiz engellendi."},
-	"vi":      {"Quyền truy cập bị chặn", "Quyền truy cập của bạn vào trang web này đã bị chặn."},
+// wording is "blocked" with no retry framing.  Like the rate-limit deny it
+// carries the friendly/neutral/minimal tone spread (configured separately via
+// BansConfig.DenyCopyPreset), each localized to the same 18 languages.
+// "friendly" adds a "contact if this is a mistake" line; "neutral" is the plain
+// statement; "minimal" is terse.  English / friendly are the fallbacks.
+var banDenyMsgs = map[string]map[string]denyMsg{
+	settings.BrandingPresetFriendly: {
+		"en":      {"Access blocked", "Your access to this site is currently blocked. If you believe this is a mistake, please contact the site."},
+		"ja":      {"アクセスがブロックされています", "現在、このサイトへのアクセスはブロックされています。お心当たりがない場合は、サイト管理者までお問い合わせください。"},
+		"de":      {"Zugriff blockiert", "Ihr Zugriff auf diese Website ist derzeit blockiert. Falls dies ein Irrtum ist, wenden Sie sich bitte an den Websitebetreiber."},
+		"es":      {"Acceso bloqueado", "Tu acceso a este sitio está bloqueado actualmente. Si crees que es un error, ponte en contacto con el sitio."},
+		"fr":      {"Accès bloqué", "Votre accès à ce site est actuellement bloqué. Si vous pensez qu'il s'agit d'une erreur, veuillez contacter le site."},
+		"it":      {"Accesso bloccato", "Il tuo accesso a questo sito è attualmente bloccato. Se ritieni che si tratti di un errore, contatta il sito."},
+		"pt":      {"Acesso bloqueado", "Seu acesso a este site está bloqueado no momento. Se você acha que é um engano, entre em contato com o site."}, //nolint:misspell // "momento" is Portuguese for "moment"
+		"ru":      {"Доступ заблокирован", "Ваш доступ к этому сайту в настоящее время заблокирован. Если вы считаете это ошибкой, свяжитесь с владельцем сайта."},
+		"ko":      {"접근이 차단되었습니다", "현재 이 사이트에 대한 접근이 차단되어 있습니다. 오류라고 생각되면 사이트 관리자에게 문의해 주세요."},
+		"zh":      {"访问已被阻止", "您对本网站的访问当前已被阻止。如果您认为这是误判，请联系本网站。"},
+		"zh-Hant": {"存取已遭封鎖", "您對本網站的存取目前已遭封鎖。若您認為這是誤判，請聯絡本網站。"},
+		"ar":      {"تم حظر الوصول", "تم حظر وصولك إلى هذا الموقع حاليًا. إذا كنت تعتقد أن هذا خطأ، يرجى الاتصال بالموقع."},
+		"hi":      {"पहुँच अवरुद्ध", "इस साइट तक आपकी पहुँच फ़िलहाल अवरुद्ध है। यदि आपको लगता है कि यह एक त्रुटि है, तो कृपया साइट से संपर्क करें।"},
+		"id":      {"Akses diblokir", "Akses Anda ke situs ini saat ini diblokir. Jika menurut Anda ini keliru, silakan hubungi situs."},
+		"pl":      {"Dostęp zablokowany", "Twój dostęp do tej witryny jest obecnie zablokowany. Jeśli uważasz, że to pomyłka, skontaktuj się z witryną."},
+		"th":      {"การเข้าถึงถูกบล็อก", "ขณะนี้การเข้าถึงเว็บไซต์นี้ของคุณถูกบล็อก หากคุณคิดว่าเป็นความผิดพลาด โปรดติดต่อเว็บไซต์"},
+		"tr":      {"Erişim engellendi", "Bu siteye erişiminiz şu anda engellenmiş durumda. Bunun bir hata olduğunu düşünüyorsanız lütfen siteyle iletişime geçin."},
+		"vi":      {"Quyền truy cập bị chặn", "Quyền truy cập của bạn vào trang web này hiện đang bị chặn. Nếu bạn cho rằng đây là nhầm lẫn, vui lòng liên hệ với trang web."},
+	},
+	settings.BrandingPresetNeutral: {
+		"en":      {"Access blocked", "Your access to this site has been blocked."},
+		"ja":      {"アクセスがブロックされています", "このサイトへのアクセスはブロックされています。"},
+		"de":      {"Zugriff blockiert", "Ihr Zugriff auf diese Website wurde blockiert."},
+		"es":      {"Acceso bloqueado", "Tu acceso a este sitio ha sido bloqueado."},
+		"fr":      {"Accès bloqué", "Votre accès à ce site a été bloqué."},
+		"it":      {"Accesso bloccato", "Il tuo accesso a questo sito è stato bloccato."},
+		"pt":      {"Acesso bloqueado", "Seu acesso a este site foi bloqueado."},
+		"ru":      {"Доступ заблокирован", "Ваш доступ к этому сайту заблокирован."},
+		"ko":      {"접근이 차단되었습니다", "이 사이트에 대한 접근이 차단되었습니다."},
+		"zh":      {"访问已被阻止", "您对本网站的访问已被阻止。"},
+		"zh-Hant": {"存取已遭封鎖", "您對本網站的存取已遭封鎖。"},
+		"ar":      {"تم حظر الوصول", "تم حظر وصولك إلى هذا الموقع."},
+		"hi":      {"पहुँच अवरुद्ध", "इस साइट तक आपकी पहुँच अवरुद्ध कर दी गई है।"},
+		"id":      {"Akses diblokir", "Akses Anda ke situs ini telah diblokir."},
+		"pl":      {"Dostęp zablokowany", "Twój dostęp do tej witryny został zablokowany."},
+		"th":      {"การเข้าถึงถูกบล็อก", "การเข้าถึงเว็บไซต์นี้ของคุณถูกบล็อก"},
+		"tr":      {"Erişim engellendi", "Bu siteye erişiminiz engellendi."},
+		"vi":      {"Quyền truy cập bị chặn", "Quyền truy cập của bạn vào trang web này đã bị chặn."},
+	},
+	settings.BrandingPresetMinimal: {
+		"en":      {"Access blocked", "Access denied."},
+		"ja":      {"アクセスがブロックされています", "アクセスが拒否されました。"},
+		"de":      {"Zugriff blockiert", "Zugriff verweigert."},
+		"es":      {"Acceso bloqueado", "Acceso denegado."},
+		"fr":      {"Accès bloqué", "Accès refusé."},
+		"it":      {"Accesso bloccato", "Accesso negato."},
+		"pt":      {"Acesso bloqueado", "Acesso negado."},
+		"ru":      {"Доступ заблокирован", "Доступ запрещён."},
+		"ko":      {"접근이 차단되었습니다", "접근이 거부되었습니다."},
+		"zh":      {"访问已被阻止", "访问被拒绝。"},
+		"zh-Hant": {"存取已遭封鎖", "存取遭拒。"},
+		"ar":      {"تم حظر الوصول", "تم رفض الوصول."},
+		"hi":      {"पहुँच अवरुद्ध", "पहुँच अस्वीकृत।"},
+		"id":      {"Akses diblokir", "Akses ditolak."},
+		"pl":      {"Dostęp zablokowany", "Odmowa dostępu."},
+		"th":      {"การเข้าถึงถูกบล็อก", "ปฏิเสธการเข้าถึง"},
+		"tr":      {"Erişim engellendi", "Erişim reddedildi."},
+		"vi":      {"Quyền truy cập bị chặn", "Truy cập bị từ chối."},
+	},
 }
 
-// banDenyMsg returns the ban "blocked" message for lang, English as fallback.
-func banDenyMsg(lang string) denyMsg {
-	if m, ok := banDenyMsgs[lang]; ok {
+// banDenyMsgForPreset returns the ban "blocked" message for (preset, lang),
+// clamping an unknown preset to friendly and an unknown lang to English.
+func banDenyMsgForPreset(preset, lang string) denyMsg {
+	table, ok := banDenyMsgs[preset]
+	if !ok {
+		table = banDenyMsgs[settings.BrandingPresetFriendly]
+	}
+	if m, ok := table[lang]; ok {
 		return m
 	}
-	return banDenyMsgs["en"]
+	return table["en"]
 }
 
 type rateDenyData struct {
@@ -285,9 +334,9 @@ func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, b
 // renderBanDeny builds the deny page for a ban whose action is "deny".  Same
 // branded, themed shell as the rate-limit deny, but the "blocked" wording and a
 // distinct marker -- a ban is persistent (no "retry" framing fits).
-func renderBanDeny(br settings.BrandingValues, theme, acceptLanguage, basePath, ref string) []byte {
+func renderBanDeny(br settings.BrandingValues, preset, theme, acceptLanguage, basePath, ref string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	return renderDenyPage(br, banDenyMsg(lang), banDenyMarkerStr, theme, lang, basePath, ref)
+	return renderDenyPage(br, banDenyMsgForPreset(preset, lang), banDenyMarkerStr, theme, lang, basePath, ref)
 }
 
 // renderDenyPage renders the shared JS-free deny template with a resolved

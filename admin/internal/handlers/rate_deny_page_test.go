@@ -111,8 +111,8 @@ func TestRenderRateDeny(t *testing.T) {
 }
 
 func TestRenderBanDeny(t *testing.T) {
-	// English (default) + ban marker + "blocked" wording + branding
-	out := string(renderBanDeny(settings.BrandingValues{SiteName: "ACME"}, "auto", "en", "/unmask", ""))
+	// English (neutral) + ban marker + "blocked" wording + branding
+	out := string(renderBanDeny(settings.BrandingValues{SiteName: "ACME"}, "neutral", "auto", "en", "/unmask", ""))
 	for _, want := range []string{"<!-- unmask:ban-deny -->", `lang="en"`, "Access blocked", "ACME"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ban render missing %q in:\n%s", want, out)
@@ -124,29 +124,65 @@ func TestRenderBanDeny(t *testing.T) {
 	}
 
 	// localized (ja) + rtl (ar) + theme honored
-	if ja := string(renderBanDeny(settings.BrandingValues{}, "auto", "ja", "/unmask", "")); !strings.Contains(ja, "ブロック") {
+	if ja := string(renderBanDeny(settings.BrandingValues{}, "neutral", "auto", "ja", "/unmask", "")); !strings.Contains(ja, "ブロック") {
 		t.Errorf("ja ban not localized:\n%s", ja)
 	}
-	if ar := string(renderBanDeny(settings.BrandingValues{}, "dark", "ar", "/unmask", "")); !strings.Contains(ar, `dir="rtl"`) || !strings.Contains(ar, `data-theme="dark"`) {
+	if ar := string(renderBanDeny(settings.BrandingValues{}, "neutral", "dark", "ar", "/unmask", "")); !strings.Contains(ar, `dir="rtl"`) || !strings.Contains(ar, `data-theme="dark"`) {
 		t.Errorf("ar/dark ban render wrong:\n%s", ar)
 	}
 
-	// every language has a complete entry and renders with the ban marker; the
-	// ban language set matches the rate-limit deny set (same 18 languages)
-	neutral := denyMsgs[settings.BrandingPresetNeutral]
-	if len(banDenyMsgs) != len(neutral) {
-		t.Errorf("banDenyMsgs has %d languages, want %d", len(banDenyMsgs), len(neutral))
+	// the ban copy preset picks the tone; friendly adds the "mistake" line,
+	// minimal is terse, neutral is the plain statement -- an unknown preset
+	// falls back to friendly.
+	for _, tc := range []struct{ preset, want string }{
+		{settings.BrandingPresetFriendly, "If you believe this is a mistake"},
+		{settings.BrandingPresetNeutral, "Your access to this site has been blocked."},
+		{settings.BrandingPresetMinimal, "Access denied."},
+		{"bogus", "If you believe this is a mistake"},
+	} {
+		got := string(renderBanDeny(settings.BrandingValues{}, tc.preset, "auto", "en", "/unmask", ""))
+		if !strings.Contains(got, tc.want) {
+			t.Errorf("ban preset %q: want %q in:\n%s", tc.preset, tc.want, got)
+		}
 	}
-	for lang, m := range banDenyMsgs {
-		if _, ok := neutral[lang]; !ok {
-			t.Errorf("ban language %q absent from the rate-limit deny set", lang)
+
+	// every ban preset is complete: same 18-language set as the rate-limit deny,
+	// non-empty title/body, and each (preset, lang) renders with the ban marker.
+	rlNeutral := denyMsgs[settings.BrandingPresetNeutral]
+	for preset, table := range banDenyMsgs {
+		if len(table) != len(rlNeutral) {
+			t.Errorf("ban preset %q has %d languages, want %d", preset, len(table), len(rlNeutral))
 		}
-		if m.Title == "" || m.Body == "" {
-			t.Errorf("ban lang %q has empty title/body: %+v", lang, m)
+		for lang, m := range table {
+			if _, ok := rlNeutral[lang]; !ok {
+				t.Errorf("ban preset %q language %q absent from the rate-limit deny set", preset, lang)
+			}
+			if m.Title == "" || m.Body == "" {
+				t.Errorf("ban preset %q lang %q has empty title/body: %+v", preset, lang, m)
+			}
+			if body := string(renderBanDeny(settings.BrandingValues{}, preset, "auto", lang, "/unmask", "")); !strings.Contains(body, "<!-- unmask:ban-deny -->") {
+				t.Errorf("ban preset %q lang %q render missing marker", preset, lang)
+			}
 		}
-		if body := string(renderBanDeny(settings.BrandingValues{}, "auto", lang, "/unmask", "")); !strings.Contains(body, "<!-- unmask:ban-deny -->") {
-			t.Errorf("ban lang %q render missing marker", lang)
-		}
+	}
+}
+
+func TestResolvedBanDenyDesign(t *testing.T) {
+	// ban deny theme + copy preset resolve independently of the rate-limit deny.
+	b := settings.BansConfig{DenyTheme: "dark", DenyCopyPreset: "minimal"}
+	if got := b.ResolvedDenyTheme(); got != "dark" {
+		t.Errorf("ban ResolvedDenyTheme = %q, want dark", got)
+	}
+	if got := b.ResolvedDenyCopyPreset("friendly"); got != "minimal" {
+		t.Errorf("ban ResolvedDenyCopyPreset(friendly) = %q, want minimal (explicit override)", got)
+	}
+	// unset -> inherit branding / auto
+	empty := settings.BansConfig{}
+	if got := empty.ResolvedDenyTheme(); got != "auto" {
+		t.Errorf("unset ban theme = %q, want auto", got)
+	}
+	if got := empty.ResolvedDenyCopyPreset("neutral"); got != "neutral" {
+		t.Errorf("unset ban preset = %q, want neutral (inherit)", got)
 	}
 }
 
@@ -181,7 +217,7 @@ func TestDenyPageRef(t *testing.T) {
 		t.Errorf("ref not html-escaped:\n%s", esc)
 	}
 	// ban page carries it too.
-	if b := string(renderBanDeny(settings.BrandingValues{}, "auto", "en", "/unmask", "9f8e7-6d5c4")); !strings.Contains(b, "9f8e7-6d5c4") {
+	if b := string(renderBanDeny(settings.BrandingValues{}, "neutral", "auto", "en", "/unmask", "9f8e7-6d5c4")); !strings.Contains(b, "9f8e7-6d5c4") {
 		t.Errorf("ref not shown on the ban page:\n%s", b)
 	}
 	// the label is the universal "Ref ID:" token -- not per-language translated.

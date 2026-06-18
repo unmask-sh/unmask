@@ -1028,9 +1028,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "deny_design":
-		// Deny-page design (theme + wording tone) -- saved from the page-design
-		// section, separately from the rate-limit zones on the rate-limit tab.
-		if err := applyDenyDesignForm(&cur.RateLimit, r); err != nil {
+		// Deny-page design (theme + wording tone) for BOTH the rate-limit deny
+		// and the ban deny -- saved from the page-design section, separately from
+		// the rate-limit zones / ban rules themselves.
+		if err := applyDenyDesignForm(&cur.RateLimit, &cur.Nginx.Bans, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -2907,28 +2908,43 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 }
 
 // applyDenyDesignForm parses the deny-page design controls (light/dark theme +
-// wording tone) from the "ページデザイン → deny ページ" tab.  These live on
-// RateLimitConfig but are edited separately from the rate-limit zones/modes, so
-// this saves ONLY the two design fields and never touches Zones / Default.
-func applyDenyDesignForm(c *settings.RateLimitConfig, r *http.Request) error {
-	// Deny-page theme (light/dark of the JS-free deny page).  "auto" is the
-	// default, normalized to empty so it stays out of the persisted config.
-	if v := strings.TrimSpace(r.FormValue("deny_theme")); v == "" || v == settings.DenyThemeAuto {
-		c.DenyTheme = ""
-	} else if settings.IsValidDenyTheme(v) {
-		c.DenyTheme = v
-	} else {
-		return fmt.Errorf("deny_theme must be one of auto / light / dark (got %q)", v)
+// wording tone) from the "ページデザイン → deny ページ" tab.  The rate-limit deny
+// and the ban deny are designed separately, so this saves four fields across
+// two configs and never touches the rate-limit zones / ban rules themselves.
+func applyDenyDesignForm(rl *settings.RateLimitConfig, bans *settings.BansConfig, r *http.Request) error {
+	// theme: "" / "auto" -> empty (default, follows the visitor OS); else light/dark.
+	parseTheme := func(field string, dst *string) error {
+		if v := strings.TrimSpace(r.FormValue(field)); v == "" || v == settings.DenyThemeAuto {
+			*dst = ""
+		} else if settings.IsValidDenyTheme(v) {
+			*dst = v
+		} else {
+			return fmt.Errorf("%s must be one of auto / light / dark (got %q)", field, v)
+		}
+		return nil
 	}
-	// Deny-page copy preset (wording tone), independent of the branding preset.
-	// Empty / "inherit" -> follow the branding preset (normalized to empty so
-	// the default stays out of the persisted config).
-	if v := strings.TrimSpace(r.FormValue("deny_copy_preset")); v == "" || v == "inherit" {
-		c.DenyCopyPreset = ""
-	} else if settings.IsValidBrandingPreset(v) {
-		c.DenyCopyPreset = v
-	} else {
-		return fmt.Errorf("deny_copy_preset must be inherit / friendly / neutral / minimal (got %q)", v)
+	// preset (wording tone): "" / "inherit" -> empty (follow the branding preset).
+	parsePreset := func(field string, dst *string) error {
+		if v := strings.TrimSpace(r.FormValue(field)); v == "" || v == "inherit" {
+			*dst = ""
+		} else if settings.IsValidBrandingPreset(v) {
+			*dst = v
+		} else {
+			return fmt.Errorf("%s must be inherit / friendly / neutral / minimal (got %q)", field, v)
+		}
+		return nil
+	}
+	if err := parseTheme("deny_theme", &rl.DenyTheme); err != nil {
+		return err
+	}
+	if err := parsePreset("deny_copy_preset", &rl.DenyCopyPreset); err != nil {
+		return err
+	}
+	if err := parseTheme("ban_deny_theme", &bans.DenyTheme); err != nil {
+		return err
+	}
+	if err := parsePreset("ban_copy_preset", &bans.DenyCopyPreset); err != nil {
+		return err
 	}
 	return nil
 }

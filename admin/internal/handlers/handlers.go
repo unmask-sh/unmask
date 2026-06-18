@@ -720,9 +720,10 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg := h.cfg()
 	br := cfg.Branding.Resolve(site)
+	banPreset := cfg.Nginx.Bans.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write(renderBanDeny(br, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref))
+	_, _ = w.Write(renderBanDeny(br, banPreset, cfg.Nginx.Bans.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref))
 }
 
 // ServeChallenge: GET {base}/challenge/
@@ -1341,15 +1342,22 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	cfg := h.cfg()
 	br := cfg.Branding.Resolve(siteFromRequest(r, h.snapshotSettings()))
 	q := r.URL.Query()
+	isBan := strings.TrimSpace(q.Get("kind")) == "ban"
+	// Defaults come from the per-kind config -- the ban deny and the rate-limit
+	// deny are designed (theme + tone) separately.  ?theme= / ?preset= override
+	// so the settings page can preview an unsaved selection.
 	theme := cfg.RateLimit.ResolvedDenyTheme()
-	if t := strings.TrimSpace(q.Get("theme")); t != "" {
-		theme = t // renderRateDeny clamps an unknown value back to auto
-	}
-	// Preset: ?preset=friendly|neutral|minimal previews that tone; ?preset=inherit
-	// previews the branding preset (what "inherit" resolves to); absent -> the
-	// saved deny preset resolution.  Lets the settings page preview an unsaved
-	// selection of the deny copy-preset selector.
 	preset := cfg.RateLimit.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
+	if isBan {
+		theme = cfg.Nginx.Bans.ResolvedDenyTheme()
+		preset = cfg.Nginx.Bans.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
+	}
+	if t := strings.TrimSpace(q.Get("theme")); t != "" {
+		theme = t // renderDenyPage clamps an unknown value back to auto
+	}
+	// ?preset=friendly|neutral|minimal previews that tone; ?preset=inherit
+	// previews the branding preset (what "inherit" resolves to); absent -> the
+	// saved per-kind preset resolution.
 	switch p := strings.TrimSpace(q.Get("preset")); {
 	case p == "inherit":
 		preset = br.ResolvedCopyPreset()
@@ -1369,12 +1377,11 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	// ?kind=ban previews the ban "blocked" page (same theme, no copy preset);
-	// anything else previews the rate-limit deny page.
-	// Preview shows a sample ref so the operator sees the support-id footer in
-	// the layout; it records no event (a preview is not a real block).
-	if strings.TrimSpace(q.Get("kind")) == "ban" {
-		_, _ = w.Write(renderBanDeny(br, theme, accept, h.basePath(), newRef()))
+	// ?kind=ban previews the ban "blocked" page; anything else previews the
+	// rate-limit deny page.  Preview shows a sample ref so the operator sees the
+	// support-id footer in the layout; it records no event (not a real block).
+	if isBan {
+		_, _ = w.Write(renderBanDeny(br, preset, theme, accept, h.basePath(), newRef()))
 		return
 	}
 	_, _ = w.Write(renderRateDeny(br, preset, theme, accept, h.basePath(), newRef()))
