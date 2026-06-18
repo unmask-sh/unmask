@@ -5,6 +5,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<!-- Warm the Turnstile connection during parse so the external CAPTCHA widget
+     renders sooner (the provider script + challenge fetch is the bulk of the
+     wait).  Harmless on non-Turnstile pages: an unused warm connection. -->
+<link rel="dns-prefetch" href="https://challenges.cloudflare.com">
+<link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>
 <title>Security check</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -270,5 +275,9 @@ body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgb
 })();</script>
 <script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>
 <!--UNMASK_CREDIT_START--><aside class="unmask-credit"><a href="https://unmask.sh" target="_blank" rel="noopener"><img src="/unmask/static/icon.png" alt="" width="14" height="14">protected by unmask</a></aside><!--UNMASK_CREDIT_END-->
+<!-- support correlation id: the server replaces the comment below with "Ref <id>".
+     An un-substituted build / stripped footer leaves an empty element rather than
+     a stray label.  Absolute-positioned so it never disturbs the centered card. -->
+<div class="unmask-ref" style="position:absolute;left:0;right:0;bottom:.7rem;text-align:center;font-size:.72rem;color:#8a93a2;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;pointer-events:none"><!--__REF__--></div>
 </body>
 </html>
