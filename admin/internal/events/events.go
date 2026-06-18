@@ -28,8 +28,9 @@ const (
 	PhaseVerifyNG         Phase = "verify_ng"           // /verify rejected (= CAPTCHA failed)
 	PhaseError            Phase = "error"               // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
 	PhaseCookieErr        Phase = "cookie_err"
-	PhaseCheck            Phase = "check"     // single auth_request /api/check hit
-	PhaseBVRebind         Phase = "bv_rebind" // _bv silently re-bound to a new IP on the challenge route (roaming client, no PoW shown)
+	PhaseCheck            Phase = "check"          // single auth_request /api/check hit
+	PhaseBVRebind         Phase = "bv_rebind"      // _bv silently re-bound to a new IP on the challenge route (roaming client, no PoW shown)
+	PhaseBVRebindVeto     Phase = "bv_rebind_veto" // a rebind was refused because the new IP's ASN differs from the solve-time ASN (asn mode blocked a cross-carrier _bv replay); the client falls through to a real challenge
 )
 
 // allowedPhases gates which beacon phase strings the server accepts on
@@ -49,6 +50,7 @@ var allowedPhases = map[string]bool{
 	"cookie_err":          true,
 	"check":               true,
 	"bv_rebind":           true,
+	"bv_rebind_veto":      true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }

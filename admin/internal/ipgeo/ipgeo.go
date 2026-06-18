@@ -13,6 +13,7 @@ package ipgeo
 import (
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -69,8 +70,13 @@ func Open(geoPath, asnPath string) *Reader {
 	if env := strings.TrimSpace(os.Getenv("UNMASK_TEST_GEO_OVERRIDE")); env != "" {
 		r.overrides = map[string]Info{}
 		for _, pair := range strings.Split(env, ",") {
-			parts := strings.SplitN(strings.TrimSpace(pair), ":", 2)
-			if len(parts) != 2 {
+			// <ip>:<country>[:<asn>].  The optional 3rd field seeds Info.ASN so the
+			// e2e harness can exercise the roaming ASN veto without bundling a real
+			// ASN mmdb; any override carrying an ASN also flips asnReady on (the
+			// veto is gated on ASNLoaded()).  country is a 2-letter ISO code, so
+			// the extra ":" never collides with it.
+			parts := strings.SplitN(strings.TrimSpace(pair), ":", 3)
+			if len(parts) < 2 {
 				continue
 			}
 			ip := strings.TrimSpace(parts[0])
@@ -78,7 +84,14 @@ func Open(geoPath, asnPath string) *Reader {
 			if ip == "" || len(cc) != 2 {
 				continue
 			}
-			r.overrides[ip] = Info{Country: cc, CountryName: cc}
+			info := Info{Country: cc, CountryName: cc}
+			if len(parts) == 3 {
+				if asn, err := strconv.ParseUint(strings.TrimSpace(parts[2]), 10, 32); err == nil && asn > 0 {
+					info.ASN = uint(asn)
+					r.asnReady = true
+				}
+			}
+			r.overrides[ip] = info
 		}
 		if len(r.overrides) > 0 {
 			r.loaded = true

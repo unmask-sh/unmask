@@ -179,6 +179,15 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		// An unmappable side (private range, db gap, pre-ASN-db solve) fails
 		// closed: "unknown" must not read as "same network".
 		if curASN == 0 || claims.ASN == 0 || curASN != claims.ASN {
+			// Surface the genuine cross-AS block (both sides known, differ) as its
+			// own phase so the operator can SEE the asn gate refusing a _bv replayed
+			// from another carrier -- the refusal is otherwise silent (the client
+			// just falls through to the real challenge below, indistinguishable from
+			// a fresh visitor).  An unmappable side is a data gap, not a block, so it
+			// stays quiet to keep the signal high-value.
+			if curASN != 0 && claims.ASN != 0 {
+				h.logRebindVeto(r, site, ip, ja4, claims.Lineage, claims.ASN, curASN)
+			}
 			return false
 		}
 	}
@@ -225,6 +234,39 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 
 	h.serveRebindRedirect(w, origPath)
 	return true
+}
+
+// logRebindVeto records a cross-AS rebind refusal (asn mode: the new IP's ASN
+// differs from the solve-time ASN, so the _bv replay is rejected).  It mirrors
+// the bv_rebind success event so the two read side by side in the events table,
+// but under PhaseBVRebindVeto -- never PhaseBVRebind -- so it does not inflate
+// the "successfully re-bound" count.  Best-effort: an unpackable IP just skips
+// the row (the veto itself already happened at the call site).
+func (h *Handler) logRebindVeto(r *http.Request, site, ip, ja4, lineage string, solveASN, curASN uint) {
+	pkt := events.PackIP(ip)
+	if pkt == nil {
+		return
+	}
+	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	events.InsertAsync(h.DB, &events.Event{
+		Site:         site,
+		Host:         h.HostID,
+		Scheme:       schemeFromRequest(r),
+		Port:         portFromRequest(r),
+		IPPacked:     pkt,
+		UserAgent:    r.Header.Get("User-Agent"),
+		JA4:          ja4,
+		JA4Verdict:   verdict,
+		JA4VerdictID: h.VerdictNameToID(verdict),
+		Phase:        string(events.PhaseBVRebindVeto),
+		CookieBV:     readCookieMax(r, "_bv", 1024),
+		Payload: map[string]any{
+			"lineage":   lineage,
+			"solve_asn": solveASN,
+			"cur_asn":   curASN,
+			"reason":    "asn_mismatch",
+		},
+	})
 }
 
 // serveRebindRedirect bounces the just-rebound client back to its original

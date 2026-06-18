@@ -31,11 +31,19 @@ services:
              /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml &&
              /usr/local/bin/unmask serve       -config /etc/unmask/admin.yml"
     environment:
-      # Test-only mmdb stand-in: seed the country lookup with fixture pairs
-      # so scenario 12 can exercise the geo axis without bundling a real
-      # GeoLite2 mmdb (= licence + size cost not worth it for one test).
-      # 192.0.2.x is RFC 5737 documentation space, free for fixture use.
-      UNMASK_TEST_GEO_OVERRIDE: "192.0.2.81:JP,192.0.2.82:CN,192.0.2.83:US"
+      # Test-only mmdb stand-in: seed the country (and optionally ASN) lookup
+      # with fixture pairs so scenarios can exercise the geo axis AND the roaming
+      # ASN veto without bundling a real mmdb (= licence + size cost not worth it
+      # for tests).  Format: <ip>:<country>[:<asn>]; any entry carrying an ASN
+      # flips ASNLoaded() on.  192.0.2.x / 203.0.113.x / 198.51.100.x are RFC
+      # 5737 documentation space, free for fixture use; 64500/64501 are RFC 6996
+      # private ASNs.
+      #   .81/.82/.83 (country-only)             : scenario 12/13/14 geo axis
+      #   203.0.113.30 + 198.51.100.31-35 (64500): scenario 36 -- one carrier, so
+      #       the silent rebind still fires now that the veto is active
+      #   203.0.113.41 + 198.51.100.41 (64500)   : scenario 41 same-ASN  -> rebinds
+      #   198.51.100.42 (64501)                  : scenario 41 cross-ASN -> vetoed
+      UNMASK_TEST_GEO_OVERRIDE: "192.0.2.81:JP,192.0.2.82:CN,192.0.2.83:US,203.0.113.30:JP:64500,198.51.100.31:JP:64500,198.51.100.32:JP:64500,198.51.100.33:JP:64500,198.51.100.34:JP:64500,198.51.100.35:JP:64500,203.0.113.41:JP:64500,198.51.100.41:JP:64500,198.51.100.42:JP:64501"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
       interval: 2s

@@ -22,8 +22,9 @@
 #   - /api/bvj refuses to seed a fresh lineage off a kind="rebind" entry
 #     (= the budget-refill recursion stays closed)
 #
-# The ASN veto is auto-skipped here (no ASN mmdb in the e2e container);
-# RebindAllow unit tests cover the cap math, ipgeo the lookup.
+# The override now puts every IP here on ASN 64500 (one carrier), so the ASN
+# veto is ACTIVE but always passes (solve + roam share the AS); scenario 41
+# covers the cross-ASN refusal.  RebindAllow unit tests cover the cap math.
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
