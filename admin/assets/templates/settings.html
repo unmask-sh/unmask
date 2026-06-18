@@ -3856,7 +3856,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ if gt .Retention.EventsRows 0 }}{{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.EventsRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time>{{ end }}{{ end }}
+        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}{{ end }}
         {{ if .Retention.DBSizeStr }}{{ if gt .Retention.EventsRows 0 }} · {{ end }}{{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
       </div>
       {{ end }}
@@ -3880,7 +3880,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.CookieMinuteRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time>{{ end }}
+        {{ if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
       </div>
       {{ end }}
     </div>

@@ -3294,6 +3294,10 @@ type retentionStatsView struct {
 	CookieMinuteOldest   string // UTC fallback string, or ""
 	DBSize               int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
 	DBSizeStr            string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
+	// Whole days from the oldest row to now, for a "N days ago" hint shown next
+	// to the absolute timestamp.  0 when there is no row.
+	EventsOldestDaysAgo       int
+	CookieMinuteOldestDaysAgo int
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -3321,6 +3325,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	}
 	if v.EventsOldestTS > 0 {
 		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
+		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
 	}
 	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows); err != nil {
 		log.Printf("retentionStats cookie_minute count: %v", err)
@@ -3333,6 +3338,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	if oldestMin > 0 {
 		v.CookieMinuteOldestTS = oldestMin * 60
 		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
+		v.CookieMinuteOldestDaysAgo = int(time.Since(time.Unix(v.CookieMinuteOldestTS, 0)).Hours() / 24)
 	}
 	if h.cfg().DB.Driver == "sqlite" && h.cfg().DB.SQLitePath != "" {
 		if st, err := os.Stat(h.cfg().DB.SQLitePath); err == nil {

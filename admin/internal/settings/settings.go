@@ -1281,7 +1281,9 @@ type Settings struct {
 	// VersionCheckDisabled: opt out of the update check entirely (no outbound
 	// call at all).  Default false = the check runs.  Toggled from the About tab.
 	VersionCheckDisabled bool `yaml:"version_check_disabled,omitempty"`
-	// EventsRetentionDays: retention days for raw unmask_event rows. Default 90.
+	// EventsRetentionDays: retention days for raw unmask_event rows. Default 30
+	// (hunt is 24h, dashboard keeps its own aggregate up to 30d, so raw events
+	// past 30d only serve --ref lookups / audit).
 	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
 	// are not affected and persist forever. On admin server startup, a
 	// goroutine runs `DELETE FROM unmask_event WHERE date_created < now - N days`
@@ -1870,7 +1872,7 @@ func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 
 func defaults() Settings {
 	return Settings{
-		EventsRetentionDays:   90,
+		EventsRetentionDays:   30,
 		AuditRetentionDays:    90,
 		EventsBatchSize:       100,
 		EventsBatchIntervalMs: 1000,
