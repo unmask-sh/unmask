@@ -79,7 +79,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate-limit", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -882,7 +882,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1024,6 +1024,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "rate_limit":
 		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+	case "deny_design":
+		// Deny-page design (theme + wording tone) -- saved from the page-design
+		// section, separately from the rate-limit zones on the rate-limit tab.
+		if err := applyDenyDesignForm(&cur.RateLimit, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -1255,6 +1262,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 func tabForSection(s string) string {
 	if s == "branding" || s == "appearance" {
 		return "theme"
+	}
+	if s == "deny_design" {
+		return "deny-design"
 	}
 	return s
 }
@@ -2811,25 +2821,6 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		}
 		c.Default.ChallengeMode = v
 	}
-	// Deny-page theme (light/dark of the JS-free deny page).  "auto" is the
-	// default, normalized to empty so it stays out of the persisted config.
-	if v := strings.TrimSpace(r.FormValue("deny_theme")); v == "" || v == settings.DenyThemeAuto {
-		c.DenyTheme = ""
-	} else if settings.IsValidDenyTheme(v) {
-		c.DenyTheme = v
-	} else {
-		return fmt.Errorf("deny_theme must be one of auto / light / dark (got %q)", v)
-	}
-	// Deny-page copy preset (wording tone), independent of the branding preset.
-	// Empty / "inherit" -> follow the branding preset (normalized to empty so
-	// the default stays out of the persisted config).
-	if v := strings.TrimSpace(r.FormValue("deny_copy_preset")); v == "" || v == "inherit" {
-		c.DenyCopyPreset = ""
-	} else if settings.IsValidBrandingPreset(v) {
-		c.DenyCopyPreset = v
-	} else {
-		return fmt.Errorf("deny_copy_preset must be inherit / friendly / neutral / minimal (got %q)", v)
-	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"
@@ -2912,6 +2903,33 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		})
 	}
 	c.Zones = zones
+	return nil
+}
+
+// applyDenyDesignForm parses the deny-page design controls (light/dark theme +
+// wording tone) from the "ページデザイン → deny ページ" tab.  These live on
+// RateLimitConfig but are edited separately from the rate-limit zones/modes, so
+// this saves ONLY the two design fields and never touches Zones / Default.
+func applyDenyDesignForm(c *settings.RateLimitConfig, r *http.Request) error {
+	// Deny-page theme (light/dark of the JS-free deny page).  "auto" is the
+	// default, normalized to empty so it stays out of the persisted config.
+	if v := strings.TrimSpace(r.FormValue("deny_theme")); v == "" || v == settings.DenyThemeAuto {
+		c.DenyTheme = ""
+	} else if settings.IsValidDenyTheme(v) {
+		c.DenyTheme = v
+	} else {
+		return fmt.Errorf("deny_theme must be one of auto / light / dark (got %q)", v)
+	}
+	// Deny-page copy preset (wording tone), independent of the branding preset.
+	// Empty / "inherit" -> follow the branding preset (normalized to empty so
+	// the default stays out of the persisted config).
+	if v := strings.TrimSpace(r.FormValue("deny_copy_preset")); v == "" || v == "inherit" {
+		c.DenyCopyPreset = ""
+	} else if settings.IsValidBrandingPreset(v) {
+		c.DenyCopyPreset = v
+	} else {
+		return fmt.Errorf("deny_copy_preset must be inherit / friendly / neutral / minimal (got %q)", v)
+	}
 	return nil
 }
 
