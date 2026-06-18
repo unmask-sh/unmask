@@ -670,10 +670,19 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 			ln.Close()
 			return nil, "", fmt.Errorf("chmod %s: %w", path, err)
 		}
-		// Group owner.  Default "nginx".  Warn only if the group doesn't exist.
+		// Group owner.  The socket must be group-owned by a group the web
+		// server worker belongs to (it connects through group rw, see
+		// SocketMode 0660).  An explicit socket_group wins; when empty we probe
+		// the common web-server groups (nginx today, apache etc. planned) and
+		// use the first that exists instead of hard-coding nginx.  Warn only if
+		// the resolved group doesn't exist.
 		group := s.SocketGroup
 		if group == "" {
-			group = "nginx"
+			if g := detectWebServerGroup(); g != "" {
+				group = g
+			} else {
+				group = "nginx" // none found; keep nginx as the warning label below
+			}
 		}
 		if g, err := osuser.LookupGroup(group); err == nil {
 			gid, _ := strconv.Atoi(g.Gid)
@@ -693,6 +702,21 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		return nil, "", err
 	}
 	return ln, addr, nil
+}
+
+// detectWebServerGroup returns the first existing group among the common web
+// server groups, or "" if none exist.  The unix socket is group-owned by the
+// web server's group so its worker can connect (group rw); that group differs
+// by web server / distro -- nginx, apache (RHEL), www-data (Debian/Ubuntu),
+// http (Arch).  Probing keeps `socket_group: ""` correct everywhere instead of
+// assuming nginx, which matters once native mode grows beyond nginx (apache, …).
+func detectWebServerGroup() string {
+	for _, cand := range []string{"nginx", "apache", "www-data", "http", "www"} {
+		if _, err := osuser.LookupGroup(cand); err == nil {
+			return cand
+		}
+	}
+	return ""
 }
 
 // parseFileMode interprets an octal string like "0660" as os.FileMode.  Empty

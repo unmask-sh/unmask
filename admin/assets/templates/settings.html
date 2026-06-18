@@ -588,7 +588,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
         <div>
           <label>{{ t .Lang "settings.network.listen_sock_group" }}</label>
-          <input type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="nginx">
+          <input type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="{{ t .Lang "settings.network.listen_sock_group_ph" }}">
         </div>
       </div>
     </div>

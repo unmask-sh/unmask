@@ -428,12 +428,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			return n
 		}(),
 		// listen mode (= TCP / unix socket). Distinguished by the "unix:" prefix on bind.
-		"ListenMode":            listenModeOf(h.cfg().Server),
-		"ListenBind":            h.cfg().Server.Bind,
-		"ListenPort":            h.cfg().Server.Port,
-		"ListenSockPath":        defStr(socketPathOf(h.cfg().Server), settings.DefaultListenSocket),
-		"ListenSockMode":        defStr(h.cfg().Server.SocketMode, "0660"),
-		"ListenSockGroup":       defStr(h.cfg().Server.SocketGroup, "nginx"),
+		"ListenMode":     listenModeOf(h.cfg().Server),
+		"ListenBind":     h.cfg().Server.Bind,
+		"ListenPort":     h.cfg().Server.Port,
+		"ListenSockPath": defStr(socketPathOf(h.cfg().Server), settings.DefaultListenSocket),
+		"ListenSockMode": defStr(h.cfg().Server.SocketMode, "0660"),
+		// Keep empty when unset (do NOT default to "nginx"): an empty value lets
+		// the daemon auto-detect the web server's group at listen time, so
+		// forcing "nginx" into the field would pin it and break apache hosts.
+		"ListenSockGroup":       h.cfg().Server.SocketGroup,
 		"EventsRetentionDays":   h.cfg().EventsRetentionDays,
 		"EventsBatchSize":       h.cfg().EventsBatchSize,
 		"EventsBatchIntervalMs": h.cfg().EventsBatchIntervalMs,
