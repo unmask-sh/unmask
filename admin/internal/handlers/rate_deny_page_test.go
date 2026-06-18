@@ -184,11 +184,11 @@ func TestDenyPageRef(t *testing.T) {
 	if b := string(renderBanDeny(settings.BrandingValues{}, "auto", "en", "/unmask", "9f8e7-6d5c4")); !strings.Contains(b, "9f8e7-6d5c4") {
 		t.Errorf("ref not shown on the ban page:\n%s", b)
 	}
-	// the label is localized from Accept-Language: "Ref." (en) / "参照番号" (ja).
-	if en := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "a1b2c-3d4e5")); !strings.Contains(en, "Ref. a1b2c-3d4e5") {
-		t.Errorf("en ref label not 'Ref.':\n%s", en)
+	// the label is the universal "Ref" token -- not per-language translated.
+	if en := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "a1b2c-3d4e5")); !strings.Contains(en, "Ref a1b2c-3d4e5") {
+		t.Errorf("ref label not 'Ref':\n%s", en)
 	}
-	if ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja", "/unmask", "a1b2c-3d4e5")); !strings.Contains(ja, "参照番号 a1b2c-3d4e5") {
-		t.Errorf("ja ref label not localized:\n%s", ja)
+	if ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja", "/unmask", "a1b2c-3d4e5")); !strings.Contains(ja, "Ref a1b2c-3d4e5") {
+		t.Errorf("ja must use the same universal 'Ref' label, not a translation:\n%s", ja)
 	}
 }

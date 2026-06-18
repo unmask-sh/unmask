@@ -1094,13 +1094,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// runs `unmask events --ref <id>` to pull up this exact serve + its decision
 	// context (verdict / flags / ip / ja4 / time).
 	ref := newRef()
-	// Substitute the whole visible string (localized label + id) so an
-	// un-substituted build degrades to an empty element rather than a stray
-	// label.  Label localized server-side from Accept-Language -- the same source
-	// the deny page uses; it matches challenge.js's client-side language in the
-	// common case (the two rarely disagree).
-	refTxt := refLabel(denyLangFromAccept(r.Header.Get("Accept-Language"))) + " " + ref
-	body = bytes.ReplaceAll(body, []byte(refPlaceholder), []byte(refTxt))
+	// Substitute the whole visible string (label + id) so an un-substituted build
+	// degrades to an empty element rather than a stray label.  The label is the
+	// universal "Ref" token (refLabelText) -- same as the deny page.
+	body = bytes.ReplaceAll(body, []byte(refPlaceholder), []byte(refLabelText+" "+ref))
 
 	// "protected by unmask" credit: when OFF in settings (default), strip the
 	// marker region from the HTML.  When ON, drop only the markers and keep
