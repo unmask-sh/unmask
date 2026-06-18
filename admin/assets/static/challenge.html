@@ -150,7 +150,7 @@ body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px 
 body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgba(15,23,42,.72);color:#e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 /* support correlation id, bottom-center; theme-aware muted color (light base,
    lighter on dark/terminal so it stays legible-but-subtle on every theme). */
-.unmask-ref{position:absolute;left:0;right:0;bottom:1.8rem;text-align:center;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;pointer-events:none}
+.unmask-ref{position:absolute;left:50%;transform:translateX(-50%);bottom:3rem;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
 body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
 </style>
 </head>
