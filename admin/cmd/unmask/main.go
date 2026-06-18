@@ -678,8 +678,11 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		// the resolved group doesn't exist.
 		group := s.SocketGroup
 		if group == "" {
-			if g := detectWebServerGroup(); g != "" {
+			if g, all := detectWebServerGroup(); g != "" {
 				group = g
+				if len(all) > 1 {
+					log.Printf("socket group: multiple web server groups found (%s); using %q -- set socket_group explicitly if the front-end is not %s", strings.Join(all, ", "), g, g)
+				}
 			} else {
 				group = "nginx" // none found; keep nginx as the warning label below
 			}
@@ -704,19 +707,28 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 	return ln, addr, nil
 }
 
-// detectWebServerGroup returns the first existing group among the common web
-// server groups, or "" if none exist.  The unix socket is group-owned by the
-// web server's group so its worker can connect (group rw); that group differs
-// by web server / distro -- nginx, apache (RHEL), www-data (Debian/Ubuntu),
-// http (Arch).  Probing keeps `socket_group: ""` correct everywhere instead of
-// assuming nginx, which matters once native mode grows beyond nginx (apache, …).
-func detectWebServerGroup() string {
+// detectWebServerGroup probes the common web server groups and returns the
+// first existing one plus the full list of those that exist (or "", nil when
+// none).  The unix socket is group-owned by the web server's group so its
+// worker can connect (group rw); that group differs by web server / distro --
+// nginx, apache (RHEL), www-data (Debian/Ubuntu), http (Arch).  Probing keeps
+// `socket_group: ""` correct everywhere instead of assuming nginx, which
+// matters once native mode grows beyond nginx (apache, …).
+//
+// The second return lets the caller warn when more than one is installed: the
+// pick is order-based (nginx wins), so a host that runs apache behind unmask
+// but also has nginx installed needs an explicit socket_group.
+func detectWebServerGroup() (string, []string) {
+	var found []string
 	for _, cand := range []string{"nginx", "apache", "www-data", "http", "www"} {
 		if _, err := osuser.LookupGroup(cand); err == nil {
-			return cand
+			found = append(found, cand)
 		}
 	}
-	return ""
+	if len(found) == 0 {
+		return "", nil
+	}
+	return found[0], found
 }
 
 // parseFileMode interprets an octal string like "0660" as os.FileMode.  Empty
