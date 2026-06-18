@@ -366,35 +366,69 @@
   function mountExternalCaptcha(provider, siteKey){
     var mount = document.getElementById('extCaptcha');
     mount.style.display='block';
-    function done(token){
-      submitProviderToken(token);
+    mount.innerHTML='';
+    // Loading spinner shown from now until the provider's widget iframe is
+    // actually in the DOM.  Both the provider script download AND the widget's
+    // own challenge fetch can take several seconds; clearing on script-load
+    // alone leaves a multi-second blank box that reads as broken.  The provider
+    // mounts into a separate child (`widget`) so the spinner can persist until
+    // its iframe appears -- then the widget's own loading UI takes over.
+    var spin = document.createElement('div');
+    spin.className='spinner';
+    spin.style.cssText='width:28px;height:28px;border-width:3px;margin:.2em auto';
+    var widget = document.createElement('div');
+    mount.appendChild(spin); mount.appendChild(widget);
+    function stopSpin(){ if (spin.parentNode) spin.parentNode.removeChild(spin); }
+    function spinUntilWidget(){
+      // Clear our spinner once the provider's own widget box is visible (its own
+      // "verifying" UI then takes over).  Detect this with a ResizeObserver on
+      // the mount child -- NOT a MutationObserver: the provider renders into a
+      // shadow DOM / cross-origin iframe whose internal changes never reach a
+      // MutationObserver (or querySelector) on the host, but the host's SIZE
+      // change when the widget paints does.  Avoids a blank gap, a stuck double
+      // spinner, AND a false error while the widget is actually showing.
+      function visible(){ return widget.getBoundingClientRect().height > 8; }
+      var tm = setTimeout(function(){ if (!visible()) extFail('ext_load_timeout')(); }, 10000);
+      function onShown(){ stopSpin(); clearTimeout(tm); }
+      if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(function(){ if (visible()) { ro.disconnect(); onShown(); } });
+        ro.observe(widget);
+      } else {
+        var iv = setInterval(function(){ if (visible()) { clearInterval(iv); onShown(); } }, 150);
+      }
     }
+    // error / timeout: external widgets can fail silently (= provider key not
+    // enabled for this domain, network blocked, script blocked).  Surface it
+    // instead of leaving a blank/stuck box the visitor cannot act on.
+    function extFail(kind){ return function(e){ stopSpin(); widget.innerHTML=''; showError(t.error); _bcDebug('error', { kind:kind, provider:provider, error:(e===undefined?'':String(e)) }); }; }
+    function done(token){ submitProviderToken(token); }
     if (provider === 'turnstile') {
       window._unmaskTurnstileCb = function(){
-        try { window.turnstile.render(mount, { sitekey: siteKey, callback: done }); }
-        catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        try { spinUntilWidget(); window.turnstile.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb'), 'timeout-callback': extFail('ext_timeout_cb') }); }
+        catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=_unmaskTurnstileCb&render=explicit');
     } else if (provider === 'hcaptcha') {
       window._unmaskHcaptchaCb = function(){
-        try { window.hcaptcha.render(mount, { sitekey: siteKey, callback: done }); }
-        catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        try { spinUntilWidget(); window.hcaptcha.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb') }); }
+        catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://js.hcaptcha.com/1/api.js?onload=_unmaskHcaptchaCb&render=explicit');
     } else if (provider === 'recaptcha') {
-      // v3 invisible: automatically execute -> token -> submit.  UI is just spinner + description.
-      mount.innerHTML = '<div class="spinner" style="margin:0 auto"></div>';
+      // v3 invisible: no widget iframe, so keep the spinner until the token
+      // resolves (or fails) -- there is nothing else for the visitor to see.
       window._unmaskRecaptchaCb = function(){
         try {
           window.grecaptcha.ready(function(){
-            window.grecaptcha.execute(siteKey, { action: 'unmask' }).then(done).catch(function(e){
-              showError(t.error); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
+            window.grecaptcha.execute(siteKey, { action: 'unmask' }).then(function(tok){ stopSpin(); done(tok); }).catch(function(e){
+              stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
             });
           });
-        } catch(e){ showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        } catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://www.google.com/recaptcha/api.js?render=' + encodeURIComponent(siteKey) + '&onload=_unmaskRecaptchaCb');
     } else {
+      stopSpin();
       showError(t.error);
       _bcDebug('error', { kind:'ext_unknown_provider', provider: provider });
     }
