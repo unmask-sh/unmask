@@ -888,33 +888,20 @@
   // After PoW completion + cookie set (read back immediately to verify the set succeeded)
   var _bv_set_ok = /(?:^|;\s*)_bv=/.test(document.cookie);
   _bcDebug('bv_pow_only', { pow_iterations: target, pow_elapsed_ms: elapsed, cookie_set_ok: _bv_set_ok, token_flags: flags });
+  // Fetch the roaming-rebind credential (_bvj) for this solve.  The server
+  // gates it on the _bv we just set, so this must run after the cookie write.
+  // keepalive lets the Set-Cookie land even if the redirect below wins the
+  // race; failures are non-fatal (the next network change re-challenges as
+  // before, same as without the feature).
+  if (_bv_set_ok) {
+    try { fetch(API_BASE + '/bvj', { method:'POST', keepalive:true }).catch(function(){}); } catch (_) {}
+  }
+
   // If the cookie can't be written, reloading won't help, so show an error and give up
   if (!_bv_set_ok) {
     showCookieError();
     return;
   }
-  // Fetch the roaming-rebind credential (_bvj), then gate the redirect on its
-  // Set-Cookie landing.  The server mints _bvj off the _bv we just set, so this
-  // runs after the cookie write.  The old code fired this and redirected ~100ms
-  // later (Math.max(800-elapsed,100)); on a high-latency link the Set-Cookie
-  // arrived AFTER the redirect, leaving a window where the next IP change (a 5G
-  // handoff) found no _bvj yet and ate a needless PoW.  Now the redirect awaits
-  // the POST settling -- overlapped with the existing minimum-show delay so the
-  // visible wait is unchanged on a fast link -- and capped so a slow/failed /bvj
-  // still lets the visitor through (the next change re-challenges, the old
-  // fallback).  keepalive keeps the request alive across the eventual redirect.
   var wait=Math.max(800-elapsed,100);
-  var t0=Date.now();
-  var navigated=false;
-  function go(){
-    if (navigated) { return; }
-    navigated=true;
-    setTimeout(function(){passAndRedirect();}, Math.max(wait-(Date.now()-t0),0));
-  }
-  var bvjCap=setTimeout(go, 1500);
-  try {
-    fetch(API_BASE + '/bvj', { method:'POST', keepalive:true })
-      .then(function(){ clearTimeout(bvjCap); go(); })
-      .catch(function(){ clearTimeout(bvjCap); go(); });
-  } catch (_) { clearTimeout(bvjCap); go(); }
+  setTimeout(function(){passAndRedirect();},wait);
 })();
