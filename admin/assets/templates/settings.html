@@ -2285,9 +2285,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="field">
       <label class="captcha-opt"><input type="radio" name="provider" value="builtin"   {{ if or (eq .Captcha.Provider "") (eq .Captcha.Provider "builtin") }}checked{{ end }}>
         <strong>{{ t .Lang "settings.captcha.provider.builtin" }}</strong>
+        <button type="button" class="ua-help-trigger" data-help-target="captcha-builtin-help" aria-label="?">?</button>
         <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.no_setup" }}</span>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.fast" }}</span>
-        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</div>
         <div class="captcha-keys">
           <label class="captcha-keylabel">
             {{ t .Lang "settings.captcha.builtin.score_threshold" }}
@@ -2298,38 +2298,42 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </label>
           <script type="text/html" id="builtin-score-help">{{ safeHTML (t .Lang "settings.captcha.builtin.score_threshold_help") }}</script>
         </div>
+        <script type="text/html" id="captcha-builtin-help">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="turnstile" {{ if eq .Captcha.Provider "turnstile" }}checked{{ end }}>
         <strong>Cloudflare Turnstile</strong>
+        <button type="button" class="ua-help-trigger" data-help-target="captcha-turnstile-help" aria-label="?">?</button>
         <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.recommended" }}</span>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.free" }}</span>
-        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.turnstile_desc") }}</div>
         <div class="captcha-keys">
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="turnstile_site_key"   value="{{ .Captcha.TurnstileSiteKey }}" autocomplete="off" placeholder="0x4AAAAAAA..."></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="turnstile_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.TurnstileSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}0x4AAAAAAA...{{ end }}"></label>
         </div>
+        <script type="text/html" id="captcha-turnstile-help">{{ safeHTML (t .Lang "settings.captcha.provider.turnstile_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="hcaptcha"  {{ if eq .Captcha.Provider "hcaptcha" }}checked{{ end }}>
         <strong>hCaptcha</strong>
+        <button type="button" class="ua-help-trigger" data-help-target="captcha-hcaptcha-help" aria-label="?">?</button>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.free" }}</span>
-        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.hcaptcha_desc") }}</div>
         <div class="captcha-keys">
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="hcaptcha_site_key"   value="{{ .Captcha.HCaptchaSiteKey }}" autocomplete="off" placeholder="00000000-0000-..."></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="hcaptcha_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.HCaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}ES_...{{ end }}"></label>
         </div>
+        <script type="text/html" id="captcha-hcaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.hcaptcha_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="recaptcha" {{ if eq .Captcha.Provider "recaptcha" }}checked{{ end }}>
         <strong>Google reCAPTCHA v3</strong>
+        <button type="button" class="ua-help-trigger" data-help-target="captcha-recaptcha-help" aria-label="?">?</button>
         <span class="captcha-tag captcha-tag-warn">{{ t .Lang "settings.captcha.tag.privacy" }}</span>
-        <div class="captcha-prov-desc">{{ safeHTML (t .Lang "settings.captcha.provider.recaptcha_desc") }}</div>
         <div class="captcha-keys">
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="recaptcha_site_key"   value="{{ .Captcha.RecaptchaSiteKey }}" autocomplete="off" placeholder="6Lc..."></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="recaptcha_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.RecaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}6Lc...{{ end }}"></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.recaptcha_min_score" }}<input type="number" name="recaptcha_min_score" min="0" max="1" step="0.05" value="{{ if gt .Captcha.RecaptchaMinScore 0.0 }}{{ .Captcha.RecaptchaMinScore }}{{ else }}0.5{{ end }}" style="width:6rem"></label>
         </div>
+        <script type="text/html" id="captcha-recaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.recaptcha_desc") }}</script>
       </label>
     </div>
   </div>
