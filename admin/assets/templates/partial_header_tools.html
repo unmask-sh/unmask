@@ -140,7 +140,7 @@
     // Operator language picker controls the rest of the UI -- only the
     // datetime layout is forced here, deliberately.
     var tzVal = lsGet('unmask:tz') || undefined; // undefined → Intl auto
-    var dtFmt, dFmt;
+    var dtFmt, dtFmtNoTz, dFmt;
     try {
       dtFmt = new Intl.DateTimeFormat('ja', {
         timeZone: tzVal,
@@ -148,6 +148,16 @@
         hour: '2-digit', minute: '2-digit', second: '2-digit',
         hour12: false,
         timeZoneName: 'short',
+      });
+      // Same layout minus the tz abbreviation.  Used for .js-datetime-notz
+      // elements (= the hunt / overview events table) where the tz already
+      // shows in the datetime popover, so the inline 'JST' suffix is redundant
+      // and only eats column width.
+      dtFmtNoTz = new Intl.DateTimeFormat('ja', {
+        timeZone: tzVal,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false,
       });
       dFmt = new Intl.DateTimeFormat('ja', {
         timeZone: tzVal,
@@ -157,7 +167,8 @@
     document.querySelectorAll('.js-datetime[data-ts]').forEach(function(el){
       var ts = parseInt(el.getAttribute('data-ts'), 10);
       if (!ts || isNaN(ts)) return;
-      el.textContent = dtFmt.format(new Date(ts * 1000));
+      var fmt = el.classList.contains('js-datetime-notz') ? dtFmtNoTz : dtFmt;
+      el.textContent = fmt.format(new Date(ts * 1000));
     });
     document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
       var ts = parseInt(el.getAttribute('data-ts'), 10);
