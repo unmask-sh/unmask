@@ -1188,10 +1188,14 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// crawlers).  unmask_crawler_minute is install-wide; the site filter
 	// doesn't narrow it, but we still expose the data so the stats card
 	// can show the "all" tab alongside the site-scoped "served" view.
-	run("AITrafficAll", func() error { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60); return nil })
+	// return ctx.Err() (not nil): aiTrafficSummary / aiTrafficDrilldown swallow
+	// their query error internally and just yield zero rows, so without this a
+	// deadline-exceeded would leave the AI card silently empty instead of
+	// joining the FailedCards banner like every other card on this dashboard.
+	run("AITrafficAll", func() error { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60); return ctx.Err() })
 	// Per-crawler drill-down for the "all" tab's popover (= same window as
 	// AITrafficAll, resolved category -> individual crawler).
-	run("AITrafficDetail", func() error { aiTrafficDetail = aiTrafficDrilldown(ctx, h, hours*60); return nil })
+	run("AITrafficDetail", func() error { aiTrafficDetail = aiTrafficDrilldown(ctx, h, hours*60); return ctx.Err() })
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).

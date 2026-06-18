@@ -276,12 +276,19 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 	var siteGhosts []GhostSite
 	var hostInventory []dashboard.HostInfo
+	var sitesTimedOut bool
 	if tab == "sites" {
-		gctx, gcancel := context.WithTimeout(r.Context(), 3*time.Second)
+		// 10s, not 3s: ghostSites + HostInventory both run GROUP BY aggregates
+		// over unmask_event, and on a large DB the old 3s budget expired -- the
+		// template then gated out the host table / ghost list as a false "none
+		// observed".  Share one budget across both (sequential) and flag a
+		// timeout so the template can warn instead of lying about empty data.
+		gctx, gcancel := context.WithTimeout(r.Context(), 10*time.Second)
 		siteGhosts = h.ghostSites(gctx, 24*30)
 		if h.DB != nil {
 			hostInventory, _ = dashboard.HostInventory(gctx, h.DB)
 		}
+		sitesTimedOut = gctx.Err() != nil
 		gcancel()
 		// Ensure every disabled host is listed (= re-enablable) even if it has
 		// no events left — otherwise it would be unreachable from the UI.
@@ -534,6 +541,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// picker + excluded from aggregation, toggled per row).
 		"HostInventory": hostInventory,
 		"HostDisabled":  hostDisabled,
+		// SitesTimedOut: the ghostSites / HostInventory aggregates hit the
+		// deadline, so an empty list is "couldn't read", not "nothing there".
+		"SitesTimedOut": sitesTimedOut,
 		// CAPTCHA provider settings (= used by the captcha tab).
 		// Pulled from the Default record; the captcha tab edits the global
 		// default only.  Per-site captcha provider override is part of the
@@ -3298,6 +3308,11 @@ type retentionStatsView struct {
 	// to the absolute timestamp.  0 when there is no row.
 	EventsOldestDaysAgo       int
 	CookieMinuteOldestDaysAgo int
+	// TimedOut is set when one of the COUNT(*)/MIN() queries hit the context
+	// deadline (or was cancelled) -- typically a large DB whose full-scan COUNT
+	// outran the budget.  The template surfaces a warning instead of silently
+	// rendering the zeroed-out counts as if the DB were genuinely empty.
+	TimedOut bool
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -3311,30 +3326,34 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	if h == nil || h.DB == nil {
 		return v
 	}
-	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows); err != nil {
-		log.Printf("retentionStats events count: %v", err)
+	// note logs a query error and, when it is a context deadline/cancel, flags
+	// the view as incomplete so the template can warn instead of rendering the
+	// zeroed-out counts as if the DB were genuinely empty.
+	note := func(label string, err error) {
+		if err == nil {
+			return
+		}
+		log.Printf("retentionStats %s: %v", label, err)
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			v.TimedOut = true
+		}
 	}
+	note("events count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows))
 	// Oldest unmask_event row as unix seconds.  The column is TEXT; convert
 	// driver-side so we don't have to parse multiple datetime formats in Go.
 	eventsOldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
 	if h.cfg().DB.Driver == "mariadb" {
 		eventsOldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
 	}
-	if err := h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS); err != nil {
-		log.Printf("retentionStats events oldest: %v", err)
-	}
+	note("events oldest", h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS))
 	if v.EventsOldestTS > 0 {
 		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
 	}
-	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows); err != nil {
-		log.Printf("retentionStats cookie_minute count: %v", err)
-	}
+	note("cookie_minute count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows))
 	var oldestMin int64
-	if err := h.DB.QueryRowContext(ctx,
-		`SELECT COALESCE(MIN(bucket_min), 0) FROM unmask_cookie_minute`).Scan(&oldestMin); err != nil {
-		log.Printf("retentionStats cookie_minute oldest: %v", err)
-	}
+	note("cookie_minute oldest", h.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(MIN(bucket_min), 0) FROM unmask_cookie_minute`).Scan(&oldestMin))
 	if oldestMin > 0 {
 		v.CookieMinuteOldestTS = oldestMin * 60
 		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")

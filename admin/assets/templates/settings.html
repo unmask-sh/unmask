@@ -3852,6 +3852,9 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
       <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      {{ if .Retention.TimedOut }}
+      <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
+      {{ end }}
       {{ if or (gt .Retention.EventsRows 0) .Retention.DBSizeStr }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ if gt .Retention.EventsRows 0 }}{{ t .Lang "settings.retention.current_label" }}:
@@ -3976,6 +3979,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ end }}
     </tbody>
   </table>
+  {{ else if $.SitesTimedOut }}
+  <p class="note" style="margin:0;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.sites.timeout_warn" }}</p>
   {{ else }}
   <p class="note" style="margin:0">{{ t .Lang "settings.sites.host_empty" }}</p>
   {{ end }}
@@ -4034,6 +4039,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       data-less="{{ t .Lang "settings.sites.ghost_less" }}"
       style="margin-top:.5rem;padding:.3rem .8rem;font-size:.78rem;background:#fff;color:#0f172a;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer">{{ tf .Lang "settings.sites.ghost_more" (sub (len .SiteGhosts) 10) }}</button>
     {{ end }}
+    {{ else if $.SitesTimedOut }}
+    <p class="note" style="margin:0;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.sites.timeout_warn" }}</p>
     {{ else }}
     <p class="note" style="margin:0">{{ t .Lang "settings.sites.ghost_empty" }}</p>
     {{ end }}

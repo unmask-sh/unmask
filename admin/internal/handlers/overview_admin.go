@@ -70,6 +70,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
 	}
+	// If the shared 5s deadline expired during the COUNT(*) queries above, the
+	// kpi* values are partial zeros rather than real measurements.  Flag it so
+	// the template renders "—" and suppresses the reassuring "😴 quiet / 0
+	// blocked" hero -- a DB-busy landing must not masquerade as a calm one.
+	kpiKnown := ctx.Err() == nil
 
 	// Non-human traffic %: by *unique client*, not request volume (so one
 	// high-volume bot doesn't dominate).  Both figures come from the
@@ -159,6 +164,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIPoWPass":       kpiPoWPass,
 		"KPICaptchaPass":   kpiCaptchaPass,
 		"KPIBlocked":       kpiBlocked,
+		"KPIKnown":         kpiKnown,
 		"KPIUniqueTotal":   uTotal,
 		"KPIUniqueBlocked": uBlocked,
 		"KPINonHumanPct":   nonHumanPct,
