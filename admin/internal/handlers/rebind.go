@@ -157,6 +157,18 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	}
 	claims, ok := h.validBVJ(r, host, site)
 	if !ok {
+		// A roaming visitor still carries a (now stale) _bv; a first-time visitor
+		// carries neither.  Only the former is a rebind miss worth recording -- and
+		// split "sent a _bvj that didn't verify" from "sent no _bvj at all" so the
+		// operator can tell a broken/expired/blocked credential from one that never
+		// got stored on the client (the latter points at the issuance path).
+		if bvc, _ := r.Cookie("_bv"); bvc != nil && bvc.Value != "" {
+			reason := "no_bvj"
+			if jc, _ := r.Cookie("_bvj"); jc != nil && jc.Value != "" {
+				reason = "bvj_invalid"
+			}
+			h.logRebindReject(r, site, ip, "", reason, "", 0, 0)
+		}
 		return false
 	}
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
@@ -164,12 +176,15 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		// No JA4 reaches this deployment (pure forward-auth without the
 		// X-Client-JA4 wiring): the fingerprint gate would degenerate to
 		// empty==empty, so refuse unless the operator opted in.
+		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, claims.ASN, 0)
 		return false
 	}
 	if cookies.FingerprintHash(ja4) != claims.JA4Hash {
+		h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, claims.ASN, 0)
 		return false
 	}
 	if cookies.FingerprintHash(r.Header.Get("User-Agent")) != claims.UAHash {
+		h.logRebindReject(r, site, ip, ja4, "ua_mismatch", claims.Lineage, claims.ASN, 0)
 		return false
 	}
 	asnVeto := cfg.Rebind.ASNVetoResolved() == "auto" && h.IPGeo != nil && h.IPGeo.ASNLoaded()
@@ -179,14 +194,12 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		// An unmappable side (private range, db gap, pre-ASN-db solve) fails
 		// closed: "unknown" must not read as "same network".
 		if curASN == 0 || claims.ASN == 0 || curASN != claims.ASN {
-			// Surface the genuine cross-AS block (both sides known, differ) as its
-			// own phase so the operator can SEE the asn gate refusing a _bv replayed
-			// from another carrier -- the refusal is otherwise silent (the client
-			// just falls through to the real challenge below, indistinguishable from
-			// a fresh visitor).  An unmappable side is a data gap, not a block, so it
-			// stays quiet to keep the signal high-value.
+			// Surface the genuine cross-AS block (both sides known, differ) so the
+			// operator can SEE the asn gate refusing a _bv replayed from another
+			// carrier.  An unmappable side is a data gap, not a block, so it stays
+			// quiet to keep the signal high-value.
 			if curASN != 0 && claims.ASN != 0 {
-				h.logRebindVeto(r, site, ip, ja4, claims.Lineage, claims.ASN, curASN)
+				h.logRebindReject(r, site, ip, ja4, "asn_mismatch", claims.Lineage, claims.ASN, curASN)
 			}
 			return false
 		}
@@ -194,6 +207,11 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	allowed, err := db.RebindAllow(r.Context(), h.DB, claims.Lineage, host,
 		cfg.Rebind.MaxRebindsResolved(), cfg.Rebind.MaxRebindsPerHourResolved(), time.Now().Unix())
 	if err != nil || !allowed {
+		// nil err + !allowed is the per-lineage cap (lifetime or hourly); a non-nil
+		// err is a DB fault, not a policy decision, so don't log it as a reject.
+		if err == nil {
+			h.logRebindReject(r, site, ip, ja4, "cap", claims.Lineage, claims.ASN, curASN)
+		}
 		return false
 	}
 
@@ -236,13 +254,16 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	return true
 }
 
-// logRebindVeto records a cross-AS rebind refusal (asn mode: the new IP's ASN
-// differs from the solve-time ASN, so the _bv replay is rejected).  It mirrors
-// the bv_rebind success event so the two read side by side in the events table,
-// but under PhaseBVRebindVeto -- never PhaseBVRebind -- so it does not inflate
-// the "successfully re-bound" count.  Best-effort: an unpackable IP just skips
-// the row (the veto itself already happened at the call site).
-func (h *Handler) logRebindVeto(r *http.Request, site, ip, ja4, lineage string, solveASN, curASN uint) {
+// logRebindReject records a silent rebind refusal under PhaseBVRebindVeto with a
+// reason so the operator can see WHY a roaming client fell through to a real
+// challenge instead of being re-bound -- otherwise every miss is invisible and
+// indistinguishable from a fresh visitor.  reason is one of: asn_mismatch (new
+// IP's ASN != solve ASN), bvj_invalid (_bvj sent but failed to verify), no_bvj
+// (carries a stale _bv but no _bvj at all), ja4_mismatch, ua_mismatch, cap
+// (per-lineage rebind budget exhausted).  Kept off PhaseBVRebind so it never
+// inflates the "successfully re-bound" count.  Best-effort: an unpackable IP
+// skips the row (the refusal already happened at the call site).
+func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineage string, solveASN, curASN uint) {
 	pkt := events.PackIP(ip)
 	if pkt == nil {
 		return
@@ -264,7 +285,7 @@ func (h *Handler) logRebindVeto(r *http.Request, site, ip, ja4, lineage string, 
 			"lineage":   lineage,
 			"solve_asn": solveASN,
 			"cur_asn":   curASN,
-			"reason":    "asn_mismatch",
+			"reason":    reason,
 		},
 	})
 }
