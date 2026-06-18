@@ -329,6 +329,12 @@ type Row struct {
 	// single row.  Different challenge serves get different tokens, so a bot
 	// reloading repeatedly is never accidentally merged.
 	BeaconToken string `json:"bt,omitempty"`
+	// Ref: the short human-readable correlation id shown at the bottom of the
+	// challenge / deny / ban page (the "Ref" a blocked visitor quotes when they
+	// contact support).  Sourced from payload "ref".  Lets an operator tie that
+	// report back to this exact serve event + its decision context via
+	// `unmask events --ref`.  Empty on phases that never render a page.
+	Ref string `json:"ref,omitempty"`
 	// LBWarning: operator-misconfiguration / spoof signal sourced from payload
 	// "lb_warning".  Non-empty when the /api/check request carried an LB-
 	// forwarded header (X-Client-JA4 / X-Unmask-Site) that the admin's
@@ -370,6 +376,13 @@ func extractLBWarning(payload string) string {
 // to "no grouping" for that row.
 func extractBeaconToken(payload string) string {
 	return extractStringField(payload, "bt", 64)
+}
+
+// extractRef pulls "ref" out of payload_json -- the short correlation id shown
+// on the challenge / deny / ban page.  Refs are base32 + a dash, so 16 chars is
+// ample headroom over the 11-char value the serve handlers mint.
+func extractRef(payload string) string {
+	return extractStringField(payload, "ref", 16)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
@@ -591,6 +604,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 		// BeaconToken: present on every challenge-flow phase
 		// (serve / load / pow / captcha / verify_* / bv_*).  Absent on phase=check.
 		r.BeaconToken = extractBeaconToken(payload.String)
+		r.Ref = extractRef(payload.String)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -691,6 +705,75 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 		}
 		row.Path = extractPath(payload.String)
 		row.BeaconToken = extractBeaconToken(payload.String)
+		row.Ref = extractRef(payload.String)
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
+// FetchByRef returns events whose payload carries the given correlation ref (the
+// id shown on the challenge / deny / ban page).  Backs `unmask events --ref` so
+// an operator can tie a blocked visitor's reported id to the exact serve event
+// and its decision context (verdict / flags / ip / ja4 / time).  The ref is
+// base32 + a dash, so it carries no SQL/LIKE metacharacters and the pattern is
+// safe to assemble directly; callers still validate the charset before this.
+func FetchByRef(ctx context.Context, d *db.DB, ref string, limit int) ([]Row, error) {
+	if limit < 1 || limit > 500 {
+		limit = 50
+	}
+	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
+	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
+	         FROM unmask_event WHERE payload_json LIKE ? ORDER BY id DESC LIMIT ?`
+	rows, err := d.QueryContext(ctx, stmt, `%"ref":"`+ref+`"%`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEventRows(d, rows)
+}
+
+// scanEventRows materializes Rows from a result set selecting the standard event
+// column list (the same 16 columns FetchSince / FetchPaged select, in order).
+func scanEventRows(d *db.DB, rows *sql.Rows) ([]Row, error) {
+	out := make([]Row, 0, 32)
+	for rows.Next() {
+		var (
+			id, flags, rcount    int64
+			date                 sql.NullTime
+			dateStr              sql.NullString
+			site_, host_, phase_ string
+			scheme_              sql.NullString
+			port_                sql.NullInt64
+			ipBytes              []byte
+			ua, ja4, verdict     sql.NullString
+			cBV, cBR, payload    sql.NullString
+		)
+		if d.Driver == db.DriverSQLite {
+			if err := rows.Scan(&id, &dateStr, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
+				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&id, &date, &site_, &host_, &scheme_, &port_, &ipBytes, &ua, &ja4, &verdict,
+				&phase_, &flags, &rcount, &cBV, &cBR, &payload); err != nil {
+				return nil, err
+			}
+		}
+		dStr, ts, tsMs := normalizeEventTime(date, dateStr)
+		row := Row{
+			ID: id, Date: dStr, Ts: ts, TsMs: tsMs, Site: site_, Host: host_, Scheme: scheme_.String, Port: int(port_.Int64), IP: unpackIP(ipBytes),
+			UA: ua.String, JA4: ja4.String, Verdict: verdict.String,
+			Phase: phase_, Flags: int(flags), ReloadCount: int(rcount),
+			CookieBV: cBV.String, CookieBR: cBR.String, Payload: payload.String,
+		}
+		if row.Phase == "check" {
+			row.Action = extractAction(payload.String)
+			row.RLZone = extractRLZone(payload.String)
+			row.LBWarning = extractLBWarning(payload.String)
+		}
+		row.Path = extractPath(payload.String)
+		row.BeaconToken = extractBeaconToken(payload.String)
+		row.Ref = extractRef(payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()

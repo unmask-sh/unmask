@@ -184,6 +184,11 @@ func banDenyMsg(lang string) denyMsg {
 
 type rateDenyData struct {
 	Lang, Dir, Title, Body, SiteName, Footer, LogoURL string
+	// Ref is the short support correlation id printed at the foot of the page so
+	// a blocked visitor can quote it; the operator resolves it via
+	// `unmask events --ref`.  Auto-escaped by html/template (it is bare hex
+	// anyway).  Empty -> the line is omitted.
+	Ref string
 	// Theme is "auto" | "light" | "dark"; it drives the <html data-theme>
 	// attribute that the static CSS keys off.  Keeping it an attribute value
 	// (not interpolated CSS) sidesteps html/template's CSS-context sanitizer.
@@ -227,16 +232,20 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
   h1 { font-size: 1.5rem; margin: 0 0 0.75rem; }
   p { margin: 0; line-height: 1.6; color: #5a6473; }
   footer { margin: 1.75rem 0 0; font-size: 0.8rem; color: #8a93a2; }
+  .ref { margin: 1.1rem 0 0; font-size: 0.72rem; color: #aab2bf;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   html[data-theme="light"] { color-scheme: light; }
   html[data-theme="dark"] { color-scheme: dark; }
   html[data-theme="dark"] body { background: #15181d; color: #e6e9ee; }
   html[data-theme="dark"] p { color: #9aa4b2; }
   html[data-theme="dark"] footer { color: #79828f; }
+  html[data-theme="dark"] .ref { color: #5f6772; }
   html[data-theme="auto"] { color-scheme: light dark; }
   @media (prefers-color-scheme: dark) {
     html[data-theme="auto"] body { background: #15181d; color: #e6e9ee; }
     html[data-theme="auto"] p { color: #9aa4b2; }
     html[data-theme="auto"] footer { color: #79828f; }
+    html[data-theme="auto"] .ref { color: #5f6772; }
   }
 </style>
 </head>
@@ -247,6 +256,7 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 <h1>{{.Title}}</h1>
 <p>{{.Body}}</p>
 {{if .Footer}}<footer>{{.Footer}}</footer>{{end}}
+{{if .Ref}}<div class="ref">Ref {{.Ref}}</div>{{end}}
 </main>
 </body>
 </html>
@@ -260,23 +270,23 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 // verbatim string would override the localization for every visitor).  theme is
 // the light/dark choice ("auto" | "light" | "dark"; anything else clamps to
 // auto).  basePath is the /unmask mount used to reach the logo route.
-func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, basePath string) []byte {
+func renderRateDeny(br settings.BrandingValues, preset, theme, acceptLanguage, basePath, ref string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	return renderDenyPage(br, denyMsgForPreset(preset, lang), rateDenyMarkerStr, theme, lang, basePath)
+	return renderDenyPage(br, denyMsgForPreset(preset, lang), rateDenyMarkerStr, theme, lang, basePath, ref)
 }
 
 // renderBanDeny builds the deny page for a ban whose action is "deny".  Same
 // branded, themed shell as the rate-limit deny, but the "blocked" wording and a
 // distinct marker -- a ban is persistent (no "retry" framing fits).
-func renderBanDeny(br settings.BrandingValues, theme, acceptLanguage, basePath string) []byte {
+func renderBanDeny(br settings.BrandingValues, theme, acceptLanguage, basePath, ref string) []byte {
 	lang := denyLangFromAccept(acceptLanguage)
-	return renderDenyPage(br, banDenyMsg(lang), banDenyMarkerStr, theme, lang, basePath)
+	return renderDenyPage(br, banDenyMsg(lang), banDenyMarkerStr, theme, lang, basePath, ref)
 }
 
 // renderDenyPage renders the shared JS-free deny template with a resolved
 // message + marker.  theme is the light/dark choice (clamped to auto on an
 // unknown value); basePath is the /unmask mount used to reach the logo route.
-func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, basePath string) []byte {
+func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, basePath, ref string) []byte {
 	switch theme {
 	case settings.DenyThemeLight, settings.DenyThemeDark, settings.DenyThemeAuto:
 	default:
@@ -295,6 +305,7 @@ func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, 
 		SiteName: br.SiteName,
 		Footer:   br.FooterText,
 		LogoURL:  logoURL,
+		Ref:      ref,
 		Theme:    theme,
 		Marker:   template.HTML(marker), //nolint:gosec // constant literal, no user input
 	}); err != nil {

@@ -62,7 +62,13 @@ const (
 	powSeedPlaceholder      = `/*__POW_SEED__*/""`
 	ctTokenPlaceholder      = `/*__CT__*/""`
 	bvMaxEntriesPlaceholder = `/*__BV_MAX_ENTRIES__*/8`
-	defaultSite             = "default"
+	// refPlaceholder marks where challenge.html's footer prints the support
+	// correlation id.  Unlike the JS-literal placeholders above this sits in the
+	// HTML body as a comment, so an un-substituted build (or a stripped footer)
+	// degrades to invisible rather than leaking the token text.  The substituted
+	// value is bare hex + a dash, so no HTML escaping is required.
+	refPlaceholder = "<!--__REF__-->"
+	defaultSite    = "default"
 )
 
 // challengeThemes is the allowlist applied to the challenge page.  ?theme=
@@ -620,6 +626,9 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site string) {
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	// ref: support correlation id shown on the deny page + stored on the event,
+	// so a wrongly-blocked visitor's report resolves to this exact hit.
+	ref := newRef()
 	if pkt := events.PackIP(clientIP(r)); pkt != nil {
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
@@ -637,6 +646,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 				"rl":           1,
 				"deny":         1,
 				"method":       r.Method,
+				"ref":          ref,
 			},
 		})
 	}
@@ -659,7 +669,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 	preset := cfg.RateLimit.ResolvedDenyCopyPreset(br.ResolvedCopyPreset())
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write(renderRateDeny(br, preset, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
+	_, _ = w.Write(renderRateDeny(br, preset, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref))
 }
 
 // ServeBanDeny writes the "blocked" page for a ban whose action is "deny".
@@ -673,6 +683,8 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	site := siteFromRequest(r, h.snapshotSettings())
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	// ref: support correlation id shown on the ban page + stored on the event.
+	ref := newRef()
 	if pkt := events.PackIP(clientIP(r)); pkt != nil {
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
@@ -690,6 +702,7 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 				"deny":         1,
 				"ban":          1,
 				"method":       r.Method,
+				"ref":          ref,
 			},
 		})
 	}
@@ -709,7 +722,7 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	br := cfg.Branding.Resolve(site)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
-	_, _ = w.Write(renderBanDeny(br, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath()))
+	_, _ = w.Write(renderBanDeny(br, cfg.RateLimit.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref))
 }
 
 // ServeChallenge: GET {base}/challenge/
@@ -1075,6 +1088,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, chIP))
 	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
 		append([]byte(`/*__CT__*/`), ctJSON...))
+	// ref: a short support correlation id, printed in the challenge footer and
+	// stored on the serve event's payload below.  When a visitor reports "the
+	// challenge page won't load / I can't get through" with this id, the operator
+	// runs `unmask events --ref <id>` to pull up this exact serve + its decision
+	// context (verdict / flags / ip / ja4 / time).
+	ref := newRef()
+	// Substitute the whole visible string (label + id) so an un-substituted build
+	// degrades to an empty element rather than a stray "Ref" with no value.
+	body = bytes.ReplaceAll(body, []byte(refPlaceholder), []byte("Ref "+ref))
 
 	// "protected by unmask" credit: when OFF in settings (default), strip the
 	// marker region from the HTML.  When ON, drop only the markers and keep
@@ -1100,6 +1122,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			// Echo the beacon token so this serve row shares a group key
 			// with the subsequent load / pow / bv_* beacons in the hunt UI.
 			"bt": beaconToken,
+			// ref: the same id printed in the page footer (support correlation).
+			"ref": ref,
 		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
@@ -1346,11 +1370,13 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// ?kind=ban previews the ban "blocked" page (same theme, no copy preset);
 	// anything else previews the rate-limit deny page.
+	// Preview shows a sample ref so the operator sees the support-id footer in
+	// the layout; it records no event (a preview is not a real block).
 	if strings.TrimSpace(q.Get("kind")) == "ban" {
-		_, _ = w.Write(renderBanDeny(br, theme, accept, h.basePath()))
+		_, _ = w.Write(renderBanDeny(br, theme, accept, h.basePath(), newRef()))
 		return
 	}
-	_, _ = w.Write(renderRateDeny(br, preset, theme, accept, h.basePath()))
+	_, _ = w.Write(renderRateDeny(br, preset, theme, accept, h.basePath(), newRef()))
 }
 
 // PublicTestGate: gate for the public side (/unmask/test/*).  Returns 404

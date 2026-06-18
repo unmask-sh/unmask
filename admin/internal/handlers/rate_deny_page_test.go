@@ -30,7 +30,7 @@ func TestDenyLangFromAccept(t *testing.T) {
 func TestRenderRateDeny(t *testing.T) {
 	// default English (preset defaults to friendly) + marker + branding fields.
 	br := settings.BrandingValues{SiteName: "ACME", FooterText: "Operated by ACME", LogoPath: "/x/logo.png"}
-	out := string(renderRateDeny(br, "friendly", "auto", "en-US,en;q=0.9", "/unmask"))
+	out := string(renderRateDeny(br, "friendly", "auto", "en-US,en;q=0.9", "/unmask", ""))
 	for _, want := range []string{
 		"<!-- unmask:rate-deny -->", `lang="en"`, "Thanks for your patience.",
 		"ACME", "Operated by ACME", `src="/unmask/branding/logo"`,
@@ -41,23 +41,23 @@ func TestRenderRateDeny(t *testing.T) {
 	}
 
 	// localized (ja) by Accept-Language (friendly default)
-	ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja,en;q=0.8", "/unmask"))
+	ja := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ja,en;q=0.8", "/unmask", ""))
 	if !strings.Contains(ja, `lang="ja"`) || !strings.Contains(ja, "少々お待ちください") {
 		t.Errorf("ja render not localized:\n%s", ja)
 	}
 
 	// Arabic renders right-to-left
-	if ar := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ar", "/unmask")); !strings.Contains(ar, `dir="rtl"`) {
+	if ar := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "ar", "/unmask", "")); !strings.Contains(ar, `dir="rtl"`) {
 		t.Errorf("ar render not rtl:\n%s", ar)
 	}
 
 	// no LogoPath -> no logo img
-	if nolog := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask")); strings.Contains(nolog, "branding/logo") {
+	if nolog := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "")); strings.Contains(nolog, "branding/logo") {
 		t.Errorf("logo img should be absent when LogoPath empty:\n%s", nolog)
 	}
 
 	// operator-controlled branding fields are HTML-escaped (no raw injection)
-	if esc := string(renderRateDeny(settings.BrandingValues{SiteName: `<script>x</script>`}, "friendly", "auto", "en", "/unmask")); strings.Contains(esc, "<script>x</script>") {
+	if esc := string(renderRateDeny(settings.BrandingValues{SiteName: `<script>x</script>`}, "friendly", "auto", "en", "/unmask", "")); strings.Contains(esc, "<script>x</script>") {
 		t.Errorf("SiteName not HTML-escaped:\n%s", esc)
 	}
 
@@ -66,7 +66,7 @@ func TestRenderRateDeny(t *testing.T) {
 		{"auto", "auto"}, {"light", "light"}, {"dark", "dark"},
 		{"", "auto"}, {"neon", "auto"},
 	} {
-		got := string(renderRateDeny(settings.BrandingValues{}, "friendly", tc.in, "en", "/unmask"))
+		got := string(renderRateDeny(settings.BrandingValues{}, "friendly", tc.in, "en", "/unmask", ""))
 		if !strings.Contains(got, `data-theme="`+tc.want+`"`) {
 			t.Errorf("theme %q: want data-theme=%q in:\n%s", tc.in, tc.want, got)
 		}
@@ -78,13 +78,13 @@ func TestRenderRateDeny(t *testing.T) {
 		{settings.BrandingPresetNeutral, "made too many requests in a short time."},
 		{settings.BrandingPresetMinimal, "Please try again shortly."},
 	} {
-		got := string(renderRateDeny(settings.BrandingValues{}, tc.preset, "auto", "en", "/unmask"))
+		got := string(renderRateDeny(settings.BrandingValues{}, tc.preset, "auto", "en", "/unmask", ""))
 		if !strings.Contains(got, tc.wantBody) {
 			t.Errorf("preset %q: want body %q in:\n%s", tc.preset, tc.wantBody, got)
 		}
 	}
 	// an unknown preset falls back to friendly (denyMsgForPreset clamps)
-	if fb := string(renderRateDeny(settings.BrandingValues{}, "bogus", "auto", "en", "/unmask")); !strings.Contains(fb, "Thanks for your patience.") {
+	if fb := string(renderRateDeny(settings.BrandingValues{}, "bogus", "auto", "en", "/unmask", "")); !strings.Contains(fb, "Thanks for your patience.") {
 		t.Errorf("unknown preset should fall back to friendly:\n%s", fb)
 	}
 
@@ -102,7 +102,7 @@ func TestRenderRateDeny(t *testing.T) {
 			if m.Title == "" || m.Body == "" {
 				t.Errorf("preset %q lang %q has empty title/body: %+v", preset, lang, m)
 			}
-			body := string(renderRateDeny(settings.BrandingValues{}, preset, "auto", lang, "/unmask"))
+			body := string(renderRateDeny(settings.BrandingValues{}, preset, "auto", lang, "/unmask", ""))
 			if !strings.Contains(body, "<!-- unmask:rate-deny -->") {
 				t.Errorf("preset %q lang %q render missing marker", preset, lang)
 			}
@@ -112,7 +112,7 @@ func TestRenderRateDeny(t *testing.T) {
 
 func TestRenderBanDeny(t *testing.T) {
 	// English (default) + ban marker + "blocked" wording + branding
-	out := string(renderBanDeny(settings.BrandingValues{SiteName: "ACME"}, "auto", "en", "/unmask"))
+	out := string(renderBanDeny(settings.BrandingValues{SiteName: "ACME"}, "auto", "en", "/unmask", ""))
 	for _, want := range []string{"<!-- unmask:ban-deny -->", `lang="en"`, "Access blocked", "ACME"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("ban render missing %q in:\n%s", want, out)
@@ -124,10 +124,10 @@ func TestRenderBanDeny(t *testing.T) {
 	}
 
 	// localized (ja) + rtl (ar) + theme honored
-	if ja := string(renderBanDeny(settings.BrandingValues{}, "auto", "ja", "/unmask")); !strings.Contains(ja, "ブロック") {
+	if ja := string(renderBanDeny(settings.BrandingValues{}, "auto", "ja", "/unmask", "")); !strings.Contains(ja, "ブロック") {
 		t.Errorf("ja ban not localized:\n%s", ja)
 	}
-	if ar := string(renderBanDeny(settings.BrandingValues{}, "dark", "ar", "/unmask")); !strings.Contains(ar, `dir="rtl"`) || !strings.Contains(ar, `data-theme="dark"`) {
+	if ar := string(renderBanDeny(settings.BrandingValues{}, "dark", "ar", "/unmask", "")); !strings.Contains(ar, `dir="rtl"`) || !strings.Contains(ar, `data-theme="dark"`) {
 		t.Errorf("ar/dark ban render wrong:\n%s", ar)
 	}
 
@@ -144,7 +144,7 @@ func TestRenderBanDeny(t *testing.T) {
 		if m.Title == "" || m.Body == "" {
 			t.Errorf("ban lang %q has empty title/body: %+v", lang, m)
 		}
-		if body := string(renderBanDeny(settings.BrandingValues{}, "auto", lang, "/unmask")); !strings.Contains(body, "<!-- unmask:ban-deny -->") {
+		if body := string(renderBanDeny(settings.BrandingValues{}, "auto", lang, "/unmask", "")); !strings.Contains(body, "<!-- unmask:ban-deny -->") {
 			t.Errorf("ban lang %q render missing marker", lang)
 		}
 	}
@@ -163,5 +163,25 @@ func TestResolvedDenyCopyPreset(t *testing.T) {
 		if got := rl.ResolvedDenyCopyPreset(c.branding); got != c.want {
 			t.Errorf("ResolvedDenyCopyPreset(deny=%q, branding=%q) = %q, want %q", c.deny, c.branding, got, c.want)
 		}
+	}
+}
+
+// TestDenyPageRef: the support correlation id is shown on the deny page when
+// present, omitted when empty, and html-escaped (defense-in-depth -- a ref is
+// bare hex, but the page renders other operator-influenced fields too).
+func TestDenyPageRef(t *testing.T) {
+	with := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "a1b2c-3d4e5"))
+	if !strings.Contains(with, "a1b2c-3d4e5") || !strings.Contains(with, `class="ref"`) {
+		t.Errorf("ref not shown on the deny page:\n%s", with)
+	}
+	if without := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "")); strings.Contains(without, `class="ref"`) {
+		t.Errorf("an empty ref must omit the ref line:\n%s", without)
+	}
+	if esc := string(renderRateDeny(settings.BrandingValues{}, "friendly", "auto", "en", "/unmask", "<x>")); strings.Contains(esc, "<x>") {
+		t.Errorf("ref not html-escaped:\n%s", esc)
+	}
+	// ban page carries it too.
+	if b := string(renderBanDeny(settings.BrandingValues{}, "auto", "en", "/unmask", "9f8e7-6d5c4")); !strings.Contains(b, "9f8e7-6d5c4") {
+		t.Errorf("ref not shown on the ban page:\n%s", b)
 	}
 }

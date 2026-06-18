@@ -1047,6 +1047,7 @@ func cmdEvents(args []string) error {
 	host := fs.String("host", "", "filter by host id (comma-separated for multiple; empty = all hosts)")
 	since := fs.Int64("since", -1, "start id (-1 = from MAX(id) onward; 0 = everything)")
 	pollMs := fs.Int("poll-ms", 1000, "polling interval in ms")
+	ref := fs.String("ref", "", "look up the events carrying this support correlation id (the 'Ref' shown at the foot of the challenge / deny / ban page) and exit -- traces a blocked visitor's report back to its decision context")
 	_ = fs.Parse(args)
 	var hosts []string
 	if h := strings.TrimSpace(*host); h != "" {
@@ -1067,6 +1068,29 @@ func cmdEvents(args []string) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() { <-sigCh; cancel() }()
+
+	// --ref: one-shot lookup of a support correlation id, then exit (no tail).
+	// The ref is the operator's hook from a "I'm blocked / the page won't load"
+	// report to the exact serve event + its decision (verdict / flags / payload).
+	if want := strings.TrimSpace(*ref); want != "" {
+		if !validRef(want) {
+			return fmt.Errorf("invalid ref %q (expected hex digits and dashes, e.g. a1b2c-3d4e5)", want)
+		}
+		rows, err := events.FetchByRef(ctx, conn, want, 50)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			fmt.Fprintf(os.Stderr, "no events for ref %s\n", want)
+			return nil
+		}
+		for _, ev := range rows {
+			fmt.Printf("[%d] %s phase=%s verdict=%s flags=%d host=%s site=%s ip=%s ja4=%s\n      path=%s ua=%q\n      payload=%s\n",
+				ev.ID, ev.Date, ev.Phase, ev.Verdict, ev.Flags, ev.Host, ev.Site, ev.IP, ev.JA4,
+				ev.Path, truncForCLI(ev.UA, 100), ev.Payload)
+		}
+		return nil
+	}
 
 	sinceID := *since
 	if sinceID < 0 {
@@ -1115,6 +1139,22 @@ func truncForCLI(s string, n int) string {
 		return s[:n] + "…"
 	}
 	return s
+}
+
+// validRef gates the `--ref` lookup value to the charset newRef mints (hex +
+// dash).  Besides catching typos, it keeps the value free of SQL/LIKE
+// metacharacters before it reaches FetchByRef's pattern.
+func validRef(s string) bool {
+	if s == "" || len(s) > 16 {
+		return false
+	}
+	for _, c := range s {
+		hexOrDash := (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || c == '-'
+		if !hexOrDash {
+			return false
+		}
+	}
+	return true
 }
 
 // ----------------------------------------------------------------

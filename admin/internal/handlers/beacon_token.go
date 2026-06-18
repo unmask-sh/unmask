@@ -52,6 +52,26 @@ func beaconNonce() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 36)
 }
 
+// newRef mints a short, human-quotable correlation id for a served challenge /
+// deny / ban page.  It is shown to the (blocked) visitor and stored on the serve
+// event's payload "ref", so an operator can run `unmask events --ref <id>` to
+// pull up that exact event + its decision context when the visitor reports it.
+// NOT a security token -- just an opaque lookup key, deliberately hex (0-9a-f)
+// so it carries none of base32/base36's 0/O, 1/l/I transcription traps.  5 bytes
+// = 40 bits is ample to avoid collisions for a manual lookup; the dash makes it
+// easy to read back over phone / chat.  crypto/rand failure (vanishingly rare on
+// a running server) falls back to the nanosecond clock so a serve never blocks.
+func newRef() string {
+	var b [5]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		var t [8]byte
+		binary.BigEndian.PutUint64(t[:], uint64(time.Now().UnixNano()))
+		copy(b[:], t[3:])
+	}
+	s := hex.EncodeToString(b[:]) // 10 chars
+	return s[:5] + "-" + s[5:]
+}
+
 // issueBeaconToken returns a fresh signed token bound to ip.
 func issueBeaconToken(secret, ip string) string {
 	issued := strconv.FormatInt(time.Now().UnixNano(), 36)
