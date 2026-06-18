@@ -74,8 +74,11 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host strin
 		asn = h.IPGeo.LookupInfo(ip).ASN
 	}
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
+	// Bind on the JA4 prefix (version + cipher), not the full JA4: Chrome varies
+	// the extension section per connection, so the full JA4 changes for one device
+	// and the roaming match would never hold.  See ja4Prefix.
 	val := cookies.IssueJValue(h.cfg().Secret.BVSecret,
-		cookies.FingerprintHash(ja4),
+		cookies.FingerprintHash(ja4Prefix(ja4)),
 		cookies.FingerprintHash(r.Header.Get("User-Agent")),
 		lineage, asn, host, "captcha")
 	http.SetCookie(w, &http.Cookie{
@@ -179,7 +182,10 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, claims.ASN, 0)
 		return false
 	}
-	if cookies.FingerprintHash(ja4) != claims.JA4Hash {
+	// Match on the JA4 prefix (version + cipher) only; the trailing JA4_c
+	// extension hash varies per connection on Chrome, so comparing the full JA4
+	// rejected the same device roaming (the original ja4_mismatch storm).
+	if cookies.FingerprintHash(ja4Prefix(ja4)) != claims.JA4Hash {
 		h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, claims.ASN, 0)
 		return false
 	}
@@ -288,6 +294,26 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 			"reason":    reason,
 		},
 	})
+}
+
+// ja4Prefix returns the JA4_a_JA4_b portion (TLS version + cipher-suite hash),
+// dropping the trailing JA4_c extension hash.  Chrome reorders / GREASEs TLS
+// extensions per connection, so the full JA4 differs for one device across
+// connections (observed: one Android device producing 3 JA4_c values in an
+// hour); the prefix is stable and still pins the TLS stack.  Used ONLY for the
+// roaming-rebind fingerprint so a returning device matches its own _bvj -- the
+// per-IP _bv and the bot verdicts keep using the full JA4.  An input with fewer
+// than two '_' separators is returned unchanged.
+func ja4Prefix(ja4 string) string {
+	i := strings.IndexByte(ja4, '_')
+	if i < 0 {
+		return ja4
+	}
+	j := strings.IndexByte(ja4[i+1:], '_')
+	if j < 0 {
+		return ja4
+	}
+	return ja4[:i+1+j]
 }
 
 // serveRebindRedirect bounces the just-rebound client back to its original
