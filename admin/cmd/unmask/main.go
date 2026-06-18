@@ -676,8 +676,12 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		// the common web-server groups (nginx today, apache etc. planned) and
 		// use the first that exists instead of hard-coding nginx.  Warn only if
 		// the resolved group doesn't exist.
+		// A world-writable socket (other-write bit, e.g. 0666) lets any local
+		// process connect regardless of group, so group ownership is moot --
+		// skip auto-detect (and its multi-group warning) and the chown.  An
+		// explicit socket_group is still honored even then (harmless).
 		group := s.SocketGroup
-		if group == "" {
+		if group == "" && mode&0o002 == 0 {
 			if g, all := detectWebServerGroup(); g != "" {
 				group = g
 				if len(all) > 1 {
@@ -687,13 +691,15 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 				group = "nginx" // none found; keep nginx as the warning label below
 			}
 		}
-		if g, err := osuser.LookupGroup(group); err == nil {
-			gid, _ := strconv.Atoi(g.Gid)
-			if err := os.Chown(path, -1, gid); err != nil {
-				log.Printf("socket chown :%s failed: %v (insufficient permission?  socket stays at default uid)", group, err)
+		if group != "" {
+			if g, err := osuser.LookupGroup(group); err == nil {
+				gid, _ := strconv.Atoi(g.Gid)
+				if err := os.Chown(path, -1, gid); err != nil {
+					log.Printf("socket chown :%s failed: %v (insufficient permission?  socket stays at default uid)", group, err)
+				}
+			} else {
+				log.Printf("socket group %q lookup failed: %v (chown skipped; the web server worker may not be able to read it.  change socket_group or run groupadd)", group, err)
 			}
-		} else {
-			log.Printf("socket group %q lookup failed: %v (chown skipped; the nginx worker may not be able to read it.  change SocketGroup or run groupadd)", group, err)
 		}
 		return ln, "unix:" + path, nil
 	}
