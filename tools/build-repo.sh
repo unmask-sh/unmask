@@ -54,7 +54,7 @@
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DIST="$ROOT/dist"
+DIST="${DIST:-$ROOT/dist}"
 OUT="${1:-$ROOT/../unmask-dl-build}"
 STAGE="${2:-all}"
 
@@ -208,17 +208,7 @@ elif [ "$HAVE_CREATEREPO" = 1 ]; then
         for f in "$DIST"/*.noarch.rpm; do
             [ -f "$f" ] && cp "$f" "$arch_dir"/
         done
-        # latest alias for unmask-release (= install docs link to a stable URL)
-        latest=$(ls -1 "$arch_dir"/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
-        [ -n "$latest" ] && cp -f "$latest" "$arch_dir/unmask-release-latest.noarch.rpm"
     done
-    # Also drop the noarch release alias at the TOP of /dl/rpm/ -- the install
-    # docs link to the stable, arch-independent
-    # https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm, and
-    # `dnf install <url>` fetches it directly (no repodata lookup).
-    rel=$(ls -1 "$DIST"/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
-    [ -n "$rel" ] && cp -f "$rel" "$OUT/rpm/unmask-release-latest.noarch.rpm"
-
     # sign packages + generate repodata
     for arch in x86_64 aarch64; do
         arch_dir="$OUT/rpm/$arch"
@@ -245,6 +235,18 @@ elif [ "$HAVE_CREATEREPO" = 1 ]; then
                 --detach-sign --armor "$arch_dir/repodata/repomd.xml"
         fi
     done
+
+    # Drop the noarch release alias at the TOP of /dl/rpm/ -- the install docs
+    # link to the stable, arch-independent
+    # https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm, and
+    # `dnf install <url>` fetches it directly (no repodata lookup).  Copy the
+    # SIGNED versioned package (signed by the loop above; noarch content is
+    # identical across arch dirs) -- placed OUTSIDE the RPMS/ dirs so
+    # createrepo_c does not index it as a duplicate of unmask-release.  The
+    # direct-URL bootstrap rpm thus carries the same GPG signature as the in-repo
+    # copy -- otherwise hosts with localpkg_gpgcheck=1 reject it.
+    signed_rel=$(ls -1 "$OUT"/rpm/*/RPMS/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
+    [ -n "$signed_rel" ] && cp -f "$signed_rel" "$OUT/rpm/unmask-release-latest.noarch.rpm"
 else
     echo "==> rpm stage: skip (= createrepo_c absent / keeping existing $OUT/rpm)"
 fi
@@ -262,12 +264,11 @@ elif [ "$HAVE_APT" = 1 ]; then
     POOL="$OUT/deb/pool/main/u/unmask"
     mkdir -p "$POOL"
     cp "$DIST"/*.deb "$POOL"/ 2>/dev/null || true
-    # latest alias for unmask-release (= install docs link to a stable URL)
+    # Drop the unmask-release alias at the TOP of /dl/deb/ with the filename the
+    # install docs use (https://unmask.sh/dl/deb/unmask-release-latest.deb);
+    # `apt install <localfile>` installs it directly.  Placed OUTSIDE pool/ so
+    # apt-ftparchive does not index it as a duplicate of the versioned package.
     latest=$(ls -1 "$POOL"/unmask-release_[0-9]*_all.deb 2>/dev/null | sort -V | tail -1)
-    [ -n "$latest" ] && cp -f "$latest" "$POOL/unmask-release_latest_all.deb"
-    # Also drop it at the TOP of /dl/deb/ with the filename the install docs use
-    # (https://unmask.sh/dl/deb/unmask-release-latest.deb); `apt install <url>`
-    # fetches it directly.
     [ -n "$latest" ] && cp -f "$latest" "$OUT/deb/unmask-release-latest.deb"
 
     DSTABLE="$OUT/deb/dists/stable"
@@ -334,12 +335,6 @@ elif [ "$HAVE_APK" = 1 ]; then
         done
         # skip if no apks to index
         [ "$(ls "$d"/*.apk 2>/dev/null | wc -l)" -gt 0 ] || continue
-        # latest alias for unmask-release (= install docs link to a stable URL,
-        # parallel to rpm's unmask-release-latest.noarch.rpm and deb's
-        # unmask-release_latest_all.deb).  apk add reads metadata from the
-        # file content, so the alias filename is purely a download URL anchor.
-        latest=$(ls -1 "$d"/unmask-release-[0-9]*.apk 2>/dev/null | sort -V | tail -1)
-        [ -n "$latest" ] && cp -f "$latest" "$d/unmask-release-latest.apk"
         # --description: required for apk-tools v3 to recognize APKINDEX
         # (= confirmed via 2026-05-11 [B]).
         # --allow-untrusted: `apk index` validates each input .apk against the
@@ -371,6 +366,14 @@ elif [ "$HAVE_APK" = 1 ]; then
             echo "  -> WARNING: UNMASK_RSA_PRIVKEY unset or missing -> APKINDEX NOT signed (apk add will reject the repo)"
         fi
     done
+
+    # Drop the unmask-release alias at the TOP of /dl/apk/ -- the install docs
+    # link to the stable, arch-independent
+    # https://unmask.sh/dl/apk/unmask-release-latest.apk (unmask-release is
+    # noarch), parallel to rpm/deb.  Placed OUTSIDE main/ so `apk index` does not
+    # list it; `apk add --allow-untrusted <localfile>` installs it directly.
+    rel_apk=$(ls -1 "$OUT"/apk/main/*/unmask-release-[0-9]*.apk 2>/dev/null | sort -V | tail -1)
+    [ -n "$rel_apk" ] && cp -f "$rel_apk" "$OUT/apk/unmask-release-latest.apk"
 else
     echo "==> apk stage: skip (= apk absent / keeping existing $OUT/apk)"
 fi
