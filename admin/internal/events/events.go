@@ -28,9 +28,9 @@ const (
 	PhaseVerifyNG         Phase = "verify_ng"           // /verify rejected (= CAPTCHA failed)
 	PhaseError            Phase = "error"               // JS exception / external CAPTCHA provider failure (payload.kind discriminates)
 	PhaseCookieErr        Phase = "cookie_err"
-	PhaseCheck            Phase = "check"          // single auth_request /api/check hit
-	PhaseBVRebind         Phase = "bv_rebind"      // _bv silently re-bound to a new IP on the challenge route (roaming client, no PoW shown)
-	PhaseBVRebindVeto     Phase = "bv_rebind_veto" // a rebind was refused because the new IP's ASN differs from the solve-time ASN (asn mode blocked a cross-carrier _bv replay); the client falls through to a real challenge
+	PhaseCheck            Phase = "check"            // single auth_request /api/check hit
+	PhaseBVRebind         Phase = "bv_rebind"        // _bv silently re-bound to a new IP on the challenge route (roaming client, no PoW shown)
+	PhaseBVRebindReject   Phase = "bv_rebind_reject" // a silent roaming rebind was refused; payload.reason gives the cause (no_bvj / bvj_invalid / ja4_mismatch / ua_mismatch / asn_mismatch / cap) and the client falls through to a real challenge
 )
 
 // allowedPhases gates which beacon phase strings the server accepts on
@@ -50,7 +50,7 @@ var allowedPhases = map[string]bool{
 	"cookie_err":          true,
 	"check":               true,
 	"bv_rebind":           true,
-	"bv_rebind_veto":      true,
+	"bv_rebind_reject":    true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }
@@ -345,6 +345,11 @@ type Row struct {
 	// a visitor probing whether the header is honored.  Empty on phase=check
 	// rows with a clean header set, and on all challenge-flow phases.
 	LBWarning string `json:"lb_warning,omitempty"`
+	// Reason: rebind-refusal cause sourced from payload "reason", set on
+	// phase=bv_rebind_reject (no_bvj / bvj_invalid / ja4_mismatch / ua_mismatch /
+	// asn_mismatch / cap).  Lets the hunt log render "bv_rebind_reject(ja4_mismatch)"
+	// so an operator can see WHY a roaming rebind was refused.  Empty elsewhere.
+	Reason string `json:"reason,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -384,6 +389,13 @@ func extractBeaconToken(payload string) string {
 // shown on the challenge / deny / ban page.
 func extractRef(payload string) string {
 	return extractStringField(payload, "ref", 16)
+}
+
+// extractReason pulls "reason" out of payload_json -- the rebind-refusal cause
+// on phase=bv_rebind_reject (no_bvj / bvj_invalid / ja4_mismatch / ua_mismatch /
+// asn_mismatch / cap).  Empty on phases that don't carry it.
+func extractReason(payload string) string {
+	return extractStringField(payload, "reason", 24)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
@@ -606,6 +618,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 		// (serve / load / pow / captcha / verify_* / bv_*).  Absent on phase=check.
 		r.BeaconToken = extractBeaconToken(payload.String)
 		r.Ref = extractRef(payload.String)
+		r.Reason = extractReason(payload.String)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -707,6 +720,7 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, phase, site 
 		row.Path = extractPath(payload.String)
 		row.BeaconToken = extractBeaconToken(payload.String)
 		row.Ref = extractRef(payload.String)
+		row.Reason = extractReason(payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -775,6 +789,7 @@ func scanEventRows(d *db.DB, rows *sql.Rows) ([]Row, error) {
 		row.Path = extractPath(payload.String)
 		row.BeaconToken = extractBeaconToken(payload.String)
 		row.Ref = extractRef(payload.String)
+		row.Reason = extractReason(payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()

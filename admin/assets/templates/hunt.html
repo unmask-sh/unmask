@@ -120,7 +120,7 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 .ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv issued via challenge_mode=captcha_only) */
 .ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv issued via challenge_mode=pow_then_captcha) */
 .ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound to a new IP, roaming client) */
-.ph-bv_rebind_veto{background:#fee2e2;color:#991b1b}     /* red reject (= rebind refused on ASN mismatch, cross-carrier _bv replay blocked -> re-challenge) */
+.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}     /* red reject (= rebind refused on ASN mismatch, cross-carrier _bv replay blocked -> re-challenge) */
 .ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie -> re-challenge) */
 .ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
 .ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
@@ -407,7 +407,7 @@ function dismissHuntTip(id){
       <option value="bv_captcha_only"     {{ if eq .Phase "bv_captcha_only"     }}selected{{ end }}>bv_captcha_only</option>
       <option value="bv_pow_then_captcha" {{ if eq .Phase "bv_pow_then_captcha" }}selected{{ end }}>bv_pow_then_captcha</option>
       <option value="bv_rebind"           {{ if eq .Phase "bv_rebind"           }}selected{{ end }}>bv_rebind</option>
-      <option value="bv_rebind_veto"      {{ if eq .Phase "bv_rebind_veto"      }}selected{{ end }}>bv_rebind_veto</option>
+      <option value="bv_rebind_reject"      {{ if eq .Phase "bv_rebind_reject"      }}selected{{ end }}>bv_rebind_reject</option>
       <option value="verify_ng"           {{ if eq .Phase "verify_ng"           }}selected{{ end }}>verify_ng</option>
       <option value="cookie_err"          {{ if eq .Phase "cookie_err"          }}selected{{ end }}>cookie_err</option>
       <option value="error"               {{ if eq .Phase "error"               }}selected{{ end }}>error</option>

@@ -14,7 +14,7 @@
 #   198.51.100.41 -> ASN 64500 (same carrier  -> rebinds)
 #   198.51.100.42 -> ASN 64501 (other carrier -> vetoed)
 #
-# The refused rebind is also recorded as a bv_rebind_veto event (operator-facing
+# The refused rebind is also recorded as a bv_rebind_reject event (operator-facing
 # "cross-carrier replay blocked" signal); the HTTP outcome below is the contract
 # under test, the event surfacing is covered by the admin layer.
 set -u

@@ -270,7 +270,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	return true
 }
 
-// logRebindReject records a silent rebind refusal under PhaseBVRebindVeto with a
+// logRebindReject records a silent rebind refusal under PhaseBVRebindReject with a
 // reason so the operator can see WHY a roaming client fell through to a real
 // challenge instead of being re-bound -- otherwise every miss is invisible and
 // indistinguishable from a fresh visitor.  reason is one of: asn_mismatch (new
@@ -295,7 +295,7 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 		JA4:          ja4,
 		JA4Verdict:   verdict,
 		JA4VerdictID: h.VerdictNameToID(verdict),
-		Phase:        string(events.PhaseBVRebindVeto),
+		Phase:        string(events.PhaseBVRebindReject),
 		CookieBV:     readCookieMax(r, "_bv", 1024),
 		Payload: map[string]any{
 			"lineage":   lineage,
