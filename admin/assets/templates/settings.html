@@ -3852,12 +3852,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
       <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
-      {{ if gt .Retention.EventsRows 0 }}
+      {{ if or (gt .Retention.EventsRows 0) .Retention.DBSizeStr }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
-        {{ t .Lang "settings.retention.current_label" }}:
+        {{ if gt .Retention.EventsRows 0 }}{{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.EventsRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time>{{ end }}
-        {{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
+        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time>{{ end }}{{ end }}
+        {{ if .Retention.DBSizeStr }}{{ if gt .Retention.EventsRows 0 }} · {{ end }}{{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
       </div>
       {{ end }}
     </div>

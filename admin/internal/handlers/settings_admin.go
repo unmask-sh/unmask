@@ -301,7 +301,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// needed when this tab is being viewed, so gate the work on `tab`.
 	var retentionView retentionStatsView
 	if tab == "retention" {
-		rctx, rcancel := context.WithTimeout(r.Context(), 3*time.Second)
+		// 10s, not 3s: COUNT(*)/MIN() over unmask_event is a full table scan, and
+		// on a large sqlite DB (millions of rows -- tool1-us hit 2.1M / 1.9GB) the
+		// 3s budget expired, so retentionStats returned zeros and the template
+		// gated out the WHOLE "current size" line -- row count, oldest, AND the
+		// os.Stat DB size.  The DB-size line is now rendered independently of the
+		// row count below, so a slow COUNT no longer hides the (cheap) file size.
+		rctx, rcancel := context.WithTimeout(r.Context(), 10*time.Second)
 		retentionView = h.retentionStats(rctx, resolveLocation(r))
 		rcancel()
 	}
