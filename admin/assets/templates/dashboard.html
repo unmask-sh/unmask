@@ -43,16 +43,19 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-table th.bcd-id,.bcd-table td.bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.875rem}
 /* Bot-detail tables (rate-limit / verify-NG / stealth / cookie-err / js-error /
-   reload-loops): keep every row on a single line.  The UA -- and the JS-error
-   message -- can be long, so they clip to the column's right edge with an
-   ellipsis (full value lives in the cellpop / title) instead of wrapping to a
-   2nd line.  max-width:0 + width:100% = "take the leftover width but stay
-   shrinkable", so the clip adapts to the table width without forcing a fixed
-   column (= the same trick the hunt events table documents).  Siblings stay
-   nowrap so the greedy clip column can't push them onto a 2nd line.  Auto
-   table-layout is kept so the IP column still sizes to a full IPv6. */
+   reload-loops): keep every row on a single line.  The UA cell renders the FULL
+   UA and clips at the column's right edge -- max-width:0 + width:100% = "take
+   the leftover width but stay shrinkable" (the trick the hunt events table
+   uses), so it fills the column and truncates exactly at the cell edge instead
+   of wrapping or leaving trailing whitespace.  (The 50-char server truncation
+   would leave a gap on a wide column, so the cell uses .UAFull.)  The JS-error
+   message -- the other long column in the js-error table -- is width-capped so
+   it can't collapse the greedy UA; it clips with a title= tooltip for the full
+   text.  Siblings stay nowrap so the clip column can't push them onto a 2nd
+   line, and auto table-layout keeps the IP column sized to a full IPv6. */
 .bcd-cliptable td{white-space:nowrap}
-.bcd-cliptable td.bcd-ua,.bcd-cliptable td.bcd-clip{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+.bcd-cliptable td.bcd-ua{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+.bcd-cliptable td.bcd-clip{max-width:14rem;overflow:hidden;text-overflow:ellipsis}
 /* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
 .bcd-card .desc{font-size:.7rem;color:#64748b;margin:0 0 .5rem;line-height:1.55}
 .bcd-card .desc code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace}
@@ -433,7 +436,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           <tr>
             <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
             <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
-            <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+            <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
             <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
           </tr>
           {{else}}
@@ -487,7 +490,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num{{if gt .Math 0}} n-stealth{{end}}">{{comma .Math}}</td>
         <td class="bcd-num n-muted">{{score .AvgScore}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.JA4}}">{{.JA4}}</span></td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -508,7 +511,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span></td>
         <td class="bcd-num n-stealth">{{comma .Count}}</td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -529,7 +532,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{range .JSErrors}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono bcd-clip" title="{{.Error}}">{{.Error}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
@@ -549,7 +552,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{range .JSForeignErrors}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono bcd-clip" title="{{.Error}}">{{.Error}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
@@ -582,7 +585,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
         <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -604,7 +607,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num">{{comma .Count}}</td>
         <td class="bcd-num">{{comma .MaxReload}}</td>
         <td class="bcd-num">{{.MaxFlags}}</td>
-        <td class="bcd-mono bcd-ua{{ if ne .UA .UAFull }} cellpop{{ end }}"{{ if ne .UA .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{.UA}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
       </tr>
       {{else}}
