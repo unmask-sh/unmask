@@ -1055,6 +1055,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		jsErrs          []dashboard.JSErrorRow
 		jsForeign       []dashboard.JSErrorRow
 		jsForeignCount  int
+		cpVerdictCounts map[string]int
+		cpTopIPs        []dashboard.CaptchaPassIPRow
+		cpRecent        []dashboard.CaptchaPassRow
 		aiTraffic       []dashboard.AITrafficRow
 		aiTrafficAll    []AITrafficRow
 		aiTrafficDetail map[string][]AICrawlerRow
@@ -1187,6 +1190,21 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	run("JSForeignErrorCount", func() error {
 		var e error
 		jsForeignCount, e = dashboard.JSForeignErrorCount(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaPassVerdicts", func() error {
+		var e error
+		cpVerdictCounts, e = dashboard.CaptchaPassVerdictCounts(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaPassTopIPs", func() error {
+		var e error
+		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 20)
+		return e
+	})
+	run("CaptchaPassRecent", func() error {
+		var e error
+		cpRecent, e = dashboard.CaptchaPassRecent(ctx, h.DB, site, hosts, hours, 10)
 		return e
 	})
 	run("AITrafficBreakdown", func() error {
@@ -1354,6 +1372,34 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		jsForeign[i].CountryCode = lookupCC(jsForeign[i].IP)
 	}
 
+	// CAPTCHA pass report: classify each pass's JA4 verdict as bot vs ok via the
+	// same verdict->action map the funnel uses (bot / suspect => "bot"), roll the
+	// per-verdict counts into the KPI, and tag the detail rows for highlighting.
+	isBotVerdict := func(v string) bool {
+		a := verdictAction[v]
+		return a == "bot" || a == "suspect"
+	}
+	var cpTotal, cpBot int
+	for v, n := range cpVerdictCounts {
+		cpTotal += n
+		if isBotVerdict(v) {
+			cpBot += n
+		}
+	}
+	for i := range cpTopIPs {
+		cpTopIPs[i].IsBot = isBotVerdict(cpTopIPs[i].Verdict)
+		cpTopIPs[i].CountryCode = lookupCC(cpTopIPs[i].IP)
+	}
+	for i := range cpRecent {
+		cpRecent[i].IsBot = isBotVerdict(cpRecent[i].Verdict)
+		cpRecent[i].CountryCode = lookupCC(cpRecent[i].IP)
+	}
+	captchaReport := struct {
+		Total, Bot, Ok int
+		TopIPs         []dashboard.CaptchaPassIPRow
+		Recent         []dashboard.CaptchaPassRow
+	}{Total: cpTotal, Bot: cpBot, Ok: cpTotal - cpBot, TopIPs: cpTopIPs, Recent: cpRecent}
+
 	type kindPt struct {
 		Date string `json:"date"`
 		Kind int    `json:"kind"`
@@ -1447,6 +1493,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"JSErrors":           jsErrs,
 		"JSForeignErrors":    jsForeign,
 		"JSForeignCount":     jsForeignCount,
+		"CaptchaReport":      captchaReport,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"AITrafficDetail":    aiTrafficDetail,

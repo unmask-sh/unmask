@@ -1792,6 +1792,147 @@ func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, ho
 	return out, rows.Err()
 }
 
+// --- CAPTCHA pass report (= "CAPTCHA 突破レポート") -------------------------
+//
+// Surfaces the clients that completed a CAPTCHA -- phase bv_captcha_only /
+// bv_pow_then_captcha, i.e. ones that obtained a reusable _bv cookie by solving
+// the CAPTCHA.  The headline signal is how many carry a NON-ok JA4 verdict: a
+// real human solving a CAPTCHA has an 'ok' TLS fingerprint, so a high bot-JA4
+// share means automated clients are passing the CAPTCHA and can then reuse the
+// cookie to scrape.  These read unmask_event directly (raw, not the aggregate):
+// captcha passes are rare (a handful/day) so the filtered scan is cheap and the
+// per-row detail the report needs isn't in the minute rollups anyway.
+const captchaPassPhases = "('bv_captcha_only','bv_pow_then_captcha')"
+
+// CaptchaPassRow is one captcha-pass event (= the recent-detail list).
+type CaptchaPassRow struct {
+	TS          int64
+	Date        string
+	IP          string
+	Verdict     string
+	UA          string
+	UAFull      string
+	Path        string
+	Ref         string
+	Phase       string
+	IsBot       bool   // filled by the handler from the verdict->action map
+	CountryCode string // filled by the handler from IP-geo
+}
+
+// CaptchaPassIPRow is one IP's repeated captcha passes (= the ranking).
+type CaptchaPassIPRow struct {
+	IP          string
+	Verdict     string
+	UA          string
+	UAFull      string
+	Passes      int
+	Paths       int
+	LastSeen    string
+	LastSeenTS  int64
+	IsBot       bool
+	CountryCode string
+}
+
+// CaptchaPassVerdictCounts returns captcha passes grouped by JA4 verdict over
+// the window, so the handler can roll them into bot / ok totals for the KPI.
+func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	stmt := fmt.Sprintf(`
+        SELECT COALESCE(ja4_verdict, ''), COUNT(*)
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase IN %s
+        GROUP BY ja4_verdict`, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var v string
+		var n int
+		if err := rows.Scan(&v, &n); err != nil {
+			return nil, err
+		}
+		out[v] = n
+	}
+	return out, rows.Err()
+}
+
+// CaptchaPassTopIPs ranks IPs by how many times they passed a CAPTCHA in the
+// window (= repeat passers are the persistent bots re-solving for fresh cookies).
+func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassIPRow, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
+	stmt := fmt.Sprintf(`
+        SELECT ip_address,
+               MAX(ja4_verdict)  AS verdict,
+               MAX(user_agent)   AS ua,
+               COUNT(*)          AS passes,
+               COUNT(DISTINCT %s) AS paths,
+               MAX(date_created) AS last_seen
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase IN %s
+        GROUP BY ip_address
+        ORDER BY passes DESC, last_seen DESC LIMIT ?`,
+		pathExpr, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CaptchaPassIPRow
+	for rows.Next() {
+		var raw []byte
+		var passes, paths int
+		var verdict, ua, ls sql.NullString
+		if err := rows.Scan(&raw, &verdict, &ua, &passes, &paths, &ls); err != nil {
+			return nil, err
+		}
+		out = append(out, CaptchaPassIPRow{
+			IP: ipFromBytes(raw), Verdict: verdict.String,
+			UA: truncate(ua.String, 80), UAFull: ua.String,
+			Passes: passes, Paths: paths,
+			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
+		})
+	}
+	return out, rows.Err()
+}
+
+// CaptchaPassRecent returns the latest captcha passes (= the per-client detail
+// list) with the path requested and the support Ref ID at the time of the pass.
+func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassRow, error) {
+	since := d.NowMinusMinutes(hours * 60)
+	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
+	refExpr := jsonExtract(d, "payload_json", "$.ref")
+	stmt := fmt.Sprintf(`
+        SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(user_agent, ''),
+               COALESCE(%s, ''), COALESCE(%s, ''), phase
+        FROM unmask_event
+        WHERE date_created > %s%s AND phase IN %s
+        ORDER BY date_created DESC LIMIT ?`,
+		pathExpr, refExpr, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CaptchaPassRow
+	for rows.Next() {
+		var raw []byte
+		var dc, verdict, ua, path, ref, phase string
+		if err := rows.Scan(&dc, &raw, &verdict, &ua, &path, &ref, &phase); err != nil {
+			return nil, err
+		}
+		out = append(out, CaptchaPassRow{
+			TS: parseDateTimeToUnix(dc), Date: dc, IP: ipFromBytes(raw),
+			Verdict: verdict, UA: truncate(ua, 80), UAFull: ua,
+			Path: path, Ref: ref, Phase: phase,
+		})
+	}
+	return out, rows.Err()
+}
+
 func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLPathRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")

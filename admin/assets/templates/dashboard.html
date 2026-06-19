@@ -62,6 +62,15 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-twoflex td.bcd-ua{max-width:24rem;width:24rem}
 .bcd-twoflex td.bcd-clip{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
 .bcd-cliptable-scroll{overflow-x:auto;max-width:100%}
+/* CAPTCHA pass report card */
+.cp-kpis{display:flex;gap:2.5rem;flex-wrap:wrap;margin:.3rem 0 1rem}
+.cp-kpi-label{font-size:.72rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.cp-kpi-num{font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums}
+.cp-kpi-num.cp-bot{color:#b91c1c}
+.cp-kpi-rate{font-size:.75rem;color:#64748b;font-weight:600;margin-left:.15rem}
+.cp-h{font-size:.85rem;margin:1rem 0 .25rem;color:#0f172a;font-weight:600}
+.cp-bot-row{background:#fef2f2}
+.cp-verdict-bot{color:#b91c1c;font-weight:600}
 /* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
 .bcd-card .desc{font-size:.7rem;color:#64748b;margin:0 0 .5rem;line-height:1.55}
 .bcd-card .desc code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace}
@@ -328,6 +337,62 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   </table>
   </div>
 </div>
+
+<!-- 1b) CAPTCHA pass report (= clients that solved a CAPTCHA + got a reusable cookie).
+     Defined as a named template so it can be unit-rendered in isolation. -->
+{{ define "captcha_report_card" }}
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_report" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_report.desc") }}</span></span></h2>
+  {{ with .CaptchaReport }}
+  <div class="cp-kpis">
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.total" }}</div><div class="cp-kpi-num">{{ comma .Total }}</div></div>
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.bot" }}</div><div class="cp-kpi-num cp-bot">{{ comma .Bot }} <span class="cp-kpi-rate">{{ rate .Bot .Total }}</span></div></div>
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.ok" }}</div><div class="cp-kpi-num">{{ comma .Ok }} <span class="cp-kpi-rate">{{ rate .Ok .Total }}</span></div></div>
+  </div>
+  {{ if .TopIPs }}
+  <h6 class="cp-h">{{ t $.Lang "captcha_report.rank_heading" }}</h6>
+  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+    <thead><tr><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th class="bcd-num">{{ t $.Lang "th.passes" }}</th><th class="bcd-num">{{ t $.Lang "th.paths" }}</th><th>{{ t $.Lang "th.ua" }}</th><th>{{ t $.Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range .TopIPs }}
+      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
+        <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="bcd-mono">{{ if .Verdict }}<span class="cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-num">{{ comma .Passes }}</td>
+        <td class="bcd-num">{{ comma .Paths }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ end }}
+  {{ if .Recent }}
+  <h6 class="cp-h">{{ t $.Lang "captcha_report.recent_heading" }}</h6>
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+    <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th><th>Ref ID</th></tr></thead>
+    <tbody>
+      {{ range .Recent }}
+      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
+        <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="bcd-mono">{{ if .Verdict }}<span class="cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-mono bcd-clip cellpop">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
+        <td class="bcd-mono">{{ if .Ref }}<code style="user-select:all">{{ .Ref }}</code>{{ else }}<span class="muted">-</span>{{ end }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ t $.Lang "captcha_report.empty" }}</p>
+  {{ end }}
+  {{ end }}
+</div>
+{{ end }}
+{{ template "captcha_report_card" . }}
 
 <!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
 <div class="bcd-card">
