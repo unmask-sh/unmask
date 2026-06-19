@@ -128,6 +128,14 @@ func RangeHours(s string) int {
 		return 24 * 7
 	case "30d":
 		return 24 * 30
+	case "90d":
+		return 24 * 90
+	case "180d":
+		return 24 * 180
+	case "365d", "all":
+		// "all" resolves to [oldest event, now] via the ctx window; this is only
+		// its fallback span when the oldest timestamp is unavailable.
+		return 24 * 365
 	default:
 		return 24
 	}

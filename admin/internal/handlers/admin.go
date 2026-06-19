@@ -999,22 +999,50 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	}
 
 	rng := r.URL.Query().Get("range")
-	if rng != "7d" && rng != "30d" && rng != "custom" {
+	switch rng {
+	case "7d", "30d", "90d", "180d", "365d", "all", "custom":
+		// valid
+	default:
 		rng = "24h"
 	}
-	hours := dashboard.RangeHours(rng) // "custom" resolves to the 24h fallback span
+	hours := dashboard.RangeHours(rng) // "all"/"custom" resolve via the ctx window below
+	nowTime := time.Now()
+	oldestTS, _ := dashboard.OldestEventTS(r.Context(), h.DB)
 	// custom range: from/to are operator-TZ calendar dates (YYYY-MM-DD), resolved
-	// to a UTC [00:00 from, 23:59:59 to] window.  An unparseable / inverted range
-	// KEEPS rng="custom" (so the date picker still renders, pre-filled) but leaves
-	// the window unset, so the queries fall back to the 24h span until the operator
-	// picks valid dates.
+	// to a UTC [00:00 from, 23:59:59 to] window.  "all" spans [oldest event, now].
+	// An invalid custom range KEEPS rng="custom" (so the picker still renders,
+	// pre-filled) but leaves the window unset, so the queries fall back to the 24h
+	// span until the operator picks valid dates.
 	var customFromTS, customToTS int64
 	customValid := false
-	if rng == "custom" {
+	switch rng {
+	case "custom":
 		customFromTS, customToTS = parseCustomRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"), resolveLocation(r))
 		customValid = customFromTS > 0 && customToTS > customFromTS
+	case "all":
+		customFromTS, customToTS = oldestTS, nowTime.Unix()
+		customValid = oldestTS > 0 && customToTS > customFromTS
 	}
-	win := dashboard.WindowFromRange(rng, time.Now(), customFromTS, customToTS)
+	win := dashboard.WindowFromRange(rng, nowTime, customFromTS, customToTS)
+	// Range-bar presets, widened to the data actually on hand: the long presets
+	// only appear once there's enough history behind them, and "all" once there's
+	// more than the 30d default.  See DataMinDate for the calendar bound.
+	rangePresets := []string{"24h", "7d", "30d"}
+	if oldestTS > 0 {
+		availDays := (nowTime.Unix() - oldestTS) / 86400
+		if availDays > 30 {
+			rangePresets = append(rangePresets, "90d")
+		}
+		if availDays > 90 {
+			rangePresets = append(rangePresets, "180d")
+		}
+		if availDays > 180 {
+			rangePresets = append(rangePresets, "365d")
+		}
+		if availDays > 30 {
+			rangePresets = append(rangePresets, "all")
+		}
+	}
 
 	// host filter (global scope of the shared host_picker; sourced from
 	// cookie / ?host=).  Passed to every dashboard query (unmask_event-based
@@ -1030,7 +1058,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// A custom range overrides the trailing-`hours` window every dashboard query
 	// would otherwise compute from now.  Presets leave ctx unset so the queries
 	// fall back to their `hours` arg and behave exactly as before.
-	if rng == "custom" && customValid {
+	if (rng == "custom" || rng == "all") && customValid {
 		ctx = dashboard.WithWindow(ctx, win)
 	}
 
@@ -1515,14 +1543,13 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	now := time.Now()
 	rangeStart := now.Add(-time.Duration(hours) * time.Hour)
 	rangeEnd := now
-	if rng == "custom" && customValid {
+	if (rng == "custom" || rng == "all") && customValid {
 		rangeStart = time.Unix(win.Start, 0)
 		rangeEnd = time.Unix(win.End, 0)
 	}
 	// Custom-range calendar: pre-fill the date inputs with the current window's
 	// dates (operator TZ) and bound them to [oldest event, today] so the operator
 	// can only pick a period that actually has data behind it.
-	oldestTS, _ := dashboard.OldestEventTS(ctx, h.DB)
 	dataMinDate := ""
 	if oldestTS > 0 {
 		dataMinDate = time.Unix(oldestTS, 0).In(loc).Format("2006-01-02")
@@ -1546,6 +1573,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"RangeStartTS":       rangeStart.Unix(),
 		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
 		"RangeEndTS":         rangeEnd.Unix(),
+		"RangePresets":       rangePresets,
 		"CustomFrom":         customFrom,
 		"CustomTo":           customTo,
 		"DataMinDate":        dataMinDate,

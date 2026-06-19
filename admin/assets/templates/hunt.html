@@ -196,20 +196,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <a href="?range=1h"  {{ if eq .Range "1h" }}class="active"{{ end }}>1 {{ t .Lang "hunt.range.hour" }}</a>
   <a href="?range=6h"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
   <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
-  <a href="?range=custom" {{ if eq .Range "custom" }}class="active"{{ end }}>{{ t .Lang "dashboard.range_custom" }}</a>
-  {{ if eq .Range "custom" }}
-  <form method="get" style="display:inline-flex;align-items:center;gap:.3rem;margin-left:.4rem;flex-wrap:wrap">
-    <input type="hidden" name="range" value="custom">
-    {{ if .IPFilter }}<input type="hidden" name="ip" value="{{ .IPFilter }}">{{ end }}
-    {{ if .JA4Filter }}<input type="hidden" name="ja4" value="{{ .JA4Filter }}">{{ end }}
-    {{ if .Phase }}<input type="hidden" name="phase" value="{{ .Phase }}">{{ end }}
-    <input type="date" name="from" value="{{ .CustomFrom }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required style="font:inherit;padding:.1rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem">
-    <span style="color:#64748b">–</span>
-    <input type="date" name="to" value="{{ .CustomTo }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required style="font:inherit;padding:.1rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem">
-    <button type="submit" style="font:inherit;padding:.1rem .55rem;cursor:pointer;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:.2rem">{{ t .Lang "dashboard.range_apply" }}</button>
-    {{ if .DataMinDate }}<span style="color:#94a3b8;font-size:.75rem">({{ t .Lang "dashboard.range_data_span" }}: {{ .DataMinDate }} 〜 {{ .DataMaxDate }})</span>{{ end }}
-  </form>
-  {{ end }}
+  {{ template "range_custom_modal" . }}
 </div>
 
 {{/* Live tail + rank cards are 'now' surfaces -- relevant when the operator

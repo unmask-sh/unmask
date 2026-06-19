@@ -97,6 +97,18 @@ func WindowFromRange(rng string, now time.Time, fromTS, toTS int64) Window {
 		return WindowTrailing(now, 24*7)
 	case "30d":
 		return WindowTrailing(now, 24*30)
+	case "90d":
+		return WindowTrailing(now, 24*90)
+	case "180d":
+		return WindowTrailing(now, 24*180)
+	case "365d":
+		return WindowTrailing(now, 24*365)
+	case "all":
+		// handler passes [oldest event, now]; fall back to a year if unknown.
+		if fromTS > 0 && toTS > fromTS {
+			return Window{Start: fromTS, End: toTS}
+		}
+		return WindowTrailing(now, 24*365)
 	case "custom":
 		if fromTS > 0 && toTS > fromTS {
 			return Window{Start: fromTS, End: toTS}

@@ -95,3 +95,27 @@ func TestDateAndHourIntWindow(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+// TestWindowFromRangeExtended covers the longer trailing presets and "all".
+func TestWindowFromRangeExtended(t *testing.T) {
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	oldest := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC).Unix()
+	cases := []struct {
+		rng       string
+		from, to  int64
+		wantStart int64
+		wantEnd   int64
+	}{
+		{"90d", 0, 0, now.Add(-24 * 90 * time.Hour).Unix(), now.Unix()},
+		{"180d", 0, 0, now.Add(-24 * 180 * time.Hour).Unix(), now.Unix()},
+		{"365d", 0, 0, now.Add(-24 * 365 * time.Hour).Unix(), now.Unix()},
+		{"all", oldest, now.Unix(), oldest, now.Unix()},                  // handler passes [oldest, now]
+		{"all", 0, 0, now.Add(-24 * 365 * time.Hour).Unix(), now.Unix()}, // no oldest -> 1y fallback
+	}
+	for _, c := range cases {
+		w := WindowFromRange(c.rng, now, c.from, c.to)
+		if w.Start != c.wantStart || w.End != c.wantEnd {
+			t.Errorf("WindowFromRange(%q,%d,%d) = {%d,%d}, want {%d,%d}", c.rng, c.from, c.to, w.Start, w.End, c.wantStart, c.wantEnd)
+		}
+	}
+}

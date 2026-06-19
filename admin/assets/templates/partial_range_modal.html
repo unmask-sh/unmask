@@ -1,0 +1,57 @@
+{{/* range_custom_modal: the "custom" range trigger + an in-page date-range modal
+     (Search-Console style -- opens in place, no navigation, applies via a GET
+     submit).  Included by both the stats dashboard and the hunt page; reads
+     .Range / .CustomFrom / .CustomTo / .DataMinDate / .DataMaxDate, and (hunt
+     only) preserves the .IPFilter / .JA4Filter / .Phase filters across apply.
+     CSS + JS are colocated here so the host page carries no matching rule
+     (see [[feedback_partial_inject_css_colocate]]). */}}
+{{ define "range_custom_modal" }}
+<style>
+.urange-trigger{font:inherit;cursor:pointer;background:none;border:0;padding:0;color:#2563eb;text-decoration:underline;text-underline-offset:.2em}
+.urange-trigger.active{font-weight:700;text-decoration:none;color:inherit}
+.urange-modal[hidden]{display:none}
+.urange-modal{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center}
+.urange-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.45)}
+.urange-box{position:relative;background:#fff;color:#0f172a;border-radius:.4rem;padding:1.1rem 1.3rem;box-shadow:0 .6rem 2.5rem rgba(0,0,0,.25);min-width:17rem;max-width:92vw}
+.urange-box h3{margin:0 0 .8rem;font-size:.95rem}
+.urange-field{display:flex;align-items:center;gap:.5rem;margin:.45rem 0;font-size:.85rem}
+.urange-field label{min-width:3rem;color:#475569}
+.urange-field input[type=date]{font:inherit;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.2rem;flex:1}
+.urange-hint{color:#94a3b8;font-size:.75rem;margin:.6rem 0 .1rem}
+.urange-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.9rem}
+.urange-actions button{font:inherit;padding:.3rem .9rem;border-radius:.2rem;cursor:pointer}
+.urange-cancel{border:1px solid #cbd5e1;background:#fff;color:#334155}
+.urange-apply{border:1px solid #2563eb;background:#2563eb;color:#fff}
+</style>
+<button type="button" class="urange-trigger js-urange-open {{ if eq .Range "custom" }}active{{ end }}" aria-haspopup="dialog">{{ t .Lang "dashboard.range_custom" }}{{ if eq .Range "custom" }}: {{ .CustomFrom }} – {{ .CustomTo }}{{ end }}</button>
+<div class="urange-modal" hidden>
+  <div class="urange-backdrop js-urange-close"></div>
+  <div class="urange-box" role="dialog" aria-modal="true" aria-label="{{ t .Lang "dashboard.range_custom" }}">
+    <h3>{{ t .Lang "dashboard.range_custom" }}</h3>
+    <form method="get" class="js-urange-form">
+      <input type="hidden" name="range" value="custom">
+      {{ if .IPFilter }}<input type="hidden" name="ip" value="{{ .IPFilter }}">{{ end }}
+      {{ if .JA4Filter }}<input type="hidden" name="ja4" value="{{ .JA4Filter }}">{{ end }}
+      {{ if .Phase }}<input type="hidden" name="phase" value="{{ .Phase }}">{{ end }}
+      <div class="urange-field"><label>{{ t .Lang "dashboard.range_from" }}</label><input type="date" name="from" value="{{ .CustomFrom }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required></div>
+      <div class="urange-field"><label>{{ t .Lang "dashboard.range_to" }}</label><input type="date" name="to" value="{{ .CustomTo }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required></div>
+      {{ if .DataMinDate }}<div class="urange-hint">{{ t .Lang "dashboard.range_data_span" }}: {{ .DataMinDate }} 〜 {{ .DataMaxDate }}</div>{{ end }}
+      <div class="urange-actions">
+        <button type="button" class="urange-cancel js-urange-close">{{ t .Lang "dashboard.range_cancel" }}</button>
+        <button type="submit" class="urange-apply">{{ t .Lang "dashboard.range_apply" }}</button>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+(function(){
+  var modal = document.querySelector('.urange-modal');
+  if (!modal) return;
+  function open(){ modal.hidden = false; var i = modal.querySelector('input[name="from"]'); if (i) { try { i.focus(); } catch(e){} } }
+  function close(){ modal.hidden = true; }
+  Array.prototype.forEach.call(document.querySelectorAll('.js-urange-open'), function(b){ b.addEventListener('click', open); });
+  Array.prototype.forEach.call(modal.querySelectorAll('.js-urange-close'), function(b){ b.addEventListener('click', close); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !modal.hidden) close(); });
+})();
+</script>
+{{ end }}
