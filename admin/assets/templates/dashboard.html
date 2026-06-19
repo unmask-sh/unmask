@@ -71,9 +71,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .cp-h{font-size:.85rem;margin:1rem 0 .25rem;color:#0f172a;font-weight:600}
 .cp-bot-row{background:#fef2f2}
 .cp-verdict-bot{color:#b91c1c;font-weight:600}
-/* wavy underline on a verdict that carries a popover (= click for the raw JA4),
-   so the popover affordance is discoverable like other interactive cells. */
-td.cellpop .cp-verdict{text-decoration:underline wavy;text-decoration-color:#94a3b8;text-underline-offset:3px;cursor:help}
 .cp-count{display:inline-block;margin-left:.3rem;padding:.02rem .4rem;border-radius:.7rem;background:#e2e8f0;color:#475569;font-size:.7rem;font-weight:700;vertical-align:middle}
 .cp-row-extra{display:none}
 table.cp-expanded tr.cp-row-extra{display:table-row}
@@ -365,7 +362,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{ range $i, $r := .TopIPs }}
       <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
         <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
-        <td class="bcd-mono{{ if $r.JA4 }} cellpop{{ end }}"{{ if $r.JA4 }} data-full-value="{{ $r.JA4 }}"{{ end }}>{{ if $r.Verdict }}<span class="cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Passes }}</td>
         <td class="bcd-num">{{ comma $r.Paths }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
@@ -386,7 +383,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
         <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
-        <td class="bcd-mono{{ if .JA4 }} cellpop{{ end }}"{{ if .JA4 }} data-full-value="{{ .JA4 }}"{{ end }}>{{ if .Verdict }}<span class="cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-clip cellpop">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
       </tr>
@@ -413,7 +410,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{ range $i, $r := .CaptchaReuse }}
       <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
         <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
-        <td class="bcd-mono{{ if $r.JA4 }} cellpop{{ end }}"{{ if $r.JA4 }} data-full-value="{{ $r.JA4 }}"{{ end }}>{{ if $r.Verdict }}<span class="cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">ok</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">ok</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Requests }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
