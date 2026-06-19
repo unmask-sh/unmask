@@ -711,7 +711,7 @@ var dict = map[Lang]map[string]string{
 
 		// help popover content (= dotted-underline 上で hover 表示される長文).
 		// 内部 key は dashboard.html の data-help-key="..." 値と一致 (prefix verdict./phase./flags./vng.).
-		"help.verdict.chrome_fake_h1":     "<b>chrome_fake_h1</b>: Chrome 風の cipher 構成なのに <b>ALPN=h1</b> (HTTP/1.1) で接続してくる組合せ。正規の Chrome は HTTP/2 を使うため、headless Chrome や古い自動化ツールの典型。ブラウザ偽装 bot の最頻シグネチャ。<br>ただし <b>Microsoft Edge</b> や<b>社内 TLS 傍受 proxy</b> (日本企業に多く、ロケール ja の通過者と整合) が ALPN を h1 に落とす・剥がすことでも一致するため、実ユーザーの誤検知でもありうる。迷う時は通過者の振る舞い (nav_webdriver / fingerprint / 取得 path) も併せて確認する。",
+		"help.verdict.chrome_fake_h1":     "<b>chrome_fake_h1</b>: Chrome 風の cipher 構成なのに <b>ALPN=h1</b> (HTTP/1.1) で接続してくる組合せ。正規の Chrome は HTTP/2 を使うため、headless Chrome や古い自動化ツールの典型。ブラウザ偽装 bot の最頻シグネチャ。<br>ただし <b>Microsoft Edge</b> や<b>社内 TLS 傍受 proxy</b> (企業ネットワークに多い) が ALPN を h1 に落とす・剥がすことでも一致するため、実ユーザーの誤検知でもありうる。迷う時は通過者の振る舞い (nav_webdriver / fingerprint / 取得 path) も併せて確認する。",
 		"help.verdict.chrome_fake_noalpn": "<b>chrome_fake_noalpn</b>: Chrome 風 cipher + <b>ALPN なし</b>。古い HTTP クライアントや、TLS スタックを自前実装した bot に多い。",
 		"help.verdict.h1_18_12":           "<b>h1_18_12</b>: 18 cipher + 12 extension + ALPN=h1 の組合せ。UA を頻繁に変えながら同じ TLS 形状で来る、residential proxy 経由型の bot でよく観測される。",
 		"help.verdict.h1_44_12":           "<b>h1_44_12</b>: 44 cipher + 12 extension + ALPN=h1。h1_18_12 と同系統の、別 TLS 形状の bot 群。",
