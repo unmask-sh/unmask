@@ -686,6 +686,14 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	// ref: support correlation id shown on the ban page + stored on the event.
 	ref := newRef()
+	// The URL the banned client hit is preserved in the path: nginx rewrites a
+	// deny-ban to /unmask/_ban<orig URI>, so strip that prefix back off and record
+	// it (display only -- this page never redirects) so the hunt log shows WHAT
+	// the client was probing instead of a blank URL column.
+	origPath := ""
+	if p := r.URL.RequestURI(); strings.HasPrefix(p, h.basePath()+"/_ban") {
+		origPath = truncateAt(strings.TrimPrefix(p, h.basePath()+"/_ban"), 200)
+	}
 	if pkt := events.PackIP(clientIP(r)); pkt != nil {
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
@@ -704,6 +712,7 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 				"ban":          1,
 				"method":       r.Method,
 				"ref":          ref,
+				"orig_path":    origPath,
 			},
 		})
 	}
