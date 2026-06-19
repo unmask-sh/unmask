@@ -285,17 +285,24 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	}
 
 	if pkt := events.PackIP(ip); pkt != nil {
+		// reason records HOW this rebind passed so the hunt log can render
+		// bv_rebind(<reason>) the way it shows bv_rebind_reject(<reason>):
+		//   ja4_relaxed = JA4 not in the _bvj set but non-bot, let through (A)
+		//   asn         = JA4 matched the set AND the ASN veto confirmed the carrier
+		//   match       = JA4 matched the set; no ASN db, so the cap is the only extra gate
+		reason := "match"
+		if ja4Relaxed {
+			reason = "ja4_relaxed"
+		} else if asnVeto {
+			reason = "asn"
+		}
 		payload := map[string]any{
 			"lineage":   claims.Lineage,
 			"solve_asn": claims.ASN,
 			"cur_asn":   curASN,
 			"asn_veto":  asnVeto,
 			"orig_path": origPath,
-		}
-		// Record when the rebind passed despite the JA4 not being in the _bvj's
-		// set (A): a non-bot fingerprint drift, kept visible for abuse-watching.
-		if ja4Relaxed {
-			payload["ja4_relaxed"] = true
+			"reason":    reason,
 		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,

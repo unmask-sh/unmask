@@ -345,10 +345,12 @@ type Row struct {
 	// a visitor probing whether the header is honored.  Empty on phase=check
 	// rows with a clean header set, and on all challenge-flow phases.
 	LBWarning string `json:"lb_warning,omitempty"`
-	// Reason: rebind-refusal cause sourced from payload "reason", set on
-	// phase=bv_rebind_reject (no_bvj / bvj_invalid / ja4_mismatch / ua_mismatch /
-	// asn_mismatch / cap).  Lets the hunt log render "bv_rebind_reject(ja4_mismatch)"
-	// so an operator can see WHY a roaming rebind was refused.  Empty elsewhere.
+	// Reason: roaming-rebind decision sourced from payload "reason".  On
+	// phase=bv_rebind_reject it is the refusal cause (no_bvj / bvj_invalid /
+	// ja4_mismatch / ua_mismatch / asn_mismatch / cap); on phase=bv_rebind it is
+	// how the rebind passed (ja4_relaxed / asn / match).  Lets the hunt log render
+	// "bv_rebind_reject(ja4_mismatch)" / "bv_rebind(ja4_relaxed)" so an operator
+	// sees WHY/HOW a roaming rebind went the way it did.
 	Reason string `json:"reason,omitempty"`
 }
 
