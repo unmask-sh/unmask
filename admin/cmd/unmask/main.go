@@ -36,6 +36,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -55,6 +56,12 @@ import (
 var Version = "0.1.0"
 
 func main() {
+	// Resolve the init-system-specific restart command once, so every UI string
+	// that tells the operator to restart unmask shows the command that actually
+	// works on this host (systemd vs OpenRC).  Cheap (a couple of stats); done
+	// for all subcommands so CLI help paths stay consistent too.
+	i18n.RestartCmd = detectRestartCommand()
+
 	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
@@ -167,6 +174,29 @@ func resolveHostID(configured string) string {
 // ----------------------------------------------------------------
 // serve
 // ----------------------------------------------------------------
+
+// detectRestartCommand returns the shell command that restarts the unmask
+// service under the init system this host is actually running.  The admin
+// binary ships identically to every distro (rpm/deb/apk), so the correct form
+// — `systemctl restart unmask` (systemd) vs `rc-service unmask restart`
+// (OpenRC/Alpine) — is only knowable at runtime.  Detection mirrors
+// sd_booted(3): /run/systemd/system exists iff the host booted under systemd,
+// and /run/openrc exists under OpenRC.  Anything unrecognised falls back to the
+// systemd form, which is by far the common case.
+func detectRestartCommand() string {
+	if fi, err := os.Stat("/run/systemd/system"); err == nil && fi.IsDir() {
+		return "systemctl restart unmask"
+	}
+	if fi, err := os.Stat("/run/openrc"); err == nil && fi.IsDir() {
+		return "rc-service unmask restart"
+	}
+	// OpenRC may not have populated /run/openrc yet (early boot) but always
+	// ships the /sbin/openrc binary; treat its presence as OpenRC too.
+	if _, err := os.Stat("/sbin/openrc"); err == nil {
+		return "rc-service unmask restart"
+	}
+	return "systemctl restart unmask"
+}
 
 func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
