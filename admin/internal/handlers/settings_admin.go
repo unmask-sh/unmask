@@ -922,6 +922,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// which the daemon only reads at serve start -- a reload won't pick it up, so
 	// the operator must `systemctl restart unmask`.  The banner announces it.
 	unmaskRestartNeeded := false
+	// communityPullNeeded: set true when the community-bans subscribe just went
+	// off -> on, so we kick an immediate feed pull after save (= populate the
+	// browse list now instead of waiting for the next hourly tick).
+	communityPullNeeded := false
 	redirBack := func(msg string) {
 		dst := base + "/admin/settings/?tab=" + tabForSection(section)
 		if msg == "" {
@@ -1118,7 +1122,14 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "web-bot-auth":
 		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
 	case "community-bans":
+		// Snapshot the pre-apply subscribe state.  When the operator flips
+		// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
+		// browse list to populate right away, so an off -> on transition kicks
+		// an immediate pull below instead of waiting up to an hour for the
+		// next periodic tick.
+		wasSubscribing := cur.CommunityBans.SubscribeActive()
 		applyCommunityBansForm(&cur.CommunityBans, r)
+		communityPullNeeded = !wasSubscribing && cur.CommunityBans.SubscribeActive()
 		// The shared-BAN fallback action is not edited from the UI: the
 		// "auto-BAN action" select writes a concrete action onto every
 		// auto-applied row, so a separate fallback rarely matters.  The
@@ -1273,6 +1284,23 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			if err := h.CommunityBans.Register(ctx); err != nil {
 				log.Printf("communitybans: post-save register: %v", err)
+			}
+		}()
+	}
+
+	// Subscribe just went off -> on: pull the feed now so the "共有 BAN" browse
+	// list shows entries immediately rather than after the next hourly tick.
+	// Runs async (= a slow / unreachable hub must not stall the save redirect);
+	// Pull takes the client mutex, so it serialises with the periodic pull.  The
+	// browse doc this populates needs no nginx reload; fetch_apply map
+	// enforcement still does (maps are include-loaded), which is the operator's
+	// step as usual.
+	if communityPullNeeded && h.CommunityBans != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if _, err := h.CommunityBans.Pull(ctx); err != nil {
+				log.Printf("communitybans: pull after subscribe enable: %v", err)
 			}
 		}()
 	}
