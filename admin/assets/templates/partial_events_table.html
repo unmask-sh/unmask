@@ -32,6 +32,27 @@
 <style>
 .lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
 .lb-warn-badge:hover{filter:brightness(.95)}
+/* phase pill: inline here so EVERY host page that renders this partial styles the
+   pills, instead of each carrying its own copy (overview.html drifted and lost the
+   bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
+   failure [[feedback_partial_inject_css_colocate]] warns about).  3 colour families:
+   green=pass / red=reject / yellow=in-progress / gray=meta. */
+.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.ph-serve{background:#fef3c7;color:#92400e}              /* yellow in-progress (= challenge HTML returned) */
+.ph-load{background:#fef3c7;color:#92400e}               /* yellow in-progress (= challenge JS started) */
+.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow in-progress (= CAPTCHA shown) */
+.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved, handing off) */
+.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv via pow_only) */
+.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv via captcha_only) */
+.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
+.ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
+.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie) */
+.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
+.ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
+.ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
+.ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
+.ph-check-block{background:#fee2e2;color:#991b1b}        /* red reject (= check sub-decision) */
 </style>
 <table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
   <thead>

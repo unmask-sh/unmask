@@ -103,31 +103,7 @@ table.rank td.actions{text-align:left;white-space:nowrap}
 .site-badge{color:#1e40af;background:#eff6ff;border-color:#bfdbfe}
 table.events td.ua{max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
 table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
-.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
 .rl-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.65rem;font-weight:700;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace;background:#fef3c7;color:#92400e}
-/* phase pill: states grouped into 3 colors.
- *   green  = pass (= passed through. PoW solve / CAPTCHA solve OK / check pass)
- *   red    = reject (= verify failed / bad cookie / check block.  Definitively rejected state)
- *   yellow = in progress (= intermediate state from challenge fired through solve submission.
- *            serve belongs here.  Returning the challenge HTML is "granting a solve chance",
- *            not "reject")
- *   gray   = meta / unknown (= auth_request parent event / JS exception) */
-.ph-serve{background:#fef3c7;color:#92400e}              /* yellow in-progress (= challenge HTML returned, solve chance granted) */
-.ph-load{background:#fef3c7;color:#92400e}               /* yellow in-progress (= challenge HTML loaded + JS started) */
-.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow in-progress (= CAPTCHA UI shown, awaiting solve) */
-.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved midway, handing off to next stage) */
-.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv issued via challenge_mode=pow_only) */
-.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv issued via challenge_mode=captcha_only) */
-.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv issued via challenge_mode=pow_then_captcha) */
-.ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound to a new IP, roaming client) */
-.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}     /* red reject (= rebind refused on ASN mismatch, cross-carrier _bv replay blocked -> re-challenge) */
-.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie -> re-challenge) */
-.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
-.ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
-/* sub-decisions inside check: pass = green family, block = red family.  challenge isn't recorded but listed for completeness. */
-.ph-check{background:#e2e8f0;color:#475569}         /* gray meta (= auth_request parent event) */
-.ph-check-pass{background:#dcfce7;color:#166534}    /* green pass */
-.ph-check-block{background:#fee2e2;color:#991b1b}   /* red reject */
 /* pager styles via partial_pager_styles below. */
 /* live tail */
 .live-bar{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem}
