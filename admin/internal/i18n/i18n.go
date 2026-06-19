@@ -26,17 +26,21 @@ const (
 // SupportedLangs: for the picker UI.  Slice to preserve ordering.
 var SupportedLangs = []Lang{LangJA, LangEN}
 
-// RestartCmd: the shell command that restarts the unmask service, injected into
-// help/banner strings wherever the @RESTART_CMD@ placeholder appears.  Init
-// systems differ (systemd `systemctl restart unmask` vs OpenRC `rc-service
-// unmask restart`), so cmd/unmask detects the running init at startup and sets
-// this.  The default is the systemd form, which covers the common case.
-var RestartCmd = "systemctl restart unmask"
+// RestartCmd: the bare shell command that restarts the unmask service, e.g.
+// "systemctl restart unmask" (systemd) or "rc-service unmask restart" (OpenRC).
+// cmd/unmask detects the running init at startup and sets this.  An EMPTY value
+// means the init system is unknown — there is no service manager to name (e.g. a
+// container whose PID 1 is unmask itself, or an unsupported init).  In that case
+// the UI keeps its plain-words "restart unmask" and appends NO command, rather
+// than printing one (systemctl ...) that may not exist on this host.
+var RestartCmd = ""
 
-// restartPlaceholder: T substitutes this with RestartCmd.  Deliberately uses
-// @...@ (not %...%) so it never collides with fmt verbs if a carrying string is
-// ever rendered through Tf.
-const restartPlaceholder = "@RESTART_CMD@"
+// restartHintPlaceholder: T replaces this with " (<code>sudo CMD</code>)" when
+// RestartCmd is known, or "" when it isn't.  The carrying strings always say
+// "restart unmask" in words; this only appends the concrete command as a
+// parenthetical hint.  Uses @...@ (not %...%) so it never collides with fmt
+// verbs if a carrying string is rendered through Tf.
+const restartHintPlaceholder = "@RESTART_HINT@"
 
 // NativeName: the language's own name, shown in pickers so a reader of
 // language X can recognise their own option without speaking the page's
@@ -263,7 +267,7 @@ var dict = map[Lang]map[string]string{
 		"setup.btn.skip_user_hint":                      "接続先データベースに既にある管理者アカウントを維持します",
 		"setup.review.keep_existing":                    "既存の管理者を維持（新規ユーザーは作成しません）",
 		"setup.done.h":                                  "セットアップ完了",
-		"setup.done.lead":                               "unmask の準備が整いました. 作成した管理者アカウントでログインしてください.<br><strong>注意</strong>: nginx access_log 連携 / honeypot 持続 BAN を有効化するには service の再起動が必要です (例: <code>@RESTART_CMD@</code>).",
+		"setup.done.lead":                               "unmask の準備が整いました. 作成した管理者アカウントでログインしてください.<br><strong>注意</strong>: nginx access_log 連携 / honeypot 持続 BAN を有効化するには service の再起動が必要です.@RESTART_HINT@",
 		"setup.done.restart_required":                   "<strong>自動的に再起動しています.</strong> データベースを切り替えたため background worker を新しい DB に bind し直す必要があり, daemon が自動で再起動します (手動操作は不要). 数秒後にこの画面はログインへ戻ります.",
 		"setup.btn.go_login":                            "ログインへ",
 		"setup.btn.go_dashboard":                        "ダッシュボードへ戻る",
@@ -891,7 +895,7 @@ var dict = map[Lang]map[string]string{
 		"settings.retention.nginx_log_desc":              "<strong>※ nginx native mode 限定の設定。</strong>forward-auth mode では判定リクエスト経由で同じ集計が自動的に行われるため、ON / OFF は表示に影響しない。<br><br><strong>ON</strong>: nginx からアクセスログの集計が unmask に流れ、dashboard の <strong>cookie 通過状況 card と 30 日推移 チャート</strong> の data source になる。リクエストごとに小さな通知を非同期送信するだけで、負荷は非常に小さい。<br><br><strong>OFF</strong>: ログ連携を完全に止める。該当 チャート は全て 0 になるが、challenge の動作・bot ハント・verdict 判定には影響しない。",
 		"settings.retention.nginx_log_intro":             "default は ON。 小〜中規模 site (= 秒 100 req 未満) では負荷誤差レベルで気にしなくて OK。 超高 traffic site (= 秒 1000 req 超) で datagram 送受信負荷が気になるなら OFF にして dashboard チャート を諦める選択。",
 		"settings.retention.nginx_log_enabled":           "cookie 通過 dashboard 用 access_log を nginx に出力させる",
-		"settings.retention.nginx_log_enabled_desc":      "反映には <code>unmask render-nginx</code> + <code>nginx -s reload</code> + <code>@RESTART_CMD@</code> が必要 (= socket bind / unbind を伴うため hot reload 不可).",
+		"settings.retention.nginx_log_enabled_desc":      "反映には <code>unmask render-nginx</code> + <code>nginx -s reload</code> + unmask の再起動が必要 (= socket bind / unbind を伴うため hot reload 不可).@RESTART_HINT@",
 		"settings.retention.batch_h":                     "書き込み batch (= bulk INSERT)",
 		"settings.retention.batch_desc":                  "生 event を溜めて一括書き込みする設定。小規模 site は default のままで OK。大規模 site (秒間 100 event 超) では DB への書き込み回数が大きく減って高速になる。trade-off として、bot ハントの live 表示が最大 flush 間隔の分だけ遅れる。",
 		"settings.retention.batch_intro":                 "default は size=100, interval=1000ms.  「100 件たまる」 or 「1 秒経過」 のどちらか早い方で flush.  軽い site では interval 経過 で 数件ずつ flush.",
@@ -1170,10 +1174,10 @@ var dict = map[Lang]map[string]string{
 		"settings.save":                                  "保存",
 		"settings.saved_banner":                          "✓ 保存しました.  <strong>nginx native module mode</strong> のときのみ <code>sudo nginx -t && sudo nginx -s reload</code> で反映 (= forward-auth mode は即時反映).",
 		"settings.saved_banner_noop":                     "✓ 保存しました.  今回の変更は nginx 設定に影響しないため、 構成 (native / forward-auth) を問わず <strong>操作不要で即時反映</strong> (= reload 不要).",
-		"settings.saved_banner_restart":                  "✓ 保存しました.  listen 設定の変更は <strong><code>sudo @RESTART_CMD@</code> で反映</strong>されます (= reload では反映されません.  serve 起動時にのみ読まれる設定です).",
+		"settings.saved_banner_restart":                  "✓ 保存しました.  listen 設定の変更は <strong>unmask の再起動で反映</strong>されます (= reload では反映されません.  serve 起動時にのみ読まれる設定です).@RESTART_HINT@",
 		"settings.saved_banner_also_reload":              "あわせて nginx 設定も変わったため、 <strong>native mode は <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code> も必要</strong>です.",
 		"settings.error_prefix":                          "エラー: ",
-		"settings.foot_msg":                              "user 編集対象は <code>config.yml</code> 1 個のみ. 保存すると <code>/etc/unmask/*.inc</code> も自動再生成、 <code>sudo nginx -s reload</code> で反映できます (= unmask 自身は restart 不要).<br><br>config.yml の bootstrap 値 (= <code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) は web 編集対象外. 必要なら <code>%s</code> を直接編集して <code>@RESTART_CMD@</code>.",
+		"settings.foot_msg":                              "user 編集対象は <code>config.yml</code> 1 個のみ. 保存すると <code>/etc/unmask/*.inc</code> も自動再生成、 <code>sudo nginx -s reload</code> で反映できます (= unmask 自身は restart 不要).<br><br>config.yml の bootstrap 値 (= <code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) は web 編集対象外. 必要なら <code>%s</code> を直接編集して unmask を再起動.",
 
 		"settings.bypass_ips.intro":                     "signal が立っても challenge を撃たない IP を管理するタブ.<br>2 系統が OR で評価される:<br>・ <b>公式 IP range preset</b>: Googlebot / Bingbot / OpenAI 等が公開している crawler IP range. unmask binary に embed された snapshot.<br>・ <b>独自登録 IP</b>: 信頼できる crawler / 監視 tool / 社内 LB / 定期 check 等の出口 IP を CIDR で追加.<br>preset を全 OFF にすると UA だけで crawler を見分けるしかなくなる. 公式 crawler でも UA が一般 user と区別つかないもの (= Google の user-triggered fetcher / ChatGPT-User 等) は CAPTCHA を踏むようになる.",
 		"settings.bypass.title":                         "独自登録 IP",
@@ -1209,7 +1213,7 @@ var dict = map[Lang]map[string]string{
 		"settings.network.bypass_placeholder":           "IP / CIDR (例: 66.249.64.0/19)",
 		"settings.network.listen":                       "listen 形式 (= TCP / unix socket)",
 		"settings.network.intro":                        "unmask 本体の listen 方式、admin 画面のアクセス制限、Prometheus metrics の公開範囲、IP-geo database、信頼する LB など、ネットワーク境界まわりの設定をまとめたタブ。",
-		"settings.network.listen_desc":                  "unmask が HTTP request を受ける方式.<br><strong>TCP</strong>: <code>host:port</code> で listen.  IP / firewall / port 競合を意識する従来運用.<br><strong>unix domain socket</strong>: <code>/run/unmask/http.sock</code> で listen.  port を立てない / TCP loopback より僅かに速い / socket file の owner+mode で OS レベル access 制限ができる.<br>主要な web server / proxy は全て socket upstream に対応.<br><strong>変更後は <code>@RESTART_CMD@</code> が必要</strong> (= reload では反映できない).  保存と同時に <code>/etc/unmask/upstream.conf</code> が再生成されるので web server 側も reload.",
+		"settings.network.listen_desc":                  "unmask が HTTP request を受ける方式.<br><strong>TCP</strong>: <code>host:port</code> で listen.  IP / firewall / port 競合を意識する従来運用.<br><strong>unix domain socket</strong>: <code>/run/unmask/http.sock</code> で listen.  port を立てない / TCP loopback より僅かに速い / socket file の owner+mode で OS レベル access 制限ができる.<br>主要な web server / proxy は全て socket upstream に対応.<br><strong>変更後は unmask の再起動が必要</strong> (= reload では反映できない).  保存と同時に <code>/etc/unmask/upstream.conf</code> が再生成されるので web server 側も reload.@RESTART_HINT@",
 		"settings.network.listen_tcp":                   "TCP (= host:port)",
 		"settings.network.listen_socket":                "unix domain socket",
 		"settings.network.listen_bind":                  "bind",
@@ -1220,7 +1224,7 @@ var dict = map[Lang]map[string]string{
 		"settings.network.listen_sock_group":            "group owner (= 空で自動検出)",
 		"settings.network.listen_sock_group_help":       "socket の group owner.<br><strong>空</strong> = mode が 0660 系なら web server group を自動検出 (nginx→apache→www-data→http→www の順・最初に在るもの).  複数 (nginx+apache 等) 在る時は nginx を採り log 警告するので、前段が apache なら明示が必要.<br>mode が <strong>0666</strong> の時は誰でも接続でき group は無関係 (自動検出も chown も skip) なので <strong>空のままで良い</strong>.",
 		"settings.network.listen_sock_group_ph":         "空=自動検出 (nginx/apache/www-data…)",
-		"settings.network.listen_restart_warn":          "listen 設定を変更したら <code>sudo @RESTART_CMD@</code> が必要.  保存だけでは反映されません.",
+		"settings.network.listen_restart_warn":          "listen 設定を変更したら <strong>unmask の再起動</strong>が必要.  保存だけでは反映されません.@RESTART_HINT@",
 		"err.listen_bind_invalid":                       "bind が不正です: %s (= IP / 0.0.0.0 / :: のみ)",
 		"err.listen_port_invalid":                       "port が不正です: %s (= 1〜65535)",
 		"err.listen_socket_path":                        "socket path が不正です: %s (= 絶対 path 必須)",
@@ -1719,7 +1723,7 @@ match した access は <strong>BAN list に追加</strong>され、 BAN 後の�
 		"setup.btn.skip_user_hint":                      "Keep the admin account already in the target database",
 		"setup.review.keep_existing":                    "keeping the existing admin (no new user created)",
 		"setup.done.h":                                  "Setup complete",
-		"setup.done.lead":                               "unmask is ready. Log in with the admin account you just created.<br><strong>Note</strong>: To activate nginx access_log integration and persistent honeypot BAN, restart the service (e.g. <code>@RESTART_CMD@</code>).",
+		"setup.done.lead":                               "unmask is ready. Log in with the admin account you just created.<br><strong>Note</strong>: To activate nginx access_log integration and persistent honeypot BAN, restart the service.@RESTART_HINT@",
 		"setup.done.restart_required":                   "<strong>Restarting automatically.</strong> Switching the database means the background workers must rebind to it, so the daemon is restarting itself now (no manual step needed). This page returns to the login screen in a few seconds.",
 		"setup.btn.go_login":                            "Go to login",
 		"setup.btn.go_dashboard":                        "Back to dashboard",
@@ -2337,7 +2341,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.retention.nginx_log_desc":              "<strong>Applies to nginx native mode only.</strong> In forward-auth mode the same counters are fed automatically through the decision requests, so ON / OFF has no dashboard effect.<br><br><strong>ON</strong>: nginx streams access-log aggregates to unmask; this powers the <strong>cookie pass status card and the 30-day trend charts</strong>. The cost is one small asynchronous notification per request — negligible.<br><br><strong>OFF</strong>: stops the log feed entirely. Those charts read all-zero, but challenges, the bot hunt, and verdicts are unaffected.",
 		"settings.retention.nginx_log_intro":             "Default ON. For small-to-medium traffic (&lt;100 req/s) the overhead is negligible. Turn OFF on extreme-traffic sites (&gt;1000 req/s) only if datagram send/recv overhead is measurable and you accept losing the cookie-pass dashboard charts.",
 		"settings.retention.nginx_log_enabled":           "Emit cookie-pass dashboard access_log from nginx",
-		"settings.retention.nginx_log_enabled_desc":      "Requires <code>unmask render-nginx</code> + <code>nginx -s reload</code> + <code>@RESTART_CMD@</code> to apply (socket bind/unbind cannot hot-reload).",
+		"settings.retention.nginx_log_enabled_desc":      "Requires <code>unmask render-nginx</code> + <code>nginx -s reload</code> + an unmask restart to apply (socket bind/unbind cannot hot-reload).@RESTART_HINT@",
 		"settings.retention.batch_h":                     "Write batching (bulk INSERT)",
 		"settings.retention.batch_desc":                  "Buffers raw events and writes them in batches. Small sites are fine on the defaults. Large sites (100+ events/sec) see far fewer DB writes and much better throughput. Trade-off: the bot-hunt live tail lags by up to the flush interval.",
 		"settings.retention.batch_intro":                 "Default: size=100, interval=1000 ms. Flushes whichever comes first: 100 events buffered, or 1 sec elapsed. Low-traffic sites flush a few rows per interval.",
@@ -2617,10 +2621,10 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.save":                                  "Save",
 		"settings.saved_banner":                          "✓ Saved.  Only <strong>nginx native module mode</strong> needs <code>sudo nginx -t && sudo nginx -s reload</code> to apply (= forward-auth mode applies immediately).",
 		"settings.saved_banner_noop":                     "✓ Saved.  This change does not affect the nginx conf, so it <strong>applies immediately with no reload</strong> on every setup (native / forward-auth).",
-		"settings.saved_banner_restart":                  "✓ Saved.  Listen-side changes <strong>apply on <code>sudo @RESTART_CMD@</code></strong> -- a reload won't pick them up (they are read only at serve start).",
+		"settings.saved_banner_restart":                  "✓ Saved.  Listen-side changes <strong>apply on an unmask restart</strong> -- a reload won't pick them up (they are read only at serve start).@RESTART_HINT@",
 		"settings.saved_banner_also_reload":              "The nginx conf changed too, so <strong>native mode also needs <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code></strong>.",
 		"settings.error_prefix":                          "Error: ",
-		"settings.foot_msg":                              "Only <code>config.yml</code> is user-editable. On save, <code>/etc/unmask/*.inc</code> is regenerated automatically; run <code>sudo nginx -s reload</code> to apply (unmask itself does not need a restart).<br><br>Bootstrap values in config.yml (<code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) are not editable from the web. Edit <code>%s</code> directly and run <code>@RESTART_CMD@</code>.",
+		"settings.foot_msg":                              "Only <code>config.yml</code> is user-editable. On save, <code>/etc/unmask/*.inc</code> is regenerated automatically; run <code>sudo nginx -s reload</code> to apply (unmask itself does not need a restart).<br><br>Bootstrap values in config.yml (<code>db</code> / <code>secret</code> / <code>server</code> / <code>nginx_log</code>) are not editable from the web. Edit <code>%s</code> directly and restart unmask.",
 
 		"settings.bypass_ips.intro":                     "Manage IPs that always bypass unmask -- no challenge fires even when other signals would trigger.<br>Two sources are OR-combined:<br>&bull; <b>Official IP range presets</b>: crawler IP ranges published by Googlebot / Bingbot / OpenAI etc., shipped as embedded snapshots inside the unmask binary.<br>&bull; <b>Custom bypass IPs</b>: CIDRs of trusted crawlers / monitoring tools / internal load balancers / scheduled checks.<br>Disabling every preset leaves only UA-based crawler detection. Legitimate crawlers whose UA looks like a regular browser (e.g., Google's user-triggered fetcher, ChatGPT-User) will then start getting CAPTCHA'd.",
 		"settings.bypass.title":                         "Custom bypass IPs",
@@ -2656,7 +2660,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.network.bypass_placeholder":           "IP / CIDR (e.g. 66.249.64.0/19)",
 		"settings.network.listen":                       "Listen mode (TCP / unix socket)",
 		"settings.network.intro":                        "Network-boundary settings: how unmask listens, who may reach the admin UI, the Prometheus metrics exposure, the IP-geo database, and which load balancers to trust.",
-		"settings.network.listen_desc":                  "How unmask accepts HTTP requests.<br><strong>TCP</strong>: listen on <code>host:port</code> — the conventional setup, with the usual IP / firewall / port-conflict concerns.<br><strong>Unix domain socket</strong>: listen on a path such as <code>/run/unmask/http.sock</code>.  No port to manage, slightly faster than TCP loopback, and access control is enforced via socket-file owner/mode at the OS level.<br>All major web servers / proxies support socket upstreams.<br><strong>Changing this requires <code>@RESTART_CMD@</code></strong> (a reload is not enough).  Saving also re-generates <code>/etc/unmask/upstream.conf</code>, so reload the web server too.",
+		"settings.network.listen_desc":                  "How unmask accepts HTTP requests.<br><strong>TCP</strong>: listen on <code>host:port</code> — the conventional setup, with the usual IP / firewall / port-conflict concerns.<br><strong>Unix domain socket</strong>: listen on a path such as <code>/run/unmask/http.sock</code>.  No port to manage, slightly faster than TCP loopback, and access control is enforced via socket-file owner/mode at the OS level.<br>All major web servers / proxies support socket upstreams.<br><strong>Changing this requires an unmask restart</strong> (a reload is not enough).  Saving also re-generates <code>/etc/unmask/upstream.conf</code>, so reload the web server too.@RESTART_HINT@",
 		"settings.network.listen_tcp":                   "TCP (host:port)",
 		"settings.network.listen_socket":                "Unix domain socket",
 		"settings.network.listen_bind":                  "bind",
@@ -2667,7 +2671,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.network.listen_sock_group":            "group owner (= empty to auto-detect)",
 		"settings.network.listen_sock_group_help":       "Group owner of the socket.<br><strong>Empty</strong> = when mode is 0660-style, auto-detect the web server group (nginx→apache→www-data→http→www, first that exists).  With several installed (nginx+apache…) it picks nginx and logs a warning, so set it explicitly if the front-end is apache.<br>Under <strong>0666</strong> anyone can connect and the group is irrelevant (auto-detect and chown are skipped), so <strong>leave it empty</strong>.",
 		"settings.network.listen_sock_group_ph":         "empty = auto-detect (nginx/apache/www-data…)",
-		"settings.network.listen_restart_warn":          "Listen-mode changes require <code>sudo @RESTART_CMD@</code> — saving alone is not enough.",
+		"settings.network.listen_restart_warn":          "Listen-mode changes <strong>require an unmask restart</strong> — saving alone is not enough.@RESTART_HINT@",
 		"err.listen_bind_invalid":                       "Invalid bind: %s (must be an IP, 0.0.0.0, or ::)",
 		"err.listen_port_invalid":                       "Invalid port: %s (must be 1–65535)",
 		"err.listen_socket_path":                        "Invalid socket path: %s (absolute path required)",
@@ -2975,9 +2979,14 @@ func T(lang Lang, key string) string {
 	} else if s, ok := dict[LangJA][key]; ok {
 		v = s
 	}
-	// Inject the init-system-specific restart command.  ReplaceAll is a no-op
-	// for the vast majority of keys that don't carry the placeholder.
-	return strings.ReplaceAll(v, restartPlaceholder, RestartCmd)
+	// Append the concrete restart command as a parenthetical ONLY when the init
+	// system is known; otherwise the placeholder vanishes and the sentence keeps
+	// its plain-words "restart unmask".  No-op for keys without the placeholder.
+	hint := ""
+	if RestartCmd != "" {
+		hint = " (<code>sudo " + RestartCmd + "</code>)"
+	}
+	return strings.ReplaceAll(v, restartHintPlaceholder, hint)
 }
 
 // Tf: T + fmt.Sprintf.  placeholder 入りの message に使う.

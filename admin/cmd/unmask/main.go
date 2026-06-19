@@ -175,14 +175,18 @@ func resolveHostID(configured string) string {
 // serve
 // ----------------------------------------------------------------
 
-// detectRestartCommand returns the shell command that restarts the unmask
+// detectRestartCommand returns the bare shell command that restarts the unmask
 // service under the init system this host is actually running.  The admin
 // binary ships identically to every distro (rpm/deb/apk), so the correct form
 // — `systemctl restart unmask` (systemd) vs `rc-service unmask restart`
 // (OpenRC/Alpine) — is only knowable at runtime.  Detection mirrors
 // sd_booted(3): /run/systemd/system exists iff the host booted under systemd,
-// and /run/openrc exists under OpenRC.  Anything unrecognised falls back to the
-// systemd form, which is by far the common case.
+// and /run/openrc exists under OpenRC.
+//
+// When neither is found there is no service manager to name (a container whose
+// PID 1 is unmask itself, or an unsupported init), so it returns "".  The UI
+// then keeps its plain-words "restart unmask" and prints NO command, rather than
+// guessing `systemctl ...` on a host where systemctl may not exist.
 func detectRestartCommand() string {
 	if fi, err := os.Stat("/run/systemd/system"); err == nil && fi.IsDir() {
 		return "systemctl restart unmask"
@@ -195,7 +199,7 @@ func detectRestartCommand() string {
 	if _, err := os.Stat("/sbin/openrc"); err == nil {
 		return "rc-service unmask restart"
 	}
-	return "systemctl restart unmask"
+	return ""
 }
 
 func cmdServe(args []string) error {
