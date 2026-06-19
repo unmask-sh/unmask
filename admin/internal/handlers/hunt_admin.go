@@ -26,6 +26,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -133,9 +134,26 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		sinceMin = 360
 	case "24h":
 		sinceMin = 1440
+	case "custom":
+		sinceMin = 1440 // fallback span until valid dates are picked
 	default:
 		rng = "1h"
 		sinceMin = 60
+	}
+	// custom range: from/to are operator-TZ calendar dates resolved to a UTC
+	// window threaded through huntCtx; the event queries then bound to it instead
+	// of the trailing sinceMin.  An invalid range keeps rng="custom" (so the
+	// picker stays visible) but leaves the window unset, so sinceMin applies until
+	// valid dates are entered.
+	huntCtx := r.Context()
+	var customFromTS, customToTS int64
+	customValid := false
+	if rng == "custom" {
+		customFromTS, customToTS = parseCustomRange(q.Get("from"), q.Get("to"), resolveLocation(r))
+		customValid = customFromTS > 0 && customToTS > customFromTS
+		if customValid {
+			huntCtx = events.WithHuntWindow(huntCtx, customFromTS, customToTS)
+		}
 	}
 
 	ipFilter := strings.TrimSpace(q.Get("ip"))
@@ -162,7 +180,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	const pageSize = 100
-	rows, err := events.FetchPaged(r.Context(), h.DB, ipFilter, ja4Filter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -174,9 +192,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Three ranking tables (= filters are not applied.  Top entries within
 	// the tab's sinceMin window).
-	ipRankRaw, _ := events.RankByIP(r.Context(), h.DB, sinceMin, 30)
-	ja4RankRaw, _ := events.RankByJA4(r.Context(), h.DB, sinceMin, 30)
-	uaRankRaw, _ := events.RankByUA(r.Context(), h.DB, sinceMin, 30)
+	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30)
+	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30)
+	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30)
 
 	cur := h.snapshotSettings().Nginx
 
@@ -315,26 +333,53 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Custom-range calendar: pre-fill the date inputs with the current window and
+	// bound them to [oldest event, today] in the operator TZ.
+	loc := resolveLocation(r)
+	oldestTS, _ := dashboard.OldestEventTS(huntCtx, h.DB)
+	dataMinDate := ""
+	if oldestTS > 0 {
+		dataMinDate = time.Unix(oldestTS, 0).In(loc).Format("2006-01-02")
+	}
+	nowT := time.Now()
+	dataMaxDate := nowT.In(loc).Format("2006-01-02")
+	customFrom := strings.TrimSpace(q.Get("from"))
+	if customFrom == "" {
+		if customValid {
+			customFrom = time.Unix(customFromTS, 0).In(loc).Format("2006-01-02")
+		} else {
+			customFrom = nowT.Add(-time.Duration(sinceMin) * time.Minute).In(loc).Format("2006-01-02")
+		}
+	}
+	customTo := strings.TrimSpace(q.Get("to"))
+	if customTo == "" {
+		customTo = nowT.In(loc).Format("2006-01-02")
+	}
+
 	data := map[string]any{
-		"Lang":       i18n.Resolve(r),
-		"TZ":         resolveTZ(r),
-		"BasePath":   h.cfg().Server.BasePath,
-		"Version":    h.Version,
-		"Range":      rng,
-		"SinceMin":   sinceMin,
-		"IPFilter":   ipFilter,
-		"JA4Filter":  ja4Filter,
-		"RefFilter":  refFilter,
-		"Phase":      phaseFilter,
-		"Rows":       enriched,
-		"IPRank":     ipRank,
-		"JA4Rank":    ja4Rank,
-		"UARank":     uaRank,
-		"Offset":     offset,
-		"NextOffset": offset + pageSize,
-		"PrevOffset": maxInt(offset-pageSize, 0),
-		"HasMore":    hasMore,
-		"HasPrev":    offset > 0,
+		"Lang":        i18n.Resolve(r),
+		"TZ":          resolveTZ(r),
+		"CustomFrom":  customFrom,
+		"CustomTo":    customTo,
+		"DataMinDate": dataMinDate,
+		"DataMaxDate": dataMaxDate,
+		"BasePath":    h.cfg().Server.BasePath,
+		"Version":     h.Version,
+		"Range":       rng,
+		"SinceMin":    sinceMin,
+		"IPFilter":    ipFilter,
+		"JA4Filter":   ja4Filter,
+		"RefFilter":   refFilter,
+		"Phase":       phaseFilter,
+		"Rows":        enriched,
+		"IPRank":      ipRank,
+		"JA4Rank":     ja4Rank,
+		"UARank":      uaRank,
+		"Offset":      offset,
+		"NextOffset":  offset + pageSize,
+		"PrevOffset":  maxInt(offset-pageSize, 0),
+		"HasMore":     hasMore,
+		"HasPrev":     offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.

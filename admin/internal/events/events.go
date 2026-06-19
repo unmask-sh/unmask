@@ -624,6 +624,34 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 	return out, rows.Err()
 }
 
+// huntWindowKey carries a custom [from,to] range (unix sec UTC) through ctx so
+// the hunt queries can bound to an operator-chosen period instead of only the
+// trailing `sinceMin`.  Kept local to the events package (a tiny mirror of
+// dashboard's Window plumbing) to avoid an events->dashboard import cycle.
+type huntWindowKey struct{}
+
+// WithHuntWindow attaches a custom [fromTS,toTS] window to ctx.  The hunt
+// handler calls this once for range=custom; FetchPaged / RankBy* then bound to
+// it.  A zero / inverted pair is ignored (the trailing sinceMin applies).
+func WithHuntWindow(ctx context.Context, fromTS, toTS int64) context.Context {
+	return context.WithValue(ctx, huntWindowKey{}, [2]int64{fromTS, toTS})
+}
+
+// dateCreatedWindow returns the date_created predicate for a hunt query: the ctx
+// custom window when present, else the trailing `date_created > now-sinceMin`,
+// else "" when sinceMin<=0 (the "0 = unlimited" contract FetchPaged relies on).
+func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
+	if w, ok := ctx.Value(huntWindowKey{}).([2]int64); ok && w[0] > 0 && w[1] > w[0] {
+		lo := time.Unix(w[0], 0).UTC().Format("2006-01-02 15:04:05")
+		hi := time.Unix(w[1], 0).UTC().Format("2006-01-02 15:04:05")
+		return "date_created >= '" + lo + "' AND date_created <= '" + hi + "'"
+	}
+	if sinceMin > 0 {
+		return "date_created > " + d.NowMinusMinutes(sinceMin)
+	}
+	return ""
+}
+
 // FetchPaged fetches the most recent rows id DESC, limit per page from offset.  Used by the hunt tab UI.
 //
 //	filter: ipSubstr (LIKE on IP), ja4Substr (LIKE on JA4), phase, sinceMin (now - sinceMin minutes; 0 for unlimited)
@@ -673,8 +701,8 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, ref, phase, 
 		stmt += hf
 		args = append(args, hargs...)
 	}
-	if sinceMin > 0 {
-		stmt += " AND date_created > " + d.NowMinusMinutes(sinceMin)
+	if wc := dateCreatedWindow(ctx, d, sinceMin); wc != "" {
+		stmt += " AND " + wc
 	}
 	// Order by the millisecond ingest timestamp so same-second events keep
 	// their true arrival order; id is the deterministic tie-breaker for the
@@ -825,7 +853,7 @@ func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, er
 		limit = 30
 	}
 	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event
-	         WHERE date_created > ` + d.NowMinusMinutes(sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
@@ -850,7 +878,7 @@ func RankByJA4(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, e
 		limit = 30
 	}
 	stmt := `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event
-	         WHERE date_created > ` + d.NowMinusMinutes(sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
 	         GROUP BY ja4 ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
@@ -880,7 +908,7 @@ func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (st
 		return "", nil
 	}
 	stmt := `SELECT ip_address FROM unmask_event
-	         WHERE date_created > ` + d.NowMinusMinutes(sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
 	           AND COALESCE(ja4, '') = ?
 	           AND COALESCE(ip_address, '') <> ''
 	         GROUP BY ip_address ORDER BY COUNT(*) DESC LIMIT 1`
@@ -901,7 +929,7 @@ func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, er
 		limit = 30
 	}
 	stmt := `SELECT COALESCE(user_agent, ''), COUNT(*) AS c FROM unmask_event
-	         WHERE date_created > ` + d.NowMinusMinutes(sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
 	         GROUP BY user_agent ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
