@@ -940,6 +940,24 @@ CREATE INDEX IF NOT EXISTS idx_cookie_minute_site_min
 CREATE INDEX IF NOT EXISTS idx_cookie_minute_kind_min
     ON unmask_cookie_minute(kind, bucket_min);
 
+-- unmask_cookie_ip_minute: per (minute, site, ip) CAPTCHA-cookie reuse counter.
+-- A row exists ONLY for a request that reused a valid CAPTCHA-obtained _bv
+-- cookie (kind="captcha" on the nginx access-log stream) -- i.e. the actual
+-- scrape volume of one cookie, which unmask_event never sees (no challenge fires
+-- when a valid cookie is presented).  Feeds the "CAPTCHA cookie reuse" card.
+CREATE TABLE IF NOT EXISTS unmask_cookie_ip_minute (
+    bucket_min  INTEGER NOT NULL,                            -- minute bucket (unix epoch seconds / 60)
+    site        VARCHAR(64) NOT NULL,                        -- logical site/vhost
+    ip          BLOB NOT NULL,                               -- client IP as raw bytes (4 for v4, 16 for v6)
+    ja4         VARCHAR(40) NOT NULL DEFAULT '',             -- latest JA4 fingerprint seen for this IP in the bucket
+    ua          VARCHAR(255) NOT NULL DEFAULT '',            -- latest User-Agent seen for this IP in the bucket (truncated to 255)
+    cnt         INTEGER NOT NULL DEFAULT 0,                  -- reuse request count for this (minute, site, ip)
+    last_seen   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, -- latest request time (UTC)
+    PRIMARY KEY (bucket_min, site, ip)
+);
+CREATE INDEX IF NOT EXISTS idx_cookie_ip_minute_site_min
+    ON unmask_cookie_ip_minute(site, bucket_min);
+
 -- unmask_user: dashboard admin accounts.
 CREATE TABLE IF NOT EXISTS unmask_user (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,            -- surrogate user id
@@ -1043,6 +1061,22 @@ CREATE TABLE IF NOT EXISTS unmask_cookie_minute (
     KEY idx_site_min (site, bucket_min),
     KEY idx_kind_min (kind, bucket_min)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-(minute, site, kind) repeater / funnel counters';
+
+-- unmask_cookie_ip_minute: per (minute, site, ip) CAPTCHA-cookie reuse counter.
+-- A row exists ONLY for a request that reused a valid CAPTCHA-obtained _bv
+-- cookie (kind="captcha"); this is the actual scrape volume of one cookie, which
+-- unmask_event never sees (no challenge fires for a valid cookie).
+CREATE TABLE IF NOT EXISTS unmask_cookie_ip_minute (
+    bucket_min  BIGINT NOT NULL COMMENT 'minute bucket (unix epoch seconds / 60)',
+    site        VARCHAR(64) NOT NULL COMMENT 'logical site/vhost',
+    ip          VARBINARY(16) NOT NULL COMMENT 'client IP as raw bytes (4 for v4, 16 for v6)',
+    ja4         VARCHAR(40) NOT NULL DEFAULT '' COMMENT 'latest JA4 fingerprint seen for this IP in the bucket',
+    ua          VARCHAR(255) NOT NULL DEFAULT '' COMMENT 'latest User-Agent seen for this IP in the bucket (truncated to 255)',
+    cnt         INT NOT NULL DEFAULT 0 COMMENT 'reuse request count for this (minute, site, ip)',
+    last_seen   DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'latest request time (UTC)',
+    PRIMARY KEY (bucket_min, site, ip),
+    KEY idx_cookie_ip_site_min (site, bucket_min)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Per-(minute, site, ip) CAPTCHA cookie reuse counters';
 
 CREATE TABLE IF NOT EXISTS unmask_user (
     id                       BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT 'surrogate user id',

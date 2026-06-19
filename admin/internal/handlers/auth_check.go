@@ -503,6 +503,10 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		h.NginxLog.BumpCrawler(ua, action != "pass")
 		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind)
 		h.NginxLog.BumpCountry(site, ip, kind)
+		// Per-IP CAPTCHA-cookie reuse ranking.  Pass the raw bvKind (not the
+		// challenge_served alias) so only a genuine reused CAPTCHA cookie is
+		// counted; bumpCookieIP no-ops unless bvKind=="captcha".
+		h.NginxLog.BumpCookieIP(site, ip, ja4, ua, bvKind)
 	}
 
 	// 2.8. monitor mode override (= switch right before responding, after

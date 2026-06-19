@@ -1933,6 +1933,78 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	return out, rows.Err()
 }
 
+// --- CAPTCHA cookie reuse ranking (= "使い回し CAPTCHA アクセスランキング") ----
+//
+// Ranks IPs by how many requests they made REUSING a CAPTCHA-obtained _bv cookie
+// (= the actual scrape volume of a single cookie).  Unlike the CAPTCHA-pass
+// report above -- which reads unmask_event, where the challenge fires -- a reused
+// valid cookie triggers NO challenge, so this signal exists only in the nginx
+// access-log stream the nginxlog worker aggregates into unmask_cookie_ip_minute
+// (kind="captcha" rows).  A high request count on a non-ok JA4 is a persistent
+// scraper riding one cookie.
+
+// CaptchaReuseRow is one IP's CAPTCHA-cookie reuse volume over the window.
+type CaptchaReuseRow struct {
+	IP          string
+	JA4         string
+	UA          string
+	UAFull      string
+	Requests    int
+	LastSeen    string
+	LastSeenTS  int64
+	IsBot       bool   // filled by the handler by classifying JA4 -> verdict action
+	CountryCode string // filled by the handler from IP-geo
+}
+
+// CaptchaReuseTopIPs ranks IPs by reused-cookie request volume from
+// unmask_cookie_ip_minute.  Like the other cookie_minute-backed reads
+// (CookieStatus / DailyPassByDay) it filters by site only: the table carries no
+// host column, so the hosts argument is accepted for signature parity but not
+// applied.  Valid on both SQLite (glebarez) and MariaDB.
+func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaReuseRow, error) {
+	_ = hosts // no host column on unmask_cookie_ip_minute (mirrors CookieStatus / DailyPassByDay)
+	// bucket_min = unix sec / 60; compute the cutoff in the same unit, mirroring
+	// DailyPassByDay's cookie_minute window expression for portability.
+	var cutoffMin string
+	if d.Driver == db.DriverSQLite {
+		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", hours*60)
+	} else {
+		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", hours*60)
+	}
+	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
+	stmt := fmt.Sprintf(`
+        SELECT ip,
+               MAX(ja4)              AS ja4,
+               MAX(ua)               AS ua,
+               COALESCE(SUM(cnt), 0) AS reqs,
+               MAX(last_seen)        AS last_seen
+        FROM unmask_cookie_ip_minute
+        WHERE bucket_min > %s%s
+        GROUP BY ip
+        ORDER BY reqs DESC, last_seen DESC LIMIT ?`, cutoffMin, cond)
+	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CaptchaReuseRow
+	for rows.Next() {
+		var raw []byte
+		var reqs int
+		var ja4, ua, ls sql.NullString
+		if err := rows.Scan(&raw, &ja4, &ua, &reqs, &ls); err != nil {
+			return nil, err
+		}
+		out = append(out, CaptchaReuseRow{
+			IP: ipFromBytes(raw), JA4: ja4.String,
+			UA: truncate(ua.String, 80), UAFull: ua.String,
+			Requests: reqs,
+			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
+		})
+	}
+	return out, rows.Err()
+}
+
 func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLPathRow, error) {
 	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")

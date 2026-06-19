@@ -393,6 +393,32 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 </div>
 {{ end }}{{/* captcha_report_card -- rendered in the watchlist group below */}}
 
+{{ define "captcha_reuse_card" }}
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_reuse" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
+  {{ if .CaptchaReuse }}
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ja4" }}</th><th class="bcd-num">{{ t .Lang "th.reuse" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range .CaptchaReuse }}
+      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
+        <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td class="bcd-mono cellpop">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-num">{{ comma .Requests }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ t .Lang "captcha_reuse.empty" }}</p>
+  {{ end }}
+</div>
+{{ end }}{{/* captcha_reuse_card -- rendered in the watchlist group below */}}
+
 <!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.cookie_status" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie.desc") }}</span></span></h2>
@@ -486,6 +512,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.watchlist" }}</div>
 
 {{ template "captcha_report_card" . }}
+
+{{ template "captcha_reuse_card" . }}
 
 <!-- 2) rate-limit hits (= serves arriving via rl=1) -->
 <div class="bcd-card">

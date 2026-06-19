@@ -192,6 +192,14 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
 		return err
 	}
+	// unmask_cookie_ip_minute is per-(minute, site, ip) and only feeds the
+	// CAPTCHA-reuse card, whose window never exceeds the stats page's 30-day
+	// range — cap it at the same 32-day window.  Per-IP cardinality makes
+	// pruning matter more here than for the per-kind cookie/crawler tables.
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_cookie_ip_minute WHERE bucket_min < ?`, minCutoff); err != nil {
+		return err
+	}
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The solve windows are operator-tunable; 8 days comfortably exceeds the
 	// 3-day default, and an expired _bvj never consults its row again, so a

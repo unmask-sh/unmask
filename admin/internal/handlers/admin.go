@@ -1058,6 +1058,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		cpVerdictCounts map[string]int
 		cpTopIPs        []dashboard.CaptchaPassIPRow
 		cpRecent        []dashboard.CaptchaPassRow
+		cpReuse         []dashboard.CaptchaReuseRow
 		aiTraffic       []dashboard.AITrafficRow
 		aiTrafficAll    []AITrafficRow
 		aiTrafficDetail map[string][]AICrawlerRow
@@ -1199,12 +1200,17 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	run("CaptchaPassTopIPs", func() error {
 		var e error
-		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 20)
+		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 10)
 		return e
 	})
 	run("CaptchaPassRecent", func() error {
 		var e error
 		cpRecent, e = dashboard.CaptchaPassRecent(ctx, h.DB, site, hosts, hours, 10)
+		return e
+	})
+	run("CaptchaReuse", func() error {
+		var e error
+		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 10)
 		return e
 	})
 	run("AITrafficBreakdown", func() error {
@@ -1400,6 +1406,17 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		Recent         []dashboard.CaptchaPassRow
 	}{Total: cpTotal, Bot: cpBot, Ok: cpTotal - cpBot, TopIPs: cpTopIPs, Recent: cpRecent}
 
+	// CAPTCHA cookie reuse ranking: the reuse table holds the JA4 STRING (not a
+	// verdict name), so classify each JA4 -> verdict action via matchJA4 (the same
+	// resolver the forward-auth path uses), tagging bot/suspect rows for highlight.
+	reuseNginxCfg := h.cfg().Nginx
+	for i := range cpReuse {
+		if _, action := matchJA4(cpReuse[i].JA4, reuseNginxCfg); action == "bot" || action == "suspect" {
+			cpReuse[i].IsBot = true
+		}
+		cpReuse[i].CountryCode = lookupCC(cpReuse[i].IP)
+	}
+
 	type kindPt struct {
 		Date string `json:"date"`
 		Kind int    `json:"kind"`
@@ -1494,6 +1511,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		"JSForeignErrors":    jsForeign,
 		"JSForeignCount":     jsForeignCount,
 		"CaptchaReport":      captchaReport,
+		"CaptchaReuse":       cpReuse,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"AITrafficDetail":    aiTrafficDetail,
