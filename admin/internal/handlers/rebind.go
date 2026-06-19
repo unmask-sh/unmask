@@ -167,6 +167,10 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	if ip == "" {
 		return false
 	}
+	// Extract JA4 up front so a reject logged before the _bvj check (no_bvj /
+	// bvj_invalid) still records the fingerprint -- the request carries
+	// X-Client-JA4 regardless of whether a valid _bvj accompanied it.
+	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	claims, ok := h.validBVJ(r, host, site)
 	if !ok {
 		// A roaming visitor still carries a (now stale) _bv; a first-time visitor
@@ -179,11 +183,10 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			if jc, _ := r.Cookie("_bvj"); jc != nil && jc.Value != "" {
 				reason = "bvj_invalid"
 			}
-			h.logRebindReject(r, site, ip, "", reason, "", 0, 0)
+			h.logRebindReject(r, site, ip, ja4, reason, "", 0, 0)
 		}
 		return false
 	}
-	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	if ja4 == "" && !cfg.Rebind.AllowNoJA4 {
 		// No JA4 reaches this deployment (pure forward-auth without the
 		// X-Client-JA4 wiring): the fingerprint gate would degenerate to
@@ -284,6 +287,14 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 	if pkt == nil {
 		return
 	}
+	// Record the original URL too (the _orig that protect.inc's challenge rewrite
+	// carries, or the forward-auth _orig query) so the hunt log shows WHERE the
+	// roaming client was headed when the rebind was refused -- otherwise the path
+	// column is blank for every reject row.
+	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	if !isLocalRedirect(origPath) {
+		origPath = ""
+	}
 	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	events.InsertAsync(h.DB, &events.Event{
 		Site:         site,
@@ -302,6 +313,7 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 			"solve_asn": solveASN,
 			"cur_asn":   curASN,
 			"reason":    reason,
+			"orig_path": origPath,
 		},
 	})
 }
