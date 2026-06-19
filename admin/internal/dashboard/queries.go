@@ -1810,6 +1810,7 @@ type CaptchaPassRow struct {
 	Date        string
 	IP          string
 	Verdict     string
+	JA4         string // raw TLS fingerprint behind the verdict (= verdict-cell popover)
 	UA          string
 	UAFull      string
 	Path        string
@@ -1823,6 +1824,7 @@ type CaptchaPassRow struct {
 type CaptchaPassIPRow struct {
 	IP          string
 	Verdict     string
+	JA4         string // raw TLS fingerprint behind the verdict (= verdict-cell popover)
 	UA          string
 	UAFull      string
 	Passes      int
@@ -1867,6 +1869,7 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
 	stmt := fmt.Sprintf(`
         SELECT ip_address,
                MAX(ja4_verdict)  AS verdict,
+               MAX(ja4)          AS ja4,
                MAX(user_agent)   AS ua,
                COUNT(*)          AS passes,
                COUNT(DISTINCT %s) AS paths,
@@ -1885,12 +1888,12 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
 	for rows.Next() {
 		var raw []byte
 		var passes, paths int
-		var verdict, ua, ls sql.NullString
-		if err := rows.Scan(&raw, &verdict, &ua, &passes, &paths, &ls); err != nil {
+		var verdict, ja4, ua, ls sql.NullString
+		if err := rows.Scan(&raw, &verdict, &ja4, &ua, &passes, &paths, &ls); err != nil {
 			return nil, err
 		}
 		out = append(out, CaptchaPassIPRow{
-			IP: ipFromBytes(raw), Verdict: verdict.String,
+			IP: ipFromBytes(raw), Verdict: verdict.String, JA4: ja4.String,
 			UA: truncate(ua.String, 80), UAFull: ua.String,
 			Passes: passes, Paths: paths,
 			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
@@ -1906,7 +1909,7 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
 	refExpr := jsonExtract(d, "payload_json", "$.ref")
 	stmt := fmt.Sprintf(`
-        SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(user_agent, ''),
+        SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(ja4, ''), COALESCE(user_agent, ''),
                COALESCE(%s, ''), COALESCE(%s, ''), phase
         FROM unmask_event
         WHERE date_created > %s%s AND phase IN %s
@@ -1920,13 +1923,13 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	var out []CaptchaPassRow
 	for rows.Next() {
 		var raw []byte
-		var dc, verdict, ua, path, ref, phase string
-		if err := rows.Scan(&dc, &raw, &verdict, &ua, &path, &ref, &phase); err != nil {
+		var dc, verdict, ja4, ua, path, ref, phase string
+		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase); err != nil {
 			return nil, err
 		}
 		out = append(out, CaptchaPassRow{
 			TS: parseDateTimeToUnix(dc), Date: dc, IP: ipFromBytes(raw),
-			Verdict: verdict, UA: truncate(ua, 80), UAFull: ua,
+			Verdict: verdict, JA4: ja4, UA: truncate(ua, 80), UAFull: ua,
 			Path: path, Ref: ref, Phase: phase,
 		})
 	}
@@ -1947,6 +1950,7 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 type CaptchaReuseRow struct {
 	IP          string
 	JA4         string
+	Verdict     string // filled by the handler by resolving JA4 -> verdict name
 	UA          string
 	UAFull      string
 	Requests    int

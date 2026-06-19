@@ -1200,7 +1200,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	run("CaptchaPassTopIPs", func() error {
 		var e error
-		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 10)
+		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 20)
 		return e
 	})
 	run("CaptchaPassRecent", func() error {
@@ -1210,7 +1210,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	run("CaptchaReuse", func() error {
 		var e error
-		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 10)
+		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 20)
 		return e
 	})
 	run("AITrafficBreakdown", func() error {
@@ -1411,9 +1411,9 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// resolver the forward-auth path uses), tagging bot/suspect rows for highlight.
 	reuseNginxCfg := h.cfg().Nginx
 	for i := range cpReuse {
-		if _, action := matchJA4(cpReuse[i].JA4, reuseNginxCfg); action == "bot" || action == "suspect" {
-			cpReuse[i].IsBot = true
-		}
+		verdict, action := matchJA4(cpReuse[i].JA4, reuseNginxCfg)
+		cpReuse[i].Verdict = verdict
+		cpReuse[i].IsBot = action == "bot" || action == "suspect"
 		cpReuse[i].CountryCode = lookupCC(cpReuse[i].IP)
 	}
 
