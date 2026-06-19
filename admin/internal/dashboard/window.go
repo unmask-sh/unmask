@@ -152,3 +152,24 @@ func (w Window) TimestampClause(col string) string {
 
 func (w Window) tsLo() string { return time.Unix(w.Start, 0).UTC().Format("2006-01-02 15:04:05") }
 func (w Window) tsHi() string { return time.Unix(w.End, 0).UTC().Format("2006-01-02 15:04:05") }
+
+// DateClause is the window predicate for a DATE-only 'YYYY-MM-DD' string column
+// (e.g. unmask_aggregate_hll.bucket under the daily 'ccip' bucket_kind).
+func (w Window) DateClause(col string) string {
+	lo := time.Unix(w.Start, 0).UTC().Format("2006-01-02")
+	hi := time.Unix(w.End, 0).UTC().Format("2006-01-02")
+	return fmt.Sprintf("%s >= '%s' AND %s <= '%s'", col, lo, col, hi)
+}
+
+// HourIntClause is the window predicate for a unix-sec/3600 INTEGER hour-bucket
+// column (e.g. DailyPassByCountry's bucket_hour).
+func (w Window) HourIntClause(col string) string {
+	return fmt.Sprintf("%s >= %d AND %s <= %d", col, w.Start/3600, col, w.End/3600)
+}
+
+func dateWindow(ctx context.Context, hours int, col string) string {
+	return windowOr(ctx, hours).DateClause(col)
+}
+func hourIntWindow(ctx context.Context, hours int, col string) string {
+	return windowOr(ctx, hours).HourIntClause(col)
+}

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -73,3 +74,24 @@ func TestTsAndMinWindowColumns(t *testing.T) {
 		t.Errorf("minWindow = %q", mn)
 	}
 }
+
+// TestDateAndHourIntWindow covers the daily-bucket helpers (ccip date-only
+// string column + DailyPassByCountry unix/3600 integer column).
+func TestDateAndHourIntWindow(t *testing.T) {
+	start := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC).Unix()
+	end := time.Date(2026, 6, 10, 0, 0, 0, 0, time.UTC).Unix()
+	ctx := WithWindow(context.Background(), Window{Start: start, End: end})
+
+	dt := dateWindow(ctx, 24, "bucket")
+	if !strings.Contains(dt, "bucket >= '2026-06-01'") || !strings.Contains(dt, "bucket <= '2026-06-10'") {
+		t.Errorf("dateWindow = %q", dt)
+	}
+	hi := hourIntWindow(ctx, 24, "bucket_hour")
+	wantLo := start / 3600
+	wantHi := end / 3600
+	if !strings.Contains(hi, "bucket_hour >= "+itoa(wantLo)) || !strings.Contains(hi, "bucket_hour <= "+itoa(wantHi)) {
+		t.Errorf("hourIntWindow = %q (want lo=%d hi=%d)", hi, wantLo, wantHi)
+	}
+}
+
+func itoa(n int64) string { return strconv.FormatInt(n, 10) }

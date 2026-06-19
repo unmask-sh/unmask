@@ -1955,7 +1955,7 @@ type CaptchaReuseRow struct {
 // host column, so the hosts argument is accepted for signature parity but not
 // applied.  Valid on both SQLite (glebarez) and MariaDB.
 func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaReuseRow, error) {
-	_ = hosts // no host column on unmask_cookie_ip_minute (mirrors CookieStatus / DailyPassByDay)
+	_ = hosts              // no host column on unmask_cookie_ip_minute (mirrors CookieStatus / DailyPassByDay)
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	stmt := fmt.Sprintf(`
         SELECT ip,
@@ -2847,12 +2847,6 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
 	if tz == nil {
 		tz = time.UTC
 	}
-	cutoffHour := ""
-	if d.Driver == db.DriverSQLite {
-		cutoffHour = fmt.Sprintf("(strftime('%%s', 'now', '-%d days') / 3600)", days)
-	} else {
-		cutoffHour = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d DAY)) DIV 3600)", days)
-	}
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	// Return raw hourly buckets and aggregate per (TZ-shifted date, country) in
 	// Go.  See DailyPassByDay for the rationale.
@@ -2863,9 +2857,9 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
         FROM unmask_traffic_country_hourly
-        WHERE bucket_hour > %s%s
+        WHERE %s%s
         GROUP BY bucket_hour, country
-        ORDER BY bucket_hour`, cutoffHour, cond)
+        ORDER BY bucket_hour`, hourIntWindow(ctx, days*24, "bucket_hour"), cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2952,7 +2946,11 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 	if tz == nil {
 		tz = time.UTC
 	}
-	cutoffMin := time.Now().Unix()/60 - int64(days)*1440
+	// Window in minute buckets.  Trailing fallback (no ctx window) reproduces the
+	// old "now/60 - days*1440 .. now" bounds exactly; a custom range narrows both.
+	win := windowOr(ctx, days*24)
+	cutoffMin := win.Start / 60
+	untilMin := win.End / 60
 	cursor, err := trafficRollupCursor(ctx, d)
 	if err != nil {
 		return nil, err
@@ -2974,7 +2972,13 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 	//    chronologically ordered as a fixed-width string).
 	if cursor >= 0 {
 		cutoffHour := time.Unix(cutoffMin*60, 0).UTC().Format("2006-01-02 15")
-		upToHour := time.Unix(cursor*3600, 0).UTC().Format("2006-01-02 15")
+		// Cap the settled-hours upper bound at the window end, so a custom range
+		// that ends in the past doesn't pull settled hours past it.
+		upToSec := cursor * 3600
+		if u := untilMin * 60; u < upToSec {
+			upToSec = u
+		}
+		upToHour := time.Unix(upToSec, 0).UTC().Format("2006-01-02 15")
 		args := []any{hkTrafficIP, cutoffHour, upToHour}
 		cond := ""
 		if site != "" {
@@ -3016,7 +3020,7 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 			liveMin = m
 		}
 	}
-	args := []any{liveMin}
+	args := []any{liveMin, untilMin}
 	cond := ""
 	if site != "" {
 		cond = " AND site = ?"
@@ -3024,7 +3028,7 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 	}
 	rows, err := d.QueryContext(ctx,
 		`SELECT bucket_min, sketch FROM unmask_traffic_hll
-        WHERE kind = 'ip' AND bucket_min >= ?`+cond, args...)
+        WHERE kind = 'ip' AND bucket_min >= ? AND bucket_min <= ?`+cond, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -3149,7 +3153,7 @@ func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow,
 	sketches := map[string]*hll{}
 	hrows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+dateAgoExpr(d, days)+` AND bucket_kind = 'ccip'`)
+        WHERE `+dateWindow(ctx, days*24, "bucket")+` AND bucket_kind = 'ccip'`)
 	if err != nil {
 		return nil, err
 	}
