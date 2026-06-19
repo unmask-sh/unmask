@@ -583,11 +583,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <div class="field listen-pair">
         <div>
-          <label>{{ t .Lang "settings.network.listen_sock_mode" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_mode_help") }}</span></span></label>
+          <label>{{ t .Lang "settings.network.listen_sock_mode" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_mode_help") }}</span></span></label>
           <input type="text" name="socket_mode" value="{{ .ListenSockMode }}" placeholder="0660" pattern="0?[0-7]{3}">
         </div>
         <div>
-          <label>{{ t .Lang "settings.network.listen_sock_group" }}</label>
+          <label>{{ t .Lang "settings.network.listen_sock_group" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_group_help") }}</span></span></label>
           <input type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="{{ t .Lang "settings.network.listen_sock_group_ph" }}">
         </div>
       </div>
