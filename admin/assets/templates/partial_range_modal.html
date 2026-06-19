@@ -7,8 +7,10 @@
      (see [[feedback_partial_inject_css_colocate]]). */}}
 {{ define "range_custom_modal" }}
 <style>
-.urange-trigger{font:inherit;cursor:pointer;background:none;border:0;padding:0;color:#2563eb;text-decoration:underline;text-underline-offset:.2em}
-.urange-trigger.active{font-weight:700;text-decoration:none;color:inherit}
+/* The "custom" trigger is rendered as an <a> so it inherits the host page's
+   preset-link styling (.bcd-controls a / .range-bar a) and matches the
+   24h/7d/30d buttons exactly; JS intercepts the click to open the modal in
+   place (no navigation). */
 .urange-modal[hidden]{display:none}
 .urange-modal{position:fixed;inset:0;z-index:2000;display:flex;align-items:center;justify-content:center}
 .urange-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.45)}
@@ -23,7 +25,7 @@
 .urange-cancel{border:1px solid #cbd5e1;background:#fff;color:#334155}
 .urange-apply{border:1px solid #2563eb;background:#2563eb;color:#fff}
 </style>
-<button type="button" class="urange-trigger js-urange-open {{ if eq .Range "custom" }}active{{ end }}" aria-haspopup="dialog">{{ t .Lang "dashboard.range_custom" }}{{ if eq .Range "custom" }}: {{ .CustomFrom }} – {{ .CustomTo }}{{ end }}</button>
+<a href="?range=custom" class="js-urange-open {{ if eq .Range "custom" }}active{{ end }}" role="button" aria-haspopup="dialog">{{ t .Lang "dashboard.range_custom" }}{{ if eq .Range "custom" }}: {{ .CustomFrom }} – {{ .CustomTo }}{{ end }}</a>
 <div class="urange-modal" hidden>
   <div class="urange-backdrop js-urange-close"></div>
   <div class="urange-box" role="dialog" aria-modal="true" aria-label="{{ t .Lang "dashboard.range_custom" }}">
@@ -49,7 +51,7 @@
   if (!modal) return;
   function open(){ modal.hidden = false; var i = modal.querySelector('input[name="from"]'); if (i) { try { i.focus(); } catch(e){} } }
   function close(){ modal.hidden = true; }
-  Array.prototype.forEach.call(document.querySelectorAll('.js-urange-open'), function(b){ b.addEventListener('click', open); });
+  Array.prototype.forEach.call(document.querySelectorAll('.js-urange-open'), function(b){ b.addEventListener('click', function(e){ e.preventDefault(); open(); }); });
   Array.prototype.forEach.call(modal.querySelectorAll('.js-urange-close'), function(b){ b.addEventListener('click', close); });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !modal.hidden) close(); });
 })();
