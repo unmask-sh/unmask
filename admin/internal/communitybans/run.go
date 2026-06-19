@@ -5,6 +5,11 @@ import (
 	"time"
 )
 
+// PullInterval is the fixed cadence of the community-bans feed pull loop.  It is
+// the single source of truth shared by the daemon's Run() call site (main.go)
+// and the admin UI's "next fetch" estimate (= LastPulledAt + PullInterval).
+const PullInterval = time.Hour
+
 // Run: blocking loop that 1) registers + does the initial pull at startup,
 // 2) re-pulls every interval, 3) exits on ctx.Done().  Intended to be called in
 // a goroutine.
@@ -13,7 +18,7 @@ import (
 // at the next interval).
 func (c *Client) Run(ctx context.Context, interval time.Duration) {
 	if interval <= 0 {
-		interval = 1 * time.Hour
+		interval = PullInterval
 	}
 	cur := c.SettingsGetter()
 	// Lay down empty community-bans map placeholders up front -- before the

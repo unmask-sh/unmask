@@ -407,6 +407,16 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 			`SELECT COUNT(*) FROM unmask_ban WHERE source = 'community_bans'`).Scan(&hitsFromHub)
 	}
 
+	// "Next fetch" estimate: the pull loop re-fetches every
+	// communitybans.PullInterval (fixed), updating LastPulledAt only on a
+	// *successful* pull -- so the next fetch lands ~one interval after the last
+	// success.  Shown only when subscribe is active and we have pulled at least
+	// once (0 -> the template hides the line).
+	var nextPullAt int64
+	if cur.CommunityBans.SubscribeActive() && cur.CommunityBans.LastPulledAt > 0 {
+		nextPullAt = cur.CommunityBans.LastPulledAt + int64(communitybans.PullInterval.Seconds())
+	}
+
 	data := map[string]any{
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
@@ -423,6 +433,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"CommunityBansLastPulledAt":    cur.CommunityBans.LastPulledAt,
 		"CommunityBansGeneratedAt":     doc.GeneratedAt,
 		"CommunityBansVersion":         doc.Version,
+		"CommunityBansNextPullAt":      nextPullAt,
 		"CommunityBansHits30d":         hitCount,
 		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
 		"CommunityBansFromHub":         hitsFromHub,

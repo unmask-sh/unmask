@@ -463,7 +463,7 @@ func cmdServe(args []string) error {
 		// operator has finished the wizard.  The post-setup auto re-exec starts
 		// it on the next boot.
 		if setupComplete {
-			go h.CommunityBans.Run(context.Background(), time.Hour)
+			go h.CommunityBans.Run(context.Background(), communitybans.PullInterval)
 		}
 	}
 
