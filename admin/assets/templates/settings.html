@@ -452,7 +452,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </h1>
 
 {{ if .Saved }}
-{{ if .SavedReload }}
+{{ if .SavedRestart }}
+<div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner_restart") }}{{ if .SavedReload }} {{ safeHTML (t .Lang "settings.saved_banner_also_reload") }}{{ end }}</div>
+{{ else if .SavedReload }}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner") }}</div>
 {{ else }}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner_noop") }}</div>

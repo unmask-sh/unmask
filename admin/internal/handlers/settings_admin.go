@@ -454,7 +454,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// computed (= reload=1 appended iff the rendered nginx conf changed).
 		// No per-section static list -- the deterministic renderer means any
 		// conf-affecting field, in any section, flips this automatically.
-		"SavedReload":      r.URL.Query().Get("reload") == "1",
+		"SavedReload": r.URL.Query().Get("reload") == "1",
+		// SavedRestart: a listen-side change (Server.*) was saved; it takes effect
+		// only on `systemctl restart unmask` (serve reads these at start, not on
+		// reload).  Independent of SavedReload -- a TCP<->socket switch needs both.
+		"SavedRestart":     r.URL.Query().Get("restart") == "1",
 		"Error":            readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":              cur,
 		"Global":           h.snapshotSettings().Global,
@@ -914,6 +918,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// maintain; any setting that reaches the rendered conf is covered, and
 	// admin-only settings never flip it.
 	nginxReloadNeeded := false
+	// unmaskRestartNeeded: set true when a listen-side setting changed (Server.*),
+	// which the daemon only reads at serve start -- a reload won't pick it up, so
+	// the operator must `systemctl restart unmask`.  The banner announces it.
+	unmaskRestartNeeded := false
 	redirBack := func(msg string) {
 		dst := base + "/admin/settings/?tab=" + tabForSection(section)
 		if msg == "" {
@@ -922,6 +930,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			dst += "&saved=1&section=" + url.QueryEscape(section)
 			if nginxReloadNeeded {
 				dst += "&reload=1"
+			}
+			if unmaskRestartNeeded {
+				dst += "&restart=1"
 			}
 		} else {
 			// Carry the error text in a flash cookie rather than the URL
@@ -951,6 +962,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	beforeSig, beforeSigErr := nginxconf.RenderSignature(cur, "", h.Version)
 
 	lang := i18n.Resolve(r)
+	// Snapshot listen-side config before the apply so we can detect a change that
+	// needs a unmask restart (Server is all scalar fields, so a value compare of
+	// the whole struct catches bind / port / socket_mode / socket_group / base_path).
+	beforeServer := cur.Server
 	switch section {
 	case "global":
 		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
@@ -1186,6 +1201,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	} else {
 		nginxReloadNeeded = afterSig != beforeSig
 	}
+	// Listen-side settings are read only at serve start, so a change there needs
+	// `systemctl restart unmask`, independent of the nginx-conf reload signal.
+	unmaskRestartNeeded = cur.Server != beforeServer
 
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		redirBack("save: " + err.Error())
