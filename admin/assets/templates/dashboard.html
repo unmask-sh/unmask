@@ -391,8 +391,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   {{ end }}
   {{ end }}
 </div>
-{{ end }}
-{{ template "captcha_report_card" . }}
+{{ end }}{{/* captcha_report_card -- rendered in the watchlist group below */}}
 
 <!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
 <div class="bcd-card">
@@ -485,6 +484,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 </div>
 
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.watchlist" }}</div>
+
+{{ template "captcha_report_card" . }}
 
 <!-- 2) rate-limit hits (= serves arriving via rl=1) -->
 <div class="bcd-card">
