@@ -603,6 +603,16 @@ func ipAllowed(ip string, allowList []string) bool {
 	if len(allowList) == 0 {
 		return true
 	}
+	// A unix-socket connection has no IP, so adminClientIP resolves to "" (a
+	// socket peer isn't a trusted proxy, so X-Real-IP isn't trusted either).
+	// Honor an explicit allow-all (/0) list for that EMPTY peer, so socket-mode
+	// admin doesn't 403 despite an "allow all" list.  Only "" is waived here --
+	// a genuinely invalid IP like "zzz" must still be rejected below, and a
+	// non-/0 list still rejects "" (a specific-IP allowlist can't be satisfied
+	// over a socket; use the socket file's 0660 group for that instead).
+	if ip == "" && adminIPsAllowAll(allowList) {
+		return true
+	}
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
 		return false

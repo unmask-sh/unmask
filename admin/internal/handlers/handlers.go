@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -2002,11 +2003,33 @@ func adminClientIP(r *http.Request, cfg settings.Settings) string {
 	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
 		return clientIP(r)
 	}
+	// A unix-socket peer has no IP (RemoteAddr is "" / "@").  The connection is
+	// local to the host and the web server in front sets X-Real-IP, so trust it
+	// -- the same posture as gunicorn (unix-socket conns are trusted
+	// unconditionally) and nginx (`set_real_ip_from unix:`).  Access is gated by
+	// the socket file's permissions: 0660 lets only the web server's group
+	// connect; 0666 lets any local process, which could spoof the header -- but
+	// admin still requires a login, and the socket_mode help spells this out so
+	// an operator who needs strict admin_allowed_ips can choose 0660.
+	if peerIsUnixSocket(r.RemoteAddr) {
+		return clientIP(r)
+	}
 	host := r.RemoteAddr
 	if i := strings.LastIndexByte(host, ':'); i > 0 {
 		host = host[:i]
 	}
 	return strings.Trim(host, "[]")
+}
+
+// peerIsUnixSocket reports whether the request arrived over a unix-domain
+// socket: its RemoteAddr has no parseable IP ("" / "@" for an unnamed or
+// abstract socket), unlike a TCP peer which is always host:port.
+func peerIsUnixSocket(remoteAddr string) bool {
+	host := remoteAddr
+	if h, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		host = h
+	}
+	return net.ParseIP(strings.Trim(host, "[]")) == nil
 }
 
 func readCookieMax(r *http.Request, name string, maxlen int) string {
