@@ -325,6 +325,13 @@ func TestAdminClientIPSocketPeer(t *testing.T) {
 	if got := adminClientIP(req2, cfg); got != "198.51.100.9" {
 		t.Errorf("adminClientIP(untrusted TCP) = %q, want 198.51.100.9", got)
 	}
+	// socket peer with NO forwarded header -> "" (not the socket's "@"), so
+	// ipAllowed treats it as a socket peer and an allow-all list admits it.
+	req3 := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req3.RemoteAddr = "@"
+	if got := adminClientIP(req3, cfg); got != "" {
+		t.Errorf("adminClientIP(socket, no header) = %q, want empty", got)
+	}
 }
 
 // TestResolveHostFilterEncodedCookie guards the multi-select host picker bug:

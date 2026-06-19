@@ -2012,7 +2012,20 @@ func adminClientIP(r *http.Request, cfg settings.Settings) string {
 	// admin still requires a login, and the socket_mode help spells this out so
 	// an operator who needs strict admin_allowed_ips can choose 0660.
 	if peerIsUnixSocket(r.RemoteAddr) {
-		return clientIP(r)
+		// Trust the web server's forwarded client IP.  A bare socket connection
+		// with no forwarded header (e.g. curl --unix-socket) has no client IP, so
+		// return "" -- NOT the socket's "@" / "" RemoteAddr, which ipAllowed can't
+		// match (ipAllowed treats "" as a socket peer and honors an allow-all list).
+		if v := strings.TrimSpace(r.Header.Get("X-Real-IP")); v != "" {
+			return v
+		}
+		if v := r.Header.Get("X-Forwarded-For"); v != "" {
+			if i := strings.IndexByte(v, ','); i >= 0 {
+				v = v[:i]
+			}
+			return strings.TrimSpace(v)
+		}
+		return ""
 	}
 	host := r.RemoteAddr
 	if i := strings.LastIndexByte(host, ':'); i > 0 {
