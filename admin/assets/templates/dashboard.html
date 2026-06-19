@@ -242,6 +242,17 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   <a href="?range=24h" {{if eq .Range "24h"}}class="active"{{end}}>{{ t .Lang "dashboard.range_24h" }}</a>
   <a href="?range=7d"  {{if eq .Range "7d" }}class="active"{{end}}>{{ t .Lang "dashboard.range_7d" }}</a>
   <a href="?range=30d" {{if eq .Range "30d"}}class="active"{{end}}>{{ t .Lang "dashboard.range_30d" }}</a>
+  <a href="?range=custom" {{if eq .Range "custom"}}class="active"{{end}}>{{ t .Lang "dashboard.range_custom" }}</a>
+  {{ if eq .Range "custom" }}
+  <form method="get" style="display:inline-flex;align-items:center;gap:.3rem;margin-left:.4rem;flex-wrap:wrap">
+    <input type="hidden" name="range" value="custom">
+    <input type="date" name="from" value="{{ .CustomFrom }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required style="font:inherit;padding:.1rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem">
+    <span style="color:#64748b">–</span>
+    <input type="date" name="to" value="{{ .CustomTo }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required style="font:inherit;padding:.1rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem">
+    <button type="submit" style="font:inherit;padding:.1rem .55rem;cursor:pointer;border:1px solid #2563eb;background:#2563eb;color:#fff;border-radius:.2rem">{{ t .Lang "dashboard.range_apply" }}</button>
+    {{ if .DataMinDate }}<span style="color:#94a3b8;font-size:.75rem">({{ t .Lang "dashboard.range_data_span" }}: {{ .DataMinDate }} 〜 {{ .DataMaxDate }})</span>{{ end }}
+  </form>
+  {{ end }}
 </div>
 
 {{ if .FailedCards }}

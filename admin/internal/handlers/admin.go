@@ -77,6 +77,19 @@ func resolveLocation(r *http.Request) *time.Location {
 	return time.UTC
 }
 
+// parseCustomRange resolves a custom-range request's from/to calendar dates
+// (YYYY-MM-DD, interpreted in the operator's TZ) to a UTC window in unix
+// seconds: [from 00:00:00, to 23:59:59].  Returns 0,0 when either date is
+// missing or unparseable, which the caller treats as "fall back to a preset".
+func parseCustomRange(fromStr, toStr string, loc *time.Location) (int64, int64) {
+	from, err1 := time.ParseInLocation("2006-01-02", strings.TrimSpace(fromStr), loc)
+	to, err2 := time.ParseInLocation("2006-01-02", strings.TrimSpace(toStr), loc)
+	if err1 != nil || err2 != nil {
+		return 0, 0
+	}
+	return from.Unix(), to.Add(24*time.Hour - time.Second).Unix()
+}
+
 var (
 	dashboardTmpl     *template.Template
 	dashboardTmplOnce sync.Once
@@ -986,10 +999,22 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	}
 
 	rng := r.URL.Query().Get("range")
-	if rng != "7d" && rng != "30d" {
+	if rng != "7d" && rng != "30d" && rng != "custom" {
 		rng = "24h"
 	}
-	hours := dashboard.RangeHours(rng)
+	hours := dashboard.RangeHours(rng) // "custom" resolves to the 24h fallback span
+	// custom range: from/to are operator-TZ calendar dates (YYYY-MM-DD), resolved
+	// to a UTC [00:00 from, 23:59:59 to] window.  An unparseable / inverted range
+	// KEEPS rng="custom" (so the date picker still renders, pre-filled) but leaves
+	// the window unset, so the queries fall back to the 24h span until the operator
+	// picks valid dates.
+	var customFromTS, customToTS int64
+	customValid := false
+	if rng == "custom" {
+		customFromTS, customToTS = parseCustomRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"), resolveLocation(r))
+		customValid = customFromTS > 0 && customToTS > customFromTS
+	}
+	win := dashboard.WindowFromRange(rng, time.Now(), customFromTS, customToTS)
 
 	// host filter (global scope of the shared host_picker; sourced from
 	// cookie / ?host=).  Passed to every dashboard query (unmask_event-based
@@ -1002,6 +1027,12 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	// Overall dashboard timeout (each query carries its own shorter ctx deadline).
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+	// A custom range overrides the trailing-`hours` window every dashboard query
+	// would otherwise compute from now.  Presets leave ctx unset so the queries
+	// fall back to their `hours` arg and behave exactly as before.
+	if rng == "custom" && customValid {
+		ctx = dashboard.WithWindow(ctx, win)
+	}
 
 	// Helper to compose a per-query timeout.  Assigns heavy queries (e.g. the
 	// 30-day aggregate) their own ctx so an upstream slow query doesn't cascade.
@@ -1483,6 +1514,28 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 
 	now := time.Now()
 	rangeStart := now.Add(-time.Duration(hours) * time.Hour)
+	rangeEnd := now
+	if rng == "custom" && customValid {
+		rangeStart = time.Unix(win.Start, 0)
+		rangeEnd = time.Unix(win.End, 0)
+	}
+	// Custom-range calendar: pre-fill the date inputs with the current window's
+	// dates (operator TZ) and bound them to [oldest event, today] so the operator
+	// can only pick a period that actually has data behind it.
+	oldestTS, _ := dashboard.OldestEventTS(ctx, h.DB)
+	dataMinDate := ""
+	if oldestTS > 0 {
+		dataMinDate = time.Unix(oldestTS, 0).In(loc).Format("2006-01-02")
+	}
+	dataMaxDate := now.In(loc).Format("2006-01-02")
+	customFrom := strings.TrimSpace(r.URL.Query().Get("from"))
+	if customFrom == "" {
+		customFrom = rangeStart.In(loc).Format("2006-01-02")
+	}
+	customTo := strings.TrimSpace(r.URL.Query().Get("to"))
+	if customTo == "" {
+		customTo = rangeEnd.In(loc).Format("2006-01-02")
+	}
 
 	data := map[string]any{
 		"Lang":  i18n.Resolve(r),
@@ -1492,6 +1545,11 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 		// RangeStartTS = epoch sec UTC.  JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
 		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),
+		"RangeEndTS":         rangeEnd.Unix(),
+		"CustomFrom":         customFrom,
+		"CustomTo":           customTo,
+		"DataMinDate":        dataMinDate,
+		"DataMaxDate":        dataMaxDate,
 		"Driver":             string(h.DB.Driver),
 		"FailedCards":        failedCardList,
 		"Funnel":             funnel,

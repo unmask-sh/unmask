@@ -250,10 +250,10 @@ func sitesAgg(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	cntStmt := fmt.Sprintf(`
         SELECT bucket_kind, bucket_key, SUM(cnt) AS c, MAX(bucket_hour) AS last_hour
         FROM unmask_aggregate_hourly
-        WHERE bucket_hour >= %s
+        WHERE %s
           AND bucket_kind IN ('%s','%s','%s')
         GROUP BY bucket_kind, bucket_key`,
-		hourAgoExpr(d, hours), hkSiteAll, hkSiteServe, hkSiteBV)
+		hourWindow(ctx, hours, "bucket_hour"), hkSiteAll, hkSiteServe, hkSiteBV)
 	rows, err := d.QueryContext(ctx, cntStmt)
 	if err != nil {
 		return nil, err
@@ -295,8 +295,8 @@ func sitesAgg(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
 	hllStmt := fmt.Sprintf(`
         SELECT bucket_key, sketch
         FROM unmask_aggregate_hll
-        WHERE bucket >= %s AND bucket_kind = '%s'`,
-		hourAgoExpr(d, hours), hkSiteIP)
+        WHERE %s AND bucket_kind = '%s'`,
+		hourWindow(ctx, hours, "bucket"), hkSiteIP)
 	hRows, err := d.QueryContext(ctx, hllStmt)
 	if err != nil {
 		return nil, err
@@ -351,8 +351,8 @@ func sitesScan(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) 
                COUNT(DISTINCT ip_address) AS uniq,
                MAX(date_created) AS last_seen
         FROM unmask_event
-        WHERE date_created > %s
-        GROUP BY site`, d.NowMinusMinutes(hours*60))
+        WHERE %s
+        GROUP BY site`, tsWindow(ctx, hours, "date_created"))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -557,13 +557,13 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 // site/host-filtered views, which the hourly aggregate deliberately does not
 // dimension.
 func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
+	since := tsWindow(ctx, hours, "date_created")
 	sc := siteCond(site) + hostCond(hosts)
 
 	// A) base aggregation by verdict × phase. SELECT id too so canon can use it.
 	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid, phase, COUNT(*) AS n
-        FROM unmask_event WHERE date_created > %s%s
+        FROM unmask_event WHERE %s%s
         GROUP BY ja4_verdict, ja4_verdict_id, phase`, since, sc))
 	if err != nil {
 		return nil, err
@@ -598,7 +598,7 @@ func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hour
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                COUNT(DISTINCT ip_address) AS uniq_ip,
                SUM(CASE WHEN flags = 0 AND %s THEN 1 ELSE 0 END) AS stealth
-        FROM unmask_event WHERE date_created > %s%s AND phase = 'load'
+        FROM unmask_event WHERE %s%s AND phase = 'load'
         GROUP BY ja4_verdict, ja4_verdict_id`, botFilter, since, sc), botFilterArgs...)
 	if err != nil {
 		return nil, err
@@ -625,7 +625,7 @@ func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hour
 	rows3, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid,
                SUM(CASE WHEN %s IN ('1', 1) THEN 1 ELSE 0 END) AS rl
-        FROM unmask_event WHERE date_created > %s%s AND phase = 'serve'
+        FROM unmask_event WHERE %s%s AND phase = 'serve'
         GROUP BY ja4_verdict, ja4_verdict_id`, jsonRL, since, sc))
 	if err != nil {
 		return nil, err
@@ -676,7 +676,7 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 
 	rows, err := d.QueryContext(ctx, `
         SELECT bucket_kind, bucket_key, cnt FROM unmask_aggregate_hourly
-        WHERE bucket_hour >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket_hour")+`
           AND bucket_kind IN ('fnl', 'lf0', 'srl')`)
 	if err != nil {
 		return nil, err
@@ -718,10 +718,14 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	// per-verdict distinct IP for phase=load: HLL merge across the hour
 	// buckets, then estimate per-key.  The same sketches feed the TOTAL row's
 	// LoadUniq via a single union pass.  No raw scan in the agg path.
-	since := hourAgoTimestamp(d, hours)
+	// since is consumed by buildFunnelRowsWithUniq / rateLimitFunnelRow as a
+	// full date_created predicate.  Keep the hour-aligned bound (hourAgoTimestamp)
+	// so the raw rate-limit row covers the same boundary as the hourWindow agg
+	// buckets above; tsWindow's exact-second bound would desync the two.
+	since := "date_created > " + hourAgoTimestamp(d, hours)
 	sRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
           AND bucket_kind = '`+hkLoadVerdictIP+`'`)
 	if err != nil {
 		return nil, err
@@ -763,7 +767,7 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	var rlTotal int64
 	_ = d.QueryRowContext(ctx, `
         SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '`+hkServeRL+`' AND bucket_hour >= `+hourAgoExpr(d, hours)).Scan(&rlTotal)
+        WHERE bucket_kind = '`+hkServeRL+`' AND `+hourWindow(ctx, hours, "bucket_hour")).Scan(&rlTotal)
 	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, rlTotal == 0)
 }
 
@@ -876,7 +880,7 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 		total.LoadUniq = *totalLoadUniq
 	} else {
 		row := d.QueryRowContext(ctx, fmt.Sprintf(
-			`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s%s AND phase = 'load'`,
+			`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE %s%s AND phase = 'load'`,
 			since, siteCond(site)+hostCond(hosts)))
 		_ = row.Scan(&total.LoadUniq)
 	}
@@ -906,10 +910,10 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []stri
           SUM(CASE WHEN phase='cookie_err' THEN 1 ELSE 0 END)            AS n_cookie_err,
           SUM(CASE WHEN phase='error' THEN 1 ELSE 0 END)                AS n_error
         FROM unmask_event
-        WHERE date_created > %s%s
+        WHERE %s%s
           AND ip_address IN (
               SELECT ip_address FROM unmask_event
-              WHERE date_created > %s%s AND phase='serve'
+              WHERE %s%s AND phase='serve'
                 AND %s IN ('1', 1)
           )`, since, sc, since, sc, jsonRL)
 	row := d.QueryRowContext(ctx, stmt, botArgs...)
@@ -966,8 +970,8 @@ func verdictDistScan(ctx context.Context, d *db.DB, site string, hosts []string,
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(*) AS cnt,
                COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s%s
-        GROUP BY ja4_verdict`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
+        FROM unmask_event WHERE %s%s
+        GROUP BY ja4_verdict`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -996,7 +1000,7 @@ func verdictDistAgg(ctx context.Context, d *db.DB, hours int) ([]VerdictCount, e
 	// counts: sum fnl over (verdict id, phase) per raw verdict name.
 	crows, err := d.QueryContext(ctx, `
         SELECT bucket_key, cnt FROM unmask_aggregate_hourly
-        WHERE bucket_hour >= `+hourAgoExpr(d, hours)+` AND bucket_kind = 'fnl'`)
+        WHERE `+hourWindow(ctx, hours, "bucket_hour")+` AND bucket_kind = 'fnl'`)
 	if err != nil {
 		return nil, err
 	}
@@ -1024,7 +1028,7 @@ func verdictDistAgg(ctx context.Context, d *db.DB, hours int) ([]VerdictCount, e
 	sketches := map[string]*hll{}
 	hrows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+` AND bucket_kind = 'vdip'`)
+        WHERE `+hourWindow(ctx, hours, "bucket")+` AND bucket_kind = 'vdip'`)
 	if err != nil {
 		return nil, err
 	}
@@ -1116,16 +1120,6 @@ type CookieStatusRow struct {
 // In environments where nginx log.conf is not included the table stays empty,
 // so all-zero rows are returned (= the card itself is still rendered).
 func CookieStatus(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CookieStatusRow, error) {
-	// bucket_min = unix sec / 60. cutoff is computed in the same unit.
-	var cutoffMin string
-	if d.Driver == db.DriverSQLite {
-		// SQLite: strftime('%s','now','-N minutes') / 60
-		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", hours*60)
-	} else {
-		// MariaDB: UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL N MINUTE)) DIV 60
-		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", hours*60)
-	}
-
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 
 	// kind/cnt normalized schema. Aggregate the 3 kinds total / captcha / pow in one query.
@@ -1135,7 +1129,7 @@ func CookieStatus(ctx context.Context, d *db.DB, site string, hosts []string, ho
           COALESCE(SUM(CASE WHEN kind = 'captcha' THEN cnt ELSE 0 END), 0) AS bv,
           COALESCE(SUM(CASE WHEN kind = 'pow'     THEN cnt ELSE 0 END), 0) AS bp
         FROM unmask_cookie_minute
-        WHERE bucket_min > %s%s`, cutoffMin, cond)
+        WHERE %s%s`, minWindow(ctx, hours, "bucket_min"), cond)
 	row := d.QueryRowContext(ctx, stmt)
 	var total, bv, bp sql.NullInt64
 	if err := row.Scan(&total, &bv, &bp); err != nil {
@@ -1195,8 +1189,8 @@ func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []strin
 func flagsDistributionScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
 	stmt := fmt.Sprintf(`
         SELECT flags, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s%s AND phase='load'
-        GROUP BY flags`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
+        FROM unmask_event WHERE %s%s AND phase='load'
+        GROUP BY flags`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1221,7 +1215,7 @@ func flagsDistributionAgg(ctx context.Context, d *db.DB, hours int) ([]FlagsRow,
 
 	cRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '`+hkFlags+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        WHERE bucket_kind = '`+hkFlags+`' AND `+hourWindow(ctx, hours, "bucket_hour")+`
         GROUP BY bucket_key`)
 	if err != nil {
 		return nil, err
@@ -1250,7 +1244,7 @@ func flagsDistributionAgg(ctx context.Context, d *db.DB, hours int) ([]FlagsRow,
 
 	sRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
           AND bucket_kind = '`+hkFlagsIP+`'`)
 	if err != nil {
 		return nil, err
@@ -1390,7 +1384,7 @@ func aiTrafficBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]AITraffi
 
 	cRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '`+hkAITag+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        WHERE bucket_kind = '`+hkAITag+`' AND `+hourWindow(ctx, hours, "bucket_hour")+`
         GROUP BY bucket_key`)
 	if err != nil {
 		return nil, err
@@ -1415,7 +1409,7 @@ func aiTrafficBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]AITraffi
 
 	sRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
           AND bucket_kind = '`+hkAITagIP+`'`)
 	if err != nil {
 		return nil, err
@@ -1460,7 +1454,7 @@ func aiTrafficBreakdownAggSite(ctx context.Context, d *db.DB, site string, hours
 	cRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
         WHERE bucket_kind = '`+hkAITagSite+`'
-          AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+          AND `+hourWindow(ctx, hours, "bucket_hour")+`
           AND bucket_key LIKE ?
         GROUP BY bucket_key`, likeArg)
 	if err != nil {
@@ -1490,7 +1484,7 @@ func aiTrafficBreakdownAggSite(ctx context.Context, d *db.DB, site string, hours
 
 	sRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
           AND bucket_kind = '`+hkAITagSiteIP+`'
           AND bucket_key LIKE ?`, likeArg)
 	if err != nil {
@@ -1561,7 +1555,6 @@ func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []s
 // or site filter rules out the install-wide aggregate (= aggregates don't
 // carry host / site dimensions for this card).
 func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	stmt := fmt.Sprintf(`
         SELECT
@@ -1571,8 +1564,8 @@ func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts
           END AS kind,
           COUNT(*) AS n,
           COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE date_created > %s%s AND phase='load'
-        GROUP BY kind`, reasonExpr, reasonExpr, since, siteCond(site)+hostCond(hosts))
+        FROM unmask_event WHERE %s%s AND phase='load'
+        GROUP BY kind`, reasonExpr, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1598,7 +1591,7 @@ func captchaForceBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]Captc
 
 	cRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '`+hkCaptchaForce+`' AND bucket_hour >= `+hourAgoExpr(d, hours)+`
+        WHERE bucket_kind = '`+hkCaptchaForce+`' AND `+hourWindow(ctx, hours, "bucket_hour")+`
         GROUP BY bucket_key`)
 	if err != nil {
 		return nil, err
@@ -1623,7 +1616,7 @@ func captchaForceBreakdownAgg(ctx context.Context, d *db.DB, hours int) ([]Captc
 
 	sRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
-        WHERE bucket >= `+hourAgoExpr(d, hours)+`
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
           AND bucket_kind = '`+hkCaptchaForceIP+`'`)
 	if err != nil {
 		return nil, err
@@ -1690,10 +1683,10 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hosts []string, hou
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(reload_count) AS max_rc,
                MAX(flags) AS max_flags, MAX(user_agent) AS ua, MAX(date_created) AS last_seen
-        FROM unmask_event WHERE date_created > %s%s AND phase='load' AND reload_count >= 1
+        FROM unmask_event WHERE %s%s AND phase='load' AND reload_count >= 1
         GROUP BY ip_address
         HAVING max_rc >= 2 OR n >= 3
-        ORDER BY max_rc DESC, n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
+        ORDER BY max_rc DESC, n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1752,7 +1745,7 @@ func HasRateLimited(ctx context.Context, d *db.DB, site string, hosts []string, 
 	var total int64
 	err := d.QueryRowContext(ctx, `
         SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '`+hkServeRL+`' AND bucket_hour >= `+hourAgoExpr(d, hours)).Scan(&total)
+        WHERE bucket_kind = '`+hkServeRL+`' AND `+hourWindow(ctx, hours, "bucket_hour")).Scan(&total)
 	if err != nil {
 		return true, err
 	}
@@ -1760,7 +1753,6 @@ func HasRateLimited(ctx context.Context, d *db.DB, site string, hosts []string, 
 }
 
 func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLIPRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt := fmt.Sprintf(`
         SELECT ip_address,
@@ -1768,8 +1760,8 @@ func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, ho
                MAX(user_agent) AS ua,
                MAX(date_created) AS last_seen
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
-        GROUP BY ip_address ORDER BY n DESC LIMIT ?`, since, siteCond(site)+hostCond(hosts), jsonRL)
+        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)
+        GROUP BY ip_address ORDER BY n DESC LIMIT ?`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -1838,12 +1830,11 @@ type CaptchaPassIPRow struct {
 // CaptchaPassVerdictCounts returns captcha passes grouped by JA4 verdict over
 // the window, so the handler can roll them into bot / ok totals for the KPI.
 func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, ''), COUNT(*)
         FROM unmask_event
-        WHERE date_created > %s%s AND phase IN %s
-        GROUP BY ja4_verdict`, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+        WHERE %s%s AND phase IN %s
+        GROUP BY ja4_verdict`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1864,7 +1855,6 @@ func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts 
 // CaptchaPassTopIPs ranks IPs by how many times they passed a CAPTCHA in the
 // window (= repeat passers are the persistent bots re-solving for fresh cookies).
 func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassIPRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
 	stmt := fmt.Sprintf(`
         SELECT ip_address,
@@ -1875,10 +1865,10 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
                COUNT(DISTINCT %s) AS paths,
                MAX(date_created) AS last_seen
         FROM unmask_event
-        WHERE date_created > %s%s AND phase IN %s
+        WHERE %s%s AND phase IN %s
         GROUP BY ip_address
         ORDER BY passes DESC, last_seen DESC LIMIT ?`,
-		pathExpr, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+		pathExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -1905,16 +1895,15 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
 // CaptchaPassRecent returns the latest captcha passes (= the per-client detail
 // list) with the path requested and the support Ref ID at the time of the pass.
 func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
 	refExpr := jsonExtract(d, "payload_json", "$.ref")
 	stmt := fmt.Sprintf(`
         SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(ja4, ''), COALESCE(user_agent, ''),
                COALESCE(%s, ''), COALESCE(%s, ''), phase
         FROM unmask_event
-        WHERE date_created > %s%s AND phase IN %s
+        WHERE %s%s AND phase IN %s
         ORDER BY date_created DESC LIMIT ?`,
-		pathExpr, refExpr, since, siteCond(site)+hostCond(hosts), captchaPassPhases)
+		pathExpr, refExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -1967,14 +1956,6 @@ type CaptchaReuseRow struct {
 // applied.  Valid on both SQLite (glebarez) and MariaDB.
 func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaReuseRow, error) {
 	_ = hosts // no host column on unmask_cookie_ip_minute (mirrors CookieStatus / DailyPassByDay)
-	// bucket_min = unix sec / 60; compute the cutoff in the same unit, mirroring
-	// DailyPassByDay's cookie_minute window expression for portability.
-	var cutoffMin string
-	if d.Driver == db.DriverSQLite {
-		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", hours*60)
-	} else {
-		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", hours*60)
-	}
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	stmt := fmt.Sprintf(`
         SELECT ip,
@@ -1983,9 +1964,9 @@ func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []stri
                COALESCE(SUM(cnt), 0) AS reqs,
                MAX(last_seen)        AS last_seen
         FROM unmask_cookie_ip_minute
-        WHERE bucket_min > %s%s
+        WHERE %s%s
         GROUP BY ip
-        ORDER BY reqs DESC, last_seen DESC LIMIT ?`, cutoffMin, cond)
+        ORDER BY reqs DESC, last_seen DESC LIMIT ?`, minWindow(ctx, hours, "bucket_min"), cond)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2010,7 +1991,6 @@ func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []stri
 }
 
 func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLPathRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
 	// When aggregating by path, drop the query string (= merge different queries
@@ -2027,10 +2007,10 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, 
 	stmt := fmt.Sprintf(`
         SELECT %s AS path, COUNT(*) AS n
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
+        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)
           AND %s IS NOT NULL AND %s <> ''
         GROUP BY path ORDER BY n DESC LIMIT ?`,
-		pathExpr, since, siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
+		pathExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2059,7 +2039,6 @@ type RLQueryCount struct {
 // Result: path string → []RLQueryCount (= count desc, up to perPathLimit entries).
 // Empty queries (= requests with no query string) are skipped.
 func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hosts []string, hours, perPathLimit int) (map[string][]RLQueryCount, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
 	// Split path / query in SQL.
@@ -2077,12 +2056,12 @@ func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hosts []
 	stmt := fmt.Sprintf(`
         SELECT %s AS p, %s AS q, COUNT(*) AS n
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)
+        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)
           AND %s IS NOT NULL AND %s <> ''
         GROUP BY p, q
         HAVING q <> ''
         ORDER BY p, n DESC`,
-		pathExpr, queryExpr, since, siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
+		pathExpr, queryExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2107,15 +2086,14 @@ func RateLimitQueriesByPath(ctx context.Context, d *db.DB, site string, hosts []
 }
 
 func RateLimitSummary(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (RLSummary, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt := fmt.Sprintf(`
         SELECT COUNT(*) AS n,
                MIN(date_created) AS f,
                MAX(date_created) AS t
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='serve' AND %s IN ('1', 1)`,
-		since, siteCond(site)+hostCond(hosts), jsonRL)
+        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)`,
+		tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL)
 	row := d.QueryRowContext(ctx, stmt)
 	var s RLSummary
 	var n sql.NullInt64
@@ -2145,7 +2123,6 @@ type VerifyNGRow struct {
 }
 
 func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]VerifyNGRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	method := jsonExtract(d, "payload_json", "$.method")
 	score := jsonExtract(d, "payload_json", "$.score")
 	stmt := fmt.Sprintf(`
@@ -2157,8 +2134,8 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
                MAX(user_agent) AS ua,
                MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
                MAX(date_created) AS last_seen
-        FROM unmask_event WHERE date_created > %s%s AND phase='verify_ng'
-        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, since, siteCond(site)+hostCond(hosts))
+        FROM unmask_event WHERE %s%s AND phase='verify_ng'
+        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2202,13 +2179,12 @@ type CookieFailRow struct {
 }
 
 func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CookieFailRow, error) {
-	since := d.NowMinusMinutes(hours * 60)
 	cookieOK := jsonExtract(d, "payload_json", "$.cookie_set_ok")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(user_agent) AS ua, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='bv_pow_only' AND %s IN ('false', 0)
-        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, since, siteCond(site)+hostCond(hosts), cookieOK)
+        WHERE %s%s AND phase='bv_pow_only' AND %s IN ('false', 0)
+        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), cookieOK)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2255,10 +2231,10 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, h
         SELECT ip_address, COALESCE(ja4_verdict,'(none)') AS v,
                MAX(user_agent) AS ua, COUNT(*) AS n, MAX(date_created) AS ls
         FROM unmask_event
-        WHERE date_created > %s%s
+        WHERE %s%s
           AND phase IN ('bv_captcha_only','bv_pow_then_captcha')
           AND ja4_verdict %s
-        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), botIn)
+        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), botIn)
 	rows, err := d.QueryContext(ctx, stmt, botArgs...)
 	if err != nil {
 		return nil, err
@@ -2313,8 +2289,8 @@ func jsErrorRows(ctx context.Context, d *db.DB, site string, hosts []string, hou
 	stmt := fmt.Sprintf(`
         SELECT ip_address, user_agent, flags, %s AS err, date_created
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='error' AND %s
-        ORDER BY id DESC LIMIT %d`, errMsg, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), cond, limit)
+        WHERE %s%s AND phase='error' AND %s
+        ORDER BY id DESC LIMIT %d`, errMsg, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), cond, limit)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2357,8 +2333,8 @@ func JSForeignErrorCount(ctx context.Context, d *db.DB, site string, hosts []str
 	stmt := fmt.Sprintf(`
         SELECT COUNT(*)
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='error' AND %s`,
-		d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts), jsForeignCond(d))
+        WHERE %s%s AND phase='error' AND %s`,
+		tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsForeignCond(d))
 	var n int
 	if err := d.QueryRowContext(ctx, stmt).Scan(&n); err != nil {
 		return 0, err
@@ -2502,7 +2478,7 @@ func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []
         SELECT bucket_hour, bucket_key, cnt
         FROM unmask_aggregate_hourly
         WHERE bucket_kind = '%s'
-          AND bucket_hour >= %s`, hkServeKind, hourAgoExpr(d, hours))
+          AND %s`, hkServeKind, hourWindow(ctx, hours, "bucket_hour"))
 	rows, err := d.QueryContext(ctx, cntStmt)
 	if err != nil {
 		return nil, nil, err
@@ -2568,7 +2544,7 @@ func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []
         SELECT bucket, sketch
         FROM unmask_aggregate_hll
         WHERE bucket_kind = '%s'
-          AND bucket >= %s`, hkServeIP, hourAgoExpr(d, hours))
+          AND %s`, hkServeIP, hourWindow(ctx, hours, "bucket"))
 	hRows, err := d.QueryContext(ctx, hllStmt)
 	if err != nil {
 		return nil, nil, err
@@ -2637,7 +2613,6 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
 	if tz == nil {
 		tz = time.UTC
 	}
-	since := d.NowMinusMinutes(days * 24 * 60)
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	cond := siteCond(site) + hostCond(hosts)
 	// rate_limit serve hits are orthogonal to the bot-type breakdown and are
@@ -2675,8 +2650,8 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
                COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
                ip_address
         FROM unmask_event
-        WHERE phase='serve' AND date_created > %s AND %s%s`,
-		since, notRL, cond)
+        WHERE phase='serve' AND %s AND %s%s`,
+		tsWindow(ctx, days*24, "date_created"), notRL, cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
@@ -2771,12 +2746,6 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	if tz == nil {
 		tz = time.UTC
 	}
-	cutoffMin := ""
-	if d.Driver == db.DriverSQLite {
-		cutoffMin = fmt.Sprintf("(strftime('%%s', 'now', '-%d minutes') / 60)", days*24*60)
-	} else {
-		cutoffMin = fmt.Sprintf("(UNIX_TIMESTAMP(DATE_SUB(NOW(), INTERVAL %d MINUTE)) DIV 60)", days*24*60)
-	}
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
 	// Pull raw minute buckets and aggregate per day in Go using the operator's
 	// cookie TZ.  This is what makes day boundaries follow the user (= 2026-05-30
@@ -2788,9 +2757,9 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
-        WHERE bucket_min > %s%s
+        WHERE %s%s
         GROUP BY bucket_min
-        ORDER BY bucket_min`, cutoffMin, cond)
+        ORDER BY bucket_min`, minWindow(ctx, days*24, "bucket_min"), cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
@@ -3100,12 +3069,11 @@ func CountriesByServe(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site str
 }
 
 func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
-	since := d.NowMinusMinutes(days * 24 * 60)
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n
         FROM unmask_event
-        WHERE date_created > %s%s AND phase='serve'
-        GROUP BY ip_address`, since, siteCond(site)+hostCond(hosts))
+        WHERE %s%s AND phase='serve'
+        GROUP BY ip_address`, tsWindow(ctx, days*24, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -3158,7 +3126,7 @@ func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow,
 
 	crows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
-        WHERE bucket_hour >= `+hourAgoExpr(d, days*24)+` AND bucket_kind = 'cc'
+        WHERE `+hourWindow(ctx, days*24, "bucket_hour")+` AND bucket_kind = 'cc'
         GROUP BY bucket_key`)
 	if err != nil {
 		return nil, err
@@ -3232,7 +3200,7 @@ func DailySeries(ctx context.Context, d *db.DB, days int, tz *time.Location) ([]
 	}
 	stmt := fmt.Sprintf(`
         SELECT date_created, phase FROM unmask_event
-        WHERE date_created > %s`, d.NowMinusMinutes(days*24*60))
+        WHERE %s`, tsWindow(ctx, days*24, "date_created"))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
