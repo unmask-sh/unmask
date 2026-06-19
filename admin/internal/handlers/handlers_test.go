@@ -289,6 +289,11 @@ func TestIPAllowed(t *testing.T) {
 		{"v6 CIDR match", "2001:db8::1", []string{"2001:db8::/32"}, true},
 		{"mixed list match later", "192.168.1.1", []string{"127.0.0.1", "192.168.1.0/24"}, true},
 		{"non-empty list invalid IP rejected", "zzz", []string{"0.0.0.0/0"}, false},
+		// A unix-socket peer reached without a forwarded header has an empty IP
+		// (adminClientIP -> ""); an allow-all list still admits it, a specific
+		// list does not (use the socket file's 0660 group for that).
+		{"socket empty IP + allow-all → allowed", "", []string{"0.0.0.0/0", "::/0"}, true},
+		{"socket empty IP + specific list → rejected", "", []string{"10.0.0.5"}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -297,6 +302,28 @@ func TestIPAllowed(t *testing.T) {
 				t.Errorf("ipAllowed(%q, %v) = %v, want %v", c.ip, c.allowList, got, c.want)
 			}
 		})
+	}
+}
+
+// TestAdminClientIPSocketPeer guards the unix-socket trust posture: a socket
+// peer (no IP) is trusted like gunicorn / nginx set_real_ip_from unix:, so the
+// web server's forwarded X-Real-IP is honored and admin_allowed_ips can match
+// the real client.  An untrusted TCP peer's forwarded header is still ignored.
+func TestAdminClientIPSocketPeer(t *testing.T) {
+	cfg := settings.Settings{}
+	// unix-socket peer (RemoteAddr "@") -> trust X-Real-IP set by the web server.
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req.RemoteAddr = "@"
+	req.Header.Set("X-Real-IP", "203.0.113.7")
+	if got := adminClientIP(req, cfg); got != "203.0.113.7" {
+		t.Errorf("adminClientIP(socket peer) = %q, want 203.0.113.7", got)
+	}
+	// untrusted TCP peer -> a spoofed X-Real-IP is ignored; the connecting IP wins.
+	req2 := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req2.RemoteAddr = "198.51.100.9:5555"
+	req2.Header.Set("X-Real-IP", "203.0.113.7")
+	if got := adminClientIP(req2, cfg); got != "198.51.100.9" {
+		t.Errorf("adminClientIP(untrusted TCP) = %q, want 198.51.100.9", got)
 	}
 }
 
