@@ -2108,6 +2108,37 @@ func (h *Handler) VerdictNameToID(name string) int {
 	return h.VerdictRegistry().NameToID(name)
 }
 
+// VerdictAction resolves a JA4 verdict NAME to its action ("bot"/"suspect"/"ok")
+// under the current config.  Operator Extra rules win over preset groups (same
+// precedence the dashboard's verdict->action map uses).  Empty for an unset or
+// unknown verdict name.
+func (h *Handler) VerdictAction(name string) string {
+	if name == "" {
+		return ""
+	}
+	for _, p := range h.cfg().Nginx.JA4Verdicts.Extra {
+		if p.Verdict == name {
+			return p.Action
+		}
+	}
+	for _, g := range nginxconf.JA4VerdictGroups {
+		for _, rule := range g.Rules {
+			if rule.Verdict == name {
+				return rule.Action
+			}
+		}
+	}
+	return ""
+}
+
+// verdictIsBot reports whether a JA4 verdict name resolves to a blocking action
+// (bot or suspect).  An empty / unknown verdict is NOT bot, so callers that gate
+// on it fail open on unclassified traffic.
+func (h *Handler) verdictIsBot(name string) bool {
+	a := h.VerdictAction(name)
+	return a == nginxconf.JA4ActionBot || a == nginxconf.JA4ActionSuspect
+}
+
 // MethodOnly wraps `h` so requests with a different method get 405.
 func MethodOnly(method string, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

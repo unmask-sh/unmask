@@ -60,26 +60,16 @@ func (h *Handler) validBVJ(r *http.Request, host, site string) (cookies.JClaims,
 	return cookies.JClaims{}, false
 }
 
-// mintBVJ issues a fresh-lineage _bvj for the solving client and sets it on w.
-// Solve paths only (VerifyJSON, and IssueBVJ for the JS PoW path): a fresh
-// lineage is a fresh rebind budget, so it must always be paid for by a real
-// solve.
-func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host string) {
-	lineage, err := cookies.NewLineage()
-	if err != nil {
-		return // no entropy; the solve itself already passed, just skip the rebind credential
-	}
-	var asn uint
-	if h.IPGeo != nil {
-		asn = h.IPGeo.LookupInfo(ip).ASN
-	}
-	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
-	// JA4 is recorded but no longer matched on rebind (see tryRebind), so the
-	// stored hash is informational only; keep the full JA4 for event parity.
-	val := cookies.IssueJValue(h.cfg().Secret.BVSecret,
-		cookies.FingerprintHash(ja4),
-		cookies.FingerprintHash(r.Header.Get("User-Agent")),
-		lineage, asn, host, "captcha")
+// maxBVJJA4Hashes caps how many fingerprint hashes one _bvj accumulates.  A
+// device needs at most two for the h2/h3 transport pair; the small headroom
+// covers a mid-life browser update, while the tight cap denies a stolen-cookie
+// attacker an open-ended set of TLS stacks.
+const maxBVJJA4Hashes = 3
+
+// writeBVJ signs and sets the _bvj cookie.  ja4Set is the "~"-joined fingerprint
+// set (see cookies.JClaims); a single hash is the common case.
+func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set, uaHash, lineage string, asn uint) {
+	val := cookies.IssueJValue(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, "captcha")
 	http.SetCookie(w, &http.Cookie{
 		Name:   "_bvj",
 		Value:  val,
@@ -91,6 +81,42 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host strin
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// mintBVJ issues a FRESH-lineage _bvj for the solving client and sets it on w.
+// Solve paths only (VerifyJSON, and IssueBVJ's first-time path): a fresh lineage
+// is a fresh rebind budget, so it must always be paid for by a real solve.  The
+// stored JA4 set starts as the single fingerprint seen at this solve; a re-solve
+// under a new transport extends it via remintBVJAppend (keeping the lineage).
+func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host string) {
+	lineage, err := cookies.NewLineage()
+	if err != nil {
+		return // no entropy; the solve itself already passed, just skip the rebind credential
+	}
+	var asn uint
+	if h.IPGeo != nil {
+		asn = h.IPGeo.LookupInfo(ip).ASN
+	}
+	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
+	h.writeBVJ(w, r, host, cookies.FingerprintHash(ja4),
+		cookies.FingerprintHash(r.Header.Get("User-Agent")), lineage, asn)
+}
+
+// remintBVJAppend re-issues the _bvj for the SAME lineage as prior, adding this
+// connection's JA4 to the stored set (capped) and refreshing the UA hash.  Used
+// on the IssueBVJ re-solve path so a device that re-solves under a new transport
+// (h2 vs h3 produce different JA4s) keeps every fingerprint it has proven AND
+// its existing rebind budget, instead of spawning a fresh lineage each time its
+// JA4 changes.
+func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, host string, prior cookies.JClaims) {
+	var asn uint
+	if h.IPGeo != nil {
+		asn = h.IPGeo.LookupInfo(ip).ASN
+	}
+	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
+	set := cookies.AppendJA4Hash(prior.JA4Hash, cookies.FingerprintHash(ja4), maxBVJJA4Hashes)
+	h.writeBVJ(w, r, host, set,
+		cookies.FingerprintHash(r.Header.Get("User-Agent")), prior.Lineage, asn)
 }
 
 // IssueBVJ: POST {base}/api/bvj
@@ -137,17 +163,21 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 		// Re-POSTing with a still-valid _bvj is normally a no-op, so the endpoint
 		// can't be looped to farm fresh lineages off one solve.  But "valid"
 		// (signature + host + window) does NOT mean "usable for rebind": tryRebind
-		// also matches JA4 + UA, so a credential minted under an old fingerprint
-		// (the device's JA4 changed, or an older match rule) verifies here yet is
-		// rejected on every roam -- stranding the holder on a PoW forever.  Skip
-		// only when the stored fingerprint still matches THIS connection; otherwise
-		// fall through and re-mint so the _bvj tracks the current JA4/UA.
+		// also matches JA4 + UA, so a credential whose stored set lacks THIS
+		// connection's fingerprint (a new transport, or an older match rule)
+		// verifies here yet is rejected on every roam.  Skip only when the
+		// fingerprint is already in the set AND the UA still matches; otherwise
+		// extend the SAME lineage with the new JA4 (keeping the rebind budget)
+		// so the device rebinds silently on this transport too.
 		ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
-		if cookies.FingerprintHash(ja4) == claims.JA4Hash &&
+		if claims.JA4Matches(cookies.FingerprintHash(ja4)) &&
 			cookies.FingerprintHash(r.Header.Get("User-Agent")) == claims.UAHash {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 0, "skip": "present"})
 			return
 		}
+		h.remintBVJAppend(w, r, ip, host, claims)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
+		return
 	}
 	h.mintBVJ(w, r, ip, host)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
@@ -194,13 +224,22 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, claims.ASN, 0)
 		return false
 	}
-	// Match the full JA4 -- a strong TLS-stack signal kept for the rebind.  A
-	// device whose JA4 legitimately changed re-mints its _bvj on its next solve
-	// (IssueBVJ refreshes a fingerprint-stale credential instead of treating it
-	// as present), so a stale _bvj no longer strands the holder on a PoW.
-	if cookies.FingerprintHash(ja4) != claims.JA4Hash {
-		h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, claims.ASN, 0)
-		return false
+	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	// Match the JA4 against the SET the _bvj accumulated.  A device legitimately
+	// presents several -- HTTP/2 over TCP and HTTP/3 over QUIC differ in every
+	// JA4 field -- and the _bvj remembers each transport it has solved under.  A
+	// fingerprint outside the set is usually a transport the device hasn't
+	// re-solved under yet, so veto only when it looks bot-like (a foreign TLS
+	// stack replaying the cookie); a clean fingerprint is let through -- still
+	// gated by UA + ASN + per-lineage cap + the _bvj HMAC -- and flagged so the
+	// operator keeps visibility into JA4-drift passes.
+	ja4Relaxed := false
+	if !claims.JA4Matches(cookies.FingerprintHash(ja4)) {
+		if h.verdictIsBot(verdict) {
+			h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, claims.ASN, 0)
+			return false
+		}
+		ja4Relaxed = true
 	}
 	if cookies.FingerprintHash(r.Header.Get("User-Agent")) != claims.UAHash {
 		h.logRebindReject(r, site, ip, ja4, "ua_mismatch", claims.Lineage, claims.ASN, 0)
@@ -246,7 +285,18 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	}
 
 	if pkt := events.PackIP(ip); pkt != nil {
-		verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+		payload := map[string]any{
+			"lineage":   claims.Lineage,
+			"solve_asn": claims.ASN,
+			"cur_asn":   curASN,
+			"asn_veto":  asnVeto,
+			"orig_path": origPath,
+		}
+		// Record when the rebind passed despite the JA4 not being in the _bvj's
+		// set (A): a non-bot fingerprint drift, kept visible for abuse-watching.
+		if ja4Relaxed {
+			payload["ja4_relaxed"] = true
+		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
@@ -259,13 +309,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			JA4VerdictID: h.VerdictNameToID(verdict),
 			Phase:        string(events.PhaseBVRebind),
 			CookieBV:     readCookieMax(r, "_bv", 1024),
-			Payload: map[string]any{
-				"lineage":   claims.Lineage,
-				"solve_asn": claims.ASN,
-				"cur_asn":   curASN,
-				"asn_veto":  asnVeto,
-				"orig_path": origPath,
-			},
+			Payload:      payload,
 		})
 	}
 

@@ -379,6 +379,13 @@ func leadingZeroBits(b []byte) int {
 // site B (different host -> different signature).
 
 // JClaims is the validated payload of a _bvj cookie.
+//
+// JA4Hash is a "~"-joined SET of fingerprint hashes, not a single value: a
+// modern browser legitimately presents several JA4s for one identity (HTTP/2
+// over TCP and HTTP/3 over QUIC produce entirely different handshakes), so the
+// _bvj accumulates the fingerprints it has solved under and a rebind passes on
+// any of them.  A single-hash value (no "~") is the degenerate case and stays
+// wire-identical to the pre-multi format, so older _bvj cookies keep verifying.
 type JClaims struct {
 	Issued  int64
 	JA4Hash string
@@ -386,6 +393,21 @@ type JClaims struct {
 	Lineage string
 	ASN     uint
 	Kind    string
+}
+
+// JA4Matches reports whether h is one of the "~"-joined fingerprint hashes this
+// _bvj was minted under.  Used by the rebind JA4 gate so a device rebinds
+// silently on any transport (h2/h3) it has previously solved under.
+func (c JClaims) JA4Matches(h string) bool {
+	if c.JA4Hash == h { // fast path: single-hash _bvj (the common case)
+		return true
+	}
+	for _, p := range strings.Split(c.JA4Hash, "~") {
+		if p == h {
+			return true
+		}
+	}
+	return false
 }
 
 // FingerprintHash returns a short, stable, NON-secret hash of s (a JA4 string
@@ -396,6 +418,32 @@ type JClaims struct {
 func FingerprintHash(s string) string {
 	sum := sha1.Sum([]byte(s))
 	return hex.EncodeToString(sum[:])[:12]
+}
+
+// AppendJA4Hash adds h to the "~"-joined fingerprint set in existing, returning
+// the new joined value.  Already-present hashes are a no-op (the set stays as
+// is); when adding would exceed max entries the oldest (front) is evicted, so a
+// device accumulates its current transports without the set growing unbounded
+// from a stolen-cookie attacker re-solving under many stacks.  max <= 0 means no
+// cap.  An empty h returns existing unchanged.
+func AppendJA4Hash(existing, h string, max int) string {
+	if h == "" {
+		return existing
+	}
+	var parts []string
+	if existing != "" {
+		parts = strings.Split(existing, "~")
+	}
+	for _, p := range parts {
+		if p == h {
+			return existing // already known; nothing to add
+		}
+	}
+	parts = append(parts, h)
+	if max > 0 && len(parts) > max {
+		parts = parts[len(parts)-max:] // drop oldest
+	}
+	return strings.Join(parts, "~")
 }
 
 // NewLineage returns a fresh random lineage id (24 hex chars) for a new solve.
