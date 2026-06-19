@@ -1693,7 +1693,7 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hosts []string, hou
         FROM unmask_event WHERE date_created > %s%s AND phase='load' AND reload_count >= 1
         GROUP BY ip_address
         HAVING max_rc >= 2 OR n >= 3
-        ORDER BY max_rc DESC, n DESC LIMIT 50`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
+        ORDER BY max_rc DESC, n DESC LIMIT 30`, d.NowMinusMinutes(hours*60), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

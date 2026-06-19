@@ -530,8 +530,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   </p>
   <div style="display:grid;grid-template-columns:7fr 5fr;gap:1rem">
     <div>
-      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.ip_top" }}</h6>
-      <table class="bcd-table bcd-cliptable">
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.ip_top" }} <span class="cp-count">{{ len .RLIPs }}</span></h6>
+      <table class="bcd-table bcd-cliptable cp-rankable">
         <thead><tr>
           <th><span class="help-dotted" data-help-key="rl.ip">{{ t .Lang "th.ip" }}</span></th>
           <th class="bcd-num"><span class="help-dotted" data-help-key="rl.count">{{ t .Lang "th.count" }}</span></th>
@@ -539,18 +539,19 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           <th><span class="help-dotted" data-help-key="rl.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
         </tr></thead>
         <tbody>
-          {{range .RLIPs}}
-          <tr>
-            <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-            <td class="bcd-num{{if ge .Count 100}} n-stealth{{end}}">{{comma .Count}}</td>
-            <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
-            <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+          {{ range $i, $r := .RLIPs }}
+          <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+            <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+            <td class="bcd-num{{if ge $r.Count 100}} n-stealth{{end}}">{{comma $r.Count}}</td>
+            <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+            <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
           </tr>
           {{else}}
           <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
           {{end}}
         </tbody>
       </table>
+      {{ if gt (len .RLIPs) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})</button>{{ end }}
     </div>
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.path_top" }}</h6>
@@ -576,8 +577,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 <!-- 7) CAPTCHA failure IP ranking -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.captcha_fail" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
-  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+  <h2>{{ t .Lang "dashboard.card.captcha_fail" }} <span class="cp-count">{{ len .VerifyNG }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
     <thead><tr>
       <th><span class="help-dotted" data-help-key="vng.ip">{{ t .Lang "th.ip" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">{{ t .Lang "th.total" }}</span></th>
@@ -589,43 +590,45 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <th><span class="help-dotted" data-help-key="vng.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
     </tr></thead>
     <tbody>
-      {{range .VerifyNG}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-num{{if ge .Total 5}} n-stealth{{end}}">{{comma .Total}}</td>
-        <td class="bcd-num">{{comma .Behavioral}}</td>
-        <td class="bcd-num{{if gt .Math 0}} n-stealth{{end}}">{{comma .Math}}</td>
-        <td class="bcd-num n-muted">{{score .AvgScore}}</td>
-        <td><span class="help-dotted" data-help-key="verdict.{{.JA4}}">{{.JA4}}</span></td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
-        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      {{ range $i, $r := .VerifyNG }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num{{if ge $r.Total 5}} n-stealth{{end}}">{{comma $r.Total}}</td>
+        <td class="bcd-num">{{comma $r.Behavioral}}</td>
+        <td class="bcd-num{{if gt $r.Math 0}} n-stealth{{end}}">{{comma $r.Math}}</td>
+        <td class="bcd-num n-muted">{{score $r.AvgScore}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span></td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
       <tr><td colspan="8" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
+  {{ if gt (len .VerifyNG) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .VerifyNG) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .VerifyNG) 10 }})</button>{{ end }}
 </div>
 
 <!-- 10) stealth bypass -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.stealth" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.stealth.desc") }}</span></span></h2>
-  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+  <h2>{{ t .Lang "dashboard.card.stealth" }} <span class="cp-count">{{ len .Stealth }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.stealth.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
-      {{range .Stealth}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span></td>
-        <td class="bcd-num n-stealth">{{comma .Count}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
-        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      {{ range $i, $r := .Stealth }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{$r.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{$r.Verdict}}</span></td>
+        <td class="bcd-num n-stealth">{{comma $r.Count}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
       <tr><td colspan="5" class="muted">{{ t .Lang "common.no_stealth" }}</td></tr>
       {{end}}
     </tbody>
   </table>
+  {{ if gt (len .Stealth) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .Stealth) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .Stealth) 10 }})</button>{{ end }}
 </div>
 
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.failures" }}</div>
@@ -688,44 +691,46 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 <!-- 9) Cookie error -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.cookie_err" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie_err.desc") }}</span></span></h2>
-  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+  <h2>{{ t .Lang "dashboard.card.cookie_err" }} <span class="cp-count">{{ len .CookieFails }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie_err.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
-      {{range .CookieFails}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
-        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      {{ range $i, $r := .CookieFails }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num">{{comma $r.Count}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
       <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
+  {{ if gt (len .CookieFails) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .CookieFails) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .CookieFails) 10 }})</button>{{ end }}
 </div>
 
 <!-- 6) reload-loop detection -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.reload_loops" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.reload_loops.desc") }}</span></span></h2>
-  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+  <h2>{{ t .Lang "dashboard.card.reload_loops" }} <span class="cp-count">{{ len .LoopRows }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.reload_loops.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
     <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.max_reload" }}</th><th class="bcd-num">{{ t .Lang "th.max_flags" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
-      {{range .LoopRows}}
-      <tr>
-        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-num">{{comma .Count}}</td>
-        <td class="bcd-num">{{comma .MaxReload}}</td>
-        <td class="bcd-num">{{.MaxFlags}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
-        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.LastSeenTS}}">{{.LastSeen}}</time></td>
+      {{ range $i, $r := .LoopRows }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num">{{comma $r.Count}}</td>
+        <td class="bcd-num">{{comma $r.MaxReload}}</td>
+        <td class="bcd-num">{{$r.MaxFlags}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
       <tr><td colspan="6" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
+  {{ if gt (len .LoopRows) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .LoopRows) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .LoopRows) 10 }})</button>{{ end }}
 </div>
 
 <div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.trend" }}</div>

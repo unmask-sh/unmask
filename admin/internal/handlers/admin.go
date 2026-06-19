@@ -1200,7 +1200,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	run("CaptchaPassTopIPs", func() error {
 		var e error
-		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 20)
+		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 30)
 		return e
 	})
 	run("CaptchaPassRecent", func() error {
@@ -1210,7 +1210,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	})
 	run("CaptchaReuse", func() error {
 		var e error
-		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 20)
+		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 30)
 		return e
 	})
 	run("AITrafficBreakdown", func() error {
