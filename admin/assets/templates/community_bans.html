@@ -439,9 +439,8 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   {{ template "pager_full" .Pager }}
 
   <div class="note" style="margin-top:.6rem;font-size:.78rem">
-    {{ safeHTML (tf .Lang "community_bans.foot" .CommunityBansMapDir) }}
-    {{ if gt .CommunityBansGeneratedAt 0 }}<br>{{ t .Lang "community_bans.feed_generated_at" }}: <time class="js-datetime" data-ts="{{ .CommunityBansGeneratedAt }}">{{ .CommunityBansGeneratedAt }}</time> (feed schema v{{ .CommunityBansVersion }}){{ end }}
-    {{ if gt .CommunityBansNextPullAt 0 }}<br>{{ t .Lang "community_bans.feed_next_pull_at" }}: <time class="js-datetime" data-ts="{{ .CommunityBansNextPullAt }}">{{ .CommunityBansNextPullAt }}</time>{{ end }}
+    {{ if gt .CommunityBansGeneratedAt 0 }}{{ t .Lang "community_bans.feed_generated_at" }}: <time class="js-datetime js-datetime-notz" data-ts="{{ .CommunityBansGeneratedAt }}">{{ .CommunityBansGeneratedAt }}</time>{{ end }}
+    {{ if gt .CommunityBansNextPullAt 0 }}<br>{{ t .Lang "community_bans.feed_next_pull_at" }}: <time class="js-datetime js-datetime-notz" data-ts="{{ .CommunityBansNextPullAt }}">{{ .CommunityBansNextPullAt }}</time>{{ end }}
   </div>
 </div>
 

@@ -228,12 +228,12 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
           {{ end }}
         </td>
         <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td><time class="js-datetime" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
+        <td><time class="js-datetime js-datetime-notz" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
         <td>
           {{ if .ExpiresAt.IsZero }}
             <span style="color:#b91c1c;font-weight:600">{{ t $.Lang "bans.forever" }}</span>
           {{ else }}
-            <time class="js-datetime" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "2006-01-02 15:04" }}</time>
+            <time class="js-datetime js-datetime-notz" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "2006-01-02 15:04" }}</time>
           {{ end }}
         </td>
         <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
@@ -587,6 +587,12 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 (function(){
   var dlg = document.getElementById('ban-edit-dialog');
   if (!dlg || !dlg.showModal) return;
+  // Click on the ::backdrop (= outside the dialog box) closes the modal.
+  // Track mousedown so a text-selection drag that ends on the backdrop does
+  // NOT count -- only a press that both starts and ends on the backdrop.
+  var downOnBackdrop = false;
+  dlg.addEventListener('mousedown', function(e){ downOnBackdrop = (e.target === dlg); });
+  dlg.addEventListener('click', function(e){ if (downOnBackdrop && e.target === dlg) dlg.close(); });
   var h3   = document.getElementById('ban-edit-h');
   var op   = document.getElementById('ban-edit-op');
   var id   = document.getElementById('ban-edit-id');
