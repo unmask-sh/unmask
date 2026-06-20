@@ -526,6 +526,9 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	if origPath == "" {
 		origPath = truncateAt(rlOrigURI, 200)
 	}
+	if origPath == "" {
+		origPath = banProbedOrigPath(r, h.basePath()) // native ban-challenge path
+	}
 
 	// Reason: mirror ServeChallenge's force-reason ladder so dashboards / API
 	// clients see the same axis label that the HTML response would carry.
@@ -734,6 +737,24 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusForbidden)
 	_, _ = w.Write(renderBanDeny(br, banPreset, cfg.Nginx.Bans.ResolvedDenyTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref))
+}
+
+// banProbedOrigPath recovers the URL a banned client was probing when the
+// native ban-challenge rewrite dropped the _orig arg.  server.inc rewrites a
+// banned IP from its probed URI straight to /unmask/challenge/ (no _orig) so a
+// daemon-down replay can't use a saved original to slip past the ban; but nginx
+// still forwards the untouched request line as X-Original-URI (= $request_uri,
+// which it sets + anti-spoofs), so the probed URL survives there.  Honor it only
+// when it is a real off-basePath path: a DIRECT challenge request carries
+// /unmask/challenge/... in this header (the reason a blanket fallback was once
+// dropped), which the guard rejects.  Display-only; the ban keeps enforcing
+// per-request while the daemon is up.  Empty when there is nothing safe to use.
+func banProbedOrigPath(r *http.Request, basePath string) string {
+	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
+	if strings.HasPrefix(oru, "/") && !strings.HasPrefix(oru, basePath+"/") {
+		return truncateAt(oru, 200)
+	}
+	return ""
 }
 
 // ServeChallenge: GET {base}/challenge/
@@ -1044,7 +1065,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Original URI (path + query): 2-tier source.
+	// Original URI (path + query): 3-tier source.
 	//   1. _orig query string (passed by nginx-rendered-protect.inc as a
 	//                          rewrite arg — "the URL the user originally tried")
 	//   2. rlOrigURI         (the legacy path that, when arriving via a
@@ -1052,15 +1073,26 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//                          @unmask_rate_challenge location sets into the
 	//                          $rl_orig_uri nginx variable and forwards to
 	//                          the challenge handler)
-	// Note: if both are empty, orig_path stays empty (shown as `-` in hunt).
-	// We used to fall back to X-Original-URI / r.URL.RequestURI(), but:
-	//   - The first is set invalid in challenge HTML's own rewrite context.
-	//   - The second stored `/unmask/challenge/...` itself, hiding the
-	//     user's original URI — net harm.
-	// So we default to "explicitly empty when unknown".
+	//   3. X-Original-URI    (= nginx $request_uri, set + anti-spoofed by the
+	//                          daemon proxy) for the native BAN-challenge path:
+	//                          server.inc rewrites a banned IP from its probed
+	//                          URI to /unmask/challenge/ WITHOUT an _orig arg (by
+	//                          design — it must not save an original a daemon-down
+	//                          replay could use to bypass the ban).  $request_uri
+	//                          is untouched by that internal rewrite, so the
+	//                          probed URL survives in this header.  Only honor it
+	//                          when it is a real off-/unmask path: a DIRECT
+	//                          challenge request carries /unmask/challenge/... here
+	//                          (the reason this fallback was once dropped), which
+	//                          the guard rejects.  Display-only; the ban still
+	//                          enforces per-request while the daemon is up.
+	// Note: if all are empty, orig_path stays empty (shown as `-` in hunt).
 	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
 	if origPath == "" {
 		origPath = truncateAt(rlOrigURI, 200)
+	}
+	if origPath == "" {
+		origPath = banProbedOrigPath(r, h.basePath())
 	}
 	// Embed the original URI into window.UNMASK.orig_path.  challenge.js
 	// includes it in the payload of load/pow/captcha/verify_ok/verify_ng/
