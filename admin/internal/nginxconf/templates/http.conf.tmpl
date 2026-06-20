@@ -388,6 +388,15 @@ map $unmask_hp_global $serve_bot_challenge {
 }
 {{- end }}
 
+# Honeypot trip URI: carry $request_uri into the access log ONLY when a honeypot
+# path matched ($serve_bot_challenge=1), so a native-mode ban can record which
+# trap URL it came from.  Empty for every normal request -- keeps the
+# high-volume unmask_minimal access-log line lean.
+map $serve_bot_challenge $unmask_hp_uri {
+    default "";
+    "1"     $request_uri;
+}
+
 # -----------------------------------------------------------------------------
 # Protected paths ($protected_mode)
 # -----------------------------------------------------------------------------
@@ -837,7 +846,7 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # the only way a rescued crawler (passed straight through, never in
 # unmask_event) is counted.  nginx default-escapes the value, so no log
 # injection via a crafted UA.
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

@@ -37,6 +37,22 @@ func TestParseUA(t *testing.T) {
 	if p2.ua != "" || p2.kind != "pow" {
 		t.Errorf("old line: ua=%q kind=%q", p2.ua, p2.kind)
 	}
+
+	// Honeypot line: hpuri= carries the tripped URL, and ua= after it still
+	// parses (the hpuri group sits before the greedy ua group).
+	hp := `<134>1749000000.9 site=shop.example.com kind= fc=1 hp=1 ip=9.9.9.9 ` +
+		`ja4=t13d1516h2 hpuri=/wp-login.php ua=curl/8.1`
+	p3, ok := r.parse(hp)
+	if !ok {
+		t.Fatal("parse failed on a honeypot line with hpuri=")
+	}
+	if !p3.hp || p3.hpuri != "/wp-login.php" || p3.ua != "curl/8.1" || p3.ip != "9.9.9.9" {
+		t.Errorf("honeypot line fields wrong: %+v", p3)
+	}
+	// A line without hpuri= leaves it empty (backward-compat with older nginx).
+	if p.hpuri != "" {
+		t.Errorf("hpuri should be empty on a no-hpuri line: %q", p.hpuri)
+	}
 }
 
 // TestCrawlerAggregation drives bumpCrawler + flushOnce and checks the rows

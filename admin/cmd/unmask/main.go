@@ -329,7 +329,21 @@ func cmdServe(args []string) error {
 		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur)
 		banMgr.Start()
 		defer banMgr.Close()
-		nlog.SetHoneypotCallback(banMgr.Add)
+		// Native-mode honeypot ban: record which trap URL was hit (= hpuri
+		// from the access-log line) as the reason, so "BAN 管理" shows why the
+		// IP was banned.  Empty uri (= an older nginx not yet emitting hpuri=)
+		// degrades to a bare "honeypot" reason.  Capped well under the
+		// 255-char reason column.
+		nlog.SetHoneypotCallback(func(ip, ja4, uri string) {
+			reason := "honeypot"
+			if uri != "" {
+				if len(uri) > 200 {
+					uri = uri[:200]
+				}
+				reason = "hit " + uri
+			}
+			banMgr.AddWithSource(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "")
+		})
 		// Never honeypot-ban a rescued search/AI crawler (= CLAUDE.md #4; mirrors
 		// the forward-auth search-bot veto-pass on the access-log ban path).
 		nlog.SetSearchBotCheck(func(ua string) bool {

@@ -87,7 +87,7 @@ type Reader struct {
 
 	// onHoneypot: callback for honeypot-path-trip events (= hp=1 lines).
 	// Wired up by the ban manager via SetHoneypotCallback.  nil-safe.
-	onHoneypot func(ip, ja4 string)
+	onHoneypot func(ip, ja4, uri string)
 
 	// isSearchBot: UA -> true for a rescued search/AI crawler.  Wired by main to
 	// classify.IsBot==search_ai.  Native-mode honeypot bans are driven by the
@@ -119,7 +119,7 @@ type Reader struct {
 
 // SetHoneypotCallback: register a callback invoked on hp=1 lines.
 // Intended to receive the ban manager's Add(ip, ja4).
-func (r *Reader) SetHoneypotCallback(f func(ip, ja4 string)) {
+func (r *Reader) SetHoneypotCallback(f func(ip, ja4, uri string)) {
 	if r == nil {
 		return
 	}
@@ -380,18 +380,19 @@ func (r *Reader) Loaded() bool {
 // to parse anything but a bare "default").
 var lineRE = regexp.MustCompile(
 	`([0-9]+\.[0-9]+) site=(\S*) kind=([a-z0-9_-]*)` +
-		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=([A-Za-z0-9_]+))?(?: ua=(.*))?`)
+		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=([A-Za-z0-9_]+))?(?: hpuri=(\S*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
-	msec float64
-	site string
-	kind string // "" / "captcha" / "pow" / future additions
-	fc   bool
-	hp   bool
-	ip   string
-	ja4  string
-	ua   string
+	msec  float64
+	site  string
+	kind  string // "" / "captcha" / "pow" / future additions
+	fc    bool
+	hp    bool
+	ip    string
+	ja4   string
+	hpuri string // honeypot trip URI ($request_uri); only set on hp=1 lines
+	ua    string
 }
 
 func (r *Reader) parse(line string) (parsed, bool) {
@@ -415,12 +416,13 @@ func (r *Reader) parse(line string) (parsed, bool) {
 	}
 	return parsed{
 		msec: v, site: s,
-		kind: m[3],
-		fc:   m[4] == "1",
-		hp:   m[5] == "1",
-		ip:   m[6],
-		ja4:  m[7],
-		ua:   m[8],
+		kind:  m[3],
+		fc:    m[4] == "1",
+		hp:    m[5] == "1",
+		ip:    m[6],
+		ja4:   m[7],
+		hpuri: m[8],
+		ua:    m[9],
 	}, true
 }
 
@@ -444,7 +446,7 @@ func (r *Reader) onLine(line string) {
 	// and an attacker could weaponize it to ban victims' visitors).
 	if p.hp && r.onHoneypot != nil && p.ip != "" &&
 		(r.isSearchBot == nil || !r.isSearchBot(p.ua)) {
-		r.onHoneypot(p.ip, p.ja4)
+		r.onHoneypot(p.ip, p.ja4, p.hpuri)
 	}
 	kind := p.kind
 	if kind == "" && p.fc {
