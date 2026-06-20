@@ -151,6 +151,25 @@ func (m *Manager) SetActionResolver(r ActionResolver) {
 	m.mu.Unlock()
 }
 
+// EffectiveAction reports how a ban record is enforced, using the SAME
+// precedence flush() writes into the ban file: the per-row action if set, else
+// the source's default via the resolver, else "deny" (the safe hard-ban
+// fallback).  Used by the hunt UI to show an operator how a ban acts.
+func (m *Manager) EffectiveAction(action, source string) string {
+	if a := strings.TrimSpace(action); a != "" {
+		return a
+	}
+	m.mu.Lock()
+	resolver := m.actionResolver
+	m.mu.Unlock()
+	if resolver != nil {
+		if a := strings.TrimSpace(resolver(source)); a != "" {
+			return a
+		}
+	}
+	return "deny"
+}
+
 // SetWhitelist installs the bypass-allowlist test.  Safe to call after Start
 // (= reads happen on the flush goroutine + admin handlers).  The admin injects
 // a closure over the live settings' IPBypassMatcher so a bypass change applies

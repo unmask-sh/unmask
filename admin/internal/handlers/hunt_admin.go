@@ -269,16 +269,45 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	//   - Banned     : an active ban exists for this IP (= including full
 	//                  wildcard).  Same semantics as IPRank
 	//                  (= ja4 empty when calling IsBanned -> per-IP count).
+	// huntBanInfo: the ban-list record behind an "already BANned" row, surfaced
+	// in a popover so the operator sees WHY the IP is banned without leaving the
+	// hunt log.  Source/Reason answer "what tripped it"; Action is the effective
+	// enforcement; When/By/Expires give provenance.  Times are pre-formatted in
+	// the operator's TZ (same cookie the rest of the page uses).
+	type huntBanInfo struct {
+		Source  string
+		Reason  string
+		Action  string
+		When    string
+		By      string
+		Expires string // "" = permanent
+	}
+	banTZ := resolveLocation(r)
 	type huntEventRow struct {
 		events.Row
 		CountryCode string
 		Banned      bool
+		Ban         *huntBanInfo // nil unless this IP has a ban record with detail
 	}
 	enriched := make([]huntEventRow, 0, len(rows))
 	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
 	banOK := h.BanMgr != nil
 	ipCC := map[string]string{}
 	ipBan := map[string]bool{}
+	// banByIP: IP -> its ban record, for the popover detail.  One Snapshot read
+	// (not a lookup per row); only IP-bearing entries (ip_only / ip_ja4) key in,
+	// which is exactly what the per-IP IsBanned pill reflects.
+	banByIP := map[string]ban.Entry{}
+	if banOK {
+		for _, e := range h.BanMgr.Snapshot() {
+			if e.IP == "" {
+				continue
+			}
+			if _, dup := banByIP[e.IP]; !dup {
+				banByIP[e.IP] = e
+			}
+		}
+	}
 	for _, e := range rows {
 		if e.IP == "" {
 			continue
@@ -295,11 +324,28 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	for _, e := range rows {
-		enriched = append(enriched, huntEventRow{
+		row := huntEventRow{
 			Row:         e,
 			CountryCode: ipCC[e.IP],
 			Banned:      ipBan[e.IP],
-		})
+		}
+		if row.Banned {
+			if be, ok := banByIP[e.IP]; ok {
+				expires := ""
+				if !be.ExpiresAt.IsZero() {
+					expires = be.ExpiresAt.In(banTZ).Format("2006-01-02 15:04")
+				}
+				row.Ban = &huntBanInfo{
+					Source:  be.Source,
+					Reason:  be.Reason,
+					Action:  h.BanMgr.EffectiveAction(be.Action, be.Source),
+					When:    be.BannedAt.In(banTZ).Format("2006-01-02 15:04"),
+					By:      be.BannedBy,
+					Expires: expires,
+				}
+			}
+		}
+		enriched = append(enriched, row)
 	}
 
 	// Static-assets tip: when many hunt rows hit paths the static-assets

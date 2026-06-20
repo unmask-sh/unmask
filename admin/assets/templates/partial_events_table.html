@@ -100,7 +100,11 @@
       <td class="actions">
         {{ if .Banned }}
           <span class="rank-registered">
+            {{ if .Ban }}
+            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">already BANned<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
+            {{ else }}
             <span class="action-pill action-bot">already BANned</span>
+            {{ end }}
           </span>
         {{ else }}
           <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
@@ -156,6 +160,14 @@
 .dtpop-utc{color:#64748b;font-size:.78rem;margin-top:.15rem}
 .events td.at time.js-datetime.dtpop-trigger{cursor:help}
 .events td.at time.js-datetime.dtpop-trigger:hover{text-decoration:underline dotted rgba(100,116,139,.6);text-underline-offset:2px}
+/* Ban-reason popover (= WHY an "already BANned" IP is on the list). */
+.action-pill.ban-pop{cursor:help}
+.action-pill.ban-pop:hover{text-decoration:underline dotted rgba(255,255,255,.7);text-underline-offset:2px}
+.banpop{font-family:system-ui,sans-serif;min-width:13rem}
+.banpop-row{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.3rem}
+.banpop-row:last-child{margin-bottom:0}
+.banpop-k{flex:0 0 4.5rem;font-size:.66rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.banpop-v{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;word-break:break-word}
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function(){
@@ -169,6 +181,25 @@ document.addEventListener('DOMContentLoaded', function(){
   var pop = document.getElementById('cell-popover');
   if (!pop || !window.popoverPin) return;
   var pin = window.popoverPin.install(pop);
+  // "already BANned" pill -> popover with the ban record (source / reason /
+  // action / when), so an operator sees WHY the IP is banned without leaving
+  // the hunt log.  Content is pre-rendered server-side into an inert <template>.
+  document.querySelectorAll('table.events .ban-pop').forEach(function(el){
+    var tpl = el.querySelector('template');
+    if (!tpl) return;
+    var html = tpl.innerHTML, bt = null;
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(bt);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      bt = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(bt); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation(); clearTimeout(bt);
+      pin.handleClick(html, e.pageX, e.pageY, el, 'BAN');
+    });
+  });
   var rows = document.querySelectorAll('table.events tbody tr[data-bt]');
   var groups = {};
   rows.forEach(function(tr){
