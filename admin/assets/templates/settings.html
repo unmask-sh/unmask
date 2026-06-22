@@ -3879,7 +3879,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.retention.nginx_log_h" }} <span style="font-size:.65rem;padding:.1rem .4rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.2rem;font-weight:600;vertical-align:middle">{{ t .Lang "settings.retention.nginx_log_badge" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.nginx_log_desc") }}</span></span></h2>
-    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.nginx_log_intro") }}</div>
+    <div class="note" style="margin-bottom:.5rem">{{ safeHTML (t .Lang "settings.retention.nginx_log_intro") }}</div>
+    <div style="font-size:.78rem;color:#475569;margin-bottom:1rem">🗄 {{ t .Lang "settings.retention.nginx_log_db_note" }}</div>
 
     <div class="field">
       <div class="field-label field-label-row">
