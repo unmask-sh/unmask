@@ -1711,6 +1711,10 @@ var lbExtraIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 //   - trusted_lb_preset[]   : preset IDs enabled via checkbox
 //   - lb_extra_id[] / lb_extra_cidrs[] / lb_extra_header[] : 3 parallel arrays from the row UI
 func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
+	// forward-auth: honor the proxy-forwarded X-Client-JA4.  Still gated at request
+	// time by the peer being loopback or one of the trusted LBs configured below
+	// (the same shared list native mode uses); this is just the master opt-in.
+	n.TrustForwardedJA4 = r.FormValue("trust_forwarded_ja4") == "1"
 	n.TrustedLBPresets = nil
 	for _, id := range r.Form["trusted_lb_preset"] {
 		id = strings.TrimSpace(id)
