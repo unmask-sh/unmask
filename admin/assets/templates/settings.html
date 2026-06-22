@@ -3887,7 +3887,9 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         {{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.CookieMinuteRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
         {{ if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
+        {{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
       </div>
+      <div style="font-size:.72rem;color:#94a3b8;margin-top:.25rem">{{ t .Lang "settings.retention.db_size_shared_note" }}</div>
       {{ end }}
     </div>
   </div>
