@@ -3845,6 +3845,15 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 {{ if eq .Tab "retention" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=retention">
   <div class="bcd-card">
+    <h2>{{ t .Lang "settings.retention.db_h" }}</h2>
+    <div style="font-size:.85rem;color:#334155;line-height:1.8">
+      <div>{{ t .Lang "settings.retention.db_driver_label" }}: <strong>{{ if eq .Retention.DBDriver "mariadb" }}MariaDB{{ else }}SQLite{{ end }}</strong>{{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}</div>
+      {{ if .Retention.DBDetail }}<div style="font-size:.75rem;color:#94a3b8;margin-top:.15rem">{{ .Retention.DBDetail }}</div>{{ end }}
+    </div>
+    <div style="margin-top:.7rem;font-size:.8rem"><a href="{{ .BasePath }}/admin/setup/">{{ t .Lang "settings.retention.db_reconfigure_link" }}</a></div>
+  </div>
+
+  <div class="bcd-card">
     <h2>{{ t .Lang "settings.retention.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.intro") }}</div>
 
@@ -3858,12 +3867,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ if .Retention.TimedOut }}
       <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
       {{ end }}
-      {{ if or (gt .Retention.EventsRows 0) .Retention.DBSizeStr }}
+      {{ if gt .Retention.EventsRows 0 }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
-        {{ if gt .Retention.EventsRows 0 }}{{ t .Lang "settings.retention.current_label" }}:
+        {{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.EventsRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}{{ end }}
-        {{ if .Retention.DBSizeStr }}{{ if gt .Retention.EventsRows 0 }} · {{ end }}{{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
+        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}
       </div>
       {{ end }}
     </div>
@@ -3887,9 +3895,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         {{ t .Lang "settings.retention.current_label" }}:
         <strong>{{ comma .Retention.CookieMinuteRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
         {{ if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
-        {{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.db_size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}
       </div>
-      <div style="font-size:.72rem;color:#94a3b8;margin-top:.25rem">{{ t .Lang "settings.retention.db_size_shared_note" }}</div>
       {{ end }}
     </div>
   </div>

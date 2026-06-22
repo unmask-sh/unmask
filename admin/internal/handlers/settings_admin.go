@@ -3351,8 +3351,10 @@ type retentionStatsView struct {
 	CookieMinuteRows     int    // unmask_cookie_minute row count
 	CookieMinuteOldestTS int64  // unix seconds of the oldest bucket, or 0 if none
 	CookieMinuteOldest   string // UTC fallback string, or ""
-	DBSize               int64  // sqlite DB file size in bytes, or 0 if not sqlite / unknown
+	DBSize               int64  // DB size in bytes (sqlite file / mariadb data+index), or 0 if unknown
 	DBSizeStr            string // pre-formatted DBSize (e.g. "12.3 MB"), or ""
+	DBDriver             string // "sqlite" / "mariadb" (current DB backend)
+	DBDetail             string // sqlite path, or mariadb host:port/db (no password)
 	// Whole days from the oldest row to now, for a "N days ago" hint shown next
 	// to the absolute timestamp.  0 when there is no row.
 	EventsOldestDaysAgo       int
@@ -3408,10 +3410,31 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		v.CookieMinuteOldest = time.Unix(v.CookieMinuteOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 		v.CookieMinuteOldestDaysAgo = int(time.Since(time.Unix(v.CookieMinuteOldestTS, 0)).Hours() / 24)
 	}
-	if h.cfg().DB.Driver == "sqlite" && h.cfg().DB.SQLitePath != "" {
-		if st, err := os.Stat(h.cfg().DB.SQLitePath); err == nil {
-			v.DBSize = st.Size()
-			v.DBSizeStr = humanBytes(v.DBSize)
+	dbc := h.cfg().DB
+	v.DBDriver = dbc.Driver
+	if v.DBDriver == "" {
+		v.DBDriver = "sqlite"
+	}
+	switch v.DBDriver {
+	case "mariadb":
+		m := dbc.MariaDB
+		v.DBDetail = fmt.Sprintf("%s:%d/%s", m.Host, m.Port, m.Database)
+		// data_length + index_length across this schema's tables.  COALESCE so an
+		// empty schema reads 0 (not NULL).  No password is exposed.
+		var sz int64
+		note("mariadb size", h.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(SUM(data_length+index_length),0) FROM information_schema.tables WHERE table_schema = DATABASE()`).Scan(&sz))
+		if sz > 0 {
+			v.DBSize = sz
+			v.DBSizeStr = humanBytes(sz)
+		}
+	default: // sqlite
+		v.DBDetail = dbc.SQLitePath
+		if dbc.SQLitePath != "" {
+			if st, err := os.Stat(dbc.SQLitePath); err == nil {
+				v.DBSize = st.Size()
+				v.DBSizeStr = humanBytes(v.DBSize)
+			}
 		}
 	}
 	return v
