@@ -1345,10 +1345,7 @@ type CaptchaForceRow struct {
 }
 
 // captchaForceKinds: display order = none / each forced reason / unknown.
-// The "banned" reason is split by ban_source so community-feed bans are
-// distinguishable from honeypot-sourced and manual bans; "banned" remains as
-// the catch-all for rows whose ban_source is empty/unrecognised.
-var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned_community", "banned_honeypot", "banned_manual", "banned", "protected", "rate_limit", "test", "unknown"}
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "unknown"}
 
 // AITrafficRow: one crawler-tag's traffic share over the window.
 //
@@ -1567,27 +1564,16 @@ func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []s
 // carry host / site dimensions for this card).
 func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
 	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
-	srcExpr := jsonExtract(d, "payload_json", "$.ban_source")
-	// "banned" splits by ban_source (community-feed / honeypot-sourced /
-	// manual) so the card can tell them apart; an empty/unknown source keeps
-	// the generic "banned" bucket.  Mirrors aggregate_hourly's bannedSourceKind.
 	stmt := fmt.Sprintf(`
         SELECT
           CASE
-            WHEN %s = 'banned' THEN
-              CASE %s
-                WHEN 'community_bans' THEN 'banned_community'
-                WHEN 'honeypot'       THEN 'banned_honeypot'
-                WHEN 'manual'         THEN 'banned_manual'
-                ELSE 'banned'
-              END
-            WHEN %s IN ('none','ja4_bot','honeypot','protected','rate_limit','test') THEN %s
+            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','test') THEN %s
             ELSE 'unknown'
           END AS kind,
           COUNT(*) AS n,
           COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE %s%s AND phase='load'
-        GROUP BY kind`, reasonExpr, srcExpr, reasonExpr, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        GROUP BY kind`, reasonExpr, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

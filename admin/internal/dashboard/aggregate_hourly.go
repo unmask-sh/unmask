@@ -310,14 +310,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			// store only per-verdict and let the read side merge across keys.
 			batch.sketch(hllKey{hour, hkLoadVerdictIP, v}).add(ip)
 			// CaptchaForceBreakdown: per-reason count + distinct IP.  Matches
-			// the raw query's CASE-fold: any value outside the known reasons
-			// (or no force_reason key at all) collapses to 'unknown'.  "banned"
-			// is further split by ban_source so community-feed bans show apart
-			// from honeypot-sourced / manual bans (same split as the raw query).
+			// the raw query's CASE-fold: any value outside the known seven
+			// reasons (or no force_reason key at all) collapses to 'unknown'.
 			fr := normalizeForceReason(payloadForceReason(payload.String))
-			if fr == "banned" {
-				fr = bannedSourceKind(payloadBanSource(payload.String))
-			}
 			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
 			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
 			// FlagsDistribution: per-flags count + distinct IP.  flags is a
@@ -523,46 +518,16 @@ func payloadForceReason(payload string) string {
 	return s
 }
 
-// normalizeForceReason mirrors the raw query's outer CASE ... IN (...) ELSE
-// 'unknown' fold.  Known reasons pass through; everything else (empty string
-// included) becomes "unknown".  "banned" is then split by ban_source via
-// bannedSourceKind at the call site (mirroring the raw query's nested CASE).
+// normalizeForceReason mirrors the raw query's CASE WHEN ... IN (...) ELSE
+// 'unknown' fold.  Known seven reasons pass through; everything else (empty
+// string included) becomes "unknown".  Keep in sync with queries.go's
+// captchaForceKinds slice.
 func normalizeForceReason(fr string) string {
 	switch fr {
 	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test":
 		return fr
 	}
 	return "unknown"
-}
-
-// payloadBanSource extracts payload_json.ban_source ("community_bans" /
-// "honeypot" / "manual"), set only on force_reason="banned" events.  Returns
-// "" when absent.
-func payloadBanSource(payload string) string {
-	if payload == "" {
-		return ""
-	}
-	var m map[string]any
-	if json.Unmarshal([]byte(payload), &m) != nil {
-		return ""
-	}
-	s, _ := m["ban_source"].(string)
-	return s
-}
-
-// bannedSourceKind maps a ban_source onto the per-source CaptchaForceBreakdown
-// bucket; an empty/unrecognised source keeps the generic "banned" bucket.
-// Keep in sync with captchaForceBreakdownScan's nested CASE + captchaForceKinds.
-func bannedSourceKind(src string) string {
-	switch src {
-	case "community_bans":
-		return "banned_community"
-	case "honeypot":
-		return "banned_honeypot"
-	case "manual":
-		return "banned_manual"
-	}
-	return "banned"
 }
 
 func payloadRL(payload string) bool {
