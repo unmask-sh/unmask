@@ -502,6 +502,9 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           {{if eq .Kind "none"}}<span class="help-dotted" data-help-key="captcha_force.kind.none" style="color:#16a34a;border-bottom-color:#16a34a">{{.Kind}}</span>
           {{else if eq .Kind "ja4_bot"}}<span class="help-dotted" data-help-key="captcha_force.kind.ja4_bot" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
           {{else if eq .Kind "honeypot"}}<span class="help-dotted" data-help-key="captcha_force.kind.honeypot" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "banned_community"}}<span class="help-dotted" data-help-key="captcha_force.kind.banned_community" style="color:#ea580c;border-bottom-color:#ea580c;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "banned_honeypot"}}<span class="help-dotted" data-help-key="captcha_force.kind.banned_honeypot" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "banned_manual"}}<span class="help-dotted" data-help-key="captcha_force.kind.banned_manual" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Kind}}</span>
           {{else if eq .Kind "banned"}}<span class="help-dotted" data-help-key="captcha_force.kind.banned" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Kind}}</span>
           {{else if eq .Kind "protected"}}<span class="help-dotted" data-help-key="captcha_force.kind.protected" style="color:#1d4ed8;border-bottom-color:#1d4ed8">{{.Kind}}</span>
           {{else if eq .Kind "rate_limit"}}<span class="help-dotted" data-help-key="captcha_force.kind.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:600">{{.Kind}}</span>
