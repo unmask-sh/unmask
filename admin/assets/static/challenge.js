@@ -94,8 +94,8 @@
   // compromised.  Title / desc / note / wrong / error were also softened
   // to avoid an accusatory tone.
   var L={
-    en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.'},
-    ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください.',error:'うまくいきませんでした. 少し時間をおいてからお試しください.'},
+    en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.',checking:'Verifying...',verified:'Verified'},
+    ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください.',error:'うまくいきませんでした. 少し時間をおいてからお試しください.',checking:'確認中...',verified:'確認できました'},
     zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'用于防止自动化滥用的简短验证。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。'},
     zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'用於防止自動化濫用的簡短驗證。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。'},
     ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 짧은 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'},
@@ -457,8 +457,25 @@
     }).catch(function(){ showError(t.error); });
   }
 
+  // Post-click status: hide the checkbox / math, show a spinner + message so a
+  // slow /verify or a slow redirect target never leaves the visitor unsure
+  // whether their click registered.  done=true marks success (= a checkmark
+  // kept on screen with the spinner while the destination page loads).
+  function showCaptchaBusy(msg, done){
+    var cr=document.getElementById('clickRow'); if(cr) cr.style.display='none';
+    var mf=document.getElementById('mathFallback'); if(mf) mf.style.display='none';
+    var em=document.getElementById('errMsg'); if(em) em.style.display='none';
+    var box=document.getElementById('captchaBusy');
+    var m=document.getElementById('captchaBusyMsg');
+    if(!box||!m) return;
+    box.style.display='flex';
+    m.textContent=(done?'✓ ':'')+msg;
+    m.style.color=done?'#16a34a':'#475569';
+  }
+
   function submitClick(){
     document.getElementById('errMsg').style.display='none';
+    showCaptchaBusy(t.checking || 'Verifying...');
     var clickAt = Math.round(performance.now());
     fetch(API_BASE + '/verify', {
       method:'POST',
@@ -490,6 +507,8 @@
         showMathFallback();
       }
     }).catch(function(){
+      var bz=document.getElementById('captchaBusy'); if(bz) bz.style.display='none';
+      var cr=document.getElementById('clickRow'); if(cr) cr.style.display='';
       showError(t.error);
       var cb = document.getElementById('notRobot');
       cb.checked = false;
@@ -498,6 +517,9 @@
   }
 
   function passAndRedirect(){
+    // Success state stays painted (✓ + spinner) while the destination loads --
+    // location.replace doesn't unload this page until the target renders.
+    showCaptchaBusy(t.verified || 'Verified', true);
     var u=new URL(location.href);
     u.searchParams.delete('_test_bot');
     u.searchParams.delete('_test_ja4');
@@ -529,6 +551,7 @@
   // numeric-add fallback. Rescues users whose checkbox behavioral check failed.
   function showMathFallback(){
     document.getElementById('clickRow').style.display='none';
+    var bz=document.getElementById('captchaBusy'); if(bz) bz.style.display='none';
     document.getElementById('errMsg').style.display='none';
     document.getElementById('mathFallback').style.display='block';
     document.getElementById('captchaDesc').textContent = (t.solveMath || 'Please solve this to continue.');

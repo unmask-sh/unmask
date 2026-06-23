@@ -229,6 +229,13 @@ body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
       <input type="checkbox" id="notRobot" style="width:20px;height:20px;cursor:pointer">
       <span id="notRobotLabel">I'm not a robot</span>
     </label>
+    <!-- post-click status: a spinner + "verifying" / "verified" so that even a
+         slow /verify or a slow redirect target makes clear the click registered
+         and work is in progress (= shown by challenge.js, hidden by default). -->
+    <div id="captchaBusy" style="display:none;flex-direction:column;align-items:center;gap:.6em;padding:.2em 0">
+      <div class="spinner" style="margin:0"></div>
+      <div id="captchaBusyMsg" style="font-size:.9em;color:#475569"></div>
+    </div>
     <!-- stage 2: numeric-add fallback (= auto-switched when behavioral fails) -->
     <div id="mathFallback" style="display:none">
       <div class="math" id="mathQ"></div>
