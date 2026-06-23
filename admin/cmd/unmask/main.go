@@ -81,6 +81,8 @@ func main() {
 		err = cmdUpdateCrawlerList(args)
 	case "review-crawler-list":
 		err = cmdReviewCrawlerList(args)
+	case "update-iprange":
+		err = cmdUpdateIPRange(args)
 	case "render-nginx":
 		err = cmdRenderNginx(args)
 	case "events":
@@ -116,6 +118,7 @@ usage:
   unmask config-init [-out PATH]
   unmask update-crawler-list [-out PATH]
   unmask review-crawler-list [-url URL]
+  unmask update-iprange [-out DIR] [-url URL]
   unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
   unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]

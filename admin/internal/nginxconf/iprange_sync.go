@@ -325,12 +325,21 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 
 // writeSource writes one vendor-shaped JSON atomically (= tmp + rename).
 func (s *Sync) writeSource(dir, file string, src AggregatedSource) error {
-	payload := iprangePayload{CreationTime: src.CreationTime}
+	// Local marshal type with omitempty so an ipv4 entry doesn't also carry an
+	// empty "ipv6Prefix" (and vice versa) -- keeps the vendor-shaped, one-key-
+	// per-entry format the embed snapshot + override files use, and roughly
+	// halves the on-disk size.  iprangePayload (the load side) has no omitempty,
+	// but omitempty only affects marshal, not unmarshal, so reads still work.
+	type prefixEntry struct {
+		IPv4Prefix string `json:"ipv4Prefix,omitempty"`
+		IPv6Prefix string `json:"ipv6Prefix,omitempty"`
+	}
+	payload := struct {
+		CreationTime string        `json:"creationTime"`
+		Prefixes     []prefixEntry `json:"prefixes"`
+	}{CreationTime: src.CreationTime}
 	for _, p := range src.Prefixes {
-		payload.Prefixes = append(payload.Prefixes, struct {
-			IPv4Prefix string `json:"ipv4Prefix"`
-			IPv6Prefix string `json:"ipv6Prefix"`
-		}{IPv4Prefix: p.IPv4Prefix, IPv6Prefix: p.IPv6Prefix})
+		payload.Prefixes = append(payload.Prefixes, prefixEntry{IPv4Prefix: p.IPv4Prefix, IPv6Prefix: p.IPv6Prefix})
 	}
 	out, err := json.Marshal(payload)
 	if err != nil {

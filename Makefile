@@ -91,6 +91,12 @@ build-admin:
 	cd admin && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build $(GOFLAGS) -o ../$(ADMIN_BIN) ./cmd/unmask
 
+## update-iprange-embed - refresh embedded search-bot bypass-IP ranges from the hub (run + commit before release)
+.PHONY: update-iprange-embed
+update-iprange-embed:
+	cd admin && GOTOOLCHAIN=auto go run ./cmd/unmask update-iprange -out assets/iprange
+	@echo ">>> review the diff, then commit admin/assets/iprange/*.json before 'make release'"
+
 ## build-module  - nginx dynamic module .so (downloads nginx source as needed)
 # Note: must build with the same nginx version + same openssl ABI as the
 # target host nginx, or load_module will reject it.  Match NGINX_VERSION to
