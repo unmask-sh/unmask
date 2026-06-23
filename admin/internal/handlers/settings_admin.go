@@ -236,6 +236,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		})
 	}
 
+	// AdminCaptchaGate: the "unmask itself" protected-path preset (= CAPTCHA in
+	// front of /unmask/admin/) is enabled, so switching to a domain-locked 3rd
+	// party CAPTCHA can lock the operator out when the admin host is not in the
+	// provider's allowed-domains list.  Drives the captcha-tab warning banner.
+	adminCaptchaGate := enabledPP["unmask"]
+
 	// bypass IP preset groups: enabled/disabled for official IP ranges + creationTime + count.
 	// EnabledPresets is an opt-in list; a group is on when its ID appears in the set.
 	enabledBP := toSet(cur.BypassIPEnabledPresets)
@@ -529,6 +535,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// so "restricted-looking but actually wide open" is visible at a glance.
 		"AdminIPsAllowAll":      adminIPsAllowAll(cur.AdminAllowedIPs),
 		"ProtectedPresetGroups": protectedPresetGroups,
+		"AdminCaptchaGate":      adminCaptchaGate,
 		"ProtectedPaths":        cur.ProtectedPaths,
 		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
 		"BypassPathsRules":      bypassPathRows(cur.BypassPaths.Paths),

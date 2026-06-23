@@ -2300,6 +2300,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "captcha" }}
+{{ if .AdminCaptchaGate }}
+<div class="captcha-admin-gate" style="background:#fff8e1;border:1px solid #f0c36d;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;line-height:1.7;color:#5c4400">
+  {{ safeHTML (t .Lang "settings.captcha.admin_gate_warn") }}
+</div>
+<script>(function(){var h=document.getElementById('captchaAdminHost');if(h)h.textContent=location.host;})();</script>
+{{ end }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=captcha">
   <div class="bcd-card">
 
