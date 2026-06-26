@@ -312,6 +312,38 @@ static void ngx_ja4_ssl_free_cb(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
     if (ptr) OPENSSL_free(ptr);
 }
 
+/*
+ * JA4 transport prefix.  ja4_build emits 't' (TCP/TLS); HTTP/3 requests get 'q'.
+ *
+ * The SSL msg_callback that computes the JA4 runs on the QUIC *connection* (whose
+ * c->quic is NULL), so the transport is unknown at build time.  By the time a
+ * request is processed it rides a QUIC *stream* -- r->connection->quic != NULL is
+ * the marker nginx itself uses for HTTP/3, and the stream inherits the
+ * connection's ->ssl (ngx_event_quic_streams.c: sc->ssl = c->ssl), so the same
+ * per-connection JA4 ctx is reached.  Flip the first byte in place: the ctx is
+ * per-connection and every stream on a QUIC connection is HTTP/3, so the flip is
+ * connection-consistent and idempotent.  The rest of the JA4 (ciphers / exts /
+ * alpn) is transport-independent and already reflects the QUIC ClientHello's
+ * quic_transport_parameters (0x39) extension.
+ *
+ * Guarded: ngx_connection_t.quic exists only on nginx >= 1.25 built with QUIC or
+ * --with-compat (the plugin's build mode).  On older nginx the field is absent
+ * and HTTP/3 cannot be served, so 't' is always correct -- compile the flip out.
+ */
+static void
+ngx_unmask_ja4_apply_transport(ngx_http_request_t *r, ngx_http_ja4_ctx_t *ctx) {
+#if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
+    if (ctx != NULL && ctx->ja4.len > 0
+        && r->connection->quic != NULL
+        && ctx->ja4.data[0] == 't')
+    {
+        ctx->ja4.data[0] = 'q';
+    }
+#else
+    (void) r; (void) ctx;
+#endif
+}
+
 static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
                                        ngx_http_variable_value_t *v,
                                        uintptr_t data) {
@@ -335,6 +367,7 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
         v->not_found = 1;
         return NGX_OK;
     }
+    ngx_unmask_ja4_apply_transport(r, ctx);   /* 't' -> 'q' for HTTP/3 */
     v->valid = 1;
     v->no_cacheable = 1;
     v->not_found = 0;
@@ -1252,6 +1285,7 @@ static ngx_int_t ngx_http_unmask_banned_variable(ngx_http_request_t *r,
         if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
             ngx_http_ja4_ctx_t *jctx = SSL_get_ex_data(
                 ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
+            ngx_unmask_ja4_apply_transport(r, jctx);  /* 't' -> 'q' for HTTP/3 */
             if (jctx && jctx->ja4.len > 0) {
                 ja4_data = jctx->ja4.data;
                 ja4_len  = jctx->ja4.len;
@@ -1345,6 +1379,7 @@ static ngx_int_t ngx_http_unmask_ban_action_variable(ngx_http_request_t *r,
         if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
             ngx_http_ja4_ctx_t *jctx = SSL_get_ex_data(
                 ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
+            ngx_unmask_ja4_apply_transport(r, jctx);  /* 't' -> 'q' for HTTP/3 */
             if (jctx && jctx->ja4.len > 0) {
                 ja4_data = jctx->ja4.data;
                 ja4_len  = jctx->ja4.len;
