@@ -216,7 +216,7 @@ type LBIPRange struct {
 var LBIPRanges = []LBIPRange{
 	{
 		ID:     "gcp",
-		Label:  "GCP HTTPS Load Balancer (= Global / Regional)",
+		Label:  "GCP HTTPS Load Balancer (Global / Regional)",
 		Source: "https://cloud.google.com/load-balancing/docs/https#health-check-firewall-rules",
 		Header: "$http_x_client_ja4", // the convention of issuing X-Client-JA4 via gcloud's custom_request_header
 		CIDRs: []string{
@@ -234,7 +234,7 @@ var LBIPRanges = []LBIPRange{
 	},
 	{
 		ID:     "cloudflare",
-		Label:  "Cloudflare (= CDN / WAF)",
+		Label:  "Cloudflare (CDN / WAF)",
 		Source: "https://www.cloudflare.com/ips/",
 		Header: "$http_cf_ja4", // read Cloudflare's native cf-ja4 header directly
 		CIDRs: []string{
@@ -266,7 +266,7 @@ var LBIPRanges = []LBIPRange{
 	},
 	{
 		ID:     "aws_cloudfront",
-		Label:  "AWS CloudFront (= edge POP egress to origin)",
+		Label:  "AWS CloudFront (edge POP egress to origin)",
 		Source: "https://d7uri8nf7uskq.cloudfront.net/tools/list-cloudfront-ips",
 		Header: "$http_x_client_ja4", // CloudFront itself has no native JA4 feature.  Assumes the user injects X-Client-JA4 via e.g. Lambda@Edge.
 		CIDRs: []string{
@@ -292,7 +292,7 @@ var LBIPRanges = []LBIPRange{
 	},
 	{
 		ID:     "aws_alb",
-		Label:  "AWS ALB / ELB (= all regions. The right answer is to use your own VPC subnets.)",
+		Label:  "AWS ALB / ELB (all regions. The right answer is to use your own VPC subnets.)",
 		Source: "https://ip-ranges.amazonaws.com/ip-ranges.json",
 		Header: "$http_x_client_ja4",
 		CIDRs:  []string{

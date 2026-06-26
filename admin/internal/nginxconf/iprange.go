@@ -109,7 +109,7 @@ var BypassIPGroups = []BypassIPGroup{
 		// 20-30% on prefetched navigations.  Official IP list is RFC 8805 geofeed,
 		// converted to the same JSON schema as the rest of the presets.
 		ID:      "chrome-prefetch-proxy",
-		Label:   "Chrome Private Prefetch Proxy (= real-user prefetch via *.fetch.tunnel.googlezip.net)",
+		Label:   "Chrome Private Prefetch Proxy (real-user prefetch via *.fetch.tunnel.googlezip.net)",
 		Source:  "https://developer.chrome.com/docs/privacy-security/private-prefetch-proxy-for-network-admins",
 		File:    "iprange/chrome-prefetch-proxy.json",
 		AddedIn: "v0.1",

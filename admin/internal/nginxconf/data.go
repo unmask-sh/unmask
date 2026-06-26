@@ -103,7 +103,7 @@ func IsBotAction(a string) bool {
 var JA4VerdictGroups = []JA4VerdictGroup{
 	{
 		ID:    "chrome_fake",
-		Label: "Chrome-style cipher spoofing (= 8daaf6152771 + non-h2 ALPN)",
+		Label: "Chrome-style cipher spoofing (8daaf6152771 + non-h2 ALPN)",
 		Rules: []JA4VerdictRule{
 			{ID: 1, Pattern: "t13d[0-9]+h1_8daaf6152771_", Verdict: "chrome_fake_h1", Action: JA4ActionBot},
 			{ID: 2, Pattern: "t13d[0-9]+00_8daaf6152771_", Verdict: "chrome_fake_noalpn", Action: JA4ActionBot},
@@ -121,7 +121,7 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 	},
 	{
 		ID:    "tls12",
-		Label: "Using TLS 1.2 + a known signature (= modern browsers are TLS 1.3)",
+		Label: "Using TLS 1.2 + a known signature (modern browsers are TLS 1.3)",
 		Rules: []JA4VerdictRule{
 			{ID: 7, Pattern: "t12d660600_d16616bd43e4_", Verdict: "tls12_a", Action: JA4ActionBot},
 			{ID: 8, Pattern: "t12d430700_1ce71f0edbb1_", Verdict: "tls12_b", Action: JA4ActionBot},
@@ -130,7 +130,7 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 	},
 	{
 		ID:    "h1_lax",
-		Label: "Lenient: Chrome-style cipher + any ALPN h1 (= suspect)",
+		Label: "Lenient: Chrome-style cipher + any ALPN h1 (suspect)",
 		Rules: []JA4VerdictRule{
 			{ID: 10, Pattern: "t13d[0-9]+h1_", Verdict: "h1_lax", Action: JA4ActionSuspect},
 		},
@@ -161,7 +161,7 @@ type ChallengeTargetGroup struct {
 var ChallengeTargetGroups = []ChallengeTargetGroup{
 	{
 		ID:    "empty",
-		Label: "Empty UA / extremely short UA (= 5 chars or fewer)",
+		Label: "Empty UA / extremely short UA (5 chars or fewer)",
 		Patterns: []string{
 			// Express "5 chars or fewer" as `^.{0,5}$`.  No normal browser string fits.
 			`^.{0,5}$`,

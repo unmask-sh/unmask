@@ -61,14 +61,14 @@ type ProtectedPathPresetGroup struct {
 var ProtectedPathPresetGroups = []ProtectedPathPresetGroup{
 	{
 		ID:    "unmask",
-		Label: "unmask itself (= cover the /unmask/admin/ login page with CAPTCHA)",
+		Label: "unmask itself (cover the /unmask/admin/ login page with CAPTCHA)",
 		Rules: []ProtectedPathRule{
 			{Pattern: `^/unmask/admin/`, Mode: ProtectedModeCaptcha},
 		},
 	},
 	{
 		ID:    "common-admin",
-		Label: "Common admin / CMS paths (= /wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
+		Label: "Common admin / CMS paths (/wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
 		Rules: []ProtectedPathRule{
 			{Pattern: `^/wp-admin/`, Mode: ProtectedModeCaptcha},
 			{Pattern: `^/wp-login\.php`, Mode: ProtectedModeCaptcha},
