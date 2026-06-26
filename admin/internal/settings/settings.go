@@ -47,6 +47,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"gopkg.in/yaml.v3"
 )
 
@@ -465,8 +466,32 @@ type Nginx struct {
 	ProtectedPaths   ProtectedPathsConfig   `yaml:"protected_paths"`
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
-	WebBotAuth       WebBotAuthConfig       `yaml:"web_bot_auth,omitempty"`
+
+	// AdvancedEnabled is the master reveal-gate for the standards-based
+	// attestation axes below (Web Bot Auth + Privacy Pass).  They are
+	// implemented and tested, but few clients/agents in the wild emit the
+	// signatures/tokens yet (PAT is effectively Apple-only; Web Bot Auth is a
+	// growing set of AI agents), so they stay hidden in the UI and inert until
+	// an operator opts in.  Off by default.  When off, WebBotAuthActive /
+	// PrivacyPassActive are false regardless of the per-feature Enabled flags,
+	// so neither the nginx gates nor the auth_check veto-pass axes activate --
+	// "off" means off, not just hidden.
+	AdvancedEnabled bool              `yaml:"advanced_enabled,omitempty"`
+	WebBotAuth      WebBotAuthConfig  `yaml:"web_bot_auth,omitempty"`
+	PrivacyPass     PrivacyPassConfig `yaml:"privacy_pass,omitempty"`
 }
+
+// WebBotAuthActive reports whether Web Bot Auth signature verification should
+// run: the advanced master switch AND the feature's own enable flag.  The
+// nginx render + the auth_check veto-pass axis both gate on this, so flipping
+// AdvancedEnabled off disables the feature everywhere without touching the
+// per-feature config (which is preserved for when it is re-enabled).
+func (n Nginx) WebBotAuthActive() bool { return n.AdvancedEnabled && n.WebBotAuth.Enabled }
+
+// PrivacyPassActive reports whether Privacy Pass / PAT verification should run
+// (advanced master switch AND the feature's own enable flag).  See
+// WebBotAuthActive.
+func (n Nginx) PrivacyPassActive() bool { return n.AdvancedEnabled && n.PrivacyPass.Enabled }
 
 // WebBotAuthConfig: Web Bot Auth (= RFC 9421 HTTP Message Signatures
 // applied to bot traffic, draft-meunier-web-bot-auth-architecture).
@@ -476,10 +501,12 @@ type Nginx struct {
 // the "web-bot-auth" tag yields verdict=signed_agent + action=ok, so the
 // request joins the search-bot rescue path instead of the challenge flow.
 //
-// AllowedOperators is an allowlist of agent URL hosts (e.g.
-// "openai.com").  An empty list means "accept any operator that publishes
-// a valid directory" (= UA + IP allowlist for unknown bots becomes the
-// fallback).  Operators outside the allowlist still get challenged.
+// AllowedOperators is an allowlist of agent URL hosts (e.g. "openai.com").
+// An empty list is fail-closed -- no signed agent passes (see
+// IsOperatorAllowed): a veto-pass that skips the whole challenge pipeline must
+// not let every signed request through on an unconfigured install.  Operators
+// opt in the agent hosts they trust (preset checkboxes or custom rows in the
+// settings UI); operators outside the allowlist still get challenged.
 //
 // CacheTTLSec caps how long the in-memory directory cache holds a fetched
 // JWK set per operator.  Default 3600s.
@@ -520,6 +547,168 @@ func (w WebBotAuthConfig) IsOperatorAllowed(host string) bool {
 		}
 	}
 	return false
+}
+
+// OperatorPreset is a well-known Web Bot Auth operator offered as a default-off
+// checkbox in the settings UI.  Host is the Signature-Agent URL host matched in
+// the allowlist; Label is the display name; Since is the unmask version the
+// preset was added in (provenance, like the bypass-IP presets).
+type OperatorPreset struct {
+	Host  string
+	Label string
+	Since string
+}
+
+// WebBotAuthOperatorPresets are the well-known signed-agent operators surfaced
+// as preset checkboxes on the Web Bot Auth tab.  Only operators that actually
+// publish an http-message-signatures-directory belong here, so checking one
+// reliably lets that operator through.  Checking a preset just adds its Host to
+// AllowedOperators; AllowedOperators stays the single source of truth.
+//
+// Host is the Signature-Agent value (the directory host).  Every entry below
+// was confirmed by fetching its /.well-known/http-message-signatures-directory
+// (2026-06-24); operators not yet endpoint-confirmed are left out so a checkbox
+// never silently fails to match.  Cloudflare curates the canonical registry at
+// assets.radar.cloudflare.com/bots/signature-agent-registry.txt.
+var WebBotAuthOperatorPresets = []OperatorPreset{
+	{Host: "chatgpt.com", Label: "OpenAI ChatGPT", Since: "v0.1"},
+	{Host: "shopify.com", Label: "Shopify", Since: "v0.1"},
+	{Host: "www.browserbase.com", Label: "Browserbase", Since: "v0.1"},
+	{Host: "you.com", Label: "You.com", Since: "v0.1"},
+	{Host: "api.anchorbrowser.io", Label: "Anchor Browser", Since: "v0.1"},
+	{Host: "api.manus.im", Label: "Manus", Since: "v0.1"},
+	{Host: "www.klaviyo.com", Label: "Klaviyo", Since: "v0.1"},
+}
+
+// PrivacyPassConfig: Privacy Pass / Private Access Token acceptance (RFC 9577
+// HTTP authentication scheme + RFC 9578 issuance).  When Enabled, the AuthCheck
+// handler verifies an incoming "Authorization: PrivateToken" header against the
+// configured trusted issuers; a valid, origin-bound token yields
+// verdict=privacy_pass + action=pass, so an attested real client (e.g. an Apple
+// device presenting a Private Access Token) skips the challenge.  Requests
+// without a PrivateToken Authorization header are unaffected.
+//
+// Only the publicly verifiable token type 0x0002 (Blind RSA) is supported: the
+// origin checks the issuer's RSASSA-PSS signature with the issuer's public key,
+// no issuer secret involved.
+//
+// Issuers lists the trusted issuer keys.  An empty list means no token can match
+// (fail closed): like Web Bot Auth, this is a veto-pass that skips the whole
+// challenge pipeline, so trust is explicit -- the operator names the issuers
+// (and their published token-keys) they accept.
+type PrivacyPassConfig struct {
+	Enabled bool `yaml:"enabled"`
+	// EnabledIssuerPresets opts in well-known issuer presets by ID (see
+	// PrivacyPassIssuerPresets); each contributes its issuer name + embedded
+	// token-keys.  Issuers are operator-added custom issuers.
+	EnabledIssuerPresets []string            `yaml:"enabled_issuer_presets,omitempty"`
+	Issuers              []PrivacyPassIssuer `yaml:"issuers,omitempty"`
+}
+
+// PrivacyPassIssuer is one trusted issuer.  Name doubles as the TokenChallenge
+// issuer_name (so it must match what the issuance handshake advertises) and the
+// dashboard label; Key is the base64 DER SubjectPublicKeyInfo (id-RSASSA-PSS) of
+// the issuer's published token-key.
+type PrivacyPassIssuer struct {
+	Name string `yaml:"name"`
+	Key  string `yaml:"key"`
+}
+
+// PrivacyPassIssuerPreset is a well-known PAT issuer offered as a default-off
+// checkbox.  Unlike Web Bot Auth operators, a PAT issuer's token-key ROTATES
+// (Cloudflare ~daily, Fastly ~weekly) and the issuer publishes several at once,
+// so a preset carries the issuer name + its directory URL (for the auto-refresh
+// follow-up) + an embedded snapshot of the current keys.  ID is the stable value
+// stored in EnabledIssuerPresets.
+//
+// NB: Apple is the ATTESTER, never the issuer -- Safari/iOS PATs are issued by
+// Cloudflare / Fastly, so those are the issuers to trust.  Apple's own developer
+// guidance points origins at the DEMO issuer directories (demo-pat.issuer.
+// cloudflare.com / demo-issuer.private-access-tokens.fastly.com), so those are
+// the recommended presets for guaranteed Safari/iOS interop.  The bare host
+// pat-issuer.cloudflare.com sits behind Cloudflare Access (403 to every fetch,
+// browser or not), but the real production directory IS publicly fetchable at
+// the dap. subdomain on the RFC 9578 path -- offered as an extra opt-in preset
+// below.  Whether Apple devices redeem against it as a named issuer is not
+// Apple-documented, so it stays default-off and is labelled "production".
+type PrivacyPassIssuerPreset struct {
+	ID           string
+	Label        string
+	IssuerName   string
+	DirectoryURL string
+	Since        string
+	SnapshotKeys []string // base64 DER SPKI (id-RSASSA-PSS); snapshot, keys rotate
+}
+
+// PrivacyPassIssuerPresets: the embedded snapshot.  Keys rotate, so the
+// auto-refresh (re-fetch DirectoryURL) keeps them current; the snapshot is the
+// offline fallback.
+var PrivacyPassIssuerPresets = []PrivacyPassIssuerPreset{
+	{
+		ID: "cloudflare", Label: "Cloudflare (demo issuer)",
+		IssuerName:   "demo-pat.issuer.cloudflare.com",
+		DirectoryURL: "https://demo-pat.issuer.cloudflare.com/.well-known/private-token-issuer-directory",
+		Since:        "v0.1",
+		SnapshotKeys: []string{
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEAnxfH2GkcjixUfLEdbsEIUA3esFG344Z6CLBv7ewu9fqLbM5B-WANwly2qc7BihyirqIV6WDCx4W4EFZf8ExBml-O_J0IAybQCMDD8dpfUksUaSejBgQRDTYUNH4cp3pkSVcb29v73ifzhAin9XQ3Do--r4X_w3UA9-kxiJkhe4EKBBTxsOM0JtL0_y7BY9TaiR87GodVxtp8gKq6-MpA29k7WkhaUjbyrdHLZgjZJvRLLz6piFD2VU1wEx6xAx3r0vdhsE4I9-zIRW1xaHXckJrCL39FpmHTHFTutsIbeJ2dsODDVVnbK3ldw_j5vZtSwF304s-nl_wu6IGkiIN4nQIDAQAB",
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEA8IxteJV_QzGt6hC-mI-_8WKJ6hl20wGKKep2oVqQKY4DYXGhh8EP3wUA56qN14Y9XYBo9lqML96Lc44aoaQYbHpWKmmhDJ8m7nj2j0Ez8_DGldZYucn9E55o2bZ526XWpzVFqLvc1sykgkETdNvY1975MyPSIrEVnqDMWd0M-0wJo-n8pJHXAI3Ci7FaKRdJnyL8vKC22GayQa01J0Ax_jRJSP5nVVPMEOkAcJ7lOiJUwfFsuag4_34YIfehvBJiux5bt0JPPaQumBrhovbH45cfDss-xqQTztOBJ917r2ZcbRsnpZepOMq1tEv6dkQHtKfzBDXRzKJsL_9ShCGYIQIDAQAB",
+		},
+	},
+	{
+		ID: "fastly", Label: "Fastly (demo issuer)",
+		IssuerName:   "demo-issuer.private-access-tokens.fastly.com",
+		DirectoryURL: "https://demo-issuer.private-access-tokens.fastly.com/.well-known/token-issuer-directory",
+		Since:        "v0.1",
+		SnapshotKeys: []string{
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEApas5ORbANn4ljy4ehZfQVtnb1H_AaOpK5BxQIx1aS3w-8s7luSUPXfqqRwSqyYPFuRB0upGhN3lIEwh-8K_qlQmgscuZQpJEmg8_yMAQ0_mOZqc0LJnpb0IO-AMWefgmgXsJH5lDIUQUCpZkJm5LkGGxubQQWDRkZdgecljCuPFFGPONB7vzQJOK11tn4AuE7xOaW6A7Pm1sGoZNK181L-rDlH5NAX_E1J1C4O5a25tGAvuK73dxN_yBkP4bKJYs1G5CaZpSiHfFmm9QAjW-UNhcZ7c4GLJSxntarZHRqD6fgA3TTUBf0yuAyCtNI7AHHWjxNqqdCnghsF_TKCIRhQIDAQAB",
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEAwjw0cXAwtwbaB0aM95IRVs3RicxQscL3k0iP-Ku7qJJKb9U4dQOIfdSDj3UsYVVv5_bTJ6N9TOaUB4Dilhbsb6uE_FoBR281gXHguPm4l-R1qKKTZq9bcdbKODU7BiAkPNsQ1x7y-8u9JQvDT0-Z5edIrTmIuG1oG7QDrm6WAV-0dXefQZ16rCLc4Hm2qOTvSmkFRdT5IkBCb39hklDcRnG3UKzWa0_VhJHGxZP88q9iBqxRsSN365s72G7i8dYECUl49kv6VtPJTXVriHcHwNA23PazMoxu2nJZerQMTlUlWm0kGOQDZqpxeJ2StVtP8i8klKr8aRq8RayXZgMRVQIDAQAB",
+		},
+	},
+	{
+		// Cloudflare's real production issuer.  The bare host
+		// pat-issuer.cloudflare.com is behind Cloudflare Access (403), but the
+		// directory origins actually fetch lives at the dap. subdomain on the RFC
+		// 9578 path and is publicly fetchable.  Keys rotate ~daily (current +
+		// previous, published 20:00 UTC), so the live re-fetch is what keeps this
+		// usable -- the embedded snapshot is a best-effort offline fallback that
+		// goes stale within a day.  Default-off: Apple documents only the demo
+		// issuer for origin interop, so prefer "cloudflare" unless you
+		// specifically want to verify against Cloudflare's production keys.
+		ID: "cloudflare-prod", Label: "Cloudflare (production issuer)",
+		IssuerName:   "dap.pat-issuer.cloudflare.com",
+		DirectoryURL: "https://dap.pat-issuer.cloudflare.com/.well-known/private-token-issuer-directory",
+		Since:        "v0.1",
+		SnapshotKeys: []string{
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEAtRBq2jki6stE40DLtVAF9UX1uHPzfiGpwIiLveQMKXPXpCAaSJng2mKlS9rKEERfoc47T5cSBPisAEg9RaSKfWPExnDxCojDFoSzYFEaRNdM7urfAxmb6Q_pmh-C5CwGOf8RAGC1d7ebdq44pRELP3F9W8b8RBmzqBb9npXYTu558riKJjfv7CKJ2EjCoNEVYoBXkjNiPF9SJQnu8N4JhEsNfNC5ggD-RZPj3hmVrxndgAqWFC4keup06lTERWc8QXA2mSDG-zBimnU155oll-gwacgvPbmlhhjx-RHNfplmcVBA0i4l4Qvtgkmxxn3exWzIKhh5XtK_RwbVgL3wTQIDAQAB",
+			"MIIBUjA9BgkqhkiG9w0BAQowMKANMAsGCWCGSAFlAwQCAqEaMBgGCSqGSIb3DQEBCDALBglghkgBZQMEAgKiAwIBMAOCAQ8AMIIBCgKCAQEAm9eIxS3nZkId7kfQEy1pepKVpYz-iLMxSheJOD0x5n7JbV_ATa3tbR2NuzO7Rm1fQwbqMIxUBivF_rJVyw0zGmwBRUYEzYexxVXPQdkNqyx5IEm2Gd_v0Rhgmx1yNuJ58p7OHPmCn2iUkBaxzIJ6YozyLnfRNZvfNosuvqAr_df2Urm4C1qX5RKS7ut0YxDKgQM79z1Ib7_34MmErZE7-3QQsjCyfmlgCKbW1LAQj1pIu9uXoSGrNb_gxfF5ploNEVpVoUYStGD77VZFKsw54o8gAXiOgNuNZiXonGx9Q8XKraOhqV917joOP5zpVxCMMXTmu9z-D0cHGqlBRgZh8QIDAQAB",
+		},
+	},
+}
+
+// IssuerConfigs maps the enabled presets (each as one config carrying its
+// directory URL + snapshot keys -- the verifier fetches the live keys and falls
+// back to the snapshot) + the custom issuers into the verifier's settings-free
+// IssuerConfig shape.
+func (c PrivacyPassConfig) IssuerConfigs() []privacypass.IssuerConfig {
+	out := make([]privacypass.IssuerConfig, 0, len(c.Issuers)+len(c.EnabledIssuerPresets))
+	enabled := map[string]bool{}
+	for _, id := range c.EnabledIssuerPresets {
+		enabled[id] = true
+	}
+	for _, p := range PrivacyPassIssuerPresets {
+		if !enabled[p.ID] {
+			continue
+		}
+		out = append(out, privacypass.IssuerConfig{
+			Name:         p.IssuerName,
+			DirectoryURL: p.DirectoryURL,
+			SnapshotKeys: p.SnapshotKeys,
+		})
+	}
+	for _, is := range c.Issuers {
+		out = append(out, privacypass.IssuerConfig{Name: is.Name, SPKIB64: is.Key})
+	}
+	return out
 }
 
 // BansConfig: per-source default action for entries on the ban list.  The

@@ -147,6 +147,60 @@ location = /_unmask/_signed_verify {
 }
 {{ end }}
 
+{{ if .PrivacyPassEnabled }}
+# Privacy Pass / PAT (RFC 9577/9578).  Same detour shape as Web Bot Auth: the
+# native plugin computes nothing here — $unmask_has_pat is a pure header match
+# (http.inc) and the cryptographic check lives in the admin daemon (= pure-Go
+# RSASSA-PSS token verify against the trusted issuer keys), consulted via the
+# auth_request below.  $unmask_pat_gate fires only for a PrivateToken MAIN
+# request about to be challenged and not already on an unmask mount; the ban
+# if-blocks above run first, so a banned client never reaches this gate.
+if ($unmask_pat_gate = "1") {
+    rewrite ^ /_unmask/_pat_route$request_uri last;
+}
+
+# Verification detour.  auth_request consults admin /_unmask/check; its
+# X-Unmask-Action answer is captured into $unmask_pat_action.  Every outcome
+# converges on @unmask_pat_continue, which re-enters the original URI:
+#   - verified token from a trusted issuer -> action "pass" -> protect.inc's
+#     $final_challenge_eff sees $unmask_pat_verified=1 and skips the challenge.
+#   - invalid / untrusted / no issuer match -> 401/403 -> normal challenge.
+#   - daemon down / erroring -> 5xx -> normal challenge, no raw 5xx to the client.
+location ^~ /_unmask/_pat_route/ {
+    internal;
+    auth_request /_unmask/_pat_verify;
+    auth_request_set $unmask_pat_action $upstream_http_x_unmask_action;
+    error_page 401 403 500 502 503 504 = @unmask_pat_continue;
+    try_files /__unmask_pat_continue__ @unmask_pat_continue;
+}
+
+# Strip the detour prefix and re-enter location matching at the original URI.
+# $unmask_pat_action (auth_request_set above) survives the internal redirect,
+# so protect.inc / http.inc maps can see the daemon's verdict.
+location @unmask_pat_continue {
+    rewrite ^/_unmask/_pat_route(/.*)$ $1 last;
+}
+
+# Subrequest target for /_unmask/_pat_route's auth_request.  Pumps the call into
+# the admin daemon's /unmask/api/check endpoint (= the same forward-auth handler
+# the privacy_pass axis runs in).  Body is dropped to keep the subrequest cheap.
+# $unmask_uri_is_unmask=1 for this URI keeps the pat gate from hijacking it.
+location = /_unmask/_pat_verify {
+    internal;
+    proxy_pass http://unmask/unmask/api/check;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI    $request_uri;
+    proxy_set_header X-Original-IP     $remote_addr;
+    proxy_set_header X-Original-UA     $http_user_agent;
+    proxy_set_header X-Original-Host   $host;
+    proxy_set_header X-Original-Method $request_method;
+    # Forward the PrivateToken so the admin verifies it; X-Original-Host binds
+    # the origin the token must be scoped to (same host the challenge emitted).
+    proxy_set_header Authorization     $http_authorization;
+}
+{{ end }}
+
 # @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
 # in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
 # admin serves as a challenge page (= "you're going too fast, prove you're

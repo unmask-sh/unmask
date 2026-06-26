@@ -139,6 +139,12 @@ nginx:
       cidrs:
         - 0.0.0.0/0
         - ::/0
+  # Advanced features master switch.  WebBotAuthActive() / PrivacyPassActive()
+  # both AND-gate on this, so the signed-route maps in http.inc (and the
+  # $unmask_signed_gate / $final_challenge_eff vars the /__vars debug endpoint
+  # in nginx.conf dumps) only render when it is on.  The WBA scenario needs
+  # those vars defined, so the suite opts in here.
+  advanced_enabled: true
   # Scenario 34: Web Bot Auth (RFC 9421).  The fake operator's JWK directory
   # is served by the nginx container at https://nginx:9444/ (= a compose
   # private address, hence allow_private_networks).  Fixtures + signer key

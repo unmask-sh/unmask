@@ -411,7 +411,8 @@ type renderData struct {
 	// nginx.conf does not already declare one (a duplicate is a fatal error).
 	EmitVariablesHash bool
 
-	// WebBotAuthEnabled mirrors settings.WebBotAuth.Enabled.  The signed-agent
+	// WebBotAuthEnabled mirrors settings.Nginx.WebBotAuthActive() (= the advanced
+	// master switch AND WebBotAuth.Enabled).  The signed-agent
 	// branch in server.inc (= the RFC 9421 / Web Bot Auth detect + auth_request
 	// + try_files machinery) is rendered ONLY when this is true.  With WBA
 	// disabled (the default) the whole branch is omitted, so a request that
@@ -420,6 +421,15 @@ type renderData struct {
 	// /rss/ is served by its own location instead of the signed-route's
 	// try_files (which =404s a proxied URI that has no file on disk).
 	WebBotAuthEnabled bool
+
+	// PrivacyPassEnabled mirrors settings.Nginx.PrivacyPassActive() (= the
+	// advanced master switch AND PrivacyPass.Enabled).  The PAT
+	// detour/verify machinery in server.inc + the gate maps in http.inc are
+	// rendered ONLY when this is true.  With it disabled the whole branch is
+	// omitted, so a request carrying an "Authorization: PrivateToken" stays on
+	// the normal native flow (the admin still emits the WWW-Authenticate
+	// challenge from ServeChallenge, but no native pre-content verify happens).
+	PrivacyPassEnabled bool
 
 	// mapHashWarning: non-empty when the host nginx.conf already declares a
 	// map_hash_bucket_size too small for the community-bans maps, or could not be
@@ -501,7 +511,8 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		NginxLogSocket:        s.NginxLog.SocketPath,
 		NginxLogEnabled:       s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
 		LBIPRanges:            effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
-		WebBotAuthEnabled:     s.Nginx.WebBotAuth.Enabled,
+		WebBotAuthEnabled:     s.Nginx.WebBotAuthActive(),
+		PrivacyPassEnabled:    s.Nginx.PrivacyPassActive(),
 	}
 
 	// search bots: operator-added extras + the upstream auto-rescue below.

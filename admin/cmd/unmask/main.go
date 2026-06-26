@@ -42,6 +42,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -503,6 +504,15 @@ func cmdServe(args []string) error {
 	// here at boot: flipping the setting needs a daemon restart, unlike the
 	// live-read allowlist above.
 	h.WebBotAuth.AllowPrivateDial = h.SnapshotSettings().Nginx.WebBotAuth.AllowPrivateNetworks
+
+	// Privacy Pass / PAT verifier: trusted issuer token-keys come from settings.
+	// The verifier parses + caches them and re-parses on a config change, so an
+	// admin edit to the issuer list takes effect without a restart.  Like Web
+	// Bot Auth, an empty issuer list trusts nobody (fail closed).
+	h.PrivacyPass = privacypass.New()
+	h.PrivacyPass.SetLoader(func() []privacypass.IssuerConfig {
+		return h.SnapshotSettings().Nginx.PrivacyPass.IssuerConfigs()
+	})
 
 	// IP range subscribe loop: pull aggregated bypass-IP prefixes from the
 	// unmask.sh hub daily (± jitter) and overlay them onto the embed

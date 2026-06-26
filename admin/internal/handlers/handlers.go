@@ -32,6 +32,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -118,6 +119,7 @@ type Handler struct {
 	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
 	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
+	PrivacyPass   *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
 
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
@@ -1195,13 +1197,27 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Cloudflare-compatible: challenge returns 403.
-	// 5xx would skew site-health metrics tied to uptime monitoring.
+	// Challenge returns 403 by default (Cloudflare-compatible; 5xx would skew
+	// site-health metrics tied to uptime monitoring).
+	status := http.StatusForbidden
+	// Privacy Pass / PAT (RFC 9577): when enabled, advertise a PrivateToken
+	// challenge bound to this origin and switch the status to 401 -- PAT-capable
+	// clients (Safari / iOS) intercept the 401, mint a token, and retry (passing
+	// the privacy_pass veto axis) without ever seeing the PoW page; non-PAT
+	// clients ignore the unknown auth scheme and render the page as before.
+	// Bound to requestHost(r): the same host source the verifier recomputes the
+	// challenge digest from, so the minted token verifies.
+	if nx := h.cfg().Nginx; nx.PrivacyPassActive() {
+		if wwwAuth := privacypass.BuildChallengeHeader(nx.PrivacyPass.IssuerConfigs(), requestHost(r)); wwwAuth != "" {
+			w.Header().Set("WWW-Authenticate", wwwAuth)
+			status = http.StatusUnauthorized
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Retry-After", "600")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
-	w.WriteHeader(http.StatusForbidden)
+	w.WriteHeader(status)
 	_, _ = w.Write(body)
 
 	// Burst notification (one webhook when count exceeds N in the last 5 min).  Aggregated by the notifier.

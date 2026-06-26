@@ -79,13 +79,21 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
 	default:
 		// no / unknown tab -> the overview landing page.
 		tab = "top"
+	}
+
+	// Advanced-gated tabs: when the master switch is off they're hidden from the
+	// nav, so a direct URL hit lands the operator on the About tab (where the
+	// master toggle lives) instead of an inert-looking form.
+	if (tab == "web-bot-auth" || tab == "privacy-pass") && !h.snapshotSettings().Nginx.AdvancedEnabled {
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/settings/?tab=about", http.StatusSeeOther)
+		return
 	}
 
 	data := h.settingsViewData(w, r, tab)
@@ -266,6 +274,42 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"IsNew":        isNew,
 			"PrefixCount":  g.PrefixCount(),
 			"CreationTime": ts,
+		})
+	}
+
+	// Web Bot Auth operator presets: checkbox rows (checked = the host is in the
+	// allowlist) + the allowlist entries that aren't a preset (custom rows).
+	// AllowedOperators stays the source of truth; presets just populate it.
+	wbaPresetHosts := map[string]bool{}
+	wbaPresets := make([]map[string]any, 0, len(settings.WebBotAuthOperatorPresets))
+	for _, p := range settings.WebBotAuthOperatorPresets {
+		wbaPresetHosts[strings.ToLower(p.Host)] = true
+		checked := false
+		for _, op := range cur.WebBotAuth.AllowedOperators {
+			if strings.EqualFold(strings.TrimSpace(op), p.Host) {
+				checked = true
+				break
+			}
+		}
+		wbaPresets = append(wbaPresets, map[string]any{
+			"Host": p.Host, "Label": p.Label, "Since": p.Since, "Checked": checked,
+		})
+	}
+	wbaCustom := make([]string, 0, len(cur.WebBotAuth.AllowedOperators))
+	for _, op := range cur.WebBotAuth.AllowedOperators {
+		if !wbaPresetHosts[strings.ToLower(strings.TrimSpace(op))] {
+			wbaCustom = append(wbaCustom, op)
+		}
+	}
+
+	// Privacy Pass issuer presets: checkbox rows (checked = the preset ID is in
+	// EnabledIssuerPresets).  Custom issuers render separately from .PrivacyPass.
+	ppEnabled := toSet(cur.PrivacyPass.EnabledIssuerPresets)
+	ppPresets := make([]map[string]any, 0, len(settings.PrivacyPassIssuerPresets))
+	for _, p := range settings.PrivacyPassIssuerPresets {
+		ppPresets = append(ppPresets, map[string]any{
+			"ID": p.ID, "Label": p.Label, "IssuerName": p.IssuerName,
+			"Since": p.Since, "KeyCount": len(p.SnapshotKeys), "Checked": ppEnabled[p.ID],
 		})
 	}
 
@@ -529,7 +573,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":           bypassPathGroups,
-		"WebBotAuth":                 cur.WebBotAuth,
+		// AdvancedEnabled: master reveal-gate for the Web Bot Auth + Privacy Pass
+		// tabs.  Off => their nav links + top-page shortcuts are hidden and the
+		// features are inert (see settings.Nginx.WebBotAuthActive/PrivacyPassActive).
+		"AdvancedEnabled":    cur.AdvancedEnabled,
+		"WebBotAuth":         cur.WebBotAuth,
+		"WebBotAuthPresets":  wbaPresets,
+		"WebBotAuthCustom":   wbaCustom,
+		"PrivacyPass":        cur.PrivacyPass,
+		"PrivacyPassPresets": ppPresets,
 		// AdminIPsAllowAll: the IP allowlist contains a /0 entry, making it a
 		// no-op (= same as empty).  The network tab shows a warning state line
 		// so "restricted-looking but actually wide open" is visible at a glance.
@@ -912,7 +964,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1128,6 +1180,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applySMTPForm(&cur.SMTP, r)
 	case "web-bot-auth":
 		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
+	case "privacy-pass":
+		applyPrivacyPassForm(&cur.Nginx.PrivacyPass, r)
 	case "community-bans":
 		// Snapshot the pre-apply subscribe state.  When the operator flips
 		// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
@@ -1162,6 +1216,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// version_check checkbox: present (= ticked) means enabled; an absent
 		// field (unticked) disables the update check entirely.
 		cur.VersionCheckDisabled = r.FormValue("version_check") == ""
+		// Advanced master reveal-gate, co-located with the version-check toggle
+		// (both install-level opt-ins).  Off hides the Web Bot Auth + Privacy
+		// Pass tabs and makes both inert (WebBotAuthActive/PrivacyPassActive AND
+		// on this), without disturbing their per-feature config.  Submitted in
+		// the same form as version_check, so it's always present here.
+		cur.Nginx.AdvancedEnabled = r.FormValue("advanced_enabled") == "1"
 	case "retention":
 		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
 		// No need to restart the goroutine on change (= EventsRetentionDays is
@@ -3194,10 +3254,11 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	default:
 		c.SubscribeMode = settings.SubscribeOff
 	}
-	// PublishCountry: install-wide opt-in (= default OFF).  When ON, future
+	// PublishCountry: install-wide opt-out (default ON, set by the Default()
+	// constructor so the feed shows a global picture).  When ON, future
 	// register / submit / vote / comment requests pass publish_country=true
 	// so the hub records the install's country code alongside the entry.
-	// Flipping back to OFF stops emitting the flag on new requests; old rows
+	// Flipping to OFF stops emitting the flag on new requests; old rows
 	// keep whatever they recorded until they age out.
 	c.PublishCountry = r.FormValue("publish_country") == "1"
 	// HN override: trim + lowercase + clamp.  Strict validation lives on the
@@ -3324,6 +3385,10 @@ func tabHelpKey(tab string) string {
 		return "settings.bypass_ips.intro"
 	case "bypass-paths":
 		return "settings.bypass_paths.intro"
+	case "web-bot-auth":
+		return "settings.web_bot_auth.help"
+	case "privacy-pass":
+		return "settings.privacy_pass.help"
 	case "global":
 		return "settings.global.tab_help"
 	case "ua-filter":
@@ -3893,26 +3958,70 @@ func (h *Handler) IPRangeSyncStatus() IPRangeSyncInfo {
 
 // applyWebBotAuthForm: receive the web-bot-auth tab form.
 //
-//   - enabled            : verify signed-agent requests at all
-//   - allowed_operators  : textarea, one operator host per line.  Empty list
-//     accepts any operator that publishes a valid dir.
-//   - cache_ttl_sec      : per-operator directory cache lifetime
+//   - enabled         : verify signed-agent requests at all
+//   - preset_operator : checked preset checkboxes (one repeated field per host)
+//   - operator        : custom add-rows (one repeated field per host)
+//   - cache_ttl_sec   : per-operator directory cache lifetime
 //
+// AllowedOperators = checked presets + custom rows, deduped (case-insensitive).
 // Public key directories are fetched lazily by the Verifier; this form only
 // configures gating.
 func applyWebBotAuthForm(c *settings.WebBotAuthConfig, r *http.Request) {
-	c.Enabled = r.FormValue("enabled") == "1"
+	c.Enabled = r.FormValue("enabled") == "1" // also triggers form parsing
 
 	c.AllowedOperators = nil
-	for _, line := range strings.Split(r.FormValue("allowed_operators"), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			c.AllowedOperators = append(c.AllowedOperators, line)
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		k := strings.ToLower(s)
+		if s != "" && !seen[k] {
+			seen[k] = true
+			c.AllowedOperators = append(c.AllowedOperators, s)
 		}
+	}
+	for _, op := range r.Form["preset_operator"] {
+		add(op)
+	}
+	for _, op := range r.Form["operator"] {
+		add(op)
 	}
 
 	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cache_ttl_sec"))); err == nil && n > 0 {
 		c.CacheTTLSec = n
+	}
+}
+
+// applyPrivacyPassForm: receive the privacy-pass tab form.
+//
+//   - enabled        : verify "Authorization: PrivateToken" (PAT) headers at all
+//   - pp_issuer_name : issuer host add-rows (the challenge issuer_name + label)
+//   - pp_issuer_key  : the matching token-key (DER SubjectPublicKeyInfo,
+//     id-RSASSA-PSS, base64), parallel-indexed with pp_issuer_name
+//
+// Rows with an empty name or key are dropped; the verifier further skips any key
+// it can't parse.
+func applyPrivacyPassForm(c *settings.PrivacyPassConfig, r *http.Request) {
+	c.Enabled = r.FormValue("enabled") == "1" // also triggers form parsing
+
+	c.EnabledIssuerPresets = nil
+	for _, id := range r.Form["pp_preset"] {
+		if id = strings.TrimSpace(id); id != "" {
+			c.EnabledIssuerPresets = append(c.EnabledIssuerPresets, id)
+		}
+	}
+
+	c.Issuers = nil
+	names := r.Form["pp_issuer_name"]
+	keys := r.Form["pp_issuer_key"]
+	for i := range names {
+		name := strings.TrimSpace(names[i])
+		key := ""
+		if i < len(keys) {
+			key = strings.TrimSpace(keys[i])
+		}
+		if name != "" && key != "" {
+			c.Issuers = append(c.Issuers, settings.PrivacyPassIssuer{Name: name, Key: key})
+		}
 	}
 }
 

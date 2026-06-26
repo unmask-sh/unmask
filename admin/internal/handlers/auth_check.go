@@ -43,6 +43,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
@@ -235,7 +236,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// switch below + can be logged in the event payload regardless of which
 	// axis ended up winning (= operator visibility).
 	var wbaResult webbotauth.Result
-	if cfg.Nginx.WebBotAuth.Enabled && h.WebBotAuth != nil && r.Header.Get("Signature-Input") != "" {
+	if cfg.Nginx.WebBotAuthActive() && h.WebBotAuth != nil && r.Header.Get("Signature-Input") != "" {
 		wbaResult = h.WebBotAuth.Verify(r.Context(), wbaVerifyRequest(r))
 		if !wbaResult.OK && wbaResult.Reason != "" {
 			// A failed verification downgrades silently into the normal axis
@@ -245,6 +246,28 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// Only requests that DID carry a Signature-Input reach here, so
 			// this stays quiet for normal traffic.
 			log.Printf("unmask: web-bot-auth: signature rejected: %s", wbaResult.Reason)
+		}
+	}
+
+	// Privacy Pass / PAT (RFC 9577/9578): a second veto-pass axis.  A valid,
+	// origin-bound token from a trusted issuer joins the pass path, so an
+	// attested real client (e.g. an Apple device presenting a Private Access
+	// Token) skips the challenge.  Only requests carrying an
+	// "Authorization: PrivateToken" header are touched; everything else is
+	// unaffected.  Verified up-front like wbaResult so the switch can use it.
+	var patResult privacypass.Result
+	if cfg.Nginx.PrivacyPassActive() && h.PrivacyPass != nil {
+		if authz := r.Header.Get("Authorization"); strings.HasPrefix(authz, "PrivateToken") {
+			// Bind to requestHost(r): the canonical host source the _bv cookie and
+			// the challenge emission also use, so the recomputed challenge digest
+			// matches the one the client's token was minted against.
+			patResult = h.PrivacyPass.VerifyForOrigin(authz, requestHost(r))
+			if !patResult.OK && patResult.Reason != "" {
+				// Only requests that DID carry a PrivateToken reach here, so this
+				// stays quiet for normal traffic; surfaces a misconfigured issuer
+				// key / stale challenge instead of silently downgrading.
+				log.Printf("unmask: privacy-pass: token rejected: %s", patResult.Reason)
+			}
 		}
 	}
 
@@ -290,6 +313,10 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// Signed agent verified — same trust level as the IP allowlist.
 			// Reason carries the operator host so dashboards can break it down.
 			action, reason, status = "pass", "signed_agent:"+wbaResult.Operator, http.StatusOK
+		case patResult.OK:
+			// Attested real client (Privacy Pass / PAT): an origin-bound token
+			// from a trusted issuer.  Reason carries the issuer for dashboards.
+			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
 		case bvOK:
 			// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
 			if strings.Count(bvCookie, ".") == 3 {
@@ -378,6 +405,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		reason != "bypass:path" &&
 		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
 		!strings.HasPrefix(reason, "signed_agent:") && // verified Web Bot Auth agents aren't rate-limited
+		!strings.HasPrefix(reason, "privacy_pass:") && // attested PAT clients aren't rate-limited
 		action != "block"
 	if shouldCount {
 		// Compose the rate-limit counter key from the configured Key kind.

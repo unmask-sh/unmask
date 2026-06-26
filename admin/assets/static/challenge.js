@@ -95,7 +95,7 @@
   // to avoid an accusatory tone.
   var L={
     en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.',checking:'Verifying...',verified:'Verified'},
-    ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください.',error:'うまくいきませんでした. 少し時間をおいてからお試しください.',checking:'確認中...',verified:'確認できました'},
+    ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するにはチェックを入れてください。',note:'自動アクセスからサイトを守るための、ちょっとした確認です。',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください。',error:'うまくいきませんでした。少し時間をおいてからお試しください。',checking:'確認中…',verified:'確認できました'},
     zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'用于防止自动化滥用的简短验证。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。'},
     zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'用於防止自動化濫用的簡短驗證。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。'},
     ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 짧은 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'},
@@ -145,7 +145,7 @@
   var P={
     friendly:{
       en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'A short check that keeps automated abuse out.'},
-      ja:{verify:'{site_name} を読み込んでいます. もう少々お待ちください...',title:'アクセス確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセスから守るためのちょっとした確認です.'},
+      ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するにはチェックを入れてください。',note:'自動アクセスからサイトを守るための、ちょっとした確認です。'},
       zh:{verify:'正在加载 {site_name},请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'用于防止自动化滥用的简短验证。'},
       zht:{verify:'正在載入 {site_name},請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'用於防止自動化濫用的簡短驗證。'},
       ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 짧은 확인입니다.'},
@@ -165,7 +165,7 @@
     },
     neutral:{
       en:{verify:'Verifying your access to {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This check protects against automated access.'},
-      ja:{verify:'{site_name} へのアクセスを確認しています. しばらくお待ちください...',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください.',note:'自動アクセス対策のための確認です.'},
+      ja:{verify:'{site_name} へのアクセスを確認しています。しばらくお待ちください…',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください。',note:'自動アクセスを防ぐための確認です。'},
       zh:{verify:'正在验证您对 {site_name} 的访问,请稍候...',title:'安全验证',desc:'请勾选以继续。',note:'此验证可防止自动化访问。'},
       zht:{verify:'正在驗證您對 {site_name} 的存取,請稍候...',title:'安全驗證',desc:'請勾選以繼續。',note:'此驗證可防止自動化存取。'},
       ko:{verify:'{site_name}에 대한 액세스를 확인하고 있습니다. 잠시만 기다려 주세요...',title:'보안 확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 확인입니다.'},
@@ -185,7 +185,7 @@
     },
     minimal:{
       en:{verify:'Connecting to {site_name}...',title:'Connecting',desc:'Please confirm to continue.',note:''},
-      ja:{verify:'{site_name} に接続中...',title:'接続中',desc:'続行するにはチェックを入れてください.',note:''},
+      ja:{verify:'{site_name} に接続中…',title:'接続中',desc:'続行するにはチェックを入れてください。',note:''},
       zh:{verify:'正在连接到 {site_name}...',title:'正在连接',desc:'请勾选以继续。',note:''},
       zht:{verify:'正在連線至 {site_name}...',title:'正在連線',desc:'請勾選以繼續。',note:''},
       ko:{verify:'{site_name}에 연결 중...',title:'연결 중',desc:'계속하려면 체크해 주세요.',note:''},
@@ -619,7 +619,7 @@
   // security investigation.
   var COOKIE_ERR_I18N = {
     en: { title:'Please enable cookies', desc:'This site needs cookies to load. Please enable cookies in your browser settings and reload this page.' },
-    ja: { title:'Cookie を有効にしてください', desc:'このサイトを表示するには cookie が必要です. ブラウザの設定で cookie を有効にして、 ページを再読み込みしてください.' },
+    ja: { title:'Cookie を有効にしてください', desc:'このサイトを表示するには cookie が必要です。ブラウザの設定で cookie を有効にして、ページを再読み込みしてください。' },
     zh: { title:'请启用 Cookie', desc:'本站需要 Cookie 才能正常加载。请在浏览器设置中启用 Cookie 后重新加载页面。' },
     zht:{ title:'請啟用 Cookie', desc:'本站需要 Cookie 才能正常載入。請在瀏覽器設定中啟用 Cookie 後重新載入頁面。' },
     ko: { title:'쿠키를 활성화해 주세요', desc:'이 사이트를 표시하려면 쿠키가 필요합니다. 브라우저 설정에서 쿠키를 활성화한 후 페이지를 다시 로드해 주세요.' },

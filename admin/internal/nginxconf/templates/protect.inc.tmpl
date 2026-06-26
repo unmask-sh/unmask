@@ -37,10 +37,10 @@ limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 # misses ("1:1"), so the replay reaches the real content instead of looping
 # back into the dead challenge endpoint.  $unmask_orig_path / _args feed
 # that replay.
-{{ if .WebBotAuthEnabled }}
-# Web Bot Auth: $final_challenge_eff = $final_challenge minus daemon-verified
-# signed agents (= $unmask_signed_action "pass" from the signed-route detour
-# in server.inc).  For everything unsigned the two variables are identical.
+{{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}
+# Veto-pass: $final_challenge_eff = $final_challenge minus a daemon-verified
+# signed agent (Web Bot Auth) or PrivateToken (Privacy Pass), via the detours in
+# server.inc.  For traffic with no such credential the two variables are equal.
 set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";
 {{ else }}
 set $unmask_gate "${final_challenge}:${unmask_failopen}";

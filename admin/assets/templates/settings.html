@@ -110,8 +110,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .about-check{display:flex;align-items:center;gap:.7rem;margin:1.2rem 0 0;font-size:.82rem;color:#475569}
 .about-check label{display:flex;align-items:center;gap:.4rem;cursor:pointer}
 .about-check input{margin:0}
-.about-check button{padding:.3rem .8rem;font-size:.78rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;cursor:pointer}
-.about-check button:hover{background:#1e293b}
+.about-check > button{padding:.3rem .8rem;font-size:.78rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;cursor:pointer}
+.about-check > button:hover{background:#1e293b}
 .settings-top-grp > h3{font-size:.82rem;color:#475569;font-weight:600;margin:0 0 .5rem;padding-bottom:.25rem;border-bottom:1px solid #e2e8f0}
 .sti{display:block;padding:.6rem .75rem;border:1px solid #e2e8f0;border-radius:.35rem;margin-bottom:.4rem;text-decoration:none;transition:background .1s,border-color .1s}
 .sti:hover{background:#f8fafc;border-color:#94a3b8}
@@ -402,7 +402,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <ul>
     <li><a href="?tab=bypass-ips"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}</a></li>
     <li><a href="?tab=bypass-paths" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}</a></li>
+    {{/* Web Bot Auth + Privacy Pass are revealed only when the advanced master
+         switch is on (the toggle lives on the About tab).  A default install
+         isn't cluttered with features almost no client emits yet. */}}
+    {{ if .AdvancedEnabled }}
     <li><a href="?tab=web-bot-auth" {{ if eq .Tab "web-bot-auth" }}class="active"{{ end }}>{{ t .Lang "settings.tab.web_bot_auth" }}</a></li>
+    <li><a href="?tab=privacy-pass" {{ if eq .Tab "privacy-pass" }}class="active"{{ end }}>{{ t .Lang "settings.tab.privacy_pass" }}</a></li>
+    {{ end }}
   </ul>
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
   <ul>
@@ -478,7 +484,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
   <a class="sti" href="?tab=bypass-ips"><b>{{ t .Lang "settings.tab.bypass_ips" }}</b><span>{{ t .Lang "settings.top.desc.bypass_ips" }}</span></a>
   <a class="sti" href="?tab=bypass-paths"><b>{{ t .Lang "settings.tab.bypass_paths" }}</b><span>{{ t .Lang "settings.top.desc.bypass_paths" }}</span></a>
+  {{ if .AdvancedEnabled }}
   <a class="sti" href="?tab=web-bot-auth"><b>{{ t .Lang "settings.tab.web_bot_auth" }}</b><span>{{ t .Lang "settings.top.desc.web_bot_auth" }}</span></a>
+  <a class="sti" href="?tab=privacy-pass"><b>{{ t .Lang "settings.tab.privacy_pass" }}</b><span>{{ t .Lang "settings.top.desc.privacy_pass" }}</span></a>
+  {{ end }}
 </div>
 
 <div class="settings-top-grp">
@@ -543,8 +552,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   {{ end }}
 
-  <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check">
+  {{/* One form, stacked vertically (flex-column) so the version-check row, the
+       advanced block, and the save button don't collide in the horizontal flex
+       the .about-check default uses. */}}
+  <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check" style="flex-direction:column;align-items:flex-start;gap:.8rem">
     <label><input type="checkbox" name="version_check" value="1" {{ if .VersionCheckEnabled }}checked{{ end }}> {{ t .Lang "settings.about.check_toggle" }}</label>
+    {{/* Advanced attestation master switch (Web Bot Auth + Privacy Pass).  Kept
+         here next to the version-check toggle rather than given its own tab: a
+         rarely-touched, install-level opt-in at the same granularity.  Off by
+         default -> the two feature tabs stay hidden + inert.  Submits with the
+         same form so version_check isn't cleared. */}}
+    <div class="about-advanced" style="align-self:stretch;padding-top:.8rem;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:.4rem">
+      <label><input type="checkbox" name="advanced_enabled" value="1" {{ if .AdvancedEnabled }}checked{{ end }}> {{ t .Lang "settings.advanced.enabled.label" }}</label>
+      <button type="button" class="ua-help-trigger" data-help-target="advanced-help" aria-label="?">?</button>
+      <script type="text/html" id="advanced-help">{{ safeHTML (t .Lang "settings.advanced.desc") }}</script>
+    </div>
     <button type="submit">{{ t .Lang "settings.about.check_save" }}</button>
   </form>
 
@@ -1012,7 +1034,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=web-bot-auth">
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.web_bot_auth.title" }}</h2>
-    <p class="desc">{{ safeHTML (t .Lang "settings.web_bot_auth.desc") }}</p>
 
     <div class="form-row">
       <label class="ck">
@@ -1022,16 +1043,109 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
 
     <div class="form-row">
-      <label for="wba-allowed">{{ t .Lang "settings.web_bot_auth.allowed_operators.label" }}</label>
+      <label>{{ t .Lang "settings.web_bot_auth.allowed_operators.label" }}</label>
       <div class="desc">{{ safeHTML (t .Lang "settings.web_bot_auth.allowed_operators.desc") }}</div>
-      <textarea id="wba-allowed" name="allowed_operators" rows="6" style="width:100%;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem">{{ range .WebBotAuth.AllowedOperators }}{{ . }}
-{{ end }}</textarea>
+      {{ if .WebBotAuthPresets }}
+      <div style="margin:.5rem 0 .15rem"><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></div>
+      <div class="op-presets" style="margin:0 0 .2rem;display:flex;flex-direction:column;gap:.15rem">
+        {{ range .WebBotAuthPresets }}
+        <label class="ck" style="display:flex;align-items:baseline;gap:.4rem">
+          <input type="checkbox" name="preset_operator" value="{{ .Host }}" {{ if .Checked }}checked{{ end }}>
+          <span><strong>{{ .Label }}</strong> <code>{{ .Host }}</code> <span class="muted" style="font-size:.8rem">· since {{ .Since }}</span></span>
+        </label>
+        {{ end }}
+      </div>
+      {{ end }}
+      <div style="margin:.5rem 0 .15rem"><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></div>
+      <div id="wba-op-rows" style="margin-top:.3rem">
+        {{ range .WebBotAuthCustom }}
+        <div class="op-row" style="display:flex;gap:.4rem;margin:.2rem 0">
+          <input type="text" name="operator" value="{{ . }}" placeholder="operator.example" style="flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem">
+          <button type="button" class="del-btn" onclick="this.parentElement.remove()" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
+        </div>
+        {{ end }}
+      </div>
+      <button type="button" onclick="wbaAddOperator()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.web_bot_auth.add_operator" }}</button>
+      <script>
+      function wbaAddOperator(){
+        var c=document.getElementById('wba-op-rows');
+        var d=document.createElement('div'); d.className='op-row'; d.style.cssText='display:flex;gap:.4rem;margin:.2rem 0';
+        var i=document.createElement('input'); i.type='text'; i.name='operator'; i.placeholder='operator.example';
+        i.style.cssText='flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem';
+        var b=document.createElement('button'); b.type='button'; b.className='del-btn'; b.textContent='✖';
+        b.style.cssText='background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b';
+        b.onclick=function(){ d.remove(); };
+        d.appendChild(i); d.appendChild(b); c.appendChild(d); i.focus();
+      }
+      </script>
     </div>
 
     <div class="form-row">
       <label for="wba-ttl">{{ t .Lang "settings.web_bot_auth.cache_ttl.label" }}</label>
+      <button type="button" class="ua-help-trigger" data-help-target="wba-ttl-help" aria-label="?">?</button>
+      <script type="text/html" id="wba-ttl-help">{{ safeHTML (t .Lang "settings.web_bot_auth.cache_ttl.help") }}</script>
       <input id="wba-ttl" type="number" name="cache_ttl_sec" min="60" max="86400" value="{{ if gt .WebBotAuth.CacheTTLSec 0 }}{{ .WebBotAuth.CacheTTLSec }}{{ else }}3600{{ end }}" style="width:8rem">
       <span class="muted">{{ t .Lang "settings.web_bot_auth.cache_ttl.unit" }}</span>
+    </div>
+
+    <div class="form-row">
+      <button type="submit">{{ t .Lang "settings.save" }}</button>
+    </div>
+  </div>
+</form>
+{{ end }}
+
+{{ if eq .Tab "privacy-pass" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=privacy-pass">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.privacy_pass.title" }}</h2>
+
+    <div class="form-row">
+      <label class="ck">
+        <input type="checkbox" name="enabled" value="1" {{ if .PrivacyPass.Enabled }}checked{{ end }}>
+        <span>{{ t .Lang "settings.privacy_pass.enabled.label" }}</span>
+      </label>
+    </div>
+
+    <div class="form-row">
+      <label>{{ t .Lang "settings.privacy_pass.issuers.label" }}</label>
+      <div class="desc">{{ safeHTML (t .Lang "settings.privacy_pass.issuers.desc") }}</div>
+      {{ if .PrivacyPassPresets }}
+      <div style="margin:.5rem 0 .15rem"><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></div>
+      <div style="display:flex;flex-direction:column;gap:.15rem;margin:0 0 .2rem">
+        {{ range .PrivacyPassPresets }}
+        <label class="ck" style="display:flex;align-items:baseline;gap:.4rem">
+          <input type="checkbox" name="pp_preset" value="{{ .ID }}" {{ if .Checked }}checked{{ end }}>
+          <span><strong>{{ .Label }}</strong> <code>{{ .IssuerName }}</code> <span class="muted" style="font-size:.8rem">· {{ .KeyCount }} keys · since {{ .Since }}</span></span>
+        </label>
+        {{ end }}
+      </div>
+      {{ end }}
+      <div style="margin:.5rem 0 .15rem"><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></div>
+      <div id="pp-issuer-rows">
+        {{ range .PrivacyPass.Issuers }}
+        <div class="pp-issuer-row" style="display:flex;gap:.4rem;margin:.3rem 0;align-items:flex-start">
+          <input type="text" name="pp_issuer_name" value="{{ .Name }}" placeholder="issuer host" style="flex:0 0 14rem;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem">
+          <textarea name="pp_issuer_key" rows="2" placeholder="base64 token-key (DER SPKI)" style="flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.75rem">{{ .Key }}</textarea>
+          <button type="button" class="del-btn" onclick="this.parentElement.remove()" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
+        </div>
+        {{ end }}
+      </div>
+      <button type="button" onclick="ppAddIssuer()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.privacy_pass.add_issuer" }}</button>
+      <script>
+      function ppAddIssuer(){
+        var c=document.getElementById('pp-issuer-rows');
+        var d=document.createElement('div'); d.className='pp-issuer-row'; d.style.cssText='display:flex;gap:.4rem;margin:.3rem 0;align-items:flex-start';
+        var n=document.createElement('input'); n.type='text'; n.name='pp_issuer_name'; n.placeholder='issuer host';
+        n.style.cssText='flex:0 0 14rem;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem';
+        var k=document.createElement('textarea'); k.name='pp_issuer_key'; k.rows=2; k.placeholder='base64 token-key (DER SPKI)';
+        k.style.cssText='flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.75rem';
+        var b=document.createElement('button'); b.type='button'; b.className='del-btn'; b.textContent='✖';
+        b.style.cssText='background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b';
+        b.onclick=function(){ d.remove(); };
+        d.appendChild(n); d.appendChild(k); d.appendChild(b); c.appendChild(d); n.focus();
+      }
+      </script>
     </div>
 
     <div class="form-row">
@@ -4200,7 +4314,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div class="field" style="display:flex;gap:1rem;align-items:flex-start;flex-wrap:wrap">
       <div>
         <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_derived_label" }}</label>
-        <code style="display:inline-block;padding:.35rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;color:#475569">{{ if .CommunityBans.HN }}{{ .CommunityBans.HN }}{{ else }}<span class="muted">(まだ register されていません)</span>{{ end }}</code>
+        <code style="display:inline-block;padding:.35rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;color:#475569">{{ if .CommunityBans.HN }}{{ .CommunityBans.HN }}{{ else }}<span class="muted">(まだ登録されていません)</span>{{ end }}</code>
       </div>
       <div style="flex:1;min-width:14rem">
         <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
