@@ -73,7 +73,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-docker-socket e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk publish
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-docker-socket e2e-docker-mariadb e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk publish
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -890,6 +890,16 @@ e2e-docker-socket:
 	docker compose -f e2e/docker/docker-compose.yml -f e2e/docker/docker-compose.socket.yml up -d --build --wait
 	@trap 'docker compose -f e2e/docker/docker-compose.yml -f e2e/docker/docker-compose.socket.yml down -v' EXIT; \
 	    UNMASK_E2E_SOCKET=1 BASE_URL=https://localhost:8443 ./e2e/run.sh
+
+## e2e-docker-mariadb - same as e2e-docker but the admin daemon is backed by
+# MariaDB instead of SQLite, so the full suite runs end-to-end against the
+# MariaDB driver (migrations / UTC pin / dialect aggregates / the whole
+# request->event->aggregate path).  All scenarios run; the backend is
+# transparent to nginx / Apache / the challenge flow.
+e2e-docker-mariadb:
+	docker compose -f e2e/docker/docker-compose.yml -f e2e/docker/docker-compose.mariadb.yml up -d --build --wait
+	@trap 'docker compose -f e2e/docker/docker-compose.yml -f e2e/docker/docker-compose.mariadb.yml down -v' EXIT; \
+	    BASE_URL=https://localhost:8443 ./e2e/run.sh
 
 ## e2e-lifecycle - package-lifecycle scenarios on CentOS 6 in docker:
 # install / upgrade (v0.1.0->v0.1.1) / removal / render-fail-safe -- the
