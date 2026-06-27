@@ -447,7 +447,15 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
     /* over the rate cap?  limit_req_dry_run set r->main->limit_req_status.
      * 5 = NGX_HTTP_LIMIT_REQ_REJECTED_DRY_RUN (would-have-been rejected).  Route
      * to /unmask/_rl<uri> -- the daemon resolves deny vs challenge from the
-     * matched zone (a deny zone yields a hard 403). */
+     * matched zone (a deny zone yields a hard 403).
+     *
+     * r->main->limit_req_status -- and the `limit_req ... dry_run` this
+     * compose mode depends on -- are nginx 1.17.1+.  On older nginx the field
+     * does not exist (it won't compile) and dry_run is unavailable, so the
+     * deny-compose branch is compiled out: the module still builds and serves
+     * every other axis (JA4 / PoW / CAPTCHA / honeypot / plain rate-limit),
+     * it just can't offer the deny-zone-on-a-protected-path composition there. */
+#if (nginx_version >= 1017001)
     if (r->main->limit_req_status == 5) {
         static const u_char rl_prefix[] = "/unmask/_rl";
         ngx_str_t uri;
@@ -460,6 +468,7 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
                    r->uri.data, r->uri.len);
         return ngx_http_internal_redirect(r, &uri, &r->args);
     }
+#endif
 
     /* within the cap: captcha gate exactly "1:" -> protected challenge. */
     if (gv != NULL && !gv->not_found && gv->len == 2
