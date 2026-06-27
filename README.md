@@ -21,10 +21,10 @@ preservation as the default posture.
 - **Two-stage search-bot rescue** — UA list + official IP range double-check. Designed not to break Googlebot / GPTBot / ClaudeBot.
 - **JA4 fingerprint** — Computed from the TLS handshake. Exposes headless Chromium / Puppeteer / Playwright through their UA disguise.
 - **Behavioral CAPTCHA** — 5-axis score from mouseTrail / scroll / window-size. Harder to defeat than a plain checkbox or PoW.
-- **Web Bot Auth + Privacy Pass (opt-in)** — RFC 9421 HTTP Message Signatures (ed25519 / RSA-PSS) and Privacy Pass / Apple PAT (RFC 9577/9578). Signed AI agents (Anthropic / OpenAI / etc.) and attested clients pass through without a challenge. Off by default behind an Advanced switch, since the ecosystem is still small.
 - **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default (CAPTCHA-only enforcement, so a mismatched human still passes; flip `subscribe_mode` off to disconnect); submitting your own reports is opt-in (country is tagged by default — opt out in settings). GDPR by design (= per-day salted IP hashes, 30-day prune, raw IPs never stored).
 - **Built-in admin UI** — dashboard / hunt / abuse signals / settings. bcrypt + cookie session + CSRF + per-IP login rate-limit.
 - **Two deploy modes** — native nginx dynamic module (~0.05 ms post-cookie) or forward-auth fallback with a shipped example for Apache (the check endpoint speaks the standard forward-auth contract, so any HTTP server can wire it the same way).
+- **Web Bot Auth + Privacy Pass (opt-in)** — RFC 9421 HTTP Message Signatures (ed25519 / RSA-PSS) and Privacy Pass / Apple PAT (RFC 9577/9578). Signed AI agents (Anthropic / OpenAI / etc.) and attested clients pass through without a challenge. Off by default behind an Advanced switch, since the ecosystem is still small.
 
 ## Install
 
