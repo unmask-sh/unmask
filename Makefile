@@ -921,14 +921,16 @@ e2e-lifecycle:
 # release maintainer.
 .PHONY: distro-check
 distro-check:
-	@echo '=== gate 1/3: MariaDB backend smoke (docker) ==='
+	@echo '=== gate 1/4: MariaDB backend smoke (docker) ==='
 	$(MAKE) test-mariadb
-	@echo '=== gate 2/3: e2e (docker compose) ==='
+	@echo '=== gate 2/4: e2e — SQLite backend (docker compose) ==='
 	$(MAKE) e2e-docker
-	@echo '=== gate 3/3: install matrix (10 distros, verdict-gated) ==='
+	@echo '=== gate 3/4: e2e — MariaDB backend (docker compose) ==='
+	$(MAKE) e2e-docker-mariadb
+	@echo '=== gate 4/4: install matrix (10 distros, verdict-gated) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
-	@echo '=== release gate PASSED — e2e + 8-distro install matrix green ==='
+	@echo '=== release gate PASSED — e2e (SQLite + MariaDB) + 10-distro install matrix green ==='
 	@echo '    (recorded in $(DIST)/.release-gate-ok — consumed by release-github)'
 
 ## vet           - go vet
