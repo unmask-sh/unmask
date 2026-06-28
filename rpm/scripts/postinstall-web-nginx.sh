@@ -80,6 +80,15 @@ fi
 # first render; render overwrites it on the first settings save.  Wired in BOTH
 # modes -- it is plugin-var-free, and a hybrid native+forward-auth vhost needs it
 # too.
+#
+# Load-order note: this file carries `geo`/`map` blocks, and nginx pins
+# map_hash_bucket_size the moment it parses the FIRST map/geo block -- after which
+# a later explicit `map_hash_bucket_size` (http.inc emits one at its top to size
+# the community-bans maps) is a fatal "directive is duplicate" that the plugin's
+# place-module fail-safe then reacts to by stripping ALL unmask wiring.  So this
+# gate MUST load AFTER http.inc: the symlink is named "zz-..." to sort last in
+# the include dir (http.inc is "00-unmask.conf"), so http.inc's sizing is parsed
+# first regardless of native/forward-auth mode or postinstall order.
 FA_GATE_SRC=/var/lib/unmask/nginx/forward-auth-lbtrust.conf
 [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
 if [ ! -e "$FA_GATE_SRC" ]; then
@@ -89,7 +98,10 @@ geo $realip_remote_addr $unmask_fa_lb_vendor { default ""; }
 map $unmask_fa_lb_vendor $unmask_fa_ja4 { default ""; }
 FAGATE
 fi
-FA_GATE_LINK=$NGINX_INCDIR/00-unmask-fa-lbtrust.conf
+# Migrate the pre-fix name: 00-unmask-fa-lbtrust.conf sorted BEFORE http.inc and
+# tripped the map_hash duplicate, so drop it in both candidate include dirs.
+rm -f /etc/nginx/conf.d/00-unmask-fa-lbtrust.conf /etc/nginx/http.d/00-unmask-fa-lbtrust.conf
+FA_GATE_LINK=$NGINX_INCDIR/zz-unmask-fa-lbtrust.conf
 if [ -L "$FA_GATE_LINK" ] || [ ! -e "$FA_GATE_LINK" ]; then
     ln -sf "$FA_GATE_SRC" "$FA_GATE_LINK"
     echo "unmask-web-nginx: symlinked $FA_GATE_LINK -> $FA_GATE_SRC"

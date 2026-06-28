@@ -31,10 +31,12 @@ if [ "$do_cleanup" = 1 ]; then
     sed -i '/unmask-maphash/d' /etc/nginx/nginx.conf 2>/dev/null || true
     for link in /etc/nginx/conf.d/00-unmask.conf \
                 /etc/nginx/conf.d/00-unmask-upstream.conf \
+                /etc/nginx/conf.d/zz-unmask-fa-lbtrust.conf \
                 /etc/nginx/conf.d/00-unmask-fa-lbtrust.conf \
                 /etc/nginx/conf.d/00-unmask-rendered.conf \
                 /etc/nginx/http.d/00-unmask.conf \
                 /etc/nginx/http.d/00-unmask-upstream.conf \
+                /etc/nginx/http.d/zz-unmask-fa-lbtrust.conf \
                 /etc/nginx/http.d/00-unmask-fa-lbtrust.conf \
                 /etc/nginx/http.d/00-unmask-rendered.conf; do
         if [ -L "$link" ]; then
