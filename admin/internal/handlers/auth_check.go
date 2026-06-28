@@ -1162,6 +1162,18 @@ func matchJA4(ja4 string, n settings.Nginx) (verdict, action string) {
 	return v, a
 }
 
+// resolvedVerdictName derives the JA4 verdict NAME from the client JA4 the
+// request carries (X-Client-JA4 = nginx's $effective_ja4).  The verdict name is
+// a display-only label that unmask owns -- nginx only needs the bot/not action
+// decision -- so every recorded event takes the name the daemon resolves here
+// rather than trusting the X-JA4-Verdict header.  "" when no rule matched (the
+// events table renders that as "ok").  matchJA4 reproduces the nginx
+// $ja4_verdict map exactly, so native and forward-auth store identical names.
+func (h *Handler) resolvedVerdictName(ja4 string) string {
+	v, _ := matchJA4(ja4, h.cfg().Nginx)
+	return v
+}
+
 // lookupJA4Verdict: extended matchJA4 that also returns the hit
 // source (= "preset:<id>" or "extra").  The bot-hunt tab's "already
 // registered" display needs the source info.

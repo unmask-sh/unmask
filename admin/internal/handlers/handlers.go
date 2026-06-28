@@ -534,9 +534,11 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Reason: mirror ServeChallenge's force-reason ladder so dashboards / API
 	// clients see the same axis label that the HTML response would carry.
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	// Verdict NAME is unmask-derived from the JA4 (display-only label; not read
+	// from the X-JA4-Verdict header) so the recorded name matches forward-auth.
+	verdict := h.resolvedVerdictName(ja4)
 	if action == "" && ja4 != "" {
 		if _, a := matchJA4(ja4, h.cfg().Nginx); a != "" {
 			action = a
@@ -631,7 +633,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 // (payload.deny=1) so the dashboard funnel still counts the block.
 func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site string) {
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 	// ref: support correlation id shown on the deny page + stored on the event,
 	// so a wrongly-blocked visitor's report resolves to this exact hit.
 	ref := newRef()
@@ -688,7 +690,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	site := siteFromRequest(r, h.snapshotSettings())
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 	// ref: support correlation id shown on the ban page + stored on the event.
 	ref := newRef()
 	// The URL the banned client hit is preserved in the path: nginx rewrites a
@@ -782,14 +784,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		h.serveObserveOnlyRedirect(w, r, site)
 		return
 	}
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	// Verdict NAME is unmask-derived from the JA4 (X-Client-JA4 = nginx's
+	// $effective_ja4), not read from the X-JA4-Verdict header: the name is a
+	// display-only label unmask owns, and deriving it keeps native + forward-auth
+	// identical (a clean JA4 -> "" -> rendered "ok" at display time).
+	verdict := h.resolvedVerdictName(ja4)
 	// Even without the X-JA4-Action header (nginx configs that don't pass it,
-	// such as GCP LB / legacy snippets), bot detection should work via
-	// X-JA4-Verdict alone — re-derive the action from settings.  Verdict
-	// labels are free-form strings, so prefix matching is unreliable (the
-	// Action enum of preset / extra rules is the source of truth).
+	// such as GCP LB / legacy snippets), bot detection should still work —
+	// re-derive the action from settings (the Action enum of preset / extra
+	// rules is the source of truth).
 	if action == "" && ja4 != "" {
 		if _, a := matchJA4(ja4, h.cfg().Nginx); a != "" {
 			action = a
@@ -1269,8 +1274,8 @@ func (h *Handler) serveObserveOnlyRedirect(w http.ResponseWriter, r *http.Reques
 			"would_be_action": "challenge",
 			"orig_path":       origPath,
 		}
-		verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
 		ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+		verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
@@ -1944,7 +1949,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	cookieBV := readCookieMax(r, "_bv", 1024) // wide enough for a full 16-entry "~"-list
 	cookieBR := readCookieMax(r, "_br", 8)
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 
 	// Save the payload too.  Decode raw JSON into a map (keep every field as-is).
 	var raw map[string]any

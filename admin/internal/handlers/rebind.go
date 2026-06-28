@@ -224,7 +224,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, claims.ASN, 0)
 		return false
 	}
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 	// Match the JA4 against the SET the _bvj accumulated.  A device legitimately
 	// presents several -- HTTP/2 over TCP and HTTP/3 over QUIC differ in every
 	// JA4 field -- and the _bvj remembers each transport it has solved under.  A
@@ -346,7 +346,7 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 	if !isLocalRedirect(origPath) {
 		origPath = ""
 	}
-	verdict := strings.TrimSpace(r.Header.Get("X-JA4-Verdict"))
+	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 	events.InsertAsync(h.DB, &events.Event{
 		Site:         site,
 		Host:         h.HostID,
