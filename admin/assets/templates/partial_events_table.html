@@ -88,7 +88,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}">
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -215,6 +215,7 @@ document.addEventListener('DOMContentLoaded', function(){
          + '.' + pad(d.getMilliseconds(), 3);
   }
   var PHASE_WEIGHT = {
+    'check':0,
     'serve':1, 'load':2, 'pow':3, 'captcha':4,
     'verify_ok':5, 'verify_ng':5,
     'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
@@ -230,6 +231,64 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
     return ms;
   }
+  // Forward-auth: fold the standalone auth_request 'check' row into the
+  // challenge session it triggered.  A 'check' has no beacon_token (it fires
+  // during the auth subrequest, BEFORE the challenge page -- and thus its
+  // token -- is minted), so it cannot join the bt-keyed group above and shows
+  // up as a separate row from its own serve.  But every challenge/block check
+  // is immediately followed (~10-80ms, fleet-observed) by a serve for the SAME
+  // ip+site, so pair each such check with the nearest later serve and splice
+  // it into that serve's group.  After the time-sort below the check becomes
+  // the group's oldest row, so the chain reads 'check > serve > load > bv_pow'
+  // on one line.  pass checks (the request was allowed) are terminal and stay
+  // their own rows; a check whose serve was paginated off / never happened
+  // finds no match and is left verbatim.  Native mode emits no check events,
+  // so this whole pass is a no-op there.
+  (function foldChecks(){
+    var serveRows = [];
+    Object.keys(groups).forEach(function(bt){
+      groups[bt].forEach(function(tr){
+        if (tr.getAttribute('data-phase') === 'serve') serveRows.push(tr);
+      });
+    });
+    if (!serveRows.length) return;
+    var checks = [];
+    rows.forEach(function(tr){
+      if (tr.getAttribute('data-phase') !== 'check') return;
+      var act = tr.getAttribute('data-act');
+      if (act !== 'challenge' && act !== 'block') return;
+      checks.push(tr);
+    });
+    if (!checks.length) return;
+    // Oldest-first so the earliest check claims the earliest matching serve.
+    checks.sort(function(a, b){ return rowKey(a) - rowKey(b); });
+    var WINDOW = 2000; // ms -- generous vs the observed ~10-80ms check->serve gap
+    checks.forEach(function(chk){
+      var cms = rowKey(chk),
+          cip   = chk.getAttribute('data-ip')   || '',
+          cja4  = chk.getAttribute('data-ja4')  || '',
+          csite = chk.getAttribute('data-site') || '';
+      var best = null, bestDt = Infinity;
+      for (var i = 0; i < serveRows.length; i++){
+        var sv = serveRows[i];
+        if (sv.__svConsumed) continue;
+        if ((sv.getAttribute('data-ip')   || '') !== cip)   continue;
+        if ((sv.getAttribute('data-site') || '') !== csite) continue;
+        // JA4 is a strong discriminator when both rows carry one; a config that
+        // doesn't trust the forwarded JA4 on the check leaves it blank, so only
+        // reject when both are present AND differ (= genuinely different request).
+        var sja4 = sv.getAttribute('data-ja4') || '';
+        if (cja4 && sja4 && cja4 !== sja4) continue;
+        var dt = rowKey(sv) - cms;
+        if (dt < 0 || dt > WINDOW) continue;
+        if (dt < bestDt){ bestDt = dt; best = sv; }
+      }
+      if (!best) return; // serve off-page / never happened -> leave the check verbatim
+      best.__svConsumed = true;
+      var bt = best.getAttribute('data-bt');
+      if (bt && groups[bt]) groups[bt].push(chk);
+    });
+  })();
   Object.keys(groups).forEach(function(bt){
     var grp = groups[bt];
     if (grp.length < 2) return;
@@ -252,8 +311,9 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     var rep = grp[grp.length - 1];
     grp.filter(function(tr){ return tr !== rep; }).forEach(function(tr){ tr.style.display='none'; });
-    // Date column: promote the oldest (= serve) row's <time> to rep.  The
-    // operator's mental model is 'when did this fire start', not 'finish'.
+    // Date column: promote the oldest row's <time> to rep (= the serve, or the
+    // folded forward-auth check that precedes it).  The operator's mental model
+    // is 'when did this fire start', not 'finish'.
     var oldest = grp[0];
     if (oldest !== rep){
       var oldestTime = oldest.querySelector('td.at time.js-datetime');
@@ -263,12 +323,17 @@ document.addEventListener('DOMContentLoaded', function(){
         repTime.textContent = oldestTime.textContent;
       }
       // The Ref ID (= the correlation id a blocked visitor quotes) is minted at
-      // serve, so only the oldest row carries data-ref; the rep row is the
-      // latest phase (= bv_pow / captcha) and has none.  Promote it alongside
-      // the time so the datetime popover on the collapsed row surfaces the ref
-      // the operator searched for, plus data-ts-ms for sub-second precision.
-      var oref = oldest.getAttribute('data-ref');
-      if (oref && !rep.getAttribute('data-ref')) rep.setAttribute('data-ref', oref);
+      // serve; the rep row is the latest phase (= bv_pow / captcha) and has
+      // none.  Promote it so the datetime popover on the collapsed row surfaces
+      // the ref the operator searched for.  Scan the group for the first row
+      // that carries one rather than assuming the oldest row does -- a folded
+      // forward-auth 'check' now precedes serve and has no ref of its own.
+      if (!rep.getAttribute('data-ref')){
+        for (var ri = 0; ri < grp.length; ri++){
+          var rv = grp[ri].getAttribute('data-ref');
+          if (rv){ rep.setAttribute('data-ref', rv); break; }
+        }
+      }
       var oms = oldest.getAttribute('data-ts-ms');
       if (oms) rep.setAttribute('data-ts-ms', oms);
     }
