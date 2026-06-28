@@ -139,6 +139,17 @@ location = /_unmask/_signed_verify {
     proxy_set_header X-Original-UA     $http_user_agent;
     proxy_set_header X-Original-Host   $host;
     proxy_set_header X-Original-Method $request_method;
+    # Verdict headers: feed the plugin-gated values (not client-supplied) and
+    # strip the conn-peer, so a client can't spoof / suppress the JA4 through this
+    # verify detour (same handling as unmask_daemon_proxy).
+    proxy_set_header X-Client-JA4       $effective_ja4;
+    proxy_set_header X-JA4-Verdict      $ja4_verdict;
+    proxy_set_header X-JA4-Action       $ja4_action;
+    proxy_set_header X-Honeypot-Hit     $serve_bot_challenge;
+    proxy_set_header X-Protected-Mode   $protected_mode;
+    proxy_set_header X-Banned           $unmask_banned;
+    proxy_set_header X-Unmask-Site      "";
+    proxy_set_header X-Unmask-Conn-Peer "";
     # Forward the signature headers so the admin-side Verifier can do the
     # actual RFC 9421 check.  Names are case-insensitive on the wire.
     proxy_set_header Signature         $http_signature;
@@ -195,6 +206,17 @@ location = /_unmask/_pat_verify {
     proxy_set_header X-Original-UA     $http_user_agent;
     proxy_set_header X-Original-Host   $host;
     proxy_set_header X-Original-Method $request_method;
+    # Verdict headers: feed the plugin-gated values (not client-supplied) and
+    # strip the conn-peer, so a client can't spoof / suppress the JA4 through this
+    # verify detour (same handling as unmask_daemon_proxy).
+    proxy_set_header X-Client-JA4       $effective_ja4;
+    proxy_set_header X-JA4-Verdict      $ja4_verdict;
+    proxy_set_header X-JA4-Action       $ja4_action;
+    proxy_set_header X-Honeypot-Hit     $serve_bot_challenge;
+    proxy_set_header X-Protected-Mode   $protected_mode;
+    proxy_set_header X-Banned           $unmask_banned;
+    proxy_set_header X-Unmask-Site      "";
+    proxy_set_header X-Unmask-Conn-Peer "";
     # Forward the PrivateToken so the admin verifies it; X-Original-Host binds
     # the origin the token must be scoped to (same host the challenge emitted).
     proxy_set_header Authorization     $http_authorization;

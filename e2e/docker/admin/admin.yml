@@ -22,11 +22,12 @@ challenge:
   # Scenarios 12 / 13 (direct admin curl), 14 (apache mod_lua) and 42 (fa-nginx)
   # reach the daemon with a forwarded X-Client-JA4.  The daemon honors it only
   # when the connection peer is a trusted LB; the single source of truth for that
-  # is nginx.trusted_lb_extra below (= [0.0.0.0/0] here so any docker-private peer
-  # counts as a trusted LB -- e2e only; in production this is the real LB's CIDR,
-  # not the whole address space).  apache (14) / fa-nginx (42) additionally report
-  # the real connecting peer in X-Unmask-Conn-Peer, which the daemon gates the
-  # same way.
+  # is nginx.trusted_lb_extra below (= RFC1918 here so every docker-private peer
+  # counts as a trusted LB, while a public conn-peer does not -- e2e only; in
+  # production this is the real LB's CIDR).  apache (14) / fa-nginx (42)
+  # additionally report the real connecting peer in X-Unmask-Conn-Peer, which the
+  # daemon gates the same way -- scenario 43 isolates that drop with a spoofed
+  # (public) conn-peer.
 
 # Scenario 09 sends 120 requests sequentially.  Production default is 100 r/min
 # + burst 50 = 150 allowed, which doesn't trip in 120.  Drop the rate to make
@@ -95,7 +96,7 @@ nginx:
   # The suite curls admin:9477 directly with X-Unmask-Site set, so opt into
   # trusting it (default-off since a client could otherwise spoof it through the
   # default proxy_pass_request_headers).  The forwarded X-Client-JA4 has no
-  # toggle -- it is trusted via trusted_lb_extra below (0.0.0.0/0 = any peer).
+  # toggle -- it is trusted via trusted_lb_extra below (RFC1918 = docker peers).
   trust_forwarded_site: true
   admin_allowed_ips:
     - 0.0.0.0/0
@@ -123,16 +124,23 @@ nginx:
   # Scenario 12 (= max-severity composition) needs both axes wired:
   #   - geo: JP rule action=pow_only / CN rule action=deny
   #   - ja4: a known fingerprint classified as bot
-  #   - trusted_lb_extra: accept X-Client-JA4 from any peer (the host curl in
-  #     scenario 12 hits the docker-mapped 19477 → docker bridge IP inside
-  #     the container, which isn't 127.0.0.1; without this rule the JA4 axis
-  #     stays silent and the ja4_bot vote disappears)
+  #   - trusted_lb_extra: accept X-Client-JA4 from the docker-private peer (the
+  #     host curl in scenario 12 hits the docker-mapped 19477 → docker bridge IP
+  #     inside the container, which isn't 127.0.0.1; without this rule the JA4
+  #     axis stays silent and the ja4_bot vote disappears)
+  # RFC1918 private space, NOT 0.0.0.0/0: every docker connection peer the daemon
+  # sees (the bridge gateway 172.18.0.1 for host->published curls; the apache /
+  # fa-nginx container IPs at 172.18.0.x) is inside 172.16/12, so it counts as a
+  # trusted LB -- while a public conn-peer (203.0.113.x = RFC 5737 TEST-NET-3,
+  # used in scenario 43) is NOT, so the daemon drops a JA4 forwarded with a
+  # spoofed conn-peer.  In production this is the real LB's CIDR.
   trusted_lb_extra:
     - id: e2e
-      label: "e2e (host curl trust)"
+      label: "e2e (docker-private LB trust)"
       cidrs:
-        - 0.0.0.0/0
-        - ::/0
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
   # Advanced features master switch.  WebBotAuthActive() / PrivacyPassActive()
   # both AND-gate on this, so the signed-route maps in http.inc (and the
   # $unmask_signed_gate / $final_challenge_eff vars the /__vars debug endpoint

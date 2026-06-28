@@ -282,6 +282,7 @@ func cmdDoctor(args []string) error {
 	// curls and reports p50 / p95 / max latency.
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIPReminder(s, addWarn)
+	checkApacheConnPeer(addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
@@ -320,6 +321,68 @@ func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 func checkRealIPReminder(s settings.Settings, addWarn func(t, m string)) {
 	if len(s.Nginx.TrustedLBPresets) > 0 || len(s.Nginx.TrustedLBExtra) > 0 {
 		addWarn("real client IP (LB)", "a trusted LB is configured; confirm nginx has set_real_ip_from + real_ip_header for it, otherwise every visitor resolves to the LB's IP and challenge / ban / rate-limit hit all clients at once.")
+	}
+}
+
+// checkApacheConnPeer warns when Apache forward-auth is wired but the per-vhost
+// conn-peer RewriteRule is missing.  In forward-auth mode the daemon honors a
+// forwarded X-Client-JA4 only when it can confirm the request entered through a
+// trusted LB.  nginx edge-gates that in the web server (forward-auth-lbtrust.conf)
+// and strips the header; Apache has no geo/map, so apache-unmask.lua reports the
+// real TCP peer in X-Unmask-Conn-Peer, populated by a per-vhost
+//
+//	RewriteRule .* - [E=UNMASK_CONN_PEER:%{CONN_REMOTE_ADDR}]
+//
+// (mod_remoteip does NOT rewrite CONN_REMOTE_ADDR, and the rule does not inherit
+// into vhosts, so it must be repeated per protected vhost).  Without it the
+// header is empty, the daemon's conn-peer gate is skipped, and the JA4 falls
+// back to the proxy-peer check alone (= loopback Apache) -- so a client reaching
+// Apache directly could forge X-Client-JA4.  doctor can't parse vhost blocks, so
+// this is a best-effort line scan of the httpd config tree (comment lines
+// ignored, to skip the shipped snippet's commented example): an active
+// LuaHookAccessChecker for unmask + no UNMASK_CONN_PEER => WARN.
+func checkApacheConnPeer(addWarn func(t, m string)) {
+	roots := []string{
+		"/etc/httpd",   // RHEL / Rocky / Alma
+		"/etc/apache2", // Debian / Ubuntu / Alpine
+	}
+	var hasLuaHook, hasConnPeer, scanned bool
+	for _, root := range roots {
+		if st, err := os.Stat(root); err != nil || !st.IsDir() {
+			continue
+		}
+		_ = filepath.WalkDir(root, func(path string, d iofs.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil // best-effort: skip unreadable subtrees
+			}
+			if strings.ToLower(filepath.Ext(path)) != ".conf" {
+				return nil // config files only (skip logs / binaries)
+			}
+			b, rerr := os.ReadFile(path)
+			if rerr != nil {
+				return nil
+			}
+			scanned = true
+			for _, line := range strings.Split(string(b), "\n") {
+				t := strings.TrimSpace(line)
+				if t == "" || strings.HasPrefix(t, "#") {
+					continue // ignore comments (the shipped snippet ships a commented example)
+				}
+				if strings.Contains(t, "LuaHookAccessChecker") && strings.Contains(t, "unmask") {
+					hasLuaHook = true
+				}
+				if strings.Contains(t, "UNMASK_CONN_PEER") {
+					hasConnPeer = true
+				}
+			}
+			return nil
+		})
+	}
+	if !scanned || !hasLuaHook {
+		return // no Apache forward-auth detected (or no read access) -> silent
+	}
+	if !hasConnPeer {
+		addWarn("apache JA4 gate", "Apache forward-auth is active (LuaHookAccessChecker) but no conn-peer RewriteRule (E=UNMASK_CONN_PEER:%{CONN_REMOTE_ADDR}) was found in the httpd config; without it X-Unmask-Conn-Peer is empty and the daemon can't confirm a forwarded X-Client-JA4 arrived via a trusted LB, so a client reaching Apache directly could forge one. Add `RewriteEngine On` + the RewriteRule to each protected <VirtualHost> (see snippets/apache-forward-auth.conf).")
 	}
 }
 

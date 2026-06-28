@@ -5,9 +5,9 @@
 # the daemon): it proves an LB-forwarded X-Client-JA4 is captured END-TO-END
 # through a STOCK nginx (no plugin) -> auth_request /_unmask/check -> daemon.
 #
-# Setup (admin.yml): trusted_lb_extra=[0.0.0.0/0] so the rendered gate adopts the
+# Setup (admin.yml): trusted_lb_extra=RFC1918 so the rendered gate adopts the
 # test client's forwarded JA4 (the gate keys on $realip_remote_addr = the docker
-# peer); ja4_verdicts.extra has t13e2e0bot01_xxx_yyy -> action=bot; the global
+# peer, 172.18.0.x); ja4_verdicts.extra has t13e2e0bot01_xxx_yyy -> action=bot; the global
 # no-match fallback is "pass".  So the ONLY thing that flips pass->challenge is
 # the JA4 -- the difference proves the gate captured + forwarded it.
 #

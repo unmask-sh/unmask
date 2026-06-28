@@ -64,7 +64,11 @@ if [ -d /etc/nginx/http.d ] \
 fi
 mkdir -p "$NGINX_INCDIR"
 UPSTREAM_LINK=$NGINX_INCDIR/00-unmask-upstream.conf
-if [ ! -L "$UPSTREAM_LINK" ] && [ ! -e "$UPSTREAM_LINK" ]; then
+# (Re)point our symlink at the current source -- this also migrates an older
+# install whose link still points at /etc/unmask/upstream.conf to the
+# /var/lib/unmask/nginx location.  Created if absent; a real file an operator
+# dropped in (not a symlink) is left untouched.
+if [ -L "$UPSTREAM_LINK" ] || [ ! -e "$UPSTREAM_LINK" ]; then
     ln -sf "$UPSTREAM_SRC" "$UPSTREAM_LINK"
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
 fi
@@ -86,7 +90,7 @@ map $unmask_fa_lb_vendor $unmask_fa_ja4 { default ""; }
 FAGATE
 fi
 FA_GATE_LINK=$NGINX_INCDIR/00-unmask-fa-lbtrust.conf
-if [ ! -L "$FA_GATE_LINK" ] && [ ! -e "$FA_GATE_LINK" ]; then
+if [ -L "$FA_GATE_LINK" ] || [ ! -e "$FA_GATE_LINK" ]; then
     ln -sf "$FA_GATE_SRC" "$FA_GATE_LINK"
     echo "unmask-web-nginx: symlinked $FA_GATE_LINK -> $FA_GATE_SRC"
 fi

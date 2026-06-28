@@ -85,10 +85,11 @@ assert_eq "200" "$code" "skip: /unmask/healthz proxied to admin → 200" || fail
 # --- JA4 capture (forward-auth behind a front LB) ---
 # apache-unmask.lua forwards X-Client-JA4 plus the real connecting peer
 # (X-Unmask-Conn-Peer = %{CONN_REMOTE_ADDR}); the daemon honors the JA4 only when
-# that peer is a trusted LB.  Here the docker peer is covered by
-# trusted_lb_extra=[0.0.0.0/0], so a forwarded BOT JA4 challenges while the same
+# that peer is a trusted LB.  Here the docker peer (172.18.0.x) is covered by
+# trusted_lb_extra=RFC1918, so a forwarded BOT JA4 challenges while the same
 # request WITHOUT a JA4 passes -- the difference proves the JA4 was captured
 # end-to-end through Apache (this is the Apache answer to "can an LB forward JA4").
+# Scenario 43 isolates the inverse: a spoofed PUBLIC conn-peer -> JA4 dropped.
 JA4_BOT="t13e2e0bot01_xxx_yyy"   # admin.yml ja4_verdicts.extra -> action=bot
 code=$(curl -s -o /dev/null -w '%{http_code}' \
     -A "$UA_BROWSER" -H 'X-Forwarded-For: 203.0.113.20' "${APACHE_URL}/")
