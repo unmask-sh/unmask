@@ -88,11 +88,17 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}">
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* Empty verdict renders as "ok" (no JA4 rule matched -- a benign
+           result, same label the native nginx $ja4_verdict map's `default "ok"`
+           produces).  forward-auth records the verdict only on the check event,
+           so serve / beacon rows are empty; the session-collapse below promotes
+           the group's real verdict onto the rep row so a bot session still shows
+           its verdict rather than this "ok" fallback. */}}
+      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
       <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -332,6 +338,22 @@ document.addEventListener('DOMContentLoaded', function(){
         for (var ri = 0; ri < grp.length; ri++){
           var rv = grp[ri].getAttribute('data-ref');
           if (rv){ rep.setAttribute('data-ref', rv); break; }
+        }
+      }
+      // The JA4 verdict is decided at check / serve; the rep row is the latest
+      // phase (= bv / load) and in forward-auth mode carries none (the verdict
+      // rides only on the check event there).  Promote the first non-empty
+      // verdict in the group onto the rep's cell so a folded bot session shows
+      // its verdict instead of the empty-cell "ok" fallback.
+      if (!(rep.getAttribute('data-verdict') || '')){
+        for (var vi = 0; vi < grp.length; vi++){
+          var vv = grp[vi].getAttribute('data-verdict');
+          if (vv){
+            var vcell = rep.querySelector('td.verdict-cell');
+            if (vcell){ vcell.textContent = vv; vcell.classList.add('cellpop'); }
+            rep.setAttribute('data-verdict', vv);
+            break;
+          }
         }
       }
       var oms = oldest.getAttribute('data-ts-ms');
