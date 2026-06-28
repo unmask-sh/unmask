@@ -29,12 +29,18 @@
 # /_unmask/check keep auth_request off; to break the verify loop.
 # When protect.inc is restricted to specific locations, the off is a harmless no-op.
 #
-# The variables referenced in native mode (= when ngx_http_unmask_module is
-# used) — $effective_ja4 / $ja4_verdict / $ja4_action / $serve_bot_challenge
-# / $protected_mode / $unmask_banned — are satisfied by including
-# /etc/unmask/native/http.inc in http {}.  In forward-auth mode, nginx treats
-# unresolved variables as empty and falls through (= nginx v1.6+ treats
-# undefined variables as empty strings, so it does not error out).
+# X-Client-JA4 is forwarded as $unmask_fa_ja4 — the LB-gated client JA4 defined
+# by /var/lib/unmask/nginx/forward-auth-lbtrust.conf (rendered by `unmask
+# render-nginx`; the unmask-web-nginx package symlinks it into conf.d/ so it
+# loads in http {}).  That file ALWAYS defines $unmask_fa_ja4 (= "" when no
+# trusted LB is configured), so this snippet parses with or without an LB.  The
+# other verdict headers (X-JA4-Verdict / X-JA4-Action / X-Honeypot-Hit /
+# X-Protected-Mode / X-Banned / X-Unmask-Site / X-Unmask-Conn-Peer) are blanked
+# here and computed by the daemon; in hybrid setups that also load native
+# http.inc you may instead wire the JA4 ones to the plugin maps ($effective_ja4
+# / $ja4_verdict / ...).  X-Unmask-Conn-Peer is the Apache forward-auth LB-gate
+# input; nginx gates the JA4 at the edge instead, so it is stripped here so a
+# client can never inject it.
 
 # /unmask/admin/  — admin UI / dashboard.  The allow list is rendered from
 #                   config.yml's admin_allow_from; here we default to
@@ -51,14 +57,14 @@ location ^~ /unmask/admin/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    # Verdict-header strip: a visitor could otherwise send X-Client-JA4 /
-    # X-JA4-Verdict / X-Unmask-Site etc. itself and have the daemon record a
-    # forged verdict / honeypot hit / site identity (audit integrity; the
-    # native-mode rendered server.inc strips the same set).  Empty value =
-    # nginx removes the header.  HYBRID mode (= native http.inc also loaded on
-    # this vhost): replace the JA4 empties with the plugin maps —
-    # $effective_ja4 / $ja4_verdict / $ja4_action.
-    proxy_set_header  X-Client-JA4     "";
+    # Verdict-header strip: a visitor could otherwise send X-JA4-Verdict /
+    # X-Unmask-Site etc. itself and have the daemon record a forged verdict /
+    # honeypot hit / site identity (audit integrity).  These are blanked and
+    # computed by the daemon.  X-Client-JA4 is the exception: it carries the
+    # LB-gated $unmask_fa_ja4 (the daemon's JA4 input; "" off-LB), see the file
+    # header.
+    proxy_set_header  X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header  X-Unmask-Conn-Peer "";
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
@@ -87,11 +93,10 @@ location ^~ /unmask/challenge/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
-    # the empties with the native http.inc maps ($effective_ja4 /
-    # $ja4_verdict / $ja4_action / $serve_bot_challenge / $protected_mode /
-    # $unmask_banned).
-    proxy_set_header  X-Client-JA4     "";
+    # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
+    # LB-gated $unmask_fa_ja4; the rest are blanked (daemon-computed).
+    proxy_set_header  X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header  X-Unmask-Conn-Peer "";
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
@@ -116,9 +121,10 @@ location ^~ /unmask/api/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
-    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
-    # the JA4 empties with $effective_ja4 / $ja4_verdict / $ja4_action.
-    proxy_set_header  X-Client-JA4     "";
+    # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
+    # LB-gated $unmask_fa_ja4; the rest are blanked (daemon-computed).
+    proxy_set_header  X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header  X-Unmask-Conn-Peer "";
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
@@ -144,9 +150,10 @@ location ^~ /unmask/_rl/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
-    # the empties with the native http.inc maps.
-    proxy_set_header  X-Client-JA4     "";
+    # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
+    # LB-gated $unmask_fa_ja4; the rest are blanked (daemon-computed).
+    proxy_set_header  X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header  X-Unmask-Conn-Peer "";
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
@@ -195,9 +202,10 @@ location ^~ /unmask/test/ {
     proxy_pass        http://unmask_admin;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
-    # Verdict-header strip (see /unmask/admin/ above).  HYBRID mode: replace
-    # the JA4 empties with $effective_ja4 / $ja4_verdict / $ja4_action.
-    proxy_set_header  X-Client-JA4     "";
+    # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
+    # LB-gated $unmask_fa_ja4; the rest are blanked (daemon-computed).
+    proxy_set_header  X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header  X-Unmask-Conn-Peer "";
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
@@ -225,9 +233,10 @@ location = /_unmask/check {
     proxy_set_header X-Original-Host  $host;
     proxy_set_header Cookie           $http_cookie;
     # Verdict-header strip: the subrequest inherits the client's headers, so
-    # blank the spoofable verdict set (see /unmask/admin/ above).  HYBRID
-    # mode: set X-Client-JA4 to $effective_ja4 instead.
-    proxy_set_header X-Client-JA4     "";
+    # blank the spoofable verdict set (see /unmask/admin/ above).  X-Client-JA4
+    # carries the LB-gated $unmask_fa_ja4 = the daemon's JA4 input.
+    proxy_set_header X-Client-JA4     $unmask_fa_ja4;
+    proxy_set_header X-Unmask-Conn-Peer "";
     proxy_set_header X-JA4-Verdict    "";
     proxy_set_header X-JA4-Action     "";
     proxy_set_header X-Honeypot-Hit   "";
@@ -270,18 +279,27 @@ location @unmask_fail_open {
     return 204;
 }
 
-# fail-open hook when the admin daemon is down.  Default is 503 + Retry-After
-# (= the LB notices via health check).  To switch to full fail-open that
-# passes through to the backend, define the same-named location in the
-# user's server block BEFORE the `include` of this file — nginx keeps the
-# FIRST definition of a named location, so one placed after the include is
-# silently ignored.  Example (above the include line):
-#   location @unmask_admin_down {
-#       proxy_pass http://backend;
-#       proxy_set_header Host $host;
-#   }
+# Daemon-down fallback for the /unmask/* serving paths.  Protected user paths
+# already FAIL OPEN by default (auth_request -> @unmask_fail_open -> backend);
+# this only catches a visitor who is mid-challenge (on /unmask/challenge/) at
+# the instant the daemon dies.  DEFAULT: fail open too — 302 the visitor to "/",
+# which re-enters the site and passes through to the backend via the
+# auth_request fail-open.  This mirrors native mode (= @unmask_daemon_down
+# replays the original request), so forward-auth is fully fail-open by default.
+# (We redirect to "/" rather than the original URL on purpose: deriving the
+# target from a request arg would open a redirect-injection hole, and native's
+# internal replay can't be reproduced from a static include.)
+#
+# To fail CLOSED instead (= 503 so an upstream LB drains this node via its
+# health check, OR pass the original request to your own backend), define the
+# same-named location BEFORE the `include` of this file — nginx keeps the FIRST
+# definition of a named location, so one placed after the include is silently
+# ignored.  Examples (above the include line):
+#   # (a) fail closed so the LB drains this node:
+#   location @unmask_admin_down { add_header Retry-After "10" always; return 503; }
+#   # (b) pass the original request straight to your backend:
+#   location @unmask_admin_down { proxy_pass http://backend; proxy_set_header Host $host; }
 #   include /etc/unmask/forward-auth/server.inc;
 location @unmask_admin_down {
-    add_header Retry-After "10" always;
-    return 503 "unmask admin temporarily unavailable\n";
+    return 302 /;
 }

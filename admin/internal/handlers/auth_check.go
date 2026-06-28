@@ -906,15 +906,6 @@ func forwardAuthTrustedPeers(cfg settings.Settings) []string {
 // proxy snippet overwriting any client-supplied X-Client-JA4 before it
 // forwards the request.
 func resolveForwardedJA4(r *http.Request, cfg settings.Settings) string {
-	// Like X-Unmask-Site, a client-supplied X-Client-JA4 is forwarded verbatim
-	// by nginx's default proxy_pass_request_headers, and a trusted (loopback)
-	// peer does not make the VALUE trustworthy -- a client could spoof a benign
-	// JA4 to evade ja4:bot detection (or rotate it to escape JA4-keyed rate
-	// limiting).  Require an explicit opt-in (operator promises the proxy sets
-	// the JA4 from a real front layer); default forward-auth carries no JA4.
-	if !cfg.Nginx.TrustForwardedJA4 {
-		return ""
-	}
 	ja4 := firstNonEmpty(
 		r.Header.Get("X-Client-JA4"),
 		r.Header.Get("X-Original-JA4"),
@@ -922,8 +913,29 @@ func resolveForwardedJA4(r *http.Request, cfg settings.Settings) string {
 	if ja4 == "" {
 		return ""
 	}
+	// First gate: the header must reach us THROUGH a trusted proxy.  In nginx
+	// forward-auth the value is also edge-gated (forward-auth-lbtrust.conf sets
+	// X-Client-JA4 to the real client JA4 only for a trusted-LB source, else ""),
+	// so a direct visitor's spoof is already "" by here; this peer check stops a
+	// client that reaches the admin port directly.  The peer is the proxy
+	// (loopback for the local nginx/apache, or a trusted-LB CIDR when an LB
+	// talks to the admin directly).
 	if !peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) {
 		return ""
+	}
+	// Second gate (Apache forward-auth): Apache can't gate the value in the web
+	// server (no geo / map), so apache-unmask.lua reports the real connecting
+	// peer in X-Unmask-Conn-Peer (= mod_rewrite %{CONN_REMOTE_ADDR}, which
+	// mod_remoteip does NOT rewrite).  Honor the JA4 only when that peer is a
+	// configured trusted LB -- so a client reaching Apache directly (conn-peer =
+	// the client itself) has its forged JA4 dropped here.  nginx edge-gates
+	// instead and strips this header, so the check is a no-op there.  An empty
+	// trusted-LB list makes IsTrustedLBIP false, so a stray conn-peer can never
+	// smuggle a JA4 in.
+	if connPeer := strings.TrimSpace(r.Header.Get("X-Unmask-Conn-Peer")); connPeer != "" {
+		if trusted, _ := nginxconf.IsTrustedLBIP(connPeer, cfg.Nginx); !trusted {
+			return ""
+		}
 	}
 	// Shape-validate before the value reaches matchJA4 / the event record.
 	return safeJA4(ja4)
@@ -953,14 +965,14 @@ func peerIsTrustedProxy(remoteAddr string, cidrs []string) bool {
 }
 
 // detectLBHeaderWarning flags an LB-forwarded header that the admin's trust
-// config rejects.  Two shapes:
-//   - the header is sent but TrustForwarded* is OFF (= operator wired the proxy
-//     to forward JA4 / site but never opted in on the admin side, so the value
-//     is silently dropped and bot detection runs on the proxy<->admin JA4
-//     instead of the real client's).
-//   - the header is sent from a peer outside forwardAuthTrustedPeers (= either
-//     a misconfigured proxy chain, or a direct visitor trying to spoof the
-//     header).
+// config rejects, so the value was silently dropped.  Cases:
+//   - X-Client-JA4 from a peer outside forwardAuthTrustedPeers (loopback +
+//     trusted-LB CIDRs) = a misconfigured proxy chain or a direct visitor
+//     trying to spoof the header.  (The value-trust itself is gated in nginx by
+//     forward-auth-lbtrust.conf, so there is no admin-side JA4 toggle.)
+//   - X-Unmask-Site sent but TrustForwardedSite is OFF, or from an untrusted
+//     peer (= operator wired the proxy to forward the site but never opted in,
+//     or a spoof attempt).
 //
 // Returns the reason string (suitable for payload.lb_warning) or "" when no
 // warning applies.  Cheap: a couple of header reads + a CIDR scan.
@@ -975,12 +987,8 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 		peerOK = peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg))
 	}
 	var reasons []string
-	if hasJA4 {
-		if !cfg.Nginx.TrustForwardedJA4 {
-			reasons = append(reasons, "X-Client-JA4 sent but trust_forwarded_ja4 is OFF")
-		} else if !peerOK {
-			reasons = append(reasons, "X-Client-JA4 from untrusted peer")
-		}
+	if hasJA4 && !peerOK {
+		reasons = append(reasons, "X-Client-JA4 from untrusted peer")
 	}
 	if hasSite {
 		if !cfg.Nginx.TrustForwardedSite {

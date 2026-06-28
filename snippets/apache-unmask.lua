@@ -54,13 +54,18 @@ function handle_request(r)
             ["Cookie"]          = r.headers_in["Cookie"] or "",
             -- Client JA4 (forward-auth mode). Apache cannot read the TLS
             -- handshake, so this carries a value only when a JA4-aware layer
-            -- in front of Apache already set the X-Client-JA4 request header.
-            -- ANTI-SPOOF: r.headers_in returns whatever the client sent, so a
-            -- directly-reachable Apache lets a client forge this. Neutralize
-            -- it in apache-forward-auth.conf unless a trusted front layer
-            -- guarantees it. unmask also honors it only with
-            -- challenge.ja4_source=header from a trusted peer.
+            -- (LB / CDN) in front of Apache set the X-Client-JA4 request header.
+            -- ANTI-SPOOF: r.headers_in is whatever the client sent, so a
+            -- directly-reachable Apache would let a client forge this -- but the
+            -- daemon honors the JA4 ONLY when X-Unmask-Conn-Peer (below) is a
+            -- trusted LB, so a forged JA4 from a non-LB peer is dropped
+            -- server-side (the same trusted_lb list the nginx gate uses).
             ["X-Client-JA4"]    = r.headers_in["X-Client-JA4"] or "",
+            -- Real connecting peer = the LB / CDN when Apache sits behind one,
+            -- exposed by apache-forward-auth.conf's RewriteRule from
+            -- %{CONN_REMOTE_ADDR} (mod_remoteip does NOT rewrite it). The daemon
+            -- gates the forwarded JA4 on this being a trusted LB.
+            ["X-Unmask-Conn-Peer"] = r.subprocess_env["UNMASK_CONN_PEER"] or "",
         },
         -- The verdict is carried by the status code + headers; the response
         -- body is not needed, so it is discarded.

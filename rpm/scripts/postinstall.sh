@@ -3,7 +3,7 @@
 #   - Fix permissions on /etc/unmask/ (= so the unmask user can write from the web)
 #   - Generate /etc/unmask/config.yml via `unmask config-init`
 #   - Apply the schema
-#   - Generate /etc/unmask/{http.inc,server.inc,protect.inc} (= render-nginx)
+#   - Generate the nginx snippets in /var/lib/unmask/nginx/ (= render-nginx)
 #   - systemd reload + enable
 #
 # Note: do NOT `set -eu` here.  This postinstall has no abort requirement

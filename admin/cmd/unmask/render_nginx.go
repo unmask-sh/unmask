@@ -1,7 +1,9 @@
-// render-nginx: generate the native-mode snippets (http.inc,
-// server.inc, protect.inc) from config.yml + embedded preset.
-// The unmask upstream block lives at the tail of http.inc
-// (= the legacy /etc/unmask/upstream.conf was retired).
+// render-nginx: generate the nginx config snippets from config.yml + embedded
+// preset.  Native mode: http.inc (with its own `upstream unmask` at the tail),
+// server.inc, protect.inc.  Forward-auth mode: forward-auth-lbtrust.conf (the
+// LB-trust JA4 gate) and upstream.conf (`upstream unmask_admin`) -- the latter,
+// once hand-written by the postinstall to /etc/unmask, now renders to output_dir
+// so it tracks server.bind / port.
 // Per-host gating of the admin UI is done at the HTTP layer via
 // settings.Nginx.AdminAllowedHosts; nginx unconditionally proxies /unmask/*
 // for every Host that includes server.inc.
@@ -9,7 +11,7 @@
 // Usage:
 //
 //	unmask render-nginx                       # write to config.yml output_dir
-//	unmask render-nginx -out-dir /etc/unmask  # explicit dir
+//	unmask render-nginx -out-dir /var/lib/unmask/nginx  # explicit dir
 //	unmask render-nginx -dry-run              # print to stdout only
 //
 // Apply with a separate `nginx -s reload` (= unmask does not touch nginx itself).

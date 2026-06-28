@@ -314,10 +314,9 @@ func TestResolveForwardedJA4(t *testing.T) {
 			r.Header.Set("X-Original-JA4", originalJA4)
 		}
 		// Extra peer CIDRs ride along via the native-mode LB-trust extra
-		// list -- the same knob operators configure for LB header trust.
-		// TrustForwardedJA4 is on so these cases exercise the peer logic; the
-		// default-deny (flag off) is covered separately below.
-		cfg := settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra, TrustForwardedJA4: true}}
+		// list -- the same shared knob that gates both native and forward-auth
+		// JA4 trust (no separate toggle).  loopback is always in the trusted set.
+		cfg := settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra}}
 		return r, cfg
 	}
 	extraCIDR := func(cidr string) []settings.TrustedLBExtra {
@@ -353,18 +352,43 @@ func TestResolveForwardedJA4(t *testing.T) {
 		})
 	}
 
-	// Default-deny (the round-4 spoof fix): without TrustForwardedJA4, a
-	// client-supplied X-Client-JA4 is dropped even from a loopback peer, so a
-	// client can't inject a benign JA4 to evade ja4:bot.
-	t.Run("flag off -> dropped even from loopback", func(t *testing.T) {
+	// Spoof defense (the round-4 fix) moved into nginx: forward-auth-lbtrust.conf
+	// overwrites a direct visitor's X-Client-JA4 with "" before the subrequest,
+	// so the daemon never sees a non-LB JA4.  At the daemon the gate is the peer
+	// check -- a header arriving from a peer outside the trusted set is dropped
+	// (the "public peer with no LB trust -> dropped" case above), while a value
+	// relayed by the local nginx (loopback, in the trusted set by default) is
+	// honored because nginx already gated it.
+}
+
+// TestResolveForwardedJA4ConnPeerGate covers the Apache forward-auth path: the
+// JA4 is honored only when X-Unmask-Conn-Peer (the real connecting peer the lua
+// reports) is a trusted LB.  The immediate peer is loopback (the apache->admin
+// call), which clears the first gate; the conn-peer is the second gate.
+func TestResolveForwardedJA4ConnPeerGate(t *testing.T) {
+	const goodJA4 = "t13d1516h2_e2etestfp01"
+	lbExtra := []settings.TrustedLBExtra{{ID: "lb", CIDRs: []string{"203.0.113.0/24"}, Header: "$http_x_client_ja4"}}
+	run := func(extra []settings.TrustedLBExtra, connPeer string) string {
 		r := httptest.NewRequest(http.MethodGet, "/unmask/api/check", nil)
-		r.RemoteAddr = "127.0.0.1:5"
+		r.RemoteAddr = "127.0.0.1:5" // loopback = the apache->admin call, clears the peer gate
 		r.Header.Set("X-Client-JA4", goodJA4)
-		cfg := settings.Settings{} // TrustForwardedJA4 defaults false
-		if got := resolveForwardedJA4(r, cfg); got != "" {
-			t.Errorf("expected drop without TrustForwardedJA4, got %q", got)
+		if connPeer != "" {
+			r.Header.Set("X-Unmask-Conn-Peer", connPeer)
 		}
-	})
+		return resolveForwardedJA4(r, settings.Settings{Nginx: settings.Nginx{TrustedLBExtra: extra}})
+	}
+	if got := run(lbExtra, "203.0.113.7"); got != goodJA4 {
+		t.Errorf("conn-peer in trusted LB: expected %q, got %q", goodJA4, got)
+	}
+	if got := run(lbExtra, "198.51.100.9"); got != "" {
+		t.Errorf("conn-peer outside trusted LB: expected drop, got %q", got)
+	}
+	if got := run(nil, "203.0.113.7"); got != "" {
+		t.Errorf("conn-peer with empty trusted-LB list: expected drop, got %q", got)
+	}
+	if got := run(nil, ""); got != goodJA4 {
+		t.Errorf("no conn-peer (nginx path): expected %q, got %q", goodJA4, got)
+	}
 }
 
 // TestIsSearchBotUA locks the search/AI-crawler detection that the forward-auth

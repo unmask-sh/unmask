@@ -56,12 +56,13 @@ RUN sed -i 's#127\.0\.0\.1:9477#admin:9477#g' \
         /etc/apache2/conf-available/unmask.conf \
     && a2enconf unmask
 
-# Enable unmask on this VirtualHost (= opt-in per VirtualHost — same single
-# line the install page tells operators to drop into their <VirtualHost>).
-# The snippet's LuaHookAccessChecker is commented out by default so installing
-# the package does not silently auto-protect every VirtualHost; e2e exercises
-# the documented opt-in step exactly as production operators would.
-RUN sed -i 's|<VirtualHost \*:8081>|<VirtualHost *:8081>\n    LuaHookAccessChecker /etc/apache2/unmask.lua handle_request|' \
+# Enable unmask on this VirtualHost (= opt-in per VirtualHost — the same block
+# the snippet tells operators to paste into their <VirtualHost>): the JA4-gate
+# RewriteRule (exposes the real connecting peer to the lua via UNMASK_CONN_PEER;
+# mod_rewrite rules do not inherit into vhosts, so it must live here) plus the
+# LuaHookAccessChecker.  e2e exercises the documented opt-in exactly as a
+# production operator would.
+RUN sed -i 's|<VirtualHost \*:8081>|<VirtualHost *:8081>\n    RewriteEngine On\n    RewriteRule .* - [E=UNMASK_CONN_PEER:%{CONN_REMOTE_ADDR}]\n    LuaHookAccessChecker /etc/apache2/unmask.lua handle_request|' \
         /etc/apache2/sites-available/000-default.conf
 
 EXPOSE 8081

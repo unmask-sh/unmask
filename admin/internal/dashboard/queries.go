@@ -1107,7 +1107,7 @@ func buildVerdictRows(by map[string]VerdictCount) []VerdictCount {
 // CookieStatusRow: 4-way breakdown of cookie presence across all nginx requests.
 //
 // Data source: unmask_cookie_minute table (= aggregated from nginx access_log
-// over a unix socket). If /etc/unmask/nginx-rendered.conf is not included in
+// over a unix socket). If /var/lib/unmask/nginx/http.inc is not included in
 // http {}, everything returns 0 (= the access_log directive never fires).
 //
 //	total          : all nginx-received requests
@@ -2741,7 +2741,7 @@ func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []st
 // not_pass.
 //
 // Data source: nginx access_log syslog datagram → memory bucket → DB UPSERT.
-// In environments where nginx-rendered.conf is not included in http {}, the
+// In environments where http.inc is not included in http {}, the
 // table stays empty (= returns all zeros).
 //
 // Day boundaries are UTC (= SQLite DATE(...,unixepoch) without 'localtime' /

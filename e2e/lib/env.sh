@@ -9,6 +9,11 @@
 # cannot read TLS handshakes, so there is no JA4 and no need for TLS here.
 : "${APACHE_URL:=http://localhost:8081}"
 
+# Stock-nginx forward-auth container (= scenario 42).  Plain HTTP: the JA4
+# arrives as the X-Client-JA4 request header (simulating a front LB), no TLS
+# needed.
+: "${FA_NGINX_URL:=http://localhost:8082}"
+
 # Known UA strings
 UA_BROWSER='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 UA_CURL='curl/8.0'

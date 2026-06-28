@@ -48,7 +48,7 @@ var templatesFS embed.FS
 //   - <outDir>/protect.inc   location/server scope: protection trigger
 //     (= the unmask upstream block now lives at the tail of http.inc)
 //
-// If outDir is empty, settings.Nginx.OutputDir is used (= default /etc/unmask).
+// If outDir is empty, settings.Nginx.OutputDir is used (= default /var/lib/unmask/nginx).
 // version is for display (= written in the header of the generated file).
 func Render(s settings.Settings, outDir, version string) error {
 	if outDir == "" {
@@ -96,6 +96,25 @@ func Render(s settings.Settings, outDir, version string) error {
 	// location/server scope: protection trigger (= rate-limit + final_challenge rewrite).
 	if err := renderToFile(outDir, "protect.inc",
 		"templates/protect.inc.tmpl", data, 0o644); err != nil {
+		return err
+	}
+	// http scope (forward-auth): defines $unmask_fa_ja4 = the LB-forwarded client
+	// JA4 gated on the source IP being a trusted LB, for forward-auth/server.inc.
+	// Always emitted (a no-op `default ""` when no LB is configured) so the
+	// variable resolves and `nginx -t` passes; the unmask-web-nginx postinstall
+	// symlinks it into conf.d/.  Plugin-var-free, so it loads without the module.
+	if err := renderToFile(outDir, "forward-auth-lbtrust.conf",
+		"templates/forward-auth-lbtrust.conf.tmpl", data, 0o644); err != nil {
+		return err
+	}
+	// http scope (forward-auth): the admin upstream forward-auth/server.inc
+	// proxies to.  Native mode carries its own `upstream unmask` at the tail of
+	// http.inc; forward-auth has no http.inc, so `upstream unmask_admin` is
+	// emitted here and the unmask-web-nginx postinstall symlinks it into conf.d/.
+	// Rendered (not just postinstall-generated) so it tracks server.bind / port
+	// on every save.
+	if err := renderToFile(outDir, "upstream.conf",
+		"templates/upstream.conf.tmpl", data, 0o644); err != nil {
 		return err
 	}
 	// The http.inc just written `include`s the community-bans map files when
@@ -261,6 +280,8 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 		"templates/http.conf.tmpl",
 		"templates/server.inc.tmpl",
 		"templates/protect.inc.tmpl",
+		"templates/forward-auth-lbtrust.conf.tmpl",
+		"templates/upstream.conf.tmpl",
 	} {
 		out, err := renderToString(tmpl, data)
 		if err != nil {

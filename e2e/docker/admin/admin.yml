@@ -19,20 +19,14 @@ challenge:
   # (challenge.default), not the challenge top level.
   default:
     public_test_pages: true
-  # Scenarios 12 / 13 hit admin:9477 directly with X-Client-JA4 set, bypassing
-  # nginx (= the plugin's native JA4 extraction). Honor that forwarded header:
-  #   - ja4_source: header           -> auth_check reads X-Client-JA4
-  #   - trusted_forward_auth_proxies -> the connection peer must be trusted.
-  #     The e2e harness reaches admin from a docker-private address, so the
-  #     RFC1918 ranges below cover whatever subnet compose assigns. e2e only —
-  #     in production this is the real proxy's address, not whole /8s.
-  ja4_source: header
-  trusted_forward_auth_proxies:
-    - 127.0.0.0/8
-    - ::1/128
-    - 10.0.0.0/8
-    - 172.16.0.0/12
-    - 192.168.0.0/16
+  # Scenarios 12 / 13 (direct admin curl), 14 (apache mod_lua) and 42 (fa-nginx)
+  # reach the daemon with a forwarded X-Client-JA4.  The daemon honors it only
+  # when the connection peer is a trusted LB; the single source of truth for that
+  # is nginx.trusted_lb_extra below (= [0.0.0.0/0] here so any docker-private peer
+  # counts as a trusted LB -- e2e only; in production this is the real LB's CIDR,
+  # not the whole address space).  apache (14) / fa-nginx (42) additionally report
+  # the real connecting peer in X-Unmask-Conn-Peer, which the daemon gates the
+  # same way.
 
 # Scenario 09 sends 120 requests sequentially.  Production default is 100 r/min
 # + burst 50 = 150 allowed, which doesn't trip in 120.  Drop the rate to make
@@ -98,10 +92,10 @@ nginx:
   # docker compose resolves the service name "admin".  This value is overridden on the
   # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
   upstream_addr: admin:9477
-  # The suite curls admin:9477 directly with X-Client-JA4 / X-Unmask-Site set, so
-  # opt into trusting those forwarded headers (default-off since a client could
-  # otherwise spoof them through the default proxy_pass_request_headers).
-  trust_forwarded_ja4: true
+  # The suite curls admin:9477 directly with X-Unmask-Site set, so opt into
+  # trusting it (default-off since a client could otherwise spoof it through the
+  # default proxy_pass_request_headers).  The forwarded X-Client-JA4 has no
+  # toggle -- it is trusted via trusted_lb_extra below (0.0.0.0/0 = any peer).
   trust_forwarded_site: true
   admin_allowed_ips:
     - 0.0.0.0/0

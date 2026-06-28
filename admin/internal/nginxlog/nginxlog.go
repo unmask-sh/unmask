@@ -2,7 +2,7 @@
 // socket, aggregate it into per-minute buckets, and write into the DB
 // (= unmask_cookie_minute table).
 //
-// On the nginx side (= rendered by admin at /etc/unmask/nginx-rendered.conf):
+// On the nginx side (= rendered by admin at /var/lib/unmask/nginx/http.inc):
 //
 //	log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
 //	access_log syslog:server=unix:/run/unmask/log.sock unmask_minimal;

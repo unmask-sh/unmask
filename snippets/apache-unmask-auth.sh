@@ -35,10 +35,13 @@ HOST="${HTTP_HOST:-}"
 COOKIE="${HTTP_COOKIE:-}"
 # Client JA4 (forward-auth mode). Apache exports request headers as HTTP_*
 # env vars, so X-Client-JA4 -> HTTP_X_CLIENT_JA4. Carries a value only when a
-# JA4-aware front layer set it. Same spoof caveat as the lua handler: strip a
-# client-supplied X-Client-JA4 in the Apache config unless a trusted front
-# layer sets it. unmask honors it only with challenge.ja4_source=header.
+# JA4-aware front layer (LB / CDN) set it. The daemon honors it ONLY when the
+# real connecting peer (CONN_PEER below) is a trusted LB, so a client reaching
+# Apache directly cannot spoof a JA4. CONN_PEER comes from the RewriteRule in
+# apache-forward-auth.conf ([E=UNMASK_CONN_PEER:%{CONN_REMOTE_ADDR}]), exported
+# to this script as UNMASK_CONN_PEER.
 JA4="${HTTP_X_CLIENT_JA4:-}"
+CONN_PEER="${UNMASK_CONN_PEER:-}"
 
 # Pass /unmask/* / /_unmask/* to prevent self-loops.
 case "$URI" in
@@ -51,6 +54,7 @@ RESP=$(curl -sS -o /dev/null -w "%{http_code}|%header{x-unmask-action}|%header{x
     -H "X-Original-UA: $UA" \
     -H "X-Original-Host: $HOST" \
     -H "X-Client-JA4: $JA4" \
+    -H "X-Unmask-Conn-Peer: $CONN_PEER" \
     -H "Cookie: $COOKIE" \
     --max-time 2 \
     "$UNMASK_API" 2>/dev/null) || RESP="000||"

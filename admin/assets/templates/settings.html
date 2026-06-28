@@ -1015,15 +1015,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <button type="button" class="rule-add-bottom" data-target-list="lb_extra">{{ t .Lang "settings.ua.add_new" }}</button>
     </div>
-
-    <div class="ua-section">
-      <h3>{{ t .Lang "settings.network.fwd_h" }}</h3>
-      <label style="display:flex;align-items:flex-start;gap:.5rem;font-size:.85rem;cursor:pointer">
-        <input type="checkbox" name="trust_forwarded_ja4" value="1" {{ if .Cur.TrustForwardedJA4 }}checked{{ end }}>
-        <span>{{ safeHTML (t .Lang "settings.network.fwd_ja4_label") }}</span>
-      </label>
-      <p class="desc" style="font-size:.78rem;color:#64748b;margin-top:.4rem">{{ safeHTML (t .Lang "settings.network.fwd_ja4_desc") }}</p>
-    </div>
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>

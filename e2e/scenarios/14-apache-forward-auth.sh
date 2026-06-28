@@ -82,4 +82,25 @@ rm -f "$bbody"
 code=$(curl -s -o /dev/null -w '%{http_code}' "${APACHE_URL}/unmask/healthz")
 assert_eq "200" "$code" "skip: /unmask/healthz proxied to admin → 200" || fails=$((fails+1))
 
+# --- JA4 capture (forward-auth behind a front LB) ---
+# apache-unmask.lua forwards X-Client-JA4 plus the real connecting peer
+# (X-Unmask-Conn-Peer = %{CONN_REMOTE_ADDR}); the daemon honors the JA4 only when
+# that peer is a trusted LB.  Here the docker peer is covered by
+# trusted_lb_extra=[0.0.0.0/0], so a forwarded BOT JA4 challenges while the same
+# request WITHOUT a JA4 passes -- the difference proves the JA4 was captured
+# end-to-end through Apache (this is the Apache answer to "can an LB forward JA4").
+JA4_BOT="t13e2e0bot01_xxx_yyy"   # admin.yml ja4_verdicts.extra -> action=bot
+code=$(curl -s -o /dev/null -w '%{http_code}' \
+    -A "$UA_BROWSER" -H 'X-Forwarded-For: 203.0.113.20' "${APACHE_URL}/")
+assert_eq "200" "$code" "ja4: browser UA, no forwarded JA4 → pass (200)" || fails=$((fails+1))
+
+hdr="$(mktemp)"
+code=$(curl -s -o /dev/null -D "$hdr" -w '%{http_code}' \
+    -A "$UA_BROWSER" -H 'X-Forwarded-For: 203.0.113.21' -H "X-Client-JA4: $JA4_BOT" \
+    "${APACHE_URL}/")
+loc=$(grep -i '^Location:' "$hdr" | head -1 | tr -d '\r' | sed 's/^[^:]*: *//')
+rm -f "$hdr"
+assert_eq "302" "$code" "ja4: forwarded bot JA4 (via a trusted-LB peer) → challenged (302)" || fails=$((fails+1))
+assert_in "/unmask/challenge/" "$loc" "ja4: bot-JA4 redirect goes to the challenge page" || fails=$((fails+1))
+
 exit "$fails"

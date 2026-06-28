@@ -429,20 +429,26 @@ type Nginx struct {
 	//     /unmask/* to admin unchanged (= no nginx config involvement).
 	AdminAllowedHosts []string `yaml:"admin_allowed_hosts,omitempty"`
 
-	// TrustForwardedSite / TrustForwardedJA4: in forward-auth mode the admin
-	// receives the X-Unmask-Site / X-Client-JA4 headers from the proxy, but
-	// nginx's default proxy_pass_request_headers forwards a CLIENT-supplied
-	// value of the same name, and the admin cannot tell an operator-set header
-	// from a client-forwarded one (both arrive from the trusted loopback peer).
-	// So these are NOT trusted by default: a client could otherwise spoof
-	// X-Unmask-Site to select a weaker site's policy (= observe_only bypass) or
-	// spoof X-Client-JA4 to evade JA4 detection.  Default (false): the site is
-	// derived from the proxy-forced X-Original-Host and forward-auth carries no
-	// JA4.  Set true ONLY when your proxy explicitly OVERWRITES the header (=
-	// `proxy_set_header X-Unmask-Site $unmask_site;` so a client value can't
-	// reach here).
+	// TrustForwardedSite: in forward-auth mode the admin can derive the site
+	// (= which vhost's policy applies) from an X-Unmask-Site header the proxy
+	// sets, but nginx's default proxy_pass_request_headers forwards a
+	// CLIENT-supplied value of the same name, and the admin cannot tell an
+	// operator-set header from a client-forwarded one (both arrive from the
+	// trusted loopback peer).  So it is NOT trusted by default: a client could
+	// otherwise spoof X-Unmask-Site to select a weaker site's policy (=
+	// observe_only bypass).  Default (false): the site is derived from the
+	// proxy-forced X-Original-Host.  Set true ONLY when your proxy explicitly
+	// OVERWRITES the header (= `proxy_set_header X-Unmask-Site $unmask_site;` so
+	// a client value can't reach here).
+	//
+	// The forwarded JA4 (X-Client-JA4) has NO equivalent toggle: it is gated in
+	// nginx by the rendered forward-auth-lbtrust.conf, which forwards the real
+	// client JA4 only when the connection's original peer is inside a trusted LB
+	// range (= TrustedLBPresets / TrustedLBExtra), and "" otherwise.  So a
+	// non-LB peer's JA4 is dropped at the edge and never reaches the daemon --
+	// trusted_lb_* is the single source of truth for both native and
+	// forward-auth JA4 trust.
 	TrustForwardedSite bool `yaml:"trust_forwarded_site,omitempty"`
-	TrustForwardedJA4  bool `yaml:"trust_forwarded_ja4,omitempty"`
 
 	// Preset IDs of trusted LBs. Default is empty (= all disabled, secure default).
 	// Pick IDs from the presets in nginxconf/lb_iprange.go to enable. Example:

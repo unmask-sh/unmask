@@ -3,7 +3,7 @@
 #
 # Role:
 #   1. Place upstream auto-load symlinks in /etc/nginx/conf.d/
-#       00-unmask-upstream.conf -> /etc/unmask/upstream.conf
+#       00-unmask-upstream.conf -> /var/lib/unmask/nginx/upstream.conf
 #         (= so proxy_pass http://unmask_admin; resolves in every server block. shared by both modes)
 #       00-unmask.conf          -> /var/lib/unmask/nginx/http.inc
 #         (= JA4 maps / log_format etc.  native-mode only.  In environments
@@ -16,13 +16,14 @@ echo "unmask-web-nginx: installing nginx integration..."
 
 # upstream auto-load.  Forward-auth mode's server.inc does `proxy_pass
 # http://unmask_admin;`, so that upstream must exist in http {} scope.  Native
-# mode defines its own `upstream unmask` inside the rendered http.inc; this
-# separate block is what forward-auth (no plugin, no rendered http.inc) relies
-# on.  The render path that once emitted it was retired, so write the
-# default-port block here.  Operators who change server.port in config.yml
-# update the server line to match.
-UPSTREAM_SRC=/etc/unmask/upstream.conf
-[ -d /etc/unmask ] || mkdir -p /etc/unmask
+# mode defines its own `upstream unmask` inside the rendered http.inc; for
+# forward-auth (no plugin, no http.inc) `unmask render-nginx` renders
+# `upstream unmask_admin` to /var/lib/unmask/nginx/upstream.conf and tracks
+# server.bind / port there.  Write a default-port block here too so the upstream
+# resolves before the first render (install order / pre-setup); render overwrites
+# it on the first settings save.
+UPSTREAM_SRC=/var/lib/unmask/nginx/upstream.conf
+[ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
 # Follow server.port from config.yml (default 9477) so the upstream tracks a
 # non-default admin port instead of hard-coding it.  Scoped to the top-level
 # `server:` block so an unrelated `port:` (e.g. mariadb) is never picked up.
@@ -34,9 +35,10 @@ UNMASK_PORT=$(awk '
 [ -n "$UNMASK_PORT" ] || UNMASK_PORT=9477
 if [ ! -e "$UPSTREAM_SRC" ] || ! grep -q 'upstream unmask_admin' "$UPSTREAM_SRC" 2>/dev/null; then
     cat > "$UPSTREAM_SRC" <<UPSTREAM
-# unmask admin upstream for forward-auth mode.  Port read from server.port in
-# /etc/unmask/config.yml at install (= $UNMASK_PORT here; default 9477).  If you
-# change server.port afterwards, update the server line or reinstall the package.
+# unmask admin upstream for forward-auth mode (install-time default).
+# Port read from server.port in /etc/unmask/config.yml (= $UNMASK_PORT here;
+# default 9477).  'unmask render-nginx' overwrites this from server.bind / port
+# on the next settings save, so re-rendering after a port change keeps it in sync.
 upstream unmask_admin {
     server 127.0.0.1:$UNMASK_PORT;
     keepalive 16;
@@ -65,6 +67,28 @@ UPSTREAM_LINK=$NGINX_INCDIR/00-unmask-upstream.conf
 if [ ! -L "$UPSTREAM_LINK" ] && [ ! -e "$UPSTREAM_LINK" ]; then
     ln -sf "$UPSTREAM_SRC" "$UPSTREAM_LINK"
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
+fi
+
+# forward-auth LB-trust gate.  forward-auth/server.inc forwards X-Client-JA4 =
+# $unmask_fa_ja4, which `unmask render-nginx` fills from nginx.trusted_lb_presets
+# (the JA4 is honored only from a trusted LB source IP).  Lay down a no-op
+# default (always "") so the variable resolves and `nginx -t` passes before the
+# first render; render overwrites it on the first settings save.  Wired in BOTH
+# modes -- it is plugin-var-free, and a hybrid native+forward-auth vhost needs it
+# too.
+FA_GATE_SRC=/var/lib/unmask/nginx/forward-auth-lbtrust.conf
+[ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
+if [ ! -e "$FA_GATE_SRC" ]; then
+    cat > "$FA_GATE_SRC" <<'FAGATE'
+# unmask forward-auth LB-trust gate (no-op default; overwritten by `unmask render-nginx`).
+geo $realip_remote_addr $unmask_fa_lb_vendor { default ""; }
+map $unmask_fa_lb_vendor $unmask_fa_ja4 { default ""; }
+FAGATE
+fi
+FA_GATE_LINK=$NGINX_INCDIR/00-unmask-fa-lbtrust.conf
+if [ ! -L "$FA_GATE_LINK" ] && [ ! -e "$FA_GATE_LINK" ]; then
+    ln -sf "$FA_GATE_SRC" "$FA_GATE_LINK"
+    echo "unmask-web-nginx: symlinked $FA_GATE_LINK -> $FA_GATE_SRC"
 fi
 
 # JA4 maps auto-load -- NATIVE mode only.  http.inc emits C-module directives
