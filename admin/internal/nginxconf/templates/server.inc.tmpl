@@ -246,6 +246,11 @@ location @unmask_rate_challenge {
     proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
     proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
     proxy_set_header   X-Client-JA4     $effective_ja4;
+    # Strip a client-supplied X-Unmask-Conn-Peer: that header is the Apache
+    # forward-auth LB-gate input, and native already feeds the plugin-gated
+    # $effective_ja4 above, so a client must not be able to send a conn-peer that
+    # would make the daemon's gate drop the JA4.
+    proxy_set_header   X-Unmask-Conn-Peer "";
     proxy_set_header   X-JA4-Verdict    $ja4_verdict;
     proxy_set_header   X-JA4-Action     $ja4_action;
     proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
