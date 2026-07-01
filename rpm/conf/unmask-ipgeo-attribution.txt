@@ -1,0 +1,28 @@
+IP geolocation data
+====================
+
+unmask uses IP-to-country lookup tables fetched on demand via
+`unmask install-ipgeo`.  The default source is DB-IP Lite, made
+available under the Creative Commons Attribution 4.0 International License
+(CC BY 4.0):
+
+  https://creativecommons.org/licenses/by/4.0/
+
+Attribution:
+  This product includes GeoLite-style IP geolocation data created by
+  DB-IP.com.  Used under CC BY 4.0.  https://db-ip.com/
+
+Source URL: https://db-ip.com/db/lite.php
+Snapshot pattern: https://download.db-ip.com/free/dbip-country-lite-YYYY-MM.mmdb.gz
+
+The mmdb file is NOT bundled in the unmask rpm/deb/apk packages — it is
+downloaded by the user on first run.  This avoids:
+
+  - bloating the package with weekly-stale data (~3 MiB country-lite,
+    ~60 MiB if city-lite is selected)
+  - re-distribution under licenses with additional restrictions
+    (MaxMind GeoLite2 EULA prohibits redistribution)
+
+If you prefer MaxMind GeoLite2, point `ipgeo.mmdb_path` in
+/etc/unmask/config.yml at the file you maintain (e.g. via geoipupdate)
+and unmask will use that instead.

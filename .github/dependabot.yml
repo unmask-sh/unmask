@@ -1,0 +1,36 @@
+# Dependabot keeps direct dependencies fresh.
+# - Go modules under admin/ (= the admin daemon source).
+# - GitHub Actions used by ci.yml / release.yml.
+#
+# Weekly cadence to avoid PR noise; security updates are still applied
+# immediately by Dependabot when the corresponding "security advisory"
+# fires.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /admin
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dependencies
+      - go
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Asia/Tokyo
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+      - github-actions

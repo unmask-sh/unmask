@@ -1,0 +1,53 @@
+# unmask docker-compose example.  Adjust cert path / volumes / network for prod.
+#
+# Start:
+#   docker compose -f docker-compose.example.yml up -d --build
+#   open http://localhost:8443/unmask/admin/   ← install wizard
+#
+# Services:
+#   admin   : unmask (= web UI + API + ban / log aggregator)
+#   nginx   : nginx 1.26 + ngx_http_unmask_module.so (= TLS termination + bot
+#             classification)
+#
+# Shared volumes:
+#   unmask-config : /etc/unmask  (admin.yml + nginx-rendered*.conf shared)
+#   unmask-data   : /var/lib/unmask  (sqlite / logs)
+
+services:
+  admin:
+    build: .
+    image: unmask/admin:latest
+    container_name: unmask
+    restart: unless-stopped
+    volumes:
+      - unmask-config:/etc/unmask
+      - unmask-data:/var/lib/unmask
+    environment:
+      TZ: Asia/Tokyo
+    ports:
+      - "9477:9477"  # Direct-hit debug only.  Normally accessed via nginx.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/unmask", "doctor", "-config", "/etc/unmask/admin.yml"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  nginx:
+    build:
+      context: .
+      dockerfile: e2e/docker/nginx/Dockerfile
+    image: unmask/nginx:latest
+    container_name: unmask-nginx
+    restart: unless-stopped
+    depends_on:
+      - admin
+    volumes:
+      - unmask-config:/etc/unmask:ro  # Read-only view of nginx-*.conf rendered by admin.
+    ports:
+      - "8443:8443"
+    environment:
+      TZ: Asia/Tokyo
+
+volumes:
+  unmask-config:
+  unmask-data:

@@ -1,0 +1,129 @@
+# e2e docker compose: nginx + unmask + shared unix socket volume.
+#
+# Start:
+#   make e2e-docker
+#
+# What happens:
+#   1. Build admin image (= multi-stage golang → alpine)
+#   2. Build nginx image (= debian build + nginx 1.26 + unmask module)
+#   3. Share tmpfs `/run/unmask` between the 2 containers
+#   4. Publish nginx :8443 to localhost:8443
+#   5. From the host, run e2e/run.sh with BASE_URL=https://localhost:8443
+
+name: unmask-e2e
+
+services:
+  admin:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/admin/Dockerfile
+    volumes:
+      - unmask-run:/run/unmask
+      - unmask-data:/var/lib/unmask
+      - unmask-conf:/etc/unmask
+    # admin runs in order: migrate → render-nginx → serve.
+    # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
+    # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
+    # /usr/local/bin/unmask, which would otherwise eat "sh" as a subcommand).
+    entrypoint: []
+    command: >
+      sh -c "/usr/local/bin/unmask migrate     -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml &&
+             /usr/local/bin/unmask serve       -config /etc/unmask/admin.yml"
+    environment:
+      # Test-only mmdb stand-in: seed the country (and optionally ASN) lookup
+      # with fixture pairs so scenarios can exercise the geo axis AND the roaming
+      # ASN veto without bundling a real mmdb (= licence + size cost not worth it
+      # for tests).  Format: <ip>:<country>[:<asn>]; any entry carrying an ASN
+      # flips ASNLoaded() on.  192.0.2.x / 203.0.113.x / 198.51.100.x are RFC
+      # 5737 documentation space, free for fixture use; 64500/64501 are RFC 6996
+      # private ASNs.
+      #   .81/.82/.83 (country-only)             : scenario 12/13/14 geo axis
+      #   203.0.113.30 + 198.51.100.31-35 (64500): scenario 36 -- one carrier, so
+      #       the silent rebind still fires now that the veto is active
+      #   203.0.113.41 + 198.51.100.41 (64500)   : scenario 41 same-ASN  -> rebinds
+      #   198.51.100.42 (64501)                  : scenario 41 cross-ASN -> vetoed
+      UNMASK_TEST_GEO_OVERRIDE: "192.0.2.81:JP,192.0.2.82:CN,192.0.2.83:US,203.0.113.30:JP:64500,198.51.100.31:JP:64500,198.51.100.32:JP:64500,198.51.100.33:JP:64500,198.51.100.34:JP:64500,198.51.100.35:JP:64500,203.0.113.41:JP:64500,198.51.100.41:JP:64500,198.51.100.42:JP:64501"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+    # Expose admin's port to the host so the e2e suite can hit it directly,
+    # bypassing nginx's X-Real-IP rewrite (= scenario 10 needs the same IP
+    # source for /verify and /api/check so the _bv HMAC matches).
+    # Host-side 19477 to avoid colliding with a dev unmask on 9477.
+    ports:
+      - "19477:9477"
+
+  nginx:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/nginx/Dockerfile
+    depends_on:
+      admin:
+        condition: service_healthy
+    volumes:
+      - unmask-run:/run/unmask
+      - unmask-conf:/etc/unmask:ro
+      # Web Bot Auth fixtures (scenario 34): TLS cert + JWK directory for the
+      # fake operator vhost on :9444 (compose-network only, not published).
+      - ./wba:/etc/wba:ro
+    ports:
+      - "8443:8443"
+    healthcheck:
+      test: ["CMD", "openssl", "s_client", "-connect", "127.0.0.1:8443", "-servername", "localhost"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # Apache httpd running the forward-auth snippet (= auth_request mode for
+  # environments where the nginx module is not an option).  Independent of
+  # the nginx container; talks HTTP to admin, so no shared volume is needed.
+  # Exercised by scenario 14.
+  apache:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/apache/Dockerfile
+    depends_on:
+      admin:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8081/unmask/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # Stock nginx (NO unmask plugin) running the forward-auth snippet -- exercises
+  # the nginx forward-auth JA4 gate (forward-auth-lbtrust.conf + server.inc),
+  # which the plugin-loaded nginx container above does not cover.  Reads the
+  # admin-rendered gate / upstream from the shared /etc/unmask volume; the shipped
+  # forward-auth snippets are bind-mounted at /etc/unmask-fa.  Exercised by
+  # scenario 42.
+  fa-nginx:
+    image: nginx:alpine
+    depends_on:
+      admin:
+        condition: service_healthy
+    volumes:
+      - unmask-conf:/etc/unmask:ro
+      - ./fa-nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./fa-nginx/html:/usr/share/nginx/html:ro
+      - ../../rpm/conf/forward-auth:/etc/unmask-fa:ro
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/unmask/healthz"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  unmask-run:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  unmask-data:
+  unmask-conf:

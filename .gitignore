@@ -1,0 +1,47 @@
+# build artifacts
+build/
+*.so
+*.o
+*.a
+objs/
+nginx-[0-9]*/
+nginx-[0-9]*.tar.gz
+openssl-*/
+openssl-*.tar.gz
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# RPM build
+rpmbuild/
+*.rpm
+*.src.rpm
+BUILD/
+SOURCES/
+SRPMS/
+RPMS/
+# nfpm generated configs (envsubst output; the sources are rpm/nfpm-*.yaml)
+nfpm-*.tmp.yaml
+nfpm-*.amd64.yaml
+nfpm-*.arm64.yaml
+
+# editor
+.vscode/
+.idea/
+.claude/
+*.swp
+
+# runtime
+data/
+*.sqlite
+*.db
+config.local.yml
+dist/
+
+# demo state (= a sandbox kept running on a test host: cert / sqlite / logs etc.)
+demo/

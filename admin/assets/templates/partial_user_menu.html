@@ -1,0 +1,66 @@
+{{/*
+  user_menu: username dropdown at the right end of the header.
+
+  Expected data:
+    - .Lang     : i18n lang
+    - .BasePath : "/unmask"
+    - .Me       : *handlers.SessionPayload (UserID + Role + Exp). Hidden if nil.
+    - .MeName   : current user's username (display).
+
+  Display by role:
+    - superadmin: user management + audit log + logout
+    - admin     : audit log + logout
+    - viewer    : logout only
+*/}}
+{{ define "user_menu" }}
+{{ if .Me }}
+<div class="user-menu" tabindex="0" id="user-menu">
+  <span class="user-menu-trigger">
+    <span class="user-menu-name">{{ if .MeName }}{{ .MeName }}{{ else }}user{{ end }}</span>
+    <span class="user-menu-arrow">▾</span>
+  </span>
+  <div class="user-menu-pop">
+    {{/* Personal entry.  TZ + language pickers live on the profile page
+         itself (= rarely changed; no need to keep them in the dropdown). */}}
+    <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
+    {{/* Admin-only section, set off by a labelled divider. */}}
+    {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
+    <div class="um-section">{{ t .Lang "user_menu.admin_section" }}</div>
+    {{ if eq .Me.Role "superadmin" }}
+    <a href="{{ .BasePath }}/admin/users/">{{ t .Lang "nav.users" }}</a>
+    {{ end }}
+    <a href="{{ .BasePath }}/admin/audit/">{{ t .Lang "nav.audit" }}</a>
+    {{ end }}
+    <div class="um-divider"></div>
+    <form method="post" action="{{ .BasePath }}/admin/logout" class="um-logout-form">
+      <button type="submit">{{ t .Lang "nav.logout" }}</button>
+    </form>
+  </div>
+</div>
+<style>
+.user-menu-pop .um-section{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;padding:.5rem .7rem .2rem}
+.user-menu-pop .um-divider{border-top:1px solid #334155;margin:.3rem 0}
+/* logout is a POST (a GET link is CSRF-able into a forced logout); the global
+   CSRF shim injects the token into this form.  Styled here -- co-located with
+   the partial -- to match the menu's <a> items on every host page. */
+.user-menu-pop .um-logout-form{margin:0}
+.user-menu-pop .um-logout-form button{display:block;width:100%;text-align:left;padding:.4rem .7rem;color:#cbd5e1;font-size:.85rem;border-radius:.2rem;font-weight:normal;background:none;border:0;cursor:pointer;font-family:inherit}
+.user-menu-pop .um-logout-form button:hover{background:#334155;color:#fff}
+</style>
+<script>
+(function(){
+  var m = document.getElementById('user-menu');
+  if (!m) return;
+  // Open on hover; click also toggles (for touch devices).
+  m.querySelector('.user-menu-trigger').addEventListener('click', function(e){
+    e.stopPropagation();
+    m.classList.toggle('open');
+  });
+  // Close on outside click.
+  document.addEventListener('click', function(e){
+    if (!m.contains(e.target)) m.classList.remove('open');
+  });
+})();
+</script>
+{{ end }}
+{{ end }}

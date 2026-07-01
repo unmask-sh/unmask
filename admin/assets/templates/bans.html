@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "bans.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.banner{padding:.6rem .9rem;border-radius:.3rem;margin-bottom:1rem;font-weight:600}
+.banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+table.bans{width:100%;border-collapse:collapse;font-size:.88rem}
+table.bans thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.8rem}
+table.bans tbody td{padding:.45rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+table.bans tbody tr:hover{background:#f8fafc}
+table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
+/* Country flag PNG (left side of the IP cell). 16x12 png, subtle. Same as hunt.html.
+ * Popover base is shared from /static/popover-pin.css. */
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+.source-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.src-honeypot{background:#fee2e2;color:#991b1b}
+.src-manual{background:#dbeafe;color:#1e40af}
+.src-protected_failed,.src-rate_limit_abuse,.src-ja4_loop{background:#fef3c7;color:#92400e}
+.muted{color:#94a3b8}
+.btn{padding:.45rem 1rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-weight:600;cursor:pointer;font-size:.85rem}
+.btn:hover{background:#1e293b}
+.btn.danger{background:#fff;color:#b91c1c;border:1px solid #fca5a5;font-size:.78rem;padding:.3rem .7rem}
+.btn.danger:hover{background:#fee2e2;color:#7f1d1d}
+.add-grid{display:grid;grid-template-columns:1fr 1.5fr 1fr 1fr auto;gap:.6rem;align-items:end}
+.add-grid label{display:block;font-size:.78rem;color:#64748b;margin-bottom:.2rem}
+.add-grid input,.add-grid select{width:100%;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.92rem;background:#fff}
+.card-h-row{display:flex;align-items:center;gap:.6rem;margin:0 0 .75rem}
+.card-h-row h2{flex:1;margin:0}
+.toggle-switch{position:relative;display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:.85rem;color:#475569}
+.toggle-switch input[type=checkbox]{position:absolute;opacity:0;width:0;height:0}
+.toggle-switch .slider{position:relative;display:inline-block;width:2.5rem;height:1.4rem;background:#cbd5e1;border-radius:.7rem;transition:background .15s}
+.toggle-switch .slider::before{content:"";position:absolute;top:.15rem;left:.15rem;width:1.1rem;height:1.1rem;background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle-switch input:checked + .slider{background:#16a34a}
+.toggle-switch input:checked + .slider::before{transform:translateX(1.1rem)}
+.toggle-switch .lbl{font-weight:600;color:#0f172a}
+.counts{display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem;margin-bottom:.6rem}
+.counts .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f8fafc}
+.counts .pill strong{font-weight:700;color:#0f172a}
+.filter-bar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem;font-size:.85rem}
+.filter-bar input[type=text]{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;min-width:14rem;font-size:.85rem}
+.filter-bar select{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;font-size:.85rem}
+.filter-bar button{padding:.3rem .8rem;border:1px solid #0f172a;border-radius:.2rem;background:#0f172a;color:#fff;cursor:pointer;font-size:.85rem}
+.filter-bar a.reset{padding:.3rem .5rem;color:#475569;text-decoration:none;font-size:.85rem}
+table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
+table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
+table.feed tbody tr:hover{background:#f8fafc}
+table.feed tbody tr.feed-row.not-promoted td:not(:first-child){opacity:.72}
+table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
+.match-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
+.match-ip_ja4{background:#fee2e2;color:#991b1b}
+.match-ja4_only{background:#fef3c7;color:#92400e}
+.match-ip_only{background:#dbeafe;color:#1e3a8a}
+.confidence{display:inline-block;width:3.5rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.score-pill{display:inline-flex;align-items:center;gap:.25rem;padding:.05rem .45rem;border-radius:.2rem;font-size:.78rem;font-weight:600;cursor:help}
+.score-5{background:#fee2e2;color:#7f1d1d}
+.score-4{background:#fed7aa;color:#9a3412}
+.score-3{background:#fef3c7;color:#92400e}
+.score-2{background:#e0f2fe;color:#075985}
+.score-1{background:#f1f5f9;color:#475569}
+.score-0{color:#94a3b8;font-size:.85rem}
+.reports-badge{display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;margin-left:.35rem;font-family:ui-monospace,Menlo,monospace;cursor:help}
+.votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
+.votes-cell .like{color:#15803d}
+.votes-cell .bad{color:#b91c1c}
+.detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
+.detail-toggle:hover{color:#0f172a}
+.detail-toggle.open{transform:rotate(90deg);color:#0f172a}
+.detail-row{background:#f8fafc}
+.detail-row td{padding:0!important;border-bottom:1px solid #e2e8f0!important}
+.detail-panel{padding:1rem 1.25rem;display:grid;gap:.9rem;font-size:.82rem;color:#334155}
+.detail-panel section{padding:.5rem .75rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem}
+.detail-panel h4{margin:0 0 .35rem;font-size:.78rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.04em}
+.detail-panel ul{margin:0;padding-left:1.1rem;line-height:1.55}
+.detail-panel ul.flat{list-style:none;padding-left:0}
+.detail-panel ul.flat li{display:flex;align-items:baseline;gap:.5rem;padding:.15rem 0;border-bottom:1px dotted #e2e8f0}
+.detail-panel ul.flat li:last-child{border-bottom:0}
+.detail-panel .hn{font-family:ui-monospace,Menlo,monospace;color:#0f172a;font-weight:600}
+.detail-panel .when{color:#94a3b8;font-size:.72rem;margin-left:auto}
+.detail-panel .reason-inline{color:#475569}
+.detail-panel .comment-text{color:#0f172a;line-height:1.55;word-break:break-word}
+.detail-panel .judge-line{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569;line-height:1.5;word-break:break-all}
+.detail-panel .empty{color:#94a3b8;font-style:italic}
+.detail-panel .loading{color:#94a3b8;font-style:italic}
+.detail-panel .err{color:#b91c1c;font-weight:600}
+.detail-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.4rem 0}
+.detail-actions .vote-btn{padding:.25rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:.25rem;font-size:.78rem;cursor:pointer;font-family:inherit;color:#475569;transition:background .12s,border-color .12s}
+.detail-actions .vote-btn:hover{background:#f1f5f9}
+.detail-actions .vote-btn.active.like{border-color:#15803d;background:#dcfce7;color:#14532d;font-weight:600}
+.detail-actions .vote-btn.active.bad{border-color:#b91c1c;background:#fee2e2;color:#7f1d1d;font-weight:600}
+.detail-actions .vote-btn:disabled{opacity:.5;cursor:wait}
+.detail-actions .my-hn{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:#94a3b8;margin-left:auto}
+.detail-comment-form{display:flex;gap:.5rem;padding:.4rem 0}
+.detail-comment-form textarea{flex:1;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:inherit;font-size:.82rem;resize:vertical;min-height:2.2rem;line-height:1.4}
+.detail-comment-form button{padding:.3rem .9rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-size:.78rem;cursor:pointer;font-weight:600;align-self:flex-start;font-family:inherit}
+.detail-comment-form button:hover{background:#1e293b}
+.detail-comment-form button:disabled{opacity:.5;cursor:wait}
+.detail-panel .self-mark{font-size:.7rem;color:#15803d;font-weight:600;margin-left:.3rem}
+.detail-panel .delete-x{margin-left:.4rem;background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .25rem;font-size:.78rem}
+.detail-panel .delete-x:hover{color:#b91c1c}
+.cmt{display:block;padding:.15rem .35rem;margin:.15rem 0;background:#f1f5f9;border-radius:.2rem;font-size:.78rem;word-break:break-word}
+.cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
+.note{color:#64748b;font-size:.85rem;line-height:1.6}
+.note code{background:#f1f5f9;padding:.1em .4em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace}
+.file-meta{font-size:.78rem;color:#94a3b8;margin:1rem 0 0;padding:.4rem .25rem}
+.file-meta summary{cursor:pointer;list-style:none;color:#94a3b8}
+.file-meta summary::-webkit-details-marker{display:none}
+.file-meta summary::before{content:"▸ ";color:#cbd5e1}
+.file-meta[open] summary::before{content:"▾ "}
+.file-meta summary code{background:#f1f5f9;color:#64748b;padding:.05em .35em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;margin-left:.3rem}
+.row-actions form{display:inline-block;margin:0}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/" class="active">{{ t .Lang "nav.bans" }}</a>
+      <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+<h1 style="display:flex;align-items:center;gap:.5rem">
+  {{ t .Lang "bans.title" }}
+  <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.subtitle") }}</span></span>
+</h1>
+
+{{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
+{{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
+
+<div class="bcd-card">
+  <h2 style="display:flex;align-items:center;gap:.6rem">
+    {{ t .Lang "bans.list_h" }}
+    <span style="color:#64748b;font-weight:normal;font-size:.85rem">({{ len .Entries }})</span>
+    <span style="flex:1"></span>
+    <button type="button" class="btn" id="ban-add-btn" data-default-action="{{ .Bans.ManualDefaultAction }}">{{ t .Lang "bans.btn.add" }}</button>
+  </h2>
+  <table class="bans">
+    <thead>
+      <tr>
+        <th>{{ t .Lang "bans.col.ip" }}</th>
+        <th>{{ t .Lang "bans.col.ja4" }}</th>
+        <th>{{ t .Lang "bans.col.source" }}</th>
+        <th>{{ t .Lang "bans.col.action" }}</th>
+        <th>{{ t .Lang "bans.col.reason" }}</th>
+        <th>{{ t .Lang "bans.col.banned_at" }}</th>
+        <th>{{ t .Lang "bans.col.expires" }}</th>
+        <th>{{ t .Lang "bans.col.banned_by" }}</th>
+        <th>{{ t .Lang "bans.col.actions" }}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .Entries }}
+      <tr>
+        {{/* "(any)" semantics now follow scope, not column emptiness — a
+             row may have an IP stored as context but still match by JA4
+             only when scope=ja4_only.  Show the stored value as muted /
+             struck-through when scope excludes it from matching. */}}
+        <td class="mono ipclick" data-ip="{{ .IP }}">
+          {{ if .IP }}
+            <img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy">
+            {{ if eq .Scope "ja4_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .IP }}</span>{{ else }}{{ .IP }}{{ end }}
+          {{ else }}<span class="muted">(any)</span>{{ end }}
+        </td>
+        <td class="mono">
+          {{ if .JA4 }}
+            {{ if eq .Scope "ip_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .JA4 }}</span>{{ else }}{{ .JA4 }}{{ end }}
+          {{ else }}<span class="muted">(any)</span>{{ end }}
+        </td>
+        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
+        <td>
+          {{ if .Action }}
+            <code>{{ .Action }}</code>
+          {{ else }}
+            <code>{{ .ResolvedAction }}</code>
+            <span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}" style="font-size:.78em">(default)</span>
+          {{ end }}
+        </td>
+        <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td><time class="js-datetime js-datetime-notz" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
+        <td>
+          {{ if .ExpiresAt.IsZero }}
+            <span style="color:#b91c1c;font-weight:600">{{ t $.Lang "bans.forever" }}</span>
+          {{ else }}
+            <time class="js-datetime js-datetime-notz" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "2006-01-02 15:04" }}</time>
+          {{ end }}
+        </td>
+        <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
+        <td class="row-actions">
+          {{ if eq .Source "manual" }}
+          <button type="button" class="btn js-ban-edit"
+                  data-id="{{ .ID }}"
+                  data-ip="{{ .IP }}"
+                  data-ja4="{{ .JA4 }}"
+                  data-scope="{{ .Scope }}"
+                  data-reason="{{ .Reason }}"
+                  data-action="{{ .Action }}">{{ t $.Lang "bans.btn.edit" }}</button>
+          {{ end }}
+          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" onsubmit="return confirm('Unban {{ .IP }}|{{ .JA4 }}?')" style="display:inline">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="op" value="delete">
+            <input type="hidden" name="id" value="{{ .ID }}">
+            <button type="submit" class="btn danger">{{ t $.Lang "bans.btn.unban" }}</button>
+          </form>
+        </td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+</div>
+
+{{/* Shared add/edit dialog.  The single form posts op=add (no id) or op=edit
+     (with id) depending on which entry button fired #ban-add-btn / .js-ban-edit. */}}
+<dialog id="ban-edit-dialog" class="ban-edit-dialog">
+  <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="ban-edit-form">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <h3 id="ban-edit-h">{{ t .Lang "bans.dialog.add_h" }}</h3>
+    <input type="hidden" name="op" id="ban-edit-op" value="add">
+    <input type="hidden" name="id" id="ban-edit-id" value="">
+    <div class="ban-edit-grid">
+      <label class="span2">
+        <span style="display:flex;align-items:center;gap:.3rem">
+          {{ t .Lang "bans.col.scope" }}
+          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.scope.help") }}</span></span>
+        </span>
+        <select name="scope" id="ban-edit-scope">
+          <option value="ip_ja4">{{ t .Lang "bans.scope.ip_ja4" }}</option>
+          <option value="ja4_only">{{ t .Lang "bans.scope.ja4_only" }}</option>
+          <option value="ip_only">{{ t .Lang "bans.scope.ip_only" }}</option>
+        </select>
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.col.ip" }}</span>
+        <input type="text" name="ip" id="ban-edit-ip" placeholder="1.2.3.4">
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.col.ja4" }}</span>
+        <input type="text" name="ja4" id="ban-edit-ja4" placeholder="t13d...">
+      </label>
+      <label class="span2">
+        <span>{{ t .Lang "bans.col.reason" }}</span>
+        <input type="text" name="reason" id="ban-edit-reason" placeholder="DDoS / scraper / etc.">
+      </label>
+      <label>
+        <span>{{ t .Lang "bans.duration_sec" }}</span>
+        <input type="number" name="duration_sec" id="ban-edit-duration" value="0" min="0" max="2592000">
+      </label>
+      <label>
+        <span style="display:flex;align-items:center;gap:.3rem">
+          {{ t .Lang "bans.col.action" }}
+          <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.85em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.action.help_form") }}</span></span>
+        </span>
+        <select name="ban_action" id="ban-edit-action">
+          <option value="">default</option>
+          <option value="deny">deny</option>
+          <option value="pow_only">pow_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="captcha_only">captcha_only</option>
+        </select>
+      </label>
+    </div>
+    <div class="ban-edit-actions">
+      <button type="button" class="btn" id="ban-edit-cancel">{{ t .Lang "bans.btn.cancel" }}</button>
+      <button type="submit" class="btn primary">{{ t .Lang "bans.btn.save" }}</button>
+    </div>
+  </form>
+</dialog>
+<style>
+.ban-edit-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:32rem;width:90%;background:#fff;color:#0f172a}
+.ban-edit-dialog::backdrop{background:rgba(15,23,42,.45)}
+.ban-edit-dialog form{padding:1rem 1.25rem 1.25rem}
+.ban-edit-dialog h3{margin:0 0 .75rem;font-size:1.05rem}
+.ban-edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem .75rem;margin-bottom:.75rem}
+.ban-edit-grid label{display:flex;flex-direction:column;font-size:.8rem;color:#475569;gap:.2rem}
+.ban-edit-grid label.span2{grid-column:1 / span 2}
+.ban-edit-grid input,.ban-edit-grid select{width:100%;padding:.4rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#0f172a;box-sizing:border-box}
+.ban-edit-hint{font-size:.75rem;color:#64748b;line-height:1.5;margin:0 0 .75rem;padding:.5rem .65rem;background:#f1f5f9;border-radius:.25rem}
+.ban-edit-actions{display:flex;justify-content:flex-end;gap:.5rem}
+.ban-edit-actions .btn.primary{background:#0f172a;color:#fff;border-color:#0f172a}
+.ban-edit-actions .btn.primary:hover{background:#1e293b}
+</style>
+
+<div class="bcd-card">
+  <h2 style="display:flex;align-items:center;gap:.5rem">
+    {{ t .Lang "bans.defaults_h" }}
+    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.defaults_note") }}</span></span>
+  </h2>
+  <form method="POST" action="{{ .BasePath }}/admin/bans/save">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <input type="hidden" name="op" value="save-defaults">
+    <div class="add-grid">
+      <div>
+        <label>{{ t .Lang "settings.bans.manual_action_h" }}</label>
+        {{ $bma := .Bans.ManualDefaultAction }}
+        {{ if eq $bma "" }}{{ $bma = "captcha_only" }}{{ end }}
+        <select name="bans_manual_default_action">
+          <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $bma "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $bma "deny" }}selected{{ end }}>deny</option>
+        </select>
+      </div>
+      <div>
+        <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+</main>
+<div id="ip-popover" data-popover="ip"></div>
+<script>
+
+// IP popover (rDNS + IP-geo + ASN). Same pattern as hunt.html / dashboard.html.
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var cache = new Map();
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    var na = '<span class="muted">(unavailable)</span>';
+    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                  '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    var types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      var cn = d.country_name ? esc(d.country_name) : '';
+      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + esc(ip) + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
+      .catch(function(){ cb('lookup failed'); });
+  }
+  document.querySelectorAll('.ipclick').forEach(function(td){
+    td.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){
+        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); });
+      }, 200);
+    });
+    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      e.preventDefault();
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+    });
+  });
+})();
+
+// Info-tip popover portal for use inside <dialog>.  Default CSS positions
+// .info-popup absolutely under the tip, but when the tip lives inside a
+// dialog placed near a viewport edge the popup gets clipped by the
+// dialog's top-layer boundary.  We avoid that by rendering a transient
+// clone in document.body on hover/focus, anchored via fixed coords from
+// the tip's bounding box.  The inline popup stays in place for legacy
+// callers; we just hide it inside the dialog.
+(function(){
+  var dlg = document.getElementById('ban-edit-dialog');
+  if (!dlg) return;
+  // Suppress the inline CSS hover popup inside the dialog -- the portal
+  // clone (built below) takes over so we don't get clipped by the dialog's
+  // visual rect.  Also strengthen the portal styling so it renders cleanly
+  // on top of the dialog's content + backdrop in browsers that dim the
+  // dialog's top-layer surface slightly when popovers sit behind it.
+  var style = document.createElement('style');
+  style.textContent =
+    '#ban-edit-dialog .info-tip:hover .info-popup,' +
+    '#ban-edit-dialog .info-tip:focus .info-popup{display:none}' +
+    '#ban-edit-dialog .info-popup-portal{' +
+    '  background:#fff !important;color:#0f172a !important;opacity:1 !important;' +
+    '  box-shadow:0 1rem 2.5rem rgba(15,23,42,.55) !important;' +
+    '  border:1px solid #cbd5e1 !important;border-radius:.4rem !important;' +
+    '  padding:.7rem .9rem !important;width:min(28rem, calc(100vw - 1rem)) !important;' +
+    '  font-size:.8rem !important;line-height:1.6 !important;font-weight:400 !important;' +
+    '}';
+  document.head.appendChild(style);
+
+  // Tips inside this dialog need a portal-clone for both hover and click-pin
+  // because the dialog's ::backdrop covers anything in document.body while
+  // the dialog is open.  Both clones live INSIDE the dialog so they share
+  // its top-layer; click-to-pin reuses the same installInfoTipPinning
+  // machinery the rest of the admin UI uses, parametrised to append to the
+  // dialog and to position fixed (= viewport-relative, no scroll offset).
+  //
+  // The hover portal is still local (= popover-pin.js does not own hover).
+  // It is dismissed when the operator clicks to pin so the pin clone takes
+  // over; multiple pinned clones coexist because each .info-tip stores its
+  // own clone on tip._pinClone, and the global ESC handler peels them in
+  // LIFO order across both the dialog and document.body.
+  var hoverClone = null;
+  function placeFixed(clone, tip){
+    var rect = tip.getBoundingClientRect();
+    var cw = clone.offsetWidth, ch = clone.offsetHeight;
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var pad = 8;
+    var left = rect.left;
+    if (left + cw + pad > vw) left = vw - cw - pad;
+    if (left < pad) left = pad;
+    var top = rect.bottom + 4;
+    if (top + ch + pad > vh) top = rect.top - ch - 4;
+    if (top < pad) top = pad;
+    clone.style.left = left + 'px';
+    clone.style.top  = top + 'px';
+  }
+  function showHover(tip){
+    if (tip._pinClone) return; // already pinned -- pin clone takes over
+    if (hoverClone) hoverClone.remove();
+    var src = tip.querySelector('.info-popup');
+    if (!src) return;
+    // Build the portal as a div (= same tag the pin clone uses) so block
+    // layout is unambiguous; some browsers / themes have rendered the
+    // <span>-cloned variant with the wrong background.  innerHTML preserves
+    // the help body verbatim.
+    var c = document.createElement('div');
+    c.className = 'info-popup info-popup-portal';
+    c.setAttribute('data-popover', 'info');
+    c.innerHTML = src.innerHTML;
+    c.style.position = 'fixed';
+    c.style.display = 'block';
+    c.style.zIndex = '2147483647';
+    c.style.background = '#fff';
+    c.style.color = '#0f172a';
+    c.style.opacity = '1';
+    c.style.left = '-9999px';
+    c.style.top = '0';
+    dlg.appendChild(c);
+    placeFixed(c, tip);
+    hoverClone = c;
+  }
+  function dismissHover(){
+    if (hoverClone){ hoverClone.remove(); hoverClone = null; }
+  }
+  dlg.addEventListener('mouseover', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip && dlg.contains(tip)) showHover(tip);
+  });
+  dlg.addEventListener('mouseout', function(ev){
+    var toEl = ev.relatedTarget;
+    if (toEl && toEl.closest && toEl.closest('.info-popup-portal, .info-popup-pinned')) return;
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  });
+  dlg.addEventListener('focusin', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) showHover(tip);
+  });
+  dlg.addEventListener('focusout', function(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  });
+  // When the operator presses a tip, installInfoTipPinning (called below)
+  // owns the pin lifecycle.  We dismiss the transient hover clone on
+  // mousedown (earlier than click) so the operator never sees the hover
+  // portal stacked behind the pin clone mid-paint.  Belt-and-braces: also
+  // run on click in case mousedown was synthesised away (.click()).
+  function dismissHoverOnTipEvent(ev){
+    var tip = ev.target.closest && ev.target.closest('.info-tip');
+    if (tip) dismissHover();
+  }
+  dlg.addEventListener('mousedown', dismissHoverOnTipEvent, true);
+  dlg.addEventListener('click',     dismissHoverOnTipEvent, true);
+  dlg.addEventListener('close', function(){
+    dismissHover();
+    // Tear down every pin still open inside the dialog when it closes.
+    dlg.querySelectorAll('.info-popup-pinned').forEach(function(pc){
+      if (typeof pc._popoverUnpin === 'function') pc._popoverUnpin();
+      else pc.remove();
+    });
+  });
+
+  // Wire the dialog's tips against the shared installInfoTipPinning, but
+  // with options that put the pin clone INSIDE the dialog (top-layer) and
+  // position it fixed (= viewport-relative; the dialog ignores document
+  // scroll).  popover-pin.js's auto-wire skips tips inside <dialog>, so
+  // this is the only place these specific tips get wired.
+  if (typeof window.installInfoTipPinning === 'function'){
+    window.installInfoTipPinning(dlg, { container: dlg, positionMode: 'fixed' });
+  }
+})();
+
+// BAN add / edit modal.  One <dialog>, two ops: "+ 追加" opens empty + op=add;
+// row 「編集」 pre-fills from data-* + op=edit + id=<row id>.  Cancel resets via
+// the close hook so reopening is always clean.
+(function(){
+  var dlg = document.getElementById('ban-edit-dialog');
+  if (!dlg || !dlg.showModal) return;
+  // Click on the ::backdrop (= outside the dialog box) closes the modal.
+  // Track mousedown so a text-selection drag that ends on the backdrop does
+  // NOT count -- only a press that both starts and ends on the backdrop.
+  var downOnBackdrop = false;
+  dlg.addEventListener('mousedown', function(e){ downOnBackdrop = (e.target === dlg); });
+  dlg.addEventListener('click', function(e){ if (downOnBackdrop && e.target === dlg) dlg.close(); });
+  var h3   = document.getElementById('ban-edit-h');
+  var op   = document.getElementById('ban-edit-op');
+  var id   = document.getElementById('ban-edit-id');
+  var ip   = document.getElementById('ban-edit-ip');
+  var ja4  = document.getElementById('ban-edit-ja4');
+  var scope = document.getElementById('ban-edit-scope');
+  var rsn  = document.getElementById('ban-edit-reason');
+  var dur  = document.getElementById('ban-edit-duration');
+  var act  = document.getElementById('ban-edit-action');
+  var addBtn = document.getElementById('ban-add-btn');
+  var cancel = document.getElementById('ban-edit-cancel');
+  var addLabel  = "{{ t .Lang "bans.dialog.add_h" }}";
+  var editLabel = "{{ t .Lang "bans.dialog.edit_h" }}";
+
+  function reset(){
+    if (op)  op.value  = 'add';
+    if (id)  id.value  = '';
+    if (ip)  ip.value  = '';
+    if (ja4) ja4.value = '';
+    if (scope) scope.value = 'ip_ja4';
+    if (rsn) rsn.value = '';
+    if (dur) dur.value = '0';
+    if (act) act.value = '';
+  }
+  if (addBtn) addBtn.addEventListener('click', function(){
+    reset();
+    if (h3) h3.textContent = addLabel;
+    dlg.showModal();
+    if (ip) ip.focus();
+  });
+  document.querySelectorAll('.js-ban-edit').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      reset();
+      if (op)    op.value    = 'edit';
+      if (id)    id.value    = btn.getAttribute('data-id')     || '';
+      if (ip)    ip.value    = btn.getAttribute('data-ip')     || '';
+      if (ja4)   ja4.value   = btn.getAttribute('data-ja4')    || '';
+      if (scope) scope.value = btn.getAttribute('data-scope')  || 'ip_ja4';
+      if (rsn)   rsn.value   = btn.getAttribute('data-reason') || '';
+      if (act)   act.value   = btn.getAttribute('data-action') || '';
+      // duration_sec on edit means "reset expiry to N from now"; default 0 =
+      // keep / make permanent depending on the manager rule (= 0 = permanent).
+      if (dur)   dur.value   = '0';
+      if (h3)    h3.textContent = editLabel;
+      dlg.showModal();
+      if (ip) ip.focus();
+    });
+  });
+  if (cancel) cancel.addEventListener('click', function(){
+    dlg.close('cancel');
+  });
+  // ESC / backdrop close triggers the native close event; reset on next open
+  // is handled by reset() at the start of the open handlers above.
+})();
+
+</script>
+</body>
+</html>

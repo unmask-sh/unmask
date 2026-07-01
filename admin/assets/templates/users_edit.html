@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "users.edit.title" }} {{ .User.Username }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem;max-width:60rem;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.crumbs{font-size:.85rem;color:#64748b;margin-bottom:.7rem}
+.crumbs a{color:#3b82f6;text-decoration:none}
+.crumbs a:hover{text-decoration:underline}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.05rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.bcd-card .desc{color:#64748b;font-size:.82rem;margin:-.4rem 0 .7rem;line-height:1.55}
+.bcd-card.danger{border-color:#fca5a5;background:#fff7f7}
+.bcd-card.danger h2{color:#991b1b}
+.banner{padding:.6rem .9rem;border-radius:.3rem;margin-bottom:1rem;font-weight:600}
+.banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.role-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.role-superadmin{background:#fee2e2;color:#991b1b}
+.role-admin{background:#dbeafe;color:#1e40af}
+.role-viewer{background:#dcfce7;color:#166534}
+.muted{color:#94a3b8}
+.edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:.9rem 1.2rem}
+.edit-grid .full{grid-column:1/-1}
+.edit-grid label{display:block;font-size:.78rem;color:#64748b;margin-bottom:.2rem;font-weight:600}
+.edit-grid input[type=text],.edit-grid input[type=email],.edit-grid input[type=password],.edit-grid select{width:100%;padding:.45rem .6rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.95rem;background:#fff}
+.edit-grid .check{font-size:.85rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal;margin-bottom:0}
+.actions{display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem}
+.btn{padding:.55rem 1.2rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-weight:600;cursor:pointer;font-size:.92rem}
+.btn:hover{background:#1e293b}
+.btn-secondary{background:#fff;color:#334155;border:1px solid #cbd5e1}
+.btn-secondary:hover{background:#f1f5f9;color:#0f172a}
+.btn-danger{background:#b91c1c}
+.btn-danger:hover{background:#7f1d1d}
+.meta-grid{display:grid;grid-template-columns:auto 1fr;gap:.3rem 1rem;font-size:.88rem;color:#475569}
+.meta-grid dt{color:#64748b}
+.meta-grid dd{margin:0;color:#0f172a}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+      <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+<p class="crumbs"><a href="{{.BasePath}}/admin/users/">← {{ t .Lang "users.title" }}</a></p>
+<h1>{{ t .Lang "users.edit.title" }} <code style="font-size:1.1rem">{{ .User.Username }}</code></h1>
+<p class="meta">{{ t .Lang "users.edit.subtitle" }}</p>
+
+{{ if .Saved }}<div class="banner ok">{{ t .Lang "users.saved" }}</div>{{ end }}
+{{ if .Error }}<div class="banner bad">{{ t .Lang "users.error_prefix" }}{{ .Error }}</div>{{ end }}
+
+<div class="bcd-card">
+  <h2>{{ t .Lang "users.edit.meta_h" }}</h2>
+  <dl class="meta-grid">
+    <dt>{{ t .Lang "users.col.username" }}</dt><dd><strong>{{ .User.Username }}</strong></dd>
+    <dt>{{ t .Lang "users.col.role" }}</dt><dd><span class="role-pill role-{{ .User.Role }}">{{ .User.Role }}</span></dd>
+    <dt>{{ t .Lang "users.col.created" }}</dt><dd><time class="js-datetime" data-ts="{{ .User.CreatedAt.Unix }}">{{ .User.CreatedAt.Format "2006-01-02 15:04" }}</time></dd>
+    <dt>{{ t .Lang "users.col.last_login" }}</dt><dd>{{ if .User.LastLogin.Valid }}<time class="js-datetime" data-ts="{{ .User.LastLogin.Time.Unix }}">{{ .User.LastLogin.Time.Format "2006-01-02 15:04" }}</time>{{ else }}<span class="muted">{{ t .Lang "users.never" }}</span>{{ end }}</dd>
+  </dl>
+</div>
+
+<form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirmSave('{{ .User.Username }}', this)">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+  <input type="hidden" name="op" value="update">
+  <input type="hidden" name="id" value="{{ .User.ID }}">
+  <input type="hidden" name="redirect" value="{{ .BasePath }}/admin/users/{{ .User.ID }}/edit">
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "users.edit.fields_h" }}</h2>
+    <p class="desc">{{ t .Lang "users.edit.fields_desc" }}</p>
+
+    <div class="edit-grid">
+      <div>
+        <label>{{ t .Lang "users.col.role" }}</label>
+        <select name="role">
+          <option value="superadmin" {{ if eq .User.Role "superadmin" }}selected{{ end }}>superadmin</option>
+          <option value="admin" {{ if eq .User.Role "admin" }}selected{{ end }}>admin</option>
+          <option value="viewer" {{ if eq .User.Role "viewer" }}selected{{ end }}>viewer</option>
+        </select>
+      </div>
+      <div>
+        <label>{{ t .Lang "users.col.email" }} <span class="muted">({{ t .Lang "users.optional" }})</span></label>
+        <input type="email" name="email" value="{{ if .User.Email.Valid }}{{ .User.Email.String }}{{ end }}" placeholder="{{ t .Lang "users.placeholder.email" }}">
+      </div>
+      <div class="full">
+        <label class="check"><input type="checkbox" name="alert_opt_out" value="1" {{ if .User.AlertOptOut }}checked{{ end }}> {{ t .Lang "users.col.alert" }} opt-out</label>
+      </div>
+      <div class="full">
+        <label>{{ t .Lang "users.edit.new_password_label" }} <span class="muted">({{ t .Lang "users.edit.new_password_hint" }})</span></label>
+        <input type="password" name="password" placeholder="{{ t .Lang "users.placeholder.new_password" }}" autocomplete="new-password">
+      </div>
+    </div>
+
+    <div class="actions">
+      <a class="btn btn-secondary" href="{{ .BasePath }}/admin/users/">{{ t .Lang "users.new.cancel" }}</a>
+      <button type="submit" class="btn">{{ t .Lang "users.btn.save" }}</button>
+    </div>
+  </div>
+</form>
+
+{{ if and .Me (ne .Me.UserID .User.ID) }}
+<div class="bcd-card danger">
+  <h2>{{ t .Lang "users.edit.danger_h" }}</h2>
+  <p class="desc">{{ t .Lang "users.edit.danger_desc" }}</p>
+  <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirm('Delete user {{ .User.Username }}?')">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <input type="hidden" name="op" value="delete">
+    <input type="hidden" name="id" value="{{ .User.ID }}">
+    <button type="submit" class="btn btn-danger">{{ t .Lang "users.btn.delete" }} {{ .User.Username }}</button>
+  </form>
+</div>
+{{ end }}
+
+</main>
+<script>
+// Confirm "change password" only when the password field has a value.
+// Empty value passes through with no confirm.
+function confirmSave(name, form){
+  var pw = form.querySelector('input[name="password"]');
+  if (pw && pw.value !== '') {
+    return confirm("Reset password for " + name + "?");
+  }
+  return true;
+}
+// js-datetime: render data-ts (unix sec) as localized string (same as users.html).
+</script>
+</body>
+</html>

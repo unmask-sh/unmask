@@ -1,0 +1,102 @@
+# web-apache-body.yaml.in — body for unmask-web-apache (= drops the Apache HTTP
+# Server web-integration snippet under /etc/httpd/conf.d/ (RHEL) or
+# /etc/apache2/conf-available/ (Debian)).
+#
+# default mode = forward-auth via mod_lua + mod_proxy_http (= no ja4 module
+# required).  See /usr/share/unmask/snippets/apache-forward-auth.conf for the
+# full spec.
+
+description: |
+  Apache HTTP Server web integration for unmask.
+  Drops a config in /etc/httpd/conf.d/ so /unmask/admin/, /unmask/challenge/
+  and the forward-auth gateway are reachable through your existing httpd.
+  After install, restart httpd and open https://your-host/unmask/admin/.
+
+depends:
+  - unmask
+
+# Apache package names depend on distro:
+#   - RHEL:   httpd + the mod_lua.so FILE.  mod_lua is a separate `mod_lua` rpm
+#             on RHEL 9/10 but is BUNDLED INSIDE `httpd` on RHEL 8 / CentOS 7
+#             (there is no `mod_lua` package there), so a hard `mod_lua` depend
+#             is unsatisfiable on 8/7.  Depending on the file path resolves to
+#             httpd (8/7) or mod_lua (9/10) automatically -- works on every RHEL.
+#             lua-socket lives in EPEL so it stays a documented manual step.
+#   - Debian: apache2 (mod_lua ships inside apache2-bin -- there is NO separate
+#             libapache2-mod-lua package on Debian 12 / Ubuntu 24.04) + lua-socket
+#   - Alpine: apache2 + apache2-mod-lua + apache2-proxy + lua socket lib
+overrides:
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - httpd
+      - /usr/lib64/httpd/modules/mod_lua.so
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - apache2
+      - lua-socket
+  apk:
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-web-apache.sh
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - apache2
+      - apache2-lua
+      - apache2-proxy
+      # Alpine's apache2-lua (mod_lua) links Lua 5.1, so the luasocket bindings
+      # must match -- lua5.3-socket is invisible to the 5.1 interpreter.
+      - lua5.1-socket
+
+# Destination differs by distro, and nfpm has no conditional inside a single
+# content entry, so every entry carries an explicit `packager:` qualifier and the
+# Apache layout is selected per format:
+#   - rpm (RHEL-family): /etc/httpd/conf.d/unmask-web.conf + /etc/httpd/unmask.lua
+#       (httpd auto-reads conf.d/ and auto-loads mod_proxy)
+#   - deb (Debian-family): conf-available/unmask-web.conf (= symlink, activated by
+#       a2enconf in postinstall) + /etc/apache2/unmask.lua
+#   - apk (Alpine): /etc/apache2/conf.d/unmask-web.conf (= httpd.conf auto-includes
+#       conf.d/) + /etc/apache2/unmask.lua
+# The Lua file path must match what the snippet documents per distro
+# (= /etc/httpd/unmask.lua on RHEL, /etc/apache2/unmask.lua on Debian/Alpine);
+# without the apk/deb entries the LuaHookAccessChecker path in the docs is absent.
+contents:
+  # --- rpm (RHEL-family): /etc/httpd ---
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /etc/httpd/conf.d/unmask-web.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
+    packager: rpm
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/httpd/unmask.lua
+    file_info:
+      mode: 0644
+    packager: rpm
+  # --- deb (Debian-family): /etc/apache2 (conf-available + a2enconf) ---
+  - src: /usr/share/unmask/snippets/apache-forward-auth.conf
+    dst: /etc/apache2/conf-available/unmask-web.conf
+    type: symlink
+    packager: deb
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/apache2/unmask.lua
+    file_info:
+      mode: 0644
+    packager: deb
+  # --- apk (Alpine): /etc/apache2/conf.d (auto-included by httpd.conf) ---
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /etc/apache2/conf.d/unmask-web.conf
+    type: config|noreplace
+    file_info:
+      mode: 0644
+    packager: apk
+  - src: ../snippets/apache-unmask.lua
+    dst: /etc/apache2/unmask.lua
+    file_info:
+      mode: 0644
+    packager: apk
+
+scripts:
+  postinstall: ./scripts/postinstall-web-apache.sh
+  postremove:  ./scripts/postremove-web-apache.sh

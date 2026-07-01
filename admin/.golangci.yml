@@ -1,0 +1,95 @@
+# golangci-lint config for the admin/ module.
+# Keeps the set conservative for v0.1 (= rejects only the obvious smell);
+# linters are added back over time as the codebase tightens.
+
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.25"
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck       # unchecked errors
+    - govet          # superset of `go vet`
+    - ineffassign    # ineffectual assignments
+    - staticcheck    # bug-prone patterns + dead code
+    - unused         # unused funcs / vars / fields
+    - gosec          # security smell (= weak crypto, exec without sanitization)
+    - misspell       # common English typos in comments / strings
+    - revive         # gofmt-style style guard
+  settings:
+    errcheck:
+      # Best-effort cleanup / CLI-output calls whose error is conventionally
+      # ignored.  Keeps errcheck focused on returns that actually matter.
+      exclude-functions:
+        - (*database/sql.Rows).Close
+        - (*database/sql.Stmt).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.DB).Close
+        - (*database/sql.Conn).Close
+        - (*strings.Builder).WriteString   # documented to always return a nil error
+        - (*strings.Builder).WriteByte
+        - (*strings.Builder).WriteRune
+        - (*bytes.Buffer).WriteString
+        - (*bytes.Buffer).Write
+        # Best-effort defer Close + diagnostic Fprint/Write whose error is
+        # conventionally dropped (cleanup paths, CLI / metrics output).
+        - (*os.File).Close
+        - (*os.File).Write
+        - os.Remove
+        - os.RemoveAll
+        - (net.Listener).Close
+        - (net.Conn).Close
+        - (io.ReadCloser).Close
+        - (*compress/gzip.Reader).Close
+        - (*net/smtp.Client).Close
+        - (*github.com/oschwald/maxminddb-golang.Reader).Close
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Sscanf
+    gosec:
+      excludes:
+        - G104        # we deliberately ignore some err returns in best-effort cleanup paths
+        - G304        # file inclusion via variable — config paths come from settings / env, validated upstream
+        - G404        # math/rand for non-crypto contexts is fine (jitter, etc.)
+        - G115        # int overflow on conversion — go 1.21+ produces a panic, callers gate ranges already
+        - G101        # cookie / header / token NAMES + i18n strings trip this; no real secret is hardcoded
+        - G401        # HMAC-SHA1 for the _bv cookie is an intentional, documented design (SHA-1 collisions don't weaken HMAC)
+        - G505        # crypto/sha1 import backs that same _bv HMAC
+        # Perms (G301/302/306): unmask is an nginx integration, so it deliberately
+        # writes nginx-readable config / community-bans maps / GeoIP mmdb + the
+        # traversable dirs that hold them.  Reviewed -- every flagged write is
+        # non-secret; the only secret-bearing file (http.inc, carries
+        # unmask_bv_secret) is forced to 0640 in the postinstall, never via these.
+        - G301        # nginx-traversable dirs (0755) so nginx, a different user, reaches the rendered configs
+        - G302        # 0640 / 0644 config / maps / mmdb -- group/world-read for nginx + the daemon group
+        - G306        # WriteFile of those same nginx-read maps + non-secret sync metadata
+        # Taint-analysis rules (flow-insensitive; can't see cross-function
+        # validation).  Every flagged site reviewed -- notes per rule:
+        - G118        # ban-apply / hunt goroutines intentionally outlive the request ctx
+        - G120        # every ParseMultipartForm passes an explicit 4<<20 byte limit
+        - G203        # template.HTML/JS wrap server i18n / computed JSON, never visitor input
+        - G204        # subprocess = fixed package-manager update commands / self re-exec
+        - G702        # syscall.Exec self re-exec uses the resolved own-binary path, not user input
+        - G703        # ReadFile paths come from settings / env (crawler-list, config), validated
+        - G704        # outbound pulls use the operator-set FeedURL, not a visitor value
+        - G705        # Write / Fprintf targets are challenge HTML / metrics, server-generated
+        - G706        # log.Printf of ip / path -- admin-only logs, no untrusted sink
+        - G710        # redirects pass isLocalRedirect (rejects //host and /\host) upstream
+        - G124        # cookies set Secure dynamically from request TLS (setup wizard needs HTTP)
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: error-naming
+        - name: error-return
+        - name: increment-decrement
+        - name: var-declaration
+  exclusions:
+    rules:
+      - path: _test\.go$
+        linters: [gosec, errcheck]   # test fixtures intentionally ignore errors

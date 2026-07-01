@@ -1,0 +1,45 @@
+# Override of docker-compose.yml that drives the admin daemon over a UNIX
+# DOMAIN SOCKET instead of TCP, to e2e the socket listen path + the rendered
+# `server unix:...;` upstream.  Run via:  make e2e-docker-socket
+#
+# admin and nginx are separate containers sharing the /run/unmask tmpfs.  admin
+# runs as root, the nginx worker as the `nginx` user -- different containers, no
+# shared supplementary group -- so the socket must be 0666 (group ownership
+# can't bridge two containers).  This is exactly the world-writable case unmask
+# supports for setup-free / cross-namespace connect, and adminClientIP's
+# peer-gating means a unix-socket peer can't spoof forwarded headers anyway.
+name: unmask-e2e
+
+services:
+  admin:
+    # Rewrite the TCP server.bind to a unix socket and drop the explicit
+    # nginx.upstream_addr so render-nginx derives `server unix:/run/unmask/http.sock;`
+    # straight from server.bind.  socket_mode 0666 lets the nginx-user worker in
+    # the other container connect (no shared group across container boundaries).
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        sed -i 's#^  bind: 0.0.0.0#  bind: unix:/run/unmask/http.sock#' /etc/unmask/admin.yml
+        sed -i '/^  upstream_addr: admin:9477/d' /etc/unmask/admin.yml
+        grep -q '^  socket_mode:' /etc/unmask/admin.yml || \
+          sed -i '/^  base_path: \/unmask/a\  socket_mode: "0666"' /etc/unmask/admin.yml
+        /usr/local/bin/unmask migrate      -config /etc/unmask/admin.yml
+        /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+        exec /usr/local/bin/unmask serve   -config /etc/unmask/admin.yml
+    healthcheck:
+      # No TCP port to probe in socket mode; the socket file appearing means
+      # serve is listening (command order migrate -> render -> serve, so the
+      # rendered conf the nginx container reads is already in place).
+      test: ["CMD", "test", "-S", "/run/unmask/http.sock"]
+      interval: 2s
+      timeout: 1s
+      retries: 30
+
+  # Apache talks plain HTTP/TCP to admin (no shared socket volume), so it can't
+  # reach a socket-only admin.  Park it behind a profile so socket mode doesn't
+  # start it; scenario 14 (apache forward-auth) is skipped in run.sh to match.
+  apache:
+    profiles: ["tcp-only"]

@@ -1,0 +1,11 @@
+-- 0001 baseline: schema v1 (= initial release).
+--
+-- No SQL is written here.  The v1 baseline (= initial schema for all tables) is
+-- applied by migrate.go's legacy path (= ensure* + CREATE TABLE IF NOT EXISTS block).
+--
+-- This file is a marker for the migration framework.  Existing v0.1 DBs are
+-- detected as "v1 applied" by markBaselineIfNeeded() and this file is not
+-- executed (= splitStatements returns an empty list, so 0 Exec calls).  On fresh
+-- install, this marker is INSERTed after the legacy schema SQL has created the tables.
+--
+-- v0.2 and later deltas are appended as numbered files: 0002_xxx.sql / 0003_xxx.sql / ...

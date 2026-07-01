@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "setup.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px;overflow-y:scroll}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:3rem 1rem 2rem;background:linear-gradient(135deg,#0f172a 0%,#1e293b 100%);color:#0f172a;min-height:100vh;display:flex;align-items:flex-start;justify-content:center}
+.wizard{background:#fff;border-radius:.6rem;box-shadow:0 1.5rem 3rem rgba(0,0,0,.25);width:100%;max-width:56rem;overflow:hidden}
+.wizard-header{padding:1.6rem 2rem 1.2rem;background:#f8fafc;border-bottom:.0625rem solid #e2e8f0;position:relative}
+.wizard-header h1{margin:0;font-size:1.4rem;font-weight:700;display:flex;align-items:center;gap:.6rem;color:#0f172a}
+.wizard-header h1 svg{color:#3b82f6}
+.wizard-lang{position:absolute;top:.95rem;right:1.2rem;font-size:.8rem}
+.wizard-lang select{font:inherit;color:#0f172a;background:#fff;border:.0625rem solid #cbd5e1;border-radius:.3rem;padding:.25rem 1.6rem .25rem .55rem;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:linear-gradient(45deg,transparent 50%,#64748b 50%),linear-gradient(135deg,#64748b 50%,transparent 50%);background-position:calc(100% - .65rem) 50%,calc(100% - .4rem) 50%;background-size:.3rem .3rem,.3rem .3rem;background-repeat:no-repeat}
+.wizard-lang select:hover{border-color:#94a3b8}
+.wizard-lang select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 .1875rem rgba(59,130,246,.15)}
+.wizard-steps{display:flex;gap:.6rem;margin-top:1rem;font-size:.8rem;color:#94a3b8}
+.wizard-steps .s{flex:1;padding:.4rem .5rem;border-radius:.3rem;background:#e2e8f0;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wizard-steps .s.active{background:#3b82f6;color:#fff;font-weight:600}
+.wizard-steps .s.done{background:#10b981;color:#fff}
+.wizard-body{padding:1.8rem 2rem}
+.wizard-body h2{font-size:1.15rem;margin:0 0 .8rem;color:#0f172a}
+.wizard-body p.lead{font-size:.95rem;color:#475569;line-height:1.6;margin:0 0 1.2rem}
+.field{margin-bottom:1rem}
+.field label{display:block;font-size:.825rem;color:#475569;font-weight:600;margin-bottom:.3rem}
+.field input,.field select{width:100%;padding:.55rem .7rem;font-size:.95rem;border:.0625rem solid #cbd5e1;border-radius:.3rem;font-family:inherit}
+.field input:focus,.field select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 .1875rem rgba(59,130,246,.15)}
+.field .hint{font-size:.78rem;color:#64748b;margin-top:.2rem;line-height:1.5}
+.driver-row{display:grid;grid-template-columns:1fr 1fr;gap:.8rem;margin-bottom:1.2rem}
+.driver-card{padding:1rem 1.2rem;border:.125rem solid #e2e8f0;border-radius:.4rem;cursor:pointer;text-align:center;transition:all .15s}
+.driver-card:hover{border-color:#94a3b8;background:#f8fafc}
+.driver-card.selected{border-color:#3b82f6;background:#dbeafe;box-shadow:0 0 0 .1875rem rgba(59,130,246,.1)}
+.driver-card input{display:none}
+.driver-card strong{display:block;font-size:1rem;margin-bottom:.2rem;color:#0f172a}
+.driver-card .desc{font-size:.78rem;color:#64748b;line-height:1.5}
+.btn{display:inline-block;padding:.6rem 1.6rem;font-size:.95rem;background:#3b82f6;color:#fff;border:none;border-radius:.3rem;cursor:pointer;font-weight:600;text-decoration:none}
+.btn:hover{background:#2563eb}
+.btn-secondary{background:#94a3b8}
+.btn-secondary:hover{background:#64748b}
+.alert{padding:.7rem .9rem;border-radius:.3rem;font-size:.875rem;margin-bottom:1rem;line-height:1.5}
+.alert-error{background:#fee2e2;color:#991b1b;border:.0625rem solid #fca5a5}
+.mariadb-fields{display:none}
+.mariadb-fields.show{display:block}
+.sqlite-fields.hide{display:none}
+.actions{display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1.2rem;border-top:.0625rem solid #e2e8f0}
+.row-2{display:grid;grid-template-columns:2fr 1fr;gap:.6rem}
+/* mode picker: 3 cards stacked on narrow, side-by-side on wide */
+</style>
+</head>
+<body>
+<div class="wizard">
+  <div class="wizard-header">
+    <div class="wizard-lang">
+      <select id="wizard-lang-select" aria-label="language">
+        {{ range .LangOptions }}
+        <option value="{{ .Code }}" {{ if eq .Code (printf "%s" $.Lang) }}selected{{ end }}>{{ .Name }}</option>
+        {{ end }}
+      </select>
+    </div>
+    <h1>
+      <img src="/unmask/static/icon.png" alt="" width="28" height="28" style="display:inline-block;vertical-align:middle;border-radius:.3rem;margin-right:.3em">
+      {{ t .Lang "setup.title" }}
+    </h1>
+    <div class="wizard-steps">
+      <div class="s {{ if eq .Step "token" }}active{{ else }}done{{ end }}">1. {{ t .Lang "setup.step.token" }}</div>
+      <div class="s {{ if eq .Step "db" }}active{{ else if or (eq .Step "user") (eq .Step "review") (eq .Step "done") }}done{{ end }}">2. {{ t .Lang "setup.step.db" }}</div>
+      <div class="s {{ if eq .Step "user" }}active{{ else if or (eq .Step "review") (eq .Step "done") }}done{{ end }}">3. {{ t .Lang "setup.step.user" }}</div>
+      <div class="s {{ if eq .Step "review" }}active{{ else if eq .Step "done" }}done{{ end }}">4. {{ t .Lang "setup.step.review" }}</div>
+      <div class="s {{ if eq .Step "done" }}active{{ end }}">5. {{ t .Lang "setup.step.done" }}</div>
+    </div>
+  </div>
+  <div class="wizard-body">
+    {{ if .Error }}<div class="alert alert-error">{{ .Error }}</div>{{ end }}
+    {{ if and .Reconfigure (eq .Step "db") }}<div class="alert" style="background:#1e293b;border:1px solid #334155;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;color:#cbd5e1">{{ safeHTML (t .Lang "setup.reconfigure.banner") }}</div>{{ end }}
+
+    {{ if eq .Step "token" }}
+    <h2>{{ t .Lang "setup.token.h" }}</h2>
+    <p class="lead">{{ safeHTML (t .Lang "setup.token.lead") }}</p>
+    <form method="post" action="{{ .BasePath }}/admin/setup/token">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <div class="field">
+        <label>{{ t .Lang "setup.token.label" }}</label>
+        <input type="text" name="token" autofocus required style="font-family:ui-monospace,monospace" placeholder="...">
+        <div class="hint">{{ safeHTML (t .Lang "setup.token.hint") }}</div>
+      </div>
+      <div class="actions">
+        <span></span>
+        <button type="submit" class="btn">{{ t .Lang "setup.btn.verify_token" }}</button>
+      </div>
+    </form>
+    {{ end }}
+
+    {{ if eq .Step "db" }}
+    <h2>{{ t .Lang "setup.db.h" }}</h2>
+    <p class="lead">{{ safeHTML (t .Lang "setup.db.lead") }}</p>
+    <form method="post" action="{{ .BasePath }}/admin/setup/db">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <div class="driver-row">
+        <label class="driver-card {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}selected{{ end }}" data-driver="sqlite">
+          <input type="radio" name="driver" value="sqlite" {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}checked{{ end }}>
+          <strong>SQLite</strong>
+          <div class="desc">{{ t .Lang "setup.db.sqlite_desc" }}</div>
+        </label>
+        <label class="driver-card {{ if eq .DB.Driver "mariadb" }}selected{{ end }}" data-driver="mariadb">
+          <input type="radio" name="driver" value="mariadb" {{ if eq .DB.Driver "mariadb" }}checked{{ end }}>
+          <strong>MariaDB / MySQL</strong>
+          <div class="desc">{{ t .Lang "setup.db.mariadb_desc" }}</div>
+        </label>
+      </div>
+      <div class="sqlite-fields {{ if eq .DB.Driver "mariadb" }}hide{{ end }}">
+        <div class="field">
+          <label>{{ t .Lang "setup.db.sqlite_path" }}</label>
+          <input type="text" name="sqlite_path" value="{{ if .DB.SQLitePath }}{{ .DB.SQLitePath }}{{ else }}/var/lib/unmask/unmask.sqlite{{ end }}" placeholder="/var/lib/unmask/unmask.sqlite">
+          <div class="hint">{{ t .Lang "setup.db.sqlite_path_hint" }}</div>
+        </div>
+      </div>
+      <div class="mariadb-fields {{ if eq .DB.Driver "mariadb" }}show{{ end }}">
+        <div class="row-2">
+          <div class="field">
+            <label>{{ t .Lang "setup.db.host" }}</label>
+            <input type="text" name="mariadb_host" value="{{ if .DB.MariaDB.Host }}{{ .DB.MariaDB.Host }}{{ else }}127.0.0.1{{ end }}">
+          </div>
+          <div class="field">
+            <label>{{ t .Lang "setup.db.port" }}</label>
+            <input type="number" name="mariadb_port" value="{{ if gt .DB.MariaDB.Port 0 }}{{ .DB.MariaDB.Port }}{{ else }}3306{{ end }}">
+          </div>
+        </div>
+        <div class="field">
+          <label>{{ t .Lang "setup.db.database" }}</label>
+          <input type="text" name="mariadb_database" value="{{ .DB.MariaDB.Database }}" placeholder="unmask">
+          <div class="hint">{{ safeHTML (t .Lang "setup.db.database_hint") }}</div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label>{{ t .Lang "setup.db.user" }}</label>
+            <input type="text" name="mariadb_user" value="{{ .DB.MariaDB.User }}" placeholder="unmask">
+          </div>
+          <div class="field">
+            <label>{{ t .Lang "setup.db.password" }}</label>
+            <input type="password" name="mariadb_password" autocomplete="new-password" placeholder="*****">
+          </div>
+        </div>
+      </div>
+      {{ if .Reconfigure }}<div class="hint" style="background:#3b2f1e;border:1px solid #6b4f1e;border-radius:.4rem;padding:.6rem .8rem;margin:.6rem 0;color:#fcd34d;font-size:.8rem">{{ safeHTML (t .Lang "setup.reconfigure.db_warning") }}</div>{{ end }}
+      <div class="actions">
+        <span class="hint" style="font-size:.78rem;color:#94a3b8">{{ t .Lang "setup.db.note" }}</span>
+        <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
+      </div>
+    </form>
+    <script>
+    document.querySelectorAll('.driver-card').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.driver-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        card.querySelector('input').checked = true;
+        var d = card.dataset.driver;
+        document.querySelector('.sqlite-fields').classList.toggle('hide', d !== 'sqlite');
+        document.querySelector('.mariadb-fields').classList.toggle('show', d === 'mariadb');
+      });
+    });
+    </script>
+    {{ end }}
+
+    {{ if eq .Step "user" }}
+    <h2>{{ t .Lang "setup.user.h" }}</h2>
+    <p class="lead">{{ safeHTML (t .Lang "setup.user.lead") }}</p>
+    {{ if .Reconfigure }}{{ if .TargetHasUser }}<p class="hint" style="background:#16321e;border:1px solid #2f6b3e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#86efac;font-size:.82rem">{{ safeHTML (tf .Lang "setup.reconfigure.user_keep_or_new" .TargetUsers) }}</p>{{ else }}<p class="hint" style="background:#3b2f1e;border:1px solid #6b4f1e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#fcd34d;font-size:.82rem">{{ safeHTML (t .Lang "setup.reconfigure.user_new_admin") }}</p>{{ end }}{{ end }}
+    <form method="post" action="{{ .BasePath }}/admin/setup/user">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <div class="field">
+        <label>{{ t .Lang "setup.user.username" }}</label>
+        <input type="text" name="username" autocomplete="username" required placeholder="admin" value="{{ .PrefillUsername }}">
+        <div class="hint">{{ safeHTML (t .Lang "setup.user.username_hint") }}</div>
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "setup.user.password" }}</label>
+        <input type="password" name="password" autocomplete="new-password" required minlength="8" placeholder="********">
+        <div class="hint">{{ t .Lang "setup.user.password_hint" }}</div>
+      </div>
+      <div class="field">
+        <label>{{ t .Lang "setup.user.password_confirm" }}</label>
+        <input type="password" name="password_confirm" id="su_pwc" autocomplete="new-password" required minlength="8" data-mismatch="{{ t .Lang "setup.err.password_mismatch" }}">
+      </div>
+      <div class="actions">
+        <a href="?step=db" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_db" }}</a>
+        <button type="submit" class="btn" style="order:2">{{ t .Lang "setup.btn.next" }}</button>
+        {{ if and .Reconfigure .TargetHasUser }}<button type="submit" name="action" value="skip" formnovalidate class="btn btn-secondary" style="order:1" title="{{ t .Lang "setup.btn.skip_user_hint" }}">{{ t .Lang "setup.btn.skip_user" }}</button>{{ end }}
+      </div>
+    </form>
+    <script>
+    (function(){
+      var p=document.querySelector('input[name="password"]'), c=document.getElementById('su_pwc');
+      if(!p||!c) return;
+      function chk(){ c.setCustomValidity(c.value && p.value!==c.value ? (c.dataset.mismatch||'') : ''); }
+      p.addEventListener('input',chk); c.addEventListener('input',chk);
+    })();
+    </script>
+    {{ end }}
+
+    {{ if eq .Step "review" }}
+    <h2>{{ t .Lang "setup.review.h" }}</h2>
+    <p class="lead">{{ safeHTML (t .Lang "setup.review.lead") }}</p>
+    <table class="review-table">
+      <tr><th>{{ t .Lang "setup.review.db" }}</th>
+          <td>{{ if eq .ReviewDriver "sqlite" }}SQLite — <code>{{ .ReviewSQLitePath }}</code>{{ else }}MariaDB / MySQL — {{ .ReviewMariaDBUser }}@{{ .ReviewMariaDBHost }}:{{ .ReviewMariaDBPort }}/{{ .ReviewMariaDBDB }}{{ end }}</td></tr>
+      <tr><th>{{ t .Lang "setup.review.admin" }}</th>
+          <td>{{ if .ReviewUsername }}<code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }}){{ else }}<em>{{ t .Lang "setup.review.keep_existing" }}</em>{{ end }}</td></tr>
+    </table>
+    {{ if .Reconfigure }}{{ if .TargetHasData }}<p class="hint" style="background:#3b2f1e;border:1px solid #6b4f1e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#fcd34d;font-size:.82rem">{{ safeHTML (tf .Lang "setup.reconfigure.target_has_data" .TargetUsers .TargetEvents) }}</p>{{ else }}<p class="hint" style="background:#16321e;border:1px solid #2f6b3e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#86efac;font-size:.82rem">{{ safeHTML (t .Lang "setup.reconfigure.target_empty") }}</p>{{ end }}{{ end }}
+    {{ if .NoChange }}
+    <p class="hint" style="background:#1e293b;border:1px solid #475569;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#cbd5e1;font-size:.82rem">{{ safeHTML (t .Lang "setup.reconfigure.no_change") }}</p>
+    <div class="actions">
+      <a href="?step=db" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_db" }}</a>
+      <a href="{{ .BasePath }}/admin/" class="btn">{{ t .Lang "setup.btn.go_dashboard" }}</a>
+    </div>
+    {{ else }}
+    <form method="post" action="{{ .BasePath }}/admin/setup/install">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <div class="actions">
+        <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
+        <button type="submit" class="btn">{{ t .Lang "setup.btn.install" }}</button>
+      </div>
+    </form>
+    {{ end }}
+    <style>
+    .review-table{width:100%;border-collapse:collapse;margin-bottom:1rem;font-size:.92rem}
+    .review-table th,.review-table td{padding:.6rem .7rem;border-bottom:.0625rem solid #e2e8f0;text-align:left;vertical-align:top}
+    .review-table th{background:#f8fafc;color:#475569;font-weight:600;width:30%}
+    .review-table code{background:#e2e8f0;padding:.05em .35em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;font-size:.88em}
+    </style>
+    {{ end }}
+
+    {{ if eq .Step "done" }}
+    <h2>🎉 {{ t .Lang "setup.done.h" }}</h2>
+    {{ if .RestartRequired }}
+    <p class="lead" style="background:#fef3c7;border-left:.25rem solid #f59e0b;padding:.8rem 1rem;border-radius:.25rem">{{ safeHTML (t .Lang "setup.done.restart_required") }}</p>
+    <script>setTimeout(function(){location.href='{{ .BasePath }}/admin/'},12000)</script>
+    {{ end }}
+    <p class="lead">{{ safeHTML (t .Lang "setup.done.lead") }}</p>
+    <div class="actions" style="justify-content:flex-end">
+      <a href="{{ .BasePath }}/admin/" class="btn">{{ t .Lang "setup.btn.go_login" }}</a>
+    </div>
+    {{ end }}
+  </div>
+</div>
+<script>
+// Wizard language picker: write the unmask_locale cookie (read server-side
+// by i18n.Resolve) and reload.  Stays consistent with the full lang_tz_picker
+// used elsewhere; we only need the locale dimension here.
+(function(){
+  var sel = document.getElementById('wizard-lang-select');
+  if (!sel) return;
+  sel.addEventListener('change', function(){
+    var loc = sel.value;
+    document.cookie = 'unmask_locale=' + encodeURIComponent(loc) + '; path=/; max-age=' + (60*60*24*365) + '; SameSite=Lax';
+    try { localStorage.setItem('unmask:locale', loc); } catch(e) {}
+    location.reload();
+  });
+})();
+</script>
+</body>
+</html>

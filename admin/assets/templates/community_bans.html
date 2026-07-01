@@ -1,0 +1,1593 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "community_bans.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+.muted{color:#94a3b8}
+.card-h-row{display:flex;align-items:center;gap:.6rem;margin:0 0 .75rem}
+.card-h-row h2{flex:1;margin:0}
+.toggle-switch{position:relative;display:inline-flex;align-items:center;gap:.5rem;cursor:pointer;user-select:none;font-size:.85rem;color:#475569}
+.toggle-switch input[type=checkbox]{position:absolute;opacity:0;width:0;height:0}
+.toggle-switch .slider{position:relative;display:inline-block;width:2.5rem;height:1.4rem;background:#cbd5e1;border-radius:.7rem;transition:background .15s}
+.toggle-switch .slider::before{content:"";position:absolute;top:.15rem;left:.15rem;width:1.1rem;height:1.1rem;background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle-switch input:checked + .slider{background:#16a34a}
+.toggle-switch input:checked + .slider::before{transform:translateX(1.1rem)}
+.toggle-switch .lbl{font-weight:600;color:#0f172a}
+.counts{display:flex;gap:1rem;flex-wrap:wrap;font-size:.85rem;margin-bottom:.6rem}
+.counts .pill{display:inline-flex;align-items:center;gap:.4rem;padding:.2rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f8fafc}
+.counts .pill strong{font-weight:700;color:#0f172a}
+.filter-bar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin-bottom:.6rem;font-size:.85rem}
+.filter-bar input[type=text]{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;min-width:14rem;font-size:.85rem}
+.filter-bar select{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;font-size:.85rem}
+.filter-bar button{padding:.3rem .8rem;border:1px solid #0f172a;border-radius:.2rem;background:#0f172a;color:#fff;cursor:pointer;font-size:.85rem}
+.filter-bar a.reset{padding:.3rem .5rem;color:#475569;text-decoration:none;font-size:.85rem}
+table.feed{width:100%;border-collapse:collapse;font-size:.85rem}
+table.feed{table-layout:fixed} /* Fixed layout: each cell honours max-width / overflow rules below instead of stretching to fit content. */
+/* col widths below sum to ~100% of the wrap; any leftover gets proportionally
+ * distributed by the fixed-layout algorithm, so keep the sum close to the
+ * actual wrap width to make the narrow columns (score / match / votes) really
+ * stay narrow. */
+table.feed thead th{text-align:left;padding:.4rem .55rem;border-bottom:1px solid #cbd5e1;border-right:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;background:#f8fafc}
+table.feed thead th:last-child{border-right:none}
+table.feed tbody td{padding:.5rem .55rem;border-bottom:1px solid #f1f5f9;border-right:1px solid #f1f5f9;vertical-align:top;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+table.feed tbody td:last-child{border-right:none}
+table.feed tbody tr:hover{background:#f8fafc}
+/* Time cells: inline <time> elements still need an explicit line-height so
+ * their first line sits exactly where the clamp-cell's first line does. */
+table.feed tbody td>time.js-datetime{display:inline-block;line-height:1.4}
+/* Cap each column.  Reason / comment cells are single-line ellipsis (the full
+ * text is exposed by hovering the cell -- title= on the td).  Time columns
+ * wide enough for the YYYY/M/D HH:MM:SS the toLocaleString() formatter
+ * produces on the desktop locales we care about. */
+/* Percentages over the wrap so each column gets its share regardless of how
+ * wide the host viewport is.  Narrow columns (score / match / votes) hold
+ * their ground; wide ones (reason / comment / ja4) absorb the leftover. */
+table.feed col.col-marker{width:2%}
+table.feed col.col-score{width:5%}
+table.feed col.col-match{width:5%}
+table.feed col.col-status{width:3%}
+table.feed col.col-ip{width:11%}
+table.feed col.col-ja4{width:14%}
+table.feed col.col-votes{width:9%}
+table.feed col.col-reason{width:15%}
+table.feed col.col-comments{width:17%}
+table.feed col.col-time{width:14%}
+/* SCORE / MATCH / 適用 列は中身が短い → 折り返し抑止で 1 行に保つ */
+table.feed thead th:nth-child(2),table.feed thead th:nth-child(3),table.feed thead th:nth-child(4),table.feed tbody td:nth-child(2),table.feed tbody td:nth-child(3),table.feed tbody td:nth-child(4){white-space:nowrap}
+/* status column (= 適用 badge / toggle button): 1-char icons, never clip. */
+table.feed tbody td:nth-child(4){overflow:visible;text-overflow:clip}
+table.feed td.clamp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Inside the comments column the .cmt spans render inline (no chip styling)
+ * so multiple comments collapse onto a single line + ellipsis once overflow
+ * triggers.  Detail-panel .cmt (= block chip) is unaffected by this scope. */
+table.feed td.clamp .cmt{display:inline;background:transparent;padding:0;margin:0;font-size:inherit;border-radius:0}
+table.feed td.clamp .cmt + .cmt::before{content:" · ";color:#94a3b8;padding:0 .1rem}
+/* Sort header link: every sortable column shows a permanent "⇅" affordance so
+ * the operator can tell at a glance which headers click.  The arrow turns into
+ * the active direction (▼ / ▲) once that column drives the sort.  Hover
+ * darkens the label to confirm it's interactive even before clicking. */
+table.feed thead th.sortable{cursor:pointer}
+table.feed thead th.sortable a.sort-link{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:.2rem;cursor:pointer}
+table.feed thead th.sortable a.sort-link::after{content:"⇅";font-size:.65rem;color:#cbd5e1;margin-left:.05rem}
+table.feed thead th.sortable a.sort-link:hover{color:#0f172a}
+table.feed thead th.sortable a.sort-link:hover::after{color:#64748b}
+table.feed thead th.sortable a.sort-link.active{color:#0f172a;text-decoration:underline}
+table.feed thead th.sortable a.sort-link.active::after{content:""} /* arrow replaced by .sort-arrow span */
+table.feed thead th .sort-arrow{font-size:.6rem;color:#3b82f6}
+/* votes header: label on top, mini sort icons (= 📍 / 👍 / 💬) on the line
+ * below.  white-space:nowrap on the row keeps the three icons together even
+ * when the column is at its minimum width. */
+table.feed thead th.votes-th{display:table-cell}
+table.feed thead th .th-label{display:block}
+table.feed thead th .sort-mini{display:block;margin-top:.15rem;font-size:.85rem;white-space:nowrap;line-height:1}
+table.feed thead th .sort-mini a{text-decoration:none;opacity:.55;display:inline-block;margin-right:.3rem;white-space:nowrap}
+table.feed thead th .sort-mini a:last-child{margin-right:0}
+table.feed thead th .sort-mini a:hover{opacity:1}
+table.feed thead th .sort-mini a.active{opacity:1;text-decoration:underline}
+table.feed tbody tr:hover{background:#f8fafc}
+table.feed tbody tr.feed-row.not-promoted td:not(:first-child){opacity:.72}
+table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
+/* Row status colour-coding -- mirrors the match-cell badge so the table reads
+ * at a glance.  Coloured left edge + a faint tint; the badge stays for the
+ * exact wording and as a non-colour cue.  The legend above the table explains
+ * each colour. */
+table.feed tbody tr.feed-row td:first-child{border-left:3px solid transparent}
+table.feed tbody tr.row-enforced td:first-child{border-left-color:#16a34a}
+table.feed tbody tr.row-promoted td:first-child{border-left-color:#3b82f6}
+table.feed tbody tr.row-reports  td:first-child{border-left-color:#cbd5e1}
+table.feed tbody tr.row-bypassed td:first-child{border-left-color:#f59e0b}
+table.feed tbody tr.row-enforced{background:#f0fdf4}
+table.feed tbody tr.row-promoted{background:#eff6ff}
+table.feed tbody tr.row-bypassed{background:#fffbeb}
+table.feed tbody tr.row-enforced:hover{background:#dcfce7}
+table.feed tbody tr.row-promoted:hover{background:#dbeafe}
+table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
+/* row-reports keeps the neutral baseline (no tint) but a grey edge. */
+.status-legend{display:flex;flex-wrap:wrap;gap:.5rem;margin:.5rem 0 .75rem;font-size:.72rem}
+.status-legend .leg{display:inline-flex;align-items:center;padding:.1rem .5rem;border-radius:.2rem;border-left:3px solid transparent;color:#475569}
+.status-legend .leg-enforced{background:#f0fdf4;border-left-color:#16a34a}
+.status-legend .leg-promoted{background:#eff6ff;border-left-color:#3b82f6}
+.status-legend .leg-reports{background:#f8fafc;border-left-color:#cbd5e1}
+.status-legend .leg-bypassed{background:#fffbeb;border-left-color:#f59e0b}
+.match-pill{display:inline-block;padding:.05rem .45rem;border-radius:.2rem;font-size:.72rem;font-weight:600}
+.match-ip_ja4{background:#fee2e2;color:#991b1b}
+.match-ja4_only{background:#fef3c7;color:#92400e}
+.match-ip_only{background:#dbeafe;color:#1e3a8a}
+.confidence{display:inline-block;width:3.5rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem}
+.score-pill{display:inline-flex;align-items:center;gap:.25rem;padding:.05rem .45rem;border-radius:.2rem;font-size:.78rem;font-weight:600;cursor:help}
+.score-5{background:#fee2e2;color:#7f1d1d}
+.score-4{background:#fed7aa;color:#9a3412}
+.score-3{background:#fef3c7;color:#92400e}
+.score-2{background:#e0f2fe;color:#075985}
+.score-1{background:#f1f5f9;color:#475569}
+.score-0{color:#94a3b8;font-size:.85rem}
+/* Single-line votes cell: reports / good / bad / comments stay on one row.
+ * white-space:nowrap on the children keeps "📍 5/3" / "👍 2" from breaking
+ * mid-token, and the row itself doesn't wrap -- the column is sized to fit
+ * the widest realistic combination of the four. */
+.votes-td{display:inline-flex;flex-wrap:nowrap;align-items:center;gap:.35rem;white-space:nowrap}
+.votes-td>*{white-space:nowrap}
+.reports-badge{display:inline-flex;align-items:center;gap:.15rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;cursor:help}
+.votes-cell{display:inline-flex;gap:.35rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+.votes-cell .like{color:#15803d}
+.votes-cell .bad{color:#b91c1c}
+.votes-cell .cmt-count{color:#1e40af}
+/* status badges sit on their own line under the match pill so a narrow
+ * match column doesn't wrap them mid-text. */
+/* Status badges sit inline next to the match-pill so the row stays one line.
+ * They are icon-only -- the textual label moved into title= so the operator
+ * can still read "適用中 / 配信対象 / 報告のみ / 適用外" on hover.  The colour
+ * still carries the meaning at a glance: green=enforced, blue=propagated,
+ * grey=reports-only, amber=bypassed-allowlist. */
+.enforced-badge,.promoted-badge,.reports-only-badge,.not-applied-badge,.bypassed-badge,.muted-badge{display:inline-block;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
+.muted-badge{background:#fee2e2;color:#991b1b}
+/* mute-toggle-btn-badge: strip <button> chrome so it looks like the surrounding
+   span badges, but keep it interactive (cursor:pointer, focus ring). */
+.mute-toggle-btn-badge{font:inherit;border:none;cursor:pointer}
+.mute-toggle-btn-badge:hover{filter:brightness(.95)}
+.mute-toggle-btn-badge:focus{outline:.125rem solid #3b82f6;outline-offset:.1rem}
+.not-applied-badge{background:transparent;color:#94a3b8;font-weight:600}
+.enforced-badge{background:#dcfce7;color:#166534}
+.promoted-badge{background:#dbeafe;color:#1e40af}
+.reports-only-badge{background:#f1f5f9;color:#64748b}
+.bypassed-badge{background:#fef9c3;color:#854d0e}
+.detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
+.detail-toggle:hover{color:#0f172a}
+.detail-toggle.open{transform:rotate(90deg);color:#0f172a}
+.detail-row{background:#f8fafc}
+.detail-row td{padding:0!important;border-bottom:1px solid #e2e8f0!important}
+.detail-panel{padding:1rem 1.25rem;display:grid;gap:.9rem;font-size:.82rem;color:#334155}
+.detail-panel section{padding:.5rem .75rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem}
+.detail-panel h4{margin:0 0 .35rem;font-size:.78rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.04em}
+.detail-panel ul{margin:0;padding-left:1.1rem;line-height:1.55}
+.detail-panel ul.flat{list-style:none;padding-left:0}
+.detail-panel ul.flat li{display:flex;align-items:baseline;gap:.5rem;padding:.15rem 0;border-bottom:1px dotted #e2e8f0}
+.detail-panel ul.flat li:last-child{border-bottom:0}
+.detail-panel .hn{font-family:ui-monospace,Menlo,monospace;color:#0f172a;font-weight:600}
+.detail-panel .when{color:#94a3b8;font-size:.72rem;margin-left:auto}
+.detail-panel .reason-inline{color:#475569}
+.detail-panel .comment-text{color:#0f172a;line-height:1.55;word-break:break-word}
+.detail-panel .judge-line{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569;line-height:1.5;word-break:break-all}
+.detail-panel .empty{color:#94a3b8;font-style:italic}
+.detail-panel .loading{color:#94a3b8;font-style:italic}
+.detail-panel .err{color:#b91c1c;font-weight:600}
+.detail-actions{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;padding:.4rem 0}
+.detail-actions .vote-btn{padding:.25rem .65rem;border:1px solid #cbd5e1;background:#fff;border-radius:.25rem;font-size:.78rem;cursor:pointer;font-family:inherit;color:#475569;transition:background .12s,border-color .12s}
+.detail-actions .vote-btn:hover{background:#f1f5f9}
+.detail-actions .vote-btn.active.like{border-color:#15803d;background:#dcfce7;color:#14532d;font-weight:600}
+.detail-actions .vote-btn.active.bad{border-color:#b91c1c;background:#fee2e2;color:#7f1d1d;font-weight:600}
+.detail-actions .vote-btn:disabled{opacity:.5;cursor:wait}
+.detail-actions .my-hn{font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:#94a3b8;margin-left:auto}
+.detail-comment-form{display:flex;gap:.5rem;padding:.4rem 0}
+.detail-comment-form textarea{flex:1;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:inherit;font-size:.82rem;resize:vertical;min-height:2.2rem;line-height:1.4}
+.detail-comment-form button{padding:.3rem .9rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-size:.78rem;cursor:pointer;font-weight:600;align-self:flex-start;font-family:inherit}
+.detail-comment-form button:hover{background:#1e293b}
+.detail-comment-form button:disabled{opacity:.5;cursor:wait}
+.detail-panel .self-mark{font-size:.7rem;color:#15803d;font-weight:600;margin-left:.3rem}
+.detail-panel .delete-x{margin-left:.4rem;background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .25rem;font-size:.78rem}
+.detail-panel .delete-x:hover{color:#b91c1c}
+.cmt{display:block;padding:.15rem .35rem;margin:.15rem 0;background:#f1f5f9;border-radius:.2rem;font-size:.78rem;word-break:break-word}
+.cmt time{display:block;color:#94a3b8;font-size:.7rem;margin-top:.1rem}
+.note{color:#64748b;font-size:.85rem;line-height:1.6}
+.note code{background:#f1f5f9;padding:.1em .4em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace}
+/* pager styles are pulled in via partial_pager_styles below. */
+.impact-panel{display:flex;flex-wrap:wrap;gap:1rem;padding:.6rem .8rem;margin:.7rem 0 .5rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.3rem;font-size:.82rem;color:#166534}
+.impact-stat{display:inline-flex;align-items:center;gap:.4rem;cursor:help}
+.impact-stat strong{font-weight:600;color:#15803d}
+.impact-stat .impact-num{font-family:ui-monospace,Menlo,monospace;font-size:.95rem;font-weight:700;color:#0f172a}
+.impact-stat .impact-sub{color:#475569;font-size:.78rem;margin-left:.15rem}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+{{ template "popover_pin_assets" . }}
+{{ template "pager_styles" }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/community-bans/" class="active">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+<h1 style="display:flex;align-items:center;gap:.5rem">
+  {{ t .Lang "community_bans.title" }}
+  <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "community_bans.subtitle") }}</span></span>
+</h1>
+
+<div class="bcd-card">
+  <div class="card-h-row">
+    <h2 style="display:flex;align-items:center;gap:.5rem">
+      {{ t .Lang "community_bans.list_h" }}
+    </h2>
+    <form method="POST" action="{{ .BasePath }}/admin/bans/save" id="subscribe-mode-form" style="margin:0;display:flex;align-items:center;gap:.4rem">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <input type="hidden" name="op" value="subscribe-toggle">
+      <input type="hidden" name="return_to" value="community-bans">
+      <label class="lbl" for="subscribe-mode-sel" style="font-size:.85rem;color:#475569;font-weight:600">{{ t .Lang "community_bans.mode_label" }}</label>
+      <select id="subscribe-mode-sel" name="subscribe_mode" onchange="this.form.submit()" style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.85rem">
+        <option value="fetch_apply" {{ if eq .SubscribeMode "fetch_apply" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch_apply" }}</option>
+        <option value="fetch"       {{ if eq .SubscribeMode "fetch" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch" }}</option>
+        <option value="off"         {{ if eq .SubscribeMode "off" }}selected{{ end }}>{{ t .Lang "community_bans.mode.off" }}</option>
+      </select>
+    </form>
+  </div>
+
+  {{- /* Impact panel: how often hub-derived BANs actually blocked traffic on
+        this install. Surfaces the value-add of subscribing -- "the shared
+        feed prevented N hits in 30 days" -- alongside the list itself. */ -}}
+  <div class="impact-panel">
+    <span class="impact-stat" data-info="{{ t .Lang "community_bans.hits30d_tip" }}">
+      📊 <strong>{{ t .Lang "community_bans.hits30d_label" }}</strong>
+      <span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
+      {{ if gt .CommunityBansHitsUniqueIP30d 0 }}<span class="impact-sub">(uniq IP: {{ comma .CommunityBansHitsUniqueIP30d }})</span>{{ end }}
+    </span>
+    {{ if gt .CommunityBansFromHub 0 }}
+    <span class="impact-stat" data-info="{{ t .Lang "community_bans.impact_tip" }}">
+      🔁 <strong>{{ t .Lang "community_bans.impact_auto_label" }}</strong>
+      <span class="impact-num">{{ comma .CommunityBansFromHub }}</span> 行
+    </span>
+    {{ end }}
+  </div>
+
+  <form method="GET" class="filter-bar">
+    <input type="text" name="q" value="{{ .CommunityBansQuery }}" placeholder="{{ t .Lang "community_bans.filter.q_placeholder" }}">
+    <select name="match">
+      <option value="" {{ if eq .CommunityBansMatch "" }}selected{{ end }}>{{ t .Lang "community_bans.filter.all_matches" }} ({{ .CommunityBansTotalEntries }})</option>
+      <option value="ip_ja4"   {{ if eq .CommunityBansMatch "ip_ja4"   }}selected{{ end }}>ip_ja4 ({{ .CommunityBansCountIPJA4 }})</option>
+      <option value="ja4_only" {{ if eq .CommunityBansMatch "ja4_only" }}selected{{ end }}>ja4_only ({{ .CommunityBansCountJA4 }})</option>
+      <option value="ip_only"  {{ if eq .CommunityBansMatch "ip_only"  }}selected{{ end }}>ip_only ({{ .CommunityBansCountIP }})</option>
+    </select>
+    <button type="submit">{{ t .Lang "community_bans.filter.apply" }}</button>
+    {{ if or .CommunityBansMatch .CommunityBansQuery }}
+    <a href="?" class="reset">{{ t .Lang "community_bans.filter.reset" }}</a>
+    {{ end }}
+  </form>
+
+  <div class="status-legend" role="note" aria-label="{{ t .Lang "community_bans.legend.aria" }}">
+    {{- /* fetch+apply mode: every applicable row enforces, so the "score 3+
+           but not enforced yet" status never appears.  Show 適用中 in its
+           place.  fetch / off: rows are at most "applicable", not enforced. */ -}}
+    {{ if eq .SubscribeMode "fetch_apply" }}<span class="leg leg-enforced">{{ t .Lang "community_bans.legend.enforced" }}</span>{{ end }}
+    <span class="leg leg-reports">{{ t .Lang "community_bans.legend.reports" }}</span>
+    <span class="leg leg-bypassed">{{ t .Lang "community_bans.legend.bypassed" }}</span>
+  </div>
+
+  {{ template "pager_full" .Pager }}
+
+  <table class="feed">
+    <colgroup>
+      <col class="col-marker">
+      <col class="col-score">
+      <col class="col-match">
+      <col class="col-status">
+      <col class="col-ip">
+      <col class="col-ja4">
+      <col class="col-votes">
+      <col class="col-reason">
+      <col class="col-comments">
+      <col class="col-time">
+    </colgroup>
+    {{- /* Pre-build the filter prefix once -- every sort link reuses it. */ -}}
+    {{- $sortBase := "" -}}
+    {{- if .CommunityBansQuery }}{{ $sortBase = printf "q=%s&" .CommunityBansQuery }}{{ end -}}
+    {{- if .CommunityBansMatch }}{{ $sortBase = printf "%smatch=%s&" $sortBase .CommunityBansMatch }}{{ end -}}
+    {{- $sort := .CommunityBansSort -}}
+    {{- $order := .CommunityBansOrder -}}
+    <thead>
+      <tr>
+        <th style="width:1.5rem"></th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "score" }} active{{ end }}" href="?{{ $sortBase }}sort=score&amp;order={{ if and (eq $sort "score") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.score" }}{{ if eq $sort "score" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
+        <th>{{ t .Lang "community_bans.col.match" }}</th>
+        <th>{{ t .Lang "community_bans.col.status" }}</th>
+        <th>IP</th>
+        <th>JA4</th>
+        <th class="votes-th">
+          <span class="th-label">{{ t .Lang "community_bans.col.votes" }}</span>
+          <span class="sort-mini">
+            <a class="{{ if eq $sort "reports" }}active{{ end }}" href="?{{ $sortBase }}sort=reports&amp;order={{ if and (eq $sort "reports") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by reports" aria-label="sort by reports">📍{{ if eq $sort "reports" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "good" }}active{{ end }}" href="?{{ $sortBase }}sort=good&amp;order={{ if and (eq $sort "good") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by likes" aria-label="sort by likes">👍{{ if eq $sort "good" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+            <a class="{{ if eq $sort "comments" }}active{{ end }}" href="?{{ $sortBase }}sort=comments&amp;order={{ if and (eq $sort "comments") (eq $order "asc") }}desc{{ else }}asc{{ end }}" data-info="sort by comments" aria-label="sort by comments">💬{{ if eq $sort "comments" }}<span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a>
+          </span>
+        </th>
+        <th>{{ t .Lang "community_bans.col.reason" }}</th>
+        <th>{{ t .Lang "community_bans.col.comments" }}</th>
+        <th class="sortable"><a class="sort-link{{ if eq $sort "first_seen" }} active{{ end }}" href="?{{ $sortBase }}sort=first_seen&amp;order={{ if and (eq $sort "first_seen") (eq $order "asc") }}desc{{ else }}asc{{ end }}">{{ t .Lang "community_bans.col.first_seen" }}{{ if eq $sort "first_seen" }} <span class="sort-arrow">{{ if eq $order "asc" }}▲{{ else }}▼{{ end }}</span>{{ end }}</a></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{ range .CommunityBansEntries }}
+      {{- /* Three-state display (the operator only cares whether THIS install
+            will actually act on the row):
+              ★  bypassed (= whitelisted -- never enforced regardless of score)
+              ✓  enforced (= fetch_apply + Promoted (= score >= 3 hub-side))
+              ○  everything else (= "not applied": reports-only or fetch-only). */ -}}
+      {{- $enforced := and (eq $.SubscribeMode "fetch_apply") .Promoted -}}
+      <tr class="feed-row {{ if .Bypassed }}row-bypassed{{ else if $enforced }}row-enforced{{ else if not .Promoted }}row-reports not-promoted{{ else }}row-reports{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+        <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
+        <td>
+          {{ if eq .Score 5 }}<span class="score-pill score-5" data-info="{{ t $.Lang "community_bans.score.5" }}">5 🛑</span>
+          {{ else if eq .Score 4 }}<span class="score-pill score-4" data-info="{{ t $.Lang "community_bans.score.4" }}">4 🚨</span>
+          {{ else if eq .Score 3 }}<span class="score-pill score-3" data-info="{{ t $.Lang "community_bans.score.3" }}">3 ⚠️</span>
+          {{ else if eq .Score 2 }}<span class="score-pill score-2" data-info="{{ t $.Lang "community_bans.score.2" }}">2 👀</span>
+          {{ else if eq .Score 1 }}<span class="score-pill score-1" data-info="{{ t $.Lang "community_bans.score.1" }}">1 🤷</span>
+          {{ else }}<span class="score-0" data-info="{{ t $.Lang "community_bans.score.unknown" }}">—</span>
+          {{ end }}
+        </td>
+        {{- /* hub の judge が報告少なすぎで MatchNone を返した場合でも、 (ip, ja4)
+              の有無から正しい match 種別を推定して pill を出す. 「いかなる場合
+              でも pill を見せる」 ためのフォールバック. */ -}}
+        {{- $matchPill := .Match -}}
+        {{- if eq $matchPill "" -}}
+          {{- if and .IP .JA4 }}{{ $matchPill = "ip_ja4" }}
+          {{- else if .JA4 }}{{ $matchPill = "ja4_only" }}
+          {{- else if .IP }}{{ $matchPill = "ip_only" }}{{ end -}}
+        {{- end -}}
+        <td><span class="match-pill match-{{ $matchPill }}">{{ $matchPill }}</span></td>
+        {{- /* mute key mirrors communitybans.MuteKey -- {ip_only|ja4_only|ip_ja4}:<id>. */ -}}
+        {{- $muteKey := "" -}}
+        {{- if and (eq $matchPill "ip_ja4") .IP .JA4 }}{{ $muteKey = printf "ip_ja4:%s|%s" .IP .JA4 }}
+        {{- else if and (eq $matchPill "ja4_only") .JA4 }}{{ $muteKey = printf "ja4_only:%s" .JA4 }}
+        {{- else if and (eq $matchPill "ip_only") .IP }}{{ $muteKey = printf "ip_only:%s" .IP }}{{- end -}}
+        {{- $isMuted := false -}}
+        {{- if and $muteKey $.MutedKeys -}}{{- if index $.MutedKeys $muteKey -}}{{- $isMuted = true -}}{{- end -}}{{- end -}}
+        <td>
+          {{- /* badge = toggle button when the row is mute-eligible (= has a
+                 MuteKey).  enforced ⇄ muted swap with one click; bypassed and
+                 not-applied stay non-interactive.  The badge keeps the
+                 status-color styling (.enforced-badge / .muted-badge) and
+                 reuses .mute-toggle-btn-badge to strip <button> chrome. */ -}}
+          {{ if .Bypassed }}<span class="bypassed-badge" data-info="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">🛡</span>
+          {{- else if and $isMuted $muteKey }}<button type="button" class="mute-toggle-btn-badge muted-badge" data-mute-key="{{ $muteKey }}" data-mute-action="unmute" aria-label="{{ t $.Lang "community_bans.unmute_action" }}" data-info="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.mute_action" }}">❗</button>
+          {{- else if and $enforced $muteKey }}<button type="button" class="mute-toggle-btn-badge enforced-badge" data-mute-key="{{ $muteKey }}" data-mute-action="mute" aria-label="{{ t $.Lang "community_bans.mute_action" }}" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.unmute_action" }}">✓</button>
+          {{- else if $enforced }}<span class="enforced-badge" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>
+          {{- else }}<span class="not-applied-badge" data-info="{{ t $.Lang "community_bans.reports_only_label" }} — {{ t $.Lang "community_bans.reports_only_title" }}">—</span>
+          {{- end }}
+        </td>
+        <td class="mono">{{ if .IP }}<span class="ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="mono clamp"{{ if .JA4 }} data-full="{{ .JA4 }}"{{ end }}>{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>
+          <span class="votes-td">
+          {{ if gt .Reports 0 }}<span class="reports-badge" data-info="{{ tf $.Lang "community_bans.reports_badge_title" .Reports .Installs }}">📍 {{ .Reports }}</span>{{ end }}
+          {{/* 0 件でも明示表示 ([[feedback_zero_row_policy]]) -- operator が「報告はあるけど vote/comment 無し」 を一目で判断できる. */}}
+          <span class="votes-cell"{{ if .Reasoning }} data-info="{{ htmlEscapeText .Reasoning }}"{{ end }}><span class="like">👍 {{ .LikeCount }}</span> <span class="cmt-count">💬 {{ .CommentCount }}</span></span>
+          </span>
+        </td>
+        <td class="clamp feed-reason"{{ if .Reason }} data-full="{{ .Reason }}"{{ end }}>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="clamp feed-comments"{{ if .Comments }} data-full="{{ range $i, $c := .Comments }}{{ if $i }}&#10;&#10;{{ end }}{{ $c.Text }}{{ end }}"{{ end }}>
+          {{ range .Comments }}
+          <span class="cmt">{{ .Text }}</span>
+          {{ else }}
+          <span class="muted">-</span>
+          {{ end }}
+        </td>
+        <td>{{ if gt .FirstSeen 0 }}<time class="js-datetime" data-ts="{{ .FirstSeen }}">{{ .FirstSeen }}</time>{{ else }}<span class="muted">-</span>{{ end }}</td>
+      </tr>
+      {{ else }}
+      <tr><td colspan="10" class="muted" style="text-align:center;padding:1.5rem">{{ t .Lang "community_bans.empty" }}</td></tr>
+      {{ end }}
+    </tbody>
+  </table>
+
+  {{ template "pager_full" .Pager }}
+
+  <div class="note" style="margin-top:.6rem;font-size:.78rem">
+    {{ if gt .CommunityBansGeneratedAt 0 }}{{ t .Lang "community_bans.feed_generated_at" }}: <time class="js-datetime js-datetime-notz" data-ts="{{ .CommunityBansGeneratedAt }}">{{ .CommunityBansGeneratedAt }}</time>{{ end }}
+    {{ if gt .CommunityBansNextPullAt 0 }}<br>{{ t .Lang "community_bans.feed_next_pull_at" }}: <time class="js-datetime js-datetime-notz" data-ts="{{ .CommunityBansNextPullAt }}">{{ .CommunityBansNextPullAt }}</time>{{ end }}
+  </div>
+</div>
+
+</main>
+<div id="ip-popover" data-popover="ip"></div>
+<div id="clamp-popover" data-popover="clamp"></div>
+<div id="info-popover" data-popover="info"></div>
+{{/* Column-level popover for 💬: same detail data as the row-expand panel,
+     but scoped to the comments section + post form so the operator can
+     read / write without expanding the whole row.  Wired in the comment-
+     cell click handler near the end of this file. */}}
+<div id="comment-popover" data-popover="comment"></div>
+<div id="reports-popover" data-popover="reports"></div>
+<div id="vote-popover" data-popover="vote"></div>
+<script>
+
+// refreshHoverPopover: if the shared hover popover (#info-popover) is
+// currently visible -- i.e. the user is hovering the badge while clicking
+// it -- replace its body in-place so the popover text matches the new
+// icon state without the user having to mouseout/mouseover.  The wrapper
+// HTML is copy-pasted from the [data-info] IIFE's fmt(); kept in sync.
+function refreshHoverPopover(html){
+  var p = document.getElementById('info-popover');
+  if (!p || p.style.display === 'none') return;
+  p.innerHTML = '<div style="max-width:32rem;font-size:.82rem;line-height:1.5;white-space:normal">' + html + '</div>';
+}
+
+// Mute toggle: POST via fetch with application/x-www-form-urlencoded body
+// (= Go's r.ParseForm reads urlencoded directly; FormData would be
+// multipart/form-data which needs ParseMultipartForm + a larger handler
+// surface).  Optimistic UI: flip badge + button locally; only revert on
+// server error.  No reload (= the rest of the page stays in place).
+document.addEventListener('click', function(e){
+  var btn = e.target.closest && e.target.closest('.mute-toggle-btn-badge');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  var key = btn.dataset.muteKey;
+  var action = btn.dataset.muteAction;
+  if (!key || !action) return;
+  // Snapshot for rollback.
+  var prevAction = action;
+  var prevText = btn.textContent;
+  var prevClass = btn.className;
+  var prevAria = btn.getAttribute('aria-label');
+  var prevInfo = btn.getAttribute('data-info');
+  var prevInfoAfter = btn.getAttribute('data-info-after');
+  var prevAriaAfter = btn.getAttribute('data-aria-after');
+  // Optimistic flip: swap visual + dataset; keep the same <button> in place so
+  // a second click re-toggles without re-querying / re-creating elements.
+  // The popover content (= data-info) and aria-label are ping-ponged with
+  // data-info-after / data-aria-after so the hover popover shows the
+  // *next* action's hint ("click to mute" ⇄ "click again to re-enable")
+  // straight after the toggle, matching what the icon now means.
+  btn.disabled = true;
+  if (action === 'mute') {
+    btn.className = 'mute-toggle-btn-badge muted-badge';
+    btn.textContent = '❗';
+    btn.dataset.muteAction = 'unmute';
+  } else {
+    btn.className = 'mute-toggle-btn-badge enforced-badge';
+    btn.textContent = '✓';
+    btn.dataset.muteAction = 'mute';
+  }
+  if (prevInfoAfter !== null) {
+    btn.setAttribute('data-info', prevInfoAfter);
+    btn.setAttribute('data-info-after', prevInfo);
+  }
+  if (prevAriaAfter !== null) {
+    btn.setAttribute('aria-label', prevAriaAfter);
+    btn.setAttribute('data-aria-after', prevAria);
+  }
+  // Live-refresh the hover popover so the user (who is hovering on the
+  // button right at click time) sees the new hint immediately.
+  refreshHoverPopover(btn.getAttribute('data-info'));
+  var basePath = "{{ .BasePath }}";
+  var body = new URLSearchParams();
+  body.append('key', key);
+  body.append('action', action);
+  fetch(basePath + '/admin/community-bans/mute-toggle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+    credentials: 'same-origin',
+    redirect: 'manual',
+  }).then(function(r){
+    // 302 redirect under manual mode → status=0/302 = success here.
+    if (r.ok || r.status === 0 || r.status === 302) {
+      btn.disabled = false;
+      return;
+    }
+    r.text().then(function(t){
+      console.warn('mute-toggle: HTTP', r.status, t);
+      alert('mute-toggle failed: ' + r.status + ' ' + (t || '').slice(0, 200));
+      btn.className = prevClass;
+      btn.textContent = prevText;
+      btn.dataset.muteAction = prevAction;
+      btn.setAttribute('aria-label', prevAria);
+      btn.setAttribute('data-info', prevInfo);
+      if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
+      if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
+      refreshHoverPopover(prevInfo);
+      btn.disabled = false;
+    });
+  }).catch(function(err){
+    console.warn('mute-toggle: network', err);
+    alert('mute-toggle failed: network');
+    btn.className = prevClass;
+    btn.textContent = prevText;
+    btn.dataset.muteAction = prevAction;
+    btn.setAttribute('aria-label', prevAria);
+    btn.setAttribute('data-info', prevInfo);
+    if (prevInfoAfter !== null) btn.setAttribute('data-info-after', prevInfoAfter);
+    if (prevAriaAfter !== null) btn.setAttribute('data-aria-after', prevAriaAfter);
+    refreshHoverPopover(prevInfo);
+    btn.disabled = false;
+  });
+});
+
+// Clamp popover (= for reason / comment cells that overflow their width).
+// Behaviour: hover -> measure scrollWidth vs clientWidth.  Truncated -> show
+// the full text from data-full on the shared popover.  Not truncated -> stay
+// silent (no tooltip, no popover).  Click pins the popover same as IP one.
+(function(){
+  var pop = document.getElementById('clamp-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){ return ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]; });
+  }
+  function isTruncated(el){
+    // +1 to tolerate sub-pixel rounding on high-DPI displays.
+    return el.scrollWidth > el.clientWidth + 1;
+  }
+  function fmt(text){
+    // Preserve newlines that separated multiple comments in data-full.
+    return '<div style="white-space:pre-wrap;max-width:32rem;font-size:.85rem;line-height:1.5">' + esc(text) + '</div>';
+  }
+  document.querySelectorAll('table.feed td.clamp[data-full]').forEach(function(td){
+    // feed-reason / feed-comments cells own their own popover (= the
+    // structured reports / comment popover) which can render every
+    // reporter's text with HN + country + timestamp, so skip the generic
+    // clamp truncation popover for them -- otherwise both would fire on
+    // hover and the less-informative one would race ahead.
+    if (td.classList.contains('feed-reason') || td.classList.contains('feed-comments')) return;
+    td.style.cursor = 'default';
+    td.addEventListener('mouseenter', function(e){
+      if (pin.hasPinFor(td)) return;
+      if (!isTruncated(td)) return;
+      td.style.cursor = 'help';
+      pin.showHover(fmt(td.dataset.full), e.pageX, e.pageY);
+    });
+    td.addEventListener('mouseleave', function(){ pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      if (!isTruncated(td) && !pin.hasPinFor(td)) return;
+      e.preventDefault();
+      pin.handleClick(fmt(td.dataset.full), e.pageX, e.pageY, td);
+    });
+  });
+})();
+
+// Info popover (= replaces every native title= tooltip on the page so the
+// hover help renders inside the shared popover instead of the browser
+// chrome).  Targets any element with [data-info]; hover shows transient,
+// click pins.  Safe to overlap with clamp-popover (different popover slots,
+// independent pin state).
+(function(){
+  var pop = document.getElementById('info-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c){
+      return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+    });
+  }
+  function fmt(text){
+    // data-info may already contain emoji + dashes; safeHTML payloads (= the
+    // settings.community_bans below_threshold_title carries a <strong>) live
+    // in i18n strings and are intentionally passed verbatim into the popover.
+    return '<div style="max-width:32rem;font-size:.82rem;line-height:1.5;white-space:normal">' + text + '</div>';
+  }
+  function infoTarget(el){
+    if (!el || !el.closest) return null;
+    // Skip elements that own their own popover:
+    //   .cmt-count     -> comment popover (= comments section)
+    //   .like          -> vote popover    (= 👍/👎 buttons)
+    //   .reports-badge -> reports popover (= 報告したユーザー)
+    // Otherwise the parent votes-cell / reports-badge's data-info would both
+    // show on hover AND get re-pinned on click, stacking two popovers.
+    if (el.closest('.cmt-count, .like, .reports-badge')) return null;
+    return el.closest('[data-info]');
+  }
+  document.addEventListener('mouseover', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    if (pin.hasPinFor(t)) return;
+    // Don't override the cursor on interactive elements: <button>s already
+    // own `pointer`, links own `pointer`, and pinning is suppressed for them
+    // (see the click handler below).  Also drop the "click to pin" hint
+    // from the popover (= popover-no-pin marker) so it doesn't advertise an
+    // action that won't fire for a button / link target.
+    if (t.tagName === 'A' || t.tagName === 'BUTTON') {
+      pop.classList.add('popover-no-pin');
+    } else {
+      pop.classList.remove('popover-no-pin');
+      t.style.cursor = 'help';
+    }
+    pin.showHover(fmt(t.dataset.info), e.pageX, e.pageY);
+  });
+  document.addEventListener('mouseout', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    var to = e.relatedTarget ? infoTarget(e.relatedTarget) : null;
+    if (to === t) return;
+    pin.hideHover();
+  });
+  document.addEventListener('click', function(e){
+    var t = infoTarget(e.target);
+    if (!t) return;
+    // Don't intercept clicks on links (= sort-mini <a> with data-info) or
+    // <button>s with data-info -- the user expects the actual action
+    // (navigation / form submit / JS handler), not a pinned popover.
+    if (t.tagName === 'A' || t.tagName === 'BUTTON') return;
+    e.preventDefault();
+    pin.handleClick(fmt(t.dataset.info), e.pageX, e.pageY, t);
+  });
+})();
+
+// IP popover (rDNS + IP-geo + ASN).
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var cache = new Map();
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    var na = '<span class="muted">(unavailable)</span>';
+    // Validate the country to two ASCII letters before interpolating into
+    // the unescaped img attributes -- otherwise a 2-char value containing a
+    // quote (= via a compromised hub response) would break out of alt="" /
+    // title="" into stored XSS on hover.  esc() the label as belt-and-
+    // suspenders.
+    var ccValid = /^[A-Za-z]{2}$/.test(d.country || '');
+    var ccLow = ccValid ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = ccValid ? esc(d.country) : '??';
+    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow + '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    if (d.country || d.country_name) {
+      var cn = d.country_name ? esc(d.country_name) : '';
+      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn + (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + esc(ip) + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(function(r){ return r.json(); }).then(function(d){ cache.set(ip, d); cb(fmt(d)); })
+      .catch(function(){ cb('lookup failed'); });
+  }
+  document.querySelectorAll('.ipclick').forEach(function(td){
+    td.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); }); }, 200);
+    });
+    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      e.preventDefault();
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td); });
+    });
+  });
+})();
+
+// Detail expand panel with vote / comment / delete UX.
+(function(){
+  var BASE = "{{.BasePath}}";
+  var MY_HN = {{ .MyHN }};
+  var t = {
+    judge: {{ t .Lang "community_bans.detail.judge_h" }},
+    submitters: {{ t .Lang "community_bans.detail.submitters_h" }},
+    reporterComments: {{ t .Lang "community_bans.detail.reporter_comments_h" }},
+    followupComments: {{ t .Lang "community_bans.detail.followup_comments_h" }},
+    comments: {{ t .Lang "community_bans.detail.comments_h" }},
+    none: {{ t .Lang "community_bans.detail.none" }},
+    loading: {{ t .Lang "community_bans.detail.loading" }},
+    err: {{ t .Lang "community_bans.detail.err_prefix" }},
+    scoreUnknown: {{ t .Lang "community_bans.detail.score_unknown" }},
+    btnLike: {{ t .Lang "community_bans.detail.btn_like" }},
+    btnBad: {{ t .Lang "community_bans.detail.btn_bad" }},
+    btnPost: {{ t .Lang "community_bans.detail.btn_post" }},
+    commentPh: {{ t .Lang "community_bans.detail.comment_placeholder" }},
+    myHnLabel: {{ t .Lang "community_bans.detail.my_hn_label" }},
+    selfMark: {{ t .Lang "community_bans.detail.self_mark" }},
+    deleteConfirm: {{ t .Lang "community_bans.detail.delete_confirm" }},
+    deleteLabel: {{ t .Lang "community_bans.detail.delete_label" }},
+    notRegistered: {{ t .Lang "community_bans.detail.not_registered" }}
+  };
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function flagImg(cc){
+    // Country must be two ASCII letters to interpolate safely into alt="" /
+    // title="" (= a hub-supplied 2-char value containing a quote would
+    // otherwise break out).  esc() the label as belt-and-suspenders.
+    var ok = /^[A-Za-z]{2}$/.test(cc || '');
+    var lower = ok ? cc.toLowerCase() : 'unknown';
+    var label = ok ? esc(cc) : '??';
+    return '<img class="flag" src="' + BASE + '/static/flags/' + lower + '.png" alt="' + label + '" title="' + label + '" loading="lazy">';
+  }
+  function fmtTime(ts){ return ts ? new Date(ts * 1000).toLocaleString() : ''; }
+  function scoreEmoji(n){
+    return n === 5 ? '🛑' : n === 4 ? '🚨' : n === 3 ? '⚠️' : n === 2 ? '👀' : n === 1 ? '🤷' : '—';
+  }
+  function findOwn(arr){
+    if (!MY_HN) return null;
+    return (arr || []).find(function(x){ return x.hn === MY_HN; }) || null;
+  }
+  function selfMarker(hn){
+    return (MY_HN && hn === MY_HN) ? '<span class="self-mark">' + esc(t.selfMark) + '</span>' : '';
+  }
+  function deleteBtn(kind, id){
+    if (!MY_HN) return '';
+    return '<button class="delete-x" data-delete-kind="' + esc(kind) + '" data-delete-id="' + esc(id) + '" title="' + esc(t.deleteLabel) + '" aria-label="' + esc(t.deleteLabel) + '">×</button>';
+  }
+  function renderPanel(d){
+    var subs = (d.submissions || []).map(function(s){
+      var mine = (MY_HN && s.hn === MY_HN);
+      return '<li>' + flagImg(s.country_code) + '<span class="hn">' + esc(s.hn) + '</span>' + selfMarker(s.hn) +
+             (s.reason ? '<span class="reason-inline">— ' + esc(s.reason) + '</span>' : '') +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span>' +
+             (mine ? deleteBtn('submission', s.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    // Voter HN roster is intentionally not rendered in the admin UI -- the
+    // operator works off vote counts (button label + list row) and toggles
+    // their own vote via the active button.  Anyone needing the full voter
+    // list can hit the public /api/feed/aggregate?ip=&ja4= endpoint.
+    var comments = (d.comments || []).map(function(c){
+      var mine = (MY_HN && c.hn === MY_HN);
+      return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
+             '<span class="comment-text">' + esc(c.text) + '</span>' +
+             '<span class="when">' + fmtTime(c.created_at) + '</span>' +
+             (mine ? deleteBtn('comment', c.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var j = d.judge || {};
+    var jLine = (j.score > 0)
+      ? '<strong>' + scoreEmoji(j.score) + ' ' + esc(j.score) + '</strong>' +
+        (j.judge_mode ? ' <span class="muted">[' + esc(j.judge_mode) + ']</span>' : '') +
+        '<div class="judge-line">' + esc(j.reasoning || '') + '</div>'
+      : '<span class="empty">' + esc(t.scoreUnknown) + '</span>';
+    var actions = '';
+    var commentForm = '';
+    if (MY_HN) {
+      var myLike = findOwn(d.likers);
+      var myBad  = findOwn(d.bads);
+      var mine = myLike ? 'like' : (myBad ? 'bad' : '');
+      var likeCount = (d.likers || []).length;
+      var badCount  = (d.bads   || []).length;
+      // The vote-btn carries its own vote-id when the operator has already
+      // cast a matching vote, so re-clicking an active button can hit DELETE
+      // and toggle the vote off instead of being a no-op UPSERT.
+      var likeIdAttr = myLike ? ' data-my-vote-id="' + esc(myLike.id) + '"' : '';
+      var badIdAttr  = myBad  ? ' data-my-vote-id="' + esc(myBad.id)  + '"' : '';
+      actions = '<div class="detail-actions" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+        '<button class="vote-btn' + (mine === 'like' ? ' active like' : '') + '" data-vote-kind="like"' + likeIdAttr + '>' + esc(t.btnLike) + ' (' + likeCount + ')</button>' +
+        '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad"' + badIdAttr + '>' + esc(t.btnBad) + ' (' + badCount + ')</button>' +
+        '<span class="my-hn">' + esc(t.myHnLabel) + ': ' + esc(MY_HN) + '</span></div>';
+      commentForm = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="1"></textarea>' +
+        '<button type="submit">' + esc(t.btnPost) + '</button></form>';
+    } else {
+      actions = '<div class="detail-actions"><span class="empty">' + esc(t.notRegistered) + '</span></div>';
+    }
+    return '<div class="detail-panel">' +
+      '<section><h4>' + esc(t.judge) + '</h4>' + jLine + actions + '</section>' +
+      '<section><h4>' + esc(t.submitters) + ' (' + ((d.submissions||[]).length) + ')</h4><ul class="flat">' + subs + '</ul></section>' +
+      '<section><h4>' + esc(t.comments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + commentForm + '</section>' +
+    '</div>';
+  }
+  function ensureDetailRow(row){
+    var next = row.nextElementSibling;
+    if (next && next.classList.contains('detail-row')) return next;
+    var dr = document.createElement('tr');
+    dr.className = 'detail-row';
+    dr.style.display = 'none';
+    var dc = document.createElement('td');
+    dc.colSpan = 10;
+    dr.appendChild(dc);
+    row.parentNode.insertBefore(dr, next);
+    return dr;
+  }
+  function fetchDetail(row, dr){
+    var ip = row.dataset.ip || '';
+    var ja4 = row.dataset.ja4 || '';
+    var qp = new URLSearchParams();
+    if (ip) qp.set('ip', ip);
+    if (ja4) qp.set('ja4', ja4);
+    dr.firstElementChild.innerHTML = '<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>';
+    return fetch(BASE + '/admin/api/community-bans/detail?' + qp.toString(), {credentials:'same-origin', cache:'no-cache'})
+      .then(function(r){ if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); }); return r.json(); })
+      .then(function(d){ dr.firstElementChild.innerHTML = renderPanel(d); return d; })
+      .catch(function(err){
+        dr.firstElementChild.innerHTML = '<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>';
+        throw err;
+      });
+  }
+  function postVote(repID, kind){
+    return fetch(BASE + '/admin/api/community-bans/vote', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({submission_id: parseInt(repID,10), kind: kind})});
+  }
+  function postComment(repID, text){
+    return fetch(BASE + '/admin/api/community-bans/comment', {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify({submission_id: parseInt(repID,10), text: text})});
+  }
+  function postDelete(kind, id){
+    return fetch(BASE + '/admin/api/community-bans/' + kind + '/' + encodeURIComponent(id), {method:'DELETE', credentials:'same-origin'});
+  }
+  document.querySelectorAll('table.feed tbody tr.feed-row').forEach(function(row){
+    var btn = row.querySelector('.detail-toggle');
+    if (!btn) return;
+    var loaded = false;
+    btn.addEventListener('click', function(e){
+      e.stopPropagation();
+      var dr = ensureDetailRow(row);
+      var open = btn.classList.toggle('open');
+      btn.textContent = open ? '▼' : '▶';
+      dr.style.display = open ? '' : 'none';
+      if (open && !loaded){
+        fetchDetail(row, dr).then(function(){ loaded = true; }).catch(function(){});
+      }
+    });
+    document.addEventListener('click', function(ev){
+      var voteBtn = ev.target.closest && ev.target.closest('.vote-btn');
+      var delBtn = ev.target.closest && ev.target.closest('.delete-x');
+      var dr = row.nextElementSibling;
+      if (!dr || !dr.classList || !dr.classList.contains('detail-row')) return;
+      if (!dr.contains(ev.target)) return;
+      if (voteBtn){
+        ev.preventDefault();
+        var actions = voteBtn.closest('.detail-actions');
+        var repID = actions && actions.dataset.repId;
+        if (!repID) return;
+        var kind = voteBtn.dataset.voteKind;
+        var isActive = voteBtn.classList.contains('active');
+        var myVoteId = voteBtn.dataset.myVoteId;
+        var otherKind = (kind === 'like') ? 'bad' : 'like';
+        var otherBtn = actions.querySelector('.vote-btn[data-vote-kind="' + otherKind + '"]');
+        var otherWasActive = !!(otherBtn && otherBtn.classList.contains('active'));
+        var otherMyId = otherBtn && otherBtn.dataset.myVoteId || '';
+
+        // Decide the operation up-front so the optimistic UI + request stay in
+        // sync (= no second guess after the network call).
+        var op; // 'toggle_off' | 'switch' | 'create'
+        if (isActive && myVoteId) op = 'toggle_off';
+        else if (otherWasActive && otherMyId) op = 'switch';
+        else op = 'create';
+
+        // Snapshot the whole .detail-actions + the list row's votes cell so a
+        // server error can revert everything by stuffing the HTML back.  Event
+        // handlers are bound to document so re-rendering inner HTML is safe.
+        var snapshotActions = actions.innerHTML;
+        var listVotesTd = row.querySelector('.votes-td');
+        var snapshotListVotes = listVotesTd ? listVotesTd.innerHTML : null;
+
+        function setCountInLabel(btn, delta){
+          btn.textContent = btn.textContent.replace(/\((\d+)\)/, function(_m, n){
+            return '(' + (parseInt(n, 10) + delta) + ')';
+          });
+        }
+        function adjustListLike(delta){
+          if (!listVotesTd || !delta) return;
+          var likeSpan = listVotesTd.querySelector('.votes-cell .like');
+          if (likeSpan) {
+            // Existing "👍 N" markup -- patch the digit in place.
+            likeSpan.textContent = likeSpan.textContent.replace(/(\d+)/, function(_m, n){
+              return String(Math.max(0, parseInt(n, 10) + delta));
+            });
+          } else if (delta > 0) {
+            // No votes-cell yet: build one (= first like on this row).
+            var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+            var cell = document.createElement('span');
+            cell.className = 'votes-cell';
+            cell.innerHTML = '<span class="like">👍 1</span>' + (cmtCountSpan ? ' ' + cmtCountSpan.outerHTML : '');
+            // Hide the "-" muted placeholder if it was the only child.
+            var muted = listVotesTd.querySelector('.muted');
+            if (muted) muted.remove();
+            listVotesTd.appendChild(cell);
+          }
+        }
+        // Like-count delta on the list row (= bad votes don't surface in the
+        // list aggregation, so only kind=='like' shifts the visible counter).
+        var likeDelta = 0;
+        if (kind === 'like') {
+          if (op === 'create' || op === 'switch') likeDelta = +1;
+          else if (op === 'toggle_off')           likeDelta = -1;
+        } else { // kind == 'bad'
+          if (op === 'switch')                    likeDelta = -1;
+        }
+
+        // Apply optimistic UI immediately.
+        voteBtn.disabled = true;
+        if (otherBtn) otherBtn.disabled = true;
+        if (op === 'toggle_off') {
+          voteBtn.classList.remove('active', kind);
+          setCountInLabel(voteBtn, -1);
+          delete voteBtn.dataset.myVoteId;
+        } else if (op === 'switch') {
+          voteBtn.classList.add('active', kind);
+          setCountInLabel(voteBtn, +1);
+          // hub UPSERT reuses the row, so the id is preserved across kinds.
+          voteBtn.dataset.myVoteId = otherMyId;
+          if (otherBtn) {
+            otherBtn.classList.remove('active', otherKind);
+            setCountInLabel(otherBtn, -1);
+            delete otherBtn.dataset.myVoteId;
+          }
+        } else { // create
+          voteBtn.classList.add('active', kind);
+          setCountInLabel(voteBtn, +1);
+          voteBtn.dataset.myVoteId = '__pending__';
+        }
+        adjustListLike(likeDelta);
+
+        var pending = (op === 'toggle_off')
+          ? postDelete('vote', myVoteId)
+          : postVote(repID, kind);
+        pending.then(function(r){
+          if (!r.ok && r.status !== 204 && r.status !== 404) {
+            return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+          }
+          // For POST responses the hub returns {id: ...}; cache it on the
+          // button so a follow-up DELETE knows which row to remove.
+          if (op !== 'toggle_off' && r.status >= 200 && r.status < 300) {
+            return r.json().then(function(body){
+              if (body && body.id) voteBtn.dataset.myVoteId = String(body.id);
+            }).catch(function(){ /* no body / parse fail -> non-fatal */ });
+          }
+          return null;
+        }).then(function(){
+          voteBtn.disabled = false;
+          if (otherBtn) otherBtn.disabled = false;
+        }).catch(function(err){
+          // Revert: restoring the snapshot HTML is enough because vote/delete
+          // handlers are bound to document, not to the action buttons.
+          actions.innerHTML = snapshotActions;
+          if (listVotesTd && snapshotListVotes !== null) listVotesTd.innerHTML = snapshotListVotes;
+          alert((t.err || 'error') + ' ' + (err.message || err));
+        });
+      } else if (delBtn){
+        ev.preventDefault();
+        var kind = delBtn.dataset.deleteKind;
+        var id = delBtn.dataset.deleteId;
+        if (!kind || !id) return;
+        if (!confirm(t.deleteConfirm)) return;
+        delBtn.disabled = true;
+        postDelete(kind, id).then(function(r){
+          if (!r.ok && r.status !== 404) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+          return fetchDetail(row, dr);
+        }).catch(function(err){ alert((t.err || 'error') + ' ' + (err.message || err)); });
+      }
+    });
+    document.addEventListener('submit', function(ev){
+      var form = ev.target.closest && ev.target.closest('.detail-comment-form');
+      if (!form) return;
+      var dr = row.nextElementSibling;
+      if (!dr || !dr.classList || !dr.classList.contains('detail-row')) return;
+      if (!dr.contains(form)) return;
+      ev.preventDefault();
+      var repID = form.dataset.repId;
+      var ta = form.querySelector('textarea[name=text]');
+      var text = ta && ta.value.trim();
+      if (!repID || !text) return;
+      var submitBtn = form.querySelector('button[type=submit]');
+
+      // Locate the comments <section> -- it is the last section in the panel
+      // (renderPanel() ordering: judge / submitters / comments).
+      var dp = dr.querySelector('.detail-panel');
+      var sections = dp ? dp.querySelectorAll('section') : [];
+      var commentSection = sections.length ? sections[sections.length - 1] : null;
+      var commentsList = commentSection ? commentSection.querySelector('ul.flat') : null;
+      if (!dp || !commentSection || !commentsList) return;
+
+      // Snapshots for full revert on server error.
+      var snapshotPanel = dp.innerHTML;
+      var listVotesTd = row.querySelector('.votes-td');
+      var snapshotListVotes = listVotesTd ? listVotesTd.innerHTML : null;
+      var taOrigValue = ta.value;
+
+      // Optimistic insertion: build a <li> matching renderPanel's comment row
+      // shape and prepend it (= DESC ordering: newest at the top).
+      var nowSec = Math.floor(Date.now() / 1000);
+      var newLi = document.createElement('li');
+      newLi.innerHTML =
+        flagImg('') +
+        '<span class="hn">' + esc(MY_HN) + '</span>' +
+        '<span class="self-mark">' + esc(t.selfMark) + '</span>' +
+        '<span class="comment-text">' + esc(text) + '</span>' +
+        '<span class="when">' + esc(fmtTime(nowSec)) + '</span>' +
+        deleteBtn('comment', '__pending__');
+      // Drop the "(none)" placeholder if it was the only entry.
+      var empty = commentsList.querySelector('li.empty');
+      if (empty) empty.remove();
+      commentsList.insertBefore(newLi, commentsList.firstChild);
+
+      // Bump the section header count "コメント (N)" → "(N+1)".
+      var h4 = commentSection.querySelector('h4');
+      if (h4) {
+        h4.textContent = h4.textContent.replace(/\((\d+)\)/, function(_m, n){
+          return '(' + (parseInt(n, 10) + 1) + ')';
+        });
+      }
+
+      // Bump the list row's 💬 N counter (or create one if missing).
+      if (listVotesTd) {
+        var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+        if (cmtCountSpan) {
+          cmtCountSpan.textContent = cmtCountSpan.textContent.replace(/(\d+)/, function(_m, n){
+            return String(parseInt(n, 10) + 1);
+          });
+        } else {
+          var votesCell = listVotesTd.querySelector('.votes-cell');
+          if (!votesCell) {
+            var muted = listVotesTd.querySelector('.muted');
+            if (muted) muted.remove();
+            votesCell = document.createElement('span');
+            votesCell.className = 'votes-cell';
+            listVotesTd.appendChild(votesCell);
+          }
+          var newCmtSpan = document.createElement('span');
+          newCmtSpan.className = 'cmt-count';
+          newCmtSpan.textContent = ' 💬 1';
+          votesCell.appendChild(newCmtSpan);
+        }
+      }
+
+      // Clear + disable while in flight.
+      ta.value = '';
+      ta.disabled = true;
+      if (submitBtn) submitBtn.disabled = true;
+
+      postComment(repID, text).then(function(r){
+        if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+        // Hub returns {id} so the inline delete-x button gets the real row id.
+        return r.json().catch(function(){ return null; });
+      }).then(function(body){
+        if (body && body.id) {
+          var delBtn = newLi.querySelector('.delete-x');
+          if (delBtn) delBtn.dataset.deleteId = String(body.id);
+        }
+        ta.disabled = false;
+        if (submitBtn) submitBtn.disabled = false;
+        ta.focus();
+      }).catch(function(err){
+        // Full revert: restore both the detail panel HTML and the list row
+        // votes cell back to their pre-click state.
+        dp.innerHTML = snapshotPanel;
+        if (listVotesTd && snapshotListVotes !== null) listVotesTd.innerHTML = snapshotListVotes;
+        // The form snapshot was inside dp -- re-find it and restore the text.
+        var newForm = dp.querySelector('.detail-comment-form');
+        var newTa = newForm && newForm.querySelector('textarea[name=text]');
+        if (newTa) newTa.value = taOrigValue;
+        alert((t.err || 'error') + ' ' + (err.message || err));
+      });
+    });
+  });
+
+  // Comment popover: clicking the row's 💬 cell pins a popover with the same
+  // comments section + post form the detail panel shows.  Lets the operator
+  // post / read / delete without expanding the row.  The existing row-expand
+  // path still works in parallel; this is an additional shortcut.  Lives
+  // inside the parent IIFE so it can reuse esc/flagImg/fmtTime/selfMarker/
+  // deleteBtn/postComment/postDelete/MY_HN/t/BASE.
+  var pop = document.getElementById('comment-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  // cloneToRow: lookup so the popover-clone-scoped form / delete handlers
+  // below can find the originating row (for cmt-count refresh + cache key).
+  var cloneToRow = new WeakMap();
+
+  // 💬 trigger -> follow-up comments only (= d.comments table, postable +
+  // deletable).  Reporter comments live in their own popover triggered from
+  // the COMMENTS column cell so each affordance maps to one data source.
+  function renderCommentSection(d){
+    var comments = (d.comments || []).map(function(c){
+      var mine = (MY_HN && c.hn === MY_HN);
+      return '<li>' + flagImg(c.country_code) + '<span class="hn">' + esc(c.hn) + '</span>' + selfMarker(c.hn) +
+             '<span class="comment-text">' + esc(c.text) + '</span>' +
+             '<span class="when">' + fmtTime(c.created_at) + '</span>' +
+             (mine ? deleteBtn('comment', c.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    var form = '';
+    if (MY_HN) {
+      form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="2"></textarea>' +
+        '<button type="submit">' + esc(t.btnPost) + '</button></form>';
+    }
+    return '<div class="detail-panel">' +
+      '<section><h4>' + esc(t.followupComments) + ' (' + ((d.comments||[]).length) + ')</h4><ul class="flat">' + comments + '</ul>' + form + '</section>' +
+    '</div>';
+  }
+
+  // COMMENTS column cell trigger -> reporter comments only (=
+  // submissions[].comment field, what each reporter typed into the BAN
+  // dialog).  Read-only here; removing one means deleting the whole
+  // submission via the reports popover.
+  function renderReporterCommentsSection(d){
+    var subItems = (d.submissions || []).filter(function(s){
+      return s.comment && String(s.comment).trim();
+    });
+    var subComm = subItems.map(function(s){
+      return '<li>' + flagImg(s.country_code) + '<span class="hn">' + esc(s.hn) + '</span>' + selfMarker(s.hn) +
+             '<span class="comment-text">' + esc(s.comment) + '</span>' +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span></li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    return '<div class="detail-panel"><section><h4>' + esc(t.reporterComments) + ' (' + subItems.length + ')</h4><ul class="flat">' + subComm + '</ul></section></div>';
+  }
+
+  function fetchFor(row){
+    var ip = row.dataset.ip || '';
+    var ja4 = row.dataset.ja4 || '';
+    var qp = new URLSearchParams();
+    if (ip) qp.set('ip', ip);
+    if (ja4) qp.set('ja4', ja4);
+    return fetch(BASE + '/admin/api/community-bans/detail?' + qp.toString(), {credentials:'same-origin', cache:'no-cache'})
+      .then(function(r){ if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); }); return r.json(); });
+  }
+
+  // Re-render the pinned clone's body after a comment post / delete so the
+  // popover stays a fresh source of truth without forcing the operator to
+  // close + reopen it.
+  function refreshClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderCommentSection(d);
+      // Sync the list row's 💬 count badge.
+      var cmtSpan = row.querySelector('.cmt-count');
+      if (cmtSpan) cmtSpan.textContent = '💬 ' + ((d.comments||[]).length);
+    }).catch(function(){ /* ignored */ });
+  }
+
+  // Bump the list row's 💬 N counter (or create one if missing).  Used for
+  // optimistic count updates so the user sees the change immediately.
+  function bumpCmtCount(row, delta){
+    var listVotesTd = row.querySelector('.votes-td');
+    if (!listVotesTd) return;
+    var cmtCountSpan = listVotesTd.querySelector('.cmt-count');
+    if (cmtCountSpan){
+      var m = cmtCountSpan.textContent.match(/(\d+)/);
+      var n = m ? parseInt(m[1], 10) + delta : delta;
+      if (n < 0) n = 0;
+      cmtCountSpan.textContent = '💬 ' + n;
+    } else if (delta > 0) {
+      var voteCell = listVotesTd.querySelector('.votes-cell');
+      if (voteCell){
+        var s = document.createElement('span');
+        s.className = 'cmt-count';
+        s.textContent = ' 💬 ' + delta;
+        voteCell.appendChild(s);
+      }
+    }
+  }
+
+  // 💬 cell click -> fetch + pin a popover scoped to the comments section.
+  // Registered with `capture=true` so this fires before the generic
+  // info-popover click handler (= which sees .cmt-count's parent
+  // votes-cell[data-info] and would steal the click by pinning the reasoning
+  // text).  stopImmediatePropagation stops every later document-level
+  // listener for the same event.
+  // 💬 N badge -> follow-up comments popover (= postable + deletable).
+  // COMMENTS column cell -> reporter comments popover (= read-only) handled
+  // in a separate listener below so each affordance maps to one data source.
+  document.querySelectorAll('table.feed tbody tr.feed-row .cmt-count').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var cmt = e.target.closest && e.target.closest('.cmt-count');
+    if (!cmt) return;
+    // Don't intercept clicks inside the popover-clone (= its own buttons).
+    if (e.target.closest('.popover-clone')) return;
+    var row = cmt.closest('tr.feed-row');
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    // Hide the info-popover in case mouseover-on-parent showed it just before
+    // this click landed.  info-popover's primary sits at z-index 600 (=
+    // hover) and would otherwise overlay the comment-popover clone (= z-index
+    // 400) until the user moves the mouse out.
+    var infoP = document.getElementById('info-popover');
+    if (infoP) infoP.style.display = 'none';
+    var x = e.pageX, y = e.pageY;
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    fetchFor(row).then(function(d){
+      pin.handleClick(renderCommentSection(d), x, y, row, t.followupComments);
+      // After the clone exists, remember its row so the form/delete handlers
+      // can resolve the row from the popover-clone alone.
+      var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
+      if (clone) cloneToRow.set(clone, row);
+    }).catch(function(err){
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+    });
+  }, true);
+
+  // COMMENTS column cell -> reporter comments popover.  Same pin as 💬 (=
+  // popover host element shared), different content + title.
+  document.querySelectorAll('table.feed tbody tr.feed-row td.feed-comments').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var td = e.target.closest && e.target.closest('td.feed-comments');
+    if (!td) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = td.closest('tr.feed-row');
+    if (!row) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    var infoP = document.getElementById('info-popover');
+    if (infoP) infoP.style.display = 'none';
+    var x = e.pageX, y = e.pageY;
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    fetchFor(row).then(function(d){
+      pin.handleClick(renderReporterCommentsSection(d), x, y, row, t.reporterComments);
+      var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
+      if (clone) cloneToRow.set(clone, row);
+    }).catch(function(err){
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+    });
+  }, true);
+
+  // Comment-post form inside a comment-popover clone.
+  document.addEventListener('submit', function(e){
+    var form = e.target;
+    if (!form || !form.classList.contains('detail-comment-form')) return;
+    var clone = form.closest('.popover-clone[data-popover="comment"]');
+    if (!clone) return; // detail-row form path is handled above
+    e.preventDefault();
+    var row = cloneToRow.get(clone);
+    if (!row) return;
+    var ta = form.querySelector('textarea[name=text]');
+    var text = (ta && ta.value || '').trim();
+    if (!text) return;
+    var repID = form.dataset.repId;
+    var submitBtn = form.querySelector('button[type=submit]');
+    if (submitBtn) submitBtn.disabled = true;
+    if (ta) ta.disabled = true;
+    postComment(repID, text).then(function(r){
+      if (!r.ok) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      return r.json().catch(function(){ return {}; });
+    }).then(function(){
+      bumpCmtCount(row, 1);
+      refreshClone(clone, row);
+    }).catch(function(err){
+      if (submitBtn) submitBtn.disabled = false;
+      if (ta) ta.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // Delete-x button inside a comment-popover clone.
+  document.addEventListener('click', function(e){
+    var del = e.target.closest && e.target.closest('.delete-x');
+    if (!del) return;
+    var clone = del.closest('.popover-clone[data-popover="comment"]');
+    if (!clone) return; // detail-row delete path is handled in the row IIFE
+    e.preventDefault();
+    e.stopPropagation();
+    var row = cloneToRow.get(clone);
+    if (!row) return;
+    if (!confirm(t.deleteConfirm)) return;
+    var kind = del.dataset.deleteKind;
+    var id = del.dataset.deleteId;
+    del.disabled = true;
+    postDelete(kind, id).then(function(r){
+      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      if (kind === 'comment') bumpCmtCount(row, -1);
+      refreshClone(clone, row);
+    }).catch(function(err){
+      del.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // Reports + vote popovers: mirror the comment-popover pattern so the
+  // operator can browse reporters / cast a vote from the list row without
+  // expanding the detail panel.  All three share fetchFor() above.
+
+  function detailLoading(){ return '<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>'; }
+  function detailErr(err){ return '<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>'; }
+  // info-popover sits at z-index 600 (= hover) and would otherwise overlay
+  // the popover-clone (= z-index 400) until the user moves the mouse out.
+  function hideHoverPopovers(){
+    var el = document.getElementById('info-popover');
+    if (el) el.style.display = 'none';
+  }
+
+  // installHoverShow: wire mouseover/mouseout on `selector` so the popover
+  // appears on hover (= fetches detail + showHover'd into `pin`'s primary),
+  // and disappears on mouseout unless the mouse moved into the primary
+  // popover itself (= so the operator can read multi-line content without
+  // it vanishing the moment they aim at it).  Click still pins via the
+  // existing capture-phase handler below; this is purely for "チラ見".
+  // hasPinFor short-circuits so hover doesn't fight a pinned clone.
+  function installHoverShow(selector, pin, primary, renderFn){
+    if (!pin || !primary) return;
+    document.addEventListener('mouseover', function(e){
+      var t = e.target.closest && e.target.closest(selector);
+      if (!t) return;
+      if (pin.hasPinFor(t)) return;
+      var to = e.relatedTarget ? e.relatedTarget.closest(selector) : null;
+      if (to === t) return; // moving within same trigger -> no-op
+      var row = t.closest('tr.feed-row');
+      if (!row) return;
+      var x = e.pageX, y = e.pageY;
+      pin.showHover(detailLoading(), x, y);
+      fetchFor(row).then(function(d){
+        // Skip the render if the user has already moused out (= primary is
+        // hidden) or pinned (= a clone exists).  Avoids the loading spinner
+        // briefly flashing the stale row's data after the cursor moved on.
+        if (primary.style.display === 'none') return;
+        if (pin.hasPinFor(t)) return;
+        pin.showHover(renderFn(d), x, y);
+      }).catch(function(){ pin.hideHover(); });
+    });
+    document.addEventListener('mouseout', function(e){
+      var t = e.target.closest && e.target.closest(selector);
+      if (!t) return;
+      var to = e.relatedTarget;
+      if (to && to.closest){
+        if (to.closest(selector) === t) return; // child of same trigger
+        if (primary.contains(to)) return;       // moved into the popover
+      }
+      pin.hideHover();
+    });
+    // Mouseleave on the primary popover: keep it open while the cursor is
+    // inside; hide once it leaves (= unless the cursor went back to a
+    // trigger of the same selector, in which case mouseover above keeps it
+    // visible).
+    primary.addEventListener('mouseleave', function(e){
+      var to = e.relatedTarget;
+      if (to && to.closest && to.closest(selector)) return;
+      pin.hideHover();
+    });
+  }
+
+  // -------- Reports popover (= 📍 cell) --------
+  var reportsPop = document.getElementById('reports-popover');
+  var reportsPin = (reportsPop && window.popoverPin) ? window.popoverPin.install(reportsPop) : null;
+  var reportsCloneToRow = new WeakMap();
+
+  function renderReportsSection(d){
+    var subs = (d.submissions || []).map(function(s){
+      var mine = (MY_HN && s.hn === MY_HN);
+      return '<li>' + flagImg(s.country_code) + '<span class="hn">' + esc(s.hn) + '</span>' + selfMarker(s.hn) +
+             (s.reason ? '<span class="reason-inline">— ' + esc(s.reason) + '</span>' : '') +
+             '<span class="when">' + fmtTime(s.submitted_at) + '</span>' +
+             (mine ? deleteBtn('submission', s.id) : '') + '</li>';
+    }).join('') || '<li class="empty">' + esc(t.none) + '</li>';
+    return '<div class="detail-panel"><section><h4>' + esc(t.submitters) + ' (' + ((d.submissions||[]).length) + ')</h4><ul class="flat">' + subs + '</ul></section></div>';
+  }
+  function refreshReportsClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderReportsSection(d);
+      var badge = row.querySelector('.reports-badge');
+      var n = (d.submissions || []).length;
+      if (badge){
+        if (n > 0){
+          badge.textContent = '📍 ' + n;
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+      }
+    }).catch(function(){ /* ignored */ });
+  }
+  // 📍 badge OR the REASON column cell both open the reports popover -- the
+  // column cell shows every reporter's reason (= the table cell itself can
+  // only carry the representative submission's reason).
+  document.querySelectorAll('table.feed tbody tr.feed-row .reports-badge, table.feed tbody tr.feed-row td.feed-reason').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var badge = e.target.closest && e.target.closest('.reports-badge, td.feed-reason');
+    if (!badge) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = badge.closest('tr.feed-row');
+    if (!row || !reportsPin) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hideHoverPopovers();
+    var x = e.pageX, y = e.pageY;
+    reportsPin.showHover(detailLoading(), x, y);
+    fetchFor(row).then(function(d){
+      reportsPin.handleClick(renderReportsSection(d), x, y, row, t.submitters);
+      var clone = document.body.querySelector('.popover-clone[data-popover="reports"]:last-of-type');
+      if (clone) reportsCloneToRow.set(clone, row);
+    }).catch(function(err){
+      reportsPin.showHover(detailErr(err), x, y);
+    });
+  }, true);
+  // Delete-x button inside a reports-popover clone (= delete one's own
+  // submission).
+  document.addEventListener('click', function(e){
+    var del = e.target.closest && e.target.closest('.delete-x');
+    if (!del) return;
+    var clone = del.closest('.popover-clone[data-popover="reports"]');
+    if (!clone) return; // other popovers' delete buttons stay scoped to theirs
+    e.preventDefault();
+    e.stopPropagation();
+    var row = reportsCloneToRow.get(clone);
+    if (!row) return;
+    if (!confirm(t.deleteConfirm)) return;
+    var kind = del.dataset.deleteKind; // 'submission'
+    var id = del.dataset.deleteId;
+    del.disabled = true;
+    postDelete(kind, id).then(function(r){
+      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      refreshReportsClone(clone, row);
+    }).catch(function(err){
+      del.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // -------- Vote popover (= 👍 cell) --------
+  var votePop = document.getElementById('vote-popover');
+  var votePin = (votePop && window.popoverPin) ? window.popoverPin.install(votePop) : null;
+  var voteCloneToRow = new WeakMap();
+
+  function renderVoteSection(d){
+    if (!MY_HN) {
+      return '<div class="detail-panel"><section><div class="detail-actions"><span class="empty">' + esc(t.notRegistered) + '</span></div></section></div>';
+    }
+    var myLike = findOwn(d.likers);
+    var myBad  = findOwn(d.bads);
+    var mine = myLike ? 'like' : (myBad ? 'bad' : '');
+    var likeCount = (d.likers || []).length;
+    var badCount  = (d.bads   || []).length;
+    var likeIdAttr = myLike ? ' data-my-vote-id="' + esc(myLike.id) + '"' : '';
+    var badIdAttr  = myBad  ? ' data-my-vote-id="' + esc(myBad.id)  + '"' : '';
+    return '<div class="detail-panel"><section><div class="detail-actions" data-rep-id="' + esc(d.representative_submission_id) + '">' +
+      '<button class="vote-btn' + (mine === 'like' ? ' active like' : '') + '" data-vote-kind="like"' + likeIdAttr + '>' + esc(t.btnLike) + ' (' + likeCount + ')</button>' +
+      '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad"' + badIdAttr + '>' + esc(t.btnBad) + ' (' + badCount + ')</button>' +
+      '<span class="my-hn">' + esc(t.myHnLabel) + ': ' + esc(MY_HN) + '</span></div></section></div>';
+  }
+  function refreshVoteClone(clone, row){
+    fetchFor(row).then(function(d){
+      var body = clone.querySelector('.popover-body');
+      if (body) body.innerHTML = renderVoteSection(d);
+      // Sync the list row's 👍 N counter (= likes only; bads stay private).
+      var likeSpan = row.querySelector('.votes-cell .like');
+      if (likeSpan) likeSpan.textContent = '👍 ' + ((d.likers || []).length);
+    }).catch(function(){ /* ignored */ });
+  }
+  document.querySelectorAll('table.feed tbody tr.feed-row .votes-cell .like').forEach(function(el){
+    el.style.cursor = 'pointer';
+  });
+  document.addEventListener('click', function(e){
+    var like = e.target.closest && e.target.closest('.votes-cell .like');
+    if (!like) return;
+    if (e.target.closest('.popover-clone')) return;
+    var row = like.closest('tr.feed-row');
+    if (!row || !votePin) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    hideHoverPopovers();
+    var x = e.pageX, y = e.pageY;
+    votePin.showHover(detailLoading(), x, y);
+    fetchFor(row).then(function(d){
+      votePin.handleClick(renderVoteSection(d), x, y, row, t.btnLike);
+      var clone = document.body.querySelector('.popover-clone[data-popover="vote"]:last-of-type');
+      if (clone) voteCloneToRow.set(clone, row);
+    }).catch(function(err){
+      votePin.showHover(detailErr(err), x, y);
+    });
+  }, true);
+  // Vote button inside a vote-popover clone.  Toggles like / bad / off and
+  // refreshes the clone + the list row counter from the hub's truth (=
+  // refresh-from-server instead of duplicating the detail-row's elaborate
+  // optimistic state machine).
+  document.addEventListener('click', function(e){
+    var voteBtn = e.target.closest && e.target.closest('.vote-btn');
+    if (!voteBtn) return;
+    var clone = voteBtn.closest('.popover-clone[data-popover="vote"]');
+    if (!clone) return; // detail-row vote path is handled in the row IIFE
+    e.preventDefault();
+    e.stopPropagation();
+    var row = voteCloneToRow.get(clone);
+    if (!row) return;
+    var actions = voteBtn.closest('.detail-actions');
+    var repID = actions && actions.dataset.repId;
+    if (!repID) return;
+    var kind = voteBtn.dataset.voteKind;
+    var isActive = voteBtn.classList.contains('active');
+    var myVoteId = voteBtn.dataset.myVoteId;
+    var otherBtn = actions.querySelector('.vote-btn[data-vote-kind="' + (kind === 'like' ? 'bad' : 'like') + '"]');
+    voteBtn.disabled = true;
+    if (otherBtn) otherBtn.disabled = true;
+    var pending = (isActive && myVoteId)
+      ? postDelete('vote', myVoteId)
+      : postVote(repID, kind);
+    pending.then(function(r){
+      if (!r.ok && r.status !== 204 && r.status !== 404) {
+        return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+      }
+    }).then(function(){
+      refreshVoteClone(clone, row);
+    }).catch(function(err){
+      voteBtn.disabled = false;
+      if (otherBtn) otherBtn.disabled = false;
+      alert((t.err || 'error') + ' ' + (err.message || err));
+    });
+  });
+
+  // Wire hover-show for all three list-row popovers.  Click still pins via
+  // the capture-phase handlers above; this just adds peek-on-hover so the
+  // operator can browse without committing.
+  installHoverShow('.cmt-count',                     pin,        pop,        renderCommentSection);
+  installHoverShow('td.feed-comments',               pin,        pop,        renderReporterCommentsSection);
+  installHoverShow('.reports-badge, td.feed-reason', reportsPin, reportsPop, renderReportsSection);
+  installHoverShow('.votes-cell .like',              votePin,    votePop,    renderVoteSection);
+})();
+
+</script>
+</body>
+</html>
