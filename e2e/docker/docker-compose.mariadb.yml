@@ -1,0 +1,55 @@
+# Override of docker-compose.yml that backs the admin daemon with MariaDB
+# instead of the default SQLite, so the full e2e suite (= the same scenarios)
+# runs end-to-end against the MariaDB driver -- migrations, the UTC time_zone
+# pin, the dialect-specific aggregate SQL, upsert/OnConflict, and the
+# request -> challenge -> event -> hourly-aggregate -> dashboard path.  Run via:
+#   make e2e-docker-mariadb
+#
+# The DB-layer already has focused MariaDB unit tests (make test-mariadb); this
+# variant adds the missing full-stack coverage.  All 41 scenarios run unchanged
+# -- the backend is transparent to nginx / Apache / the challenge flow.
+name: unmask-e2e
+
+services:
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: rootpw
+      MARIADB_DATABASE: unmask_e2e
+      MARIADB_USER: unmask
+      MARIADB_PASSWORD: unmask
+    # No published port: admin reaches it on the compose network at mariadb:3306.
+    healthcheck:
+      # Same readiness probe make test-mariadb uses; the unmask user + DB exist
+      # only once the entrypoint's init (incl. its temp-server restart) finishes.
+      test: ["CMD", "mariadb", "-uunmask", "-punmask", "unmask_e2e", "-e", "SELECT 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 45
+
+  admin:
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    # Rewrite the baked-in admin.yml's db block from sqlite to mariadb before
+    # migrate/render/serve.  busybox sed (alpine) can't cleanly multi-line-append,
+    # so prepend a fresh db block via printf and strip the old sqlite lines (the
+    # parser reads the first db: key; yaml key order is irrelevant).
+    # IDEMPOTENT: scenario 35 restarts this container, re-running the command, so
+    # guard on whether the rewrite already happened -- a second pass would
+    # prepend a second db block and duplicate the driver/mariadb keys (invalid
+    # yaml -> admin won't restart).
+    entrypoint: []
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if ! grep -q '^  driver: mariadb' /etc/unmask/admin.yml; then
+          { printf 'db:\n  driver: mariadb\n  mariadb:\n    host: mariadb\n    port: 3306\n    user: unmask\n    password: unmask\n    database: unmask_e2e\n'; \
+            sed '/^db:/d; /^  driver: sqlite/d; /^  sqlite_path:/d' /etc/unmask/admin.yml; } > /tmp/admin.yml
+          mv /tmp/admin.yml /etc/unmask/admin.yml
+        fi
+        /usr/local/bin/unmask migrate      -config /etc/unmask/admin.yml
+        /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+        exec /usr/local/bin/unmask serve   -config /etc/unmask/admin.yml

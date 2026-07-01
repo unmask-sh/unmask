@@ -1,0 +1,78 @@
+# plugin-nginx-fat-body.yaml.in — body for the fat variant of
+# unmask-plugin-nginx (= bundles .so files for multiple nginx versions in one
+# package).
+#
+# postinstall picks and cp's the .so matching the host nginx out of the bundle.
+# When the host runs an ABI-compatible version (= same minor branch / patch),
+# the closest match is used.
+#
+# Bundled versions are everything sitting under build/multi-modules/.  Run
+# `make build-module-multi` to build them all first, then package.
+
+description: |
+  unmask nginx native module (= ngx_http_unmask_module.so).
+  Provides JA4 TLS fingerprint extraction and full native-mode features.
+  Bundles modules for multiple nginx versions; postinstall picks the one
+  matching the host nginx automatically.
+  Requires the unmask main package and a host nginx with --with-compat.
+
+depends:
+  - unmask
+  # nginx must be installed before the plugin postinstall runs -- it parses
+  # `nginx -V` to pick the matching .so out of the fat bundle, and stops with
+  # "nginx not installed, skipped placing the module" otherwise.  Without this
+  # depend, `apt install unmask-plugin-nginx` on a fresh box drops the package
+  # in but never lays down /usr/lib/nginx/modules/ngx_http_unmask_module.so,
+  # so nginx -t passes but the challenge silently never fires.
+  - nginx
+
+overrides:
+  # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
+  # apk `=`): the .so and the daemon share the _bv / JA4 contract, so a mixed
+  # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends,
+  # so each lists nginx too.
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - nginx
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - nginx
+  # On Alpine, gcompat lets nginx (musl-linked) dlopen our glibc-built
+  # plugin .so.  Without it the module fails to load and the challenge
+  # never fires.  Pin as a hard apk dependency so `apk add unmask-plugin-nginx`
+  # pulls it in by default.
+  apk:
+    # apk runs no maintainer script on `apk upgrade` without an
+    # apk-specific post-upgrade hook; re-run the idempotent postinstall.
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-plugin-nginx-fat.sh
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - nginx
+      - gcompat
+
+scripts:
+  preinstall: ./scripts/preinstall-plugin-nginx-fat.sh
+  postinstall: ./scripts/postinstall-plugin-nginx-fat.sh
+  preremove: ./scripts/preremove-plugin-nginx.sh
+
+# The Makefile's package-plugin-nginx-fat target walks the build-module-multi
+# output (= dist/multi-modules/<X.Y.Z>/ngx_http_unmask_module.so), appends the
+# .so entries after these, then invokes nfpm pkg.
+contents:
+  # On-disk module placer, shared by the postinstall scriptlet and the
+  # nginx.service ExecStartPre drop-in (= the host-nginx-upgrade re-pick).
+  - src: ./scripts/place-module.sh
+    dst: /usr/share/unmask/plugin/place-module.sh
+    file_info:
+      mode: 0755
+  # nginx.service drop-in: re-pick the module for the running nginx version
+  # before nginx starts, so a host nginx upgrade can't orphan the .so and kill
+  # nginx.  Non-fatal ExecStartPre; degrades to module-off if no .so matches.
+  - src: ./nginx-unmask-repick.conf
+    dst: /usr/lib/systemd/system/nginx.service.d/10-unmask-repick.conf
+    file_info:
+      mode: 0644

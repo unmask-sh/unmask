@@ -1,0 +1,158 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "unmask: JA4 bot challenge metrics (= /unmask/metrics scrape).",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "schemaVersion": 39,
+  "tags": ["unmask", "bot", "ja4"],
+  "title": "unmask — bot challenge",
+  "uid": "unmask-overview",
+  "version": 1,
+  "time": { "from": "now-24h", "to": "now" },
+  "timepicker": {},
+  "refresh": "1m",
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "default", "value": "default" },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "challenge serve / 24h",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(unmask_event_total{phase=\"serve\"}[24h]))",
+          "legendFormat": "serve"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green" }] } } }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "verify ok / 24h",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(unmask_event_total{phase=\"verify_ok\"}[24h]))",
+          "legendFormat": "verify_ok"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "verify ng / 24h",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(unmask_event_total{phase=\"verify_ng\"}[24h]))",
+          "legendFormat": "verify_ng"
+        }
+      ],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red" }] } } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "unique source IPs (24h)",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "unmask_event_unique_ip",
+          "legendFormat": "unique IPs"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "challenge funnel (rate / 5m)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (phase) (rate(unmask_event_total[5m]))",
+          "legendFormat": "{{phase}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "lineInterpolation": "smooth", "fillOpacity": 12 },
+          "unit": "ops"
+        }
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max", "lastNotNull"] } }
+    },
+    {
+      "id": 20,
+      "type": "barchart",
+      "title": "verdict distribution (24h, top 12)",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(12, sum by (verdict) (increase(unmask_event_total[24h])))",
+          "legendFormat": "{{verdict}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "heatmap",
+      "title": "verify score histogram",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (le) (rate(unmask_verify_score_bucket[5m]))",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ],
+      "options": { "yAxis": { "unit": "short" } }
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "DB query latency p50/p95 (= sum/count rate)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (op) (rate(unmask_db_query_seconds_sum[5m])) / clamp_min(sum by (op) (rate(unmask_db_query_seconds_count[5m])), 1)",
+          "legendFormat": "avg {{op}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "fillOpacity": 8 } }
+      }
+    }
+  ]
+}

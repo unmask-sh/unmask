@@ -1,0 +1,11 @@
+# Built harness binary.
+ja4_parser_fuzz
+
+# libFuzzer working corpus + artefacts.
+new-corpus/
+crash-*
+leak-*
+oom-*
+slow-*
+timeout-*
+fuzz-*.log

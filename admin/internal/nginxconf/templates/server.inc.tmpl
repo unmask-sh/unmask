@@ -1,0 +1,399 @@
+# /var/lib/unmask/nginx/server.inc — auto-rendered by admin.  DO NOT EDIT.
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# Placement: include this in the user's vhost (= server block) as a one-liner:
+#   server {
+#       listen 443 ssl;
+#       server_name example.com;
+#       access_log /var/log/nginx/example-access.log;           # leave existing as-is
+#       include /var/lib/unmask/nginx/server.inc;               # ← add this
+#       ...
+#       location / {
+#           include /var/lib/unmask/nginx/protect.inc;          # scope to protect
+#       }
+#   }
+#
+# Contents: (1) access_log for dashboard aggregation of cookie-passed requests
+# (unmask_minimal), (2) BAN enforcement if-blocks (= deny / rewrite-to-challenge),
+# (3) @unmask_rate_challenge named location, (4) the `location ^~ /unmask/`
+# proxy to the admin daemon, (5) @unmask_daemon_down fail-open (= serve the
+# original page when the daemon is unreachable).  Any future server-scope
+# directives consolidate here.
+#
+# Restricting which Host gets the admin UI: edit settings →
+# nginx.admin_allowed_hosts in admin (= HTTP-layer allowlist on /admin/*).
+# nginx still proxies /unmask/* on every vhost that includes this file; only
+# the admin UI surface is gated.
+#
+# Why access_log is required here: redefining access_log at the server level
+# stops nginx from inheriting the http-scope `access_log syslog:... unmask_minimal;`,
+# so on installs with pre-existing vhosts the same directive must also be
+# emitted at server scope.  nginx allows multiple access_log directives per
+# block, so this coexists with the user's existing access_log.
+#
+# The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
+# are declared by admin at /var/lib/unmask/nginx/http.inc (= http scope).
+{{- if .NginxLogEnabled }}
+# if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed
+# ($unmask_log_keep is defined in http.inc, http scope).
+access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;
+{{- else }}
+# nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
+{{- end }}
+
+# Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
+# and by protect.inc's challenge gate).  Initialized here -- server rewrite
+# phase, which runs exactly once per request -- so the variables always exist
+# before any location-level logic reads them.
+#   $unmask_failopen  : "1" after @unmask_daemon_down replays a request,
+#                       suppressing the challenge gate on the replay pass.
+#   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
+#                       into /unmask/*; empty for direct /unmask/* requests.
+#   $unmask_orig_args : pre-challenge $args, restored on replay.
+set $unmask_failopen  "";
+set $unmask_orig_path "";
+set $unmask_orig_args "";
+
+# Persistent BAN application.  The native plugin reads the ban file and the
+# http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
+# http.inc) blanks out /unmask/* so the challenge HTML still loads.
+# Mirrors the forward-auth banDecideFromSource path so a manual / honeypot /
+# community_bans ban produces the same response in both modes (= settings.Bans
+# + Honeypot.DefaultAction resolved at ban-file flush time).
+if ($unmask_ban_action_effective = "deny") {
+    # Branded "blocked" page (admin renders it at /unmask/_ban<orig URI>).  Still
+    # fails closed: a daemon-down request lands in @unmask_daemon_down with no
+    # saved original and returns 503, never a free pass.  /unmask/* is ban-blanked
+    # (http.inc) so the rewritten request does not re-trigger this branch.
+    rewrite ^ /unmask/_ban$request_uri last;
+}
+if ($unmask_banned_effective = "1") {
+    rewrite ^ /unmask/challenge/ last;
+}
+
+{{ if .WebBotAuthEnabled }}
+# Web Bot Auth (RFC 9421 HTTP Message Signatures).  The native plugin only
+# DETECTS the Signature-Input header ($unmask_has_signed_agent); the
+# cryptographic verification lives in the admin daemon (= pure-Go ed25519 +
+# JWK directory cache), consulted via the auth_request below.
+#
+# $unmask_signed_gate (http.inc) fires only for a signed MAIN request that is
+# about to be challenged ($final_challenge=1) and is not already on an unmask
+# mount.  Everything else — unsigned traffic, signed traffic on a bypass path
+# or with a valid _bv — stays on the fast native path with zero subrequest
+# overhead.  The ban if-blocks above run first, so a banned client never
+# reaches this gate.  Server-scope rewrites run once per request (internal
+# redirects re-enter at location search), so the re-entry below cannot loop.
+if ($unmask_signed_gate = "1") {
+    rewrite ^ /_unmask/_signed_route$request_uri last;
+}
+
+# Verification detour.  The auth_request consults admin /_unmask/check; its
+# X-Unmask-Action answer is captured into $unmask_signed_action.  EVERY
+# outcome then converges on @unmask_signed_continue, which re-enters the
+# original URI on the normal native flow:
+#   - verified + operator allowed  -> action "pass"   -> protect.inc's
+#     $final_challenge_eff sees $unmask_signed_verified=1 and skips the
+#     challenge (= the signed agent reaches the site's own content/proxy
+#     locations -- never served off this location's filesystem, which is
+#     what 404'd proxy sites before v0.1.2).
+#   - bad signature / not allowlisted -> 401/403       -> action stays unset
+#     or non-pass -> the normal challenge applies.
+#   - daemon down / erroring          -> 5xx (incl. auth_request's "unexpected
+#     status" 500) -> same degradation: normal challenge, no raw 5xx leaks to
+#     the agent.
+# try_files always misses the sentinel and lands in the named location — it
+# is the post-access way to re-enter; it never serves content.
+location ^~ /_unmask/_signed_route/ {
+    internal;
+    auth_request /_unmask/_signed_verify;
+    auth_request_set $unmask_signed_action $upstream_http_x_unmask_action;
+    error_page 401 403 500 502 503 504 = @unmask_signed_continue;
+    try_files /__unmask_signed_continue__ @unmask_signed_continue;
+}
+
+# Strip the detour prefix and re-enter location matching at the original URI.
+# $unmask_signed_action (auth_request_set above) survives the internal
+# redirect, so protect.inc / http.inc maps can see the daemon's verdict.
+location @unmask_signed_continue {
+    rewrite ^/_unmask/_signed_route(/.*)$ $1 last;
+}
+
+# Subrequest target for /_unmask/_signed_route's auth_request.  Pumps the
+# call into the admin daemon's /unmask/api/check endpoint (= the same
+# forward-auth handler Apache uses).  Body is dropped to keep the
+# subrequest cheap.
+# The plugin reports $unmask_has_signed_agent=0 for subrequests and
+# $unmask_uri_is_unmask=1 for this URI, so the signed-route gate cannot
+# hijack this subrequest away from the proxy (both guards are sufficient
+# alone; pre-v0.1.2 the unguarded gate did exactly that and the daemon was
+# never consulted).
+location = /_unmask/_signed_verify {
+    internal;
+    proxy_pass http://unmask/unmask/api/check;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI    $request_uri;
+    proxy_set_header X-Original-IP     $remote_addr;
+    proxy_set_header X-Original-UA     $http_user_agent;
+    proxy_set_header X-Original-Host   $host;
+    proxy_set_header X-Original-Method $request_method;
+    # Verdict headers: feed the plugin-gated values (not client-supplied) and
+    # strip the conn-peer, so a client can't spoof / suppress the JA4 through this
+    # verify detour (same handling as unmask_daemon_proxy).
+    proxy_set_header X-Client-JA4       $effective_ja4;
+    proxy_set_header X-JA4-Verdict      $ja4_verdict;
+    proxy_set_header X-JA4-Action       $ja4_action;
+    proxy_set_header X-Honeypot-Hit     $serve_bot_challenge;
+    proxy_set_header X-Protected-Mode   $protected_mode;
+    proxy_set_header X-Banned           $unmask_banned;
+    proxy_set_header X-Unmask-Site      "";
+    proxy_set_header X-Unmask-Conn-Peer "";
+    # Forward the signature headers so the admin-side Verifier can do the
+    # actual RFC 9421 check.  Names are case-insensitive on the wire.
+    proxy_set_header Signature         $http_signature;
+    proxy_set_header Signature-Input   $http_signature_input;
+    proxy_set_header Signature-Agent   $http_signature_agent;
+}
+{{ end }}
+
+{{ if .PrivacyPassEnabled }}
+# Privacy Pass / PAT (RFC 9577/9578).  Same detour shape as Web Bot Auth: the
+# native plugin computes nothing here — $unmask_has_pat is a pure header match
+# (http.inc) and the cryptographic check lives in the admin daemon (= pure-Go
+# RSASSA-PSS token verify against the trusted issuer keys), consulted via the
+# auth_request below.  $unmask_pat_gate fires only for a PrivateToken MAIN
+# request about to be challenged and not already on an unmask mount; the ban
+# if-blocks above run first, so a banned client never reaches this gate.
+if ($unmask_pat_gate = "1") {
+    rewrite ^ /_unmask/_pat_route$request_uri last;
+}
+
+# Verification detour.  auth_request consults admin /_unmask/check; its
+# X-Unmask-Action answer is captured into $unmask_pat_action.  Every outcome
+# converges on @unmask_pat_continue, which re-enters the original URI:
+#   - verified token from a trusted issuer -> action "pass" -> protect.inc's
+#     $final_challenge_eff sees $unmask_pat_verified=1 and skips the challenge.
+#   - invalid / untrusted / no issuer match -> 401/403 -> normal challenge.
+#   - daemon down / erroring -> 5xx -> normal challenge, no raw 5xx to the client.
+location ^~ /_unmask/_pat_route/ {
+    internal;
+    auth_request /_unmask/_pat_verify;
+    auth_request_set $unmask_pat_action $upstream_http_x_unmask_action;
+    error_page 401 403 500 502 503 504 = @unmask_pat_continue;
+    try_files /__unmask_pat_continue__ @unmask_pat_continue;
+}
+
+# Strip the detour prefix and re-enter location matching at the original URI.
+# $unmask_pat_action (auth_request_set above) survives the internal redirect,
+# so protect.inc / http.inc maps can see the daemon's verdict.
+location @unmask_pat_continue {
+    rewrite ^/_unmask/_pat_route(/.*)$ $1 last;
+}
+
+# Subrequest target for /_unmask/_pat_route's auth_request.  Pumps the call into
+# the admin daemon's /unmask/api/check endpoint (= the same forward-auth handler
+# the privacy_pass axis runs in).  Body is dropped to keep the subrequest cheap.
+# $unmask_uri_is_unmask=1 for this URI keeps the pat gate from hijacking it.
+location = /_unmask/_pat_verify {
+    internal;
+    proxy_pass http://unmask/unmask/api/check;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI    $request_uri;
+    proxy_set_header X-Original-IP     $remote_addr;
+    proxy_set_header X-Original-UA     $http_user_agent;
+    proxy_set_header X-Original-Host   $host;
+    proxy_set_header X-Original-Method $request_method;
+    # Verdict headers: feed the plugin-gated values (not client-supplied) and
+    # strip the conn-peer, so a client can't spoof / suppress the JA4 through this
+    # verify detour (same handling as unmask_daemon_proxy).
+    proxy_set_header X-Client-JA4       $effective_ja4;
+    proxy_set_header X-JA4-Verdict      $ja4_verdict;
+    proxy_set_header X-JA4-Action       $ja4_action;
+    proxy_set_header X-Honeypot-Hit     $serve_bot_challenge;
+    proxy_set_header X-Protected-Mode   $protected_mode;
+    proxy_set_header X-Banned           $unmask_banned;
+    proxy_set_header X-Unmask-Site      "";
+    proxy_set_header X-Unmask-Conn-Peer "";
+    # Forward the PrivateToken so the admin verifies it; X-Original-Host binds
+    # the origin the token must be scoped to (same host the challenge emitted).
+    proxy_set_header Authorization     $http_authorization;
+}
+{{ end }}
+
+# @unmask_rate_challenge: target of `error_page 429 = @unmask_rate_challenge;`
+# in protect.inc.  Rewrites a rate-limit hit into /unmask/_rl<orig URI> which
+# admin serves as a challenge page (= "you're going too fast, prove you're
+# human").
+location @unmask_rate_challenge {
+    # Replayed requests (= $unmask_failopen set by @unmask_daemon_down) can
+    # trip limit_req a second time; the challenge endpoint is down, so answer
+    # a plain 429 instead of looping back into the dead proxy.
+    if ($unmask_failopen = "1") {
+        add_header Retry-After "10" always;
+        return 429 "rate limited\n";
+    }
+    set $unmask_orig_path $uri;
+    set $unmask_orig_args $args;
+    rewrite ^ /unmask/_rl$request_uri last;
+}
+
+# /unmask/* — admin daemon mount.  The ngx_http_unmask_module computes JA4 and
+# exposes variables but does NOT serve content, so every /unmask/ path
+# (challenge HTML, verify API, static assets, rate-limit challenge, dashboard,
+# healthz, metrics) is proxied to the admin upstream.  This makes native mode
+# self-contained: a vhost only needs `include server.inc;` here plus
+# `include protect.inc;` in protected locations.
+#
+# Whether the admin UI is reachable through this Host is decided at the HTTP
+# layer by admin's settings.Nginx.AdminAllowedHosts allowlist; nginx itself
+# proxies on every Host.  See settings → nginx.admin_allowed_hosts.
+# The upstream `unmask` is declared at the tail of http.inc.
+# Shared admin-daemon proxy directives.  Rendered into both the protected
+# /unmask/admin/ location and the unprotected machinery catch-all via this
+# define, so there is one source copy (no separate .inc file) yet each location
+# carries the identical proxy / header set (incl. the X-Original-* spoof strip).
+{{ define "unmask_daemon_proxy" }}
+    # Cap the connect wait so an unreachable daemon trips @unmask_daemon_down in
+    # ~2s instead of hanging on the 60s default.  read/send stay at default so
+    # slow challenge renders and the SSE stream are unaffected.
+    proxy_connect_timeout 2s;
+    proxy_pass         http://unmask;
+    proxy_set_header   Host             $host;
+    proxy_set_header   X-Real-IP        $remote_addr;
+    # If an LB terminated TLS and forwarded X-Forwarded-Proto/Port, use it; else
+    # fall back to local $scheme/$server_port so the hunt page's URLs keep https.
+    proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
+    proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
+    proxy_set_header   X-Client-JA4     $effective_ja4;
+    # Strip a client-supplied X-Unmask-Conn-Peer: that header is the Apache
+    # forward-auth LB-gate input, and native already feeds the plugin-gated
+    # $effective_ja4 above, so a client must not be able to send a conn-peer that
+    # would make the daemon's gate drop the JA4.
+    proxy_set_header   X-Unmask-Conn-Peer "";
+    proxy_set_header   X-JA4-Verdict    $ja4_verdict;
+    proxy_set_header   X-JA4-Action     $ja4_action;
+    proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
+    proxy_set_header   X-Protected-Mode $protected_mode;
+    proxy_set_header   X-Banned         $unmask_banned;
+    # Strip every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a visitor
+    # can't smuggle a lenient site's identity through a header (= would reach
+    # handlers.go siteFromRequest's fallback chain and resolve a different
+    # site's Challenge / Honeypot / Bypass config).
+    proxy_set_header   X-Original-Host  $host;
+    proxy_set_header   X-Forwarded-Host $host;
+    proxy_set_header   X-Original-URI   $request_uri;
+    proxy_set_header   X-Original-IP    $remote_addr;
+    proxy_set_header   X-Original-UA    $http_user_agent;
+    proxy_set_header   X-Unmask-Site    "";
+    # Branding logo upload is multipart up to 4 MiB; lift nginx's 1 MiB cap.
+    client_max_body_size 4m;
+    # SSE (= /unmask/admin/api/events/stream) needs unbuffered HTTP/1.1.
+    proxy_http_version 1.1;
+    proxy_set_header   Connection "";
+    proxy_buffering    off;
+    # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
+    proxy_intercept_errors on;
+    error_page 502 503 504 = @unmask_daemon_down;
+{{ end }}
+
+# /unmask/admin/ — the admin UI runs through the SAME protection as a normal
+# site path.  include protect.inc so a _bv-less visitor hits the protected-path
+# challenge (the "unmask" preset = captcha) plus the admin_login rate zone (via
+# its path-conditional key in protect.inc), while a visitor with a valid _bv
+# passes straight through.  More specific than ^~ /unmask/ below, so nginx
+# prefers it for admin paths; the machinery paths stay on the unprotected
+# catch-all so the challenge page itself never loops.
+location ^~ /unmask/admin/ {
+    include {{ .OutputDir }}/protect.inc;
+    {{ template "unmask_daemon_proxy" . }}
+}
+
+# /unmask/_ban — the ban "blocked" page (rewrite target of the deny-action ban
+# above).  More specific than the /unmask/ catch-all so it can fail CLOSED: the
+# proxy template's error_page would fail open to @unmask_daemon_down's 503, but
+# a ban must hold during a daemon outage, so override it to a bare 403 (the same
+# response the branch returned before it routed through the admin for branding).
+location ^~ /unmask/_ban {
+    {{ template "unmask_daemon_proxy" . }}
+    error_page 502 503 504 = @unmask_ban_deny_down;
+}
+location @unmask_ban_deny_down {
+    return 403;
+}
+
+# /unmask/api/check — the forward-auth DECISION endpoint (records bans / counts
+# rate by client IP).  In native mode the plugin decides inline and the WBA/PAT
+# verify detours reach it via the upstream directly, so it is never a public
+# endpoint here.  unmask_daemon_proxy below already forces X-Original-IP =
+# $remote_addr (a direct client can only affect itself), but block it outright as
+# defense-in-depth.  Exact (`=`) match wins over the `^~ /unmask/` catch-all.
+location = /unmask/api/check { return 404; }
+
+# /unmask/ machinery catch-all — proxied straight to the daemon WITHOUT
+# protect.inc (challenge HTML, verify API, rate-limit replay, healthz, static
+# assets, metrics).  These must never be challenged: the challenge page is
+# served from here, so protecting it would loop.
+location ^~ /unmask/ {
+    {{ template "unmask_daemon_proxy" . }}
+}
+
+# Daemon-down fail-open.  Reached via error_page from the /unmask/* proxy
+# locations when the admin daemon cannot answer.  Two cases:
+#   - The request was internally rewritten into a challenge (protect.inc or
+#     @unmask_rate_challenge saved the original URI): replay the original
+#     request through the vhost's own locations.  The visitor gets the page
+#     they asked for -- the same behavior as not having unmask installed.
+#     $unmask_failopen suppresses the challenge gate on the replay pass, so
+#     the replay cannot loop back here.
+#   - A direct /unmask/* request (challenge assets mid-flow, admin UI):
+#     nothing to replay; answer 503 + Retry-After.
+# BAN enforcement still holds during an outage: deny entries return 403
+# without the daemon, and challenge-type ban rewrites happen at server scope
+# before any original URI is saved, so banned clients land in the 503 branch
+# rather than getting a free pass.
+location @unmask_daemon_down {
+    set $unmask_failopen "1";
+{{- if .ComposeMode }}
+    # Compose mode cleared $unmask_orig_path: the ACCESS-phase internal_redirect
+    # restarted the phase engine, re-running this file's SERVER_REWRITE reset
+    # (the classic gates use `rewrite ... last`, which skips SERVER_REWRITE, so
+    # their save survives -- compose's does not).  Recover the original the
+    # handler carried in the redirect, split into a clean path + args by
+    # http.inc's maps: the _orig arg for the challenge route, the /unmask/_rl URI
+    # suffix for the rate route.  Both only fire while $unmask_orig_path is empty,
+    # so a classic save (when present) is never overwritten.  The source maps are
+    # gated on $unmask_compose=1 (http.inc), so a banned client's crafted _orig /
+    # a direct /unmask/_rl hit cannot smuggle a replay target past the ban -- they
+    # leave $unmask_orig_path empty and fall through to the 503 below.
+    if ($unmask_orig_path = "") {
+        set $unmask_orig_path $unmask_orig_arg_path;
+        set $unmask_orig_args $unmask_orig_arg_args;
+    }
+    if ($unmask_orig_path = "") {
+        set $unmask_orig_path $unmask_rl_orig;
+        set $unmask_orig_args $args;
+    }
+{{- end }}
+    # Replay only originals OUTSIDE /unmask/.  An empty original means a
+    # direct /unmask/* hit, and a saved /unmask/* original (= the challenge
+    # gate also covers the admin UI surface when protect.inc sits at server
+    # scope) would bounce straight back into the dead proxy -- error_page
+    # does not recurse, so that second 502 would surface raw.  Both cases
+    # take the 503 + Retry-After below instead.
+    if ($unmask_orig_path ~ "^/(?!unmask(/|$))") {
+        set $args $unmask_orig_args;
+        rewrite ^ $unmask_orig_path last;
+    }
+    add_header Retry-After "10" always;
+    return 503 "unmask admin temporarily unavailable\n";
+}
+# Path-scoped rate-limit zones (settings.RateLimit.Zones rows with
+# PathPatterns, e.g. unmask_admin_login) are NOT rendered as their own
+# locations any more -- a more-specific location would shadow protect.inc and
+# silently disable the challenge / honeypot / ban / geo protections for that
+# path.  Instead each such zone's limit_req lives in protect.inc with a
+# path-conditional key (http.inc $rl_<zone>_key), so it only counts on its
+# patterns yet composes with every other protection in the same location.

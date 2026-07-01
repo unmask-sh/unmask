@@ -1,0 +1,94 @@
+#!/bin/sh
+#
+# unmask   unmask admin server (JA4 bot challenge backend)
+#
+# chkconfig: 2345 85 15
+# description: unmask admin (JA4 bot challenge backend). Binds 127.0.0.1:9477.
+# processname: unmask
+# config: /etc/unmask/config.yml
+# pidfile: /var/run/unmask/unmask.pid
+#
+### BEGIN INIT INFO
+# Provides:          unmask
+# Required-Start:    $network $local_fs $remote_fs
+# Required-Stop:     $network $local_fs $remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: unmask admin server
+# Description:       unmask admin (JA4 bot challenge backend); binds 127.0.0.1:9477.
+### END INIT INFO
+#
+# SysVinit init script for RHEL 6 / CentOS 6 (= no systemd, no OpenRC).
+# systemd hosts use unmask.service; OpenRC hosts use unmask.openrc.  postinstall
+# copies this to /etc/rc.d/init.d/unmask and `chkconfig --add`s it when neither
+# systemd nor OpenRC is present.
+
+. /etc/rc.d/init.d/functions
+
+prog="unmask"
+exec="/usr/sbin/unmask"
+config="/etc/unmask/config.yml"
+user="unmask"
+# /run/unmask, not /var/run/unmask: the daemon's default nginx-log socket is
+# /run/unmask/log.sock (= matches systemd RuntimeDirectory), and the daemon runs
+# unprivileged so it cannot create /run itself -- root must, here, before it
+# starts (else nginxlog aggregation silently disables).  0755 so the nginx
+# worker (a different user) can traverse in to write the 0666 socket.
+rundir="/run/unmask"
+pidfile="$rundir/unmask.pid"
+logfile="/var/log/unmask.log"
+lockfile="/var/lock/subsys/unmask"
+
+start() {
+    [ -x "$exec" ] || exit 5
+    [ -f "$config" ] || exit 6
+    if status -p "$pidfile" "$prog" >/dev/null 2>&1; then
+        echo "$prog is already running"
+        return 0
+    fi
+    # Runtime dir (tmpfs-safe, recreated each boot) + log file owned by unmask.
+    # 0755: the daemon binds /run/unmask/log.sock here and the nginx worker
+    # (different user) must traverse in to write it.
+    install -d -o "$user" -g "$user" -m 0755 "$rundir"
+    [ -e "$logfile" ] || { : > "$logfile" && chown "$user:$user" "$logfile"; }
+    echo -n $"Starting $prog: "
+    # The Go binary runs in the foreground (it does not self-daemonize), so
+    # launch it under the unmask user, background it, and record the child PID.
+    # nohup execs into unmask, so $! is unmask's own PID.
+    runuser -s /bin/sh "$user" -c \
+        "nohup $exec serve -config $config >>$logfile 2>&1 & echo \$!" > "$pidfile" 2>/dev/null
+    # Settle briefly, then confirm it is actually up.
+    sleep 1
+    if status -p "$pidfile" "$prog" >/dev/null 2>&1; then
+        touch "$lockfile"
+        success; echo
+        return 0
+    fi
+    failure; echo
+    rm -f "$pidfile"
+    return 1
+}
+
+stop() {
+    echo -n $"Stopping $prog: "
+    killproc -p "$pidfile" "$prog"
+    retval=$?
+    echo
+    [ $retval -eq 0 ] && rm -f "$lockfile"
+    return $retval
+}
+
+case "$1" in
+    start)            start ;;
+    stop)             stop ;;
+    restart|force-reload) stop; start ;;
+    status)           status -p "$pidfile" "$prog" ;;
+    condrestart|try-restart)
+        status -p "$pidfile" "$prog" >/dev/null 2>&1 && { stop; start; } || : ;;
+    reload)
+        echo "$prog: reload not supported; use restart" >&2; exit 3 ;;
+    *)
+        echo $"Usage: $0 {start|stop|status|restart|condrestart|try-restart}"
+        exit 2 ;;
+esac
+exit $?

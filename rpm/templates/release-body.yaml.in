@@ -1,0 +1,106 @@
+# release-body.yaml.in — body for unmask-release (= minimal package whose only
+# job is to install the repo configuration + GPG key).
+#
+# A user runs once at first:
+#   sudo dnf install -y https://unmask.sh/dl/rpm/unmask-release-latest.noarch.rpm   # RHEL/Rocky/AlmaLinux
+#   sudo apt install -y https://unmask.sh/dl/deb/unmask-release_latest_all.deb     # Debian/Ubuntu
+#   sudo apk add --allow-untrusted https://unmask.sh/dl/apk/unmask-release_latest.apk  # Alpine
+#
+# This package installs:
+#   - the GPG public key  (/etc/pki/rpm-gpg/RPM-GPG-KEY-unmask, etc.)
+#   - the repo definition (/etc/yum.repos.d/unmask.repo / /etc/apt/sources.list.d/unmask.sources / /etc/apk/repositories.d/unmask)
+# so from then on the user can install the real package with the usual:
+#   sudo dnf install unmask unmask-plugin-nginx unmask-web-nginx
+# and signature verification happens automatically inside the package manager.
+#
+# This is the "release package" pattern (= same as zabbix / docker / epel)
+# that lets us avoid "curl | sh" entirely.
+#
+# Note: unlike the other packages, release does NOT include signing.yaml.in
+# (= the release package IS the chain-of-trust root, so signing it with the
+# same key would be circular).  apk signing is still required because alpine
+# refuses unsigned packages outright; that block is inlined below.
+
+description: |
+  unmask repository configuration + GPG public key.
+  Installing this package adds the unmask package repository and the GPG
+  signing key to your system.  After this you can install unmask itself with:
+
+    dnf install unmask          # RHEL/Rocky/AlmaLinux
+    apt install unmask          # Debian/Ubuntu
+    apk add unmask              # Alpine
+
+contents:
+  # GPG / signing key (= one OpenPGP public key shared by rpm / deb / apk)
+  - src: ./release/RPM-GPG-KEY-unmask
+    dst: /etc/pki/rpm-gpg/RPM-GPG-KEY-unmask
+    file_info:
+      mode: 0644
+    packager: rpm
+  # deb wants a dearmored binary keyring (= the format apt's Signed-By: expects).
+  # Plain ASCII armor causes a NO_PUBKEY warning on apt-get update, which makes
+  # apt ignore the repo metadata.  The Makefile's package-release target runs
+  # gpg --dearmor to produce build/release/unmask.gpg.
+  - src: ../build/release/unmask.gpg
+    dst: /etc/apt/keyrings/unmask.gpg
+    file_info:
+      mode: 0644
+    packager: deb
+  # The apk public key filename must match the build-time sign key name
+  # (= NFPM_APK_KEY_NAME).  If they don't match, apk can't resolve
+  # /etc/apk/keys/<name>.rsa.pub from the .SIGN.RSA.<name> entry inside APKINDEX,
+  # the repo metadata is treated as UNTRUSTED and the main pkg is invisible.
+  - src: ./release/unmask.rsa.pub
+    dst: /etc/apk/keys/${NFPM_APK_KEY_NAME}
+    file_info:
+      mode: 0644
+    packager: apk
+  # apk-tools v3 (= Alpine 3.23+) reads `/etc/apk/repositories.d/*.list`
+  # (= per the official apk-repositories(5) man page).  Static placement
+  # avoids hooks, stays idempotent, and is cleaned up automatically on
+  # uninstall.  apk-tools v2 (= Alpine 3.22 and older) does not read that
+  # directory, so we also append to `/etc/apk/repositories` from a post-install
+  # script as a fallback (= overrides.apk.scripts).
+  - src: ./release/unmask.list
+    dst: /etc/apk/repositories.d/unmask.list
+    file_info:
+      mode: 0644
+    packager: apk
+
+  # Informational README
+  - src: ./release/README
+    dst: /usr/share/doc/unmask-release/README
+    file_info:
+      mode: 0644
+
+# The repo definition files (= /etc/yum.repos.d/unmask.repo / unmask.sources /
+# repositories.d) are generated dynamically by the postinstall script after it
+# reads /etc/os-release to detect the distribution / version.  Shipping a
+# static file would not let us distinguish between almalinux / rocky / centos /
+# debian / ubuntu.
+
+scripts:
+  postinstall: ./release/scripts/postinstall-rpm.sh
+
+overrides:
+  deb:
+    scripts:
+      postinstall: ./release/scripts/postinstall-deb.sh
+  apk:
+    scripts:
+      postinstall: ./release/scripts/postinstall-apk.sh
+
+# apk packager signing: top-level apk: block (= in nfpm v2, APKConfig carries
+# signature but not scripts.  scripts go through overrides.apk.scripts.)
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}
+
+# To sign the rpm itself with a separate master key, run rpm --addsign during
+# the build.  nfpm's internal signing signs the produced package (= the
+# master key used to trust the release pkg).
+# rpm:
+#   signature:
+#     key_file: ./build/master-signing.key
+#     key_id: <fingerprint>

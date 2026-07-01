@@ -1,0 +1,44 @@
+#!/sbin/openrc-run
+# unmask OpenRC init script (= for Alpine 3.21+ / Gentoo / other OpenRC hosts).
+#
+# SysVinit hosts like RHEL 6 / CentOS 6 use init.d/unmask (= depends on the
+# functions library).  systemd hosts use rpm/unmask.service.
+#
+# OpenRC controls daemons via openrc-run scripts.  command_background=true makes
+# nfpm fork the non-forking daemon and manage its pid file.
+
+name="unmask"
+description="unmask admin server (JA4 bot challenge backend)"
+
+command="/usr/sbin/unmask"
+command_args="serve -config /etc/unmask/config.yml"
+command_user="unmask:unmask"
+# supervise-daemon (vs the older start-stop-daemon `command_background`) lets us
+# add the no-new-privs hardening below.  `unmask serve` runs in the foreground,
+# which is exactly what supervise-daemon supervises.
+supervisor="supervise-daemon"
+
+# Hardening (= the subset OpenRC supports; systemd hosts get the full set via
+# rpm/unmask.service).  --no-new-privs matches NoNewPrivileges=yes; the daemon
+# already drops to the unmask user (command_user) and binds an unprivileged
+# port, so it needs no capabilities.  Fuller confinement (ProtectSystem /
+# namespaces / syscall filter) has no OpenRC equivalent -- the Alpine/OpenRC
+# constraint.
+supervise_daemon_args="--no-new-privs"
+rc_ulimit="-n 65536"
+
+pidfile="/var/run/unmask/unmask.pid"
+# 12-factor logging: admin writes to stderr.  OpenRC's start-stop-daemon
+# default routes stdout/stderr to /var/log/messages (= busybox syslog) on
+# alpine; set output_log / error_log here only if a separate file is
+# preferred per-host.  Filter with: `tail -F /var/log/messages | grep unmask`
+# or wire up syslog-ng / rsyslog program rules.
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -d -m 0750 -o unmask:unmask /var/run/unmask
+}

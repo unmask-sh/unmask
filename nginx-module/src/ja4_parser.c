@@ -1,0 +1,234 @@
+/*
+ * ja4_parser.c — TLS ClientHello parser (no OpenSSL dependency).
+ *
+ * Implements only what is required by RFC 5246 §7.4.1.2 (TLS 1.2
+ * ClientHello), RFC 8446 §4.1.2 (TLS 1.3), and the JA4 spec. Does not
+ * touch decryption or handshake completion.
+ *
+ * Design invariants:
+ *   - Never touches a byte outside the input buffer (= every advance is
+ *     bounds-checked).
+ *   - Performs no allocation (= everything is written into a
+ *     caller-provided struct).
+ *   - On failure the caller may receive a half-filled `out`; the contract
+ *     is that the caller trusts only a 0 return value (see ja4_parser.h
+ *     for the documented contract).
+ */
+
+#include "ja4_parser.h"
+
+#include <string.h>
+
+/* GREASE pattern (RFC 8701): 0x?A?A with the upper nibble equal to the
+ * lower nibble in a hex digit. */
+static int ja4_is_grease(unsigned int v) {
+    return ((v & 0x0F0F) == 0x0A0A)
+        && (((v >> 4) & 0x0F) == ((v >> 12) & 0x0F));
+}
+
+/* 2-byte big-endian read. Caller is responsible for bounds checking. */
+static unsigned int rd_u16(const unsigned char *p) {
+    return ((unsigned int)p[0] << 8) | (unsigned int)p[1];
+}
+
+/* Lowercase hex digits for the JA4 ALPN hex-fallback below. */
+static const char ja4_hex_digits[] = "0123456789abcdef";
+
+/* JA4 ALPN rule: an ALPN end byte is used verbatim only when it is ASCII
+ * alphanumeric (0x30-0x39, 0x41-0x5A, 0x61-0x7A); otherwise the hex nibble
+ * is emitted instead. */
+static int ja4_is_alnum(unsigned char c) {
+    return (c >= '0' && c <= '9')
+        || (c >= 'A' && c <= 'Z')
+        || (c >= 'a' && c <= 'z');
+}
+
+int ja4_parse_client_hello(const unsigned char *msg, size_t len,
+                           ja4_parsed_t *out)
+{
+    const unsigned char *p;
+    const unsigned char *end;
+    unsigned int body_len;
+    unsigned int sid_len;
+    unsigned int cs_len;
+    unsigned int comp_len;
+    unsigned int ext_total_len;
+
+    if (msg == NULL || out == NULL || len < 4) {
+        return -1;
+    }
+    memset(out, 0, sizeof(*out));
+    out->alpn_first = '0';
+    out->alpn_last  = '0';
+
+    /* handshake header: HandshakeType(1) + uint24 length. */
+    if (msg[0] != 1 /* client_hello */) {
+        return -1;
+    }
+    body_len = (((unsigned int)msg[1]) << 16)
+             | (((unsigned int)msg[2]) << 8)
+             |  ((unsigned int)msg[3]);
+    if ((size_t)body_len + 4 > len) {
+        return -1;
+    }
+
+    p   = msg + 4;
+    end = msg + 4 + body_len;
+
+    /* legacy_version (2) + random (32) */
+    if ((size_t)(end - p) < 34) return -1;
+    out->legacy_version = rd_u16(p);
+    p += 34;
+
+    /* session_id<0..32> */
+    if ((size_t)(end - p) < 1) return -1;
+    sid_len = p[0];
+    p += 1;
+    if ((size_t)(end - p) < sid_len) return -1;
+    p += sid_len;
+
+    /* cipher_suites<2..2^16-2> */
+    if ((size_t)(end - p) < 2) return -1;
+    cs_len = rd_u16(p);
+    p += 2;
+    if ((size_t)(end - p) < cs_len) return -1;
+    if ((cs_len % 2) != 0) return -1;
+    {
+        const unsigned char *cp   = p;
+        const unsigned char *cend = p + cs_len;
+        while (cp + 2 <= cend) {
+            unsigned int c = rd_u16(cp);
+            cp += 2;
+            if (ja4_is_grease(c)) continue;
+            if (out->ncipher < JA4_MAX_CIPHERS) {
+                out->ciphers[out->ncipher++] = c;
+            }
+        }
+    }
+    p += cs_len;
+
+    /* legacy_compression_methods<1..2^8-1> */
+    if ((size_t)(end - p) < 1) return -1;
+    comp_len = p[0];
+    p += 1;
+    if ((size_t)(end - p) < comp_len) return -1;
+    p += comp_len;
+
+    /* extensions block (= optional in TLS 1.0). End-of-buffer is OK. */
+    if (p == end) {
+        return 0;
+    }
+    if ((size_t)(end - p) < 2) return -1;
+    ext_total_len = rd_u16(p);
+    p += 2;
+    if ((size_t)(end - p) < ext_total_len) return -1;
+    /* Constrain end to the extensions block (= ignore trailing bytes). */
+    end = p + ext_total_len;
+
+    while ((size_t)(end - p) >= 4) {
+        unsigned int etype = rd_u16(p);
+        unsigned int elen  = rd_u16(p + 2);
+        const unsigned char *eptr;
+
+        p += 4;
+        if ((size_t)(end - p) < elen) return -1;
+        eptr = p;
+
+        if (!ja4_is_grease(etype) && out->nexts < JA4_MAX_EXTENSIONS) {
+            out->extensions[out->nexts++] = etype;
+        }
+
+        switch (etype) {
+
+        case 0: /* server_name (= SNI).
+                 * Layout: u16 list_total_len, [u8 name_type, u16 host_len, bytes]*.
+                 * At least one host_name (= name_type 0) means a domain
+                 * is present. */
+            if (elen >= 5) {
+                unsigned int list_len = rd_u16(eptr);
+                if (list_len + 2 <= elen && list_len >= 3) {
+                    if (eptr[2] == 0 /* host_name */) {
+                        out->sni_present_domain = 1;
+                    }
+                }
+            }
+            break;
+
+        case 13: /* signature_algorithms.
+                  * Layout: u16 list_len_bytes, u16 sigscheme*. */
+            out->has_sig_algs = 1;
+            if (elen >= 2) {
+                unsigned int sa_len = rd_u16(eptr);
+                if (sa_len + 2 <= elen && (sa_len % 2) == 0) {
+                    const unsigned char *sp   = eptr + 2;
+                    const unsigned char *send = sp + sa_len;
+                    while (sp + 2 <= send) {
+                        unsigned int sa = rd_u16(sp);
+                        sp += 2;
+                        if (ja4_is_grease(sa)) continue;
+                        if (out->nsig_algs < JA4_MAX_SIG_ALGS) {
+                            out->sig_algs[out->nsig_algs++] = sa;
+                        }
+                    }
+                }
+            }
+            break;
+
+        case 16: /* application_layer_protocol_negotiation (= ALPN).
+                  * Layout: u16 list_len_bytes, [u8 proto_len, bytes]*.
+                  * Use the first/last character of the first proto in JA4. */
+            if (elen >= 3) {
+                unsigned int list_len = rd_u16(eptr);
+                if (list_len + 2 <= elen && list_len >= 1) {
+                    unsigned int proto_len = eptr[2];
+                    if (proto_len >= 1
+                        && (size_t)proto_len + 3 <= (size_t)elen) {
+                        unsigned char fb = eptr[3];
+                        unsigned char lb = eptr[3 + proto_len - 1];
+                        /* Emit the end bytes verbatim only when both are ASCII
+                         * alphanumeric; otherwise emit the first byte's high
+                         * nibble and the last byte's low nibble as hex (e.g.
+                         * 0xAB..0xCD -> "ad").  Keeps a crafted ALPN from
+                         * putting raw bytes into the JA4 string. */
+                        if (ja4_is_alnum(fb) && ja4_is_alnum(lb)) {
+                            out->alpn_first = fb;
+                            out->alpn_last  = lb;
+                        } else {
+                            out->alpn_first = ja4_hex_digits[(fb >> 4) & 0x0f];
+                            out->alpn_last  = ja4_hex_digits[lb & 0x0f];
+                        }
+                    }
+                }
+            }
+            break;
+
+        case 43: /* supported_versions (ClientHello form).
+                  * Layout: u8 list_len_bytes, u16 version*.
+                  * Take the maximum after GREASE exclusion. */
+            if (elen >= 1) {
+                unsigned int sv_len = eptr[0];
+                if ((size_t)sv_len + 1 <= (size_t)elen
+                    && (sv_len % 2) == 0) {
+                    const unsigned char *sp   = eptr + 1;
+                    const unsigned char *send = sp + sv_len;
+                    unsigned int max_ver = 0;
+                    while (sp + 2 <= send) {
+                        unsigned int sv = rd_u16(sp);
+                        sp += 2;
+                        if (ja4_is_grease(sv)) continue;
+                        if (sv > max_ver) max_ver = sv;
+                    }
+                    out->supported_versions_max = max_ver;
+                }
+            }
+            break;
+
+        default:
+            break;
+        }
+
+        p += elen;
+    }
+
+    return 0;
+}

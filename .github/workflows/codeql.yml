@@ -1,0 +1,75 @@
+# GitHub CodeQL — SAST scan on push to main, PRs into main, and weekly.
+# Covers Go (= admin/) and JavaScript (= challenge.js + LP).  C (= the
+# nginx module under nginx-module/) is intentionally not in the matrix
+# because CodeQL's C analyzer needs `make` to drive the build and the
+# module has to be built against pinned nginx source — that flow lives
+# in build-module-multi and is overkill for the SAST gate.
+name: codeql
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "30 18 * * 1"   # Mondays 18:30 UTC = 03:30 JST
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Per-language build modes.  JS extracts from source (none).  Go gets
+        # an explicit manual build: the CodeQL CLI rejects `none` for Go
+        # ("Go does not support the none build mode" — every run failed and Go
+        # was never scanned), and autobuild trips on the module living in
+        # admin/ rather than the repo root.
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        if: matrix.language == 'go'
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+
+      - uses: github/codeql-action/init@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+
+      # Manual tracing build for Go (= what CodeQL observes).  Mirrors the
+      # ci.yml build of the admin module.
+      - name: Build Go for CodeQL tracing
+        if: matrix.language == 'go'
+        run: cd admin && go build ./...
+
+      # Upload needs GitHub code scanning, which on a PRIVATE repo requires an
+      # Advanced Security license (enterprise-only) and hard-fails without it.
+      # Pre-GA (private) we still run the full analysis -- it catches
+      # extraction/config breakage like the Go build-mode bug -- but skip the
+      # upload.  The moment the repo flips public, upload activates by itself.
+      # Visibility is probed via the API because the `schedule` trigger has no
+      # event payload (github.event.repository is empty there).
+      - name: Probe repo visibility
+        id: vis
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "private=$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" >> "$GITHUB_OUTPUT"
+
+      - uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4
+        with:
+          category: "/language:${{ matrix.language }}"
+          upload: ${{ steps.vis.outputs.private == 'true' && 'never' || 'always' }}

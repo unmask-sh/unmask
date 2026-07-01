@@ -1,0 +1,21 @@
+unmask
+Copyright 2026 Hidenori Umino
+
+Licensed under the Apache License, Version 2.0 (the "License").
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+
+This product bundles the following third-party Go modules:
+
+- modernc.org/sqlite (BSD-3-Clause)
+  https://gitlab.com/cznic/sqlite
+- github.com/go-sql-driver/mysql (Mozilla Public License 2.0)
+  https://github.com/go-sql-driver/mysql
+- github.com/oschwald/maxminddb-golang (ISC)
+  https://github.com/oschwald/maxminddb-golang
+- gopkg.in/yaml.v3 (MIT and Apache-2.0)
+  https://gopkg.in/yaml.v3
+
+This product also bundles a list of crawler User-Agent patterns derived from:
+
+- monperrus/crawler-user-agents (MIT)
+  https://github.com/monperrus/crawler-user-agents

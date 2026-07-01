@@ -1,0 +1,65 @@
+# plugin-nginx-body.yaml.in — body for unmask-plugin-nginx (single-nginx
+# variant).
+#
+# Targets environments running nginx 1.9.11+ that support dynamic module
+# loading.  Installing it enables JA4 fingerprint extraction.  To prevent ABI
+# mismatch, the rpm name embeds the build-time nginx version
+# (= __NGINX_VERSION__), and preinstall.sh aborts if the host nginx differs.
+#
+# Depends:
+#   - unmask = <build version> (= main package, pinned exactly: the .so verifies
+#     _bv / computes JA4 against the daemon's contract, so a version skew would
+#     break verification.  Pin lives in the per-packager overrides below.)
+#
+# Build:
+#   make package-plugin-nginx UNMASK_VERSION=0.1.0 NGINX_VERSION=1.18.0
+
+description: |
+  unmask nginx native module (= ngx_http_unmask_module.so).
+  Provides JA4 TLS fingerprint extraction and full native-mode features.
+  Requires the unmask main package and matching nginx version.
+
+depends:
+  - unmask
+  # nginx is required at install time so postinstall can detect the host
+  # version and place the .so into nginx's --modules-path.  See the
+  # equivalent comment in plugin-nginx-fat-body.yaml.in.
+  - nginx
+
+contents:
+  # Place the nginx dynamic module (.so) at a **staging path**.  The real
+  # module path (= /usr/lib/nginx/modules/ or /usr/lib64/nginx/modules/)
+  # varies by distro / nginx build option, so postinstall extracts
+  # `--modules-path=` from `nginx -V` and copies it there.
+  - src: ../dist/ngx_http_unmask_module-linux-${UNMASK_ARCH}.so
+    dst: /usr/share/unmask/plugin/ngx_http_unmask_module.so
+    file_info:
+      mode: 0644
+
+overrides:
+  # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
+  # apk `=`): the .so and the daemon share the _bv / JA4 contract, so a mixed
+  # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends,
+  # so each lists nginx too.
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - nginx
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - nginx
+  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # script runs otherwise) so the new .so is re-placed.
+  apk:
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - nginx
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-plugin-nginx.sh
+
+scripts:
+  preinstall: ./scripts/preinstall-plugin-nginx.sh
+  postinstall: ./scripts/postinstall-plugin-nginx.sh
+  preremove: ./scripts/preremove-plugin-nginx.sh

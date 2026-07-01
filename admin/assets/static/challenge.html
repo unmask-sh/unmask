@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!--__SUBFILTER_PROBE__-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<!-- Warm the Turnstile connection during parse so the external CAPTCHA widget
+     renders sooner (the provider script + challenge fetch is the bulk of the
+     wait).  Harmless on non-Turnstile pages: an unused warm connection. -->
+<link rel="dns-prefetch" href="https://challenges.cloudflare.com">
+<link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>
+<title>Security check</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+/* padding-block guarantees a minimum top/bottom margin: with justify-content:center
+   the content is centred while it fits, but once a tall CAPTCHA makes it exceed the
+   viewport the free space hits zero and the top would otherwise jam against the edge.
+   Symmetric padding keeps the centred case unchanged. */
+body{position:relative;display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;padding:2.5rem 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#333}
+.box{text-align:center;padding:2em;max-width:420px;width:90%}
+.spinner{width:40px;height:40px;margin:0 auto 1em;border:4px solid #ddd;border-top:4px solid #333;border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#captcha{display:none;background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:2em;margin-top:1.5em;opacity:0;transform:translateY(8px);transition:opacity .25s ease, transform .25s ease}
+#captcha.show{opacity:1;transform:translateY(0)}
+@media (prefers-reduced-motion: reduce){#captcha,#captcha.show{transition:none;transform:none}}
+#captcha h2{font-size:1.1em;margin-bottom:.3em}
+.desc{font-size:.85em;color:#666;margin-bottom:1.2em;line-height:1.5}
+.math{font-size:2.2em;font-weight:bold;color:#111;letter-spacing:.05em;margin:.5em 0}
+.input-row{display:flex;justify-content:center;align-items:center;gap:.5em}
+input[type=text]{width:100px;font-size:1.4em;text-align:center;padding:.4em;border:2px solid #ddd;border-radius:8px;outline:none;transition:border-color .2s}
+input[type=text]:focus{border-color:#4a90d9}
+button{padding:.6em 1.8em;font-size:1em;background:#4a90d9;color:#fff;border:none;border-radius:8px;cursor:pointer;transition:background .2s}
+button:hover{background:#3a7bc8}
+button:disabled{background:#aaa;cursor:default}
+.error{color:#d32f2f;font-size:.85em;margin-top:.8em;padding:.4em;background:#ffeaea;border-radius:6px;display:none}
+.note{font-size:.75em;color:#999;margin-top:1.2em;line-height:1.4}
+
+/* mount point for theme decoration. Hidden when no theme class is set. */
+.theme-art{display:none}
+
+/* ============================================================
+   theme: dark (= dimmed variant).  Keeps the default layout, inverts colors only.
+   ============================================================ */
+body.theme-dark{background:#0d1117;color:#c9d1d9}
+body.theme-dark .spinner{border-color:#30363d;border-top-color:#c9d1d9}
+body.theme-dark #captcha{background:#161b22;border:1px solid #30363d;box-shadow:0 .5em 1.5em rgba(0,0,0,.4)}
+body.theme-dark #captcha h2{color:#f0f6fc}
+body.theme-dark .desc{color:#8b949e}
+body.theme-dark .click-row{border-color:#30363d;background:#0d1117}
+body.theme-dark .click-row:hover{border-color:#58a6ff}
+body.theme-dark input[type=text]{background:#0d1117;color:#c9d1d9;border-color:#30363d}
+body.theme-dark input[type=text]:focus{border-color:#58a6ff}
+body.theme-dark button{background:#58a6ff;color:#0d1117}
+body.theme-dark button:hover{background:#79b8ff}
+body.theme-dark button:disabled{background:#21262d;color:#6e7681}
+body.theme-dark .note{color:#6e7681}
+body.theme-dark .error{background:#361a1d;color:#f85149;border:1px solid #f8514955}
+body.theme-dark .math{color:#f0f6fc}
+
+/* ============================================================
+   theme: terminal (= black bg + green mono + blinking caret + faint scanlines).
+   ============================================================ */
+body.theme-terminal{background:#050807;color:#5cd0a8;font-family:"JetBrains Mono","SF Mono","Menlo","Consolas",ui-monospace,monospace}
+body.theme-terminal::before{content:"";position:fixed;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 2px,rgba(0,0,0,.5) 3px,rgba(0,0,0,.5) 3px);pointer-events:none;z-index:1000;opacity:.35}
+body.theme-terminal #spinner{display:none}
+body.theme-terminal .theme-art{display:none}
+body.theme-terminal #msg::after{content:"▮";margin-left:.3em;animation:term-blink 1s step-end infinite;color:#5cd0a8}
+@keyframes term-blink{50%{opacity:0}}
+body.theme-terminal #captcha{background:rgba(92,208,168,.04);border:1px solid rgba(92,208,168,.3);box-shadow:0 0 1.5em rgba(92,208,168,.15);border-radius:4px}
+body.theme-terminal #captcha h2{color:#7fe0c0;font-family:inherit;letter-spacing:.04em;text-transform:uppercase;font-size:.95em}
+body.theme-terminal .desc{color:#8aab9c}
+body.theme-terminal .click-row{border-color:rgba(92,208,168,.35);background:rgba(0,0,0,.3);color:#5cd0a8}
+body.theme-terminal .click-row:hover{border-color:#5cd0a8}
+body.theme-terminal input[type=text]{background:#050807;color:#5cd0a8;border-color:rgba(92,208,168,.4);font-family:inherit}
+body.theme-terminal input[type=text]:focus{border-color:#5cd0a8}
+body.theme-terminal .math{color:#7fe0c0;font-family:inherit}
+body.theme-terminal button{background:#5cd0a8;color:#050807;font-family:inherit;letter-spacing:.04em}
+body.theme-terminal button:hover{background:#7fe0c0}
+body.theme-terminal button:disabled{background:#2a3a31;color:#5a6e63}
+body.theme-terminal .note{color:#6a7e72;font-family:inherit;font-size:.7em;letter-spacing:.02em}
+body.theme-terminal .error{background:rgba(255,80,80,.1);color:#ff7b7b;border:1px solid rgba(255,80,80,.4);font-family:inherit}
+body.theme-terminal #cookieErrTitle{color:#ff7b7b !important}
+
+/* ============================================================
+   theme: cat (= cat theme).  Active only when body.theme-cat is set.
+     - large face + big eyes + highlights + cheek blush — leans toward "cute"
+     - hides the spinner and replaces it with a cat SVG. Ears, eyes, and tail are animated.
+   ============================================================ */
+body.theme-cat{background:linear-gradient(180deg,#ffe8d6 0%,#ffd0c4 60%,#ffc6d3 100%);color:#3a2a1c}
+body.theme-cat .box{padding:1.5em 1.5em 2.2em}
+body.theme-cat #spinner{display:none}
+body.theme-cat .theme-art{display:block;margin:0 auto 1em;width:140px;height:130px;position:relative}
+body.theme-cat .cat{width:140px;height:130px;display:block;overflow:visible}
+/* part animations */
+body.theme-cat .cat .ear-l{transform-origin:48px 36px;animation:cat-ear 2.4s ease-in-out infinite}
+body.theme-cat .cat .ear-r{transform-origin:92px 36px;animation:cat-ear 2.4s ease-in-out infinite reverse}
+body.theme-cat .cat .eye-l,
+body.theme-cat .cat .eye-r{transform-origin:center;transform-box:fill-box;animation:cat-blink 4s ease-in-out infinite}
+body.theme-cat .cat .tail{transform-origin:30px 100px;animation:cat-tail 1.8s ease-in-out infinite}
+body.theme-cat .cat .body-bounce{transform-origin:70px 100px;animation:cat-bounce 1.8s ease-in-out infinite}
+@keyframes cat-ear{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}
+@keyframes cat-blink{0%,42%,46%,100%{transform:scaleY(1)}43%,45%{transform:scaleY(.08)}}
+@keyframes cat-tail{0%,100%{transform:rotate(-10deg)}50%{transform:rotate(18deg)}}
+@keyframes cat-bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+/* copy + card */
+body.theme-cat #msg{font-weight:500;color:#7a4a3e}
+body.theme-cat #captcha{background:#fff8ee;box-shadow:0 .5em 1.5em rgba(199,90,90,.14);border:1px solid rgba(199,90,90,.18);border-radius:18px}
+body.theme-cat #captcha h2{color:#a85a4a}
+body.theme-cat .click-row{border-color:rgba(199,90,90,.3);background:#fff;border-radius:12px}
+body.theme-cat .click-row:hover{border-color:#e08272}
+body.theme-cat input[type=text]{border-color:rgba(199,90,90,.3);border-radius:10px}
+body.theme-cat input[type=text]:focus{border-color:#e08272}
+body.theme-cat button{background:#e08272;border-radius:12px}
+body.theme-cat button:hover{background:#c66857}
+body.theme-cat button:disabled{background:#e8c7be}
+body.theme-cat .note{color:#9a6a5e}
+body.theme-cat .paws{display:inline-flex;gap:.5em;margin-top:1.2em;opacity:.65;font-size:1.2em}
+body.theme-cat .paws span{transform:rotate(0deg);display:inline-block}
+
+/* ============================================================
+   theme: paper (= for media / editorial. Quiet serif + ruled-line spinner).
+     - cream paper + serif typography + thin rule animation
+     - blends with media sites / personal blogs / OSS forges
+   ============================================================ */
+body.theme-paper{background:#faf6ed;color:#1a1715;font-family:Georgia,"IBM Plex Serif","Hiragino Mincho ProN","Yu Mincho",serif}
+body.theme-paper .box{padding:2em 1.5em}
+body.theme-paper #spinner{width:auto;height:auto;border:0;border-radius:0;animation:none;margin:0 auto 1.4em;display:block;width:80px;height:1.5px;position:relative;background:transparent}
+body.theme-paper #spinner::before{content:"";position:absolute;left:0;top:0;height:100%;width:0;background:#1a1715;animation:paper-rule 1.8s cubic-bezier(.5,.1,.3,1) infinite}
+@keyframes paper-rule{0%{left:0;width:0}50%{left:0;width:100%}100%{left:100%;width:0}}
+body.theme-paper #msg{font-style:italic;font-weight:400;color:#5a554d;font-size:1.05em;letter-spacing:.005em}
+body.theme-paper #captcha{background:#fffdf6;box-shadow:0 .25em .9em rgba(0,0,0,.06);border:1px solid #d8d2c5;border-radius:6px}
+body.theme-paper #captcha h2{color:#1a1715;font-weight:600;letter-spacing:-.005em;font-size:1em}
+body.theme-paper .desc{font-style:italic;color:#5a554d}
+body.theme-paper .click-row{border-color:#d8d2c5;background:#faf6ed;border-radius:4px;font-family:inherit}
+body.theme-paper .click-row:hover{border-color:#7d3a18}
+body.theme-paper input[type=text]{border-color:#d8d2c5;background:#faf6ed;color:#1a1715;border-radius:4px;font-family:inherit}
+body.theme-paper input[type=text]:focus{border-color:#7d3a18}
+body.theme-paper .math{color:#1a1715;font-family:inherit;font-style:italic}
+body.theme-paper button{background:#1a1715;color:#faf6ed;border-radius:4px;font-family:inherit;letter-spacing:.02em}
+body.theme-paper button:hover{background:#7d3a18}
+body.theme-paper button:disabled{background:#9a9088;color:#d8d2c5}
+body.theme-paper .note{color:#9a9088;font-family:inherit;font-size:.78em;letter-spacing:.005em}
+body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px solid rgba(125,58,24,.25)}
+/* unmask credit (= subtle, bottom right.  Translucent bg keeps contrast
+   independent of theme + bundled brand icon).  position:absolute (not
+   fixed) anchors to the document bottom so scrolling tall content -- and
+   the admin theme-card iframe -- no longer overlays the spinner / verify
+   text. */
+.unmask-credit{position:fixed;bottom:.6rem;right:.9rem;font-size:.7rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;z-index:100;padding:.3em .55em .3em .4em;border-radius:.4em;background:rgba(255,255,255,.78);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);box-shadow:0 1px 4px rgba(0,0,0,.08);color:#334155}
+.unmask-credit a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:.35em}
+.unmask-credit a:hover{text-decoration:underline}
+.unmask-credit img{width:1.1em;height:1.1em;display:block;border-radius:.2em;flex:none}
+body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgba(15,23,42,.72);color:#e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
+/* support correlation id, bottom-center; theme-aware muted color (light base,
+   lighter on dark/terminal so it stays legible-but-subtle on every theme). */
+.unmask-ref{margin-top:2em;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
+body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
+
+/* ============================================================
+   operator color override (uc = unmask custom): recolors WHATEVER theme is
+   active to the site's bg + text.  Placed last so it wins at equal specificity
+   over the body.theme-* rules; structural decorations (fonts, art, scanlines,
+   ::before) are deliberately untouched so the theme keeps its character.  The
+   two colors arrive as --uc-bg / --uc-text properties set by the inline
+   bootstrap, and .uc-on is added only when both are present (= no half-recolor).
+   ============================================================ */
+body.uc-on{background:var(--uc-bg);color:var(--uc-text)}
+body.uc-on .spinner{border-color:var(--uc-bg);border-top-color:var(--uc-text)}
+body.uc-on #captcha{background:var(--uc-bg);border:1px solid var(--uc-text);box-shadow:0 .5em 1.5em rgba(0,0,0,.18)}
+body.uc-on #captcha h2,body.uc-on .math{color:var(--uc-text)}
+body.uc-on .desc,body.uc-on .note,body.uc-on #msg{color:var(--uc-text)}
+body.uc-on input[type=text]{background:var(--uc-bg);color:var(--uc-text);border-color:var(--uc-text)}
+body.uc-on input[type=text]:focus{border-color:var(--uc-text)}
+body.uc-on button{background:var(--uc-text);color:var(--uc-bg)}
+body.uc-on button:hover{filter:brightness(.9)}
+body.uc-on button:disabled{opacity:.5}
+</style>
+</head>
+<body>
+<!-- Branding logo: sits above the card, outside .box's text column so it can
+     render close to its natural size (capped at min(92vw,44rem)/45vh; scales
+     down on narrow/mobile viewports).  challenge.js fills src + alt and flips
+     #brand-head's display when brand.logo_url is set.  Site name lives only in
+     the copy ({site_name} substitution) + as the logo's alt text. -->
+<div id="brand-head" style="display:none;margin:0 0 -0.5em;text-align:center">
+  <img id="brand-logo" alt="" style="display:none;max-width:min(92vw,44rem);max-height:45vh;height:auto;margin:0 auto">
+</div>
+<div class="box">
+  <!-- per-theme art / SVG mount point.  display:none on the light theme. -->
+  <div class="theme-art" aria-hidden="true">
+    <!-- cat SVG (= theme-cat only; other themes hide it via CSS)
+         "make it cuter": large face + big eyes + highlights + cheek blush + short-legged body -->
+    <svg class="cat" viewBox="0 0 140 130" xmlns="http://www.w3.org/2000/svg">
+      <!-- body + tail (= animated). body-bounce makes the whole thing bob up and down. -->
+      <g class="body-bounce">
+        <!-- tail (= S curve, sways) -->
+        <path class="tail" d="M 32 102 Q 14 96 18 78 Q 22 62 36 64" fill="none" stroke="#fbb681" stroke-width="9" stroke-linecap="round"/>
+        <!-- body (= round and short-legged) -->
+        <ellipse cx="70" cy="100" rx="36" ry="22" fill="#fbb681"/>
+        <!-- front paws -->
+        <ellipse cx="56" cy="118" rx="7" ry="6" fill="#fbb681"/>
+        <ellipse cx="84" cy="118" rx="7" ry="6" fill="#fbb681"/>
+        <!-- face (= large, wider than the body) -->
+        <circle cx="70" cy="60" r="38" fill="#fbb681"/>
+        <!-- ears (= double layer with pink inner) -->
+        <polygon class="ear-l" points="40,40 54,16 60,42" fill="#fbb681"/>
+        <polygon class="ear-r" points="100,40 86,16 80,42" fill="#fbb681"/>
+        <polygon points="46,38 53,22 56,40" fill="#ffb3b8" opacity=".95"/>
+        <polygon points="94,38 87,22 84,40" fill="#ffb3b8" opacity=".95"/>
+        <!-- cheek blush (= pink circles. The core of the cuteness) -->
+        <ellipse cx="48" cy="68" rx="6.5" ry="4" fill="#ff9aa0" opacity=".55"/>
+        <ellipse cx="92" cy="68" rx="6.5" ry="4" fill="#ff9aa0" opacity=".55"/>
+        <!-- eyes (= large circles, mostly pupil) -->
+        <ellipse class="eye-l" cx="56" cy="58" rx="5.5" ry="7" fill="#1c1206"/>
+        <ellipse class="eye-r" cx="84" cy="58" rx="5.5" ry="7" fill="#1c1206"/>
+        <!-- eye highlights (= white sparkles. Adds 30% cuteness) -->
+        <circle cx="58" cy="55" r="1.8" fill="#fff"/>
+        <circle cx="86" cy="55" r="1.8" fill="#fff"/>
+        <circle cx="54" cy="61" r="0.9" fill="#fff" opacity=".7"/>
+        <circle cx="82" cy="61" r="0.9" fill="#fff" opacity=".7"/>
+        <!-- nose (= small heart-ish pink) -->
+        <path d="M 67 70 Q 70 67 73 70 Q 70 74 67 70 Z" fill="#ff7a85"/>
+        <!-- mouth (= w shape) -->
+        <path d="M 70 73 Q 70 77 65 77 M 70 73 Q 70 77 75 77" fill="none" stroke="#1c1206" stroke-width="1.6" stroke-linecap="round"/>
+        <!-- whiskers (= thin and subtle) -->
+        <line x1="34" y1="68" x2="48" y2="69" stroke="#fff" stroke-width=".9" opacity=".75"/>
+        <line x1="34" y1="74" x2="48" y2="72" stroke="#fff" stroke-width=".9" opacity=".75"/>
+        <line x1="92" y1="69" x2="106" y2="68" stroke="#fff" stroke-width=".9" opacity=".75"/>
+        <line x1="92" y1="72" x2="106" y2="74" stroke="#fff" stroke-width=".9" opacity=".75"/>
+      </g>
+    </svg>
+  </div>
+  <!-- existing spinner (= for the light theme; hidden by CSS in the cat theme) -->
+  <div class="spinner" id="spinner"></div>
+  <p id="msg">Verifying your access, please wait...</p>
+  <!-- Visible PoW progress.  Filled in by challenge.js once the solve loop
+       starts; kept zero-width + zero-height (= no layout shift) when the
+       JS bails before the loop (= silent bot / preview / cookie_err).
+       Language-free on purpose: the bar speaks for itself and stays
+       intelligible across all 18 locales. -->
+  <div id="powProgress" aria-hidden="true" style="width:60%;max-width:18rem;height:.25rem;margin:.6em auto 1em;background:#e2e8f0;border-radius:.125rem;overflow:hidden;opacity:0;transition:opacity .2s">
+    <div id="powProgressFill" style="width:0%;height:100%;background:#3b82f6;transition:width .15s linear"></div>
+  </div>
+  <div id="captcha">
+    <h2 id="captchaTitle">Security Check</h2>
+    <p class="desc" id="captchaDesc">Please confirm to continue.</p>
+    <!-- 3rd-party CAPTCHA widget mount point (= shown only when a provider is configured) -->
+    <div id="extCaptcha" style="display:none;margin:1em 0"></div>
+    <!-- stage 1: checkbox (= unmask built-in behavioral check) -->
+    <label class="click-row" id="clickRow" style="display:flex;align-items:center;gap:.6em;justify-content:center;cursor:pointer;padding:.8em 1em;border:2px solid #ddd;border-radius:8px;user-select:none">
+      <input type="checkbox" id="notRobot" style="width:20px;height:20px;cursor:pointer">
+      <span id="notRobotLabel">I'm not a robot</span>
+    </label>
+    <!-- post-click status: a spinner + "verifying" / "verified" so that even a
+         slow /verify or a slow redirect target makes clear the click registered
+         and work is in progress (= shown by challenge.js, hidden by default). -->
+    <div id="captchaBusy" style="display:none;flex-direction:column;align-items:center;gap:.6em;padding:.2em 0">
+      <div class="spinner" style="margin:0"></div>
+      <div id="captchaBusyMsg" style="font-size:.9em;color:#475569"></div>
+      <!-- success sub-line: shown only after "verified", so the visitor knows
+           the check passed AND the site is now loading (= no "stuck" feeling
+           on a slow origin). Hidden during the "verifying" step. -->
+      <div id="captchaBusySub" style="display:none;margin-top:-.3em;font-size:.8em;color:#94a3b8"></div>
+    </div>
+    <!-- stage 2: numeric-add fallback (= auto-switched when behavioral fails) -->
+    <div id="mathFallback" style="display:none">
+      <div class="math" id="mathQ"></div>
+      <div class="input-row">
+        <input type="text" id="answerInput" autocomplete="off" inputmode="numeric" pattern="[0-9]*" placeholder="?">
+        <button id="submitBtn">OK</button>
+      </div>
+    </div>
+    <div class="error" id="errMsg"></div>
+    <p class="note" id="captchaNote">This check protects the site from automated access.</p>
+    <!-- small paw-print footer for theme-cat (= hidden by CSS on other themes) -->
+    <div class="paws" aria-hidden="true" style="display:none"><span>🐾</span><span>🐾</span><span>🐾</span></div>
+  </div>
+  <div id="cookieErr" style="display:none">
+    <h2 id="cookieErrTitle" style="color:#d32f2f">Please enable cookies</h2>
+    <p class="desc" id="cookieErrDesc">This site needs cookies to load. Please enable cookies in your browser settings and reload this page.</p>
+  </div>
+  <noscript>
+    <!-- Soften the JS-required message: it used to be red shouted text
+         that pushed the visitor to mistrust their browser setup.  Plain
+         color + neutral phrasing reads as a site-loading requirement
+         instead of an accusation. -->
+    <p style="color:#475569">JavaScript needs to be enabled to load this site. Please turn it on and reload the page.</p>
+  </noscript>
+  <!-- Branding footer: optional "Operated by …" string.  challenge.js fills
+       textContent when window.__brand.footer_text is set. -->
+  <div id="brand-foot" style="display:none;margin-top:1.2em;color:#94a3b8;font-size:.8em"></div>
+  <!-- Support correlation id.  The server replaces the comment below with
+       "Ref ID <id>".  In normal flow as the box's last line (= a fixed gap
+       below the challenge copy, not pinned to the viewport bottom) so it
+       reads like a receipt footer right under the text.  An un-substituted
+       build leaves an empty element rather than a stray label. -->
+  <div class="unmask-ref"><!--__REF__--></div>
+</div>
+<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/1500, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, brand: /*__BRANDING__*/null};
+(function(){
+  // apply the theme to body class right after document construction (= prevent flash).
+  var U=window.UNMASK;
+  var t=(U.theme||'auto').replace(/[^a-z0-9_-]/gi,'');
+  // cc = the per-theme color override {bg,text} (recolor the active theme to the
+  // site's palette).  "auto" follows the visitor's OS: resolve to dark/default
+  // and, since each side has its own colors, pick the matching pair from
+  // custom_auto.{light,dark}.  Named themes carry their pair in `custom`.
+  var cc=U.custom||null;
+  if(t==='auto'){
+    var dark=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;
+    t=dark?'dark':'light';
+    if(U.custom_auto){cc=dark?(U.custom_auto.dark||null):(U.custom_auto.light||null);}
+  }
+  if(t)document.body.classList.add('theme-'+t);
+  // Apply the override: a class gates the recolor CSS, and the two colors ride
+  // in as custom properties the CSS reads.  setProperty only sets a value (= no
+  // rule injection), and the server already validated them as hex.
+  if(cc&&cc.bg&&cc.text){
+    document.body.classList.add('uc-on');
+    document.body.style.setProperty('--uc-bg',cc.bg);
+    document.body.style.setProperty('--uc-text',cc.text);
+  }
+  // theme-cat-only decoration (= stays display:none on other themes).
+  if(t==='cat'){var p=document.querySelector('.paws');if(p)p.style.display='';}
+  // _preview=1: for the settings UI's iframe preview. Don't run challenge.js;
+  // just display spinner + msg as-is (= theme look check only).
+  // We also paint the PoW progress bar in a representative mid-state so the
+  // operator sees the bar's styling next to the spinner / msg while picking
+  // a theme.  Real PoW progress logic stays bypassed by challenge.js's
+  // early-return on window.UNMASK._preview.
+  if(/[?&]_preview=1\b/.test(location.search)){
+    window.UNMASK._preview=true;
+    var pb=document.getElementById('powProgress');
+    var pf=document.getElementById('powProgressFill');
+    if(pb&&pf){ pb.style.opacity='1'; pf.style.width='50%'; }
+  }
+})();</script>
+<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>
+<!--UNMASK_CREDIT_START--><aside class="unmask-credit"><a href="https://unmask.sh" target="_blank" rel="noopener"><img src="/unmask/static/icon.png" alt="" width="14" height="14">protected by unmask</a></aside><!--UNMASK_CREDIT_END-->
+</body>
+</html>
