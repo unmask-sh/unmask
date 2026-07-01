@@ -1,0 +1,56 @@
+{{/*
+  partial_pager_seek -- seek-based pager (= 先頭 / 前へ / 次へ).
+
+  For large append-only tables (= unmask_event etc) where exact total counts
+  are expensive and arbitrary jumps are not needed.  Mirrors the parent
+  repo's seek_template_bootstrap5_inspinia in shape, reimplemented in plain
+  CSS so it can share .pager / .pagination styles with partial_pager_full.
+
+  Context expected (= pass via {{ template "pager_seek" .PagerSeek }}):
+    Lang        i18n.Lang
+    FirstURL    string   "?" with base query (no offset) -- 先頭 button target
+    PrevURL     string   prev page link (empty = disabled)
+    NextURL     string   next page link (empty = disabled)
+    HasPrev     bool     enables 前へ
+    HasNext     bool     enables 次へ
+    IsFirstPage bool     when true, 先頭 button is disabled
+    ShowInfo    bool     when true, render the current range caption
+    Range       string   pre-rendered caption text (= e.g. "showing N events")
+*/}}
+
+{{ define "pager_seek" }}
+{{- /* Render even when both buttons are disabled: it confirms "you're on the
+       only page" instead of a silent gap. */ -}}
+<div class="pager">
+  <nav class="pager-nav" aria-label="Page navigation">
+    <ul class="pagination">
+      <li class="page-item {{ if .IsFirstPage }}disabled{{ end }}">
+        {{- if .IsFirstPage -}}
+        <span class="page-link" aria-disabled="true" aria-label="{{ t .Lang "pager.first" }}">«</span>
+        {{- else -}}
+        <a class="page-link" href="{{ .FirstURL }}" aria-label="{{ t .Lang "pager.first" }}">«</a>
+        {{- end }}
+      </li>
+      <li class="page-item {{ if not .HasPrev }}disabled{{ end }}">
+        {{- if .HasPrev -}}
+        <a class="page-link" href="{{ .PrevURL }}" rel="prev" aria-label="{{ t .Lang "pager.prev" }}">‹ {{ t .Lang "pager.prev_short" }}</a>
+        {{- else -}}
+        <span class="page-link" aria-disabled="true">‹ {{ t .Lang "pager.prev_short" }}</span>
+        {{- end }}
+      </li>
+      <li class="page-item {{ if not .HasNext }}disabled{{ end }}">
+        {{- if .HasNext -}}
+        <a class="page-link" href="{{ .NextURL }}" rel="next" aria-label="{{ t .Lang "pager.next" }}">{{ t .Lang "pager.next_short" }} ›</a>
+        {{- else -}}
+        <span class="page-link" aria-disabled="true">{{ t .Lang "pager.next_short" }} ›</span>
+        {{- end }}
+      </li>
+    </ul>
+  </nav>
+  {{- if and .ShowInfo .Range }}
+  <div class="pager-info">
+    <small>{{ .Range }}</small>
+  </div>
+  {{- end }}
+</div>
+{{ end }}

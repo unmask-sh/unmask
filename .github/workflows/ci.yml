@@ -1,0 +1,183 @@
+# CI: lint + test + admin binary build (multi-arch) + nginx module build (matrix)
+#
+# release: pushing a tag triggers nfpm to build rpm/deb/apk and attach them to
+# the release (= release.yml is a separate file).
+name: ci
+
+on:
+  push:
+    branches: [master, main, multi-site]
+  pull_request:
+    branches: [master, main, multi-site]
+
+permissions:
+  contents: read
+
+jobs:
+  # --------------------------------------------------------------------
+  # Go lint / vet / test
+  # --------------------------------------------------------------------
+  go-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+      - name: gofmt
+        working-directory: admin
+        run: |
+          out=$(gofmt -l .)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt issues:"
+            echo "$out"
+            exit 1
+          fi
+      - name: go vet
+        working-directory: admin
+        run: go vet ./...
+      - name: go test
+        working-directory: admin
+        run: go test -race -coverprofile=coverage.out ./...
+      - name: coverage report
+        working-directory: admin
+        run: go tool cover -func=coverage.out | tail -5
+
+  # --------------------------------------------------------------------
+  # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
+  # every request) and the _bv pass-cookie parser (a fully client-set cookie)
+  # are the two untrusted-input C parsers in the tree -- the most
+  # security-sensitive C.  Both get the unit test AND an ASan/UBSan fuzz here,
+  # closing the coverage gap the pre-GA audit flagged.
+  # --------------------------------------------------------------------
+  plugin-parser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: test JA4 parser
+        run: make test-plugin-parser
+      - name: fuzz JA4 + _bv parsers (ASan/UBSan)
+        run: make fuzz-plugin FUZZ_ITERS=3000000
+
+  # --------------------------------------------------------------------
+  # golangci-lint (= bundle of ~10 linters incl. staticcheck, gosec, revive)
+  # --------------------------------------------------------------------
+  golangci-lint:
+    runs-on: ubuntu-latest
+    needs: go-test
+    # Hard gate: the v0.1 lint debt is paid down -- dead code removed, the
+    # conventional errcheck calls + reviewed taint-analysis gosec rules are
+    # excluded with per-rule rationale in admin/.golangci.yml.  go-test /
+    # build / e2e are hard gates too.
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+      - uses: golangci/golangci-lint-action@9fae48acfc02a90574d7c304a1758ef9895495fa # v7
+        with:
+          version: v2.12.2
+          working-directory: admin
+          args: --timeout=5m
+
+  # --------------------------------------------------------------------
+  # admin binary (= cross compile linux/{amd64,arm64})
+  # --------------------------------------------------------------------
+  build-admin:
+    runs-on: ubuntu-latest
+    needs: go-test
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
+        with:
+          go-version: "1.25.10"
+          cache-dependency-path: admin/go.sum
+      - name: build
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          cd admin && CGO_ENABLED=0 \
+            go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
+                     -o ../dist/unmask-linux-${GOARCH} ./cmd/unmask
+          file ../dist/unmask-linux-${GOARCH}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: unmask-linux-${{ matrix.goarch }}
+          path: dist/unmask-linux-${{ matrix.goarch }}
+          retention-days: 14
+
+  # --------------------------------------------------------------------
+  # ja4 module (matrix: nginx version x arch).  arm64 could be done with
+  # qemu-user, but the module has to be built natively from source, so using a
+  # native runner is more reliable.  GitHub Actions' linux/arm64 runner
+  # ubuntu-22.04-arm (= GA in late 2024) is available.
+  # --------------------------------------------------------------------
+  build-module:
+    needs: go-test
+    strategy:
+      fail-fast: false
+      matrix:
+        nginx: ["1.24.0", "1.26.2", "1.28.0"]
+        runner: [ubuntu-latest]
+        include:
+          - nginx: "1.26.2"
+            runner: ubuntu-22.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libpcre2-dev zlib1g-dev
+      - name: download nginx source
+        run: |
+          curl -sSL "https://nginx.org/download/nginx-${{ matrix.nginx }}.tar.gz" -o nginx.tgz
+          tar -xzf nginx.tgz
+      - name: build module
+        run: |
+          cd nginx-${{ matrix.nginx }}
+          ./configure --with-compat --with-http_ssl_module \
+                      --add-dynamic-module=$GITHUB_WORKSPACE/nginx-module
+          make modules
+          ls -la objs/ngx_http_unmask_module.so
+      - name: rename + arch suffix
+        id: arch
+        run: |
+          arch=$(uname -m)
+          case "$arch" in
+            x86_64)  goarch=amd64 ;;
+            aarch64) goarch=arm64 ;;
+            *)       goarch=$arch ;;
+          esac
+          mkdir -p dist
+          cp nginx-${{ matrix.nginx }}/objs/ngx_http_unmask_module.so \
+             dist/ngx_http_unmask_module-nginx${{ matrix.nginx }}-linux-${goarch}.so
+          echo "goarch=${goarch}" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ngx-ja4-nginx${{ matrix.nginx }}-${{ steps.arch.outputs.goarch }}
+          path: dist/*.so
+          retention-days: 14
+
+  # --------------------------------------------------------------------
+  # e2e: spin up nginx + admin via docker-compose and run 4 scenarios
+  # --------------------------------------------------------------------
+  e2e-docker:
+    runs-on: ubuntu-latest
+    needs: [go-test]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: docker compose up + run e2e
+        run: make e2e-docker
+      - name: dump compose logs on failure
+        if: failure()
+        run: |
+          docker compose -f e2e/docker/docker-compose.yml logs --no-color || true

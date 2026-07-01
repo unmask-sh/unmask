@@ -1,0 +1,42 @@
+name: Feature request
+description: Suggest a new feature or change to unmask.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to suggest something.  Concrete use cases
+        (= what you are trying to do) help more than abstract proposals.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the operational situation, not the implementation.
+      placeholder: |
+        Our reverse proxy sits behind two LBs that both inject X-Forwarded-For,
+        so unmask sees the wrong client IP and rate-limits the wrong subnets.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What change would solve it?  Settings UI, CLI flag, config key, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you have today, or other approaches you weighed.
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else

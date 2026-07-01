@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>unmask · package repository</title>
+<meta name="description" content="Signed rpm / deb / apk repositories for unmask (x86_64 + aarch64). Browse the tree or grab the signing keys.">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/static/icon.png">
+<link rel="apple-touch-icon" href="/static/icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+<link rel="stylesheet" href="/static/css/docs.css">
+<style>
+.repo-list{list-style:none;margin:.4rem 0 0;padding:0;border-top:1px solid var(--line)}
+.repo-list li{display:flex;align-items:baseline;gap:.9rem;padding:.7rem .2rem;border-bottom:1px solid var(--line)}
+.repo-list a.name{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-weight:600;font-size:.92rem;color:var(--accent);text-decoration:none;flex:0 0 7rem}
+.repo-list a.name:hover{text-decoration:underline}
+.repo-list .desc{font-size:.84rem;color:var(--fg-mute);line-height:1.5}
+.repo-list .desc code{font-size:.82em}
+.keyline{font-size:.84rem;color:var(--fg-mute);line-height:1.7;margin:.2rem 0 0}
+.keyline a{color:var(--accent);text-decoration:none}.keyline a:hover{text-decoration:underline}
+.kv{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-size:.74rem;color:var(--fg-light);word-break:break-all}
+</style>
+</head>
+<body class="page-docs">
+
+<header class="topnav">
+  <div class="wrap topnav-row">
+    <a href="/" class="brand">
+      <span class="logo-mark"></span>
+      <span class="brand-name">unmask</span>
+    </a>
+    <nav class="nav">
+      <a href="/">TOP</a>
+      <a href="/install/">install</a>
+      <a href="/docs/">docs</a>
+      <a href="https://github.com/unmask-sh/unmask">GitHub</a>
+      <select class="lang-sw" onchange="location.href=this.value" aria-label="language">
+        <option value="/dl/" selected>EN</option>
+        <option value="/ja/dl/">JP</option>
+      </select>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <section class="docs-head">
+    <div class="wrap">
+      <h1 class="page-title">package repository</h1>
+      <p class="page-lede">
+        Signed <code>rpm</code> / <code>deb</code> / <code>apk</code> repositories for
+        <strong>x86_64</strong> and <strong>aarch64</strong>. To install, use the guided setup at
+        <a href="/install/">unmask.sh/install</a> — the directories below are the raw repository tree
+        (browse for exact filenames, sizes, and checksums).
+      </p>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <article class="bcd-card">
+      <ul class="repo-list">
+        <li><a class="name" href="/dl/rpm/">rpm/</a>   <span class="desc">DNF / YUM repository &mdash; RHEL · Alma · Rocky · Fedora (<code>x86_64</code>, <code>aarch64</code>).</span></li>
+        <li><a class="name" href="/dl/deb/">deb/</a>   <span class="desc">APT repository &mdash; Debian · Ubuntu (<code>pool/</code> + signed <code>dists/</code>).</span></li>
+        <li><a class="name" href="/dl/apk/">apk/</a>   <span class="desc">Alpine repository &mdash; signed <code>APKINDEX</code> (<code>x86_64</code>, <code>aarch64</code>).</span></li>
+        <li><a class="name" href="/dl/keys/">keys/</a> <span class="desc">GPG + apk signing public keys (for manual verification).</span></li>
+        <li><a class="name" href="/dl/ipgeo/">ipgeo/</a> <span class="desc">DB-IP Lite GeoIP mirror (CC BY 4.0) used by <code>unmask install-ipgeo</code>.</span></li>
+        <li><a class="name" href="/dl/feed/">feed/</a> <span class="desc">Aggregated community-bans bot-IP / JA4 feed.</span></li>
+      </ul>
+      <p class="keyline">
+        Verify by hand: <a href="/dl/keys/RPM-GPG-KEY-unmask">RPM-GPG-KEY-unmask</a> (rpm / deb) ·
+        <a href="/dl/keys/unmask.rsa.pub">unmask.rsa.pub</a> (apk)<br>
+        <span class="kv">gpg fpr&nbsp; C03D D45E 28C4 446F DDC4&nbsp; 8EFC 34A3 20B5 44B2 8158</span>
+      </p>
+    </article>
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-row">
+    <p class="footer-brand">
+      <span class="logo-mark"></span>
+      <span>unmask</span>
+    </p>
+    <nav class="footer-nav">
+      <a href="/">TOP</a>
+      <a href="/install/">install</a>
+      <a href="/docs/">docs</a>
+      <a href="/dl/">DL</a>
+      <a href="https://github.com/unmask-sh/unmask">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

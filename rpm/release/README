@@ -1,0 +1,31 @@
+unmask-release
+==============
+
+This package configures your system to use the unmask package repository
+hosted at https://unmask.sh/dl/.
+
+Files installed:
+
+  RHEL / Rocky / AlmaLinux:
+    /etc/pki/rpm-gpg/RPM-GPG-KEY-unmask          GPG public signing key
+    /etc/yum.repos.d/unmask.repo                  yum/dnf repository definition
+
+  Debian / Ubuntu:
+    /etc/apt/keyrings/unmask.gpg                  GPG public signing key
+    /etc/apt/sources.list.d/unmask.sources        apt repository (deb-822)
+
+  Alpine:
+    /etc/apk/keys/unmask-release@unmask.sh.rsa.pub  RSA public signing key
+    /etc/apk/repositories                           apk repository (one line appended)
+
+After installing this package you can install unmask with:
+
+    dnf install unmask                            # RHEL/Rocky/AlmaLinux
+    apt update && apt install unmask              # Debian/Ubuntu
+    apk update && apk add unmask                  # Alpine
+
+To verify the key fingerprint outside of this package, see:
+    https://unmask.sh/keys/
+
+Project: https://unmask.sh/
+License: Apache-2.0

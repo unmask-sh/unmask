@@ -1,0 +1,769 @@
+{{/*
+  partial_events_table -- the raw-event log table shared by the hunt page
+  ("/admin/hunt/") and the overview card ("/admin/").  This is the single
+  source of truth for: the <tr> shape (= data-bt / data-phase / data-ts /
+  data-ts-ms), the cell layout, the session-collapse JS (= group rows by
+  beacon_token, show the phase chain on the latest row), and the cellpop JS
+  (= popover on truncated JA4 / verdict / URL / UA / host-badge / site-badge).
+
+  Context expected (= pass via {{ template "events_table_block" . }}):
+    .Rows                  []events.Row (= the events to render)
+    .Lang                  i18n key (= 'ja' / 'en' / ...)
+    .BasePath              admin base (= '/unmask')
+    .Hosts                 map[host]bool (= len > 1 hides the host-badge)
+    .SitePickerOptions     []sitepicker.Option (= len > 1 hides the site-badge)
+    .Range                 range token (= passed back via the ban form)
+    .EventsCap             int -- optional client-side hard cap on visible
+                           sessions after collapse.  Zero / missing = no cap.
+    .HideActions           bool -- drop the per-row BAN form column.  Used by
+                           the overview card so the recent-events table fits
+                           inside the bcd-card and the URL / UA columns get
+                           more horizontal room.  Hunt keeps it on.
+
+  cell-popover div + popover-pin partial must be on the surrounding page; the
+  partial does NOT inject either so the page keeps full layout control.
+*/}}
+{{ define "events_table_block" }}
+{{/* lb-warn-badge: per-row warning emitted by the events partial itself.
+     Inline so the partial doesn't depend on the host page (= overview /
+     hunt) carrying a matching rule (see [[feedback_partial_inject_css_colocate]]).
+     Colour deliberately differs from rl-badge (= yellow) so the two are
+     distinguishable when both fire on the same row. */}}
+<style>
+.lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
+.lb-warn-badge:hover{filter:brightness(.95)}
+/* phase pill: inline here so EVERY host page that renders this partial styles the
+   pills, instead of each carrying its own copy (overview.html drifted and lost the
+   bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
+   failure [[feedback_partial_inject_css_colocate]] warns about).  3 colour families:
+   green=pass / red=reject / yellow=in-progress / gray=meta. */
+.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.ph-serve{background:#fef3c7;color:#92400e}              /* yellow in-progress (= challenge HTML returned) */
+.ph-load{background:#fef3c7;color:#92400e}               /* yellow in-progress (= challenge JS started) */
+.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow in-progress (= CAPTCHA shown) */
+.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved, handing off) */
+.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv via pow_only) */
+.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv via captcha_only) */
+.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
+.ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
+.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie) */
+.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
+.ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
+.ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
+.ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
+.ph-check-block{background:#fee2e2;color:#991b1b}        /* red reject (= check sub-decision) */
+</style>
+<table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
+  <thead>
+    <tr>
+      <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
+      <th style="width:10.5rem">IP</th>
+      <th style="width:10rem">JA4</th>
+      <th style="width:5rem">verdict</th>
+      {{/* phase header help: each line pulls the i18n value from
+           help.phase.* (= same source the dashboard funnel uses), so the
+           text stays in the user's language and auto-updates when the
+           catalog moves.  Previously this was a hardcoded English block
+           that drifted from the canonical phase set. */}}
+      <th style="width:12rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+        {{ safeHTML (t .Lang "help.phase.serve") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.load") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.pow_pass") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_captcha_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_then_captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_rebind") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_rebind_reject") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.verify_ng") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.cookie_err") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.rl") }}
+      </span></span></th>
+      <th>URL</th>
+      <th>UA</th>
+      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Rows }}
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}">
+      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
+      <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+      <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* Empty verdict renders as "ok" (no JA4 rule matched -- a benign
+           result, same label the native nginx $ja4_verdict map's `default "ok"`
+           produces).  forward-auth records the verdict only on the check event,
+           so serve / beacon rows are empty; the session-collapse below promotes
+           the group's real verdict onto the rep row so a bot session still shows
+           its verdict rather than this "ok" fallback. */}}
+      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{ if not $.HideActions }}
+      <td class="actions">
+        {{ if .Banned }}
+          <span class="rank-registered">
+            {{ if .Ban }}
+            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">already BANned<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
+            {{ else }}
+            <span class="action-pill action-bot">already BANned</span>
+            {{ end }}
+          </span>
+        {{ else }}
+          <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="op" value="ban">
+            <input type="hidden" name="ip"  value="{{ .IP }}">
+            <input type="hidden" name="ja4" value="{{ .JA4 }}">
+            <input type="hidden" name="duration_sec" value="0">
+            <input type="hidden" name="reason" value="bot hunt (= event row)">
+            <input type="hidden" name="range" value="{{ $.Range }}">
+            <input type="hidden" name="share" value="">
+            <input type="hidden" name="comment" value="">
+            <input type="hidden" name="accept_terms" value="">
+            <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
+          </form>
+        {{ end }}
+      </td>
+      {{ end }}
+    </tr>
+    {{ else }}
+    <tr><td colspan="{{ if .HideActions }}7{{ else }}8{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+
+{{/* Session view + cellpop scripts.  Self-contained: each IIFE scans the
+     DOM for table.events tbody tr[data-bt] (= session) and .cellpop (=
+     cellpop), so adding the partial anywhere on the page wires them up.
+
+     Wait for DOMContentLoaded -- the cell-popover div lives on the host
+     page AFTER the partial call (hunt.html ~L384, overview.html below
+     </main>), so the inline <script> fires before that div is parsed.
+     Running immediately would null-out getElementById('cell-popover') and
+     bail early, losing the entire session view.  See feedback_partial_row_shape
+     memo: the partial must not assume what comes after it. */}}
+<style>
+/* URL cellpop popover action buttons (= Open in new tab / Copy URL).  Lives
+   here, not on the host page, because the button HTML is injected from this
+   partial's popHtml() -- keeping CSS + JS together so any page that includes
+   this partial (overview / dashboard / hunt / ...) renders the buttons with
+   the intended chip style instead of plain links. */
+.cellpop-actions{display:flex;gap:.4rem;margin-top:.5rem;font-family:system-ui,sans-serif}
+.cellpop-btn{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;font-size:.78rem;color:#0f172a;cursor:pointer;text-decoration:none}
+.cellpop-btn:hover{background:#e2e8f0}
+/* Datetime popover (= Ref ID + sub-second timestamp + UTC).  Colocated with
+   the partial so any host page (overview / hunt) renders it identically. */
+.dtpop{font-family:system-ui,sans-serif;min-width:12rem}
+.dtpop-row{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.35rem}
+.dtpop-k{flex:0 0 auto;font-size:.66rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.dtpop-v{font-family:ui-monospace,Menlo,Consolas,monospace}
+.dtpop-ref{user-select:all;-webkit-user-select:all;font-size:.92rem;color:#0f172a}
+.dtpop-time{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;letter-spacing:.01em}
+.dtpop-utc{color:#64748b;font-size:.78rem;margin-top:.15rem}
+.events td.at time.js-datetime.dtpop-trigger{cursor:help}
+.events td.at time.js-datetime.dtpop-trigger:hover{text-decoration:underline dotted rgba(100,116,139,.6);text-underline-offset:2px}
+/* Ban-reason popover (= WHY an "already BANned" IP is on the list). */
+.action-pill.ban-pop{cursor:help}
+.action-pill.ban-pop:hover{text-decoration:underline dotted rgba(255,255,255,.7);text-underline-offset:2px}
+.banpop{font-family:system-ui,sans-serif;min-width:13rem}
+.banpop-row{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.3rem}
+.banpop-row:last-child{margin-bottom:0}
+.banpop-k{flex:0 0 4.5rem;font-size:.66rem;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+.banpop-v{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;word-break:break-word}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+// Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
+// 3-5 rows that share the same beacon_token.  Collapse them into the latest
+// phase row + an inline 'serve › load › bv_pow' chain.  Each pill is the
+// same colored phase-pill as before.  Click / hover the chain for a
+// HH:MM:SS.mmm timeline of every phase.  Rows without beacon_token (= phase=
+// check / pre-bt events) stay untouched.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  // "already BANned" pill -> popover with the ban record (source / reason /
+  // action / when), so an operator sees WHY the IP is banned without leaving
+  // the hunt log.  Content is pre-rendered server-side into an inert <template>.
+  document.querySelectorAll('table.events .ban-pop').forEach(function(el){
+    var tpl = el.querySelector('template');
+    if (!tpl) return;
+    var html = tpl.innerHTML, bt = null;
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(bt);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      bt = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(bt); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation(); clearTimeout(bt);
+      pin.handleClick(html, e.pageX, e.pageY, el, 'BAN');
+    });
+  });
+  var rows = document.querySelectorAll('table.events tbody tr[data-bt]');
+  var groups = {};
+  rows.forEach(function(tr){
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    (groups[bt] = groups[bt] || []).push(tr);
+  });
+  function fmtTs(ms){
+    if (!ms) return '';
+    var d = new Date(Number(ms));
+    var pad = function(n, w){ n = String(n); while (n.length < (w||2)) n = '0'+n; return n; };
+    return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
+         + '.' + pad(d.getMilliseconds(), 3);
+  }
+  var PHASE_WEIGHT = {
+    'check':0,
+    'serve':1, 'load':2, 'pow':3, 'captcha':4,
+    'verify_ok':5, 'verify_ng':5,
+    'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
+    'error':7, 'cookie_err':7
+  };
+  var PHASE_SHORT = {
+    'bv_pow_only':         'bv_pow',
+    'bv_captcha_only':     'bv_cap',
+    'bv_pow_then_captcha': 'bv_pc'
+  };
+  function rowKey(tr){
+    var ms = Number(tr.getAttribute('data-ts-ms')||0);
+    if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
+    return ms;
+  }
+  // Forward-auth: fold the standalone auth_request 'check' row into the
+  // challenge session it triggered.  A 'check' has no beacon_token (it fires
+  // during the auth subrequest, BEFORE the challenge page -- and thus its
+  // token -- is minted), so it cannot join the bt-keyed group above and shows
+  // up as a separate row from its own serve.  But every challenge/block check
+  // is immediately followed (~10-80ms, fleet-observed) by a serve for the SAME
+  // ip+site, so pair each such check with the nearest later serve and splice
+  // it into that serve's group.  After the time-sort below the check becomes
+  // the group's oldest row, so the chain reads 'check > serve > load > bv_pow'
+  // on one line.  pass checks (the request was allowed) are terminal and stay
+  // their own rows; a check whose serve was paginated off / never happened
+  // finds no match and is left verbatim.  Native mode emits no check events,
+  // so this whole pass is a no-op there.
+  (function foldChecks(){
+    var serveRows = [];
+    Object.keys(groups).forEach(function(bt){
+      groups[bt].forEach(function(tr){
+        if (tr.getAttribute('data-phase') === 'serve') serveRows.push(tr);
+      });
+    });
+    if (!serveRows.length) return;
+    var checks = [];
+    rows.forEach(function(tr){
+      if (tr.getAttribute('data-phase') !== 'check') return;
+      var act = tr.getAttribute('data-act');
+      if (act !== 'challenge' && act !== 'block') return;
+      checks.push(tr);
+    });
+    if (!checks.length) return;
+    // Oldest-first so the earliest check claims the earliest matching serve.
+    checks.sort(function(a, b){ return rowKey(a) - rowKey(b); });
+    var WINDOW = 2000; // ms -- generous vs the observed ~10-80ms check->serve gap
+    checks.forEach(function(chk){
+      var cms = rowKey(chk),
+          cip   = chk.getAttribute('data-ip')   || '',
+          cja4  = chk.getAttribute('data-ja4')  || '',
+          csite = chk.getAttribute('data-site') || '';
+      var best = null, bestDt = Infinity;
+      for (var i = 0; i < serveRows.length; i++){
+        var sv = serveRows[i];
+        if (sv.__svConsumed) continue;
+        if ((sv.getAttribute('data-ip')   || '') !== cip)   continue;
+        if ((sv.getAttribute('data-site') || '') !== csite) continue;
+        // JA4 is a strong discriminator when both rows carry one; a config that
+        // doesn't trust the forwarded JA4 on the check leaves it blank, so only
+        // reject when both are present AND differ (= genuinely different request).
+        var sja4 = sv.getAttribute('data-ja4') || '';
+        if (cja4 && sja4 && cja4 !== sja4) continue;
+        var dt = rowKey(sv) - cms;
+        if (dt < 0 || dt > WINDOW) continue;
+        if (dt < bestDt){ bestDt = dt; best = sv; }
+      }
+      if (!best) return; // serve off-page / never happened -> leave the check verbatim
+      best.__svConsumed = true;
+      var bt = best.getAttribute('data-bt');
+      if (bt && groups[bt]) groups[bt].push(chk);
+    });
+  })();
+  Object.keys(groups).forEach(function(bt){
+    var grp = groups[bt];
+    if (grp.length < 2) return;
+    grp.sort(function(a, b){
+      var d = rowKey(a) - rowKey(b);
+      if (d) return d;
+      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')] || 99;
+      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
+      return wa - wb;
+    });
+    // Collapse consecutive same-phase rows (= rare but happens when the
+    // server fires the same phase twice for one request).  The timeline
+    // popover still shows every event with its own timestamp.
+    var dedupedChain = [];
+    grp.forEach(function(tr){
+      var ph = tr.getAttribute('data-phase');
+      var last = dedupedChain[dedupedChain.length - 1];
+      if (last && last.getAttribute('data-phase') === ph) return;
+      dedupedChain.push(tr);
+    });
+    var rep = grp[grp.length - 1];
+    grp.filter(function(tr){ return tr !== rep; }).forEach(function(tr){ tr.style.display='none'; });
+    // Date column: promote the oldest row's <time> to rep (= the serve, or the
+    // folded forward-auth check that precedes it).  The operator's mental model
+    // is 'when did this fire start', not 'finish'.
+    var oldest = grp[0];
+    if (oldest !== rep){
+      var oldestTime = oldest.querySelector('td.at time.js-datetime');
+      var repTime    = rep.querySelector('td.at time.js-datetime');
+      if (oldestTime && repTime){
+        repTime.setAttribute('data-ts', oldestTime.getAttribute('data-ts'));
+        repTime.textContent = oldestTime.textContent;
+      }
+      // The Ref ID (= the correlation id a blocked visitor quotes) is minted at
+      // serve; the rep row is the latest phase (= bv_pow / captcha) and has
+      // none.  Promote it so the datetime popover on the collapsed row surfaces
+      // the ref the operator searched for.  Scan the group for the first row
+      // that carries one rather than assuming the oldest row does -- a folded
+      // forward-auth 'check' now precedes serve and has no ref of its own.
+      if (!rep.getAttribute('data-ref')){
+        for (var ri = 0; ri < grp.length; ri++){
+          var rv = grp[ri].getAttribute('data-ref');
+          if (rv){ rep.setAttribute('data-ref', rv); break; }
+        }
+      }
+      // The JA4 verdict is decided at check / serve; the rep row is the latest
+      // phase (= bv / load) and in forward-auth mode carries none (the verdict
+      // rides only on the check event there).  Promote the first non-empty
+      // verdict in the group onto the rep's cell so a folded bot session shows
+      // its verdict instead of the empty-cell "ok" fallback.
+      if (!(rep.getAttribute('data-verdict') || '')){
+        for (var vi = 0; vi < grp.length; vi++){
+          var vv = grp[vi].getAttribute('data-verdict');
+          if (vv){
+            var vcell = rep.querySelector('td.verdict-cell');
+            if (vcell){ vcell.textContent = vv; vcell.classList.add('cellpop'); }
+            rep.setAttribute('data-verdict', vv);
+            break;
+          }
+        }
+      }
+      var oms = oldest.getAttribute('data-ts-ms');
+      if (oms) rep.setAttribute('data-ts-ms', oms);
+    }
+    var phaseCell = rep.querySelector('td:nth-child(5)');
+    if (!phaseCell) return;
+    var rlBadge = phaseCell.querySelector('.rl-badge');
+    phaseCell.innerHTML = '';
+    var chain = document.createElement('span');
+    chain.className = 'session-chain';
+    // Page-boundary fragment marker for multi-phase sessions.  When hunt's
+    // ORDER BY id DESC LIMIT cut the session in half, the serve (= oldest
+    // event) lands on the previous page and this page only sees the tail
+    // (= e.g. 'load → bv_pow').  Without an indicator the chain reads as a
+    // session that simply skipped serve, which is misleading.  Prepend a
+    // muted '…' glyph + a hover title so operators can tell the chain is
+    // truncated at the head.  The matching grp.length === 1 single-fragment
+    // case is handled separately further below.
+    var hasServe = dedupedChain.some(function(tr){
+      return tr.getAttribute('data-phase') === 'serve';
+    });
+    if (!hasServe){
+      var headHint = document.createElement('span');
+      headHint.className = 'session-arrow session-fragment-hint';
+      headHint.textContent = '…';
+      headHint.title = 'session fragment (= the serve event for this session is on a previous page)';
+      chain.appendChild(headHint);
+    }
+    dedupedChain.forEach(function(tr, i){
+      if (i > 0 || !hasServe){
+        var arrow = document.createElement('span');
+        arrow.className = 'session-arrow';
+        arrow.textContent = '›';
+        chain.appendChild(arrow);
+      }
+      var ph = tr.getAttribute('data-phase') || '';
+      var pill = document.createElement('span');
+      pill.className = 'phase-pill ph-' + ph;
+      pill.textContent = PHASE_SHORT[ph] || ph;
+      chain.appendChild(pill);
+    });
+    phaseCell.appendChild(chain);
+    if (rlBadge){
+      phaseCell.appendChild(document.createTextNode(' '));
+      phaseCell.appendChild(rlBadge);
+    }
+    function timelineHtml(){
+      var lines = grp.map(function(tr){
+        var ms = rowKey(tr);
+        var ph = tr.getAttribute('data-phase') || '';
+        var pillCls = 'phase-pill ph-' + ph;
+        // Use the same short label the inline chain shows (= bv_pow_only -> bv_pow)
+        // so the timeline labels match what the user clicked on.
+        var label = PHASE_SHORT[ph] || ph;
+        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
+               '</time> <span class="' + pillCls + '">' + label + '</span></div>';
+      });
+      return '<div class="session-timeline">' + lines.join('') + '</div>';
+    }
+    chain.style.cursor = 'pointer';
+    var timer = null;
+    chain.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(chain)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
+    });
+    chain.addEventListener('mouseleave', function(){
+      clearTimeout(timer); pin.hideHover();
+    });
+    chain.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
+    });
+  });
+  // Page-boundary session fragment marker.  Hunt paginates via
+  // ORDER BY id DESC LIMIT 50, so a session whose events straddle a page
+  // boundary leaves a single row inside this page -- the session-view
+  // pass above skipped that row (grp.length < 2) and left a bare phase
+  // pill.  A bare mid-chain pill reads as "this session only had 1 event"
+  // which is misleading; the rest live on an adjacent page.  Prepend a
+  // muted '…' glyph + hover hint so the user can tell a fragment from a
+  // one-event session that legitimately terminated.  Raw rows stay
+  // verbatim (= memory feedback_raw_event_fidelity); we only annotate,
+  // never hide.
+  //
+  // serve is intentionally NOT in this set.  serve is the session's
+  // *oldest* event, so a lone 'serve' on this page is either (a) the
+  // session continues on the previous page (= newer events past this
+  // page's top edge) -- which is itself a normal observation -- or, far
+  // more commonly, (b) a silent bot: the client was served the challenge
+  // and never executed the JS, so no later event ever existed.  Marking
+  // serve as a fragment would obscure the silent-bot signal which is one
+  // of the main things this view is supposed to surface.
+  //
+  // The bv_* terminals are deliberately included: a session that fires
+  // bv_pow_only / bv_captcha_only / bv_pow_then_captcha must have gone
+  // through at least serve + load on the way (= /api/verify rejects an
+  // unsigned beacon_token, so the terminal event cannot exist without
+  // its serve), so a lone bv_* on this page can only mean the older
+  // events were paginated off.
+  var FRAGMENT_PHASES = {
+    load:1, pow:1, pow_pass:1, captcha:1, check:1,
+    bv_pow_only:1, bv_captcha_only:1, bv_pow_then_captcha:1,
+  };
+  rows.forEach(function(tr){
+    if (tr.style.display === 'none') return;
+    var bt = tr.getAttribute('data-bt');
+    if (!bt) return;
+    if (!groups[bt] || groups[bt].length !== 1) return;
+    var ph = tr.getAttribute('data-phase');
+    if (!FRAGMENT_PHASES[ph]) return;
+    var phaseCell = tr.querySelector('td:nth-child(5)');
+    if (!phaseCell) return;
+    if (phaseCell.querySelector('.session-fragment-hint')) return; // idempotent
+    // Replace the pill text with the same short form the chain pills use
+    // (= bv_pow_only -> bv_pow) so a fragment row reads consistently with
+    // the collapsed chain rows above it.  Other phases keep their text.
+    var pill = phaseCell.querySelector('.phase-pill');
+    if (pill && PHASE_SHORT[ph]) {
+      pill.textContent = PHASE_SHORT[ph];
+    }
+    var hint = document.createElement('span');
+    hint.className = 'session-arrow session-fragment-hint';
+    hint.textContent = '…';
+    hint.title = 'session fragment (= other phases of this session are on an adjacent page)';
+    phaseCell.insertBefore(document.createTextNode(' '), phaseCell.firstChild);
+    phaseCell.insertBefore(hint, phaseCell.firstChild);
+  });
+  // Optional client-side hard cap on visible sessions (= overview card caps
+  // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
+  // keep the partial parameterless.
+  var capAttr = document.querySelector('table.events');
+  var cap = capAttr ? Number(capAttr.getAttribute('data-events-cap') || 0) : 0;
+  if (cap > 0){
+    var visible = Array.from(document.querySelectorAll('table.events tbody tr'))
+      .filter(function(tr){ return tr.style.display !== 'none'; });
+    visible.slice(cap).forEach(function(tr){ tr.style.display = 'none'; });
+  }
+})();
+
+// JA4 / UA / URL / verdict / host-badge / site-badge cellpop.  A truncated
+// cell opens a pinnable popover holding the full value (= selectable text +
+// the title-bar copy button on popoverPin).  Untruncated cells stay quiet.
+//
+// URL cells get two extra controls in the popover: "Open in new tab" + "Copy
+// URL", built from the row's data-site + the path text.  scheme is assumed
+// https (= the address-bar form; the operator can always edit the URL after
+// pasting if a path was served over http instead).
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  // The hover popover hides on mouseleave with no grace period.  Clicking
+  // the trigger cell pins the popover to a body-level clone (= popoverPin's
+  // handleClick path), and only the pinned clone exposes interactive
+  // buttons -- the transient hover form is read-only by design.
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function fullURL(el, val){
+    // Build "<scheme>://<site>[:port]<path>" from the row's data-* attrs.
+    // scheme + port were captured server-side at ingest (X-Forwarded-Proto /
+    // X-Forwarded-Port, both pinned by the nginx-rendered config) so the
+    // client cannot poison them.  Rows ingested before that column existed
+    // have empty values; we fall back to https / no port so the URL still
+    // works for the common case.
+    if (!val || val[0] !== '/') return '';
+    var tr = el.closest('tr');
+    if (!tr) return '';
+    var site = tr.getAttribute('data-site');
+    if (!site) return '';
+    var scheme = (tr.getAttribute('data-scheme') || '').toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') scheme = 'https';
+    var port = parseInt(tr.getAttribute('data-port') || '0', 10);
+    var portStr = '';
+    // Treat both 80 and 443 as default for either scheme.  In an LB-fronted
+    // setup the backend's $server_port is 80 (the LB terminated TLS) yet the
+    // visitor's scheme is https; without this, the URL ends up as
+    // 'https://host:80/...' which is wrong.  Non-standard ports (8080,
+    // 8443, ...) still surface explicitly.
+    if (port > 0 && port !== 80 && port !== 443) {
+      portStr = ':' + port;
+    }
+    return scheme + '://' + site + portStr + val;
+  }
+  function popHtml(val, url){
+    // For URL cells the full address (= scheme://site[:port]path) is the more
+    // useful thing to display + copy, so show it in place of the raw path.
+    // Other columns keep showing the value verbatim.
+    var display = url || val;
+    var body = '<code class="cellpop-val">' + esc(display) + '</code>';
+    if (url){
+      body += '<div class="cellpop-actions">' +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
+        '{{ t .Lang "cellpop.open_new_tab" }} ↗</a>' +
+        '<button type="button" class="cellpop-btn cellpop-copy" data-url="' + esc(url) + '">' +
+        '{{ t .Lang "cellpop.copy_url" }}</button>' +
+        '</div>';
+    }
+    return '<div class="cellpop-pop">' + body + '</div>';
+  }
+  // Delegated click for the Copy button (= the popover content is re-rendered
+  // on every show, so binding inside popHtml would not survive a re-show).
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.cellpop-copy');
+    if (!btn) return;
+    e.preventDefault();
+    var url = btn.getAttribute('data-url') || '';
+    if (!url) return;
+    var done = function(){
+      var orig = btn.textContent;
+      btn.textContent = {{ t .Lang "cellpop.copied" }};
+      setTimeout(function(){ btn.textContent = orig; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done, function(){
+        // fall back to execCommand on browsers that block the async API
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_) {}
+        document.body.removeChild(ta);
+      });
+    }
+  });
+  document.querySelectorAll('.cellpop').forEach(function(el){
+    var full = el.getAttribute('data-full-value');
+    var val = (full && full.length) ? full : el.textContent.trim();
+    if (!val) return;
+    // URL column always opens the popover (it carries Open / Copy buttons
+    // for any path, truncated or not).  Other columns only get the popover
+    // when the value is actually clipped -- a short JA4 / UA has nothing
+    // extra to show.
+    var isURL = el.classList.contains('url');
+    if (!isURL && !full && el.scrollWidth - el.clientWidth <= 1) return;
+    el.classList.add('cellpop-active');
+    var url = isURL ? fullURL(el, val) : '';
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, val);
+    });
+  });
+
+  // Datetime popover.  The 'at' column shows a compact date to save width, but
+  // a support correlation needs the exact moment + the Ref ID the visitor
+  // quoted (= "I was blocked, here's my Ref ID").  Hover / click the <time> to
+  // open a popover carrying: the Ref ID (= selectable + copy-on-pin via the
+  // title bar), the sub-second timestamp in the operator's TZ (= JST etc.),
+  // and the UTC equivalent (= what raw server logs are stamped in).  Anchored
+  // on the <time> element specifically so it never collides with the host /
+  // site cellpop badges that share the 'at' cell.
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function fmtAt(ms, tz){
+    var d = new Date(ms);
+    // 'ja' locale = slash + 24h + readable tz abbreviation (JST / UTC),
+    // matching the header_tools js-datetime formatter.  fractionalSecondDigits
+    // adds the .mmm; engines too old to support it fall back to second
+    // precision rather than throwing the whole popover away.
+    var base = {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false, timeZoneName: 'short'
+    };
+    try {
+      return new Intl.DateTimeFormat('ja', Object.assign({fractionalSecondDigits: 3}, base)).format(d);
+    } catch (e) {
+      try { return new Intl.DateTimeFormat('ja', base).format(d); } catch (e2) { return ''; }
+    }
+  }
+  function dtMs(tr){
+    var ms = Number(tr.getAttribute('data-ts-ms') || 0);
+    if (!ms) ms = Number(tr.getAttribute('data-ts') || 0) * 1000;
+    return ms;
+  }
+  function dtPopHtml(tr){
+    var ms = dtMs(tr);
+    if (!ms) return '';
+    var ref = (tr.getAttribute('data-ref') || '').trim();
+    var tz = lsGet('unmask:tz') || undefined; // undefined -> browser-local TZ
+    var local = fmtAt(ms, tz);
+    var utc = fmtAt(ms, 'UTC');
+    var body = '';
+    if (ref){
+      body += '<div class="dtpop-row"><span class="dtpop-k">Ref ID</span>' +
+        '<code class="dtpop-v dtpop-ref">' + esc(ref) + '</code></div>';
+    }
+    // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
+    // are self-labelling -- no locale-specific "Local" / "Time" caption needed.
+    if (local) body += '<div class="dtpop-time">' + esc(local) + '</div>';
+    if (utc && utc !== local) body += '<div class="dtpop-time dtpop-utc">' + esc(utc) + '</div>';
+    return '<div class="dtpop">' + body + '</div>';
+  }
+  document.querySelectorAll('table.events tbody td.at time.js-datetime').forEach(function(el){
+    var tr = el.closest('tr');
+    if (!tr) return;
+    el.classList.add('dtpop-trigger');
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var html = dtPopHtml(tr);
+      if (!html) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      var html = dtPopHtml(tr);
+      if (!html) return;
+      var ref = (tr.getAttribute('data-ref') || '').trim();
+      pin.handleClick(html, e.pageX, e.pageY, el, ref || fmtAt(dtMs(tr), lsGet('unmask:tz') || undefined));
+    });
+  });
+})();
+
+// Portal the phase '?' info-popup out of the .events-scroll wrapper on hover.
+// .events-scroll has overflow:hidden auto (= the horizontal-scroll fallback for
+// the table) which clips the popup at the wrapper's bottom edge -- the popup
+// is ~870px tall but only ~50px shows through, so the user sees a sliver and
+// has to click-pin to read the rest.  On hover we move the popup to <body>
+// with position:fixed, anchored just below the tip, and restore it on
+// mouseleave so the click-to-pin flow (= popover-pin.js clones the original
+// popup) keeps working.
+(function(){
+  var tips = document.querySelectorAll('table.events thead .info-tip');
+  tips.forEach(function(tip){
+    var popup = tip.querySelector('.info-popup');
+    if (!popup) return;
+    var originalParent = popup.parentNode;
+    var nextSibling = popup.nextSibling;
+    var portalOn = false;
+    function portal(){
+      if (portalOn || tip.classList.contains('pinned')) return;
+      portalOn = true;
+      // popover-pin.js's edge-flip runs on mouseenter capture and adds
+      // .info-popup-flip-y when it thinks the popup would overflow the
+      // viewport.  flip-y sets bottom:130% via popover-pin.css, which once we
+      // re-anchor with top:Xpx ends up shrinking the popup's box to ~24px
+      // (= top + bottom constrains height) and letting the 800px of content
+      // overflow visible into 'transparent' space below.  Since we anchor
+      // the portaled popup ourselves, the flip is no longer needed -- strip
+      // both flip classes so the popup falls back to height:auto.
+      popup.classList.remove('info-popup-flip-x', 'info-popup-flip-y');
+      var r = tip.getBoundingClientRect();
+      // The phase help block is ~870px tall when populated with every
+      // help.phase.* entry; on a 900px laptop viewport it will not fit
+      // regardless of which side of the tip we anchor on.  Anchor under
+      // the tip when there's at least half a viewport of room below, else
+      // anchor above, and cap the popup with a viewport-bound max-height
+      // + overflow:auto so the user can scroll the rest into view.
+      var below = r.bottom + 6;
+      var above = r.top - 6;
+      var anchorBelow = (window.innerHeight - below) >= 240;
+      var top = anchorBelow ? below : Math.max(8, above - Math.min(above - 16, 600));
+      var maxH = anchorBelow ? (window.innerHeight - top - 8) : (above - 8);
+      popup.style.position = 'fixed';
+      popup.style.top = top + 'px';
+      popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 460)) + 'px';
+      popup.style.bottom = 'auto';
+      popup.style.right = 'auto';
+      popup.style.maxHeight = maxH + 'px';
+      popup.style.overflowY = 'auto';
+      popup.style.display = 'block';
+      popup.style.zIndex = '600';
+      document.body.appendChild(popup);
+    }
+    function unportal(){
+      if (!portalOn) return;
+      portalOn = false;
+      popup.style.position = '';
+      popup.style.top = '';
+      popup.style.left = '';
+      popup.style.bottom = '';
+      popup.style.right = '';
+      popup.style.maxHeight = '';
+      popup.style.overflowY = '';
+      popup.style.display = '';
+      popup.style.zIndex = '';
+      if (nextSibling && nextSibling.parentNode === originalParent){
+        originalParent.insertBefore(popup, nextSibling);
+      } else {
+        originalParent.appendChild(popup);
+      }
+    }
+    tip.addEventListener('mouseenter', portal);
+    tip.addEventListener('mouseleave', unportal);
+    tip.addEventListener('focus', portal);
+    tip.addEventListener('blur', unportal);
+    // popover-pin.js click handler reads the popup contents to build a clone;
+    // restore the popup to its original spot first so the clone source is intact.
+    tip.addEventListener('click', unportal, true /* capture */);
+  });
+})();
+}); // DOMContentLoaded
+</script>
+{{ end }}

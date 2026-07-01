@@ -1,0 +1,39 @@
+# unmask × nginx-vts (= ngx_http_vhost_traffic_status_module) integration example.
+#
+# Only use this if you already load the vts module.  The unmask packages do
+# not include it by default (= nginx -t fails on hosts without the module).
+#
+# Effect: per-fingerprint req / bytes / mean response time aggregated by
+# nginx itself.  Can also be exposed to Grafana via the Prometheus bridge
+# (= nginx-vts-exporter).
+#
+# install:
+#   1. Load the vts module into nginx (= --add-dynamic-module=ngx_http_vhost_traffic_status_module)
+#   2. Add `include /etc/unmask/nginx/vts.conf.example;` to http {} (= rename recommended)
+#   3. nginx -t && systemctl reload nginx
+#   4. JSON counters become visible at /vts/json
+#
+# Note: tune the shared zone size to your site (= ~200 bytes per fingerprint).
+
+# Shared zone for vts aggregation.
+vhost_traffic_status_zone shared:vts_unmask:32m;
+
+# Add the following inside server { } to aggregate per ja4:
+#
+#   server {
+#       listen 443 ssl;
+#       ...
+#       vhost_traffic_status_filter_by_set_key $client_ja4 ja4_fingerprint;
+#       vhost_traffic_status_filter_by_set_key $ja4_verdict ja4_verdict;
+#       ...
+#   }
+#
+# JSON expose endpoint (= internal monitoring only; do not expose publicly):
+#
+#   server {
+#       listen 127.0.0.1:8080;
+#       location /vts/json { vhost_traffic_status_display; vhost_traffic_status_display_format json; }
+#   }
+#
+# Prometheus exporter:
+#   nginx-vts-exporter --nginx.scrape_uri=http://127.0.0.1:8080/vts/json

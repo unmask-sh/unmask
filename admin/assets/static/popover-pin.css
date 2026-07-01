@@ -1,0 +1,294 @@
+/* popover-pin.css — shared popover (= hover + pinned) styling across all admin pages.
+ *
+ * Scope:
+ *   - [data-popover]            : shared base (= position / shadow / padding common to light and dark)
+ *   - [data-popover].is-pinned  : clone produced when a transient popover is click-pinned (= attached to body)
+ *   - .popover-clone            : clone marker (= selector for "close all" via Esc)
+ *   - .popover-tools            : top-right toolbar (= 3 buttons: drag / collapse / close)
+ *   - .popover-drag             : drag handle (= mousedown drags the popover)
+ *   - .popover-collapse         : collapse toggle (= toggles the popover-collapsed class)
+ *   - .popover-close            : close button (= removes the clone)
+ *   - [data-popover].popover-collapsed : 1-line display when collapsed
+ *
+ * Per-page files (hunt / bans / dashboard / etc.) only override differences such as font-size.
+ * Common layout (= padding / position / shadow / z-index / display:none) is centralized here.
+ *
+ * === layout design: only when pinned, add a **tools area** at the top (= grows upward) =====
+ * hover (= primary) is a plain compact popover.  When click-pinned, padding-top for the tools
+ * is added and the popover **extends upward** (= the content's visual position stays put).
+ * The JS shifts the clone's top coordinate up by the tools size (= 20px) so the UX reads as
+ * "just added some buttons above" without any reflow of the content.
+ *
+ *  hover:                       pinned (= content position preserved):
+ *  +-------------------------+   +-------------------------+
+ *  | content                 |   |             [drag . close] |  <- extends upward
+ *  | content                 |   |- - - - - - - - - - - - |
+ *  | - - - - - - - - - - - - |   | content (= same spot)   |
+ *  | click to pin            |   | content                 |
+ *  +-------------------------+   +-------------------------+
+ *
+ * popoverPin.makeClone() offsets via clone.top = hover.top - TOOLS_TOP_PAD_PX.
+ * POPOVER_PIN_TOOLS_TOP_PAD_PX is also exported on the JS side.
+ * ============================================================================ */
+[data-popover]{
+  position:absolute;
+  background:#fff;
+  border:1px solid #cbd5e1;
+  border-radius:.4rem;
+  box-shadow:0 .375rem 1rem rgba(0,0,0,.12);
+  padding:.6rem .9rem .6rem .9rem;
+  font-size:.85rem;
+  min-width:18rem;
+  max-width:30rem;
+  z-index:600;
+  display:none;
+  color:#0f172a;
+  line-height:1.5;
+}
+[data-popover] h3{margin:0 0 .3rem;font-size:.95rem;font-family:ui-monospace,Menlo,monospace}
+[data-popover] dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem}
+[data-popover] dt{color:#64748b}
+[data-popover] dd{margin:0}
+[data-popover] .muted{color:#94a3b8}
+[data-popover] code{background:#f1f5f9;padding:.05em .35em;border-radius:.2rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92em}
+
+/* pinned mode (= click to pin. The clone is placed under the body as an independent DOM node.
+ * Extra padding at the top reserves space for tools, which makes the popover "grow upward".
+ * The JS offsets clone.top up by the tools size so the content's visual position is preserved.
+ * outline + shadow distinguish it from primary.  z-index sits below primary. */
+[data-popover].is-pinned{
+  padding-top:1.85rem;
+  outline:.125rem solid #3b82f6;
+  outline-offset:-.125rem;
+  box-shadow:0 .375rem 1rem rgba(59,130,246,.35);
+  z-index:400;
+}
+
+/* Subtle bottom hint.  Hover state advertises that clicking pins the popover;
+ * once pinned, the same line flips to remind the visitor that ESC dismisses
+ * the most-recently-opened clone (= LIFO stack -- multiple ESC presses peel
+ * them off one at a time). */
+[data-popover]::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed #e2e8f0;font-size:.7rem;color:#94a3b8;letter-spacing:.04em;font-weight:400}
+[data-popover].is-pinned::after{content:"ESC to close"}
+
+/* close button (= legacy).  Also embedded inside popover-tools (= reset to
+   position:static there to avoid duplication issues). */
+.popover-close{position:absolute;top:.25rem;right:.4rem;width:1.4rem;height:1.4rem;background:transparent;color:#64748b;border:0;font-size:1.15rem;line-height:1;cursor:pointer;border-radius:.2rem;padding:0;font-weight:600;display:none;align-items:center;justify-content:center}
+.popover-close:hover{background:rgba(0,0,0,.06);color:#0f172a}
+.is-pinned .popover-close{display:inline-flex}
+
+/* Title bar of the pinned popover (= Windows-style top strip).  The entire
+ * bar is a drag region (JS attaches mousedown anywhere except on a button),
+ * with the source-heading title on the left and collapse / close buttons on
+ * the right.  Only shown on .is-pinned; hidden on the primary hover popover.
+ *
+ * Background sits a step darker than the body so the bar reads as chrome
+ * rather than blending with the content (= slate-200 against slate-50/white).
+ * The bottom hairline uses slate-400 for the same contrast reason -- a thin
+ * line in the same shade as the bar would disappear into the page. */
+.popover-tools{
+  position:absolute;
+  /* Inset by the popover outline width (= .125rem, drawn 2px inside via
+   * outline-offset:-.125rem) so the blue frame stays visible across the
+   * top edge.  Without this, the bar's background covers the outline only
+   * on top/left/right -- the user notices the frame looking thinner along
+   * the title strip. */
+  top:.125rem;
+  left:.125rem;
+  right:.125rem;
+  height:1.65rem;
+  display:none;
+  align-items:center;
+  justify-content:flex-end;
+  padding:0 .25rem 0 .55rem;
+  gap:.1rem;
+  background:#e2e8f0;
+  border-bottom:1px solid #94a3b8;
+  /* Top corners shrink by the outline width so the bar tucks inside the
+   * popover's rounded corner cleanly. */
+  border-radius:.275rem .275rem 0 0;
+  cursor:grab;
+  user-select:none;
+}
+/* Window-icon glyph at the bar's left edge -- visual cue that this is a
+ * popover frame.  Mirrors the Windows app-icon convention on title bars.
+ * Acts as the "double-click to close" affordance: pointer-events auto so
+ * the gesture is received; hover dims color + adds a subtle background
+ * so the operator can tell the glyph is interactive without enlarging
+ * the click area (= operator preference). */
+.popover-icon{
+  flex-shrink:0;
+  font-size:.95rem;
+  line-height:1;
+  color:#64748b;
+  user-select:none;
+  pointer-events:auto;
+  cursor:pointer;
+  border-radius:.2rem;
+  transition:background-color .12s ease, color .12s ease, transform .08s ease;
+}
+.popover-icon:hover{
+  background:#e2e8f0;
+  color:#0f172a;
+}
+.popover-icon:active{
+  background:#cbd5e1;
+  transform:scale(.92);
+}
+/* Indent the title text so it doesn't hug the rounded corner -- the bar's
+ * left padding above is the floor; .popover-title bumps it further so the
+ * label has breathing room from the popover edge. */
+.popover-tools .popover-title{margin-left:.35rem}
+.popover-tools:active{cursor:grabbing}
+.is-pinned .popover-tools{display:flex}
+/* Title text on the left side of the bar (= source heading the `?` was
+ * attached to).  Truncates with ellipsis on narrow popovers so it never
+ * overlaps the right-side buttons. */
+.popover-title{
+  flex:1 1 auto;
+  min-width:0;
+  font-size:.72rem;
+  font-weight:600;
+  color:#334155;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  letter-spacing:.02em;
+  pointer-events:none;
+}
+/* the original close button is embedded inside tools, so reset its absolute positioning. */
+.popover-tools .popover-close{position:static;display:inline-flex}
+/* Title-bar buttons.  Same width/height as before so the bar height stays
+ * fixed, but each button now reads as a real chip -- white face, 1px slate
+ * border, slightly bolder glyph -- instead of an invisible-until-hover
+ * affordance.  Keeps the existing right-anchor layout. */
+.popover-tools button{
+  width:1.4rem;height:1.4rem;
+  background:#fff;color:#1e293b;
+  border:1px solid #94a3b8;
+  font-size:.95rem;line-height:1;
+  font-weight:700;
+  cursor:pointer;
+  border-radius:.2rem;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  flex:none;
+}
+.popover-tools button:hover{background:#f8fafc;color:#0f172a;border-color:#475569}
+.popover-tools .popover-close:hover{background:#ef4444;color:#fff;border-color:#ef4444}
+/* Brief green flash after a successful copy so the visitor gets feedback even
+ * though the page itself doesn't move.  Applied via class for ~900ms by JS. */
+.popover-tools .popover-copy.popover-copy-ok,
+.popover-tools .popover-copy.popover-copy-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
+
+/* "copied" chip that floats just below the title bar after a successful copy,
+ * complementing the ⧉ → ✓ icon swap with plain-language confirmation.  The
+ * pill fades in via .is-visible (= JS toggles it next frame) and fades out at
+ * the same 900ms mark as the icon revert.  pointer-events:none so it never
+ * intercepts clicks meant for the popover body underneath. */
+.popover-copied-toast{
+  position:absolute;
+  top:1.95rem;
+  right:.5rem;
+  background:#16a34a;
+  color:#fff;
+  font-size:.7rem;
+  font-weight:600;
+  padding:.15rem .45rem;
+  border-radius:.25rem;
+  letter-spacing:.04em;
+  pointer-events:none;
+  opacity:0;
+  transform:translateY(-.3rem);
+  transition:opacity .15s ease,transform .15s ease;
+  z-index:500;
+}
+.popover-copied-toast.is-visible{opacity:1;transform:translateY(0)}
+
+/* Collapsed mode = title bar + 1-line ellipsis summary of the body.  Use
+ * !important to override per-element inline styles (= the clamp / info /
+ * IP popover fmt() helpers each set white-space / max-width / line-height
+ * on the body's wrapper <div>, which would otherwise win over a plain
+ * class selector and break the collapse shrink).  An earlier revision hid
+ * the body outright (`display:none`); on popovers whose title is empty
+ * (= table-cell triggers have no h1-h6 ancestor for titleFromTrigger to
+ * find) that left the user staring at a blank rectangle. */
+/* Collapsed mode = the toolbar (= drag handle + ▸ + × + ⧉) is the visible
+ * "1-line" representation.  Force the popover to the toolbar's height
+ * (= 1.85rem + top inset) and hide body + bottom hint so the box visibly
+ * shrinks to a single bar.  The toolbar is .popover-body's sibling (not
+ * its child) so display:none on the body leaves the toolbar visible. */
+[data-popover].popover-collapsed{min-height:0!important;height:1.85rem!important;padding-top:1.85rem!important;padding-bottom:0!important;overflow:hidden!important}
+[data-popover].popover-collapsed .popover-body{display:none!important;height:0!important;margin:0!important;padding:0!important}
+[data-popover].popover-collapsed::after{display:none!important}
+.info-popup-pinned.popover-collapsed{min-height:0!important;height:1.85rem!important;padding-top:1.85rem!important;padding-bottom:0!important;overflow:hidden!important}
+.info-popup-pinned.popover-collapsed .popover-body{display:none!important;height:0!important;margin:0!important;padding:0!important}
+.info-popup-pinned.popover-collapsed::after{display:none!important}
+
+/* noPin mode (= install(primary, {noPin:true})) hides the bottom "click to
+ * pin" hint because clicking won't promote the popover; advertising it
+ * would mislead the user. */
+[data-popover].popover-no-pin::after{display:none!important}
+
+/* base style for info-tip (= `?` ball + hover popup).  Drop next to a heading on any page as
+ * <span class="info-tip">?<span class="info-popup">description...</span></span> — hover shows
+ * the popup; click pins it (= adds drag / collapse / close). */
+.info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
+.info-tip:hover,.info-tip:focus{background:#0f172a}
+.info-tip.pinned{background:#3b82f6;cursor:default}
+/* hover popup (= light theme; matches the [data-popover] card look).
+ * Default anchor: top:130% / left:0 (= below the tip, flush left).
+ * Edge-flip classes are added by popover-pin.js on mouseenter / focusin:
+ *   .info-popup-flip-x : anchor right (= right edge would overflow viewport)
+ *   .info-popup-flip-y : anchor above (= bottom edge would overflow viewport)
+ * max-width = viewport - 1rem keeps the popup from forcing a horizontal scrollbar
+ * even on narrow screens, which is the other source of layout jitter. */
+.info-popup{display:none;position:absolute;top:130%;left:0;width:min(28rem,calc(100vw - 1rem));max-width:calc(100vw - 1rem);background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.7rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;box-shadow:0 .375rem 1rem rgba(0,0,0,.12);text-transform:none;letter-spacing:0;white-space:normal}
+.info-popup a{color:#1d4ed8;text-decoration:underline}
+.info-popup code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+.info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
+/* Edge flip: anchor the popup on the side that has room.  The popup keeps its
+ * width (= min(28rem,...)); only the anchor side changes. */
+.info-popup.info-popup-flip-x{left:auto;right:0}
+.info-popup.info-popup-flip-y{top:auto;bottom:130%}
+/* When flipping vertically, the "click to pin" footer normally sits at the bottom;
+ * keep it readable by holding the same internal order — no extra rule needed. */
+/* while pinned, display lives on the body-level clone (= .info-popup-pinned), so hide the inline popup.
+   The .pinned rule is placed after to override the :hover / :focus rules. */
+.info-tip.pinned .info-popup{display:none}
+.info-popup::after{content:"click to pin";display:block;margin-top:.5em;padding-top:.4em;border-top:1px dashed #e2e8f0;font-size:.7rem;color:#94a3b8;letter-spacing:.04em;font-weight:400;text-transform:none}
+/* Body-level clone keeps the hint visible; flip the content to "ESC to close"
+ * so the visitor knows the keyboard shortcut peels off the latest pin. */
+.info-popup-pinned::after{content:"ESC to close"}
+.info-tip.pinned .info-popup::after{display:none}
+
+/* clone created when an info-tip is click-pinned (= attached to body).  Same light card +
+ * extra padding-top reserved for tools (= grows upward).  JS offsets y upward by the tools size
+ * so the content's visual position matches the hover popup exactly.  Inherits the same chip-
+ * style title bar as [data-popover].is-pinned (= no per-variant tools overrides needed). */
+.info-popup-pinned{background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:1.85rem .9rem .7rem .9rem;border-radius:.4rem;font-size:.8rem;line-height:1.6;width:min(28rem,90vw);max-height:calc(100vh - 2rem);overflow-y:auto;box-shadow:0 .375rem 1rem rgba(59,130,246,.35);outline:.125rem solid #3b82f6;outline-offset:-.125rem;position:relative}
+.info-popup-pinned a{color:#1d4ed8;text-decoration:underline}
+.info-popup-pinned code{background:#f1f5f9;color:#0f172a;padding:.05rem .3rem;border-radius:.2rem;font-size:.92em}
+
+/* === resizable pinned popover ============================================
+ * JS adds .popover-resizable + a fixed px size once pinned, then 8 edge /
+ * corner handles let the user drag any side of the window.  The body fills
+ * the card below the title bar and scrolls; the handles live on the clone
+ * (overflow:visible) so they stay anchored while the body scrolls. */
+.popover-resizable{overflow:visible!important;max-width:none!important;max-height:none!important}
+/* Body fills the card between the title bar and the pinned-footer hint, and
+ * scrolls.  bottom is left clear for the "ESC to close" footer below. */
+.popover-resizable .popover-body{position:absolute;top:1.9rem;left:0;right:0;bottom:1.55rem;margin:0;padding:0 .9rem .35rem;overflow:auto}
+/* Keep the "ESC to close" hint, pinned to the bottom edge (the JS no longer
+ * lets it scroll away with the body).  Inset by the outline width (.125rem)
+ * and round the bottom corners so the opaque footer sits inside the blue
+ * frame instead of squaring off its rounded corners. */
+.popover-resizable::after{position:absolute!important;left:.125rem;right:.125rem;bottom:.125rem;margin:0!important;padding:.25rem .775rem!important;background:#fff;border-top:1px dashed #e2e8f0;border-radius:0 0 .3rem .3rem}
+.popover-rsz{position:absolute;z-index:5}
+.popover-rsz-n{top:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
+.popover-rsz-s{bottom:-3px;left:8px;right:8px;height:7px;cursor:ns-resize}
+.popover-rsz-e{top:8px;bottom:8px;right:-3px;width:7px;cursor:ew-resize}
+.popover-rsz-w{top:8px;bottom:8px;left:-3px;width:7px;cursor:ew-resize}
+.popover-rsz-ne{top:-4px;right:-4px;width:13px;height:13px;cursor:nesw-resize}
+.popover-rsz-nw{top:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}
+.popover-rsz-se{bottom:-4px;right:-4px;width:13px;height:13px;cursor:nwse-resize}
+.popover-rsz-sw{bottom:-4px;left:-4px;width:13px;height:13px;cursor:nesw-resize}

@@ -1,0 +1,28 @@
+# signing.yaml.in — rpm / deb / apk signing blocks shared by every product
+# package (= everything except unmask-release, which signs nothing because it
+# IS the chain-of-trust root).
+#
+# apk signing notes:
+#   - signed only when NFPM_APK_KEY_FILE is set (= release build path).  If
+#     unset, envsubst expands to empty → nfpm skips signing (= dev build is
+#     fine).
+#   - nfpm's apk packager is SHA-1 only (= filenames are .SIGN.RSA.*).  apk-tools
+#     v3 is expected to accept SHA-1 for backward compat.  Consider rotating to
+#     SHA-256 before v0.1 GA (= pending upstream nfpm issue).
+#
+# deb has no nfpm-side signing; signed externally via debsigs in build-repo.sh.
+# Only the Vcs-Browser field lives here.
+
+rpm:
+  group: System Environment/Daemons
+  signature:
+    key_file: ${NFPM_RPM_KEY_FILE:-}
+
+deb:
+  fields:
+    Vcs-Browser: ${PACKAGE_HOMEPAGE}
+
+apk:
+  signature:
+    key_file: ${NFPM_APK_KEY_FILE}
+    key_name: ${NFPM_APK_KEY_NAME}

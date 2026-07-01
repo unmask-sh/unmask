@@ -1,0 +1,72 @@
+# web-nginx-body.yaml.in — body for unmask-web-nginx (= drops nginx
+# web-integration snippets under /etc/nginx/conf.d/).
+#
+# Goal: after install, `https://host/unmask/admin/` brings up the UI
+# out-of-the-box (= zabbix / cacti pattern).  unmask itself
+# (= /usr/sbin/unmask) listens on localhost; this package wires
+# nginx ↔ unmask together.
+#
+# default mode = forward-auth (= lightweight mode that does not require JA4
+# fingerprinting; all features work, but only the JA4-granular verdict
+# degrades to "(none)").
+#
+# To use native mode (= JA4 capture + .so module), additionally install
+# unmask-plugin-nginx and add `load_module` to nginx.conf.  This package
+# provides the proxy / location definitions shared by both modes.
+
+description: |
+  nginx web integration for unmask (= conf.d snippet).
+  Drops a config in /etc/nginx/conf.d/ so /unmask/admin/, /unmask/challenge/
+  and the forward-auth gateway are reachable through your existing nginx.
+  After install, reload nginx and open https://your-host/unmask/admin/.
+
+depends:
+  - unmask
+  - nginx
+
+contents:
+  # forward-auth mode: server-scope snippet (= the /unmask/* location set)
+  - src: ./conf/forward-auth/server.inc
+    dst: /etc/unmask/forward-auth/server.inc
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  # forward-auth mode: location-scope protection trigger (= nginx auth_request directive)
+  - src: ./conf/forward-auth/protect.inc
+    dst: /etc/unmask/forward-auth/protect.inc
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  # Note: the shipped server block (= the old unmask-web.conf default_server)
+  # has been removed.  Users add `include /etc/unmask/{native,forward-auth}/server.inc;`
+  # to their own vhost as a one-liner.  The upstream block (= resolves
+  # proxy_pass http://unmask_admin) is auto-loaded by postinstall via the
+  # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.
+
+overrides:
+  # The unmask dependency is pinned to the EXACT build version in each
+  # packager's own constraint syntax (rpm `=`, deb `(= )`, apk `=`), so a
+  # web snippet can never be installed/upgraded against a mismatched daemon
+  # (the /unmask/* routing + forward-auth contract are version-coupled).
+  # nfpm `overrides` REPLACE the top-level depends, so each lists its full set.
+  rpm:
+    depends:
+      - "unmask = ${UNMASK_VERSION}"
+      - nginx
+  deb:
+    depends:
+      - "unmask (= ${UNMASK_VERSION})"
+      - nginx
+  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
+  # script runs otherwise) so symlinks/maphash are re-applied.
+  apk:
+    depends:
+      - "unmask=${UNMASK_VERSION}"
+      - nginx
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall-web-nginx.sh
+
+scripts:
+  postinstall: ./scripts/postinstall-web-nginx.sh
+  postremove:  ./scripts/postremove-web-nginx.sh

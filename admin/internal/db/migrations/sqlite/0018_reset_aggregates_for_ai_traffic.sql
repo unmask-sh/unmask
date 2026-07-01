@@ -1,0 +1,18 @@
+-- WITHDRAWN.  This migration originally wiped unmask_aggregate_hourly /
+-- _hll / _state to force a backfill of the new hkAITag / hkAITagIP buckets
+-- introduced by the AITrafficBreakdown card.  In practice that blocked
+-- every dashboard query for 30-60 minutes on installs of any meaningful
+-- size (= 800k-1M events): all existing buckets fell back to raw-event
+-- scan paths, every dashboard card timed out, and operators saw
+-- "db error: context deadline exceeded".
+--
+-- The right move is to add new bucket_kinds INCREMENTALLY: new event rows
+-- naturally accumulate the new buckets via the 60s rollup goroutine, and
+-- historical data is left as "0 in the new dimensions" until the operator
+-- explicitly chooses to backfill.  Existing aggregates are never thrown
+-- away just because the schema gained a column.
+--
+-- We keep the file (rather than delete it) so the migration number stays
+-- monotonically allocated.  The body is now a no-op marker — running it
+-- against a healthy install does nothing.
+SELECT 1 WHERE 0;

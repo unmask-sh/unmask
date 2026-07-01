@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>unmask — {{ t .Lang "login.submit" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: flex; justify-content: center; align-items: center;
+  background: #0f172a; color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.card {
+  background: #1e293b; border: 1px solid #334155; border-radius: .5rem;
+  padding: 2rem; width: 22rem; box-shadow: 0 .5rem 1.5rem rgba(0,0,0,.3);
+}
+h1 { margin: 0 0 1.2rem; font-size: 1.3rem; }
+label { display: block; font-size: .85rem; color: #cbd5e1; margin-bottom: .3rem; }
+input[type=password], input[type=text] {
+  width: 100%; padding: .55rem .7rem; border-radius: .35rem;
+  background: #0f172a; color: #e2e8f0; border: 1px solid #475569; font-size: .95rem;
+}
+input:focus { outline: none; border-color: #60a5fa; }
+button {
+  margin-top: 1rem; width: 100%; padding: .6rem; border: 0; border-radius: .35rem;
+  background: #2563eb; color: #fff; font-size: .95rem; cursor: pointer;
+}
+button:hover { background: #1d4ed8; }
+.err {
+  margin-top: .8rem; padding: .5rem .7rem; background: #7f1d1d; color: #fecaca;
+  border-radius: .35rem; font-size: .85rem;
+}
+.remember {
+  display: flex; align-items: center; gap: .4rem;
+  margin-top: 1rem; font-size: .85rem; color: #cbd5e1;
+}
+.remember input { width: auto; margin: 0; }
+.remember label { display: inline; margin: 0; cursor: pointer; }
+</style>
+</head>
+<body>
+<form class="card" method="POST" action="{{.BasePath}}/admin/login">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+  <h1>{{ t .Lang "login.title" }}</h1>
+
+  {{if eq .Error "invalid"}}
+  <div class="err">{{ t .Lang "login.invalid" }}</div>
+  {{end}}
+
+  <label for="username">{{ t .Lang "login.username_label" }}</label>
+  <input id="username" name="username" type="text" autofocus autocomplete="username" required>
+
+  <label for="password">{{ t .Lang "login.password_label" }}</label>
+  <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+  <div class="remember">
+    <input id="remember" name="remember" type="checkbox" value="1">
+    <label for="remember">{{ t .Lang "login.remember" }}</label>
+  </div>
+
+  <input type="hidden" name="return" value="{{.Return}}">
+  <button type="submit">{{ t .Lang "login.submit" }}</button>
+
+  {{ if .MailEnabled }}
+  <div style="margin-top:.8rem;text-align:center;font-size:.8rem">
+    <a href="{{.BasePath}}/admin/forgot-password" style="color:#60a5fa;text-decoration:none">{{ t .Lang "login.forgot_password" }}</a>
+  </div>
+  {{ end }}
+</form>
+</body>
+</html>

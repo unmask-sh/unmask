@@ -1,0 +1,18 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: mailto:oss@unmask.sh
+    about: |
+      Do NOT open a public issue for security vulnerabilities.  Email
+      oss@unmask.sh per SECURITY.md.  We coordinate disclosure with you.
+  - name: Question / discussion
+    url: https://github.com/unmask-sh/unmask/discussions
+    about: |
+      Open questions, deployment patterns, and pre-bug-report sanity checks
+      belong in Discussions.  The issue tracker is for confirmed bugs and
+      concrete feature requests.
+  - name: Docs and install steps
+    url: https://unmask.sh/docs/
+    about: |
+      Common questions are answered in the docs and install guide.  Please
+      skim before opening an issue.

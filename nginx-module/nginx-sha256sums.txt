@@ -1,0 +1,24 @@
+# Pinned SHA-256 of the nginx source tarballs the plugin is compiled against.
+#
+# The Makefile verifies every nginx-<ver>.tar.gz it downloads from nginx.org
+# against the matching line here before extracting + compiling, so a tampered
+# CDN / MITM / mirror cannot slip a backdoored nginx into the built .so.
+#
+# Pins were taken over HTTPS from https://nginx.org/download/.  To add a new
+# version: download it, `sha256sum nginx-<ver>.tar.gz`, and add the line below
+# (optionally cross-checking the developer PGP .asc signature from nginx.org).
+# Format is the standard `sha256sum` format so `sha256sum -c` also works.
+75020f1364cac459cb733c4e1caed2d00376e40ea05588fb8793076a4c69dd90  nginx-1.10.3.tar.gz
+305f379da1d5fb5aefa79e45c829852ca6983c7cd2a79328f8e084a324cf0416  nginx-1.12.2.tar.gz
+bf09974130c0d41c0a811decc17a96ec2f58cdc8bbacb771de8d38c9ba14a4a4  nginx-1.14.1.tar.gz
+002d9f6154e331886a2dd4e6065863c9c1cf8291ae97a1255308572c02be9797  nginx-1.14.2.tar.gz
+f11c2a6dd1d3515736f0324857957db2de98be862461b5a542a3ac6188dbe32b  nginx-1.16.1.tar.gz
+4c373e7ab5bf91d34a4f11a0c9496561061ba5eee6020db272a17a7228d35f99  nginx-1.18.0.tar.gz
+e462e11533d5c30baa05df7652160ff5979591d291736cfa5edb9fd2edb48c49  nginx-1.20.1.tar.gz
+958876757782190a1653e14dc26dfc7ba263de310e04c113e11e97d1bef45a42  nginx-1.20.2.tar.gz
+9ebb333a9e82b952acd3e2b4aeb1d4ff6406f72491bab6cd9fe69f0dea737f31  nginx-1.22.1.tar.gz
+77a2541637b92a621e3ee76776c8b7b40cf6d707e69ba53a940283e30ff2f55d  nginx-1.24.0.tar.gz
+627fe086209bba80a2853a0add9d958d7ebbdffa1a8467a5784c9a6b4f03d738  nginx-1.26.2.tar.gz
+69ee2b237744036e61d24b836668aad3040dda461fe6f570f1787eab570c75aa  nginx-1.26.3.tar.gz
+2c96a946bfb0882a21744ed429770a2123ae1828c7c48665092993ddee91a918  nginx-1.28.3.tar.gz
+058188c64bf22baecaa72b809a6318a4f9ba623889c554feab03f7cb853ab31b  nginx-1.30.0.tar.gz

@@ -1,0 +1,134 @@
+# main-body.yaml.in — package-specific body for `unmask` (= the main package).
+#
+# Prepend common.yaml.in + signing.yaml.in via the Makefile before handing to
+# nfpm.  The result is a complete yml describing the admin binary, the bundled
+# integration snippets for every supported HTTP server, init scripts and the
+# per-format preinstall overrides.
+#
+# multi-arch build:
+#   UNMASK_ARCH=amd64 UNMASK_VERSION=0.1.0 make package-main
+#   UNMASK_ARCH=arm64 UNMASK_VERSION=0.1.0 make package-main
+
+description: |
+  unmask — JA4 TLS-fingerprint based bot challenge.
+  Admin server (Go static binary), challenge HTML/JS, configuration UI,
+  and integration snippets for nginx / Apache.
+  By default operates in forward-auth mode (= HTTP-server-agnostic).
+  Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
+
+contents:
+  # admin server
+  - src: ../dist/unmask-linux-${UNMASK_ARCH}
+    dst: /usr/sbin/unmask
+    file_info:
+      mode: 0755
+
+  # forward-auth mode snippets (= one per HTTP server).
+  # Intended to be manually included from /etc/<server>/conf.d/ etc.
+  - src: ../snippets/nginx-forward-auth.conf
+    dst: /usr/share/unmask/snippets/nginx-forward-auth.conf
+  - src: ../snippets/apache-forward-auth.conf
+    dst: /usr/share/unmask/snippets/apache-forward-auth.conf
+  - src: ../snippets/apache-unmask.lua
+    dst: /usr/share/unmask/snippets/apache-unmask.lua
+  - src: ../snippets/apache-unmask-auth.sh
+    dst: /usr/share/unmask/snippets/apache-unmask-auth.sh
+    file_info:
+      mode: 0755
+
+  # vts integration example (= needs a separate module, so we don't include by default — manual copy)
+  - src: ../nginx/vts.conf.example
+    dst: /etc/unmask/vts.conf.example
+
+  # challenge HTML + JS (admin has an embedded copy, but also drop an external copy that ops can edit)
+  - src: ../admin/assets/static/challenge.html
+    dst: /usr/share/unmask/challenge/challenge.html
+  - src: ../admin/assets/static/challenge.js
+    dst: /usr/share/unmask/challenge/challenge.js
+
+  # Grafana dashboard JSON
+  - src: ../dashboards/grafana-unmask.json
+    dst: /usr/share/unmask/grafana/grafana-unmask.json
+
+  # systemd unit (= RHEL 7+ / Debian 8+ / Alpine 3.7+)
+  - src: ./unmask.service
+    dst: /usr/lib/systemd/system/unmask.service
+
+  # init scripts for the non-systemd distros in the matrix.  Both are bundled
+  # under /usr/share/unmask/init/; postinstall installs the right one:
+  #   - OpenRC (= Alpine / Gentoo): symlinked to /etc/init.d/unmask.
+  #   - SysVinit (= RHEL 6 / CentOS 6): copied to /etc/rc.d/init.d/unmask + chkconfig.
+  - src: ./init.d/unmask.openrc
+    dst: /usr/share/unmask/init/unmask.openrc
+    file_info:
+      mode: 0755
+  - src: ./init.d/unmask.sysv
+    dst: /usr/share/unmask/init/unmask.sysv
+    file_info:
+      mode: 0755
+
+  # state directories
+  - dst: /var/lib/unmask
+    type: dir
+    file_info:
+      mode: 0750
+      owner: unmask
+      group: unmask
+  # mmdb dir (= where `unmask install-ipgeo` writes DB-IP Country Lite)
+  - dst: /var/lib/unmask/ipgeo
+    type: dir
+    file_info:
+      mode: 0750
+      owner: unmask
+      group: unmask
+
+  # DB-IP Lite attribution + cron sample (= installed but not enabled)
+  - src: ./conf/unmask-ipgeo-attribution.txt
+    dst: /usr/share/doc/unmask/unmask-ipgeo-attribution.txt
+    file_info:
+      mode: 0644
+  - src: ./conf/unmask-ipgeo.cron.sample
+    dst: /usr/share/doc/unmask/unmask-ipgeo.cron.sample
+    file_info:
+      mode: 0644
+  - dst: /etc/unmask
+    type: dir
+    file_info:
+      mode: 0755
+      owner: unmask
+      group: unmask
+
+scripts:
+  preinstall: ./scripts/preinstall-main.sh
+  postinstall: ./scripts/postinstall.sh
+  preremove: ./scripts/preremove.sh
+  postremove: ./scripts/postremove.sh
+
+# Per-format preinstall (= adduser/groupadd dialect differences).
+# - rpm: top-level scripts (= shadow-utils useradd/groupadd, RHEL/Fedora family)
+# - deb: adduser --system / addgroup --system
+# - apk: busybox addgroup/adduser.  shadow-utils is absent on alpine, so the
+#        top-level useradd/groupadd would fail.  That would skip post-install
+#        and leave /etc/init.d/unmask without a symlink.
+overrides:
+  deb:
+    scripts:
+      preinstall: ./scripts/preinstall-main-deb.sh
+  apk:
+    scripts:
+      preinstall: ./scripts/preinstall-main-apk.sh
+    # apk runs NO maintainer script on `apk upgrade` unless an apk-SPECIFIC
+    # post-upgrade hook is declared (the generic scripts.* map only to
+    # .post-install/.post-deinstall).  Without this an `apk upgrade` keeps the
+    # old daemon binary running and never re-renders http.inc.  Re-run the
+    # idempotent postinstall (which restarts the service + render-nginx).
+    apk:
+      scripts:
+        postupgrade: ./scripts/postinstall.sh
+    # OpenRC is the alpine default, but minimal cloud / docker images
+    # sometimes ship without it.  In that case, the postinstall OpenRC branch
+    # fails to find `rc-service` and falls back to `init: manual`, which
+    # never installs the `/etc/init.d/unmask` symlink.  Require openrc
+    # via apk depends so it auto-installs.
+    depends:
+      - openrc

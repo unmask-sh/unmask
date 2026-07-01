@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "dashboard.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+/* base: html font-size = 16px (= browser default). all sizes are rem-relative. */
+html{font-size:16px;overflow-y:scroll}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem;letter-spacing:.02em}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+/* breadcrumbs (= below the header, at the start of the white body region).  Muted color. */
+/* primary nav to the right of the logo (= text-link style. plain menu, no button feel).  Shown on every admin page. */
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none;transition:color .1s}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-controls{display:flex;gap:.625rem;align-items:center;flex-wrap:wrap;margin-bottom:.875rem}
+.bcd-controls a{padding:.3rem .9rem;border:1px solid #cbd5e1;border-radius:.25rem;text-decoration:none;color:#334155;background:#fff;font-size:.9rem}
+.bcd-controls a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+.bcd-card h2 .src{font-size:.75rem;color:#94a3b8;font-weight:normal;margin-left:.4em}
+.bcd-table{font-size:.95rem;width:100%;border-collapse:collapse}
+.bcd-table th,.bcd-table td{padding:.3rem .65rem;text-align:left;border-bottom:1px solid #f1f5f9;vertical-align:top}
+.bcd-table th{background:#f8fafc;color:#64748b;font-weight:600;font-size:.85rem}
+/* bcd-num / bcd-id specificity must be raised to match selectors under bcd-table,
+   otherwise text-align:left wins (= .bcd-table th is 0,1,1, .bcd-num is 0,1,0). */
+.bcd-table th.bcd-num,.bcd-table td.bcd-num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+/* .bcd-id: visually identical to bcd-num but used for the "ID/label" column,
+   which isn't an aggregated value. Excluded from the zero-row check (= bcd-zero-row detection). */
+.bcd-table th.bcd-id,.bcd-table td.bcd-id{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.bcd-mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.875rem}
+/* Bot-detail tables (rate-limit / verify-NG / stealth / cookie-err / js-error /
+   reload-loops): keep every row on a single line.  The UA cell renders the FULL
+   UA and clips at the column's right edge -- max-width:0 + width:100% = "take
+   the leftover width but stay shrinkable" (the trick the hunt events table
+   uses), so it fills the column and truncates exactly at the cell edge instead
+   of wrapping or leaving trailing whitespace.  (The 50-char server truncation
+   would leave a gap on a wide column, so the cell uses .UAFull.)  The JS-error
+   message -- the other long column in the js-error table -- is width-capped so
+   it can't collapse the greedy UA; it clips with a title= tooltip for the full
+   text.  Siblings stay nowrap so the clip column can't push them onto a 2nd
+   line, and auto table-layout keeps the IP column sized to a full IPv6. */
+.bcd-cliptable td{white-space:nowrap}
+.bcd-cliptable td.bcd-ua{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+/* js-error table has TWO long columns (UA + the error message).  Pin the UA to
+   a fixed width so the error message -- the more useful column here -- takes the
+   leftover width instead of being starved.  The table is wrapped in an
+   overflow-x:auto box so a narrow viewport scrolls rather than overflowing. */
+.bcd-twoflex td.bcd-ua{max-width:24rem;width:24rem}
+.bcd-twoflex td.bcd-clip{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+.bcd-cliptable-scroll{overflow-x:auto;max-width:100%}
+/* CAPTCHA pass report card */
+.cp-kpis{display:flex;gap:2.5rem;flex-wrap:wrap;margin:.3rem 0 1rem}
+.cp-kpi-label{font-size:.72rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+.cp-kpi-num{font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums}
+.cp-kpi-num.cp-bot{color:#b91c1c}
+.cp-kpi-rate{font-size:.75rem;color:#64748b;font-weight:600;margin-left:.15rem}
+.cp-h{font-size:.85rem;margin:1rem 0 .25rem;color:#0f172a;font-weight:600}
+.cp-bot-row{background:#fef2f2}
+.cp-verdict-bot{color:#b91c1c;font-weight:600}
+.cp-count{display:inline-block;margin-left:.3rem;padding:.02rem .4rem;border-radius:.7rem;background:#e2e8f0;color:#475569;font-size:.7rem;font-weight:700;vertical-align:middle}
+.cp-row-extra{display:none}
+table.cp-expanded tr.cp-row-extra{display:table-row}
+.cp-more{margin:.4rem 0 0;padding:.25rem .8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;color:#334155;font-size:.78rem;font-weight:600;cursor:pointer}
+.cp-more:hover{background:#e2e8f0}
+/* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
+.bcd-card .desc{font-size:.7rem;color:#64748b;margin:0 0 .5rem;line-height:1.55}
+.bcd-card .desc code{background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace}
+.bcd-card .desc strong{font-weight:700}
+/* source badge (= shown next to h2 — DB / nginx log / etc.) */
+.src-badge{display:inline-block;padding:.05rem .35rem;border-radius:.2rem;font-size:.65rem;font-weight:600;vertical-align:middle;margin-left:.3rem}
+.src-badge.db{background:#dbeafe;color:#1e40af}
+.src-badge.log{background:#fef3c7;color:#92400e}
+/* TOTAL / rate_limit row styles */
+tr.bcd-rl{background:#fef3c7}
+tr.bcd-total{background:#e0e7ff;font-weight:700;border-top:2px solid #6366f1}
+tr.bcd-total td{font-weight:700}
+/* dotted-underline help span (= bootstrap popover style compatible) */
+.help-dotted{cursor:help;border-bottom:1px dotted #94a3b8}
+/* whole-table baseline — minimal .table .table-sm equivalent */
+table.bcd-table{margin-bottom:0;color:#212529}
+table.bcd-table > tbody > tr > td,
+table.bcd-table > thead > tr > th{border-bottom:1px solid #e5e7eb;padding:.4rem .6rem;font-size:.85rem}
+table.bcd-table > thead > tr > th{border-bottom:2px solid #cbd5e1;background:#f8fafc;color:#475569;font-weight:600}
+/* numeric cell colors (same tones across the app) */
+.n-muted{color:#64748b}
+.n-warn{color:#f59e0b;font-weight:600}
+.n-stealth{color:#dc2626;font-weight:700}
+.bcd-flagbits{font-family:ui-monospace,Menlo,Consolas,monospace}
+/* per-country chart (= HTML version.  Grid of PNG flag (= /static/flags/<cc>.png) + bar + count). */
+.country-chart{display:grid;gap:.18rem;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.78rem}
+.country-row{display:flex;align-items:center;gap:.4rem;line-height:1.1}
+.country-row .cc-label{color:#475569;white-space:nowrap;display:flex;align-items:center;gap:.35em;flex:0 0 auto}
+.country-row .cc-bar-wrap{flex:1 1 0}
+.country-row .cc-flag{width:18px;height:12px;object-fit:cover;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.08);display:inline-block;vertical-align:middle;flex-shrink:0}
+.country-row .cc-bar-wrap{position:relative;background:#f1f5f9;border-radius:.1rem;height:.7rem}
+.country-row .cc-bar{background:#3b82f6;height:100%;border-radius:.1rem;min-width:1px;transition:width .25s}
+.country-row .cc-count{color:#0f172a;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.total td{background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700}
+tr.total td.bcd-num{font-weight:700}
+tr.rl-row td{background:#fff7ed}
+.tag{display:inline-block;padding:.05em .5em;border-radius:.5em;font-size:.85em}
+.tag.bot{background:#fee2e2;color:#991b1b}
+.tag.suspect{background:#fef3c7;color:#92400e}
+.tag.ok{background:#dcfce7;color:#166534}
+.tag.none{background:#e2e8f0;color:#475569}
+/* zero-row visibility. default = HIDDEN (operator unchecks to show);
+   .bcd-zero-hidden on the card collapses zero rows.  Toggle is a checkbox
+   inserted right after each table; state persists via localStorage. */
+.bcd-zero-row{display:table-row}
+.bcd-zero-hidden .bcd-zero-row{display:none}
+.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
+.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
+.bcd-zero-toggle:hover{color:#0f172a}
+.bcd-card .bcd-table{visibility:hidden}
+.bcd-card .bcd-table.bcd-ready{visibility:visible}
+.flex{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
+@media(max-width:60rem){.flex{grid-template-columns:1fr}}
+canvas{display:block;width:100%;max-width:100%;background:#fff;border-radius:.25rem}
+dl.flow{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.4rem 1rem}
+dl.flow dt{font-weight:700;color:#475569}
+dl.flow dd{margin:0;color:#334155}
+.muted{color:#94a3b8}
+/* padding-right always reserves space for the close button (= pin toggle doesn't shift the text wrap).
+   styling applies to both primary and clone via the data-popover attribute (= shared across many pins).
+   primary (= hover transient) sits at a higher z-index, clone (= pinned) at a lower one
+   -> so a new hover can render in front of a pinned popover. */
+/* popover base lives in /static/popover-pin.css.
+ * Only dashboard-specific deltas override here (= font-size / line-height / "ip" h3 size). */
+[data-popover="ip"]{font-size:.9rem}
+[data-popover="ip"] h3{font-size:1rem;font-family:inherit}
+/* nowrap so a full-width IPv4 (3-digit octets) never breaks between the flag
+   and the address -- matches overview / hunt, which already pin their IP cells. */
+.ipclick{cursor:help;text-decoration:underline dotted #94a3b8;white-space:nowrap}
+/* unified IP display across all cards: "flag + IP + popover" (= same as bans / hunt). */
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+[data-help]{cursor:help;text-decoration:underline dotted #94a3b8}
+.tag[data-help]{text-decoration:none}
+[data-popover="help"]{padding:.7rem 5.5rem .7rem 1rem;font-size:.95rem;line-height:1.55;min-width:16rem}
+[data-popover="help"] b{color:#0f172a}
+[data-popover="help"] br + br{display:block;content:"";margin-top:.4em}
+
+/* pinned popover styling (= click-pin / drag / collapse / close) lives in
+   /static/popover-pin.css. This page links it via the shared partial. */
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+
+/* funnel-grouped: per-column-group coloring for the challenge funnel table.
+   td/th bg is made transparent so colgroup <col> backgrounds shine through,
+   and highlight rows (= bcd-rl / bcd-total) keep their own color via !important. */
+.funnel-grouped th,.funnel-grouped td{background:transparent}
+/* tighten horizontal padding -- 17 columns (verdict + 7 funnel + 3 anomaly +
+   2 rate + 4 meta) overflow even on wide viewports under the base .6rem hpad.
+   Selector specificity is raised to (0,0,2,4) so it beats the base
+   `table.bcd-table > thead > tr > th` (0,0,1,4) padding rule above. */
+table.bcd-table.funnel-grouped > thead > tr > th,
+table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
+.funnel-grouped tr.bcd-rl td{background:#fef3c7 !important}
+.funnel-grouped tr.bcd-total td{background:#e0e7ff !important}
+.funnel-grouped thead tr.funnel-sg th{font-size:.7rem;color:#475569;font-weight:600;padding:.3rem .5rem;text-align:center;letter-spacing:.02em;border-bottom:1px solid #cbd5e1}
+/* group boundary = vertical line on the left of columns 2 / 9 / 12 / 14
+   (= verdict | funnel x7 | anomaly x3 | rate x2 | meta x4). Keep in sync with
+   the funnel-sg colspans and the <colgroup> spans above. */
+.funnel-grouped tr > *:nth-child(2),
+.funnel-grouped tr > *:nth-child(9),
+.funnel-grouped tr > *:nth-child(12),
+.funnel-grouped tr > *:nth-child(14){border-left:1px solid #cbd5e1}
+/* funnel first column: cap long verdict labels.  Auto-generated hunt_<ja4>
+   verdicts run ~38 chars and would otherwise stretch the (already wide) table
+   into a horizontal scroll.  Clipped labels get a full-text popover via JS. */
+/* keep the bot/suspect badge and the verdict label on one line (no wrap). */
+.funnel-grouped tbody td:first-child{white-space:nowrap}
+.funnel-grouped tbody td:first-child .help-dotted{
+  display:inline-block;max-width:7rem;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+/* the 3 long bv_* headers wrap by width and are hard-clamped to 2 lines
+   (-webkit-line-clamp); a 3rd+ line is ellipsised away.  word-break:break-all
+   wraps regardless of the underscores; max-width 5rem fits the longest
+   (bv_pow_then_captcha) in exactly 2 lines.  Full name is in the hover help. */
+.funnel-grouped thead [data-help-key^="phase.bv_"]{
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;
+  overflow:hidden;max-width:5rem;word-break:break-all}
+
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+
+<header class="unmask-header">
+  <a href="/unmask/admin/" class="logo" title="unmask · admin top">
+    <img src="/unmask/static/icon.png" width="22" height="22" alt="" style="vertical-align:middle;border-radius:.25rem">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="/unmask/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="/unmask/admin/stats/" class="active">{{ t .Lang "nav.stats" }}</a>
+    <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+      <a href="/unmask/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="/unmask/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+
+<h1>{{ t .Lang "dashboard.title" }}
+  {{- if .Site }}
+  <span style="font-size:.85rem;color:#64748b;font-weight:normal">— <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  {{- end }}
+</h1>
+<p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }} / {{ t .Lang "dashboard.driver" }} = {{.Driver}}</p>
+
+<div class="bcd-controls">
+  <span style="color:#64748b">{{ t .Lang "dashboard.range_label" }}</span>
+  {{ range .RangePresets }}
+  <a href="?range={{ . }}" {{ if eq $.Range . }}class="active"{{ end }}>{{ if eq . "all" }}{{ t $.Lang "dashboard.range_all" }}{{ else }}{{ . }}{{ end }}</a>
+  {{ end }}
+  {{ template "range_custom_modal" . }}
+</div>
+
+{{ if .FailedCards }}
+<div role="alert" style="margin:1rem 0;padding:.6rem .9rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;font-size:.82rem;line-height:1.45">
+  {{ t .Lang "dashboard.cards_failed" }}
+  <span style="display:block;margin-top:.2rem;color:#b45309;font-size:.76rem">{{ range $i, $c := .FailedCards }}{{ if $i }}, {{ end }}{{ $c }}{{ end }}</span>
+</div>
+{{ end }}
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.overview" }}</div>
+
+<!-- 1) challenge funnel -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.funnel" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.funnel.desc") }}</span></span></h2>
+  <div style="overflow-x:auto">
+  <table class="bcd-table funnel-grouped">
+    <colgroup>
+      <col style="background:#f8fafc">
+      <col span="7" style="background:#eff6ff">
+      <col span="3" style="background:#fef2f2">
+      <col span="2" style="background:#f0fdf4">
+      <col span="4" style="background:#f8fafc">
+    </colgroup>
+    <thead>
+      <tr class="funnel-sg">
+        <th></th>
+        <th colspan="7">{{ t .Lang "funnel.col_group.funnel" }}</th>
+        <th colspan="3">{{ t .Lang "funnel.col_group.anomaly" }}</th>
+        <th colspan="2">{{ t .Lang "funnel.col_group.rate" }}</th>
+        <th colspan="4">{{ t .Lang "funnel.col_group.meta" }}</th>
+      </tr>
+      <tr>
+      <th>{{ t .Lang "th.verdict" }}</th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.serve">{{ t .Lang "th.serve" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.load">{{ t .Lang "th.load" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_pass">pow_pass</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_pow_only">bv_pow_only</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha">{{ t .Lang "th.captcha" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_captcha_only">bv_captcha_only</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.bv_pow_then_captcha">bv_pow_then_captcha</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ng">verify_ng</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.cookie_err">cookie_err</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.js_error">JS error</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_rate">{{ t .Lang "th.pow_rate" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha_rate">{{ t .Lang "th.captcha_rate" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.rl" style="color:#92400e;font-weight:600">rate_limit</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.uniq">{{ t .Lang "th.uniq_ip" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.silent">{{ t .Lang "th.silent" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.stealth">{{ t .Lang "th.stealth" }}</span></th>
+    </tr></thead>
+    <tbody>
+      {{range .Funnel}}
+      <tr {{if eq .Verdict "TOTAL"}}class="bcd-total"{{else if eq .Verdict "rate_limit"}}class="bcd-rl"{{end}}>
+        <td>
+          {{- if eq .Verdict "rate_limit" -}}
+            <span class="help-dotted" data-help-key="verdict.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:700">rate_limit</span>
+          {{- else if eq .Verdict "TOTAL" -}}
+            <span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
+          {{- else if eq .Verdict "ok" -}}
+            <span class="tag ok">ok</span>
+          {{- else if eq .Verdict "(none)" -}}
+            <span class="tag none">none</span>
+          {{- else -}}
+            {{- /* badge is decided by the settings-derived action enum (= source of truth).
+                  No prefix fallback (= verdicts not classified by the current spec render
+                  with the label only, no badge). */ -}}
+            {{- $act := index $.VerdictAction .Verdict -}}
+            {{- if eq $act "bot" -}}
+              <span class="tag bot">bot</span>
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- else if eq $act "suspect" -}}
+              <span class="tag suspect">suspect</span>
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- else -}}
+              <span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span>
+            {{- end -}}
+          {{- end -}}
+        </td>
+        <td class="bcd-num n-muted">{{comma .Serve}}</td>
+        <td class="bcd-num">{{comma .Load}}</td>
+        <td class="bcd-num">{{comma .PowPass}}</td>
+        <td class="bcd-num">{{comma .BVPowOnly}}</td>
+        <td class="bcd-num">{{comma .Captcha}}</td>
+        <td class="bcd-num">{{comma .BVCaptchaOnly}}</td>
+        <td class="bcd-num">{{comma .BVPowThenCaptcha}}</td>
+        <td class="bcd-num">{{comma .VerifyNG}}</td>
+        <td class="bcd-num">{{comma .CookieErr}}</td>
+        <td class="bcd-num">{{comma .JSError}}</td>
+        <td class="bcd-num">{{rate .PowSolved .Load}}</td>
+        <td class="bcd-num">{{rate .CaptchaPassed .Captcha}}</td>
+        <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{end}}">{{comma .ServeRL}}</td>
+        <td class="bcd-num">{{comma .LoadUniq}}</td>
+        <td class="bcd-num">{{comma .Silent}}</td>
+        <td class="bcd-num{{if gt .Stealth 0}} n-stealth{{end}}">{{comma .Stealth}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+</div>
+
+<!-- 1b) CAPTCHA pass report (= clients that solved a CAPTCHA + got a reusable cookie).
+     Defined as a named template so it can be unit-rendered in isolation. -->
+{{ define "captcha_report_card" }}
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_report" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_report.desc") }}</span></span></h2>
+  {{ with .CaptchaReport }}
+  <div class="cp-kpis">
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.total" }}</div><div class="cp-kpi-num">{{ comma .Total }}</div></div>
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.bot" }}</div><div class="cp-kpi-num cp-bot">{{ comma .Bot }} <span class="cp-kpi-rate">{{ rate .Bot .Total }}</span></div></div>
+    <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.ok" }}</div><div class="cp-kpi-num">{{ comma .Ok }} <span class="cp-kpi-rate">{{ rate .Ok .Total }}</span></div></div>
+  </div>
+  {{ if .TopIPs }}
+  <h6 class="cp-h">{{ t $.Lang "captcha_report.rank_heading" }} <span class="cp-count">{{ len .TopIPs }}</span></h6>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th class="bcd-num">{{ t $.Lang "th.passes" }}</th><th class="bcd-num">{{ t $.Lang "th.paths" }}</th><th>{{ t $.Lang "th.ua" }}</th><th>{{ t $.Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range $i, $r := .TopIPs }}
+      <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-num">{{ comma $r.Passes }}</td>
+        <td class="bcd-num">{{ comma $r.Paths }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  {{ if gt (len .TopIPs) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .TopIPs) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .TopIPs) 10 }})</button>{{ end }}
+  {{ end }}
+  {{ if .Recent }}
+  <h6 class="cp-h">{{ t $.Lang "captcha_report.recent_heading" }}</h6>
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+    <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th></tr></thead>
+    <tbody>
+      {{ range .Recent }}
+      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
+        <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+        <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-mono bcd-clip cellpop">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ t $.Lang "captcha_report.empty" }}</p>
+  {{ end }}
+  {{ end }}
+</div>
+{{ end }}{{/* captcha_report_card -- rendered in the watchlist group below */}}
+
+{{ define "captcha_reuse_card" }}
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_reuse" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
+  {{ if .CaptchaReuse }}
+  <h6 class="cp-h">{{ t $.Lang "captcha_reuse.rank_heading" }} <span class="cp-count">{{ len .CaptchaReuse }}</span></h6>
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.reuse" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range $i, $r := .CaptchaReuse }}
+      <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">ok</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-num">{{ comma $r.Requests }}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  {{ if gt (len .CaptchaReuse) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .CaptchaReuse) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .CaptchaReuse) 10 }})</button>{{ end }}
+  {{ else }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ t .Lang "captcha_reuse.empty" }}</p>
+  {{ end }}
+</div>
+{{ end }}{{/* captcha_reuse_card -- rendered in the watchlist group below */}}
+
+<!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.cookie_status" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie.desc") }}</span></span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>{{ t .Lang "th.section" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.note" }}</th></tr></thead>
+    <tbody>
+      {{range .CookieRows}}
+      <tr>
+        <td{{if .Color}} style="color:{{.Color}}"{{end}}>{{if eq .Kind "total"}}<b>{{ t $.Lang (printf "cookie.row.%s" .Kind) }}</b>{{else if .Color}}<b>{{ t $.Lang (printf "cookie.row.%s" .Kind) }}</b>{{else}}{{ t $.Lang (printf "cookie.row.%s" .Kind) }}{{end}}</td>
+        <td class="bcd-num"{{if eq .Kind "pow_passed"}} style="color:#0ea5e9;font-weight:bold"{{else if eq .Kind "total"}} style="font-weight:bold"{{end}}>{{comma .Count}}</td>
+        <td style="font-size:.88rem;color:#475569">{{ safeHTML (t $.Lang (printf "cookie.desc.%s" .Kind)) }}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.signals" }}</div>
+
+<div class="flex">
+  <!-- 3) flags distribution -->
+  <div class="bcd-card">
+    <h2>{{ t .Lang "dashboard.card.flags" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "help.flags.flags") }}</span></span></h2>
+    <table class="bcd-table">
+      <thead><tr><th>{{ t .Lang "th.flags_bin" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th><th>{{ t .Lang "th.meaning" }}</th></tr></thead>
+      <tbody>
+        {{range .FlagsRows}}
+        <tr>
+          <td class="bcd-flagbits">{{.Bin}} ({{.Flags}})</td>
+          <td class="bcd-num">{{comma .Count}}</td>
+          <td class="bcd-num">{{comma .UniqIP}}</td>
+          <td>{{.Note}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 4) JA4 verdict distribution -->
+  <div class="bcd-card">
+    <h2>{{ t .Lang "dashboard.card.verdict_dist" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.verdict_dist.desc") }}</span></span></h2>
+    <table class="bcd-table">
+      <thead><tr><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th></tr></thead>
+      <tbody>
+        {{range .VerdictDist}}
+        <tr>
+          <td><span class="help-dotted" data-help-key="verdict.{{.Verdict}}">{{.Verdict}}</span></td>
+          <td class="bcd-num">{{comma .Count}}</td>
+          <td class="bcd-num">{{comma .UniqIP}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{{ template "ai_traffic_card" . }}
+{{ template "ai_traffic_card_assets" . }}
+
+<!-- 5) forced-CAPTCHA decisions (by reason) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_force" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_force.desc") }}</span></span></h2>
+  <table class="bcd-table">
+    <thead><tr><th>{{ t .Lang "th.kind" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.uniq_ip" }}</th><th>{{ t .Lang "th.meaning" }}</th></tr></thead>
+    <tbody>
+      {{range .HitRows}}
+      <tr>
+        <td>
+          {{/* Each kind carries data-help-key="captcha_force.kind.<id>" so the
+               dashboard help-popover JS (= [data-help-key] auto-wire) shows a
+               richer explanation than the brief "meaning" column on the
+               right.  The help.* entries live in i18n.go. */}}
+          {{if eq .Kind "none"}}<span class="help-dotted" data-help-key="captcha_force.kind.none" style="color:#16a34a;border-bottom-color:#16a34a">{{.Kind}}</span>
+          {{else if eq .Kind "ja4_bot"}}<span class="help-dotted" data-help-key="captcha_force.kind.ja4_bot" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "honeypot"}}<span class="help-dotted" data-help-key="captcha_force.kind.honeypot" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "banned"}}<span class="help-dotted" data-help-key="captcha_force.kind.banned" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "protected"}}<span class="help-dotted" data-help-key="captcha_force.kind.protected" style="color:#1d4ed8;border-bottom-color:#1d4ed8">{{.Kind}}</span>
+          {{else if eq .Kind "rate_limit"}}<span class="help-dotted" data-help-key="captcha_force.kind.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "test"}}<span class="help-dotted" data-help-key="captcha_force.kind.test" style="color:#7c3aed;border-bottom-color:#7c3aed">{{.Kind}}</span>
+          {{else}}<span class="help-dotted" data-help-key="captcha_force.kind.unknown" style="color:#94a3b8">{{.Kind}}</span>{{end}}
+        </td>
+        <td class="bcd-num">{{comma .Count}}</td>
+        <td class="bcd-num">{{comma .UniqIP}}</td>
+        <td class="muted" style="font-size:.85rem">{{ t $.Lang (printf "captcha_force.kind.%s" .Kind) }}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.watchlist" }}</div>
+
+{{ template "captcha_report_card" . }}
+
+{{ template "captcha_reuse_card" . }}
+
+<!-- 7) CAPTCHA failure IP ranking -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.captcha_fail" }} <span class="cp-count">{{ len .VerifyNG }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr>
+      <th><span class="help-dotted" data-help-key="vng.ip">{{ t .Lang "th.ip" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.total">{{ t .Lang "th.total" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.behavioral">{{ t .Lang "th.behavioral" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.math">{{ t .Lang "th.math" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="vng.avg_score">{{ t .Lang "th.avg_score" }}</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ja4">JA4</span></th>
+      <th><span class="help-dotted" data-help-key="vng.ua">{{ t .Lang "th.ua" }}</span></th>
+      <th><span class="help-dotted" data-help-key="vng.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
+    </tr></thead>
+    <tbody>
+      {{ range $i, $r := .VerifyNG }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num{{if ge $r.Total 5}} n-stealth{{end}}">{{comma $r.Total}}</td>
+        <td class="bcd-num">{{comma $r.Behavioral}}</td>
+        <td class="bcd-num{{if gt $r.Math 0}} n-stealth{{end}}">{{comma $r.Math}}</td>
+        <td class="bcd-num n-muted">{{score $r.AvgScore}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span></td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="8" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{ if gt (len .VerifyNG) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .VerifyNG) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .VerifyNG) 10 }})</button>{{ end }}
+</div>
+
+<!-- 10) stealth bypass -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.stealth" }} <span class="cp-count">{{ len .Stealth }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.stealth.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range $i, $r := .Stealth }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td><span class="help-dotted" data-help-key="verdict.{{$r.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{$r.Verdict}}</span></td>
+        <td class="bcd-num n-stealth">{{comma $r.Count}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_stealth" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{ if gt (len .Stealth) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .Stealth) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .Stealth) 10 }})</button>{{ end }}
+</div>
+
+<!-- 2) rate-limit hits (= serves arriving via rl=1) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.rate_limit" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.rate_limit.desc") }}</span></span></h2>
+  <p class="desc">
+    {{if .RLSummary.From}}{{ safeHTML (tf .Lang "dashboard.rl.summary_period" .RLSummary.From .RLSummary.To) }} / {{end}}{{ safeHTML (tf .Lang "dashboard.rl.summary_total" (comma .RLSummary.Total)) }}
+  </p>
+  <div style="display:grid;grid-template-columns:7fr 5fr;gap:1rem">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.ip_top" }} <span class="cp-count">{{ len .RLIPs }}</span></h6>
+      <table class="bcd-table bcd-cliptable cp-rankable">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.ip">{{ t .Lang "th.ip" }}</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.count">{{ t .Lang "th.count" }}</span></th>
+          <th><span class="help-dotted" data-help-key="rl.ua">{{ t .Lang "th.ua" }}</span></th>
+          <th><span class="help-dotted" data-help-key="rl.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
+        </tr></thead>
+        <tbody>
+          {{ range $i, $r := .RLIPs }}
+          <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+            <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+            <td class="bcd-num{{if ge $r.Count 100}} n-stealth{{end}}">{{comma $r.Count}}</td>
+            <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+            <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{ if gt (len .RLIPs) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})</button>{{ end }}
+    </div>
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.path_top" }}</h6>
+      <table class="bcd-table">
+        <thead><tr>
+          <th><span class="help-dotted" data-help-key="rl.path">{{ t .Lang "th.path" }}</span></th>
+          <th class="bcd-num"><span class="help-dotted" data-help-key="rl.path_count">{{ t .Lang "th.count" }}</span></th>
+        </tr></thead>
+        <tbody>
+          {{range .RLPaths}}
+          <tr>
+            <td class="bcd-mono rl-path-cell" data-path="{{.Path}}">{{.Path}}</td>
+            <td class="bcd-num">{{comma .Count}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="2" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.failures" }}</div>
+
+<!-- 8) JS error -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.js_error" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.js_error.desc") }}</span></span></h2>
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable bcd-twoflex" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ua" }}</th><th class="bcd-num">{{ t .Lang "th.flags" }}</th><th>{{ t .Lang "th.error" }}</th><th>{{ t .Lang "th.date" }}</th></tr></thead>
+    <tbody>
+      {{range .JSErrors}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
+        <td class="bcd-num">{{.Flags}}</td>
+        <td class="bcd-mono bcd-clip cellpop">{{.Error}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  {{/* Foreign-script errors (extensions / in-app webview injections): stored
+       verbatim like every raw event, but collapsed here so ambient mobile
+       noise doesn't bury real challenge-JS failures. */}}
+  <p class="muted" id="jsfe-toggle" style="font-size:.85rem;margin:.6rem 0 0;cursor:pointer;user-select:none"><span id="jsfe-arrow">▸</span> {{ tf .Lang "dashboard.js_error.foreign_toggle" .JSForeignCount }}</p>
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable bcd-twoflex" id="jsfe-table" style="display:none;margin-top:.4rem" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.ua" }}</th><th class="bcd-num">{{ t .Lang "th.flags" }}</th><th>{{ t .Lang "th.error" }}</th><th>{{ t .Lang "th.date" }}</th></tr></thead>
+    <tbody>
+      {{range .JSForeignErrors}}
+      <tr>
+        <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
+        <td class="bcd-num">{{.Flags}}</td>
+        <td class="bcd-mono bcd-clip cellpop">{{.Error}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="5" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  </div>
+  <script>
+  (function(){
+    var t = document.getElementById('jsfe-toggle'), tbl = document.getElementById('jsfe-table');
+    if (!t || !tbl) return;
+    t.addEventListener('click', function(){
+      var open = tbl.style.display === 'none';
+      tbl.style.display = open ? '' : 'none';
+      document.getElementById('jsfe-arrow').textContent = open ? '▾' : '▸';
+    });
+  })();
+  </script>
+</div>
+
+<!-- 9) Cookie error -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.cookie_err" }} <span class="cp-count">{{ len .CookieFails }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie_err.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range $i, $r := .CookieFails }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num">{{comma $r.Count}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="4" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{ if gt (len .CookieFails) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .CookieFails) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .CookieFails) 10 }})</button>{{ end }}
+</div>
+
+<!-- 6) reload-loop detection -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.reload_loops" }} <span class="cp-count">{{ len .LoopRows }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.reload_loops.desc") }}</span></span></h2>
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th class="bcd-num">{{ t .Lang "th.max_reload" }}</th><th class="bcd-num">{{ t .Lang "th.max_flags" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ range $i, $r := .LoopRows }}
+      <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
+        <td class="bcd-num">{{comma $r.Count}}</td>
+        <td class="bcd-num">{{comma $r.MaxReload}}</td>
+        <td class="bcd-num">{{$r.MaxFlags}}</td>
+        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
+      </tr>
+      {{else}}
+      <tr><td colspan="6" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{ if gt (len .LoopRows) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .LoopRows) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .LoopRows) 10 }})</button>{{ end }}
+</div>
+
+<div class="bcd-section" style="margin:1.6rem 0 .5rem;border-bottom:1px solid #cbd5e1;padding-bottom:.3rem;font-size:.78rem;color:#475569;font-weight:600">{{ t .Lang "dashboard.group.trend" }}</div>
+
+<!-- 11a) 30-day trend (= aggregate all incoming reqs from access_log -> stacked bar across 4 buckets: white / captcha / pow / not_pass) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.trend_all" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_all.desc") }}</span></span></h2>
+
+  <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:.6rem;margin:0 0 .9rem">
+    <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#64748b;font-weight:600">{{ t .Lang "kpi.total" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">{{ comma .PassSumTotal }}</div>
+    </div>
+    <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#475569;font-weight:600">{{ t .Lang "kpi.white" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums">{{ comma .PassSumWhite }} <span style="font-size:.75rem;color:#64748b;font-weight:600;margin-left:.2rem">{{ rate .PassSumWhite .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#15803d;font-weight:600">{{ t .Lang "kpi.captcha" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#166534;font-variant-numeric:tabular-nums">{{ comma .PassSumCaptcha }} <span style="font-size:.75rem;color:#65a30d;font-weight:600;margin-left:.2rem">{{ rate .PassSumCaptcha .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#0369a1;font-weight:600">{{ t .Lang "kpi.pow" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#075985;font-variant-numeric:tabular-nums">{{ comma .PassSumPoW }} <span style="font-size:.75rem;color:#0284c7;font-weight:600;margin-left:.2rem">{{ rate .PassSumPoW .PassSumTotal }}</span></div>
+    </div>
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:.4rem;padding:.55rem .75rem">
+      <div style="font-size:.7rem;color:#b91c1c;font-weight:600">{{ t .Lang "kpi.reject" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#991b1b;font-variant-numeric:tabular-nums">{{ comma .PassSumNot }} <span style="font-size:.75rem;color:#dc2626;font-weight:600;margin-left:.2rem">{{ rate .PassSumNot .PassSumTotal }}</span></div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:3fr 1fr auto;gap:1rem;align-items:start">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_white_pow_not" }}</h6>
+      <canvas id="chart" height="280"></canvas>
+      <div id="chart-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    {{if .IPGeoLoaded}}
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_all_heading" }}</h6>
+      <div id="country-chart-all" class="country-chart"></div>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .CountriesAll) }}</p>
+    </div>
+    {{end}}
+    <div>
+      {{if .DailyTotal}}
+      <div style="border:1px solid #e2e8f0;border-radius:.4rem">
+        <table class="bcd-table" style="margin:0;white-space:nowrap">
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }} <span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.2rem;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.uniq_ip.hll_caveat") }}</span></span></th></tr></thead>
+          <tbody>
+            {{range firstN 10 (reverse .DailyTotal)}}
+            <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{if .UniqIPs}}{{comma .UniqIPs}}{{else}}-{{end}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="muted" style="font-size:.9rem">{{ safeHTML (t .Lang "chart.no_access_log") }}</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<!-- 11b) 30-day trend (= phase=serve grouped by classify.IsBot kind as a stacked bar.  Breakdown of challenge displays) -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.trend_serve" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_serve.desc") }}</span></span></h2>
+  <div style="display:grid;grid-template-columns:3fr 1fr auto;gap:1rem;align-items:start">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_isbot" }}</h6>
+      <canvas id="chart-serve" height="280"></canvas>
+      <div id="chart-serve-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    {{if .IPGeoLoaded}}
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_heading" }}</h6>
+      <div id="country-chart" class="country-chart"></div>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .Countries) }}</p>
+    </div>
+    {{else}}
+    <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
+      {{ safeHTML (t .Lang "chart.country_setup") }}
+    </div>
+    {{end}}
+    <div>
+      {{if .DailyServeTotal}}
+      <div style="border:1px solid #e2e8f0;border-radius:.4rem">
+        <table class="bcd-table" style="margin:0;white-space:nowrap">
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.request" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.uniq_ip" }} <span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.2rem;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.uniq_ip.event_caveat") }}</span></span></th></tr></thead>
+          <tbody>
+            {{range firstN 10 (reverse .DailyServeTotal)}}
+            <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num">{{comma .Req}}</td><td class="bcd-num">{{comma .UniqIPs}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else}}
+      <p class="muted" style="font-size:.9rem">{{ t .Lang "chart.no_data_30d_serve" }}</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<!-- persistent BAN list section removed on 2026-05-08 because it duplicated the dedicated tab (= /admin/bans/).
+     Detail browsing + manual operations live there. -->
+
+
+<script>
+/* popoverPin / installInfoTipPinning live in /static/popover-pin.js
+   (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution). */
+</script>
+
+<script>
+// zero-row visibility — design rules:
+//   default = SHOWN (= feedback_zero_row_policy: "0 件でも item 自体は default
+//                       表示. toggle で隠せるように").
+//   user ticks a checkbox under the table to collapse zero rows; state is
+//   persisted to localStorage so the choice survives reloads.
+//   key: "unmask:zero_v2:" + (h2 text or DOM index).  The "_v2" suffix
+//   avoids inheriting state from the legacy "default hidden + show toggle"
+//   key whose semantics were inverted.
+document.addEventListener('DOMContentLoaded', function(){
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
+
+  const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
+
+  document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
+    // Per-event tables (JSErrors / ReloadLoops / VerifyNGRanking /
+    // CookieSetFails / StealthPassed) carry data-no-zero-toggle: a row is
+    // one event, so "flags == 0" doesn't mean "empty row", and treating it
+    // as one hides legitimate observations.  Opt-out at the table level.
+    // Per-event tables opt out of the zero-row toggle, but must still be made
+    // visible (= the default is visibility:hidden until .bcd-ready lands).
+    if (tbl.hasAttribute('data-no-zero-toggle')) { tbl.classList.add('bcd-ready'); return; }
+    var rows = Array.from(tbl.querySelectorAll('tbody tr'));
+    var zeroRows = rows.filter(function(tr){
+      // rate_limit / TOTAL rows are always visible (= excluded from zero-row toggle)
+      if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-total')) return false;
+      // Some templates already mark rows via class="muted-row" (= AI card etc.).
+      // Treat that as "this is a zero row" without re-checking each cell.
+      if (tr.classList.contains('muted-row')) return true;
+      var nums = tr.querySelectorAll('.bcd-num');
+      if (!nums.length) return false;
+      return Array.from(nums).every(function(td){
+        var s = td.textContent.trim().replace(/[,%\s]/g,'');
+        // treat "-" as "no data" too (= shown when rate has load=0).
+        return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
+      });
+    });
+    if (zeroRows.length === 0) {
+      tbl.classList.add('bcd-ready');
+      return;
+    }
+    zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
+
+    var card = tbl.closest('.bcd-card') || tbl.parentNode;
+    var h2 = card.querySelector('h2');
+    var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
+    var key = 'unmask:zero_v2:' + keySrc;
+
+    var label = document.createElement('label');
+    label.className = 'bcd-zero-toggle';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    var span = document.createElement('span');
+    span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
+    label.appendChild(cb);
+    label.appendChild(span);
+
+    function applyState(hide){
+      // When the checkbox is ticked, mark the card and CSS hides the rows.
+      // When unticked the rows fall back to their natural table-row display.
+      card.classList.toggle('bcd-zero-hidden', hide);
+    }
+
+    // Default = HIDE zero rows: a first-time visitor (no saved choice) gets
+    // them collapsed, and only an explicit "show" persists as visible.
+    var saved = lsGet(key);
+    cb.checked = (saved !== 'show');
+    applyState(cb.checked);
+
+    cb.addEventListener('change', function(){
+      applyState(cb.checked);
+      lsSet(key, cb.checked ? 'hide' : 'show');
+    });
+
+    tbl.parentNode.insertBefore(label, tbl.nextSibling);
+    tbl.classList.add('bcd-ready');
+  });
+});
+
+// 30-day stacked bar chart (= aggregate all reqs from nginx access_log).
+// data: [{date, kind, req}, ...].  kind = 1(white_pass) / 2(pow_pass) / 3(not_pass).
+// Hover shows a popover with each kind's count for the day plus the total.
+const dailyKind = {{.DailyKindJSON}};
+const dailyServeKind = {{.DailyServeKindJSON}};
+
+// Localized weekday, mirroring the server-side `weekday` template helper used in
+// the per-day tables, so the chart hover popover labels a day like "2026-06-07 (土)".
+const CHART_LANG = "{{.Lang}}";
+function chartWeekday(dateStr){
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(dateStr);
+  if (!m) return '';
+  // Build from y/m/d in local time so toLocale/getDay doesn't shift the day when
+  // the browser TZ is behind UTC (the label is a calendar date, not an instant).
+  const d = new Date(+m[1], +m[2]-1, +m[3]);
+  const ja = ['日','月','火','水','木','金','土'];
+  const en = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return (CHART_LANG === 'ja' ? ja : en)[d.getDay()];
+}
+
+// shared function that draws the stacked bar + hover popover.  Takes the canvas / legend
+// elements by ID and renders data of the same shape ([{date, kind, req}, ...]).  KIND_LABEL /
+// KIND_COLOR map the kind integer -> label / color.
+function renderStackedBarChart(opts){
+  const c = document.getElementById(opts.canvasId);
+  if (!c) return;
+  const ctx = c.getContext('2d');
+  const KIND_LABEL = opts.KIND_LABEL;
+  const KIND_COLOR = opts.KIND_COLOR;
+  const dailyData = opts.data;
+
+  // pixel-ratio handling: draw at the device pixel.
+  const dpr = window.devicePixelRatio || 1;
+  const W = c.clientWidth, H = 280;
+  c.width = W * dpr; c.height = H * dpr;
+  c.style.height = H + 'px';
+  ctx.scale(dpr, dpr);
+
+  if (!dailyData || !dailyData.length){
+    ctx.fillStyle='#94a3b8'; ctx.font='13px sans-serif';
+    ctx.fillText(opts.noDataMsg || 'no data', 20, 40);
+    return;
+  }
+
+  // aggregate: build a map keyed by date and kind
+  const dateSet = new Set();
+  const kindSet = new Set();
+  const data = {}; // data[kind][date] = req
+  dailyData.forEach(r => {
+    dateSet.add(r.date);
+    kindSet.add(r.kind);
+    if (!data[r.kind]) data[r.kind] = {};
+    data[r.kind][r.date] = r.req;
+  });
+  const dates = Array.from(dateSet).sort();
+  const kinds = Array.from(kindSet).sort((a,b) => a-b);
+
+  // persist hidden kinds in localStorage (= legend click toggles them).
+  // Key is per canvas id.  Stores an int array as JSON.
+  const hideKey = 'unmask:chart-hidden:' + opts.canvasId;
+  const hidden = new Set();
+  try {
+    const raw = localStorage.getItem(hideKey);
+    if (raw) JSON.parse(raw).forEach(k => hidden.add(k));
+  } catch(e) {}
+  function persistHidden(){
+    try { localStorage.setItem(hideKey, JSON.stringify(Array.from(hidden))); } catch(e) {}
+  }
+  function isVisible(k){ return !hidden.has(k); }
+
+  // scale is decided by the per-date total (= excludes hidden kinds)
+  const dateTotals = dates.map(d => kinds.reduce((s,k) => s + (isVisible(k) ? ((data[k]&&data[k][d])||0) : 0), 0));
+  let max = Math.max(1, ...dateTotals);
+
+  const padL = 56, padR = 16, padT = 16, padB = 44;
+  const w = W - padL - padR, h = H - padT - padB;
+  // axis covers observed days only.  bar width is 70% of colW (= 30% used as gap).
+  // hard cap removed, so for 1-few days the bars stretch across the screen (= 2 days -> 35% * 2 of chart width).
+  const colW = w / dates.length;
+  const barW = Math.max(2, Math.floor(colW * 0.7));
+  // bar start position: centers barW inside colW.
+  const barOffset = Math.max(0, (colW - barW) / 2);
+
+  // y-axis grid + labels
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+  ctx.font='11px sans-serif'; ctx.fillStyle='#94a3b8';
+  for (let i=0;i<=4;i++){
+    const y = padT + h*i/4;
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+    ctx.fillText(Math.round(max*(1-i/4)).toLocaleString(), 8, y+3);
+  }
+
+  // x-axis labels (= approx. every 8th)
+  const labelEvery = Math.max(1, Math.floor(dates.length/10));
+  ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif';
+  dates.forEach((d,i) => {
+    if (i % labelEvery !== 0 && i !== dates.length-1) return;
+    const x = padL + (i + 0.5) * colW;
+    ctx.save();
+    ctx.translate(x, H - padB + 4);
+    ctx.rotate(-Math.PI/4);
+    ctx.fillText(d.slice(5), 0, 0);
+    ctx.restore();
+  });
+
+  // stacked bar (= draw barW centered in colW.  hidden kinds are skipped)
+  dates.forEach((d, i) => {
+    const x = padL + (i * colW) + barOffset;
+    let yCursor = padT + h; // stack up from the bottom
+    kinds.forEach(k => {
+      if (!isVisible(k)) return;
+      const v = (data[k]&&data[k][d]) || 0;
+      if (v <= 0) return;
+      const segH = (v / max) * h;
+      ctx.fillStyle = KIND_COLOR[k] || '#94a3b8';
+      ctx.fillRect(x, yCursor - segH, barW, segH);
+      yCursor -= segH;
+    });
+  });
+
+  // legend (= row of color + label chips.  click toggles kind hide / show).
+  const legendEl = document.getElementById(opts.legendId);
+  function renderLegend(){
+    if (!legendEl) return;
+    legendEl.innerHTML = kinds.map(k => {
+      const off = !isVisible(k);
+      const txtColor = off ? '#94a3b8' : '#475569';
+      const decor = off ? 'line-through' : 'none';
+      const swatch = off ? '#cbd5e1' : (KIND_COLOR[k]||'#94a3b8');
+      return '<span data-kind="' + k + '" style="display:inline-flex;align-items:center;gap:.35rem;margin-right:1rem;cursor:pointer;user-select:none;color:' + txtColor + ';text-decoration:' + decor + '" title="click to show / hide">' +
+        '<span style="display:inline-block;width:.85rem;height:.85rem;background:' + swatch + ';border-radius:.15rem"></span>' +
+        (KIND_LABEL[k] || '?') +
+      '</span>';
+    }).join('');
+    // click handler: kind toggle -> redraw everything.
+    legendEl.querySelectorAll('[data-kind]').forEach(el => {
+      el.addEventListener('click', function(){
+        const k = parseInt(el.dataset.kind, 10);
+        if (hidden.has(k)) hidden.delete(k); else hidden.add(k);
+        persistHidden();
+        // clear the canvas and redraw.  Re-invoking the whole function is the safer option.
+        ctx.clearRect(0, 0, W, H);
+        // fire redraw recursively to reflect the hidden state.
+        redraw();
+      });
+    });
+  }
+
+  function redraw(){
+    // clear
+    ctx.clearRect(0, 0, W, H);
+    // recompute: max
+    const dateTotals2 = dates.map(d => kinds.reduce((s,k) => s + (isVisible(k) ? ((data[k]&&data[k][d])||0) : 0), 0));
+    const max2 = Math.max(1, ...dateTotals2);
+    // y grid (= same positions as the initial draw)
+    ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 1;
+    ctx.font='11px sans-serif'; ctx.fillStyle='#94a3b8';
+    ctx.textAlign = 'start';
+    for (let i=0;i<=4;i++){
+      const y = padT + h*i/4;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W-padR, y); ctx.stroke();
+      ctx.fillText(Math.round(max2*(1-i/4)).toLocaleString(), 8, y+3);
+    }
+    // x labels
+    const labelEvery2 = Math.max(1, Math.floor(dates.length/10));
+    ctx.fillStyle = '#94a3b8'; ctx.font='10px sans-serif'; ctx.textAlign='start';
+    dates.forEach((d,i) => {
+      if (i % labelEvery2 !== 0 && i !== dates.length-1) return;
+      const x = padL + (i + 0.5) * colW;
+      ctx.save();
+      ctx.translate(x, H - padB + 4);
+      ctx.rotate(-Math.PI/4);
+      ctx.fillText(d.slice(5), 0, 0);
+      ctx.restore();
+    });
+    // bars
+    dates.forEach((d, i) => {
+      const x = padL + (i * colW) + barOffset;
+      let yCursor = padT + h;
+      kinds.forEach(k => {
+        if (!isVisible(k)) return;
+        const v = (data[k]&&data[k][d]) || 0;
+        if (v <= 0) return;
+        const segH = (v / max2) * h;
+        ctx.fillStyle = KIND_COLOR[k] || '#94a3b8';
+        ctx.fillRect(x, yCursor - segH, barW, segH);
+        yCursor -= segH;
+      });
+    });
+    // sync max for popover (= keeps things consistent on expansion)
+    max = max2;
+    renderLegend();
+  }
+  renderLegend();
+
+  // hover popover (= equivalent to chart.js tooltip mode='index').
+  // mousemove resolves x -> date index, then the popover lists every kind's count.
+  const pop = document.createElement('div');
+  pop.style.cssText = 'position:absolute;background:rgba(15,23,42,.95);color:#f1f5f9;border-radius:.4rem;padding:.5rem .7rem;font-size:.82rem;line-height:1.45;pointer-events:none;display:none;z-index:50;box-shadow:0 .375rem 1rem rgba(0,0,0,.18);min-width:11rem;backdrop-filter:blur(2px)';
+  // absolute positioning relative to the canvas's parent
+  c.parentNode.style.position = 'relative';
+  c.parentNode.appendChild(pop);
+
+  // element that highlights the x range of the bar under the cursor.
+  const hi = document.createElement('div');
+  hi.style.cssText = 'position:absolute;background:rgba(148,163,184,.15);border-radius:.15rem;pointer-events:none;display:none;z-index:1';
+  c.parentNode.appendChild(hi);
+
+  function hide(){ pop.style.display='none'; hi.style.display='none'; }
+
+  c.addEventListener('mousemove', function(e){
+    const rect = c.getBoundingClientRect();
+    // canvas can be resized responsively, so read clientWidth each time.
+    const curW = c.clientWidth || W;
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    // hide outside the chart drawing area
+    if (mx < padL || mx > curW - padR || my < padT || my > padT + h) { hide(); return; }
+    const idx = Math.floor((mx - padL) / colW);
+    if (idx < 0 || idx >= dates.length) { hide(); return; }
+    // actual bar x range: padL + idx*colW + barOffset .. + barW
+    // don't show the popover outside this range (= column gap) (= prevents 1-day data
+    // from spanning the full colW with idx=0 and triggering "popover even off-chart").
+    const barLeft  = padL + idx * colW + barOffset;
+    const barRight = barLeft + barW;
+    // display is fine within a small tolerance (= 16px) over the column span
+    // (= akin to chart.js interaction='nearest', without bleeding across columns).
+    const tol = 16;
+    if (mx < barLeft - tol || mx > barRight + tol) { hide(); return; }
+    const date = dates[idx];
+
+    // popover content (= hidden kinds are excluded from the popover too)
+    const rows = kinds.map(k => ({ k:k, v:(data[k]&&data[k][date])||0 }))
+                      .filter(r => r.v > 0 && isVisible(r.k))
+                      .sort((a,b) => b.v - a.v);
+    if (!rows.length) { hide(); return; }
+    const total = rows.reduce((s,r) => s + r.v, 0);
+
+    const wd = chartWeekday(date);
+    let html = '<div style="font-weight:700;margin-bottom:.3rem">' + date + (wd ? ' <span style="font-weight:400;color:#94a3b8">(' + wd + ')</span>' : '') + '</div>';
+    html += rows.map(r =>
+      '<div style="display:flex;align-items:center;gap:.4rem;margin:.1rem 0">' +
+        '<span style="width:.6rem;height:.6rem;background:' + (KIND_COLOR[r.k]||'#94a3b8') + ';border-radius:50%;display:inline-block;flex-shrink:0"></span>' +
+        '<span style="flex:1">' + (KIND_LABEL[r.k]||'?') + '</span>' +
+        '<span style="font-variant-numeric:tabular-nums;font-weight:600;margin-left:.6rem">' + r.v.toLocaleString() + '</span>' +
+      '</div>'
+    ).join('');
+    html += '<div style="margin-top:.3rem;padding-top:.3rem;border-top:1px solid rgba(241,245,249,.2);display:flex;justify-content:space-between"><span style="font-weight:700">' + {{ t .Lang "chart.popover.total" }} + '</span><span style="font-variant-numeric:tabular-nums;font-weight:700">' + total.toLocaleString() + '</span></div>';
+    pop.innerHTML = html;
+
+    pop.style.display = 'block';
+    // position: shown to the upper right of the mouse, flip left only when it would overflow the right edge.
+    const barX = padL + (idx * colW);
+    const parentW = c.parentNode.clientWidth;
+    let leftPx = mx + 16;
+    if (leftPx + pop.offsetWidth > parentW - 8) {
+      leftPx = Math.max(8, mx - pop.offsetWidth - 16);
+    }
+    let topPx = my - pop.offsetHeight - 12;
+    if (topPx < padT) topPx = my + 16;
+    pop.style.left = leftPx + 'px';
+    pop.style.top  = topPx + 'px';
+
+    // highlight bar (= actual bar width + a small margin)
+    hi.style.display = 'block';
+    hi.style.left = (barLeft - 4) + 'px';
+    hi.style.top  = padT + 'px';
+    hi.style.width  = (barW + 8) + 'px';
+    hi.style.height = h + 'px';
+  });
+  c.addEventListener('mouseleave', hide);
+}
+
+// chart 1: all reqs split 3 ways (white / pow / not pass) — sourced from unmask_cookie_minute.
+// html/template auto-escapes inside <script> (= renders as a JS string literal),
+// so {{ t .Lang "key" }} is sufficient.  Manual quoting with printf "%q" etc. would double-escape.
+renderStackedBarChart({
+  canvasId: 'chart',
+  legendId: 'chart-legend',
+  data: dailyKind,
+  KIND_LABEL: {1:{{ t .Lang "chart.legend.white" }}, 2:{{ t .Lang "chart.legend.captcha" }}, 3:{{ t .Lang "chart.legend.pow" }}, 4:{{ t .Lang "chart.legend.not_pass" }}},
+  KIND_COLOR: {1:'#94a3b8', 2:'#16a34a', 3:'#0ea5e9', 4:'#dc2626'},
+  noDataMsg: {{ t .Lang "chart.no_data_access_log" }},
+});
+
+// chart 2: phase=serve grouped by bot kind (legacy spec) — sourced from unmask_event
+renderStackedBarChart({
+  canvasId: 'chart-serve',
+  legendId: 'chart-serve-legend',
+  data: dailyServeKind,
+  KIND_LABEL: {0:{{ t .Lang "chart.kind.human" }}, 1:{{ t .Lang "chart.kind.search" }}, 2:{{ t .Lang "chart.kind.ja4_bot" }}, 4:{{ t .Lang "chart.kind.old_ua" }}, 5:{{ t .Lang "chart.kind.service" }}, 6:{{ t .Lang "chart.kind.user_dev" }}, 99:{{ t .Lang "chart.kind.rate_limit" }}},
+  KIND_COLOR: {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'},
+  noDataMsg: {{ t .Lang "chart.no_data_serve" }},
+});
+
+// per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag).
+// Shared helper drives both #country-chart (= phase=serve traffic, 11b) and
+// #country-chart-all (= all requests over the same 30-day window, 11a).
+{{if .IPGeoLoaded}}
+const countries = {{.CountriesJSON}};
+const countriesAll = {{.CountriesAllJSON}};
+{{end}}
+function renderCountryChart(wrapId, data){
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  if (!data || !data.length){
+    wrap.innerHTML = '<div style="color:#94a3b8;font-size:.85rem;padding:.6rem 0">no data</div>';
+    return;
+  }
+  const max = Math.max(1, ...data.map(c => c.Req));
+  const flagBase = '{{.BasePath}}/static/flags/';
+  function flagSrc(cc){
+    if (!cc) return flagBase + 'unknown.png';
+    const lc = String(cc).toLowerCase();
+    if (!/^[a-z]{2}$/.test(lc)) return flagBase + 'unknown.png';
+    return flagBase + lc + '.png';
+  }
+  const countryNameOf = (function(){
+    try {
+      const lang = (document.documentElement.lang || 'ja').split('-')[0];
+      const dn = new Intl.DisplayNames([lang, 'en'], { type: 'region' });
+      return cc => {
+        if (!cc) return '';
+        try { return dn.of(String(cc).toUpperCase()) || cc; } catch(e) { return cc; }
+      };
+    } catch(e){ return cc => cc || ''; }
+  })();
+  const rows = data.map(row => {
+    const safeCC = String(row.CountryCode || '').replace(/[^A-Za-z0-9-]/g, '');
+    const pct = (row.Req / max) * 100;
+    return '<div class="country-row" data-cc="' + safeCC + '">' +
+             '<div class="cc-label">' +
+               '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy" onerror="this.src=\'' + flagBase + 'unknown.png\';this.onerror=null">' +
+               '<span>' + (safeCC || '??') + '</span>' +
+             '</div>' +
+             '<div class="cc-bar-wrap"><div class="cc-bar" style="width:' + pct.toFixed(2) + '%"></div></div>' +
+             '<div class="cc-count">' + row.Req.toLocaleString() + '</div>' +
+           '</div>';
+  }).join('');
+  wrap.innerHTML = rows;
+
+  function bindCountryPopovers(){
+    const popEl = document.getElementById('help-popover');
+    if (!popEl || !window.popoverPin) return;
+    const pin = window.popoverPin.install(popEl);
+    function popHTML(cc){
+      const name = countryNameOf(cc);
+      const safeName = String(name).replace(/[<&>"']/g, c => ({'<':'&lt;','&':'&amp;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      const safeCC = cc.replace(/[^A-Za-z0-9-]/g, '');
+      return '<div style="font-weight:700;color:#0f172a">' + safeName + '</div>' +
+             '<div style="font-size:.78rem;color:#64748b;margin-top:.2rem;font-family:ui-monospace,Menlo,monospace">' + safeCC + '</div>';
+    }
+    wrap.querySelectorAll('.country-row').forEach(row => {
+      const cc = row.dataset.cc;
+      if (!cc) return;
+      const label = row.querySelector('.cc-label');
+      label.style.cursor = 'help';
+      label.addEventListener('mouseenter', e => {
+        if (pin.hasPinFor(label)) return;
+        pin.showHover(popHTML(cc), e.pageX, e.pageY);
+      });
+      label.addEventListener('mouseleave', () => pin.hideHover());
+      label.addEventListener('click', e => {
+        e.preventDefault();
+        pin.handleClick(popHTML(cc), e.pageX, e.pageY, label);
+      });
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindCountryPopovers);
+  } else {
+    bindCountryPopovers();
+  }
+}
+renderCountryChart('country-chart',     typeof countries    !== 'undefined' ? countries    : []);
+renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? countriesAll : []);
+</script>
+
+<div id="help-popover" data-popover="help"></div>
+<div id="ip-popover" data-popover="ip"></div>
+<div id="cell-popover" data-popover="cell"></div>
+
+<script id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
+<script>
+// (popoverPin is already defined earlier.  The old definition (= duplicate made a no-op by `||`)
+// has been removed.  drag handle / collapse toggle / close button + multi-pin via clone are
+// consolidated into the single definition above.)
+
+// help popover (= bootstrap-popover-style explainer).
+// Elements with data-help-key="..." display HELP[key].
+// .tag verdict names auto-look up HELP["verdict.<text>"] from textContent.
+(function(){
+  var helpEl = document.getElementById('help-data');
+  var HELP = {};
+  try { HELP = JSON.parse(helpEl.textContent); } catch(e) { console.warn('help-data parse:', e); }
+  var pop = document.getElementById('help-popover');
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function attach(el, key){
+    var html = HELP[key];
+    if (!html) return;
+    el.setAttribute('data-help', '1'); // for CSS cursor:help / underline
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      // if this trigger is already pinned, skip the hover primary (= avoid duplicate display).
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      clearTimeout(timer);
+      pin.handleClick(html, e.pageX, e.pageY, el);
+    });
+  }
+  // 1) elements with an explicit data-help-key
+  document.querySelectorAll('[data-help-key]').forEach(function(el){
+    attach(el, el.getAttribute('data-help-key'));
+  });
+  // 2) verdict tags (= .tag.bot / .tag.suspect / .tag.ok / .tag.none) sourced from textContent
+  document.querySelectorAll('.tag').forEach(function(el){
+    var t = el.textContent.trim();
+    attach(el, 'verdict.' + t);
+  });
+  // 3) total / rate_limit rows (= wrapped in <b> rather than tags) also covered
+  document.querySelectorAll('tr.total td:first-child b, tr.rl-row td:first-child b').forEach(function(el){
+    var t = el.textContent.trim();
+    attach(el, 'verdict.' + t);
+  });
+})();
+
+// funnel verdict full-text popover: hunt_<ja4> auto-verdict names are long and
+// CSS-clipped in the first column (see .funnel-grouped td:first-child rule).
+// When a label is actually truncated, hovering shows the full string.  Skips
+// labels the data-help popover already owns, and labels that fit untruncated.
+(function(){
+  var pop = document.getElementById('help-popover');
+  if (!pop) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  document.querySelectorAll('.funnel-grouped tbody td:first-child .help-dotted').forEach(function(el){
+    var html = '<code style="font-family:ui-monospace,Menlo,monospace;word-break:break-all">' +
+      esc(el.textContent.trim()) + '</code>';
+    // truncated only when the rendered text overflows the capped box.
+    function truncated(){ return el.scrollWidth > el.clientWidth; }
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (el.getAttribute('data-help') === '1' || !truncated() || pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      if (el.getAttribute('data-help') === '1' || !truncated()) return;
+      e.preventDefault();
+      clearTimeout(timer);
+      pin.handleClick(html, e.pageX, e.pageY, el);
+    });
+  });
+})();
+
+// rate-limit hit path popover (= top 5 frequent queries per path)
+(function(){
+  const data = {{.RLPathQueriesJSON}};
+  if (!data) return;
+  const cells = document.querySelectorAll('.rl-path-cell');
+  if (!cells.length) return;
+  const pop = document.getElementById('help-popover');
+  if (!pop) return;
+  // each install carries its own pins Map, so even when two installs share the same pop element,
+  // each block's triggers stay managed by separate instances.  No state needed on primary itself
+  // (= in the clone-on-pin scheme primary handles hover only; pinned info lives on the clone DOM).
+  const pin = window.popoverPin.install(pop);
+  let timer = null;
+  function buildHtml(path, list){
+    let html = '<div style="font-weight:700;margin-bottom:.3rem;font-family:ui-monospace,Menlo,monospace">' + path + '</div>';
+    html += '<div style="font-size:.78rem;color:#64748b;margin-bottom:.3rem">top ' + list.length + ' frequent queries</div>';
+    html += list.map(function(r){
+      return '<div style="display:flex;gap:.6rem;margin:.15rem 0;font-size:.82rem">' +
+        '<code style="flex:1;background:#f1f5f9;padding:0 .25em;border-radius:.15rem;font-family:ui-monospace,Menlo,monospace;word-break:break-all">?' + r.Query + '</code>' +
+        '<span style="font-variant-numeric:tabular-nums;font-weight:600">' + r.Count.toLocaleString() + '</span>' +
+        '</div>';
+    }).join('');
+    return html;
+  }
+  cells.forEach(function(cell){
+    const path = cell.dataset.path;
+    const list = data[path] || [];
+    if (!list.length) return;
+    cell.style.cursor = 'help';
+    cell.style.textDecoration = 'underline dotted #94a3b8';
+    cell.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(cell)) return;
+      const x = e.clientX + window.scrollX;
+      const y = e.clientY + window.scrollY;
+      timer = setTimeout(function(){ pin.showHover(buildHtml(path, list), x, y); }, 150);
+    });
+    cell.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    cell.addEventListener('click', function(e){
+      e.preventDefault();
+      const x = e.clientX + window.scrollX;
+      const y = e.clientY + window.scrollY;
+      clearTimeout(timer);
+      pin.handleClick(buildHtml(path, list), x, y, cell);
+    });
+  });
+})();
+
+// live tail has been folded into the bot hunt tab (= /admin/hunt/).  Not handled here.
+
+// IP popover (rDNS + family).
+(function(){
+  const pop = document.getElementById('ip-popover');
+  const pin = window.popoverPin.install(pop);
+  const cache = new Map();
+  let timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    const na = '<span class="muted">(unavailable)</span>';
+    const ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    const ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    const flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                    '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    const types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      const cn = d.country_name ? esc(d.country_name) : '';
+      const cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  // fetch the lookup result for each IP and return formatted html via the callback.
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + ip + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(r => r.json())
+      .then(d => { cache.set(ip, d); cb(fmt(d)); })
+      .catch(() => cb('lookup failed'));
+  }
+  document.querySelectorAll('.ipclick').forEach(td => {
+    td.addEventListener('mouseenter', e => {
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      timer = setTimeout(() => {
+        fetchAndFmt(ip, html => pin.showHover(html, x, y));
+      }, 200);
+    });
+    td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', e => {
+      e.preventDefault();
+      clearTimeout(timer);
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      // pass html so the unpin path can also re-display primary as a hover popover
+      // (= immediate on cache hit.  UX: "click again = unpin + return to hover state").
+      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td));
+    });
+  });
+})();
+
+// UA / JS-error cellpop on the dashboard (= same flow as partial_events_table).
+// A truncated cell (.cellpop) opens a pinnable popover with the full text so the
+// operator can read / copy it.  The cell renders the full value verbatim and is
+// CSS-clipped, so the popover text comes from textContent.
+(function(){
+  var pop = document.getElementById('cell-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+  function popHtml(val){
+    return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
+      '</code></div>';
+  }
+  document.querySelectorAll('.cellpop').forEach(function(el){
+    var full = el.getAttribute('data-full-value');
+    var val = (full && full.length) ? full : el.textContent.trim();
+    if (!val) return;
+    // Re-check clip status at hover/click time, NOT once at load.  A cell can
+    // sit in a table that is visibility:hidden (= the .bcd-ready gate),
+    // display:none (= the js-error "foreign" toggle), or simply not laid out
+    // yet when this runs, so a one-shot scrollWidth check misses cells that are
+    // in fact truncated and never wires their popover (= why the cookie-err /
+    // reload-loop UA popovers went missing).  By hover time layout is settled.
+    function clipped(){ return (full && full.length) || (el.scrollWidth - el.clientWidth > 1); }
+    if (clipped()) el.classList.add('cellpop-active');
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (!clipped()) return;
+      el.classList.add('cellpop-active');
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      if (!clipped()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      clearTimeout(timer);
+      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
+    });
+  });
+})();
+
+// "show more" toggle on the watchlist ranking tables (CAPTCHA pass / reuse).
+// Rows past the first 10 carry .cp-row-extra (hidden by CSS); the button reveals
+// them by toggling .cp-expanded on the card's ranking table + swaps its label.
+// Delegated so it works regardless of render order.
+(function(){
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.cp-more');
+    if (!btn) return;
+    var card = btn.closest('.bcd-card');
+    var tbl = card ? card.querySelector('table.cp-rankable') : null;
+    if (!tbl) return;
+    var expanded = tbl.classList.toggle('cp-expanded');
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    var label = expanded ? btn.getAttribute('data-less') : btn.getAttribute('data-more');
+    if (label) btn.textContent = label;
+  });
+})();
+</script>
+
+</main>
+</body>
+</html>
