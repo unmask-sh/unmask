@@ -162,6 +162,14 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     else
         systemctl try-restart unmask.service || true
     fi
+    # Final guarantee (= v0.1.1): whichever branch ran above, converge on
+    # "the NEW binary is actually running".  try-restart is a no-op when the
+    # unit is inactive, and enable --now cannot always start a unit left in an
+    # odd state by a prior remove; a remove->install (rpm $1=1 but a stale
+    # daemon lingering) or reinstall could otherwise keep the OLD binary live
+    # -> the admin loop we hit on unmask.sh 2026-07-02.  restart reloads a
+    # running unit and starts a stopped one, so this is safe for every path.
+    systemctl restart unmask.service 2>/dev/null || systemctl start unmask.service 2>/dev/null || true
     INIT_KIND=systemd
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
     # OpenRC (= Alpine 3.x / Gentoo).  symlink the OpenRC variant to /etc/init.d/unmask.
@@ -179,6 +187,9 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
         # old binary loaded.
         rc-service unmask restart || true
     fi
+    # Final guarantee (= v0.1.1): converge on the new binary running (restart
+    # starts a stopped service and reloads a running one).
+    rc-service unmask restart 2>/dev/null || rc-service unmask start 2>/dev/null || true
     INIT_KIND=openrc
 elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
     # SysVinit (= RHEL 6 / CentOS 6: no systemd, no OpenRC).  Install the init
@@ -196,6 +207,10 @@ elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
         # Upgrade: restart only if it was running, so the new binary loads.
         service unmask condrestart 2>/dev/null || /etc/rc.d/init.d/unmask condrestart || true
     fi
+    # Final guarantee (= v0.1.1): converge on the new binary running.  restart
+    # (not condrestart) so a stopped-by-prior-remove daemon still comes up.
+    { service unmask restart 2>/dev/null || /etc/rc.d/init.d/unmask restart 2>/dev/null; } || \
+    { service unmask start   2>/dev/null || /etc/rc.d/init.d/unmask start   2>/dev/null; } || true
     INIT_KIND=sysvinit
 else
     INIT_KIND=manual

@@ -58,6 +58,17 @@ set $unmask_gate "${final_challenge}:${unmask_failopen}";
 # configs keep the classic flow unchanged.
 limit_req_dry_run on;
 set $unmask_compose 1;
+# Machinery bypass (= v0.1.1, compose counterpart of the classic `break`).  At
+# SERVER scope the compose gate would otherwise fire for /unmask/ machinery
+# (challenge.js / verify) and loop humans.  The plugin's ratedeny handler
+# declines when $unmask_compose != "1" (see ngx_http_unmask_module.c), so clear
+# the flag for /unmask/ machinery — but NOT /unmask/admin/, which server.inc
+# protects via its own `location ^~ /unmask/admin/ { include protect.inc; }` and
+# must keep composing.  The negative-lookahead keeps admin OUT of the bypass.
+# No-op under location scope (non-admin /unmask/* is served by its own location).
+if ($uri ~ "^/unmask/(?!admin(/|$))") {
+    set $unmask_compose 0;
+}
 # Fail-open replay: we do NOT save $unmask_orig_path here.  The ACCESS-phase
 # handler redirects via ngx_http_internal_redirect, which restarts the phase
 # engine from POST_READ -- re-running server.inc's SERVER_REWRITE `set
@@ -72,6 +83,21 @@ set $unmask_compose 1;
 {{ else }}
 limit_req_status 429;
 error_page 429 = @unmask_rate_challenge;
+# Machinery bypass (= v0.1.1).  If protect.inc is included at SERVER scope (the
+# "whole site" install example) rather than inside a location {}, the rewrite
+# below also fires for /unmask/* — including /unmask/api/verify and
+# /unmask/static/challenge.js — so the challenge can never complete and every
+# human loops (bots still 403, so it looks "working" to the operator; hit on
+# unmask.sh 2026-07-02).  `break` stops the rewrite-phase directives for the
+# machinery paths, letting server.inc's `location ^~ /unmask/` serve them.
+# EXCEPT /unmask/admin/, which is a protected surface: server.inc includes this
+# same protect.inc inside `location ^~ /unmask/admin/`, so admin must still be
+# challenged (the negative-lookahead keeps admin OUT of the bypass).  In the
+# normal location-scope use, /unmask/* (non-admin) is served by its own location
+# so this never matches there — a harmless no-op.
+if ($uri ~ "^/unmask/(?!admin(/|$))") {
+    break;
+}
 if ($unmask_gate = "1:") {
     set $unmask_orig_path $uri;
     set $unmask_orig_args $args;

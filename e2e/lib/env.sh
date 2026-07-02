@@ -14,6 +14,11 @@
 # needed.
 : "${FA_NGINX_URL:=http://localhost:8082}"
 
+# Server-scope protect.inc vhost (= scenario 48).  Same admin daemon, but
+# protect.inc is included at server scope (the "whole site" placement) to guard
+# the machinery-bypass fix.
+: "${SRV_SCOPE_URL:=https://localhost:8444}"
+
 # Known UA strings
 UA_BROWSER='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
 UA_CURL='curl/8.0'
