@@ -71,6 +71,7 @@ services:
       - ./wba:/etc/wba:ro
     ports:
       - "8443:8443"
+      - "8444:8444"   # scenario 48: server-scope protect.inc vhost
     healthcheck:
       test: ["CMD", "openssl", "s_client", "-connect", "127.0.0.1:8443", "-servername", "localhost"]
       interval: 2s
