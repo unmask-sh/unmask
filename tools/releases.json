@@ -1,6 +1,7 @@
 {
-  "latest": "0.1.0",
+  "latest": "0.1.1",
   "releases": [
+    { "version": "0.1.1", "date": "2026-07-02", "notes": "Install-path fixes found by dogfooding: postinstall now always restarts onto the new binary (upgrade/reinstall admin-loop fix); protect.inc exempts the /unmask/ machinery when included at server scope; libcrypto detection falls back to nginx -V when ldd is silent (static OpenSSL builds); unmask doctor warns on server-scope protect.inc." },
     { "version": "0.1.0", "date": "2026-06-14", "notes": "First public release of unmask." }
   ]
 }
