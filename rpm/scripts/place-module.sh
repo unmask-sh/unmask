@@ -182,9 +182,56 @@ glibc_lt_214() {
     esac
 }
 
+# resolve_libcrypto: print the libcrypto SONAME the host nginx uses, or "" if
+# undetermined.  Order: (1) ldd of the nginx binary, (2) `nginx -V`'s "built
+# with OpenSSL X" (nginx.org / self-built nginx links OpenSSL statically, so
+# ldd is silent), (3) newest libcrypto SONAME present on the system.
+# Pure-ish + test-injectable (= v0.1.1): tests override these hooks —
+#   _rl_ldd_soname  : echoes the SONAME ldd would find ("" = none)
+#   _rl_nginx_v     : echoes `nginx -V` output
+#   _rl_have_so     : `_rl_have_so <soname>` returns 0 if that SONAME exists
+# The default hooks below implement the real probes; place-module_test.sh
+# redefines them to exercise ldd-silent / static-OpenSSL / LibreSSL cases.
+_rl_ldd_soname() {
+    command -v ldd >/dev/null 2>&1 || { echo ""; return; }
+    ldd "$(command -v nginx)" 2>/dev/null | sed -n 's|.*\(libcrypto\.so\.[0-9.]*\).*|\1|p' | head -1
+}
+_rl_nginx_v() { nginx -V 2>&1; }
+_rl_have_so() {
+    for d in /lib64 /usr/lib64 /lib /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+        [ -e "$d/$1" ] && return 0
+    done
+    return 1
+}
+resolve_libcrypto() {
+    local so ver
+    so=$(_rl_ldd_soname)
+    if [ -n "$so" ]; then echo "$so"; return; fi
+    # ldd silent: parse `nginx -V`'s OpenSSL version.
+    ver=$(_rl_nginx_v | sed -n 's|.*[Oo]pen[Ss][Ss][Ll] \([0-9][0-9.]*\).*|\1|p' | head -1)
+    case "$ver" in
+        3.*)   echo "libcrypto.so.3";   return ;;
+        1.1.*) echo "libcrypto.so.1.1"; return ;;
+        1.0.*) echo "libcrypto.so.10";  return ;;
+    esac
+    # Still unknown (LibreSSL/BoringSSL/no version): newest system SONAME.
+    for cand in libcrypto.so.3 libcrypto.so.1.1 libcrypto.so.10; do
+        _rl_have_so "$cand" && { echo "$cand"; return; }
+    done
+    echo ""
+}
+
+# Guard: when sourced by the unit test, stop here (no install side effects).
+[ -n "${PLACE_MODULE_TEST:-}" ] && return 0 2>/dev/null
+
 if command -v ldd >/dev/null 2>&1; then
     NGINX_BIN=$(command -v nginx)
-    NGINX_LIBCRYPTO=$(ldd "$NGINX_BIN" 2>/dev/null | sed -n 's|.*\(libcrypto\.so\.[0-9.]*\).*|\1|p' | head -1)
+    NGINX_LIBCRYPTO=$(_rl_ldd_soname)
+    if [ -z "$NGINX_LIBCRYPTO" ]; then
+        NGINX_LIBCRYPTO=$(resolve_libcrypto)
+        [ -n "$NGINX_LIBCRYPTO" ] && \
+            echo "unmask-plugin-nginx: nginx -V/system probe -> $NGINX_LIBCRYPTO (ldd was silent, e.g. nginx.org static build)"
+    fi
     case "$NGINX_LIBCRYPTO" in
         libcrypto.so.3)
             PLUGIN_DIR="$PLUGIN_BASE/openssl3"

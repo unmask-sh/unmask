@@ -286,6 +286,7 @@ func cmdDoctor(args []string) error {
 	checkApacheConnPeer(addWarn)
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
+	checkNginxProtectScope(addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
@@ -421,6 +422,83 @@ func checkNginxConfTest(addOK, addWarn, addErr func(t, m string)) {
 		return
 	}
 	addErr("nginx -t", "live nginx config FAILS to load ("+msg+") — nginx cannot reload until fixed; run `nginx -t` for the full output.")
+}
+
+// checkNginxProtectScope warns when protect.inc is included at SERVER scope
+// rather than inside a location {} block.  At server scope the challenge gate's
+// rewrite runs before location selection and also catches /unmask/* machinery
+// (challenge.js / verify API), so the challenge can never complete and every
+// human loops — bots still 403, so it looks "working" to the operator.  This is
+// the self-DoS that hit unmask.sh on 2026-07-02 (the render-side fix exempts
+// /unmask/ machinery, but a server-scope include is still a misconfiguration
+// worth flagging).  Best-effort: parse `nginx -T` (full dumped config), track
+// brace depth, and remember whether the innermost open block is a location {}.
+// An `include .../protect.inc` seen while NOT inside a location => WARN.
+// `nginx -T` needs root; a non-root failure is silent (checkNginxConfTest
+// already nudges sudo).  Comment lines are ignored.
+func checkNginxProtectScope(addWarn func(t, m string)) {
+	nginxBin, err := exec.LookPath("nginx")
+	if err != nil {
+		return // no nginx here
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, terr := exec.CommandContext(ctx, nginxBin, "-T").CombinedOutput()
+	if terr != nil {
+		return // can't dump config (non-root / broken config already flagged elsewhere)
+	}
+	// blockStack records the directive that opened each currently-open { } — we
+	// only need to know if any open block is a "location".
+	var blockStack []string
+	inLocation := func() bool {
+		for _, b := range blockStack {
+			if b == "location" {
+				return true
+			}
+		}
+		return false
+	}
+	serverScope := false
+	for _, raw := range strings.Split(string(out), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Detect an include of protect.inc BEFORE we mutate the stack for this
+		// line, so the current context reflects where the include sits.
+		if strings.Contains(line, "include") && strings.Contains(line, "protect.inc") &&
+			!strings.HasPrefix(line, "#") {
+			// A single-line `location ... { include .../protect.inc; }` is
+			// location scope, but the location "{" on this same line hasn't been
+			// pushed onto the stack yet at this point in the scan — so treat a
+			// same-line location-opening as being in a location too.
+			sameLineLoc := strings.HasPrefix(line, "location") && strings.Contains(line, "{")
+			if !inLocation() && !sameLineLoc {
+				serverScope = true
+			}
+		}
+		// Track brace depth.  A block-opening directive ends with "{"; grab its
+		// first word as the block kind (server / location / http / ...).  Lines
+		// may contain both (rare in a dump) so handle each brace.
+		for _, ch := range line {
+			switch ch {
+			case '{':
+				kind := strings.Fields(line)
+				k := ""
+				if len(kind) > 0 {
+					k = kind[0]
+				}
+				blockStack = append(blockStack, k)
+			case '}':
+				if len(blockStack) > 0 {
+					blockStack = blockStack[:len(blockStack)-1]
+				}
+			}
+		}
+	}
+	if serverScope {
+		addWarn("nginx protect.inc scope", "protect.inc is included at server scope (not inside a location {} block). At server scope the challenge gate also catches /unmask/ machinery, which can loop human visitors (the 2026-07-02 unmask.sh self-DoS). Move `include .../protect.inc;` INSIDE the `location / {}` (or the specific locations) you want protected. The current unmask render exempts /unmask/ machinery so it still works, but location-scope is the intended placement.")
+	}
 }
 
 // nginxErrLine returns the first emerg/error line of `nginx -t` output, falling
