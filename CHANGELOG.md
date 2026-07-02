@@ -10,7 +10,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Short entries use minute precision.
 - Within a release, entries are sorted by date descending (newest at top).
 
-## [Unreleased]
+## [0.1.1] — 2026-07-02
+
+### Fixed
+- (2026-07-02) **A `remove`→`install` or reinstall of the package could leave the admin daemon running the old, deleted binary, causing an admin-UI redirect loop.**  The main postinstall now ends every init path (systemd / openrc / sysv) with a final-guarantee restart, so upgrade / reinstall / remove-install always converges on the new binary — `try-restart` alone is a no-op when the unit is inactive, and `enable --now` cannot always start a unit a prior remove left in an odd state.  Found by dogfooding the unmask.sh install.
+- (2026-07-02) **`protect.inc` included at *server* scope (rather than inside a `location {}`) self-DoS'd the site.**  At server scope the challenge gate's rewrite runs before location selection and also caught the `/unmask/` machinery (`/unmask/api/verify`, `challenge.js`), so the challenge could never complete and every human looped — while bots still got 403, making it look like it was working.  `protect.inc` now exempts the `/unmask/` machinery via a negative-lookahead that keeps `/unmask/admin/` protected (admin is guarded by its own `location ^~ /unmask/admin/`).  `unmask doctor` also gained a check that warns when `protect.inc` is included at server scope.  New e2e scenario 48 asserts a server-scope include keeps the machinery alive while the site body stays challenged.
+- (2026-07-02) **The plugin postinstall printed `WARNING: unrecognized libcrypto` on nginx built against a statically-linked OpenSSL** (e.g. `--with-openssl=`), where `ldd nginx` shows no libcrypto SONAME.  Detection now falls back to `nginx -V`'s "built with OpenSSL X" and then to the newest system libcrypto SONAME, warning only when all are inconclusive (LibreSSL / BoringSSL fall through to the SONAME probe instead of being mis-detected as OpenSSL).
 
 ### Added
 - (2026-06-28 17:30) **Apache forward-auth now captures and LB-gates a forwarded JA4, at parity with nginx; the dead `ja4_source` / `trusted_forward_auth_proxies` settings are gone.**  `apache-unmask.lua` already forwarded a front LB's `X-Client-JA4` to the daemon, but nothing verified the JA4 actually arrived via a trusted LB, so a client reaching Apache directly could forge one.  The lua now also forwards the real connecting peer as `X-Unmask-Conn-Peer` — a per-vhost `mod_rewrite` rule exports `%{CONN_REMOTE_ADDR}` (the raw TCP peer, which `mod_remoteip` does not rewrite) into `UNMASK_CONN_PEER` — and the daemon (`resolveForwardedJA4`) honors the forwarded JA4 only when that peer is a configured trusted LB (`nginx.trusted_lb_presets` / `trusted_lb_extra`, the same list nginx uses).  So a forged JA4 from a non-LB client is dropped server-side, no operator header-stripping needed; nginx's rendered `forward-auth-lbtrust.conf` edge-gate strips `X-Unmask-Conn-Peer` since it gates at the edge instead.  The `nginx-forward-auth.conf` reference snippet and the `apache-unmask-auth.sh` CGI fallback gained the same `X-Unmask-Conn-Peer` forwarding, and the `ja4_source=header` / `trusted_forward_auth_proxies` references they carried — config keys never implemented in Go — were removed (the trusted-LB list has been the real mechanism since the `trust_forwarded_ja4` removal).  New e2e: scenario 42 drives a stock-nginx forward-auth vhost end-to-end (no plugin), and scenario 14 gained Apache JA4-capture cases.
@@ -1134,5 +1139,6 @@ the 2026-05-07 ~ 2026-05-24 polish work in between.
 - Only 3 third-party Go deps (sqlite / mysql driver / yaml).
 - nginx module written in C as a dynamic module. `--with-compat` supported.
 
+[0.1.1]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.1
 [0.1.0]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.0
 [0.1.0-pre]: https://github.com/unmask-sh/unmask/commits/main/?until=2026-05-07
