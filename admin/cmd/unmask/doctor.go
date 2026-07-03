@@ -287,6 +287,7 @@ func cmdDoctor(args []string) error {
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxProtectScope(addWarn)
+	checkHTTPSRedirectApplied(s, addOK, addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
@@ -544,6 +545,32 @@ func checkNativeFailsafe(addWarn func(t, m string)) {
 	}
 	msg += " Fix the nginx config, run `unmask render-nginx`, then `nginx -t` (or reinstall unmask-plugin-nginx); the marker clears once nginx -t passes."
 	addWarn("native module disabled (fail-safe)", msg)
+}
+
+// checkHTTPSRedirectApplied warns when nginx.https_redirect is enabled but the
+// rendered server.inc carries no 301 block — the operator turned the setting on
+// and never re-rendered (or the render failed), so plaintext HTTP requests are
+// still being challenged instead of redirected.  The same stale-render class as
+// the bv_secret desync below, for the redirect option.  Silent when the option
+// is off or nothing is rendered yet (forward-auth mode / fresh install — the
+// render checks above already cover those).
+func checkHTTPSRedirectApplied(s settings.Settings, addOK, addWarn func(t, m string)) {
+	if !s.Nginx.HTTPSRedirect {
+		return
+	}
+	dir := strings.TrimSpace(s.Nginx.OutputDir)
+	if dir == "" {
+		dir = "/var/lib/unmask/nginx"
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "server.inc"))
+	if err != nil {
+		return
+	}
+	if strings.Contains(string(b), "return 301 https://") {
+		addOK("https redirect", "enabled and present in the rendered server.inc")
+		return
+	}
+	addWarn("https redirect", "nginx.https_redirect is enabled but the rendered server.inc has no 301 block — the render predates the setting. Run `unmask render-nginx`, then reload nginx; until then plaintext HTTP requests are still challenged instead of redirected.")
 }
 
 // checkBVSecretSync compares the bv_secret baked into the rendered http.inc
