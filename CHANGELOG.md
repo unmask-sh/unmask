@@ -8,6 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.2] — 2026-07-03
+
+### Added
+- (2026-07-03) **HTTP → HTTPS redirect option (`nginx.https_redirect`, off by default).**  Emitted at the very top of the rendered `server.inc`, so a plaintext request leaves with a 301 before the ban / honeypot / challenge gates see it — a no-TLS request carries no JA4, and challenging it would only record (and possibly ban) JA4-less rows.  Keys off `$unmask_forwarded_proto` (X-Forwarded-Proto behind a terminating LB, `$scheme` on a direct edge) so both topologies work, and exempts ACME HTTP-01 paths so webroot certbot renewals keep working.  Configurable from the network settings tab.
+- (2026-07-03) **Bypass-path presets now declare per-preset factory defaults.**  Machine-access presets (ACME, robots.txt, health checks, browser metadata) default ON so a fresh install doesn't silently break them; anything that could plausibly be a protection target stays OFF.  The config stores only deviations from the default (enabled and disabled lists), presets added by an upgrade stay inert until the operator has seen them, and the renderer and the admin-side check share the same resolution.
+- (2026-07-03) **A guard test for undefined `$unmask_*` template variables.**  nginx expands an undefined variable to the empty string without erroring, so a map removed while its uses remain silently no-ops the feature that referenced it — `nginx -t` and the render tests both stay green.  The new test cross-checks every referenced variable against the template and C-module definitions.
+
+### Fixed
+- (2026-07-03) **The access-log parser dropped `hpuri` and `ua` on TLS-resumption lines.**  `$effective_ja4` renders as `-` when the handshake yields no fingerprint; the parser's ja4 charset refused that, and the sequential regex chain then un-anchored every later field — so a resumption-visit honeypot ban lost its trip URL and UA.  The placeholder is now accepted and normalized to the internal "no fingerprint" value.
+- (2026-07-03) **The events table stacked a native tooltip on top of the datetime popover.**  The shared datetime formatter sets a local/UTC `title` on every cell; the popover shows the same detail, so the title is stripped on cells that carry it.  The popover also gains Host / Port rows.
+- (2026-07-03) **The sites tab implied DEFINED acceptance mode limits recording.**  Reworded: events are recorded for every Host in either mode — the mode only affects display (picker suggestions and ghost detection).
+
 ## [0.1.1] — 2026-07-02
 
 ### Fixed
@@ -1137,6 +1149,7 @@ the 2026-05-07 ~ 2026-05-24 polish work in between.
 - Only 3 third-party Go deps (sqlite / mysql driver / yaml).
 - nginx module written in C as a dynamic module. `--with-compat` supported.
 
+[0.1.2]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.2
 [0.1.1]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.1
 [0.1.0]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.0
 [0.1.0-pre]: https://github.com/unmask-sh/unmask/commits/main/?until=2026-05-07
