@@ -202,9 +202,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 
 	// bypass paths preset groups: allowlist-path preset.
 	//
-	// Opt-in: only IDs in EnabledPresets render as checked.  Default = all
-	// off (matches the docstring on BypassPathPresetGroups).
-	enabledBPath := toSet(cur.BypassPaths.EnabledPresets)
+	// Checked = the effective state (per-preset DefaultOn + the operator's
+	// recorded deviations), via the shared EffectiveBypassPathPresets so the
+	// UI shows exactly what the renderer / forward-auth matcher act on.  A
+	// NEW preset (added after the operator's last save) renders unchecked and
+	// inert regardless of its default; its default applies from the first
+	// save after review.
+	enabledBPath := nginxconf.EffectiveBypassPathPresets(cur.BypassPaths.EnabledPresets, cur.BypassPaths.DisabledPresets)
 	bypassPathGroups := make([]map[string]any, 0, len(nginxconf.BypassPathPresetGroups))
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
@@ -213,12 +217,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			enabled = false
 		}
 		bypassPathGroups = append(bypassPathGroups, map[string]any{
-			"ID":      g.ID,
-			"Label":   g.Label,
-			"Rules":   g.Rules,
-			"Enabled": enabled,
-			"AddedIn": g.AddedIn,
-			"IsNew":   isNew,
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"Rules":     g.Rules,
+			"Enabled":   enabled,
+			"AddedIn":   g.AddedIn,
+			"IsNew":     isNew,
+			"DefaultOn": g.DefaultOn,
 		})
 	}
 
@@ -1065,6 +1070,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		applyTrustedLBForm(&cur.Nginx, r)
+		// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
+		cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
 	case "ua-filter":
 		applyUAFilterForm(&cur.Nginx, r)
 		// Black-list default action (= independent of rate-limit chain).
@@ -2716,20 +2723,41 @@ func honeypotURLRows(rows []settings.HoneypotURL) []honeypotURLRow {
 // BypassPath slice).  Form fields: bp_path / _title / _enabled /
 // _updated_at / _site -- zipped into BypassPath.
 func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	// Preset checkboxes go straight to EnabledPresets (= opt-in list).  Unknown
-	// IDs (= form tampering) are dropped silently.
-	known := map[string]bool{}
-	for _, g := range nginxconf.BypassPathPresetGroups {
-		known[g.ID] = true
-	}
-	enabled := []string{}
+	// Preset checkboxes: store only DEVIATIONS from each preset's DefaultOn —
+	// checked-but-default-OFF lands in EnabledPresets, unchecked-but-default-ON
+	// in DisabledPresets, a match with the default stores nothing.  That way a
+	// preset added in a later version follows its own code-declared default on
+	// this install too.  A NEW preset (added after this operator's last save)
+	// is absent from the form (its checkbox renders disabled), so its recorded
+	// deviations — normally none — are carried over untouched rather than
+	// misread as "explicitly turned off".  Unknown IDs (= form tampering) drop
+	// silently since only known groups are consulted.
+	checked := map[string]bool{}
 	for _, id := range r.Form["bypass_path_preset_enabled"] {
-		id = strings.TrimSpace(id)
-		if known[id] {
-			enabled = append(enabled, id)
+		checked[strings.TrimSpace(id)] = true
+	}
+	prevEnabled := toSet(n.BypassPaths.EnabledPresets)
+	prevDisabled := toSet(n.BypassPaths.DisabledPresets)
+	enabled, disabled := []string{}, []string{}
+	for _, g := range nginxconf.BypassPathPresetGroups {
+		if nginxconf.PresetIsNew(n.SeenVersion, g.AddedIn) {
+			if prevEnabled[g.ID] {
+				enabled = append(enabled, g.ID)
+			}
+			if prevDisabled[g.ID] {
+				disabled = append(disabled, g.ID)
+			}
+			continue
+		}
+		switch on := checked[g.ID]; {
+		case on && !g.DefaultOn:
+			enabled = append(enabled, g.ID)
+		case !on && g.DefaultOn:
+			disabled = append(disabled, g.ID)
 		}
 	}
 	n.BypassPaths.EnabledPresets = enabled
+	n.BypassPaths.DisabledPresets = disabled
 
 	pats := r.Form["bp_path"]
 	titles := r.Form["bp_title"]

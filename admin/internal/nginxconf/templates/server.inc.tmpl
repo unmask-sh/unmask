@@ -42,6 +42,29 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}
 
+{{- if .HTTPSRedirect }}
+# HTTP -> HTTPS redirect (settings: nginx.https_redirect).  Emitted at the very
+# top so a plaintext request returns 301 in the rewrite phase, before the ban /
+# honeypot / challenge gates below.  A request with no TLS carries no JA4, so
+# challenging it (and honeypot-banning it) would only record JA4-less rows;
+# redirecting sends the client back over HTTPS where the fingerprint exists.
+# Keys off $unmask_forwarded_proto (computed in http.conf: X-Forwarded-Proto
+# behind a terminating LB, else $scheme for a direct edge) so it works in both
+# topologies -- $scheme alone would loop behind an HTTPS-terminating LB that
+# forwards to the origin over http.
+# ACME HTTP-01 is excluded with a rewrite-phase `break` rather than a `location`
+# here on purpose: a webroot certbot vhost may already define
+# `location ^~ /.well-known/acme-challenge/`, and a second copy in this include
+# would be a duplicate-location error.  The break stops the rewrite phase for
+# the challenge path, so the redirect `if` below never runs and the request
+# falls through to whatever serves the challenge.  `return` ends processing on
+# the redirected hit, so no later gate runs on it.
+if ($request_uri ~ "^/\.well-known/acme-challenge/") { break; }
+if ($unmask_forwarded_proto = "http") {
+    return 301 https://$host$request_uri;
+}
+
+{{ end -}}
 # Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
 # and by protect.inc's challenge gate).  Initialized here -- server rewrite
 # phase, which runs exactly once per request -- so the variables always exist

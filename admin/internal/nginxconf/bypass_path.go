@@ -25,6 +25,15 @@ type BypassPathGroup struct {
 	Label   string
 	Rules   []BypassPathRule // {Pattern, Site}
 	AddedIn string
+	// DefaultOn: the preset's factory state when the operator has recorded no
+	// choice for it (= its ID is in neither EnabledPresets nor DisabledPresets).
+	// ON is reserved for presets where staying OFF silently breaks machine
+	// access (ACME renewal, robots.txt / SEO, health checks, browser metadata);
+	// anything that could plausibly be a protection target (API paths) stays
+	// OFF.  Every future preset declares its own default here — the config only
+	// stores deviations, so a new preset's default reaches existing installs
+	// too (behind the SeenVersion NEW gate).
+	DefaultOn bool
 }
 
 // BypassPathRule: a single entry.  Empty Site = all sites.
@@ -43,12 +52,15 @@ type BypassPathRule struct {
 	Site    string // empty = global (= every host); else exact host match
 }
 
-// BypassPathPresetGroups: presets for typical bypass paths.  All OFF by default
-// (= path layouts vary per site; avoid mistaken opt-outs).
+// BypassPathPresetGroups: presets for typical bypass paths.  Each group
+// declares its own factory default via DefaultOn (see the field docs);
+// EffectiveBypassPathPresets resolves the operator's recorded deviations
+// against those defaults.
 var BypassPathPresetGroups = []BypassPathGroup{
 	{
-		ID:    "static-assets",
-		Label: "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
+		ID:        "static-assets",
+		DefaultOn: true, // robots.txt / sitemap.xml behind a challenge = SEO incident
+		Label:     "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/static/`},
 			{Pattern: `^/assets/`},
@@ -63,15 +75,17 @@ var BypassPathPresetGroups = []BypassPathGroup{
 		},
 	},
 	{
-		ID:    "well-known",
-		Label: "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
+		ID:        "well-known",
+		DefaultOn: true, // a challenged ACME HTTP-01 = failed cert renewal, noticed on expiry day
+		Label:     "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/\.well-known/`},
 		},
 	},
 	{
-		ID:    "browser-metadata",
-		Label: "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
+		ID:        "browser-metadata",
+		DefaultOn: true, // browsers fetch these cookie-less without user action; a challenge page breaks them silently
+		Label:     "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
 		Rules: []BypassPathRule{
 			// PWA manifests (= both naming conventions).
 			{Pattern: `^/manifest\.json$`},
@@ -90,8 +104,9 @@ var BypassPathPresetGroups = []BypassPathGroup{
 		AddedIn: "v0.1.0",
 	},
 	{
-		ID:    "health",
-		Label: "Health checks (= /healthz / /readyz / /api/health)",
+		ID:        "health",
+		DefaultOn: true, // a challenged health check = LB marks the node unhealthy
+		Label:     "Health checks (= /healthz / /readyz / /api/health)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/healthz$`},
 			{Pattern: `^/readyz$`},
@@ -100,6 +115,8 @@ var BypassPathPresetGroups = []BypassPathGroup{
 		},
 	},
 	{
+		// DefaultOn stays false: APIs are a typical scraping target — silently
+		// opening ^/api/ would un-protect the very thing many installs guard.
 		ID:    "api-paths",
 		Label: "API paths (= /api/ /v1/ /v2/ /graphql / etc. — assumes non-browser clients)",
 		Rules: []BypassPathRule{
@@ -110,6 +127,36 @@ var BypassPathPresetGroups = []BypassPathGroup{
 			{Pattern: `^/rpc/`},
 		},
 	},
+}
+
+// EffectiveBypassPathPresets resolves which preset groups are active from the
+// operator's recorded deviations.  A group is active when the operator
+// explicitly enabled it (enabled list), or it is DefaultOn and not explicitly
+// disabled (disabled list).  IDs unknown to the current build are ignored on
+// both lists (they may belong to a newer / older version's presets).
+//
+// This is the single resolution point shared by the nginx renderer, the
+// forward-auth in-memory matcher, and the settings UI — the three must agree
+// on what "enabled" means or the admin would lie about the conf it rendered.
+//
+// The SeenVersion NEW gate is intentionally NOT applied here: callers that
+// render or match must additionally skip groups where PresetIsNew(seenVer,
+// g.AddedIn), so a preset added by an upgrade never changes behavior before
+// the operator has seen it — regardless of its DefaultOn.
+func EffectiveBypassPathPresets(enabled, disabled []string) map[string]bool {
+	on := map[string]bool{}
+	en := map[string]bool{}
+	dis := map[string]bool{}
+	for _, id := range enabled {
+		en[strings.TrimSpace(id)] = true
+	}
+	for _, id := range disabled {
+		dis[strings.TrimSpace(id)] = true
+	}
+	for _, g := range BypassPathPresetGroups {
+		on[g.ID] = en[g.ID] || (g.DefaultOn && !dis[g.ID])
+	}
+	return on
 }
 
 // BypassPathHostMaps describes the per-host bypass-path map that the

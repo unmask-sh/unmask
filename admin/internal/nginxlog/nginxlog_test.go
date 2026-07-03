@@ -55,6 +55,46 @@ func TestParseUA(t *testing.T) {
 	}
 }
 
+// TestParseNoJA4Placeholder: nginx logs an unavailable $effective_ja4 as "-"
+// (TLS session resumption etc.).  The parser must normalize it to "" AND keep
+// the later fields anchored -- an earlier charset refused the "-", silently
+// blanking hpuri/ua on exactly those lines, so a resumption-visit honeypot ban
+// was recorded with a bare "honeypot" reason instead of its trip URL.
+func TestParseNoJA4Placeholder(t *testing.T) {
+	r := &Reader{}
+
+	// The real-world shape from the tool1-us incident: second honeypot trip
+	// over a resumed session, ja4=- but hpuri/ua present.
+	line := `<134>1751400000.123 site=tool1-us kind= fc=0 hp=1 ip=20.220.217.32 ` +
+		`ja4=- hpuri=//cgi-bin/index.php ua=Mozilla/5.0 zgrab/0.x`
+	p, ok := r.parse(line)
+	if !ok {
+		t.Fatal("parse failed on a ja4=- line")
+	}
+	if p.ja4 != "" {
+		t.Errorf(`ja4 "-" not normalized to empty: %q`, p.ja4)
+	}
+	if !p.hp || p.ip != "20.220.217.32" {
+		t.Errorf("hp/ip lost on a ja4=- line: %+v", p)
+	}
+	if p.hpuri != "//cgi-bin/index.php" {
+		t.Errorf("hpuri lost on a ja4=- line (chained-group regression): %q", p.hpuri)
+	}
+	if !strings.Contains(p.ua, "zgrab") {
+		t.Errorf("ua lost on a ja4=- line: %q", p.ua)
+	}
+
+	// Empty value (ja4= with nothing) parses the same way.
+	line2 := `<134>1751400000.5 site=default kind= fc=0 hp=1 ip=9.9.9.9 ja4= hpuri=/x ua=curl/8`
+	p2, ok := r.parse(line2)
+	if !ok {
+		t.Fatal("parse failed on an empty-ja4 line")
+	}
+	if p2.ja4 != "" || p2.hpuri != "/x" || p2.ua != "curl/8" {
+		t.Errorf("empty-ja4 line fields wrong: %+v", p2)
+	}
+}
+
 // TestCrawlerAggregation drives bumpCrawler + flushOnce and checks the rows
 // land in unmask_crawler_minute with the expected total / served split.
 func TestCrawlerAggregation(t *testing.T) {
