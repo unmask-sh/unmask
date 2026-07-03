@@ -1015,6 +1015,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
   </div>
 
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.https_redirect_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.https_redirect_desc") }}</span></span></h2>
+    <label class="ck"><input type="checkbox" name="https_redirect" value="1" {{ if .Cur.HTTPSRedirect }}checked{{ end }}> {{ t .Lang "settings.network.https_redirect_label" }}</label>
+    <p class="desc" style="font-size:.78rem;color:#64748b;margin:.4rem 0 0">{{ safeHTML (t .Lang "settings.network.https_redirect_hint") }}</p>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -1313,7 +1319,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
         <label for="bp-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
         </label>
       </div>

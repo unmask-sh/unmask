@@ -343,6 +343,7 @@ type renderData struct {
 	BypassPathsPerHost      []BypassPathHostMaps // one entry per unique non-empty Site
 	ChallengeAll            bool                 // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string             // OR list of UA patterns evaluated when false
+	HTTPSRedirect           bool                 // true -> emit an HTTP->HTTPS 301 at the top of server.inc
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -563,6 +564,8 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
 
+	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
+
 	// challenge target UA: all=true is UA-agnostic.  Otherwise enabled presets + extras.
 	d.ChallengeAll = s.Nginx.ChallengeTargets.All
 	if !d.ChallengeAll {
@@ -768,11 +771,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// rules are split off into separate maps below; the host is selected by a
 	// dispatcher map, never embedded in the path pattern.
 	//
-	// Preset opt-in: only IDs explicitly listed in EnabledPresets render.
-	// Matches the "All OFF by default" docstring on BypassPathPresetGroups.
+	// Preset resolution: each preset's DefaultOn + the operator's recorded
+	// deviations (enabled_presets / disabled_presets), via the shared
+	// EffectiveBypassPathPresets so this render agrees with the forward-auth
+	// matcher and the settings UI.  The SeenVersion NEW gate below still
+	// excludes presets the operator hasn't reviewed yet.
 	bp := []BypassPathRule{}
 	bpSeen := map[string]bool{}
-	enabledBPath := toSet(s.Nginx.BypassPaths.EnabledPresets)
+	enabledBPath := EffectiveBypassPathPresets(s.Nginx.BypassPaths.EnabledPresets, s.Nginx.BypassPaths.DisabledPresets)
 	for _, g := range BypassPathPresetGroups {
 		if !enabledBPath[g.ID] {
 			continue

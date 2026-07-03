@@ -1104,12 +1104,17 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	// it as-is with a case-insensitive flag; no anchor manipulation, matching
 	// what the nginx renderer feeds into `map $request_uri ...`.
 	//
-	// Preset opt-in: only IDs in EnabledPresets activate, matching the
-	// renderer so admin's in-memory check agrees with the nginx config it
-	// produced.
-	enabledBP := toSet(n.BypassPaths.EnabledPresets)
+	// Preset resolution: per-preset DefaultOn + operator deviations via the
+	// shared EffectiveBypassPathPresets, and the same SeenVersion NEW gate the
+	// renderer applies — so admin's in-memory check agrees with the nginx
+	// config it produced (a preset added by an upgrade stays inert on both
+	// paths until the operator has seen it).
+	enabledBP := nginxconf.EffectiveBypassPathPresets(n.BypassPaths.EnabledPresets, n.BypassPaths.DisabledPresets)
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		if !enabledBP[g.ID] {
+			continue
+		}
+		if nginxconf.PresetIsNew(n.SeenVersion, g.AddedIn) {
 			continue
 		}
 		for _, r := range g.Rules {
