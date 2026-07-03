@@ -583,6 +583,19 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 
+	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
+	// rendered server.inc — before any ban / honeypot / challenge gate.  A
+	// plaintext request (no TLS, so no JA4) then leaves with a redirect instead
+	// of being challenged and, if it trips a honeypot, banned on a JA4-less
+	// row.  Behind an X-Forwarded-Proto-terminating LB the scheme is read from
+	// that header (via the $unmask_forwarded_proto map, which falls back to
+	// $scheme for a direct edge), so it is correct in both topologies.
+	//
+	// Off by default: turning it on means plaintext requests are no longer
+	// inspected at all (no honeypot capture on :80), which is the operator's
+	// call — some prefer to keep catching scanners on the plaintext port.
+	HTTPSRedirect bool `yaml:"https_redirect,omitempty"`
+
 	// AdvancedEnabled is the master reveal-gate for the standards-based
 	// attestation axes below (Web Bot Auth + Privacy Pass).  They are
 	// implemented and tested, but few clients/agents in the wild emit the
@@ -980,11 +993,20 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 // pre-v2 parallel-array form (Extra / ExtraTitle / ExtraDisabled /
 // ExtraUpdatedAt / ExtraSite).
 type BypassPathsConfig struct {
-	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
-	// Absent / nil / [] all mean "no preset enabled" (= matches the
-	// "All OFF by default" docstring on BypassPathPresetGroups).  Operators
-	// add an ID here to turn that preset's path patterns into bypass entries.
-	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
+	// EnabledPresets / DisabledPresets record the operator's DEVIATIONS from
+	// each preset's factory default (= nginxconf BypassPathGroup.DefaultOn):
+	//
+	//   - EnabledPresets:  default-OFF presets the operator turned ON
+	//   - DisabledPresets: default-ON presets the operator turned OFF
+	//
+	// A preset in neither list follows its code-declared default, so a preset
+	// added in a later version brings its own default to existing installs
+	// (behind the SeenVersion NEW gate) without any config migration.
+	// Resolution lives in nginxconf.EffectiveBypassPathPresets; the settings
+	// save writes only deviations (a choice that matches the default is stored
+	// as nothing).  Unknown IDs on either list are ignored.
+	EnabledPresets  []string `yaml:"enabled_presets,omitempty"`
+	DisabledPresets []string `yaml:"disabled_presets,omitempty"`
 	// Paths: per-row custom bypass entries.  Order is preserved (= operator-
 	// edited).  See BypassPath for the per-row fields.
 	Paths []BypassPath `yaml:"paths,omitempty"`

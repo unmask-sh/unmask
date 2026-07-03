@@ -380,9 +380,17 @@ func (r *Reader) Loaded() bool {
 // site is matched as \S* (any non-space): the field carries $host, which is a
 // real vhost name with dots / colons (an earlier [A-Za-z0-9_-] charset failed
 // to parse anything but a bare "default").
+//
+// ja4 is matched as \S* too: $effective_ja4 is "-" when the handshake yielded
+// no fingerprint (TLS session resumption etc.).  An earlier [A-Za-z0-9_]+
+// charset refused that "-", and because the groups are a sequential chain the
+// mismatch also un-anchored every later field — hpuri and ua silently parsed
+// empty on exactly those lines, so a resumption-visit honeypot ban lost its
+// trip URL (reason showed a bare "honeypot") and its UA.  parse() normalizes
+// the "-" placeholder to "" (= same meaning: no fingerprint).
 var lineRE = regexp.MustCompile(
 	`([0-9]+\.[0-9]+) site=(\S*) kind=([a-z0-9_-]*)` +
-		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=([A-Za-z0-9_]+))?(?: hpuri=(\S*))?(?: ua=(.*))?`)
+		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=(\S*))?(?: hpuri=(\S*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -416,13 +424,20 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		// whole batch upsert -- losing every row in that flush, not just this one.
 		s = s[:64]
 	}
+	ja4 := m[7]
+	if ja4 == "-" {
+		// nginx renders an unavailable $effective_ja4 as "-"; internally the
+		// empty string is the "no fingerprint" value (a ban keyed on it means
+		// "any JA4").  Normalize so "-" never becomes a ban key or a stat bucket.
+		ja4 = ""
+	}
 	return parsed{
 		msec: v, site: s,
 		kind:  m[3],
 		fc:    m[4] == "1",
 		hp:    m[5] == "1",
 		ip:    m[6],
-		ja4:   m[7],
+		ja4:   ja4,
 		hpuri: m[8],
 		ua:    m[9],
 	}, true

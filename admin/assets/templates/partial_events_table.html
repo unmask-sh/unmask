@@ -655,6 +655,22 @@ document.addEventListener('DOMContentLoaded', function(){
       body += '<div class="dtpop-row"><span class="dtpop-k">Ref ID</span>' +
         '<code class="dtpop-v dtpop-ref">' + esc(ref) + '</code></div>';
     }
+    // Request Host (= the visitor's Host header) and the scheme/port this event
+    // came in on -- surfaced here so an operator reading a timestamp can see
+    // "which vhost, http/https, which port" without a dedicated column.  The
+    // values are carried on the row as data-site / data-scheme / data-port.
+    var site = (tr.getAttribute('data-site') || '').trim();
+    if (site){
+      body += '<div class="dtpop-row"><span class="dtpop-k">Host</span>' +
+        '<span class="dtpop-v">' + esc(site) + '</span></div>';
+    }
+    var portNum = parseInt(tr.getAttribute('data-port') || '0', 10);
+    if (portNum > 0){
+      var scheme = (tr.getAttribute('data-scheme') || '').trim();
+      var portTxt = scheme ? (portNum + ' (' + scheme + ')') : String(portNum);
+      body += '<div class="dtpop-row"><span class="dtpop-k">Port</span>' +
+        '<span class="dtpop-v">' + esc(portTxt) + '</span></div>';
+    }
     // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
     // are self-labelling -- no locale-specific "Local" / "Time" caption needed.
     if (local) body += '<div class="dtpop-time">' + esc(local) + '</div>';
@@ -665,6 +681,12 @@ document.addEventListener('DOMContentLoaded', function(){
     var tr = el.closest('tr');
     if (!tr) return;
     el.classList.add('dtpop-trigger');
+    // The shared js-datetime formatter sets a local+UTC title on every
+    // datetime; here the dtpop popover shows the same detail (plus Ref +
+    // sub-second), so a native tooltip would stack on top of it.  Strip any
+    // title set before this ran; the class above keeps the formatter from
+    // adding one if it runs after.
+    el.removeAttribute('title');
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
       if (pin.hasPinFor(el)) return;

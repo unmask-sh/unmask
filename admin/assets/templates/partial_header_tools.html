@@ -181,7 +181,14 @@
       var fmt = el.classList.contains('js-datetime-notz') ? dtFmtNoTz : dtFmt;
       el.textContent = fmt.format(d);
       // Hover detail: operator-local (with tz label) + UTC, both spelled out.
-      el.title = dtFmt.format(d) + '  /  ' + utcFmt.format(d);
+      // Skipped when the element carries the events-table datetime popover
+      // (dtpop: Ref + sub-second local + UTC) -- a native title there stacks a
+      // second, redundant tooltip on top of the popover.  The dtpop installer
+      // also strips any title set before it ran, so the guard holds in either
+      // execution order.
+      if (!el.classList.contains('dtpop-trigger')) {
+        el.title = dtFmt.format(d) + '  /  ' + utcFmt.format(d);
+      }
     });
     document.querySelectorAll('.js-date[data-ts]').forEach(function(el){
       var ts = parseInt(el.getAttribute('data-ts'), 10);
