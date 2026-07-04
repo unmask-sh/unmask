@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -288,6 +289,7 @@ func cmdDoctor(args []string) error {
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxProtectScope(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
+	checkHTTPSRedirectHealthCheck(s, addOK, addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
@@ -571,6 +573,57 @@ func checkHTTPSRedirectApplied(s settings.Settings, addOK, addWarn func(t, m str
 		return
 	}
 	addWarn("https redirect", "nginx.https_redirect is enabled but the rendered server.inc has no 301 block — the render predates the setting. Run `unmask render-nginx`, then reload nginx; until then plaintext HTTP requests are still challenged instead of redirected.")
+}
+
+// httpsRedirectProbeURL is the plaintext-HTTP URL checkHTTPSRedirectHealthCheck
+// probes as a health checker.  A package var so tests can override it.
+var httpsRedirectProbeURL = "http://127.0.0.1:80/"
+
+// checkHTTPSRedirectHealthCheck probes the plaintext HTTP port as a
+// load-balancer health checker would — a GoogleHC user-agent, no
+// X-Forwarded-Proto (health probes reach the backend directly, bypassing the
+// LB proxy that would set it) — and warns if it gets a 301.  A 301 to a health
+// check is a FAILED check: the LB marks the node unhealthy and drops it from
+// rotation, so its traffic (and stats) go silent.  This is what stopped tool1-jp
+// recording on 2026-07-04 before the load-balancer-health redirect exemption
+// existed.  With that exemption on (the default) the probe is not redirected and
+// this is silent; it fires only when the redirect is on and the exemption was
+// turned off (or a custom config leaves the probe uncovered).  Best-effort:
+// silent when the redirect is off or nginx is not reachable on the port.
+func checkHTTPSRedirectHealthCheck(s settings.Settings, addOK, addWarn func(t, m string)) {
+	if !s.Nginx.HTTPSRedirect {
+		return
+	}
+	// GCP/AWS/k8s health probes hit the plaintext HTTP backend on :80; a
+	// non-80 plaintext port is rare enough that a missed probe (silent) beats
+	// parsing nginx -T for the listen port.  A package var so tests can point
+	// it at an httptest server.
+	req, err := http.NewRequest(http.MethodGet, httpsRedirectProbeURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", "GoogleHC/1.0")
+	// Hit a declared vhost when one exists so the probe reaches a server block
+	// that includes server.inc (= carries the redirect); otherwise the default
+	// server answers, which is still a valid signal for single-site installs.
+	if len(s.Sites.Defined) > 0 {
+		req.Host = s.Sites.Defined[0]
+	}
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		// Don't follow the redirect -- we want to observe the 301 itself.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return // nginx not listening on :80 here, or unreachable -- nothing to assert
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusFound {
+		addWarn("https redirect health check", "a load-balancer health check (GoogleHC user-agent) on :80 is answered with a "+strconv.Itoa(resp.StatusCode)+" redirect — a health check that gets a 3xx is a FAILED check, so the load balancer will drop this node from rotation and its traffic (and stats) stop. Enable the \"Load-balancer health checks\" redirect exemption under Settings > Network (it is on by default), or point the LB health check at the HTTPS port.")
+		return
+	}
+	addOK("https redirect health check", "a GoogleHC health check on :80 is not redirected (the load-balancer-health exemption is working)")
 }
 
 // checkBVSecretSync compares the bv_secret baked into the rendered http.inc
