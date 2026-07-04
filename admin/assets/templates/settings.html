@@ -1019,6 +1019,67 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.https_redirect_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.https_redirect_desc") }}</span></span></h2>
     <label class="ck"><input type="checkbox" name="https_redirect" value="1" {{ if .Cur.HTTPSRedirect }}checked{{ end }}> {{ t .Lang "settings.network.https_redirect_label" }}</label>
     <p class="desc" style="font-size:.78rem;color:#64748b;margin:.4rem 0 0">{{ safeHTML (t .Lang "settings.network.https_redirect_hint") }}</p>
+
+    {{/* Redirect exemptions: requests that must NOT be 301'd (they run as
+         rewrite-phase breaks before the redirect).  Two default-on presets
+         (ACME by path, LB health checks by user-agent) + custom rules that pick
+         either axis.  Only relevant when the redirect is on. */}}
+    <div class="redirect-exempt" style="margin-top:.9rem;border-top:.0625rem solid #e2e8f0;padding-top:.7rem">
+      <h3 style="font-size:.9rem;color:#334155;margin:0 0 .2rem">{{ t .Lang "settings.network.redirect_exempt_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.redirect_exempt_desc") }}</span></span></h3>
+      <div class="ua-section">
+        {{ range .RedirectExemptGroups }}
+        <div class="preset">
+          <input type="checkbox" name="redirect_exempt_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="re-{{ .ID }}">
+          <label for="re-{{ .ID }}" class="lbl">
+            <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}<span class="added">{{ if eq .MatchType "ua" }}UA{{ else }}path{{ end }}</span></div>
+          </label>
+        </div>
+        {{ end }}
+      </div>
+      <div class="rule-list" data-rule-name="re_pattern" style="margin-top:.5rem">
+        {{ range .RedirectExemptRules }}
+        <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+          <input type="checkbox" class="rule-toggle" {{ if not .Disabled }}checked{{ end }}>
+          <input type="hidden" name="re_enabled" value="{{ if .Disabled }}0{{ else }}1{{ end }}">
+          <input type="hidden" name="re_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+            <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}<span class="action-pill action-suspect">{{ if eq .Type "ua" }}UA{{ else }}path{{ end }}</span> {{ .Pattern }}{{ else }}{{ t $.Lang "settings.network.redirect_exempt_empty_pattern" }}{{ end }}</div>
+          </span>
+          <input type="text" name="re_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <select name="re_type" class="rule-action" style="width:5rem"><option value="path" {{ if ne .Type "ua" }}selected{{ end }}>path</option><option value="ua" {{ if eq .Type "ua" }}selected{{ end }}>UA</option></select>
+          <input type="text" name="re_pattern" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat">
+          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+        {{ end }}
+        <template class="rule-row-template">
+          <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+            <input type="checkbox" class="rule-toggle" checked>
+            <input type="hidden" name="re_enabled" value="1">
+            <input type="hidden" name="re_updated_at" value="0">
+            <span class="rule-view">
+              <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+              <div class="pat empty">{{ t .Lang "settings.network.redirect_exempt_empty_pattern" }}</div>
+            </span>
+            <input type="text" name="re_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+            <select name="re_type" class="rule-action" style="width:5rem"><option value="path" selected>path</option><option value="ua">UA</option></select>
+            <input type="text" name="re_pattern" value="" placeholder="{{ t .Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat">
+            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          </div>
+        </template>
+      </div><!-- /.rule-list -->
+      <button type="button" class="rule-add-bottom" data-target-list="re_pattern">{{ t .Lang "settings.network.redirect_exempt_add" }}</button>
+    </div><!-- /.redirect-exempt -->
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
