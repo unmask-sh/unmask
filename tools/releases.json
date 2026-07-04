@@ -1,8 +1,25 @@
 {
-  "latest": "0.1.2",
+  "latest": "0.1.3",
   "releases": [
-    { "version": "0.1.2", "date": "2026-07-03", "notes": "HTTP→HTTPS redirect option (off by default, LB-aware, ACME-exempt); bypass-path presets gain per-preset factory defaults (machine-access presets ON out of the box); access-log parser no longer drops the trip URL / UA on TLS-resumption lines; events-table tooltip dedup and sites-tab wording fixes." },
-    { "version": "0.1.1", "date": "2026-07-02", "notes": "Install-path fixes found by dogfooding: postinstall now always restarts onto the new binary (upgrade/reinstall admin-loop fix); protect.inc exempts the /unmask/ machinery when included at server scope; libcrypto detection falls back to nginx -V when ldd is silent (static OpenSSL builds); unmask doctor warns on server-scope protect.inc." },
-    { "version": "0.1.0", "date": "2026-06-14", "notes": "First public release of unmask." }
+    {
+      "version": "0.1.3",
+      "date": "2026-07-04",
+      "notes": "Theme-tab preview fixes and a preview-language selector: the preview no longer redirects to the site for operators who already hold a pass cookie, an 18-locale language dropdown lets you preview any language, the over-block banner renders its dash correctly, and unmask doctor warns when https_redirect is enabled but not yet rendered."
+    },
+    {
+      "version": "0.1.2",
+      "date": "2026-07-03",
+      "notes": "HTTP→HTTPS redirect option (off by default, LB-aware, ACME-exempt); bypass-path presets gain per-preset factory defaults (machine-access presets ON out of the box); access-log parser no longer drops the trip URL / UA on TLS-resumption lines; events-table tooltip dedup and sites-tab wording fixes."
+    },
+    {
+      "version": "0.1.1",
+      "date": "2026-07-02",
+      "notes": "Install-path fixes found by dogfooding: postinstall now always restarts onto the new binary (upgrade/reinstall admin-loop fix); protect.inc exempts the /unmask/ machinery when included at server scope; libcrypto detection falls back to nginx -V when ldd is silent (static OpenSSL builds); unmask doctor warns on server-scope protect.inc."
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-06-14",
+      "notes": "First public release of unmask."
+    }
   ]
 }
