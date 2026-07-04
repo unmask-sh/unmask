@@ -8,6 +8,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.3] — 2026-07-04
+
+### Fixed
+- (2026-07-04) **The theme-tab preview showed the actual site instead of the challenge for operators who had already passed it.**  The preview iframe loads `/unmask/challenge/?_preview=1`; the silent roaming-rebind guard in the challenge handler excluded the forced / rate-limit / `_test_ja4` paths but not `_preview`, so an operator whose browser carried a valid `_bvj` cookie hit the rebind path, whose page does `location.replace("/")` — navigating the preview iframe to the site.  Exclude the preview path from the rebind guard.
+- (2026-07-04) **The over-block banner showed a literal `&mdash;` entity.**  The banner renders through the escaping template pipeline (unlike the safeHTML popovers), so the HTML entity was shown verbatim; use the literal em dash.
+
+### Added
+- (2026-07-04) **A preview-language selector on the theme settings tab.**  The theme card iframes previewed the challenge in the operator's own browser language only; a dropdown (all 18 shipped locales, native names) now lets them preview any locale.  It passes `_preview_lang` to the challenge iframes and the force-* preview links; `challenge.js` honors it only in a preview context (`?_preview=1` or an `/admin/test/` path), so a real visitor's path / Accept-Language detection is unchanged.
+- (2026-07-04) **`unmask doctor` warns when `nginx.https_redirect` is enabled but the rendered `server.inc` has no 301 block** (the setting was turned on without re-rendering) — the same stale-render class as the existing bv_secret check.
+
 ## [0.1.2] — 2026-07-03
 
 ### Added
@@ -1149,6 +1159,7 @@ the 2026-05-07 ~ 2026-05-24 polish work in between.
 - Only 3 third-party Go deps (sqlite / mysql driver / yaml).
 - nginx module written in C as a dynamic module. `--with-compat` supported.
 
+[0.1.3]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.3
 [0.1.2]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.2
 [0.1.1]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.1
 [0.1.0]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.0
