@@ -227,6 +227,35 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		})
 	}
 
+	// HTTPS-redirect exemption presets.  Checked = the effective state
+	// (per-preset DefaultOn + deviations).  No SeenVersion gate: a missing
+	// exemption is the dangerous state, so default-on exemptions apply on
+	// upgrade (a 301'd health check drops the node from the LB).
+	enabledRE := nginxconf.EffectiveRedirectExemptPresets(cur.HTTPSRedirectExempt.EnabledPresets, cur.HTTPSRedirectExempt.DisabledPresets)
+	redirectExemptGroups := make([]map[string]any, 0, len(nginxconf.RedirectExemptPresetGroups))
+	for _, g := range nginxconf.RedirectExemptPresetGroups {
+		redirectExemptGroups = append(redirectExemptGroups, map[string]any{
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"MatchType": g.MatchType,
+			"Enabled":   enabledRE[g.ID],
+			"DefaultOn": g.DefaultOn,
+		})
+	}
+	redirectExemptRules := make([]map[string]any, 0, len(cur.HTTPSRedirectExempt.Rules))
+	for _, rl := range cur.HTTPSRedirectExempt.Rules {
+		mt := rl.Type
+		if mt != nginxconf.RedirectExemptMatchUA {
+			mt = nginxconf.RedirectExemptMatchPath
+		}
+		redirectExemptRules = append(redirectExemptRules, map[string]any{
+			"Type":     mt,
+			"Pattern":  rl.Pattern,
+			"Title":    rl.Title,
+			"Disabled": rl.Disabled,
+		})
+	}
+
 	// protected paths preset groups: protected-path preset (= unmask / common-admin).
 	// Opt-in: only IDs in EnabledPresets render as checked.  Turning a preset
 	// on inserts a CAPTCHA before admin login, so default OFF is the safe
@@ -578,6 +607,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":           bypassPathGroups,
+		"RedirectExemptGroups":       redirectExemptGroups,
+		"RedirectExemptRules":        redirectExemptRules,
 		// AdvancedEnabled: master reveal-gate for the Web Bot Auth + Privacy Pass
 		// tabs.  Off => their nav links + top-page shortcuts are hidden and the
 		// features are inert (see settings.Nginx.WebBotAuthActive/PrivacyPassActive).
@@ -1072,6 +1103,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applyTrustedLBForm(&cur.Nginx, r)
 		// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
 		cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
+		if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
+			redirBack(err.Error())
+			return
+		}
 	case "ua-filter":
 		applyUAFilterForm(&cur.Nginx, r)
 		// Black-list default action (= independent of rate-limit chain).
@@ -2810,6 +2845,84 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		})
 	}
 	n.BypassPaths.Paths = rows
+	return nil
+}
+
+// applyRedirectExemptForm parses the HTTPS-redirect exemption UI: preset
+// checkboxes (redirect_exempt_preset_enabled) + custom rows (re_type / re_pattern
+// / re_title / re_enabled).  Same deviation model as bypass paths, minus the
+// SeenVersion gate (exemptions have no AddedIn — a missing exemption is the
+// unsafe state, so a default-on preset always applies).
+func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
+	checked := map[string]bool{}
+	for _, id := range r.Form["redirect_exempt_preset_enabled"] {
+		checked[strings.TrimSpace(id)] = true
+	}
+	enabled, disabled := []string{}, []string{}
+	for _, g := range nginxconf.RedirectExemptPresetGroups {
+		switch on := checked[g.ID]; {
+		case on && !g.DefaultOn:
+			enabled = append(enabled, g.ID)
+		case !on && g.DefaultOn:
+			disabled = append(disabled, g.ID)
+		}
+	}
+	n.HTTPSRedirectExempt.EnabledPresets = enabled
+	n.HTTPSRedirectExempt.DisabledPresets = disabled
+
+	types := r.Form["re_type"]
+	pats := r.Form["re_pattern"]
+	titles := r.Form["re_title"]
+	rowEnabled := r.Form["re_enabled"]
+	upds := r.Form["re_updated_at"]
+	maxLen := len(pats)
+	for _, l := range []int{len(types), len(titles), len(rowEnabled), len(upds)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	rows := make([]settings.HTTPSRedirectExemptRule, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var typ, p, t string
+		isEnabled := true
+		var ts int64
+		if i < len(types) {
+			typ = strings.TrimSpace(types[i])
+		}
+		if typ != nginxconf.RedirectExemptMatchUA {
+			typ = nginxconf.RedirectExemptMatchPath
+		}
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(strings.TrimSpace(titles[i]))
+		}
+		if i < len(rowEnabled) {
+			isEnabled = rowEnabled[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.redirect_exempt_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		rows = append(rows, settings.HTTPSRedirectExemptRule{
+			Type:      typ,
+			Pattern:   p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+		})
+	}
+	n.HTTPSRedirectExempt.Rules = rows
 	return nil
 }
 

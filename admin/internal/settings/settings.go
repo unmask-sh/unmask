@@ -596,6 +596,18 @@ type Nginx struct {
 	// call — some prefer to keep catching scanners on the plaintext port.
 	HTTPSRedirect bool `yaml:"https_redirect,omitempty"`
 
+	// HTTPSRedirectExempt lists requests that must NOT be 301'd even when
+	// HTTPSRedirect is on — the redirect fires at the very top of server.inc,
+	// so an un-exempted health check or ACME probe gets redirected before any
+	// gate sees it.  A load-balancer health check that receives a 301 is a
+	// failed check (the LB then drops the node from rotation and its traffic
+	// silently stops), and GCP/AWS/k8s health probes reach the backend
+	// directly without X-Forwarded-Proto, so $unmask_forwarded_proto falls back
+	// to $scheme=http and the redirect fires on them.  ACME (path) and
+	// load-balancer health checks (user-agent) ship as default-on presets;
+	// custom rules add either axis.  Only consulted when HTTPSRedirect is on.
+	HTTPSRedirectExempt HTTPSRedirectExemptConfig `yaml:"https_redirect_exempt,omitempty"`
+
 	// AdvancedEnabled is the master reveal-gate for the standards-based
 	// attestation axes below (Web Bot Auth + Privacy Pass).  They are
 	// implemented and tested, but few clients/agents in the wild emit the
@@ -1034,6 +1046,31 @@ func (b BypassPathsConfig) ResolvePaths(site string) []BypassPath {
 		}
 	}
 	return out
+}
+
+// HTTPSRedirectExemptConfig: which requests skip the HTTP->HTTPS 301.  Same
+// deviation model as BypassPathsConfig — EnabledPresets/DisabledPresets record
+// only departures from each preset's factory default (nginxconf
+// RedirectExemptGroup.DefaultOn), and Rules holds custom per-row exemptions.
+// Unlike bypass presets there is no SeenVersion gate: a missing exemption is
+// the dangerous state (a 301'd health check drops the node), so a default-on
+// exemption applies immediately on upgrade.
+type HTTPSRedirectExemptConfig struct {
+	EnabledPresets  []string                  `yaml:"enabled_presets,omitempty"`
+	DisabledPresets []string                  `yaml:"disabled_presets,omitempty"`
+	Rules           []HTTPSRedirectExemptRule `yaml:"rules,omitempty"`
+}
+
+// HTTPSRedirectExemptRule: one custom exemption row.  Type selects the match
+// axis: "path" tests $request_uri (like a bypass path), "ua" tests
+// $http_user_agent case-insensitively (for load-balancer / monitor probes that
+// vary the path but keep a stable user-agent).  Pattern is a PCRE regex.
+type HTTPSRedirectExemptRule struct {
+	Type      string `yaml:"type"` // "path" | "ua"
+	Pattern   string `yaml:"pattern"`
+	Title     string `yaml:"title,omitempty"`
+	Disabled  bool   `yaml:"disabled,omitempty"`
+	UpdatedAt int64  `yaml:"updated_at,omitempty"`
 }
 
 // ProtectedPathsConfig: protected-paths feature. Forces CAPTCHA / PoW / strict

@@ -52,14 +52,18 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # behind a terminating LB, else $scheme for a direct edge) so it works in both
 # topologies -- $scheme alone would loop behind an HTTPS-terminating LB that
 # forwards to the origin over http.
-# ACME HTTP-01 is excluded with a rewrite-phase `break` rather than a `location`
-# here on purpose: a webroot certbot vhost may already define
-# `location ^~ /.well-known/acme-challenge/`, and a second copy in this include
-# would be a duplicate-location error.  The break stops the rewrite phase for
-# the challenge path, so the redirect `if` below never runs and the request
-# falls through to whatever serves the challenge.  `return` ends processing on
-# the redirected hit, so no later gate runs on it.
-if ($request_uri ~ "^/\.well-known/acme-challenge/") { break; }
+# Exemptions (settings: nginx.https_redirect_exempt) run first as rewrite-phase
+# `break`s: ACME HTTP-01 (path) and load-balancer health checks (user-agent),
+# both default on, plus any custom rules.  A `break` stops the rewrite phase so
+# the redirect `if` below never runs and the request falls through to whatever
+# serves it -- a health check that reaches the backend directly carries no
+# X-Forwarded-Proto, so without this it would 301 and the LB would drop the
+# node.  ACME uses a `break` rather than a `location` on purpose: a webroot
+# certbot vhost may already define `location ^~ /.well-known/acme-challenge/`
+# and a second copy here would be a duplicate-location error.
+{{- range .HTTPSRedirectExempt }}
+{{ if eq .MatchType "ua" }}if ($http_user_agent ~* "{{ .Pattern }}") { break; }{{ else }}if ($request_uri ~ "{{ .Pattern }}") { break; }{{ end }}
+{{- end }}
 if ($unmask_forwarded_proto = "http") {
     return 301 https://$host$request_uri;
 }
