@@ -994,13 +994,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
           <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         </div>
-        {{ else }}
-        <div class="rule-row editing">
-          <input type="text" name="lb_extra_id" placeholder="id (= e.g. internal-lb)" class="rule-pat">
-          <input type="text" name="lb_extra_cidrs" placeholder="CIDR list (comma-separated)" class="rule-verd">
-          <input type="text" name="lb_extra_header" placeholder="X-Client-JA4 (= header name the LB uses to carry JA4)" class="rule-action">
-          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        </div>
         {{ end }}
         <template class="rule-row-template">
           <div class="rule-row editing">
@@ -1027,6 +1020,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="redirect-exempt" style="margin-top:.9rem;border-top:.0625rem solid #e2e8f0;padding-top:.7rem">
       <h3 style="font-size:.9rem;color:#334155;margin:0 0 .2rem">{{ t .Lang "settings.network.redirect_exempt_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.redirect_exempt_desc") }}</span></span></h3>
       <div class="ua-section">
+        <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+        <p class="desc" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.network.redirect_exempt_preset_hint" }}</p>
         {{ range .RedirectExemptGroups }}
         <div class="preset">
           <input type="checkbox" name="redirect_exempt_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="re-{{ .ID }}">
@@ -1036,7 +1031,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
         {{ end }}
       </div>
-      <div class="rule-list" data-rule-name="re_pattern" style="margin-top:.5rem">
+
+      <div class="ua-section">
+        <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+        <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_hint") }}</p>
+        <div class="rule-list" data-rule-name="re_pattern">
         {{ range .RedirectExemptRules }}
         <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
           <input type="checkbox" class="rule-toggle" {{ if not .Disabled }}checked{{ end }}>
@@ -1078,7 +1077,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </div>
         </template>
       </div><!-- /.rule-list -->
-      <button type="button" class="rule-add-bottom" data-target-list="re_pattern">{{ t .Lang "settings.network.redirect_exempt_add" }}</button>
+        <button type="button" class="rule-add-bottom" data-target-list="re_pattern">{{ t .Lang "settings.network.redirect_exempt_add" }}</button>
+      </div><!-- /.ua-section custom -->
     </div><!-- /.redirect-exempt -->
   </div>
 
