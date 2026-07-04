@@ -907,14 +907,21 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		test = "1"
 	}
 
+	// isPreview: the operator's theme-tab iframe (?_preview=1) or an
+	// auth-gated /admin/test/ page.  Must serve the real challenge markup, not
+	// a redirect -- the operator is inspecting the page, not passing it.
+	isPreview := strings.Contains(r.URL.Path, "/admin/test/") || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1"
+
 	// Silent roaming rebind: a client that already solved (valid _bvj) and
 	// merely changed IP gets its _bv re-bound and bounced back instead of a
 	// PoW.  Plain path only -- every forced reason (ja4_bot / honeypot /
 	// banned / protected / rate-limit) and every test/preview path keeps
-	// serving the real challenge.  Placed before the serve event fires so a
-	// rebind never counts as a challenge serve (it isn't one, and inflating
-	// serves/IP here would feed the over-block breaker false positives).
-	if forceReason == "none" && rl == "0" && test == "0" && forceQuery == "" {
+	// serving the real challenge.  Without the preview guard, an operator whose
+	// browser already holds a valid _bv sees the theme preview redirect to the
+	// site instead of rendering the challenge.  Placed before the serve event
+	// fires so a rebind never counts as a challenge serve (it isn't one, and
+	// inflating serves/IP here would feed the over-block breaker false positives).
+	if forceReason == "none" && rl == "0" && test == "0" && forceQuery == "" && !isPreview {
 		if h.tryRebind(w, r, site) {
 			return
 		}
@@ -946,7 +953,6 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// theme's colors via query params so the theme-tab iframes reflect unsaved
 	// edits live.
 	customJSON, customAutoJSON := []byte("null"), []byte("null")
-	isPreview := strings.Contains(r.URL.Path, "/admin/test/") || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1"
 	if theme == "auto" {
 		obj := map[string]any{}
 		if bg, text := ch.CustomColorsFor("light"); bg != "" {
