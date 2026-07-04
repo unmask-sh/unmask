@@ -344,6 +344,7 @@ type renderData struct {
 	ChallengeAll            bool                 // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string             // OR list of UA patterns evaluated when false
 	HTTPSRedirect           bool                 // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	HTTPSRedirectExempt     []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -565,6 +566,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
+	if d.HTTPSRedirect {
+		ex := s.Nginx.HTTPSRedirectExempt
+		custom := make([]CustomExemptRule, 0, len(ex.Rules))
+		for _, r := range ex.Rules {
+			custom = append(custom, CustomExemptRule{Type: r.Type, Pattern: r.Pattern, Disabled: r.Disabled})
+		}
+		d.HTTPSRedirectExempt = ResolveRedirectExemptClauses(ex.EnabledPresets, ex.DisabledPresets, custom)
+	}
 
 	// challenge target UA: all=true is UA-agnostic.  Otherwise enabled presets + extras.
 	d.ChallengeAll = s.Nginx.ChallengeTargets.All
