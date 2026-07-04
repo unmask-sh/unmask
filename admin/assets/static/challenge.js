@@ -114,8 +114,18 @@
     hi:{verify:'{site_name} लोड हो रहा है, एक क्षण...',title:'त्वरित जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'स्वचालित दुरुपयोग रोकने के लिए एक छोटी जाँच।',wrong:'कृपया फिर से प्रयास करें।',enterNum:'कृपया एक संख्या दर्ज करें।',error:'कुछ गलत हो गया। कृपया कुछ देर बाद पुनः प्रयास करें।',checking:'सत्यापित किया जा रहा है…',verified:'सत्यापित',connecting:'{site_name} से कनेक्ट हो रहा है…'}
   };
 
-  // language detection: URL path -> Accept-Language -> default English
+  // language detection: preview override -> URL path -> Accept-Language -> English
   function detectLang(){
+    // Preview override: the admin theme tab / /admin/test/ pages pass
+    // ?_preview_lang=XX so the operator can preview any locale regardless of
+    // their own browser language.  Honored only in a preview context; real
+    // visitors keep path -> Accept-Language detection unchanged.
+    try{
+      var pq=new URLSearchParams(location.search);
+      var isPrev=pq.get('_preview')==='1'||location.pathname.indexOf('/admin/test/')!==-1;
+      var pl=pq.get('_preview_lang');
+      if(isPrev&&pl&&L[pl])return pl;
+    }catch(_){}
     // from URL path: /ja/..., /en/..., etc.
     var m=location.pathname.match(/^\/(en|ja|zh|zht|ko|es|pt|fr|de|ru|it|tr|pl|vi|th|id|ar|hi)\//);
     if(m&&L[m[1]])return m[1];

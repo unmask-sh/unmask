@@ -3344,6 +3344,35 @@ document.addEventListener("DOMContentLoaded", function(){
     </div>
     <p class="theme-preview-hint">{{ t .Lang "settings.theme.preview_hint" }}</p>
 
+    {{/* Preview language: the theme card iframes below render the challenge in
+         the operator's own browser language by default; this lets them check
+         any of the 18 shipped locales without switching browser language. It's
+         a preview-only knob (passed as _preview_lang) -- it does not change what
+         real visitors see (they still get path / Accept-Language detection). */}}
+    <div class="preview-lang-row">
+      <label for="preview-lang">{{ t .Lang "settings.theme.preview_lang_label" }}</label>
+      <select id="preview-lang">
+        <option value="en">English</option>
+        <option value="ja">日本語</option>
+        <option value="zh">简体中文</option>
+        <option value="zht">繁體中文</option>
+        <option value="ko">한국어</option>
+        <option value="es">Español</option>
+        <option value="pt">Português</option>
+        <option value="fr">Français</option>
+        <option value="de">Deutsch</option>
+        <option value="ru">Русский</option>
+        <option value="it">Italiano</option>
+        <option value="tr">Türkçe</option>
+        <option value="pl">Polski</option>
+        <option value="vi">Tiếng Việt</option>
+        <option value="th">ไทย</option>
+        <option value="id">Bahasa Indonesia</option>
+        <option value="ar">العربية</option>
+        <option value="hi">हिन्दी</option>
+      </select>
+    </div>
+
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">
       {{ t .Lang "settings.branding.template_heading" }}
     </div>
@@ -3459,7 +3488,7 @@ document.addEventListener("DOMContentLoaded", function(){
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.ChallengeValues.ShowCredit }}1{{ else }}0{{ end }}"></iframe>
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.ChallengeValues.ShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
@@ -3679,6 +3708,8 @@ document.addEventListener("DOMContentLoaded", function(){
 .preview-link:hover{background:#eff6ff;border-color:#3b82f6}
 .theme-card-actions{display:flex;justify-content:flex-end;gap:.35rem;padding:0 .9rem .8rem}
 .theme-preview-hint{font-size:.8rem;color:#64748b;margin:0 0 .8rem;line-height:1.5}
+.preview-lang-row{display:flex;align-items:center;gap:.5rem;margin:0 0 .8rem;font-size:.82rem;color:#334155}
+.preview-lang-row select{font-size:.82rem;padding:.2rem .4rem;border:.0625rem solid #cbd5e1;border-radius:.3rem;background:#fff;color:#0f172a;cursor:pointer}
 /* PoW spinner-floor row (= preview-only knob, shared localStorage with
  * /unmask/admin/test/).  Mirrors the test page's .theme-picker button
  * style so the two pickers feel like the same control. */
@@ -3807,6 +3838,15 @@ document.addEventListener("DOMContentLoaded", function(){
     var el = document.getElementById('branding-show-credit');
     return el && el.checked ? '1' : '0';
   }
+  function currentPreviewLang(){
+    var el = document.getElementById('preview-lang');
+    return el ? el.value : '';
+  }
+  // Preview-only language override for the challenge iframes + force-* links.
+  function previewLangQS(){
+    var pl = currentPreviewLang();
+    return pl ? '&_preview_lang=' + encodeURIComponent(pl) : '';
+  }
   // Per-theme color override for the preview: {bg,text} when that theme's
   // "customize" box is ticked, else null.  Mirrors the server-side resolution so
   // the iframe / preview link shows exactly what saving would produce.  "auto"
@@ -3854,7 +3894,7 @@ document.addEventListener("DOMContentLoaded", function(){
         '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
         '&_preview_footer_text=' + encodeURIComponent(currentFooterText()) +
         '&_preview_show_credit=' + currentShowCredit() +
-        customColorQS(theme) + logoPreviewQS();
+        customColorQS(theme) + logoPreviewQS() + previewLangQS();
       if (powDisplay !== '') {
         url += '&_pow_display=' + encodeURIComponent(powDisplay);
       }
@@ -3902,7 +3942,7 @@ document.addEventListener("DOMContentLoaded", function(){
                 '&_preview_site_name=' + encodeURIComponent(sn) +
                 '&_preview_footer_text=' + encodeURIComponent(ft) +
                 '&_preview_show_credit=' + currentShowCredit() +
-                customColorQS(theme) + logoPreviewQS();
+                customColorQS(theme) + logoPreviewQS() + previewLangQS();
       f.src = url;
     });
   }
@@ -3946,6 +3986,17 @@ document.addEventListener("DOMContentLoaded", function(){
   // iframe reloads with the new credit visibility.
   var showCreditCb = document.getElementById('branding-show-credit');
   if (showCreditCb) showCreditCb.addEventListener('change', updateAll);
+
+  // Preview language: default to the admin UI language so the first paint
+  // matches what the operator reads, then reload the previews on change.
+  var previewLangSel = document.getElementById('preview-lang');
+  if (previewLangSel) {
+    var uiLang = (document.documentElement.lang || 'en').toLowerCase().split('-')[0];
+    if ([].some.call(previewLangSel.options, function(o){ return o.value === uiLang; })) {
+      previewLangSel.value = uiLang;
+    }
+    previewLangSel.addEventListener('change', updateAll);
+  }
 
   // PoW display-time picker: persist the choice to localStorage and refresh
   // the preview-link hrefs so the next click carries the chosen floor.  Same
