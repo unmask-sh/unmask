@@ -554,7 +554,7 @@ var dict = map[Lang]map[string]string{
 		"kpi.reject":  "challenge 表示",
 
 		// dashboard 内 card 共通 (= h2 / src-badge / 0-row toggle / table header / etc).
-		"dashboard.overblock.banner":         "過剰ブロックを検知 &mdash; 同じ訪問者が challenge を通過できず繰り返し challenge されています",
+		"dashboard.overblock.banner":         "過剰ブロックを検知 — 同じ訪問者が challenge を通過できず繰り返し challenge されています",
 		"dashboard.overblock.autopass_on":    "自動全通過に切替えました (信号が戻るまで challenge を一時停止)",
 		"dashboard.card.funnel":              "チャレンジ ファネル",
 		"dashboard.card.rate_limit":          "レート制限ヒット",
@@ -2079,7 +2079,7 @@ var dict = map[Lang]map[string]string{
 		"kpi.pow":     "PoW passed",
 		"kpi.reject":  "challenge shown",
 
-		"dashboard.overblock.banner":         "Over-block detected &mdash; the same visitors are being re-challenged instead of passing",
+		"dashboard.overblock.banner":         "Over-block detected — the same visitors are being re-challenged instead of passing",
 		"dashboard.overblock.autopass_on":    "Switched to pass-through (challenges paused until the signal recovers)",
 		"dashboard.card.funnel":              "Challenge funnel",
 		"dashboard.card.rate_limit":          "Rate-limit hits",
