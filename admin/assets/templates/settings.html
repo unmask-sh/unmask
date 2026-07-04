@@ -5057,20 +5057,11 @@ document.addEventListener('DOMContentLoaded', function(){
         const newTtl = clone.querySelector('input.rule-title');
         if (newTtl) newTtl.focus();
       } else if (btn.classList.contains('rule-del')) {
-        const rows = list.querySelectorAll('.rule-row');
-        if (rows.length <= 1) {
-          row.querySelectorAll('input[type=text]').forEach(function(i){ i.value = ''; });
-          row.classList.add('editing');
-          row.classList.remove('disabled-row');
-          const cb = row.querySelector('input.rule-toggle');
-          if (cb) cb.checked = true;
-          const hidden = row.querySelector('input[type=hidden][name$="_enabled"]');
-          if (hidden) hidden.value = '1';
-          const ttl = row.querySelector('input.rule-title');
-          if (ttl) ttl.focus();
-        } else {
-          row.remove();
-        }
+        // Delete unconditionally -- an empty list is a legitimate state ("no
+        // custom entries") and every rule-list has an add-bottom button to
+        // start over.  (This used to keep the last row as a cleared editing
+        // row, which read as a stray entry that couldn't be removed.)
+        row.remove();
       }
     });
 
