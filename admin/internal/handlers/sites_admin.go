@@ -77,7 +77,9 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	defined := []string{}
-	for _, line := range strings.Split(r.FormValue("site_defined"), "\n") {
+	// site_defined is now a value-rule-list (one host per row) rather than a
+	// newline textarea, so read the repeated field.
+	for _, line := range r.Form["site_defined"] {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
