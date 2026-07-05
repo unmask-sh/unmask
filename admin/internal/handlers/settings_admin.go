@@ -1609,7 +1609,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// A NON-empty list that excludes the operator's own IP / Host is rejected
 	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
 	// resolved the same way the /admin/* gate resolves them).
-	allow := splitLines(r.FormValue("admin_allowed_ips"))
+	allow := formList(r.Form["admin_allowed_ips"])
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
@@ -1623,13 +1623,13 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
 	// many vhosts).  Matched in-app, never written to nginx config, so no
 	// injection guard is needed beyond the self-lockout check.
-	hosts := splitLines(r.FormValue("admin_allowed_hosts"))
+	hosts := formList(r.Form["admin_allowed_hosts"])
 	if len(hosts) > 0 && !hostAllowed(curHost, hosts) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
 	}
 	n.AdminAllowedHosts = hosts
 
-	mallow := splitLines(r.FormValue("metrics_allow_from"))
+	mallow := formList(r.Form["metrics_allow_from"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.metrics_allow_invalid", a))
@@ -2154,7 +2154,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 
 	// stats_exclude_ips: textarea (one IP / CIDR per line) -- IPs dropped
 	// entirely from statistics.  Validate each entry as IP or CIDR.
-	statsEx := splitLines(r.FormValue("stats_exclude_ips"))
+	statsEx := formList(r.Form["stats_exclude_ips"])
 	for _, ip := range statsEx {
 		if !ipOrCIDRRE.MatchString(ip) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_invalid", ip))
@@ -2512,6 +2512,27 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+// formList sanitizes the per-row values of a structured list field (= the
+// value-rule-list UI that replaced the newline textareas): trim, drop empty,
+// and reject control chars / quotes (the same nginx-injection guard splitLines
+// applies per line).  Order is preserved.
+func formList(vals []string) []string {
+	out := make([]string, 0, len(vals))
+	seen := map[string]bool{}
+	for _, v := range vals {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		if strings.ContainsAny(v, "\"\\\x00\r\n") {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
 
 func splitLines(s string) []string {
 	out := []string{}

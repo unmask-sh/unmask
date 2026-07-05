@@ -99,6 +99,16 @@ var (
 func loadDashboardTemplate() (*template.Template, error) {
 	dashboardTmplOnce.Do(func() {
 		funcs := template.FuncMap{
+			// dict builds a map from alternating key/value args, for passing a
+			// small bundle of named values into a {{ template }} partial.
+			"dict": func(kv ...any) map[string]any {
+				m := make(map[string]any, len(kv)/2)
+				for i := 0; i+1 < len(kv); i += 2 {
+					k, _ := kv[i].(string)
+					m[k] = kv[i+1]
+				}
+				return m
+			},
 			"hasPrefix": strings.HasPrefix,
 			"replace":   strings.ReplaceAll,
 			"lower":     strings.ToLower,

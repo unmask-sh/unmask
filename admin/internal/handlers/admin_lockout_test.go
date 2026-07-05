@@ -20,12 +20,19 @@ func TestApplyNetworkFormLockout(t *testing.T) {
 	const curIP, curHost = "10.0.0.5", "admin.example.com"
 
 	mk := func(allowFrom, allowedHosts string) *http.Request {
+		// admin_allowed_ips / _hosts are now value-rule-lists (one entry per
+		// repeated field), so pass each non-empty value as its own param.
 		form := url.Values{}
-		form.Set("admin_allowed_ips", allowFrom)
-		form.Set("admin_allowed_hosts", allowedHosts)
-		form.Set("metrics_allow_from", "")
+		if allowFrom != "" {
+			form.Add("admin_allowed_ips", allowFrom)
+		}
+		if allowedHosts != "" {
+			form.Add("admin_allowed_hosts", allowedHosts)
+		}
 		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		// applyNetworkForm reads r.Form directly (no FormValue to trigger it).
+		_ = req.ParseForm()
 		return req
 	}
 
