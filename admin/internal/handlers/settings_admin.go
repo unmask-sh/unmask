@@ -607,6 +607,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":           bypassPathGroups,
+		"PrivateNetworkCIDRs":        nginxconf.PrivateNetworkCIDRs,
 		"RedirectExemptGroups":       redirectExemptGroups,
 		"RedirectExemptRules":        redirectExemptRules,
 		// AdvancedEnabled: master reveal-gate for the Web Bot Auth + Privacy Pass
@@ -2160,6 +2161,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		}
 	}
 	n.StatsExcludeIPs = statsEx
+	n.StatsExcludePrivateNetworks = r.FormValue("stats_exclude_private_networks") == "1"
 	return nil
 }
 
