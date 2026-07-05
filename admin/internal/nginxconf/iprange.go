@@ -25,6 +25,22 @@ import (
 	"github.com/unmask-sh/unmask/admin/assets"
 )
 
+// PrivateNetworkCIDRs is the stats-exclude "private networks" preset: RFC1918 +
+// loopback + link-local, IPv4 and IPv6.  Deliberately NOT including CGNAT
+// (100.64.0.0/10) — that is shared address space carrying real ISP/mobile
+// users, not internal traffic.  Appended to StatsExcludeIPs at render time when
+// nginx.stats_exclude_private_networks is on.
+var PrivateNetworkCIDRs = []string{
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"127.0.0.0/8",    // loopback
+	"169.254.0.0/16", // IPv4 link-local
+	"::1/128",        // IPv6 loopback
+	"fe80::/10",      // IPv6 link-local
+	"fc00::/7",       // IPv6 unique-local (ULA)
+}
+
 // BypassIPGroup: one source of an official IP range.
 //
 // Enabled per-group via config.yml's nginx.bypass_ip_enabled_presets (= list
