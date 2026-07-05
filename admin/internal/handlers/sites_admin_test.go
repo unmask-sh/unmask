@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -129,9 +130,15 @@ func TestSettingsSitesTabRender(t *testing.T) {
 // normalization and de-duplication of the defined-list textarea.
 func TestApplySitesForm(t *testing.T) {
 	c := &settings.SiteAcceptanceConfig{}
+	// site_defined is now a value-rule-list: one host per repeated field rather
+	// than a newline textarea.  Split the fixture on \n and pass each row.
 	form := func(mode, defined string) *http.Request {
-		r := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(
-			"site_mode="+mode+"&site_defined="+strings.ReplaceAll(defined, "\n", "%0A")))
+		vals := url.Values{}
+		vals.Set("site_mode", mode)
+		for _, line := range strings.Split(defined, "\n") {
+			vals.Add("site_defined", line)
+		}
+		r := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(vals.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		return r
 	}

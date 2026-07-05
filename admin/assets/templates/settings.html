@@ -1,3 +1,24 @@
+{{/* valueRuleList: a structured one-value-per-row list (replaces the old
+     newline textareas).  dict args: Name (form field, repeated per row),
+     Values ([]string current entries), Placeholder, Lang.  Each row is a plain
+     value input + delete; the shared rule-list JS handles add/delete. */}}
+{{ define "valueRuleList" }}
+<div class="rule-list" data-rule-name="{{ .Name }}">
+  {{ range .Values }}
+  <div class="rule-row editing">
+    <input type="text" name="{{ $.Name }}" value="{{ . }}" placeholder="{{ $.Placeholder }}" class="rule-pat">
+    <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+  </div>
+  {{ end }}
+  <template class="rule-row-template">
+    <div class="rule-row editing">
+      <input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat">
+      <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+    </div>
+  </template>
+</div>
+<button type="button" class="rule-add-bottom" data-target-list="{{ .Name }}">{{ t .Lang "settings.ua.add_new" }}</button>
+{{ end }}
 <!DOCTYPE html>
 <html lang="{{ .Lang }}">
 <head>
@@ -634,8 +655,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if not .Cur.AdminAllowedIPs }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" (len .Cur.AdminAllowedIPs) }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      <textarea name="admin_allowed_ips">{{ range .Cur.AdminAllowedIPs }}{{ . }}
-{{ end }}</textarea>
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
     </div>
   </div>
 
@@ -645,8 +665,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if not .Cur.AdminAllowedHosts }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" (len .Cur.AdminAllowedHosts) }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      <textarea name="admin_allowed_hosts">{{ range .Cur.AdminAllowedHosts }}{{ . }}
-{{ end }}</textarea>
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Placeholder" "admin.example.com" "Lang" .Lang) }}
     </div>
   </div>
   <style>
@@ -658,8 +677,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      <textarea name="metrics_allow_from">{{ range .Cur.MetricsAllowFrom }}{{ . }}
-{{ end }}</textarea>
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
     </div>
   </div>
 
@@ -1377,8 +1395,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
       <div class="field">
         <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
-        <textarea name="stats_exclude_ips">{{ range .Cur.StatsExcludeIPs }}{{ . }}
-{{ end }}</textarea>
+        {{ template "valueRuleList" (dict "Name" "stats_exclude_ips" "Values" .Cur.StatsExcludeIPs "Placeholder" "10.8.100.1" "Lang" .Lang) }}
       </div>
     </div>
   </div>
@@ -4638,10 +4655,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
   <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
-  <textarea name="site_defined" rows="8" spellcheck="false"
-    style="width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:.85rem;padding:.5rem;border:1px solid #cbd5e1;border-radius:.3rem"
-    placeholder="{{ t .Lang "settings.sites.defined_ph" }}">{{ range .SitesConfig.Defined }}{{ . }}
-{{ end }}</textarea>
+  {{ template "valueRuleList" (dict "Name" "site_defined" "Values" .SitesConfig.Defined "Placeholder" "shop.example.com" "Lang" .Lang) }}
 </div>
 
 <div class="bcd-card">
