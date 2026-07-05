@@ -1358,10 +1358,28 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.stats_exclude.title" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.stats_exclude.desc") }}</span></span></h2>
-    <div class="field">
-      <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
-      <textarea name="stats_exclude_ips">{{ range .Cur.StatsExcludeIPs }}{{ . }}
+
+    <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.stats_exclude.preset_hint") }}</p>
+      <div class="preset lb-preset">
+        <input type="checkbox" name="stats_exclude_private_networks" value="1" {{ if .Cur.StatsExcludePrivateNetworks }}checked{{ end }} id="stx-private">
+        <label for="stx-private" class="lbl">
+          <div class="ttl">{{ t $.Lang "settings.stats_exclude.private_label" }}<span class="added">{{ t $.Lang "settings.stats_exclude.default_off" }}</span></div>
+          <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
+            <details class="lb-cidrs"><summary>{{ len .PrivateNetworkCIDRs }} CIDRs</summary><div class="lb-cidrs-body">{{ range .PrivateNetworkCIDRs }}<div>{{ . }}</div>{{ end }}</div></details>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <div class="ua-section">
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <div class="field">
+        <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
+        <textarea name="stats_exclude_ips">{{ range .Cur.StatsExcludeIPs }}{{ . }}
 {{ end }}</textarea>
+      </div>
     </div>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>

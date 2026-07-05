@@ -515,6 +515,15 @@ type Nginx struct {
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
 	// they never reach the funnel / cookie / crawler aggregation.
 	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
+	// StatsExcludePrivateNetworks, when on, appends the private-network CIDRs
+	// (RFC1918 + loopback + link-local, IPv4 and IPv6) to StatsExcludeIPs at
+	// render time — a convenience preset for dropping internal monitoring / LAN
+	// noise from the dashboard.  Off by default: an intranet deployment serves
+	// real users from private addresses, and StatsExcludeIPs also bypasses the
+	// challenge, so turning this on there would drop those users from stats AND
+	// stop protecting them.  The operator opts in only on an internet-facing
+	// site where private-source traffic is genuinely internal.
+	StatsExcludePrivateNetworks bool `yaml:"stats_exclude_private_networks,omitempty"`
 	// AdminAllowedIPs: source-IP allowlist for /admin/* (= the admin UI),
 	// enforced at the admin handler layer (AdminIPAllowMiddleware).  Empty =
 	// no IP restriction (login + CSRF + login rate-limit still apply).

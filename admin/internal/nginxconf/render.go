@@ -529,7 +529,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		UpstreamAddr:          defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
 		UpstreamServer:        buildUpstreamServer(s),
 		BypassIPs:             mergeBypassIPs(s),
-		StatsExcludeIPs:       sanitizeIPs(s.Nginx.StatsExcludeIPs),
+		StatsExcludeIPs:       sanitizeIPs(statsExcludeList(s.Nginx)),
 		BanFilePath:           trimSpaceAndQuotes(s.Nginx.Honeypot.BanFilePath),
 		NginxLogSocket:        s.NginxLog.SocketPath,
 		NginxLogEnabled:       s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
@@ -1302,6 +1302,16 @@ func sanitizeBypassIPs(ips []string, disabled []bool) []string {
 // it.  Invalid values are sunk into a black hole (= prevent nginx
 // startup failure).  Input order is preserved (= the order the
 // operator wrote them in yml = the order shown in the web textarea).
+// statsExcludeList returns the operator's StatsExcludeIPs plus the private-
+// network CIDRs when the preset is on (appended, not stored — the config keeps
+// only the toggle + the custom list).
+func statsExcludeList(n settings.Nginx) []string {
+	if !n.StatsExcludePrivateNetworks {
+		return n.StatsExcludeIPs
+	}
+	return append(append([]string{}, n.StatsExcludeIPs...), PrivateNetworkCIDRs...)
+}
+
 func sanitizeIPs(xs []string) []string {
 	out := make([]string, 0, len(xs))
 	seen := map[string]bool{}
