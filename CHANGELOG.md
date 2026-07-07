@@ -8,6 +8,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.4] — 2026-07-08
+
+### Added
+- (2026-07-05) **Stats-exclude "private networks" preset.**  The stats-exclude section (network bypass-IPs tab) gains a default-off preset that drops RFC1918 / loopback / link-local addresses (IPv4 + IPv6, not CGNAT) from statistics in one click, shown with the same preset / custom badges as the other lists.  Off by default on purpose: stats-exclude also bypasses the challenge, so an intranet site whose real users come from private addresses would lose protection and vanish from stats — the operator opts in only on an internet-facing site to drop internal-monitoring noise.
+- (2026-07-04) **`unmask doctor` probes :80 as a load-balancer health checker and warns on a redirect.**  When `https_redirect` is on it sends a `GoogleHC`-user-agent request with no `X-Forwarded-Proto` (like a real LB probe reaching the backend directly) and warns if it comes back 301/302 -- a redirect to a health check is a failed check, so the LB drops the node.  Silent with the load-balancer-health exemption on (the default); fires only when that exemption was turned off.
+
+### Changed
+- (2026-07-05) **Custom IP / host list fields are now structured rows, not newline textareas.**  The admin-IP allowlist, admin-host allowlist, metrics allowlist, stats-exclude list, and defined-sites list each become an add/delete row list (one value per row), matching the whitelist-IP / bypass-path style.  The rate-limit zone paths (a compact cell in the zone table) and the Privacy-Pass issuer key (a multi-line key blob) stay as textareas — they are not standalone value lists.
+- (2026-07-04) **Network-tab wording fixes.**  The IP-geo "not loaded" hint pointed at the wrong side ("the button on the right" -> "on the left"; the download button is to its left), and the trusted-LB custom-row placeholders now localize (the technical tokens CIDR / X-Client-JA4 stay as-is).
+- (2026-07-04) **The last row of a custom rule list can now be deleted.**  Every rule list (bypass paths, trusted-LB extras, redirect exemptions, honeypot / protected paths, UA extras) used to keep one cleared row when the operator deleted the final entry, which read as a stray entry that could not be removed; an empty list is a legitimate state, and the Add button below each list starts a new one.
+- (2026-07-04) **The HTTPS-redirect exemptions now use the same preset / custom two-badge layout as the trusted-LB section**, and the trusted-LB custom list no longer opens with a blank row by default (click Add to insert one).
+
+### Fixed
+- (2026-07-05) **The "already BANned" pill was clipped in the hunt raw-log table.**  The events table uses `table-layout:fixed` with the wrapper's horizontal scroll disabled, and the actions column was 4rem — too narrow for the ~6rem pill, so its right edge was cut off.  Widen the column to fit.  The pill label also moves to the i18n catalog (Japanese "BAN 済み"), replacing the hardcoded English.
+
 ## [0.1.3] — 2026-07-04
 
 ### Fixed
@@ -1160,6 +1175,7 @@ the 2026-05-07 ~ 2026-05-24 polish work in between.
 - Only 3 third-party Go deps (sqlite / mysql driver / yaml).
 - nginx module written in C as a dynamic module. `--with-compat` supported.
 
+[0.1.4]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.4
 [0.1.3]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.3
 [0.1.2]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.2
 [0.1.1]: https://github.com/unmask-sh/unmask/releases/tag/v0.1.1

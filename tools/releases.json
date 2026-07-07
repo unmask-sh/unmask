@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.3",
+  "latest": "0.1.4",
   "releases": [
+    {
+      "version": "0.1.4",
+      "date": "2026-07-08",
+      "notes": "Admin-settings polish and a health-check safety net: unmask doctor now probes :80 as a load-balancer health checker and warns if a redirect would drop the node, the network tab's custom IP / host lists become structured add/delete rows instead of newline textareas (with a default-off private-networks preset for stats-exclude), the HTTPS-redirect exemptions adopt the preset/custom two-badge layout, you can delete the last row of any custom list, and the hunt log's clipped 'already BANned' pill is fixed and localized."
+    },
     {
       "version": "0.1.3",
       "date": "2026-07-04",
