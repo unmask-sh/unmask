@@ -2515,8 +2515,8 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 
 // formList sanitizes the per-row values of a structured list field (= the
 // value-rule-list UI that replaced the newline textareas): trim, drop empty,
-// and reject control chars / quotes (the same nginx-injection guard splitLines
-// applies per line).  Order is preserved.
+// dedup, and reject control chars / quotes (an nginx-config-injection guard).
+// Order is preserved.
 func formList(vals []string) []string {
 	out := make([]string, 0, len(vals))
 	seen := map[string]bool{}
@@ -2530,22 +2530,6 @@ func formList(vals []string) []string {
 		}
 		seen[v] = true
 		out = append(out, v)
-	}
-	return out
-}
-
-func splitLines(s string) []string {
-	out := []string{}
-	for _, ln := range strings.Split(s, "\n") {
-		ln = strings.TrimSpace(ln)
-		if ln == "" {
-			continue
-		}
-		// Reject lines with control chars / quotes (= nginx config injection guard)
-		if strings.ContainsAny(ln, "\"\\\x00\r") {
-			continue
-		}
-		out = append(out, ln)
 	}
 	return out
 }
