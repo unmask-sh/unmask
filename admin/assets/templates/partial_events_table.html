@@ -83,7 +83,7 @@
       </span></span></th>
       <th>URL</th>
       <th>UA</th>
-      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
+      {{ if not .HideActions }}<th style="width:7rem"></th>{{ end }}
     </tr>
   </thead>
   <tbody>
@@ -107,9 +107,9 @@
         {{ if .Banned }}
           <span class="rank-registered">
             {{ if .Ban }}
-            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">already BANned<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
+            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">{{ t $.Lang "hunt.already_banned" }}<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
             {{ else }}
-            <span class="action-pill action-bot">already BANned</span>
+            <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
             {{ end }}
           </span>
         {{ else }}
