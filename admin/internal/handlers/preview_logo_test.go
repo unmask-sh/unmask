@@ -61,10 +61,10 @@ func TestIsPreviewLogoToken(t *testing.T) {
 		{valid, true},
 		{"0123456789abcdef0123456789abcdef", true},
 		{"", false},
-		{strings.Repeat("a", 31), false},  // too short
-		{strings.Repeat("a", 33), false},  // too long
-		{strings.Repeat("g", 32), false},  // non-hex
-		{strings.Repeat("A", 32), false},  // uppercase not minted
+		{strings.Repeat("a", 31), false}, // too short
+		{strings.Repeat("a", 33), false}, // too long
+		{strings.Repeat("g", 32), false}, // non-hex
+		{strings.Repeat("A", 32), false}, // uppercase not minted
 		{"../../etc/passwd0000000000000000", false},
 	}
 	for _, c := range cases {

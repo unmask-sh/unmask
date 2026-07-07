@@ -28,12 +28,12 @@ func TestSettingsThemeTabLogoPreviewWiring(t *testing.T) {
 		`id="branding-logo-file"`,
 		`id="branding-logo-thumb"`,
 		`id="branding-logo-thumb-wrap"`,
-		`unmask:logo-preview`,                 // the broadcast event both preview scripts listen for
-		`__unmaskPreviewLogo`,                 // the shared token flag
-		`function logoQS(`,                    // deny IIFE helper
-		`function logoPreviewQS(`,             // challenge IIFE helper
-		`/unmask/admin/test/preview-logo`,     // the ephemeral upload endpoint
-		`settings.branding.logo_selected`,     // would appear only if untranslated; sanity that the i18n key resolves below
+		`unmask:logo-preview`,             // the broadcast event both preview scripts listen for
+		`__unmaskPreviewLogo`,             // the shared token flag
+		`function logoQS(`,                // deny IIFE helper
+		`function logoPreviewQS(`,         // challenge IIFE helper
+		`/unmask/admin/test/preview-logo`, // the ephemeral upload endpoint
+		`settings.branding.logo_selected`, // would appear only if untranslated; sanity that the i18n key resolves below
 	} {
 		// the i18n key itself must NOT appear literally (it should be translated)
 		if m == `settings.branding.logo_selected` {

@@ -339,11 +339,11 @@ type renderData struct {
 	// rules group by Site and are emitted as separate path-only maps + a host
 	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
 	// no anchor stripping needed because no map ever concatenates host + uri.
-	BypassPathsGlobal       []string             // patterns from rules with Site == ""
-	BypassPathsPerHost      []BypassPathHostMaps // one entry per unique non-empty Site
-	ChallengeAll            bool                 // true -> $is_challenge_target = 1 (= UA-agnostic)
-	ChallengeTargetPatterns []string             // OR list of UA patterns evaluated when false
-	HTTPSRedirect           bool                 // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	BypassPathsGlobal       []string               // patterns from rules with Site == ""
+	BypassPathsPerHost      []BypassPathHostMaps   // one entry per unique non-empty Site
+	ChallengeAll            bool                   // true -> $is_challenge_target = 1 (= UA-agnostic)
+	ChallengeTargetPatterns []string               // OR list of UA patterns evaluated when false
+	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
 	HTTPSRedirectExempt     []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
