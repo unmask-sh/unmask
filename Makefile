@@ -10,7 +10,7 @@
 #   make clean              remove dist/, build/
 #
 # Environment variables:
-#   UNMASK_VERSION   (default: 0.1.3)  package version
+#   UNMASK_VERSION   (default: 0.1.4)  package version
 #   GOOS             (default: linux)
 #   GOARCH           (default: detected host arch.  amd64 / arm64 / 386 / etc.)
 #   NGINX_VERSION    (default: 1.26.2) nginx source version (for module build)
@@ -27,7 +27,7 @@
 #   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)
 #
 
-UNMASK_VERSION ?= 0.1.3
+UNMASK_VERSION ?= 0.1.4
 GOOS           ?= linux
 # Default from `go env`; on hosts without Go (e.g. the arm64 qemu builder
 # container running build-module-multi) fall back to uname -m, NOT a hardcoded
