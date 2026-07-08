@@ -10,11 +10,13 @@ import (
 )
 
 // renderRate renders the nginx snippets for a config whose only rate-limit
-// zones are `zones`, returning the requested file's content.  A "deny" zone
-// flips the render into compose mode (protect.inc runs limit_req in dry-run and
-// the plugin's ACCESS-phase handler composes the rate + captcha decision);
-// without one the render stays on the classic error_page-429 + rewrite flow.
-func renderRate(t *testing.T, zones []settings.RateZone, file string) string {
+// zones are `zones` and whose Nginx.RateComposeMode is `mode` ("always" →
+// compose: limit_req dry-run + the plugin's ACCESS composition; "never" →
+// classic: error_page-429 + REWRITE-phase rewrite), returning the requested
+// file's content.  Compose vs classic is decided by nginx capability
+// (RateComposeMode / the startup probe), NOT by whether a deny zone exists, so
+// tests pin the mode explicitly -- a unit test never probes the host nginx.
+func renderRate(t *testing.T, zones []settings.RateZone, mode, file string) string {
 	t.Helper()
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "nginx.conf")
@@ -24,6 +26,7 @@ func renderRate(t *testing.T, zones []settings.RateZone, file string) string {
 	var s settings.Settings
 	s.Nginx.OutputDir = dir
 	s.Nginx.ConfPath = conf
+	s.Nginx.RateComposeMode = mode
 	s.RateLimit.Zones = zones
 	if err := Render(s, dir, "test"); err != nil {
 		t.Fatalf("Render: %v", err)
@@ -49,10 +52,11 @@ func challengeZones() []settings.RateZone {
 	}}
 }
 
-// renderDefaultDeny renders with the GLOBAL default rate zone in "deny" mode --
-// the OTHER ComposeMode trigger (render.go flips compose for a deny default as
-// well as for a deny path-zone), exercised by no test above.
-func renderDefaultDeny(t *testing.T, file string) string {
+// renderDefaultDeny renders with the GLOBAL default rate zone in "deny" mode and
+// the given compose `mode`.  A deny default is one of the deny configurations
+// whose classic-mode fallback the warning path covers; in compose (mode
+// "always") it exercises the deny-wins-over-challenge composition.
+func renderDefaultDeny(t *testing.T, mode, file string) string {
 	t.Helper()
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "nginx.conf")
@@ -62,6 +66,7 @@ func renderDefaultDeny(t *testing.T, file string) string {
 	var s settings.Settings
 	s.Nginx.OutputDir = dir
 	s.Nginx.ConfPath = conf
+	s.Nginx.RateComposeMode = mode
 	s.RateLimit.Default.ChallengeMode = settings.RateChallengeDeny
 	if err := Render(s, dir, "test"); err != nil {
 		t.Fatalf("Render: %v", err)
@@ -77,8 +82,8 @@ func renderDefaultDeny(t *testing.T, file string) string {
 // also flip the render into compose mode -- guards render.go's second
 // ComposeMode trigger, which the path-zone tests above don't reach.
 func TestComposeFromGlobalDenyDefault(t *testing.T) {
-	httpInc := renderDefaultDeny(t, "http.inc")
-	protect := renderDefaultDeny(t, "protect.inc")
+	httpInc := renderDefaultDeny(t, "always", "http.inc")
+	protect := renderDefaultDeny(t, "always", "protect.inc")
 	if !strings.Contains(httpInc, "map $unmask_compose $unmask_co_orig {") {
 		t.Error("a deny DEFAULT zone must render the compose-gated recovery maps")
 	}
@@ -96,9 +101,9 @@ func TestComposeFromGlobalDenyDefault(t *testing.T) {
 // the /unmask/_rl URI suffix), split into a clean path + args by http.inc maps.
 // This guards every moving part of that recovery, including the security gate.
 func TestComposeFailOpenRecovery(t *testing.T) {
-	httpInc := renderRate(t, denyZones(), "http.inc")
-	server := renderRate(t, denyZones(), "server.inc")
-	protect := renderRate(t, denyZones(), "protect.inc")
+	httpInc := renderRate(t, denyZones(), "always", "http.inc")
+	server := renderRate(t, denyZones(), "always", "server.inc")
+	protect := renderRate(t, denyZones(), "always", "protect.inc")
 
 	t.Run("http_inc_recovery_maps", func(t *testing.T) {
 		for _, want := range []string{
@@ -179,9 +184,9 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 // protect.inc keeps its REWRITE-phase challenge gate (which saves the original
 // and survives via `rewrite ... last`).
 func TestClassicConfigUnaffected(t *testing.T) {
-	httpInc := renderRate(t, challengeZones(), "http.inc")
-	server := renderRate(t, challengeZones(), "server.inc")
-	protect := renderRate(t, challengeZones(), "protect.inc")
+	httpInc := renderRate(t, challengeZones(), "never", "http.inc")
+	server := renderRate(t, challengeZones(), "never", "server.inc")
+	protect := renderRate(t, challengeZones(), "never", "protect.inc")
 
 	t.Run("no_compose_recovery", func(t *testing.T) {
 		for _, bad := range []string{"$unmask_co_orig", "$unmask_rl_orig", "$unmask_orig_arg_path"} {

@@ -48,6 +48,14 @@ func cmdRenderNginx(args []string) error {
 	// pulled are unaffected.
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
 
+	// Probe nginx so Render's "auto" rate-compose mode resolves the SAME way the
+	// daemon does (compose on nginx 1.17.1+, classic below) -- otherwise a
+	// standalone render on a modern host would emit classic while serve emits
+	// compose.  Skipped (→ classic) when nginx isn't on PATH.  See cmdServe.
+	if dry, _, ok := nginxconf.DetectDryRunSupport(); ok {
+		nginxconf.SetDryRunSupported(dry)
+	}
+
 	// renderedFiles: the files nginxconf.Render writes, relative to outDir.
 	// Keep in sync with internal/nginxconf/render.go::Render.
 	renderedFiles := []string{
