@@ -352,6 +352,12 @@ type Row struct {
 	// "bv_rebind_reject(ja4_mismatch)" / "bv_rebind(ja4_relaxed)" so an operator
 	// sees WHY/HOW a roaming rebind went the way it did.
 	Reason string `json:"reason,omitempty"`
+	// ForceReason: why a challenge was forced, sourced from payload
+	// "force_reason" (rate_limit / ja4_bot / honeypot / banned / protected /
+	// test / none).  Present on phase=serve rows.  Distinct from Reason above
+	// (the roaming-rebind cause); notably surfaces rate_limit so a rate-limit
+	// block is greppable / countable from `unmask events`.
+	ForceReason string `json:"force_reason,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -398,6 +404,13 @@ func extractRef(payload string) string {
 // asn_mismatch / cap).  Empty on phases that don't carry it.
 func extractReason(payload string) string {
 	return extractStringField(payload, "reason", 24)
+}
+
+// extractForceReason pulls "force_reason" out of payload_json -- why a challenge
+// was forced (rate_limit / ja4_bot / honeypot / banned / protected / test /
+// none).  Recorded on phase=serve rows; empty elsewhere.
+func extractForceReason(payload string) string {
+	return extractStringField(payload, "force_reason", 24)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
@@ -621,6 +634,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 		r.BeaconToken = extractBeaconToken(payload.String)
 		r.Ref = extractRef(payload.String)
 		r.Reason = extractReason(payload.String)
+		r.ForceReason = extractForceReason(payload.String)
 		out = append(out, r)
 	}
 	return out, rows.Err()

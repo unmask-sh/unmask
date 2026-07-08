@@ -1243,8 +1243,16 @@ func cmdEvents(args []string) error {
 			continue
 		}
 		for _, r := range rows {
-			fmt.Printf("[%d] %s %-9s host=%-12s site=%-8s ip=%-15s ja4=%s verdict=%s flags=%d ua=%q\n",
-				r.ID, r.Date, r.Phase, r.Host, r.Site, r.IP, r.JA4, r.Verdict, r.Flags, truncForCLI(r.UA, 60))
+			// reason = payload force_reason ("-" when absent).  Surfaces WHY a
+			// challenge fired -- notably `reason=rate_limit`, so a rate-limit
+			// block is greppable / countable straight from the CLI
+			// (`unmask events --since 0 | grep reason=rate_limit`).
+			reason := r.ForceReason
+			if reason == "" {
+				reason = "-"
+			}
+			fmt.Printf("[%d] %s %-9s host=%-12s site=%-8s ip=%-15s ja4=%s verdict=%s flags=%d reason=%-10s ua=%q\n",
+				r.ID, r.Date, r.Phase, r.Host, r.Site, r.IP, r.JA4, r.Verdict, r.Flags, reason, truncForCLI(r.UA, 60))
 			if r.ID > sinceID {
 				sinceID = r.ID
 			}
