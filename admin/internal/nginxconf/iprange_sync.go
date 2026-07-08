@@ -339,7 +339,9 @@ func (s *Sync) writeSource(dir, file string, src AggregatedSource) error {
 		Prefixes     []prefixEntry `json:"prefixes"`
 	}{CreationTime: src.CreationTime}
 	for _, p := range src.Prefixes {
-		payload.Prefixes = append(payload.Prefixes, prefixEntry{IPv4Prefix: p.IPv4Prefix, IPv6Prefix: p.IPv6Prefix})
+		// prefixEntry has the same fields as AggregatedPrefix; a conversion
+		// avoids re-listing them (staticcheck S1016).
+		payload.Prefixes = append(payload.Prefixes, prefixEntry(p))
 	}
 	out, err := json.Marshal(payload)
 	if err != nil {

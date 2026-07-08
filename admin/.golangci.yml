@@ -81,6 +81,7 @@ linters:
         - G706        # log.Printf of ip / path -- admin-only logs, no untrusted sink
         - G710        # redirects pass isLocalRedirect (rejects //host and /\host) upstream
         - G124        # cookies set Secure dynamically from request TLS (setup wizard needs HTTP)
+        - G122        # `unmask doctor`'s WalkDir scans the operator-owned nginx config dir for .conf files -- a trusted local path, not attacker input; the traversal gains no privilege
     revive:
       rules:
         - name: blank-imports
@@ -93,3 +94,5 @@ linters:
     rules:
       - path: _test\.go$
         linters: [gosec, errcheck]   # test fixtures intentionally ignore errors
+      - linters: [staticcheck]
+        text: "QF1001"   # De Morgan quickfix -- the negated `!(range || range || range)` reads clearer than the expanded &&-of-ors; keep the explicit form

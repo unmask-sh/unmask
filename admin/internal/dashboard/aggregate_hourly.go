@@ -75,14 +75,6 @@ func hourColExpr(d *db.DB, col string) string {
 	return "DATE_FORMAT(" + col + ", '%Y-%m-%d %H')"
 }
 
-// hourAgoExpr is SQL for the 'YYYY-MM-DD HH' bucket n hours before now.
-func hourAgoExpr(d *db.DB, n int) string {
-	if d.Driver == db.DriverSQLite {
-		return fmt.Sprintf("strftime('%%Y-%%m-%%d %%H', 'now', '-%d hours')", n)
-	}
-	return fmt.Sprintf("DATE_FORMAT(NOW() - INTERVAL %d HOUR, '%%Y-%%m-%%d %%H')", n)
-}
-
 // hourAgoTimestamp is SQL for the hour-aligned timestamp n hours before now
 // ('YYYY-MM-DD HH:00:00'), so the funnel's raw distinct-IP queries cover the
 // same window boundary as the aggregate.
@@ -99,14 +91,6 @@ func dayAgoExpr(d *db.DB, n int) string {
 		return fmt.Sprintf("strftime('%%Y-%%m-%%d %%H', 'now', '-%d days')", n)
 	}
 	return fmt.Sprintf("DATE_FORMAT(NOW() - INTERVAL %d DAY, '%%Y-%%m-%%d %%H')", n)
-}
-
-// dateAgoExpr is SQL for the 'YYYY-MM-DD' day-bucket n days before now.
-func dateAgoExpr(d *db.DB, n int) string {
-	if d.Driver == db.DriverSQLite {
-		return fmt.Sprintf("strftime('%%Y-%%m-%%d', 'now', '-%d days')", n)
-	}
-	return fmt.Sprintf("DATE_FORMAT(NOW() - INTERVAL %d DAY, '%%Y-%%m-%%d')", n)
 }
 
 type hourlyKey struct{ hour, kind, key string }
