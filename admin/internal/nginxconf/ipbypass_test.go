@@ -67,3 +67,34 @@ func TestBypassIPCIDRsIncludesPresets(t *testing.T) {
 		t.Fatal("matcher built from google-common is empty")
 	}
 }
+
+// Forward-auth parity: stats_exclude_ips are folded into the native
+// geo $is_bypass_ip (they skip the challenge), so the IPBypassMatcher the
+// forward-auth authcheck consults must match them too -- otherwise a monitoring
+// probe from a stats-exclude IP is challenged on a forward-auth host (tool1-sg)
+// but passes on a native one (tool1-jp/us/gb), a permanent xymon false-positive.
+func TestIPBypassMatcherIncludesStatsExclude(t *testing.T) {
+	var n settings.Nginx // no explicit bypass_ips rows: the IPs come only from stats_exclude
+	n.StatsExcludeIPs = []string{"10.8.100.1", "153.121.77.40"}
+	m := NewIPBypassMatcher(n)
+	for _, ip := range []string{"10.8.100.1", "153.121.77.40"} {
+		if !m.Match(ip) {
+			t.Errorf("stats-exclude IP %s must bypass the forward-auth challenge (native $is_bypass_ip folds it in)", ip)
+		}
+	}
+	if m.Match("8.8.8.8") {
+		t.Error("an IP in neither bypass_ips nor stats_exclude must not match")
+	}
+
+	// The private-networks stats-exclude preset bypasses in native (folded into
+	// $is_bypass_ip when on); forward-auth must agree.
+	var p settings.Nginx
+	p.StatsExcludePrivateNetworks = true
+	mp := NewIPBypassMatcher(p)
+	if !mp.Match("10.1.2.3") || !mp.Match("192.168.5.5") {
+		t.Error("private-networks stats-exclude preset must bypass RFC1918 in forward-auth too")
+	}
+	if mp.Match("8.8.8.8") {
+		t.Error("a public IP must not match the private-networks preset")
+	}
+}

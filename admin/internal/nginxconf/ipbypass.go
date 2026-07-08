@@ -54,8 +54,15 @@ func (m *IPBypassMatcher) Empty() bool {
 	return m == nil || (len(m.nets) == 0 && len(m.ips) == 0)
 }
 
-// BypassIPCIDRs collects every bypass range: the enabled presets expanded to
-// CIDRs plus the enabled bypass_ips rows (disabled rows skipped).
+// BypassIPCIDRs collects every IP/CIDR that the native `geo $is_bypass_ip` block
+// exempts from the challenge, so the forward-auth authcheck's IPBypassMatcher
+// mirrors it exactly.  Without a match, native mode lets an IP through while a
+// forward-auth host challenges the same IP (a monitoring probe from a
+// stats-exclude IP was challenged on forward-auth tool1-sg but passed on the
+// native hosts).  The set is: enabled bypass presets expanded to CIDRs, the
+// enabled bypass_ips rows (disabled rows skipped), and the stats-exclude list --
+// render.go folds all three into $is_bypass_ip (stats-exclude IPs skip the
+// challenge too, since a monitoring probe wants both stats exclusion and bypass).
 func BypassIPCIDRs(n settings.Nginx) []string {
 	out := FlattenBypassPresets(n.BypassIPEnabledPresets)
 	for i, ip := range n.BypassIPs {
@@ -66,6 +73,11 @@ func BypassIPCIDRs(n settings.Nginx) []string {
 			out = append(out, ip)
 		}
 	}
+	// stats_exclude_ips (+ the private-networks preset) are folded into
+	// $is_bypass_ip by the native render, so they must bypass the challenge in
+	// forward-auth mode too — else the two modes derive "bypass IP" from
+	// different sets and disagree on the same request.
+	out = append(out, statsExcludeList(n)...)
 	return out
 }
 
