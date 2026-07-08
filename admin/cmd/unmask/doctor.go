@@ -88,6 +88,25 @@ func cmdDoctor(args []string) error {
 	}
 	addOK("config load", resolved)
 
+	// Probe nginx so the render dry-run below (and the daemon) resolve the same
+	// rate-compose flow, and flag when a deny zone can't compose on this nginx.
+	dryOK, ngxVer, ngxDetected := nginxconf.DetectDryRunSupport()
+	if ngxDetected {
+		nginxconf.SetDryRunSupported(dryOK)
+	}
+	switch {
+	case nginxconf.ComposeCapable(s) && ngxDetected && !dryOK:
+		addErr("rate compose", fmt.Sprintf("nginx.rate_compose_mode forces compose but nginx %s is < 1.17.1 — the rendered limit_req_dry_run fails `nginx -t`; set rate_compose_mode=auto/never or upgrade nginx", ngxVer))
+	case !nginxconf.ComposeCapable(s) && nginxconf.HasDenyRateZone(s):
+		verNote := "the host nginx"
+		if ngxDetected {
+			verNote = "nginx " + ngxVer
+		}
+		addWarn("rate deny zone", fmt.Sprintf("a \"deny\" rate zone is set but %s can't compose (needs nginx 1.17.1+) — deny hard-blocks un-challenged traffic but can't preempt a challenge; upgrade nginx or set nginx.rate_compose_mode", verNote))
+	case nginxconf.HasDenyRateZone(s):
+		addOK("rate deny zone", "compose active (deny preempts a challenge)")
+	}
+
 	// 2. nginxconf render dry-run.  Render into a private 0700 temp dir and
 	// remove it -- the rendered http.inc carries bv_secret, so writing it into
 	// the shared, predictable os.TempDir() (0644) would leak the key to every

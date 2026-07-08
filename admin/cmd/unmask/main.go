@@ -234,6 +234,32 @@ func cmdServe(args []string) error {
 		log.Printf("unmask: WARNING: bv_secret desync — rendered http.inc differs from the running config; the native plugin rejects every _bv and loops visitors on the challenge. Run `unmask render-nginx` and RESTART nginx (a reload won't reload the module). See the 2026-06-08 incident.")
 	}
 
+	// Probe the host nginx once so Render picks the rate composition flow: nginx
+	// >= 1.17.1 → compose (a deny zone wins over a protected-path challenge),
+	// older → classic (limit_req_dry_run would fail `nginx -t`).  Cached
+	// process-wide; Render never execs nginx itself (it runs on the settings-save
+	// path).  nginx.rate_compose_mode overrides; "auto" (default) uses this probe,
+	// resolving to classic when nginx isn't detectable (safe everywhere).
+	dryOK, ngxVer, ngxDetected := nginxconf.DetectDryRunSupport()
+	if ngxDetected {
+		nginxconf.SetDryRunSupported(dryOK)
+	}
+	switch {
+	case nginxconf.ComposeCapable(s) && ngxDetected && !dryOK:
+		// rate_compose_mode=always forced compose on a confirmed pre-1.17.1 nginx:
+		// the rendered limit_req_dry_run makes `nginx -t` fail, so nginx will not
+		// (re)load this config — a latent outage on the next reload/reboot.
+		log.Printf("unmask: WARNING: nginx.rate_compose_mode forces compose but nginx %s is < 1.17.1 — the rendered limit_req_dry_run FAILS `nginx -t`, so nginx will not (re)load this config. Set rate_compose_mode=auto/never or upgrade nginx.", ngxVer)
+	case !nginxconf.ComposeCapable(s) && nginxconf.HasDenyRateZone(s):
+		// classic flow (old / undetectable nginx): a deny zone still hard-blocks
+		// un-challenged traffic but cannot preempt a protected-path challenge.
+		verNote := "the host nginx"
+		if ngxDetected {
+			verNote = "nginx " + ngxVer
+		}
+		log.Printf("unmask: WARNING: a rate-limit \"deny\" zone is configured but %s does not support compose (needs 1.17.1+) — deny hard-blocks un-challenged traffic but CANNOT preempt a protected-path challenge. Upgrade nginx (or set nginx.rate_compose_mode) for full deny composition.", verNote)
+	}
+
 	// Logging follows 12-factor: every log line goes to stderr and the init
 	// system (= systemd journald / OpenRC syslog / docker container runtime)
 	// handles routing + retention.  No app-side file rotation; see
