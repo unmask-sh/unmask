@@ -374,12 +374,14 @@ type renderData struct {
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
-	// ComposeMode: true when any rate zone resolves to "deny".  Switches
-	// protect.inc to the unified flow -- limit_req runs in dry-run and the
-	// plugin's ACCESS-phase handler composes the rate + captcha decision, so a
-	// deny zone can win over the protected captcha (which the REWRITE-phase gate
-	// would otherwise pre-empt).  Off -> the classic error_page-429 + rewrite
-	// flow (unchanged -- non-deny configs are unaffected).
+	// ComposeMode: true when the host nginx supports limit_req_dry_run (>= 1.17.1),
+	// resolved by ComposeCapable (nginx.rate_compose_mode override + the startup
+	// probe).  Switches protect.inc to the unified flow -- limit_req runs in
+	// dry-run and the plugin's ACCESS-phase handler composes the rate + captcha
+	// decision, so a deny zone can win over the protected captcha (which the
+	// REWRITE-phase gate would otherwise pre-empt).  Off -> the classic
+	// error_page-429 + rewrite flow (the only valid flow on nginx < 1.17.1, where
+	// limit_req_dry_run would fail `nginx -t`).
 	ComposeMode bool
 	// RateLimitKeyExpr: nginx variable expression for the limit_req zone key.
 	//   "ip"     -> "$unmask_client_net"
@@ -863,9 +865,15 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	})
 	d.DefaultRateZoneName = defaultName
 	d.DefaultRateZoneBurst = defaultBurst
-	if s.RateLimit.Default.ResolvedChallengeMode() == settings.RateChallengeDeny {
-		d.ComposeMode = true // a global "deny" default also needs the unified flow
-	}
+	// Compose vs classic is decided by the host nginx's limit_req_dry_run support
+	// (>= 1.17.1), NOT by whether a deny zone exists.  Compose is the unified flow
+	// (the plugin's ACCESS handler composes rate + challenge, so a deny zone wins
+	// over a protected-path challenge that the classic REWRITE-phase gate would
+	// pre-empt), but its `limit_req_dry_run` fails `nginx -t` on nginx < 1.17.1 --
+	// so older nginx always renders classic.  A deny zone on classic still
+	// hard-blocks un-challenged traffic; it just can't preempt a challenge (that
+	// gap is surfaced as a startup / doctor warning, HasDenyRateZone && !capable).
+	d.ComposeMode = ComposeCapable(s)
 	switch s.RateLimit.ResolvedKey() {
 	case settings.RateLimitKeyJA4:
 		d.RateLimitKeyExpr = "$effective_ja4"
@@ -927,8 +935,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			// bot / bypass IP / bypass path) stay exempt in either map.
 			baseKey := "$rate_limit_key"
 			if z.ResolvedChallengeMode() == settings.RateChallengeDeny {
+				// Deny zones count _bv holders too (a hard cap ignores the pass
+				// cookie).  ComposeMode itself is decided once above by nginx
+				// capability, not per-zone.
 				baseKey = "$rate_limit_key_deny"
-				d.ComposeMode = true
 			}
 			d.RatePathZones = append(d.RatePathZones, RatePathZoneRender{
 				ZoneName: rendered,

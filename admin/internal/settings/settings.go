@@ -488,6 +488,19 @@ type Nginx struct {
 	// Bootstrap-only (install-time path), not web-editable.
 	ConfPath string `yaml:"conf_path,omitempty"`
 
+	// RateComposeMode selects the rate-limit ↔ challenge composition flow:
+	//   "" / "auto" — probe the host nginx at startup: >=1.17.1 → compose,
+	//                 otherwise classic.  Resolves to classic when nginx can't
+	//                 be detected (admin-only box), so it is safe everywhere.
+	//   "always"    — force compose (needs nginx 1.17.1+ for limit_req_dry_run;
+	//                 `nginx -t` fails on older nginx).
+	//   "never"     — force classic (deny zones can't preempt a challenge).
+	// Compose lets a deny zone win over a protected-path challenge; classic's
+	// REWRITE-phase gate pre-empts limit_req, so deny only hard-blocks
+	// un-challenged traffic there.  See nginxconf.ComposeCapable.  Bootstrap-only
+	// (an nginx-environment fact, not per-request policy).
+	RateComposeMode string `yaml:"rate_compose_mode,omitempty"`
+
 	// SeenVersion: admin version at the last time the user saved the settings page.
 	// Preset groups with an AddedIn newer than this are treated as
 	// "added by a version bump" → default OFF + NEW badge shown. Prevents
