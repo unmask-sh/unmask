@@ -45,6 +45,17 @@ if [ "$do_cleanup" = 1 ]; then
     done
 fi
 
+# The SELinux runtime-label drop-in exists only to let nginx (httpd_t) write the
+# daemon's log socket, so it has no reason to outlive this package.  postinstall
+# writes it only where semanage is unavailable; removing it when it is absent is
+# a no-op.
+UNMASK_SELINUX_DROPIN=/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf
+if [ -f "$UNMASK_SELINUX_DROPIN" ]; then
+    rm -f "$UNMASK_SELINUX_DROPIN"
+    rmdir /etc/systemd/system/unmask.service.d 2>/dev/null || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
 if command -v nginx >/dev/null 2>&1; then
     echo "unmask-web-nginx: snippet removed.  remember to:"
     echo "  sudo nginx -s reload"
