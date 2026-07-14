@@ -392,6 +392,12 @@ function dismissHuntTip(id){
       <option value="error"               {{ if eq .Phase "error"               }}selected{{ end }}>error</option>
       <option value="check"               {{ if eq .Phase "check"               }}selected{{ end }}>check</option>
     </select>
+    <select name="n">
+      <option value="100"  {{ if eq .PageSize 100  }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 100 }}</option>
+      <option value="200"  {{ if eq .PageSize 200  }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 200 }}</option>
+      <option value="500"  {{ if eq .PageSize 500  }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 500 }}</option>
+      <option value="1000" {{ if eq .PageSize 1000 }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 1000 }}</option>
+    </select>
     {{- /* host filtering is consolidated into the shared host_picker in the top bar (= legacy in-body host-filter removed). */ -}}
     <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
     {{ if or .IPFilter .JA4Filter .Phase .HostSelected }}
