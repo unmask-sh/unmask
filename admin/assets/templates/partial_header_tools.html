@@ -27,7 +27,7 @@
     - fetch / XHR        -> X-CSRF-Token header added for same-origin mutating
                             requests (covers /admin/api/* JSON endpoints)
 
-  Security: a cross-origin attacker can neither read the cookie (SameSite=Strict
+  Security: a cross-origin attacker can neither read the cookie (same-origin policy
   + same-origin policy) nor set a custom header on a cross-site form post, so
   echoing the cookie proves same-origin intent.  Login / setup / password-reset
   POSTs are not behind the CSRF-checking middleware, so a missing cookie there
