@@ -100,6 +100,22 @@ type Reader struct {
 	// nil-safe (no exemption when unset).
 	isSearchBot func(ua string) bool
 
+	// httpsRedirectOn: live "is nginx.https_redirect on?" probe.  Wired by main
+	// to the settings snapshot.  A JA4-less line means the request carried no TLS
+	// -- a handshake always sends a ClientHello, even a resumed session (PSK), so
+	// the module fingerprints every TLS connection -- i.e. it arrived on the
+	// plaintext port.  With https_redirect on nginx answers those with a 301 and
+	// never serves them, yet access_log is still evaluated at request completion
+	// and $serve_bot_challenge only tests the URI: a scanner probing a honeypot
+	// path over :80 therefore produced an "hp=1 ja4=-" line and earned a
+	// scope=ip_only auto-ban covering its WHOLE IP -- broader than, and a
+	// duplicate of, the precise (ip, ja4) ban its HTTPS visit already earns.  The
+	// request was bounced, not served, so it must not feed the ban list.  With
+	// https_redirect off the operator has deliberately kept the plaintext port
+	// under inspection, so JA4-less honeypot bans still fire.  nil-safe (no
+	// exemption when unset).
+	httpsRedirectOn func() bool
+
 	// classifyCrawler: UA -> crawler tag (= one of classify.CrawlerTagOrder
 	// or "" when the UA is not a known crawler).  Wired by main via
 	// SetCrawlerClassifier(classify.LookupTag).  Set once at startup before
@@ -135,6 +151,29 @@ func (r *Reader) SetSearchBotCheck(f func(ua string) bool) {
 		return
 	}
 	r.isSearchBot = f
+}
+
+// SetHTTPSRedirectCheck: register the live nginx.https_redirect probe that
+// suppresses a honeypot auto-ban for a request nginx answered with a 301 (see
+// the httpsRedirectOn field).
+func (r *Reader) SetHTTPSRedirectCheck(f func() bool) {
+	if r == nil {
+		return
+	}
+	r.httpsRedirectOn = f
+}
+
+// honeypotBanAllowed reports whether an hp=1 line may create an auto-ban.
+// Both vetoes exist because the access-log path -- unlike forward-auth's
+// veto-pass -- sees only the URI match, never the decision that was taken.
+func (r *Reader) honeypotBanAllowed(p parsed) bool {
+	if r.isSearchBot != nil && r.isSearchBot(p.ua) {
+		return false // rescued search / AI crawler: banning it is a ranking accident
+	}
+	if p.ja4 == "" && r.httpsRedirectOn != nil && r.httpsRedirectOn() {
+		return false // plaintext request we 301-ed: bounced, not served
+	}
+	return true
 }
 
 // SetCrawlerClassifier: register the UA -> crawler-tag function (=
@@ -457,12 +496,9 @@ func (r *Reader) onLine(line string) {
 	if !ok {
 		return
 	}
-	// Honeypot ban -- but NEVER ban a rescued search/AI crawler (matches the
-	// forward-auth veto-pass; the access-log path otherwise has no exemption, so
-	// a Googlebot hitting a honeypot link would be banned = ranking accident,
-	// and an attacker could weaponize it to ban victims' visitors).
-	if p.hp && r.onHoneypot != nil && p.ip != "" &&
-		(r.isSearchBot == nil || !r.isSearchBot(p.ua)) {
+	// Honeypot ban -- subject to the vetoes in honeypotBanAllowed (rescued
+	// search/AI crawler; a plaintext request we answered with a 301).
+	if p.hp && r.onHoneypot != nil && p.ip != "" && r.honeypotBanAllowed(p) {
 		r.onHoneypot(p.ip, p.ja4, p.hpuri, p.site)
 	}
 	kind := p.kind
