@@ -174,19 +174,62 @@ fi
 # rule -> the dashboard cookie/crawler/countries cards silently zero and the
 # error_log spams "connect() failed (13: Permission denied)" (the same denial
 # 502s the opt-in unix:/run/unmask/http.sock).  Relabel the runtime dir
-# httpd_var_run_t so httpd_t may write the socket; the fcontext rule is permanent
-# so the daemon's socket inherits the label after a reboot recreates tmpfs /run.
+# httpd_var_run_t so httpd_t may write the socket.
+#
+# semanage (policycoreutils-python-utils) is the right tool -- its fcontext rule
+# is permanent, so the label survives the reboot that recreates tmpfs /run -- but
+# it is NOT installed on a minimal RHEL / AlmaLinux 8.  This whole block used to
+# be gated on `command -v semanage`, so on exactly those hosts it skipped in
+# SILENCE: native mode then recorded zero events and the only clue was
+# "Permission denied while logging to syslog" in the nginx error_log.  chcon is
+# in coreutils and always present, so fall back to it, and keep the label across
+# reboots with a unmask.service drop-in (ExecStartPost=+ runs as root even though
+# the unit drops to User=unmask, which cannot relabel).  Never fail quietly:
+# with SELinux Enforcing and neither tool, say so.
+UNMASK_SELINUX_DROPIN=/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf
 if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
    command -v getenforce >/dev/null 2>&1 &&
-   [ "$(getenforce 2>/dev/null)" = "Enforcing" ] &&
-   command -v semanage >/dev/null 2>&1 &&
-   command -v restorecon >/dev/null 2>&1; then
-    if semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null ||
-       semanage fcontext -m -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null; then
+   [ "$(getenforce 2>/dev/null)" = "Enforcing" ]; then
+
+    if command -v semanage >/dev/null 2>&1 && command -v restorecon >/dev/null 2>&1 &&
+       { semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null ||
+         semanage fcontext -m -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null; }; then
         [ -d /run/unmask ] && restorecon -RF /run/unmask 2>/dev/null || true
+        rm -f "$UNMASK_SELINUX_DROPIN" 2>/dev/null || true
         echo "unmask-web-nginx: SELinux fcontext httpd_var_run_t set on /run/unmask (native log socket)"
+
+    elif command -v chcon >/dev/null 2>&1; then
+        [ -d /run/unmask ] && chcon -R -t httpd_var_run_t /run/unmask 2>/dev/null || true
+        echo "unmask-web-nginx: SELinux -- semanage absent; labelled /run/unmask httpd_var_run_t with chcon"
+        # ExecStartPost=+ (run as root) needs systemd 231+.  Older systemd (= RHEL 7)
+        # cannot express it, so there the label is applied now but lost on reboot.
+        SYSTEMD_VER=$(systemctl --version 2>/dev/null | awk 'NR==1{print $2}')
+        case "$SYSTEMD_VER" in
+        ''|*[!0-9]*) SYSTEMD_VER=0 ;;
+        esac
+        if [ "$SYSTEMD_VER" -ge 231 ] 2>/dev/null; then
+            mkdir -p "$(dirname "$UNMASK_SELINUX_DROPIN")"
+            cat > "$UNMASK_SELINUX_DROPIN" <<'DROPIN'
+# Installed by unmask-web-nginx when semanage is unavailable.  /run is tmpfs, so
+# the runtime dir comes back on every boot with the default var_run_t label that
+# nginx (httpd_t) may not write.  Re-apply the label once the daemon has created
+# the socket.  The leading + runs this as root; the unit itself is User=unmask.
+[Service]
+ExecStartPost=+/bin/sh -c 'command -v chcon >/dev/null 2>&1 && chcon -R -t httpd_var_run_t /run/unmask 2>/dev/null || true'
+DROPIN
+            chmod 0644 "$UNMASK_SELINUX_DROPIN"
+            systemctl daemon-reload >/dev/null 2>&1 || true
+            systemctl try-restart unmask.service >/dev/null 2>&1 || true
+            echo "  (unmask.service drop-in re-applies it on boot.  For the permanent rule instead:"
+            echo "   sudo dnf install -y policycoreutils-python-utils && sudo dnf reinstall -y unmask-web-nginx)"
+        else
+            echo "  WARNING -- systemd is too old for the boot-time drop-in, so the label is lost on reboot."
+            echo "  -> install semanage: sudo yum install -y policycoreutils-python && sudo yum reinstall -y unmask-web-nginx"
+        fi
+
     else
-        echo "unmask-web-nginx: WARNING -- semanage fcontext for /run/unmask failed."
+        echo "unmask-web-nginx: WARNING -- SELinux is Enforcing but neither semanage nor chcon is available."
+        echo "  nginx cannot write /run/unmask/log.sock, so native mode will record ZERO events."
         echo "  -> run: sudo semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' && sudo restorecon -RF /run/unmask"
     fi
 fi
