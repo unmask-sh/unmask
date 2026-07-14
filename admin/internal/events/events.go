@@ -406,6 +406,20 @@ func extractReason(payload string) string {
 	return extractStringField(payload, "reason", 24)
 }
 
+// decorateRowFromPayload fills every payload-derived Row field.  ONE function on
+// purpose: FetchSince, FetchPaged and scanEventRows each decorate rows, and
+// maintaining the extract list per-site is how force_reason ended up populated
+// on one path and missing on the other two (partial-row-shape bug).  Path is
+// phase-independent (load / serve / check); BeaconToken rides every
+// challenge-flow phase and is absent on phase=check.
+func decorateRowFromPayload(row *Row, payload string) {
+	row.Path = extractPath(payload)
+	row.BeaconToken = extractBeaconToken(payload)
+	row.Ref = extractRef(payload)
+	row.Reason = extractReason(payload)
+	row.ForceReason = extractForceReason(payload)
+}
+
 // extractForceReason pulls "force_reason" out of payload_json -- why a challenge
 // was forced (rate_limit / ja4_bot / honeypot / banned / protected / test /
 // none).  Recorded on phase=serve rows; empty elsewhere.
@@ -627,14 +641,7 @@ func FetchSince(ctx context.Context, d *db.DB, sinceID int64, site, phase string
 			r.RLZone = extractRLZone(payload.String)
 			r.LBWarning = extractLBWarning(payload.String)
 		}
-		// Path is extracted regardless of phase (recorded for load / serve / check).
-		r.Path = extractPath(payload.String)
-		// BeaconToken: present on every challenge-flow phase
-		// (serve / load / pow / captcha / verify_* / bv_*).  Absent on phase=check.
-		r.BeaconToken = extractBeaconToken(payload.String)
-		r.Ref = extractRef(payload.String)
-		r.Reason = extractReason(payload.String)
-		r.ForceReason = extractForceReason(payload.String)
+		decorateRowFromPayload(&r, payload.String)
 		out = append(out, r)
 	}
 	return out, rows.Err()
@@ -768,10 +775,7 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, ref, phase, 
 			row.RLZone = extractRLZone(payload.String)
 			row.LBWarning = extractLBWarning(payload.String)
 		}
-		row.Path = extractPath(payload.String)
-		row.BeaconToken = extractBeaconToken(payload.String)
-		row.Ref = extractRef(payload.String)
-		row.Reason = extractReason(payload.String)
+		decorateRowFromPayload(&row, payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -837,10 +841,7 @@ func scanEventRows(d *db.DB, rows *sql.Rows) ([]Row, error) {
 			row.RLZone = extractRLZone(payload.String)
 			row.LBWarning = extractLBWarning(payload.String)
 		}
-		row.Path = extractPath(payload.String)
-		row.BeaconToken = extractBeaconToken(payload.String)
-		row.Ref = extractRef(payload.String)
-		row.Reason = extractReason(payload.String)
+		decorateRowFromPayload(&row, payload.String)
 		out = append(out, row)
 	}
 	return out, rows.Err()
@@ -863,15 +864,38 @@ func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinc
 	return serves, distinctIPs, err
 }
 
+// eventDateHint pins an unmask_event query to the date_created index.  It is
+// applied only to the GROUP BY ip_address queries: those are the ones SQLite
+// otherwise answers by scanning the entire (ip_address, date_created) covering
+// index, making them cost O(all events) instead of O(events in the window) --
+// and unlike the low-cardinality columns, ANALYZE does not rescue them.  Skipped
+// when there is no date window, since INDEXED BY on a query that cannot use the
+// index is a SQLite error.  See db.EventDateIndexHint.
+func eventDateHint(d *db.DB, window string) string {
+	if window == "" {
+		return ""
+	}
+	return d.EventDateIndexHint()
+}
+
 // RankByIP aggregates unmask_event from the last sinceMin minutes by IP.  Top limit entries.
 func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {
 		limit = 30
 	}
-	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event
-	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
+	         WHERE ` + win + `
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, limit)
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		// INDEXED BY turns a MISSING index into a hard error rather than a slow
+		// plan (failed/blocked migrate, hand-rebuilt schema).  Degrade to the
+		// unhinted slow-but-correct query instead of an empty hunt ranking.
+		rows, err = d.QueryContext(ctx, `SELECT ip_address, COUNT(*) AS c FROM unmask_event
+	         WHERE `+win+`
+	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -923,14 +947,25 @@ func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (st
 	if ja4 == "" {
 		return "", nil
 	}
-	stmt := `SELECT ip_address FROM unmask_event
-	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	stmt := `SELECT ip_address FROM unmask_event` + eventDateHint(d, win) + `
+	         WHERE ` + win + `
 	           AND COALESCE(ja4, '') = ?
 	           AND COALESCE(ip_address, '') <> ''
 	         GROUP BY ip_address ORDER BY COUNT(*) DESC LIMIT 1`
 	var ip string
 	row := d.QueryRowContext(ctx, stmt, ja4)
-	if err := row.Scan(&ip); err != nil {
+	err := row.Scan(&ip)
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		// Same missing-index degradation as RankByIP.
+		row = d.QueryRowContext(ctx, `SELECT ip_address FROM unmask_event
+	         WHERE `+win+`
+	           AND COALESCE(ja4, '') = ?
+	           AND COALESCE(ip_address, '') <> ''
+	         GROUP BY ip_address ORDER BY COUNT(*) DESC LIMIT 1`, ja4)
+		err = row.Scan(&ip)
+	}
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return "", nil
 		}
