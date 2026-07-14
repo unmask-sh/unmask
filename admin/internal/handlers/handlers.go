@@ -146,6 +146,11 @@ type Handler struct {
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
 	overBlockTripped atomic.Bool
 
+	// communityHits caches the "Community Bans impact" 30-day figures -- the
+	// query scans the whole 30-day serve window, far too slow per page load.
+	// See community_hits.go.
+	communityHits communityHitsCache
+
 	// previewLogos holds ephemeral logo uploads for the settings live preview
 	// (token -> image bytes).  Populated by PreviewLogoUpload, read by
 	// PreviewLogoServe, age/count-evicted; lazily created via

@@ -3,7 +3,7 @@
 // Structure:
 //  1. Top N rankings for the last N minutes (= top 30 by IP / JA4 / UA, ordered by req count desc).
 //     Each row carries [BAN now] / [UA blacklist] / [JA4 verdict bot] buttons.
-//  2. Raw-log pager (= unmask_event in reverse chronological order, 100 / page).
+//  2. Raw-log pager (= unmask_event in reverse chronological order, 100-1000 / page via ?n=).
 //     Filters: exact IP / JA4 substring / phase / time range.
 //  3. Live tail (= reuses the existing SSE /admin/api/events/stream from JS in the template).
 //
@@ -179,7 +179,17 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	const pageSize = 100
+	// Rows per page.  Whitelisted so ?n= can't turn into an unbounded query;
+	// operators hunting a burst want more than the classic 100 on screen.
+	pageSize := 100
+	switch q.Get("n") {
+	case "200":
+		pageSize = 200
+	case "500":
+		pageSize = 500
+	case "1000":
+		pageSize = 1000
+	}
 	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
@@ -422,6 +432,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"JA4Rank":     ja4Rank,
 		"UARank":      uaRank,
 		"Offset":      offset,
+		"PageSize":    pageSize,
 		"NextOffset":  offset + pageSize,
 		"PrevOffset":  maxInt(offset-pageSize, 0),
 		"HasMore":     hasMore,
@@ -789,6 +800,11 @@ func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, phase string, 
 	// host can be repeated (= multi-select).
 	for _, h := range q["host"] {
 		appendIfSet("host", h)
+	}
+	// Rows-per-page rides along so paging keeps the operator's choice; the
+	// default is omitted to keep classic URLs stable.
+	if pageSize != 100 {
+		appendIfSet("n", strconv.Itoa(pageSize))
 	}
 	return buildPagerSeekData(lang, sb.String(), offset, pageSize, hasPrev, hasNext, rangeText)
 }
