@@ -402,6 +402,82 @@ ngx_unmask_var_is_one(ngx_http_request_t *r, ngx_str_t *name)
     return (v && !v->not_found && v->len && v->data[0] == '1') ? 1 : 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * ngx_http_request_t ABI -- READ THIS BEFORE ADDING ANY r->FIELD ACCESS
+ *
+ * Distributions patch nginx.  AlmaLinux / RHEL 8 ship
+ * 0014-Added-max_headers-directive.patch, which inserts
+ *
+ *     ngx_uint_t count;
+ *
+ * at the TOP of ngx_http_headers_in_t, immediately after `headers`.  That struct
+ * is embedded BY VALUE in ngx_http_request_t, so on those hosts every member
+ * from headers_in.host onward -- r->uri, r->args, r->unparsed_uri, r->main,
+ * r->headers_in.cookie ... -- sits 8 bytes further along than a module compiled
+ * against vanilla nginx sources computes.  The patch changes neither
+ * nginx_version nor NGX_MODULE_SIGNATURE, so nginx's load-time compatibility
+ * check passes and loads the module anyway; it then reads the neighbouring field
+ * instead of the one it asked for, silently.  Measured on AlmaLinux 8 (nginx
+ * 1.24.0): offsetof(main) is 1008 there and 1000 in a vanilla build, so r->main
+ * read back as NULL and the compose ACCESS handler took its "not the main
+ * request" exit on every request.  A compose protect.inc carries no
+ * error_page/rewrite and runs limit_req in dry-run, so protected locations then
+ * served bots straight through -- a total, silent fail-open.  (Caught by
+ * distro-check on 2026-07-14, before 0.1.5 shipped.)
+ *
+ * The rule that follows: reach request state through nginx's OWN functions --
+ * ngx_http_get_variable(), ngx_http_internal_redirect(), ngx_http_get_module_ctx()
+ * -- which live in the nginx binary and therefore use the host's real offsets.
+ * Direct r->FIELD access is only safe for members that sit BEFORE headers_in:
+ *
+ *     connection ctx main_conf srv_conf loc_conf read_event_handler
+ *     write_event_handler cache upstream upstream_states pool header_in
+ *
+ * r->headers_in.headers is at offset 0 of headers_in, so walking the header list
+ * is still safe; every other headers_in member is not.
+ * ------------------------------------------------------------------------- */
+
+/* Read a variable's value as a string.  Returns NGX_DECLINED (and an empty out)
+ * when the variable is unset or unknown. */
+static ngx_int_t
+ngx_unmask_var_str(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *out)
+{
+    ngx_http_variable_value_t *v =
+        ngx_http_get_variable(r, name, ngx_hash_key(name->data, name->len));
+    if (v == NULL || v->not_found) {
+        out->len = 0;
+        out->data = NULL;
+        return NGX_DECLINED;
+    }
+    out->len = v->len;
+    out->data = v->data;
+    return NGX_OK;
+}
+
+/* Marker stored in this module's request ctx slot.  Any non-NULL address will
+ * do; the value is never dereferenced. */
+static ngx_int_t ngx_unmask_main_request_marker;
+
+/* POST_READ runs only for a request that arrived from the wire: ngx_http_handler
+ * enters an internal request (subrequest / internal redirect) at
+ * phase_engine.server_rewrite_index, which is past this phase.  Dropping a marker
+ * in r->ctx here therefore yields an ABI-safe "is this the main request?" --
+ * r->ctx sits at offset 16, ahead of headers_in, a subrequest gets a freshly
+ * zeroed ctx array of its own, and an internal redirect keeps the one it had. */
+static ngx_int_t
+ngx_http_unmask_mark_main_handler(ngx_http_request_t *r)
+{
+    ngx_http_set_ctx(r, &ngx_unmask_main_request_marker, ngx_http_unmask_module);
+    return NGX_DECLINED;
+}
+
+/* Stands in for `r == r->main`, which is unreadable on a layout-shifted host. */
+static ngx_int_t
+ngx_unmask_is_main_request(ngx_http_request_t *r)
+{
+    return ngx_http_get_module_ctx(r, ngx_http_unmask_module) != NULL;
+}
+
 /* Default get_handler for $unmask_compose.  Only consulted where protect.inc did
  * NOT `set $unmask_compose 1` (non-compose locations, /unmask/ machinery, foreign
  * vhosts): resolves to not_found = the classic flow, with no uninitialized-var
@@ -440,8 +516,22 @@ ngx_http_unmask_compose_variable(ngx_http_request_t *r,
 static ngx_int_t
 ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
 {
-    if (r != r->main) {
-        return NGX_DECLINED;            /* main request only */
+    /* No `r == r->main` test: ngx_http_core_access_phase already skips
+     * subrequests before calling us, and r->main is one of the fields a
+     * distro-patched ngx_http_request_t moves out from under this module (see
+     * the ABI note above -- it read back NULL on AlmaLinux 8, which turned this
+     * handler into an unconditional pass). */
+
+    static ngx_str_t uri_var     = ngx_string("uri");
+    static ngx_str_t args_var    = ngx_string("args");
+    static ngx_str_t requri_var  = ngx_string("request_uri");
+    static ngx_str_t lrs_var     = ngx_string("limit_req_status");
+    static ngx_str_t compose_var = ngx_string("unmask_compose");
+    static ngx_str_t gate_var    = ngx_string("unmask_gate");
+
+    ngx_str_t uri;
+    if (ngx_unmask_var_str(r, &uri_var, &uri) != NGX_OK) {
+        return NGX_DECLINED;
     }
 
     /* loop prevention: decline on the internal-redirect TARGETS only --
@@ -451,16 +541,15 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
      * all of /unmask/, so a protected path under /unmask/ (e.g. /unmask/admin/)
      * still gets composed.  Other /unmask/ machinery never sets $unmask_compose,
      * so the compose gate below declines it. */
-    if ((r->uri.len >= (sizeof("/unmask/_rl") - 1)
-         && ngx_strncmp(r->uri.data, "/unmask/_rl", sizeof("/unmask/_rl") - 1) == 0)
-        || (r->uri.len >= (sizeof("/unmask/challenge/") - 1)
-            && ngx_strncmp(r->uri.data, "/unmask/challenge/",
+    if ((uri.len >= (sizeof("/unmask/_rl") - 1)
+         && ngx_strncmp(uri.data, "/unmask/_rl", sizeof("/unmask/_rl") - 1) == 0)
+        || (uri.len >= (sizeof("/unmask/challenge/") - 1)
+            && ngx_strncmp(uri.data, "/unmask/challenge/",
                            sizeof("/unmask/challenge/") - 1) == 0))
     {
         return NGX_DECLINED;
     }
 
-    static ngx_str_t compose_var = ngx_string("unmask_compose");
     if (!ngx_unmask_var_is_one(r, &compose_var)) {
         return NGX_DECLINED;            /* not a unified-flow location */
     }
@@ -469,41 +558,46 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
      * server.inc sets failopen=1 (gate "X:1", len 3): the /unmask/ routes we'd
      * redirect to are served by that dead daemon, so fail open = pass everything
      * (the classic flow's exact "1:" rewrite match likewise misses on "1:1"). */
-    static ngx_str_t gate_var = ngx_string("unmask_gate");
     ngx_http_variable_value_t *gv = ngx_http_get_variable(
         r, &gate_var, ngx_hash_key(gate_var.data, gate_var.len));
     if (gv != NULL && !gv->not_found && gv->len > 2) {
         return NGX_DECLINED;            /* fail open (daemon down) */
     }
 
-    /* over the rate cap?  limit_req_dry_run set r->main->limit_req_status.
-     * 5 = NGX_HTTP_LIMIT_REQ_REJECTED_DRY_RUN (would-have-been rejected).  Route
-     * to /unmask/_rl<uri> -- the daemon resolves deny vs challenge from the
-     * matched zone (a deny zone yields a hard 403).
+    /* Over the rate cap?  $limit_req_status carries what limit_req_dry_run
+     * decided; "REJECTED_DRY_RUN" = would have been rejected.  Route to
+     * /unmask/_rl<uri> -- the daemon resolves deny vs challenge from the matched
+     * zone (a deny zone yields a hard 403).
      *
-     * The `limit_req ... dry_run` DIRECTIVE this compose mode depends on landed
-     * in nginx 1.17.1, but the r->main->limit_req_status FIELD it sets (and the
-     * $limit_req_status variable) landed later, in 1.17.6 -- so the guard is
-     * 1.17.6, not 1.17.1.  On 1.17.1-1.17.5 the directive exists but the struct
-     * field does not, so reading it would not compile; below that, neither does.
-     * Either way the deny-compose branch is compiled out: the module still builds
-     * and serves every other axis (JA4 / PoW / CAPTCHA / honeypot / plain rate-
-     * limit), it just can't offer the deny-zone-on-a-protected-path composition
-     * there.  Keep this in step with ComposeCapable's Go-side version gate. */
-#if (nginx_version >= 1017006)
-    if (r->main->limit_req_status == 5) {
+     * This variable landed in nginx 1.17.6, the same release that added the
+     * r->main->limit_req_status field it mirrors and that ComposeCapable gates
+     * compose on Go-side; on anything older the lookup resolves to not-found and
+     * we fall through to the challenge branch, exactly as the previously
+     * #if-compiled-out code did.  Reading the VARIABLE rather than the struct
+     * field is what keeps this working on a patched-nginx host (ABI note above). */
+    ngx_str_t lrs;
+    if (ngx_unmask_var_str(r, &lrs_var, &lrs) == NGX_OK
+        && lrs.len == sizeof("REJECTED_DRY_RUN") - 1
+        && ngx_strncmp(lrs.data, "REJECTED_DRY_RUN",
+                       sizeof("REJECTED_DRY_RUN") - 1) == 0)
+    {
         static const u_char rl_prefix[] = "/unmask/_rl";
-        ngx_str_t uri;
-        uri.len = (sizeof(rl_prefix) - 1) + r->uri.len;
-        uri.data = ngx_pnalloc(r->pool, uri.len);
-        if (uri.data == NULL) {
+        ngx_str_t rl_uri, args;
+        u_char *p;
+
+        (void) ngx_unmask_var_str(r, &args_var, &args);
+
+        rl_uri.len = (sizeof(rl_prefix) - 1) + uri.len;
+        rl_uri.data = ngx_pnalloc(r->pool, rl_uri.len);
+        if (rl_uri.data == NULL) {
             return NGX_ERROR;
         }
-        ngx_memcpy(ngx_cpymem(uri.data, rl_prefix, sizeof(rl_prefix) - 1),
-                   r->uri.data, r->uri.len);
-        return ngx_http_internal_redirect(r, &uri, &r->args);
+        p = ngx_cpymem(rl_uri.data, rl_prefix, sizeof(rl_prefix) - 1);
+        if (uri.len) {
+            ngx_memcpy(p, uri.data, uri.len);
+        }
+        return ngx_http_internal_redirect(r, &rl_uri, &args);
     }
-#endif
 
     /* within the cap: captcha gate exactly "1:" -> protected challenge. */
     if (gv != NULL && !gv->not_found && gv->len == 2
@@ -511,14 +605,20 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
     {
         static ngx_str_t chal = ngx_string("/unmask/challenge/");
         static const u_char orig_prefix[] = "_orig=";
-        ngx_str_t args;
-        args.len = (sizeof(orig_prefix) - 1) + r->unparsed_uri.len;
+        ngx_str_t orig, args;
+        u_char *p;
+
+        (void) ngx_unmask_var_str(r, &requri_var, &orig);
+
+        args.len = (sizeof(orig_prefix) - 1) + orig.len;
         args.data = ngx_pnalloc(r->pool, args.len);
         if (args.data == NULL) {
             return NGX_ERROR;
         }
-        ngx_memcpy(ngx_cpymem(args.data, orig_prefix, sizeof(orig_prefix) - 1),
-                   r->unparsed_uri.data, r->unparsed_uri.len);
+        p = ngx_cpymem(args.data, orig_prefix, sizeof(orig_prefix) - 1);
+        if (orig.len) {
+            ngx_memcpy(p, orig.data, orig.len);
+        }
         return ngx_http_internal_redirect(r, &chal, &args);
     }
 
@@ -563,6 +663,14 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
         ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
     if (rdh == NULL) return NGX_ERROR;
     *rdh = ngx_http_unmask_ratedeny_handler;
+
+    /* POST_READ marker: gives every later hook an ABI-safe "is this the main
+     * request?" (= ngx_unmask_is_main_request).  This phase runs only for
+     * requests that arrived from the wire, never for subrequests. */
+    ngx_http_handler_pt *mrh =
+        ngx_array_push(&cmcf->phases[NGX_HTTP_POST_READ_PHASE].handlers);
+    if (mrh == NULL) return NGX_ERROR;
+    *mrh = ngx_http_unmask_mark_main_handler;
 
     ngx_http_core_srv_conf_t **cscfp = cmcf->servers.elts;
     extern ngx_module_t ngx_http_ssl_module;
@@ -990,32 +1098,27 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
         return UNMASK_BV_KIND_NONE;
     }
 
-#if (nginx_version >= 1023000)
-    ngx_table_elt_t *elt = r->headers_in.cookie;
-#else
-    ngx_table_elt_t **cookie_elts = r->headers_in.cookies.elts;
-    ngx_uint_t cookie_nelts = r->headers_in.cookies.nelts;
-    ngx_uint_t cookie_idx = 0;
-#endif
+    /* $http_cookie is nginx's own join of every Cookie header line ("; "
+     * separated, both before and after the 1.23 header-list rework), so a single
+     * scan still sees every `_bv` the client sent.  Read the VARIABLE, not
+     * r->headers_in.cookie / .cookies: on a host whose nginx has a patched
+     * ngx_http_request_t (ABI note above) those members resolve to a neighbouring
+     * header, `_bv` is never found, and a visitor who solved the challenge is
+     * challenged again on every request. */
+    static ngx_str_t cookie_var = ngx_string("http_cookie");
+    ngx_str_t header;
 
-    for (;;) {
-        ngx_str_t header;
-#if (nginx_version >= 1023000)
-        if (elt == NULL) break;
-        header = elt->value;
-        elt = elt->next;
-#else
-        if (cookie_idx >= cookie_nelts) break;
-        header = cookie_elts[cookie_idx]->value;
-        cookie_idx++;
-#endif
-        size_t off = 0;
-        ngx_str_t cookie;
-        while (ngx_unmask_next_bv_value(header, &off, &cookie)) {
-            ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie);
-            if (k != UNMASK_BV_KIND_NONE) {
-                return k;
-            }
+    if (ngx_unmask_var_str(r, &cookie_var, &header) != NGX_OK
+        || header.len == 0) {
+        return UNMASK_BV_KIND_NONE;
+    }
+
+    size_t off = 0;
+    ngx_str_t cookie;
+    while (ngx_unmask_next_bv_value(header, &off, &cookie)) {
+        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie);
+        if (k != UNMASK_BV_KIND_NONE) {
+            return k;
         }
     }
     return UNMASK_BV_KIND_NONE;
@@ -1496,10 +1599,17 @@ ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
     v->data = zero;
     v->len = 1;
 
-    if (r != r->main) {
+    /* Subrequests always report "0" -- see the comment above.  The test goes
+     * through the POST_READ marker rather than `r == r->main`, which is one of
+     * the fields a patched ngx_http_request_t shifts (ABI note above): reading it
+     * there yields NULL, this guard fires for EVERY request, and the variable is
+     * stuck at "0" so the signed-route gate never engages. */
+    if (!ngx_unmask_is_main_request(r)) {
         return NGX_OK;
     }
 
+    /* headers_in.headers sits at offset 0 of headers_in, so walking the header
+     * list stays correct even where the rest of the struct is shifted. */
     part = &r->headers_in.headers.part;
     h = part->elts;
     for (i = 0; ; i++) {
