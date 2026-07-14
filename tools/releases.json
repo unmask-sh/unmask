@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.4",
+  "latest": "0.1.5",
   "releases": [
+    {
+      "version": "0.1.5",
+      "date": "2026-07-14",
+      "notes": "Two over-blocking bugs and a scale fix. A daemon restart used to silently rewrite every inherit-action ban as a hard block, so a honeypot ban configured as a recoverable challenge became an unappealable 403 on every upgrade or reboot; and a honeypot probe arriving on the plaintext port could earn an auto-ban covering the scanner's whole IP. Both are fixed. The stats and bot-hunt pages no longer slow down as stored events accumulate (a new `unmask db-analyze` builds the query-planner statistics SQLite never had), the admin dashboard no longer redirect-loops when a long session outlives its CSRF cookie, and the nginx module stops flooding error.log with uninitialized-variable warnings. The rate-limit/challenge composition is now selected by the host nginx version (1.17.6+) rather than deny-zone presence. Adds a dashboard card showing what the Community Bans feed actually stopped."
+    },
     {
       "version": "0.1.4",
       "date": "2026-07-08",
