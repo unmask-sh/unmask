@@ -7,7 +7,7 @@ Website: **https://unmask.sh/**
 
 [![CI](https://github.com/unmask-sh/unmask/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/unmask-sh/unmask/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](#status)
+[![Release](https://img.shields.io/github/v/release/unmask-sh/unmask?color=brightgreen)](https://github.com/unmask-sh/unmask/releases)
 [![Go](https://img.shields.io/badge/go-1.25-00ADD8.svg)](https://go.dev/)
 [![Distros](https://img.shields.io/badge/distros-RHEL%20%7C%20Debian%20%7C%20Ubuntu%20%7C%20Alpine-success.svg)](https://unmask.sh/install/)
 
@@ -44,7 +44,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-**pre-release (v0.1)** — Packages (x86_64 + arm64), install wizard, and per-HTTP-server support are complete.
+**Released.** Signed rpm / deb / apk for x86_64 + arm64, an install wizard, and both
+deploy modes (native nginx module + forward-auth for Apache) are shipping. It runs in
+production on the author's own sites.
+
+Still 0.x: configuration may change between minor versions.
 
 Security reports (see [SECURITY.md](SECURITY.md)) get priority response.
 Bug reports, documentation fixes, and PRs are reviewed regularly.
