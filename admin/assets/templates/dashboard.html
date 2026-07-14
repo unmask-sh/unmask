@@ -84,6 +84,13 @@ table.cp-expanded tr.cp-row-extra{display:table-row}
 .src-badge{display:inline-block;padding:.05rem .35rem;border-radius:.2rem;font-size:.65rem;font-weight:600;vertical-align:middle;margin-left:.3rem}
 .src-badge.db{background:#dbeafe;color:#1e40af}
 .src-badge.log{background:#fef3c7;color:#92400e}
+/* a source badge that doubles as its own hover/focus help popover (reuses the
+   shared .info-popup box from popover-pin.css; not pinnable, so the pin hint is
+   suppressed).  Explains the access-log data provenance in place. */
+.src-badge-tip{position:relative;cursor:help;outline:none}
+.src-badge-tip:hover>.info-popup,.src-badge-tip:focus>.info-popup,.src-badge-tip:focus-within>.info-popup{display:block}
+.src-badge-tip>.info-popup{font-weight:400;cursor:auto}
+.src-badge-tip>.info-popup::after{display:none}
 /* TOTAL / rate_limit row styles */
 tr.bcd-rl{background:#fef3c7}
 tr.bcd-total{background:#e0e7ff;font-weight:700;border-top:2px solid #6366f1}
@@ -401,7 +408,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 {{ define "captcha_reuse_card" }}
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.captcha_reuse" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
+  <h2>{{ t .Lang "dashboard.card.captcha_reuse" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
   {{ if .CaptchaReuse }}
   <h6 class="cp-h">{{ t $.Lang "captcha_reuse.rank_heading" }} <span class="cp-count">{{ len .CaptchaReuse }}</span></h6>
   <div class="bcd-cliptable-scroll">
@@ -429,7 +436,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 <!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.cookie_status" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie.desc") }}</span></span></h2>
+  <h2>{{ t .Lang "dashboard.card.cookie_status" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.cookie.desc") }}</span></span></h2>
   <table class="bcd-table">
     <thead><tr><th>{{ t .Lang "th.section" }}</th><th class="bcd-num">{{ t .Lang "th.count" }}</th><th>{{ t .Lang "th.note" }}</th></tr></thead>
     <tbody>
@@ -738,7 +745,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 <!-- 11a) 30-day trend (= aggregate all incoming reqs from access_log -> stacked bar across 4 buckets: white / captcha / pow / not_pass) -->
 <div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.trend_all" }} <span class="src-badge db">{{ t .Lang "src_badge.unix" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_all.desc") }}</span></span></h2>
+  <h2>{{ t .Lang "dashboard.card.trend_all" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_all.desc") }}</span></span></h2>
 
   <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:.6rem;margin:0 0 .9rem">
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:.4rem;padding:.55rem .75rem">

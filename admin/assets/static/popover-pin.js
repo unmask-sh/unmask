@@ -894,15 +894,19 @@ window.installInfoPopupEdgeFlip = window.installInfoPopupEdgeFlip || function(){
     popup.style.visibility = prevVis;
     popup.style.display = prevDis;
   }
-  // capture so the class lands before :hover paint
+  // capture so the class lands before :hover paint.  Also fires for
+  // .src-badge-tip (a source badge that shows its own .info-popup on hover/focus,
+  // e.g. the dashboard's "from access log" source badge) -- position() is generic (it
+  // reads the element's own > .info-popup), so the same edge-flip applies.
   document.addEventListener('mouseenter', function(e){
     var t = e.target;
-    if (t && t.nodeType === 1 && t.classList && t.classList.contains('info-tip')) position(t);
+    if (t && t.nodeType === 1 && t.classList &&
+        (t.classList.contains('info-tip') || t.classList.contains('src-badge-tip'))) position(t);
   }, true);
   document.addEventListener('focusin', function(e){
     var t = e.target;
     if (t && t.closest) {
-      var tip = t.closest('.info-tip');
+      var tip = t.closest('.info-tip, .src-badge-tip');
       if (tip) position(tip);
     }
   });
