@@ -6,9 +6,11 @@ import (
 )
 
 // NewBypassMatcher builds the allowlist tester for a settings snapshot.  It is
-// the community-bans entry point onto the shared nginxconf.IPBypassMatcher (=
-// preset + CIDR + single-IP, the same allowlist the native geo block bakes into
-// $is_bypass_ip), so the auto-ban guard and the native path agree.
+// the community-bans entry point onto the shared nginxconf.IPBypassMatcher, using
+// the BAN-guard set (preset + CIDR + bypass_ips, via NewIPBypassMatcher) -- NOT
+// the wider challenge set.  A stats_exclude IP is exempt from the CHALLENGE but
+// must still be enforceable by a community-ban feed, so only the operator's
+// trusted bypass_ips / crawler presets skip enforcement here.
 func NewBypassMatcher(s settings.Settings) *nginxconf.IPBypassMatcher {
 	return nginxconf.NewIPBypassMatcher(s.Nginx)
 }

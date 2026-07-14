@@ -69,32 +69,57 @@ func TestBypassIPCIDRsIncludesPresets(t *testing.T) {
 }
 
 // Forward-auth parity: stats_exclude_ips are folded into the native
-// geo $is_bypass_ip (they skip the challenge), so the IPBypassMatcher the
+// geo $is_bypass_ip (they skip the challenge), so the CHALLENGE matcher the
 // forward-auth authcheck consults must match them too -- otherwise a monitoring
 // probe from a stats-exclude IP is challenged on a forward-auth host (tool1-sg)
 // but passes on a native one (tool1-jp/us/gb), a permanent xymon false-positive.
-func TestIPBypassMatcherIncludesStatsExclude(t *testing.T) {
+func TestChallengeBypassMatcherIncludesStatsExclude(t *testing.T) {
 	var n settings.Nginx // no explicit bypass_ips rows: the IPs come only from stats_exclude
 	n.StatsExcludeIPs = []string{"10.8.100.1", "153.121.77.40"}
-	m := NewIPBypassMatcher(n)
+	m := NewChallengeBypassMatcher(n)
 	for _, ip := range []string{"10.8.100.1", "153.121.77.40"} {
 		if !m.Match(ip) {
 			t.Errorf("stats-exclude IP %s must bypass the forward-auth challenge (native $is_bypass_ip folds it in)", ip)
 		}
 	}
 	if m.Match("8.8.8.8") {
-		t.Error("an IP in neither bypass_ips nor stats_exclude must not match")
+		t.Error("an IP in neither bypass_ips nor stats_exclude must not match the challenge matcher")
 	}
 
 	// The private-networks stats-exclude preset bypasses in native (folded into
-	// $is_bypass_ip when on); forward-auth must agree.
+	// $is_bypass_ip when on); the forward-auth challenge matcher must agree.
 	var p settings.Nginx
 	p.StatsExcludePrivateNetworks = true
-	mp := NewIPBypassMatcher(p)
+	mp := NewChallengeBypassMatcher(p)
 	if !mp.Match("10.1.2.3") || !mp.Match("192.168.5.5") {
 		t.Error("private-networks stats-exclude preset must bypass RFC1918 in forward-auth too")
 	}
 	if mp.Match("8.8.8.8") {
 		t.Error("a public IP must not match the private-networks preset")
+	}
+}
+
+// The BAN guard is the narrower set: stats_exclude / the private-networks preset
+// exempt an IP from the CHALLENGE, but must NOT make it unbannable -- native's
+// SetWhitelist never exempted stats-exclude IPs from bans, and folding the
+// private-networks preset into the ban whitelist would render the whole RFC1918
+// space unbannable and silently drop community-ban feed entries for it.
+func TestIPBypassMatcherExcludesStatsExcludeFromBanGuard(t *testing.T) {
+	var n settings.Nginx
+	n.StatsExcludeIPs = []string{"10.8.100.1"}
+	n.StatsExcludePrivateNetworks = true
+	m := NewIPBypassMatcher(n) // the ban-guard matcher
+	for _, ip := range []string{"10.8.100.1", "10.1.2.3", "192.168.5.5"} {
+		if m.Match(ip) {
+			t.Errorf("stats-exclude IP %s must NOT be ban-whitelisted (only bypass_ips / presets are)", ip)
+		}
+	}
+
+	// A real bypass_ips row IS ban-whitelisted (trusted), confirming the guard
+	// still allowlists the intended set.
+	var b settings.Nginx
+	b.BypassIPs = []string{"203.0.113.7"}
+	if !NewIPBypassMatcher(b).Match("203.0.113.7") {
+		t.Error("an enabled bypass_ips row must be ban-whitelisted")
 	}
 }

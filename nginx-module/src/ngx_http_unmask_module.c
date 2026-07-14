@@ -122,6 +122,8 @@ static ngx_int_t ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_compose_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_ja4_commands[] = {
     { ngx_string("unmask_bv_secret"),
@@ -217,6 +219,21 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
     { ngx_string("unmask_client_net"), NULL,
       ngx_http_unmask_client_net_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_compose: the render's protect.inc emits `set $unmask_compose 1`
+     * only in compose-mode protected locations.  We ALSO register it here with a
+     * default get_handler so the variable resolves cleanly (= not_found, "off")
+     * on every other location and every foreign vhost -- otherwise the ACCESS
+     * handler's read of an unset `set` variable makes nginx's rewrite module log
+     * "using uninitialized \"unmask_compose\" variable" at WARN on each such
+     * request (uninitialized_variable_warn defaults on).  Registration runs at
+     * postconfiguration, after the `set` directive is parsed, so it OVERRIDES the
+     * rewrite module's get_handler for this index (ngx_http_rewrite_set only
+     * installs its own when get_handler == NULL).  CHANGEABLE lets `set` reuse
+     * the variable; it is deliberately NOT NOCACHEABLE, so a location where `set`
+     * ran keeps its cached "1" (the get_handler is never consulted there). */
+    { ngx_string("unmask_compose"), NULL,
+      ngx_http_unmask_compose_variable, 0,
+      NGX_HTTP_VAR_CHANGEABLE, 0 },
     ngx_http_null_variable
 };
 
@@ -385,6 +402,21 @@ ngx_unmask_var_is_one(ngx_http_request_t *r, ngx_str_t *name)
     return (v && !v->not_found && v->len && v->data[0] == '1') ? 1 : 0;
 }
 
+/* Default get_handler for $unmask_compose.  Only consulted where protect.inc did
+ * NOT `set $unmask_compose 1` (non-compose locations, /unmask/ machinery, foreign
+ * vhosts): resolves to not_found = the classic flow, with no uninitialized-var
+ * WARN.  In compose locations the REWRITE-phase `set` writes r->variables[index]
+ * (valid, cached) and this never runs. */
+static ngx_int_t
+ngx_http_unmask_compose_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    (void) r;
+    (void) data;
+    v->not_found = 1;
+    return NGX_OK;
+}
+
 /* ----------------------------------------------------------------------
  * Rate-limit / protected composition (ACCESS phase).  On "compose" locations
  * (the render switches a protected location to the unified flow when a deny
@@ -449,13 +481,16 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
      * to /unmask/_rl<uri> -- the daemon resolves deny vs challenge from the
      * matched zone (a deny zone yields a hard 403).
      *
-     * r->main->limit_req_status -- and the `limit_req ... dry_run` this
-     * compose mode depends on -- are nginx 1.17.1+.  On older nginx the field
-     * does not exist (it won't compile) and dry_run is unavailable, so the
-     * deny-compose branch is compiled out: the module still builds and serves
-     * every other axis (JA4 / PoW / CAPTCHA / honeypot / plain rate-limit),
-     * it just can't offer the deny-zone-on-a-protected-path composition there. */
-#if (nginx_version >= 1017001)
+     * The `limit_req ... dry_run` DIRECTIVE this compose mode depends on landed
+     * in nginx 1.17.1, but the r->main->limit_req_status FIELD it sets (and the
+     * $limit_req_status variable) landed later, in 1.17.6 -- so the guard is
+     * 1.17.6, not 1.17.1.  On 1.17.1-1.17.5 the directive exists but the struct
+     * field does not, so reading it would not compile; below that, neither does.
+     * Either way the deny-compose branch is compiled out: the module still builds
+     * and serves every other axis (JA4 / PoW / CAPTCHA / honeypot / plain rate-
+     * limit), it just can't offer the deny-zone-on-a-protected-path composition
+     * there.  Keep this in step with ComposeCapable's Go-side version gate. */
+#if (nginx_version >= 1017006)
     if (r->main->limit_req_status == 5) {
         static const u_char rl_prefix[] = "/unmask/_rl";
         ngx_str_t uri;

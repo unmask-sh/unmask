@@ -20,11 +20,22 @@ type IPBypassMatcher struct {
 	ips  map[string]bool
 }
 
-// NewIPBypassMatcher precompiles the bypass ranges once.  It is cheap relative
-// to regex compilation, but callers on hot paths should still cache it
-// alongside their other per-settings matchers.
+// NewIPBypassMatcher precompiles the BAN-guard bypass ranges once (= the trusted
+// set: presets + bypass_ips, NOT stats_exclude).  It is cheap relative to regex
+// compilation, but callers on hot paths should still cache it alongside their
+// other per-settings matchers.  For the forward-auth CHALLENGE bypass (which also
+// exempts stats_exclude IPs, mirroring native's $is_bypass_ip) use
+// NewChallengeBypassMatcher instead.
 func NewIPBypassMatcher(n settings.Nginx) *IPBypassMatcher {
 	nets, ips := parseBypassRanges(BypassIPCIDRs(n))
+	return &IPBypassMatcher{nets: nets, ips: ips}
+}
+
+// NewChallengeBypassMatcher precompiles the CHALLENGE bypass ranges (the ban-guard
+// set PLUS stats_exclude), so the forward-auth authcheck exempts exactly the IPs
+// native's `geo $is_bypass_ip` block does from the challenge.
+func NewChallengeBypassMatcher(n settings.Nginx) *IPBypassMatcher {
+	nets, ips := parseBypassRanges(ChallengeBypassIPCIDRs(n))
 	return &IPBypassMatcher{nets: nets, ips: ips}
 }
 
@@ -54,15 +65,17 @@ func (m *IPBypassMatcher) Empty() bool {
 	return m == nil || (len(m.nets) == 0 && len(m.ips) == 0)
 }
 
-// BypassIPCIDRs collects every IP/CIDR that the native `geo $is_bypass_ip` block
-// exempts from the challenge, so the forward-auth authcheck's IPBypassMatcher
-// mirrors it exactly.  Without a match, native mode lets an IP through while a
-// forward-auth host challenges the same IP (a monitoring probe from a
-// stats-exclude IP was challenged on forward-auth tool1-sg but passed on the
-// native hosts).  The set is: enabled bypass presets expanded to CIDRs, the
-// enabled bypass_ips rows (disabled rows skipped), and the stats-exclude list --
-// render.go folds all three into $is_bypass_ip (stats-exclude IPs skip the
-// challenge too, since a monitoring probe wants both stats exclusion and bypass).
+// BypassIPCIDRs is the BAN-guard / trusted allowlist: the enabled bypass presets
+// expanded to CIDRs plus the enabled bypass_ips rows (disabled rows skipped).  It
+// backs the honeypot/manual auto-ban whitelist and the community-bans guard, so a
+// trusted crawler (Googlebot / Bingbot / GPTBot) or an operator bypass IP is
+// never auto-banned (CLAUDE.md #4).  It deliberately does NOT include
+// stats_exclude_ips: stats exclusion is a dashboard filter, not a ban-policy
+// grant -- no RELEASED version ever exempted those from bans (an unreleased
+// interim commit briefly did), and folding the
+// private-networks preset in here would make the whole RFC1918 space unbannable.
+// The forward-auth CHALLENGE bypass, which DOES mirror native's stats-exclude
+// exemption, is ChallengeBypassIPCIDRs.
 func BypassIPCIDRs(n settings.Nginx) []string {
 	out := FlattenBypassPresets(n.BypassIPEnabledPresets)
 	for i, ip := range n.BypassIPs {
@@ -73,12 +86,20 @@ func BypassIPCIDRs(n settings.Nginx) []string {
 			out = append(out, ip)
 		}
 	}
-	// stats_exclude_ips (+ the private-networks preset) are folded into
-	// $is_bypass_ip by the native render, so they must bypass the challenge in
-	// forward-auth mode too — else the two modes derive "bypass IP" from
-	// different sets and disagree on the same request.
-	out = append(out, statsExcludeList(n)...)
 	return out
+}
+
+// ChallengeBypassIPCIDRs is the CHALLENGE bypass set: BypassIPCIDRs plus the
+// stats_exclude list.  The native render folds all of these into `geo
+// $is_bypass_ip`, so the forward-auth authcheck must exempt the same set from the
+// challenge -- else the two modes derive "bypass IP" from different sets and
+// disagree on the same request (a monitoring probe from a stats-exclude IP was
+// challenged on forward-auth tool1-sg but passed on the native hosts).  Unlike
+// the ban guard, a monitoring probe legitimately wants BOTH stats exclusion and
+// challenge bypass; it does not want to become unbannable, which is why the two
+// sets differ.
+func ChallengeBypassIPCIDRs(n settings.Nginx) []string {
+	return append(BypassIPCIDRs(n), statsExcludeList(n)...)
 }
 
 func parseBypassRanges(cidrs []string) ([]*net.IPNet, map[string]bool) {
