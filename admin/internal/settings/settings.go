@@ -489,16 +489,24 @@ type Nginx struct {
 	ConfPath string `yaml:"conf_path,omitempty"`
 
 	// RateComposeMode selects the rate-limit ↔ challenge composition flow:
-	//   "" / "auto" — probe the host nginx at startup: >=1.17.1 → compose,
+	//   "" / "auto" — probe the host nginx at startup: >=1.17.6 → compose,
 	//                 otherwise classic.  Resolves to classic when nginx can't
 	//                 be detected (admin-only box), so it is safe everywhere.
-	//   "always"    — force compose (needs nginx 1.17.1+ for limit_req_dry_run;
+	//   "always"    — force compose (needs nginx 1.17.6+: limit_req_dry_run AND
+	//                 the r->main->limit_req_status field the plugin reads;
 	//                 `nginx -t` fails on older nginx).
 	//   "never"     — force classic (deny zones can't preempt a challenge).
 	// Compose lets a deny zone win over a protected-path challenge; classic's
 	// REWRITE-phase gate pre-empts limit_req, so deny only hard-blocks
 	// un-challenged traffic there.  See nginxconf.ComposeCapable.  Bootstrap-only
 	// (an nginx-environment fact, not per-request policy).
+	//
+	// Split deployments where the admin binary and nginx run in SEPARATE
+	// containers/hosts should set this explicitly: "auto" probes the LOCAL nginx,
+	// so an admin box with no nginx resolves to classic even when the real nginx
+	// (elsewhere) supports compose.  serve / doctor / render-nginx warn when a
+	// deny zone is configured but the resolved flow is classic (see
+	// nginxconf.DiagnoseComposeMode).
 	RateComposeMode string `yaml:"rate_compose_mode,omitempty"`
 
 	// SeenVersion: admin version at the last time the user saved the settings page.
@@ -526,7 +534,11 @@ type Nginx struct {
 	// IP / CIDR list excluded entirely from statistics (= own monitoring tools,
 	// internal probes etc. that would otherwise be dashboard noise).  These IPs
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
-	// they never reach the funnel / cookie / crawler aggregation.
+	// they never reach the funnel / cookie / crawler aggregation.  Scope: stats +
+	// challenge only.  They are NOT ban-exempt — a stats-exclude IP can still be
+	// banned (manually or by honeypot/community-bans); only bypass_ips + the
+	// crawler presets are the ban allowlist (nginxconf.BypassIPCIDRs vs
+	// ChallengeBypassIPCIDRs).
 	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
 	// StatsExcludePrivateNetworks, when on, appends the private-network CIDRs
 	// (RFC1918 + loopback + link-local, IPv4 and IPv6) to StatsExcludeIPs at

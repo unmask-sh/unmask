@@ -94,17 +94,15 @@ func cmdDoctor(args []string) error {
 	if ngxDetected {
 		nginxconf.SetDryRunSupported(dryOK)
 	}
-	switch {
-	case nginxconf.ComposeCapable(s) && ngxDetected && !dryOK:
-		addErr("rate compose", fmt.Sprintf("nginx.rate_compose_mode forces compose but nginx %s is < 1.17.1 — the rendered limit_req_dry_run fails `nginx -t`; set rate_compose_mode=auto/never or upgrade nginx", ngxVer))
-	case !nginxconf.ComposeCapable(s) && nginxconf.HasDenyRateZone(s):
-		verNote := "the host nginx"
-		if ngxDetected {
-			verNote = "nginx " + ngxVer
+	switch diag := nginxconf.DiagnoseComposeMode(s, ngxVer, ngxDetected, dryOK); diag.Level {
+	case nginxconf.ComposeDiagError:
+		addErr(diag.Label, diag.Message)
+	case nginxconf.ComposeDiagWarn:
+		addWarn(diag.Label, diag.Message)
+	case nginxconf.ComposeDiagOK:
+		if diag.Message != "" {
+			addOK(diag.Label, diag.Message)
 		}
-		addWarn("rate deny zone", fmt.Sprintf("a \"deny\" rate zone is set but %s can't compose (needs nginx 1.17.1+) — deny hard-blocks un-challenged traffic but can't preempt a challenge; upgrade nginx or set nginx.rate_compose_mode", verNote))
-	case nginxconf.HasDenyRateZone(s):
-		addOK("rate deny zone", "compose active (deny preempts a challenge)")
 	}
 
 	// 2. nginxconf render dry-run.  Render into a private 0700 temp dir and
@@ -160,6 +158,26 @@ func cmdDoctor(args []string) error {
 			addErr("DB table check", fmt.Sprintf("missing: %s (= run unmask migrate)", strings.Join(missing, ", ")))
 		} else {
 			addOK("DB tables", strings.Join(tables, " / "))
+		}
+		// Query-planner statistics.  Without sqlite_stat1 the planner cannot judge
+		// how selective the event tables' date filter is, so the stats and bot-hunt
+		// pages scan whole covering indexes -- they stay correct, but their cost
+		// grows with the total event count instead of the window being viewed.
+		ctx3, cancel3 := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel3()
+		switch ok, err := conn.HasPlannerStats(ctx3); {
+		case err != nil:
+			// A locked/slow DB must WARN, not silently drop the check line —
+			// that is exactly the state where the stats may be degrading.
+			addWarn("DB planner stats", fmt.Sprintf("could not check (%v) — if the stats/hunt pages are slow, run `unmask db-analyze` while traffic is low", err))
+		case conn.Driver != db.DriverSQLite:
+			addOK("DB planner stats", "n/a (InnoDB maintains its own index statistics)")
+		case !ok:
+			addWarn("DB planner stats", "no index statistics (sqlite_stat1) — the stats and bot-hunt pages "+
+				"scan whole indexes and get slower as events accumulate; run `unmask db-analyze` "+
+				"while traffic is low (it takes a write lock for up to a minute on a large DB)")
+		default:
+			addOK("DB planner stats", "index statistics present")
 		}
 	}
 

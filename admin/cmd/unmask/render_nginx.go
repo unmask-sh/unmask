@@ -49,11 +49,24 @@ func cmdRenderNginx(args []string) error {
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
 
 	// Probe nginx so Render's "auto" rate-compose mode resolves the SAME way the
-	// daemon does (compose on nginx 1.17.1+, classic below) -- otherwise a
+	// daemon does (compose on nginx 1.17.6+, classic below) -- otherwise a
 	// standalone render on a modern host would emit classic while serve emits
 	// compose.  Skipped (→ classic) when nginx isn't on PATH.  See cmdServe.
-	if dry, _, ok := nginxconf.DetectDryRunSupport(); ok {
-		nginxconf.SetDryRunSupported(dry)
+	dryOK, ngxVer, ngxDetected := nginxconf.DetectDryRunSupport()
+	if ngxDetected {
+		nginxconf.SetDryRunSupported(dryOK)
+	}
+	// Warn on stderr (never stdout: -dry-run pipes the config there) when the
+	// resolved mode would emit a config nginx can't load -- e.g.
+	// rate_compose_mode=always on a confirmed < 1.17.6 nginx renders a
+	// limit_req_dry_run that fails `nginx -t`.  serve/doctor warn too; render is
+	// the command most likely run before a reload, so it must not stay silent.
+	if diag := nginxconf.DiagnoseComposeMode(s, ngxVer, ngxDetected, dryOK); diag.Level != nginxconf.ComposeDiagOK {
+		tag := "WARNING"
+		if diag.Level == nginxconf.ComposeDiagError {
+			tag = "ERROR"
+		}
+		fmt.Fprintf(os.Stderr, "unmask render-nginx: %s: %s\n", tag, diag.Message)
 	}
 
 	// renderedFiles: the files nginxconf.Render writes, relative to outDir.

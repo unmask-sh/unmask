@@ -98,10 +98,14 @@ nginx:
   output_dir: /etc/unmask
   # Force the compose flow.  The admin container has no local nginx, so "auto"
   # (the default) can't probe the version and would fall back to classic --
-  # losing coverage of compose, which is the flow every nginx-1.17.1+ install
+  # losing coverage of compose, which is the flow every nginx-1.17.6+ install
   # renders (the nginx container here is 1.26).  Pinning "always" exercises the
   # deny-zone composition (scenario 38) AND non-deny challenge scenarios on the
-  # compose path.  The classic flow is covered by the nginxconf unit tests.
+  # compose path.  TRADE-OFF: this single-topology e2e can live-test only one
+  # flow, so the classic flow (and the auto→classic resolution) is NOT exercised
+  # against a live nginx here -- it is covered by the nginxconf unit tests
+  # (compose_mode_test.go, render tests) and by doctor/render-nginx on classic
+  # hosts.  To live-test classic, run the harness with rate_compose_mode: never.
   rate_compose_mode: always
   # docker compose resolves the service name "admin".  This value is overridden on the
   # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
@@ -192,6 +196,22 @@ nginx:
   # /wp-login.php expecting it to be a honeypot.
   honeypot:
     disabled_presets: []
+    # Scenario 49: make the daemon actually WRITE a ban file, so the DB -> file
+    # generation path (and the action each row resolves to) is testable.  Without
+    # this the ban manager has no file path and never flushes -- which is why the
+    # "restart rewrites every inherit-action ban as a hard deny" bug reached
+    # production unseen.
+    #
+    # This MUST stay the shipped default path: the same setting also renders the
+    # plugin's ban-file directive into the nginx conf, so pointing it elsewhere
+    # silently moves what nginx READS (it broke scenario 40, which hand-writes the
+    # default path in its own container).  admin and nginx are separate containers
+    # here, so each keeps its own copy of the path and the two never race -- 49
+    # reads the admin's, 40 writes the nginx one.
+    ban_file_path: /var/lib/unmask/nginx/banned.txt
+    # DefaultAction stays UNSET on purpose (= inherits pow_then_captcha).  That is
+    # what scenario 49 asserts survives a restart, and what scenario 47's
+    # per-rule captcha_only override has to differ from.
     # Per-site honeypot URL fixture used by scenario 21.  The host dispatcher
     # in http.conf.tmpl is supposed to route this trap onto requests landing
     # on shop.example.com only; the same path on blog.example.com must pass
