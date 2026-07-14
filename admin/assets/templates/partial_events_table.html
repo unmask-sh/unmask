@@ -305,6 +305,11 @@ document.addEventListener('DOMContentLoaded', function(){
       var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
       return wa - wb;
     });
+    // Freeze every event's own timestamp before the promotion below rewrites
+    // the rep row's data-ts / data-ts-ms to the session-start time -- the
+    // timeline popover must keep showing each phase's real time (without this
+    // the terminal bv_* line displays the serve's timestamp).
+    grp.forEach(function(tr){ if (tr.__origMs == null) tr.__origMs = rowKey(tr); });
     // Collapse consecutive same-phase rows (= rare but happens when the
     // server fires the same phase twice for one request).  The timeline
     // popover still shows every event with its own timestamp.
@@ -403,7 +408,7 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     function timelineHtml(){
       var lines = grp.map(function(tr){
-        var ms = rowKey(tr);
+        var ms = (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
         // Use the same short label the inline chain shows (= bv_pow_only -> bv_pow)

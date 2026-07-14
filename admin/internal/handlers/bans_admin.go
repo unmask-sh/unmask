@@ -166,61 +166,36 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		sourcePills = append(sourcePills, sourcePill{Source: s, Count: n, Pct: pct})
 	}
 
-	// "Community Bans 効果": past-30d traffic hit count from unmask_event.
-	// Honors the dialect-specific JSON-extract syntax (= sqlite vs mariadb)
-	// via the same helper the dashboard queries use.  Failures fall through
-	// to zero counts so the card still renders even if the DB driver is
-	// momentarily unhappy.
-	var hitCount, hitUniqueIP int
-	if h.DB != nil {
-		var jsonExpr string
-		if h.DB.Driver == "sqlite" {
-			jsonExpr = `json_extract(payload_json, '$.ban_source')`
-		} else {
-			jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.ban_source'))`
-		}
-		var dateExpr string
-		if h.DB.Driver == "sqlite" {
-			dateExpr = `date_created >= datetime('now', '-30 days')`
-		} else {
-			dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
-		}
-		row := h.DB.QueryRowContext(r.Context(),
-			`SELECT COUNT(*), COUNT(DISTINCT ip_address)
-			   FROM unmask_event
-			  WHERE phase = 'serve'
-			    AND `+jsonExpr+` = 'community_bans'
-			    AND `+dateExpr)
-		_ = row.Scan(&hitCount, &hitUniqueIP)
-	}
+	// NOTE: the "Community Bans impact" 30-day figures are deliberately NOT
+	// computed here -- bans.html never rendered them, and the query scans the
+	// whole 30-day serve window (measured 5s on a fleet DB).  The community
+	// tab (AdminCommunityBansIndex) shows them via the communityHits cache.
 	data := map[string]any{
-		"Lang":                         i18n.Resolve(r),
-		"TZ":                           resolveTZ(r),
-		"BasePath":                     h.cfg().Server.BasePath,
-		"Version":                      h.Version,
-		"Entries":                      banRows,
-		"BanFilePath":                  h.cfg().Nginx.Honeypot.BanFilePath,
-		"Bans":                         h.cfg().Nginx.Bans,
-		"Saved":                        r.URL.Query().Get("saved") != "",
-		"Error":                        readFlash(w, r, h.cfg().Server.BasePath, "err"),
-		"SubscribeMode":                cur.CommunityBans.ResolvedSubscribeMode(),
-		"MyHN":                         myHN,
-		"SourcePills":                  sourcePills,
-		"CommunityBansFromHub":         sourceCounts["community_bans"],
-		"CommunityBansHits30d":         hitCount,
-		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
-		"CommunityBansLastPulledAt":    cur.CommunityBans.LastPulledAt,
-		"CommunityBansGeneratedAt":     doc.GeneratedAt,
-		"CommunityBansVersion":         doc.Version,
-		"CommunityBansEntries":         filtered,
-		"CommunityBansTotalEntries":    len(doc.Entries),
-		"CommunityBansFiltered":        len(filtered),
-		"CommunityBansCountIPJA4":      countIPJA4,
-		"CommunityBansCountJA4":        countJA4,
-		"CommunityBansCountIP":         countIP,
-		"CommunityBansMatch":           match,
-		"CommunityBansQuery":           q,
-		"CommunityBansMapDir":          mapDir,
+		"Lang":                      i18n.Resolve(r),
+		"TZ":                        resolveTZ(r),
+		"BasePath":                  h.cfg().Server.BasePath,
+		"Version":                   h.Version,
+		"Entries":                   banRows,
+		"BanFilePath":               h.cfg().Nginx.Honeypot.BanFilePath,
+		"Bans":                      h.cfg().Nginx.Bans,
+		"Saved":                     r.URL.Query().Get("saved") != "",
+		"Error":                     readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		"SubscribeMode":             cur.CommunityBans.ResolvedSubscribeMode(),
+		"MyHN":                      myHN,
+		"SourcePills":               sourcePills,
+		"CommunityBansFromHub":      sourceCounts["community_bans"],
+		"CommunityBansLastPulledAt": cur.CommunityBans.LastPulledAt,
+		"CommunityBansGeneratedAt":  doc.GeneratedAt,
+		"CommunityBansVersion":      doc.Version,
+		"CommunityBansEntries":      filtered,
+		"CommunityBansTotalEntries": len(doc.Entries),
+		"CommunityBansFiltered":     len(filtered),
+		"CommunityBansCountIPJA4":   countIPJA4,
+		"CommunityBansCountJA4":     countJA4,
+		"CommunityBansCountIP":      countIP,
+		"CommunityBansMatch":        match,
+		"CommunityBansQuery":        q,
+		"CommunityBansMapDir":       mapDir,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -380,29 +355,22 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	}
 
 	// "Community Bans 効果": past-30d block count from unmask_event (= traffic
-	// that hub-derived BANs actually stopped on this install).  Same query as
-	// AdminBansIndex but inlined; failure -> zero so the impact panel still
-	// renders without aborting the rest of the page.
-	var hitCount, hitUniqueIP int
+	// that hub-derived BANs actually stopped on this install).  Served from
+	// the communityHits TTL cache -- the query scans the whole 30-day serve
+	// window and must not run per page load (see community_hits.go).  When no
+	// figure is known yet the template renders an em dash, never a fake zero.
+	var hitStats communityHitStats
+	var hitsKnown bool
 	var hitsFromHub int
 	if h.DB != nil {
-		var jsonExpr, dateExpr string
-		if h.DB.Driver == "sqlite" {
-			jsonExpr = `json_extract(payload_json, '$.ban_source')`
-			dateExpr = `date_created >= datetime('now', '-30 days')`
-		} else {
-			jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.ban_source'))`
-			dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
-		}
-		row := h.DB.QueryRowContext(r.Context(),
-			`SELECT COUNT(*), COUNT(DISTINCT ip_address)
-			   FROM unmask_event
-			  WHERE phase = 'serve'
-			    AND `+jsonExpr+` = 'community_bans'
-			    AND `+dateExpr)
-		_ = row.Scan(&hitCount, &hitUniqueIP)
+		hitStats, hitsKnown = h.communityHits.get(time.Now(), func() (communityHitStats, error) {
+			// Background-safe: independent of the request context so a page
+			// abort can't kill the refresh half-way.
+			return communityBansHits30d(context.Background(), h.DB)
+		})
 		// Rows currently in the local BAN list sourced from the hub (= shown
-		// next to the past-30d hits as "rows copied from the hub").
+		// next to the past-30d hits as "rows copied from the hub").  unmask_ban
+		// is small (the live ban list), so this stays a direct query.
 		_ = h.DB.QueryRowContext(r.Context(),
 			`SELECT COUNT(*) FROM unmask_ban WHERE source = 'community_bans'`).Scan(&hitsFromHub)
 	}
@@ -434,8 +402,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		"CommunityBansGeneratedAt":     doc.GeneratedAt,
 		"CommunityBansVersion":         doc.Version,
 		"CommunityBansNextPullAt":      nextPullAt,
-		"CommunityBansHits30d":         hitCount,
-		"CommunityBansHitsUniqueIP30d": hitUniqueIP,
+		"CommunityBansHits30d":         hitStats.Count,
+		"CommunityBansHitsUniqueIP30d": hitStats.UniqueIP,
+		"CommunityBansHitsKnown":       hitsKnown,
 		"CommunityBansFromHub":         hitsFromHub,
 		"CommunityBansMatch":           match,
 		"CommunityBansQuery":           q,

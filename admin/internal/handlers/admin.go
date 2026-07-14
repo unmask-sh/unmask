@@ -388,18 +388,34 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 				if sessionNeedsRefresh(pay) {
 					http.SetCookie(w, issueSessionCookie(secret, pay.UserID, pay.Role, secure, pay.Remember))
+					// Slide the CSRF cookie WITH the session (same value, fresh
+					// expiry).  Minted only at login, it used to expire ~30 days
+					// in while the session slid on forever -- the state that fed
+					// the backfill below on every operator, every TTL period.
+					if tok := CSRFTokenFromRequest(r); tok != "" {
+						http.SetCookie(w, issueCSRFCookie(tok, secure, pay.Remember))
+					}
 				}
-				// Backfill the CSRF cookie for sessions issued before the
-				// CSRF roll-out (= existing logins).  Self-redirect on a GET
-				// so the next request renders templates with the freshly
-				// stamped value populated; a POST without a token still
-				// 403s (= the operator reloads, picks up the cookie, retries).
+				// Backfill the CSRF cookie when the session outlived it (the
+				// session slides forward on every request, the CSRF cookie is
+				// only minted at login -- so ~30 days after login it expires
+				// alone) or for sessions issued before the CSRF roll-out.
+				// Issue the cookie AND hand the token to this same request
+				// (withIssuedCSRFToken), so the page renders its forms with
+				// the value whose Set-Cookie is on this response.  Never
+				// self-redirect to "pick the cookie up": a client that does
+				// not return it -- Chrome withholds SameSite=Strict cookies
+				// for an entire cross-site-initiated redirect chain, and did
+				// so here while the cookie was still Strict -- turns that
+				// into an infinite 303 loop (ERR_TOO_MANY_REDIRECTS on
+				// /unmask/admin/, tool1-jp 2026-07-10).  A POST in this state
+				// still 403s: its form was rendered under the old, expired
+				// token (= the operator reloads, picks up the cookie, retries).
 				if CSRFTokenFromRequest(r) == "" {
 					if tok, terr := newCSRFToken(); terr == nil {
 						http.SetCookie(w, issueCSRFCookie(tok, secure, pay.Remember))
 						if r.Method == http.MethodGet || r.Method == http.MethodHead {
-							http.Redirect(w, r, r.URL.String(), http.StatusSeeOther)
-							return
+							r = withIssuedCSRFToken(r, tok)
 						}
 					}
 				}
@@ -407,8 +423,9 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				// AuthMiddleware (= POST / PUT / PATCH / DELETE) must
 				// carry a token matching the cookie.  GET / HEAD /
 				// OPTIONS pass through untouched -- they don't mutate
-				// state and the browser would not attach the cookie via
-				// a cross-origin request (SameSite=Strict).
+				// state; the protection is the double-submit echo (a
+				// hidden field cross-origin JS cannot read), not the
+				// cookie's SameSite mode (Lax, matching the session).
 				if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
 					if err := r.ParseForm(); err != nil {
 						http.Error(w, "form parse error", http.StatusBadRequest)

@@ -286,8 +286,9 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   <div class="impact-panel">
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.hits30d_tip" }}">
       📊 <strong>{{ t .Lang "community_bans.hits30d_label" }}</strong>
-      <span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
+      {{ if .CommunityBansHitsKnown }}<span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
       {{ if gt .CommunityBansHitsUniqueIP30d 0 }}<span class="impact-sub">(uniq IP: {{ comma .CommunityBansHitsUniqueIP30d }})</span>{{ end }}
+      {{ else }}<span class="impact-num" title="collecting…">—</span>{{ end }}
     </span>
     {{ if gt .CommunityBansFromHub 0 }}
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.impact_tip" }}">
