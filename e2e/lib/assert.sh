@@ -54,3 +54,15 @@ assert_in() {
     log_fail "$desc: '$needle' not found in:\n$haystack"
     return 1
 }
+
+# assert_not_in NEEDLE HAYSTACK DESC -- the inverse of assert_in, for pinning a
+# value that must NEVER appear (e.g. a ban rewritten as a hard deny).
+assert_not_in() {
+    local needle="$1" haystack="$2" desc="$3"
+    if echo "$haystack" | grep -qF -- "$needle"; then
+        log_fail "$desc: '$needle' unexpectedly present in:\n$haystack"
+        return 1
+    fi
+    log_pass "$desc (= does not contain '$needle')"
+    return 0
+}

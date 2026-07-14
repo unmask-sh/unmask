@@ -90,6 +90,8 @@ func main() {
 		err = cmdEvents(args)
 	case "analyze":
 		err = cmdAnalyze(args)
+	case "db-analyze":
+		err = cmdDBAnalyze(args)
 	case "user":
 		err = cmdUser(args)
 	case "doctor":
@@ -123,6 +125,7 @@ usage:
   unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
   unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
+  unmask db-analyze [-config PATH] [-timeout 10m]
   unmask user list [-config PATH]
   unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
   unmask user reset-password <username> [-password PASS]
@@ -235,29 +238,24 @@ func cmdServe(args []string) error {
 	}
 
 	// Probe the host nginx once so Render picks the rate composition flow: nginx
-	// >= 1.17.1 → compose (a deny zone wins over a protected-path challenge),
-	// older → classic (limit_req_dry_run would fail `nginx -t`).  Cached
-	// process-wide; Render never execs nginx itself (it runs on the settings-save
-	// path).  nginx.rate_compose_mode overrides; "auto" (default) uses this probe,
-	// resolving to classic when nginx isn't detectable (safe everywhere).
+	// >= 1.17.6 → compose (a deny zone wins over a protected-path challenge),
+	// older → classic (limit_req_dry_run / the limit_req_status field would fail).
+	// Cached process-wide; Render never execs nginx itself (it runs on the
+	// settings-save path).  nginx.rate_compose_mode overrides; "auto" (default)
+	// uses this probe, resolving to classic when nginx isn't detectable (safe
+	// everywhere).  DiagnoseComposeMode classifies the result for the operator.
 	dryOK, ngxVer, ngxDetected := nginxconf.DetectDryRunSupport()
 	if ngxDetected {
 		nginxconf.SetDryRunSupported(dryOK)
 	}
-	switch {
-	case nginxconf.ComposeCapable(s) && ngxDetected && !dryOK:
-		// rate_compose_mode=always forced compose on a confirmed pre-1.17.1 nginx:
-		// the rendered limit_req_dry_run makes `nginx -t` fail, so nginx will not
-		// (re)load this config — a latent outage on the next reload/reboot.
-		log.Printf("unmask: WARNING: nginx.rate_compose_mode forces compose but nginx %s is < 1.17.1 — the rendered limit_req_dry_run FAILS `nginx -t`, so nginx will not (re)load this config. Set rate_compose_mode=auto/never or upgrade nginx.", ngxVer)
-	case !nginxconf.ComposeCapable(s) && nginxconf.HasDenyRateZone(s):
-		// classic flow (old / undetectable nginx): a deny zone still hard-blocks
-		// un-challenged traffic but cannot preempt a protected-path challenge.
-		verNote := "the host nginx"
-		if ngxDetected {
-			verNote = "nginx " + ngxVer
+	if diag := nginxconf.DiagnoseComposeMode(s, ngxVer, ngxDetected, dryOK); diag.Level != nginxconf.ComposeDiagOK {
+		// Tag by severity: an Error-level diagnosis (config that cannot enforce /
+		// reload) must be greppable as ERROR, not blend in as one more warning.
+		tag := "WARNING"
+		if diag.Level == nginxconf.ComposeDiagError {
+			tag = "ERROR"
 		}
-		log.Printf("unmask: WARNING: a rate-limit \"deny\" zone is configured but %s does not support compose (needs 1.17.1+) — deny hard-blocks un-challenged traffic but CANNOT preempt a protected-path challenge. Upgrade nginx (or set nginx.rate_compose_mode) for full deny composition.", verNote)
+		log.Printf("unmask: %s: %s", tag, diag.Message)
 	}
 
 	// Logging follows 12-factor: every log line goes to stderr and the init
@@ -357,6 +355,19 @@ func cmdServe(args []string) error {
 		// keyed on IP+JA4, not on the visited host.
 		banDur := time.Duration(s.Nginx.Honeypot.ResolvedBanDurationSec()) * time.Second
 		banMgr = ban.New(conn, s.Nginx.Honeypot.BanFilePath, banDur)
+		// Seed the per-source action resolver from the BOOT settings *before*
+		// Start(), because Start() writes the ban file immediately (initial
+		// flush) and flush() resolves every row whose action column is empty
+		// through EffectiveAction.  With no resolver installed that falls back
+		// to "deny", so every restart used to rewrite honeypot/manual bans as a
+		// hard deny -- ignoring the operator's configured captcha_only /
+		// pow_then_captcha until some later add re-flushed the file.  The live
+		// resolver (below, once the Handler exists) replaces this one so
+		// settings changes still apply without a restart.
+		bootSettings := s
+		banMgr.SetActionResolver(func(source string) string {
+			return bootSettings.Nginx.Bans.ResolveAction(source, bootSettings.Nginx.Honeypot.DefaultAction)
+		})
 		banMgr.Start()
 		defer banMgr.Close()
 		// Native-mode honeypot ban: SetHoneypotCallback is registered AFTER the
@@ -490,6 +501,13 @@ func cmdServe(args []string) error {
 		// exists; the startup window before this runs degrades to no callback,
 		// same as the pre-existing nlog.Start()-to-callback gap.
 		if nlog != nil {
+			// Suppress the honeypot auto-ban for a plaintext request nginx
+			// answered with a 301 (= a JA4-less access-log line while
+			// https_redirect is on).  Live settings, so toggling the redirect
+			// applies without a restart.  See Reader.httpsRedirectOn.
+			nlog.SetHTTPSRedirectCheck(func() bool {
+				return h.SnapshotSettings().Nginx.HTTPSRedirect
+			})
 			nlog.SetHoneypotCallback(func(ip, ja4, uri, site string) {
 				reason := "honeypot"
 				if uri != "" {
@@ -675,6 +693,11 @@ func cmdServe(args []string) error {
 			}
 		}()
 	}
+
+	// NOTE: the query planner's statistics (sqlite_stat1) are deliberately NOT
+	// refreshed from here — ANALYZE holds a write lock for its whole pass (60-70s
+	// measured on a 3.4GB production DB, starving event inserts).  It runs only
+	// from `unmask db-analyze` and migrate; see db.RefreshPlannerStats for why.
 
 	listener, listenDesc, err := openListener(s.Server)
 	if err != nil {
@@ -1181,7 +1204,47 @@ func cmdMigrate(args []string) error {
 	} else if n > 0 {
 		fmt.Printf("backfilled ja4_verdict_id for %d row(s)\n", n)
 	}
+	seedPlannerStats(conn, s.DB)
 	return nil
+}
+
+// plannerStatsAutoLimit: the largest SQLite file we will ANALYZE automatically at
+// migrate time.  ANALYZE reads every index end to end and holds a write lock for
+// the whole run (60-70s on a 3.4GB database); under this size it is effectively
+// instant, which covers a fresh install.  Larger databases print a pointer to
+// `unmask db-analyze` so the operator picks the moment.
+const plannerStatsAutoLimit = 256 << 20 // 256 MiB
+
+// seedPlannerStats gives a new database the index statistics the stats and
+// bot-hunt pages need.  Without sqlite_stat1 the planner scans whole covering
+// indexes for their GROUP BY / DISTINCT, so those pages slow down as events
+// accumulate.  Never fatal: a missing ANALYZE only costs speed, and `unmask
+// doctor` flags it.
+func seedPlannerStats(conn *db.DB, cfg settings.DB) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	ok, err := conn.HasPlannerStats(ctx)
+	if err != nil || ok {
+		return
+	}
+	// Fail SAFE on an unstatable path: treat it as large.  Auto-running ANALYZE
+	// on a database whose size we could not check risks the 60-70s write lock on
+	// a multi-GB file — the incident this guard exists for.
+	fi, err := os.Stat(cfg.SQLitePath)
+	if err != nil || fi.Size() > plannerStatsAutoLimit {
+		size := "unknown size"
+		if err == nil {
+			size = fmt.Sprintf("%d MiB", fi.Size()>>20)
+		}
+		fmt.Printf("note: no query-planner statistics (database %s) — run `unmask db-analyze`\n"+
+			"      while traffic is low (it holds a write lock for up to a minute).\n", size)
+		return
+	}
+	if err := conn.RefreshPlannerStats(ctx); err != nil {
+		fmt.Printf("note: could not build query-planner statistics (%v); run `unmask db-analyze` later\n", err)
+		return
+	}
+	fmt.Println("query-planner statistics built")
 }
 
 // ----------------------------------------------------------------
@@ -1269,11 +1332,16 @@ func cmdEvents(args []string) error {
 			continue
 		}
 		for _, r := range rows {
-			// reason = payload force_reason ("-" when absent).  Surfaces WHY a
-			// challenge fired -- notably `reason=rate_limit`, so a rate-limit
-			// block is greppable / countable straight from the CLI
-			// (`unmask events --since 0 | grep reason=rate_limit`).
+			// reason surfaces WHY a challenge / decision fired.  Prefer the
+			// forced-challenge cause (payload force_reason, e.g. rate_limit /
+			// honeypot) and fall back to the general reason field (e.g. a
+			// bv_rebind_reject's ja4_mismatch / asn_veto, which sets `reason` not
+			// `force_reason`) so those rows aren't printed as reason=-.  Stays
+			// greppable: `unmask events --since 0 | grep reason=rate_limit`.
 			reason := r.ForceReason
+			if reason == "" {
+				reason = r.Reason
+			}
 			if reason == "" {
 				reason = "-"
 			}
