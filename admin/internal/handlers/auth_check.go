@@ -1091,11 +1091,13 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	}
 	pm := pathMatchers{}
 
-	// bypass IPs: preset ranges (Googlebot etc.) + enabled bypass_ips rows,
-	// CIDR-aware -- the same allowlist the native geo $is_bypass_ip block bakes
-	// in, so forward-auth never challenges a trusted crawler the native path
-	// would exempt.
-	pm.ipBypass = nginxconf.NewIPBypassMatcher(n)
+	// bypass IPs (CHALLENGE side): preset ranges (Googlebot etc.) + enabled
+	// bypass_ips rows + stats_exclude, CIDR-aware -- exactly the set the native
+	// geo $is_bypass_ip block bakes in, so forward-auth never challenges a trusted
+	// crawler / monitoring probe the native path would exempt.  This is the
+	// challenge matcher, NOT the ban guard (banDecide above uses BanMgr, whose
+	// whitelist is the narrower NewIPBypassMatcher set without stats_exclude).
+	pm.ipBypass = nginxconf.NewChallengeBypassMatcher(n)
 
 	// bypass paths: enabled presets + per-site rows from ResolvePaths.
 	//

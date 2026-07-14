@@ -374,7 +374,7 @@ type renderData struct {
 	// DefaultRateZone: name + burst used for limit_req zone= in protect.inc.tmpl.
 	DefaultRateZoneName  string
 	DefaultRateZoneBurst int
-	// ComposeMode: true when the host nginx supports limit_req_dry_run (>= 1.17.1),
+	// ComposeMode: true when the host nginx supports limit_req_dry_run (>= 1.17.6),
 	// resolved by ComposeCapable (nginx.rate_compose_mode override + the startup
 	// probe).  Switches protect.inc to the unified flow -- limit_req runs in
 	// dry-run and the plugin's ACCESS-phase handler composes the rate + captcha
@@ -866,10 +866,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.DefaultRateZoneName = defaultName
 	d.DefaultRateZoneBurst = defaultBurst
 	// Compose vs classic is decided by the host nginx's limit_req_dry_run support
-	// (>= 1.17.1), NOT by whether a deny zone exists.  Compose is the unified flow
+	// (>= 1.17.6), NOT by whether a deny zone exists.  Compose is the unified flow
 	// (the plugin's ACCESS handler composes rate + challenge, so a deny zone wins
 	// over a protected-path challenge that the classic REWRITE-phase gate would
-	// pre-empt), but its `limit_req_dry_run` fails `nginx -t` on nginx < 1.17.1 --
+	// pre-empt), but its `limit_req_dry_run` fails `nginx -t` on older nginx --
 	// so older nginx always renders classic.  A deny zone on classic still
 	// hard-blocks un-challenged traffic; it just can't preempt a challenge (that
 	// gap is surfaced as a startup / doctor warning, HasDenyRateZone && !capable).

@@ -798,7 +798,7 @@ map $args $rl_hit {
     "~_rl=1" "1";
 }
 {{ if .ComposeMode }}
-# Compose-mode fail-open recovery maps (a deny zone exists).  In compose mode the
+# Compose-mode fail-open recovery maps (host nginx >= 1.17.6).  In compose mode the
 # plugin's ACCESS-phase handler does the challenge / rate redirect via
 # ngx_http_internal_redirect, which restarts the phase engine from POST_READ --
 # re-running server.inc's SERVER_REWRITE `set $unmask_orig_path ""`, clearing the

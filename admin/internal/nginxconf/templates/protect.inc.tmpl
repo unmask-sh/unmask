@@ -18,7 +18,8 @@
 # (http {} scope).  The over-limit trigger differs by mode (see below):
 # classic  = limit_req_status 429 + error_page -> @unmask_rate_challenge;
 # compose  = limit_req_dry_run + the plugin's ACCESS handler composes the
-#            rate + captcha decision (emitted only when a deny zone exists).
+#            rate + captcha decision (emitted when the host nginx supports it,
+#            i.e. >= 1.17.6; select with nginx.rate_compose_mode).
 limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
 {{- range .RatePathZones }}
 # Path-scoped zone "{{ .ZoneName }}": its key ({{ .KeyVar }}) is "" off-path, so
@@ -46,7 +47,7 @@ set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";
 set $unmask_gate "${final_challenge}:${unmask_failopen}";
 {{ end }}
 {{ if .ComposeMode }}
-# Compose mode (a deny rate-zone exists): the limit_req directives above run in
+# Compose mode (host nginx >= 1.17.6): the limit_req directives above run in
 # DRY-RUN (count, never reject), and the unmask plugin's ACCESS-phase handler
 # composes the rate + captcha decision -- so a deny zone wins over the captcha,
 # which the REWRITE-phase rewrite (classic branch below) would otherwise
@@ -54,8 +55,9 @@ set $unmask_gate "${final_challenge}:${unmask_failopen}";
 # internal-redirects to /unmask/_rl<uri> (over the cap; the daemon resolves deny
 # vs challenge from the matched zone) or /unmask/challenge/ (captcha needed),
 # else lets the request pass.  Hence no error_page-429 trigger and no rewrite
-# gate in this variant.  Activated only when a deny zone exists -- non-deny
-# configs keep the classic flow unchanged.
+# gate in this variant.  Emitted whenever the host nginx supports limit_req_dry_run
+# + the limit_req_status field the handler reads (>= 1.17.6; nginx.rate_compose_mode
+# overrides) -- older nginx keeps the classic flow.
 limit_req_dry_run on;
 set $unmask_compose 1;
 # Machinery bypass (= v0.1.1, compose counterpart of the classic `break`).  At
