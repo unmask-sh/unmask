@@ -130,3 +130,87 @@ func (d *DB) NowMinusMinutes(n int) string {
 	}
 	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d MINUTE)", n)
 }
+
+// RefreshPlannerStats rebuilds the query planner's index statistics.
+//
+// SQLite ships NO statistics until ANALYZE runs, and a fresh unmask database
+// never runs it.  With no sqlite_stat1 the planner cannot estimate how selective
+// `date_created > ?` is, so for a GROUP BY / DISTINCT on a column that has a
+// composite (col, date_created) index -- ja4_verdict, site, host, phase -- it
+// prefers scanning that whole covering index (avoiding a temp b-tree) over
+// seeking the date range.  The query then costs O(all events) rather than
+// O(events in the window), which is why the stats and bot-hunt pages get slower
+// as events accumulate rather than staying flat.  A sampled ANALYZE flips those
+// plans (measured: DISTINCT host 0.22s -> 0.002s, verdict distribution 0.72s ->
+// 0.10s on a 1M-row table).
+//
+// THIS IS A MAINTENANCE OPERATION, NOT A BACKGROUND TASK.  ANALYZE holds a write
+// transaction for its whole run, and its run is proportional to the size of the
+// indexes: `PRAGMA analysis_limit` only lets it skip runs of DUPLICATE keys, and
+// every unmask_event index carries date_created, so they are all near-unique and
+// nothing gets skipped.  Measured on tool1-us (3.4GB database, 3.9M events, 1.1GB
+// of event indexes): 60-70s, during which every event insert failed with
+// SQLITE_BUSY and the challenge beacon's writes took 5s.  On a freshly installed
+// database it is instant.  Call it from `unmask db-analyze` or from migrate (the
+// service is stopped there) -- never from serve.
+//
+// analysis_limit is still worth setting: it bounds the per-key sampling and is a
+// per-connection setting, so it must run on the SAME connection as ANALYZE --
+// hence the explicit Conn.  `PRAGMA optimize` would be lighter, but it only
+// considers tables the current connection has already queried, which on a freshly
+// checked-out pool connection is none: it would silently do nothing.
+//
+// MariaDB is a no-op (InnoDB maintains live index statistics itself, and
+// estimates the range correctly).
+func (d *DB) RefreshPlannerStats(ctx context.Context) error {
+	if d.Driver != DriverSQLite {
+		return nil
+	}
+	conn, err := d.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err := conn.ExecContext(ctx, `PRAGMA analysis_limit=400`); err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, `ANALYZE`)
+	return err
+}
+
+// HasPlannerStats reports whether the query planner has index statistics.  A
+// SQLite database that has never been ANALYZEd has no sqlite_stat1 table at all,
+// which is the state that makes the stats and bot-hunt pages scan whole covering
+// indexes.  MariaDB always reports true: InnoDB maintains its own.
+func (d *DB) HasPlannerStats(ctx context.Context) (bool, error) {
+	if d.Driver != DriverSQLite {
+		return true, nil
+	}
+	var n int
+	err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE name='sqlite_stat1'`).Scan(&n)
+	return n > 0, err
+}
+
+// EventDateIndexHint returns the driver's hint that pins an unmask_event query
+// to the date_created index, or "" when the driver needs none.
+//
+// RefreshPlannerStats fixes the bad plan for low-cardinality GROUP BY columns
+// (the planner can skip-scan them once it has statistics), but NOT for
+// ip_address: with roughly one distinct IP per three rows a skip-scan is
+// worthless, so even a fully analysed SQLite keeps scanning the whole
+// (ip_address, date_created) covering index.  Measured on the tool1-us database
+// (3.9M events): `GROUP BY ip_address` over a 1-hour window took 1.4s warm /
+// 10.3s cold and did NOT get faster with a narrower window -- pinned to the date
+// index it is 0.005s.
+//
+// Only append this to a query that actually constrains date_created: INDEXED BY
+// makes SQLite reject a plan that cannot use the named index.  MariaDB names its
+// indexes differently (idx_date) and its optimizer estimates the range from live
+// InnoDB statistics, so it is deliberately left unhinted.
+func (d *DB) EventDateIndexHint() string {
+	if d.Driver == DriverSQLite {
+		return " INDEXED BY idx_unmask_event_date"
+	}
+	return ""
+}
