@@ -3,11 +3,22 @@
 // The admin session is a stateless HMAC-signed cookie (= no DB row to
 // bind a token to), so we issue a separate, JS-readable cookie at
 // login and require the same value back in a hidden form field on
-// every authenticated POST.  An attacker who can run cross-origin
-// JavaScript could only read the CSRF cookie under a Same-Origin
-// document; cross-origin reads are blocked by the browser's same-origin
-// policy, and SameSite=Strict prevents the cookie from being sent
-// alongside an attacker-initiated POST.
+// every authenticated POST.  The protection is that echo: a cross-site
+// attacker cannot read the cookie to fill the field (same-origin
+// policy), so the comparison fails whether or not the cookie itself
+// rode along on the forged request.
+//
+// SameSite is Lax -- deliberately the SAME as the session cookie, NOT
+// Strict.  Chrome withholds Strict cookies from every hop of a redirect
+// chain whose initiator was cross-site (external link / bookmark, and
+// any reload of the resulting error page) while still sending the Lax
+// session cookie on those top-level GETs.  A Strict CSRF cookie
+// therefore reads as "session present, CSRF absent" on every hop of
+// such a chain -- the state that turned AuthMiddleware's backfill into
+// a 303 self-redirect loop and locked an operator out of /unmask/admin/
+// (tool1-jp, 2026-07-10).  Lax only ever attaches the cookie to
+// top-level GET navigations, which never mutate state here, so the
+// double-submit property is unchanged.
 //
 // Login submit is intentionally exempt: there is no session yet, so
 // nothing to bind a token against, and the per-IP rate-limit zone
@@ -15,6 +26,7 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -58,7 +70,7 @@ func issueCSRFCookie(value string, secure, remember bool) *http.Cookie {
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: false, // readable by the (same-origin) JS that the form ships, but cross-origin reads are blocked by SOP regardless
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode, // match the session cookie; see the package comment
 	}
 }
 
@@ -72,22 +84,39 @@ func clearCSRFCookie(secure bool) *http.Cookie {
 		MaxAge:   -1,
 		HttpOnly: false,
 		Secure:   secure,
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 	}
 }
 
-// CSRFTokenFromRequest returns the active CSRF token (= cookie value),
-// or "" when no cookie is present.  Templates render this through the
-// shared layout data so every form auto-embeds it.
+// csrfIssuedCtxKey carries a CSRF token that THIS response just issued via
+// Set-Cookie, for requests that arrived without the cookie.  AuthMiddleware's
+// backfill stashes it so the page renders its forms with the token whose cookie
+// is landing in the same response -- instead of self-redirecting to re-read the
+// cookie, which has no terminating condition when the client does not return it
+// (the 303 loop that locked an operator out of /unmask/admin/).
+type csrfIssuedCtxKey struct{}
+
+// withIssuedCSRFToken returns r with tok attached; CSRFTokenFromRequest falls
+// back to it when the request carries no CSRF cookie.
+func withIssuedCSRFToken(r *http.Request, tok string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), csrfIssuedCtxKey{}, tok))
+}
+
+// CSRFTokenFromRequest returns the active CSRF token: the cookie value, or --
+// when the request carries no cookie -- the token this response just issued
+// (see withIssuedCSRFToken).  "" when neither exists.  Templates render this
+// through the shared layout data so every form auto-embeds it.
 func CSRFTokenFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
 	}
-	c, err := r.Cookie(csrfCookieName)
-	if err != nil || c == nil {
-		return ""
+	if c, err := r.Cookie(csrfCookieName); err == nil && c != nil && c.Value != "" {
+		return c.Value
 	}
-	return c.Value
+	if tok, ok := r.Context().Value(csrfIssuedCtxKey{}).(string); ok {
+		return tok
+	}
+	return ""
 }
 
 // csrfHeaderName is the request header fetch / XHR echo the token in.
