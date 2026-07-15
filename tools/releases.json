@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.5",
+  "latest": "0.1.6",
   "releases": [
+    {
+      "version": "0.1.6",
+      "date": "2026-07-15",
+      "notes": "Critical fix for a connection leak introduced by 0.1.5's compose mode. On nginx 1.17.6+, every composed challenge or rate-limit redirect left its client connection permanently orphaned; the orphans accumulated until nginx ran out of worker connections and stopped answering entirely — on a busy protected site, within hours. The fix pairs the module's internal redirect with the request-reference release nginx expects (the X-Accel-Redirect idiom). If you run 0.1.5 with nginx 1.17.6 or newer, upgrade now and restart nginx — a reload does not replace the loaded module, and only a restart releases connections already orphaned."
+    },
     {
       "version": "0.1.5",
       "date": "2026-07-14",
