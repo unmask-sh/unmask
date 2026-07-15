@@ -513,6 +513,35 @@ ngx_http_unmask_compose_variable(ngx_http_request_t *r,
  * guard -- the compose flag is a cacheable `set` variable that persists across
  * the internal_redirect, so it cannot be relied on for that.
  * -------------------------------------------------------------------- */
+
+/* Internal-redirect from this ACCESS-phase handler, balancing the request
+ * reference count.  ngx_http_internal_redirect() takes a reference
+ * (r->main->count++) that the caller must release by passing its NGX_DONE on
+ * to ngx_http_finalize_request().  The CONTENT-phase checker does exactly that
+ * with a content handler's return value, which is why ngx_http_index_module
+ * may return the redirect's value bare -- but the ACCESS-phase checker maps
+ * NGX_DONE to "waiting for an event" WITHOUT finalizing, so returning it bare
+ * from here strands one reference: the redirected response completes,
+ * r->count stays 1, ngx_http_set_keepalive() is never reached, and the
+ * connection is orphaned holding its fd until the worker exits.  That leaked
+ * one fd per composed request and took every native fleet node down by
+ * worker_connections/RLIMIT_NOFILE exhaustion within ~2h of the first compose
+ * rollout (2026-07-15).  Pair the redirect with an explicit finalize instead
+ * -- the idiom nginx itself uses for X-Accel-Redirect
+ * (ngx_http_upstream_process_headers), which likewise runs outside the
+ * CONTENT checker's finalize.  The finalize either merely drops the reference
+ * (redirect target still in flight, count > 1) or performs the
+ * keepalive/close transition itself (target already completed synchronously,
+ * count == 1) -- both exactly what the CONTENT checker would have done. */
+static ngx_int_t
+ngx_unmask_access_redirect(ngx_http_request_t *r, ngx_str_t *uri,
+    ngx_str_t *args)
+{
+    ngx_http_internal_redirect(r, uri, args);
+    ngx_http_finalize_request(r, NGX_DONE);
+    return NGX_DONE;
+}
+
 static ngx_int_t
 ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
 {
@@ -596,7 +625,7 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
         if (uri.len) {
             ngx_memcpy(p, uri.data, uri.len);
         }
-        return ngx_http_internal_redirect(r, &rl_uri, &args);
+        return ngx_unmask_access_redirect(r, &rl_uri, &args);
     }
 
     /* within the cap: captcha gate exactly "1:" -> protected challenge. */
@@ -619,7 +648,7 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
         if (orig.len) {
             ngx_memcpy(p, orig.data, orig.len);
         }
-        return ngx_http_internal_redirect(r, &chal, &args);
+        return ngx_unmask_access_redirect(r, &chal, &args);
     }
 
     return NGX_DECLINED;                /* within cap, no challenge -> pass */
