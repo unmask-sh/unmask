@@ -603,6 +603,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Honeypot":                   cur.Honeypot,
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
+		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -890,6 +891,26 @@ type extraRule struct {
 }
 
 // bypassRule: row-UI struct for the network-tab bypass_ips.
+// statsExcludeRule / pairStatsExcludeRules: zip the stats-exclude list and its
+// optional titles for the row UI -- the bypass editor's shape minus
+// enable/timestamp, which stats exclusion does not carry.
+type statsExcludeRule struct {
+	IP    string
+	Title string
+}
+
+func pairStatsExcludeRules(ips, titles []string) []statsExcludeRule {
+	out := make([]statsExcludeRule, len(ips))
+	for i, ip := range ips {
+		var t string
+		if i < len(titles) {
+			t = titles[i]
+		}
+		out[i] = statsExcludeRule{IP: ip, Title: t}
+	}
+	return out
+}
+
 type bypassRule struct {
 	IP        string
 	Title     string
@@ -2152,15 +2173,35 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	}
 	n.BypassIPEnabledPresets = enabledOut
 
-	// stats_exclude_ips: textarea (one IP / CIDR per line) -- IPs dropped
-	// entirely from statistics.  Validate each entry as IP or CIDR.
-	statsEx := formList(r.Form["stats_exclude_ips"])
-	for _, ip := range statsEx {
+	// stats_exclude_ips (+ _title): row UI, parallel arrays zipped by index --
+	// IPs dropped entirely from statistics.  Rows are paired BEFORE blanks and
+	// duplicates are skipped so a dropped row can never shift the titles
+	// against the IPs; duplicates keep the first row's title (= formList's
+	// first-wins dedup, which this replaces).
+	stxIPs := r.Form["stats_exclude_ips"]
+	stxTitles := r.Form["stats_exclude_ips_title"]
+	stxSeen := map[string]bool{}
+	outStx := make([]string, 0, len(stxIPs))
+	outStxTitle := make([]string, 0, len(stxIPs))
+	for i, raw := range stxIPs {
+		ip := strings.TrimSpace(raw)
+		if ip == "" || stxSeen[ip] {
+			continue
+		}
 		if !ipOrCIDRRE.MatchString(ip) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_invalid", ip))
 		}
+		var t string
+		if i < len(stxTitles) {
+			t = strings.TrimSpace(stxTitles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		stxSeen[ip] = true
+		outStx = append(outStx, ip)
+		outStxTitle = append(outStxTitle, t)
 	}
-	n.StatsExcludeIPs = statsEx
+	n.StatsExcludeIPs = outStx
+	n.StatsExcludeIPsTitle = outStxTitle
 	n.StatsExcludePrivateNetworks = r.FormValue("stats_exclude_private_networks") == "1"
 	return nil
 }
