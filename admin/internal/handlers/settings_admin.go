@@ -3709,6 +3709,13 @@ type retentionStatsView struct {
 	// outran the budget.  The template surfaces a warning instead of silently
 	// rendering the zeroed-out counts as if the DB were genuinely empty.
 	TimedOut bool
+	// Per-metric success flags: true = the value was read, false = its query
+	// errored/timed out and the value is unknown (rendered "??" rather than a
+	// misleading 0, so the operator sees WHICH metric could not be computed).
+	EventsRowsOK         bool
+	EventsOldestOK       bool
+	CookieMinuteRowsOK   bool
+	CookieMinuteOldestOK bool
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -3725,30 +3732,34 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	// note logs a query error and, when it is a context deadline/cancel, flags
 	// the view as incomplete so the template can warn instead of rendering the
 	// zeroed-out counts as if the DB were genuinely empty.
-	note := func(label string, err error) {
+	// note logs a query error, flags the view as timed-out on a deadline/cancel,
+	// and returns whether the query succeeded so each metric can record its own
+	// known/unknown state.
+	note := func(label string, err error) bool {
 		if err == nil {
-			return
+			return true
 		}
 		log.Printf("retentionStats %s: %v", label, err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			v.TimedOut = true
 		}
+		return false
 	}
-	note("events count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows))
+	v.EventsRowsOK = note("events count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows))
 	// Oldest unmask_event row as unix seconds.  The column is TEXT; convert
 	// driver-side so we don't have to parse multiple datetime formats in Go.
 	eventsOldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
 	if h.cfg().DB.Driver == "mariadb" {
 		eventsOldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
 	}
-	note("events oldest", h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS))
+	v.EventsOldestOK = note("events oldest", h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS))
 	if v.EventsOldestTS > 0 {
 		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
 	}
-	note("cookie_minute count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows))
+	v.CookieMinuteRowsOK = note("cookie_minute count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows))
 	var oldestMin int64
-	note("cookie_minute oldest", h.DB.QueryRowContext(ctx,
+	v.CookieMinuteOldestOK = note("cookie_minute oldest", h.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(MIN(bucket_min), 0) FROM unmask_cookie_minute`).Scan(&oldestMin))
 	if oldestMin > 0 {
 		v.CookieMinuteOldestTS = oldestMin * 60

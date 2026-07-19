@@ -4593,13 +4593,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ if .Retention.TimedOut }}
       <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
       {{ end }}
-      {{ if gt .Retention.EventsRows 0 }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
-        <strong>{{ comma .Retention.EventsRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}
+        {{ if .Retention.EventsRowsOK }}<strong>{{ comma .Retention.EventsRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if not .Retention.EventsOldestOK }} · {{ t .Lang "settings.retention.oldest_label" }} <strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>
+        {{ else if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}
       </div>
-      {{ end }}
     </div>
   </div>
 
@@ -4616,13 +4615,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <button type="button" class="ua-help-trigger" data-help-target="retention-nginx-log-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-nginx-log-help">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</script>
-      {{ if gt .Retention.CookieMinuteRows 0 }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
-        <strong>{{ comma .Retention.CookieMinuteRows }}</strong> {{ t .Lang "settings.retention.rows_unit" }}
-        {{ if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
+        {{ if .Retention.CookieMinuteRowsOK }}<strong>{{ comma .Retention.CookieMinuteRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if not .Retention.CookieMinuteOldestOK }} · {{ t .Lang "settings.retention.oldest_label" }} <strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>
+        {{ else if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
       </div>
-      {{ end }}
     </div>
   </div>
 
