@@ -779,7 +779,7 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 	// a bypass-IP monitoring probe / search bot / valid _bv never reaches here.
 	staleReason := ""
 	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
-		classify.IsStaleBrowser(ua, g.CurrentChromeMajor, g.StaleBrowserLagN()) {
+		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.StaleBrowserLagN()) {
 		pick = g.StaleBrowserResolvedAction()
 		staleReason = "ua:stale_browser:" + pick
 	}

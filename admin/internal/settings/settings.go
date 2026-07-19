@@ -1616,14 +1616,32 @@ const (
 	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
 	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
 	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
+	// DefaultCurrentChromeMajor: the Chrome stable major current when this
+	// binary was built, shipped so the tier works out of the box with just the
+	// toggle — no operator bookkeeping required.  It is a floor, not a ceiling:
+	// an operator who sets current_chrome_major overrides it, and it only goes
+	// stale in the safe direction (an aging binary challenges FEWER browsers,
+	// never more), which `unmask doctor` flags.  **Bump this each release** to
+	// track Chrome's ~4-week cadence.  (150 = stable on 2026-07, the release
+	// that introduced the tier.)
+	DefaultCurrentChromeMajor = 150
 )
 
-// StaleBrowserEnabled reports whether the stale-browser tier is active: the
-// toggle is on AND a current-major baseline is set (0 = "I don't know current
-// stable" = inert, so a half-configured install never challenges every
-// browser).
+// StaleBrowserEnabled reports whether the stale-browser tier is active.  Just
+// the toggle: the current-major baseline always resolves (operator value or the
+// shipped DefaultCurrentChromeMajor), so enabling the tier alone is enough.
 func (g GlobalConfig) StaleBrowserEnabled() bool {
-	return g.StaleBrowserChallenge && g.CurrentChromeMajor > 0
+	return g.StaleBrowserChallenge
+}
+
+// CurrentChromeMajorResolved returns the effective "current stable" major: the
+// operator's value when set (>0), else the shipped DefaultCurrentChromeMajor so
+// the tier needs no manual bookkeeping to function.
+func (g GlobalConfig) CurrentChromeMajorResolved() int {
+	if g.CurrentChromeMajor > 0 {
+		return g.CurrentChromeMajor
+	}
+	return DefaultCurrentChromeMajor
 }
 
 // StaleBrowserLagN returns the effective lag, applying DefaultStaleBrowserLag
