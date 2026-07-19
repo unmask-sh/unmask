@@ -1130,6 +1130,26 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
+		// Stale-browser tier.  A blank/invalid current-major stores 0 (= tier
+		// inert even if the toggle is on), so a half-filled form never
+		// challenges every browser.  The action is restricted to real screens
+		// (captcha_only / pow_then_captcha / deny); anything else falls back to
+		// the captcha_only default via StaleBrowserResolvedAction at render time.
+		cur.Global.StaleBrowserChallenge = r.FormValue("global_stale_browser_challenge") == "1"
+		parseIntInRange := func(v string, lo, hi int) int {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil || n < lo || n > hi {
+				return 0
+			}
+			return n
+		}
+		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("global_current_chrome_major"), 1, 999)
+		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("global_stale_browser_lag"), 1, 99)
+		if a := strings.TrimSpace(r.FormValue("global_stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
+			cur.Global.StaleBrowserAction = a
+		} else {
+			cur.Global.StaleBrowserAction = ""
+		}
 	case "network":
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
 			redirBack(err.Error())

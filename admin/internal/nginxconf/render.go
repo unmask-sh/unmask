@@ -311,7 +311,15 @@ type renderData struct {
 	// "pass" or not; the actual chain choice happens admin-side.
 	KnownBrowserAction string
 	UnknownUAAction    string
-	UpstreamAddr       string
+	// Stale-browser tier (Global.StaleBrowserEnabled).  When off, none of
+	// these are used and the template emits its original $final_challenge map
+	// verbatim (zero rendered-config diff on upgrade).  When on:
+	//   StaleBrowserPattern : an nginx regex matching a Chrome/<major>. token
+	//                         whose major is >= StaleBrowserLag behind current
+	//                         stable (built by staleBrowserPattern()).
+	StaleBrowserEnabled bool
+	StaleBrowserPattern string
+	UpstreamAddr        string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -578,6 +586,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled, rangeVerified)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
 	d.RangeVerifiedUACount = len(rangeVerified)
+
+	// Stale-browser tier: only wire it when enabled AND the generated pattern
+	// is non-empty (a lag so large that no positive major qualifies yields no
+	// pattern -> leave the tier off rather than emit a map that matches
+	// nothing).
+	if s.Global.StaleBrowserEnabled() {
+		if pat := staleBrowserPattern(s.Global.CurrentChromeMajor, s.Global.StaleBrowserLagN()); pat != "" {
+			d.StaleBrowserEnabled = true
+			d.StaleBrowserPattern = pat
+		}
+	}
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {
@@ -1371,6 +1390,31 @@ func resolveGlobalAction(axis string) string {
 		return axis
 	}
 	return "pow_only"
+}
+
+// staleBrowserPattern builds the nginx regex the $unmask_stale_browser map
+// tests $http_user_agent against.  A UA is stale when its Chromium-family
+// major is at least lag behind currentMajor, i.e. major <= currentMajor-lag.
+// The pattern matches a `Chrome/<major>.` token for every stale major, so it
+// mirrors classify.IsStaleBrowser exactly (the daemon side) while running as a
+// pure nginx map (the native gate needs no plugin call).
+//
+// An explicit alternation (not a hand-rolled numeric-range regex) is used on
+// purpose: it is obviously correct, unit-tested against the same threshold the
+// daemon uses, and compiled once by nginx.  The trailing `\.` anchors the
+// major so Chrome/50. never matches the "5" alternative and Chrome/1400. never
+// matches "140".  Returns "" when no positive major qualifies (currentMajor-lag
+// < 1), signalling the caller to leave the tier off.
+func staleBrowserPattern(currentMajor, lag int) string {
+	threshold := currentMajor - lag // stale iff major <= threshold
+	if threshold < 1 {
+		return ""
+	}
+	majors := make([]string, 0, threshold)
+	for m := threshold; m >= 1; m-- {
+		majors = append(majors, strconv.Itoa(m))
+	}
+	return `Chrome/(?:` + strings.Join(majors, "|") + `)\.`
 }
 
 var controlChars = regexp.MustCompile(`[\x00-\x1f"]`)

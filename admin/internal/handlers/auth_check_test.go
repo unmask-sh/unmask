@@ -453,6 +453,58 @@ func TestResolveForwardedJA4ConnPeerGate(t *testing.T) {
 	}
 }
 
+// TestUaDecideStaleBrowser: the forward-auth UA axis escalates a stale-Chrome
+// UA to the operator's stale action (default captcha_only) even when the
+// Global known-browser action would pass, and leaves a current browser alone.
+func TestUaDecideStaleBrowser(t *testing.T) {
+	scraper := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.5 Safari/537.36"
+	current := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
+
+	var cfg settings.Settings
+	cfg.Global.KnownBrowserAction = "pass" // the incident posture: real browsers pass
+	cfg.Global.StaleBrowserChallenge = true
+	cfg.Global.CurrentChromeMajor = 150
+	cfg.Global.StaleBrowserLag = 11
+
+	// Stale UA: even though known browsers PASS, the scraper is escalated.
+	d, ok := uaDecide(scraper, "", cfg, nil)
+	if !ok || d.sev != sevCaptchaOnly {
+		t.Fatalf("stale scraper: sev=%v ok=%v, want captcha_only", d.sev, ok)
+	}
+	if d.chMode != settings.RateChallengeCaptchaOnly {
+		t.Errorf("stale scraper chMode=%q want captcha_only", d.chMode)
+	}
+	if !strings.HasPrefix(d.reason, "ua:stale_browser:") {
+		t.Errorf("stale scraper reason=%q want ua:stale_browser prefix", d.reason)
+	}
+
+	// Current browser: still passes (known-browser action honoured).
+	if d, _ := uaDecide(current, "", cfg, nil); d.sev != sevPass {
+		t.Errorf("current browser: sev=%v want pass", d.sev)
+	}
+
+	// The stale action REPLACES the base pick even when the base is the
+	// nominally-higher-severity pow_then_captcha: the operator picked
+	// captcha_only for stale UAs precisely to skip the pointless PoW leg.
+	cfg.Global.KnownBrowserAction = "pow_then_captcha"
+	if d, _ := uaDecide(scraper, "", cfg, nil); d.sev != sevCaptchaOnly {
+		t.Errorf("stale over pow_then_captcha base: sev=%v want captcha_only (stale action must win)", d.sev)
+	}
+
+	// ...but a deny base is never softened to a captcha.
+	cfg.Global.KnownBrowserAction = "deny"
+	if d, _ := uaDecide(scraper, "", cfg, nil); d.sev != sevDeny {
+		t.Errorf("stale over deny base: sev=%v want deny (never soften a hard block)", d.sev)
+	}
+
+	// Feature off: the scraper passes like any known browser.
+	cfg.Global.KnownBrowserAction = "pass"
+	cfg.Global.StaleBrowserChallenge = false
+	if d, _ := uaDecide(scraper, "", cfg, nil); d.sev != sevPass {
+		t.Errorf("tier off: stale scraper sev=%v want pass", d.sev)
+	}
+}
+
 // TestIsSearchBotUA locks the search/AI-crawler detection that the forward-auth
 // veto-pass relies on (= the rescue that must beat geo/ja4/protected/honeypot).
 func TestIsSearchBotUA(t *testing.T) {

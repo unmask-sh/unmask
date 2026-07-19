@@ -1576,6 +1576,55 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
+  <div class="bcd-card">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.global.stale_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="global-stale-help" aria-label="?">?</button>
+    </h2>
+    <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.stale_intro") }}</p>
+
+    {{ $sba := .Global.StaleBrowserAction }}
+    {{ if eq $sba "" }}{{ $sba = "captcha_only" }}{{ end }}
+    {{ $slag := .Global.StaleBrowserLag }}
+    {{ if le $slag 0 }}{{ $slag = 10 }}{{ end }}
+
+    <div class="field" style="padding:.75rem .9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#9a3412;margin:0">
+        <input type="checkbox" name="global_stale_browser_challenge" value="1" {{ if .Global.StaleBrowserChallenge }}checked{{ end }}>
+        {{ t .Lang "settings.global.stale_label" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;color:#9a3412;line-height:1.65">{{ safeHTML (t .Lang "settings.global.stale_help") }}</div>
+    </div>
+
+    <div class="field" style="margin:1.4rem 0 1.2rem;display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-end">
+      <div>
+        <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.stale_current_h" }}</label>
+        <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.global.stale_current_help") }}</div>
+        <input type="number" name="global_current_chrome_major" min="0" max="999" value="{{ if gt .Global.CurrentChromeMajor 0 }}{{ .Global.CurrentChromeMajor }}{{ end }}" placeholder="150" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
+      </div>
+      <div>
+        <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.stale_lag_h" }}</label>
+        <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.global.stale_lag_help") }}</div>
+        <input type="number" name="global_stale_browser_lag" min="1" max="99" value="{{ $slag }}" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
+      </div>
+    </div>
+
+    <div class="field" style="margin:1.4rem 0 1.2rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.stale_action_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.stale_action_help") }}</div>
+      <select name="global_stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="deny"             {{ if eq $sba "deny" }}selected{{ end }}>deny</option>
+      </select>
+    </div>
+
+    <script type="text/html" id="global-stale-help">
+      <div><strong>{{ t .Lang "settings.global.stale_h" }}</strong></div>
+      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.global.stale_help_long") }}</p>
+    </script>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}

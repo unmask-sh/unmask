@@ -1135,6 +1135,22 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// Stale-browser escalation.  A UA whose Chromium-family major is far behind
+	// current stable is a headless-scraper tell (2026-07-15 uic.io incident);
+	// serve it the operator's stale screen (default captcha_only) so a
+	// PoW-solving headless engine hits the CAPTCHA it cannot cheaply clear.  The
+	// stale action REPLACES the base chMode — the operator picked it precisely
+	// for these UAs, so "captcha_only" must win even over a base pow_then_captcha
+	// (skipping the pointless PoW leg is the intent).  The one thing it must not
+	// do is soften a hard deny, so a deny base is left intact.  Safe against
+	// exemptions: a bypass-IP / search-bot request never reaches ServeChallenge
+	// (native protect.inc only redirects a $final_challenge=1 request here), so
+	// monitoring probes are untouched.
+	if g := h.cfg().Global; g.StaleBrowserEnabled() && chMode != settings.RateChallengeDeny {
+		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajor, g.StaleBrowserLagN()) {
+			chMode = g.StaleBrowserResolvedAction()
+		}
+	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm
 	}

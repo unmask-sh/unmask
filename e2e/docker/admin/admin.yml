@@ -77,6 +77,15 @@ rate_limit:
 global:
   known_browser_action: pass
   unknown_ua_action:    pass
+  # scenario 52: stale-browser escalation.  Threshold = current - lag = 115, so
+  # the Chrome/120 UA every OTHER scenario uses stays fresh (passes untouched)
+  # while scenario 52's Chrome/100 is escalated to a CAPTCHA even though
+  # known_browser_action is "pass".  (The realistic 150/11/139 semantics are
+  # pinned by the Go unit tests; e2e only proves the end-to-end wiring.)
+  stale_browser_challenge: true
+  current_chrome_major:    150
+  stale_browser_lag:       35
+  stale_browser_action:    captcha_only
 
 server:
   bind: 0.0.0.0
@@ -96,6 +105,11 @@ nginx_log:
 # render-nginx output dir (= /etc/unmask is shared with the nginx container).
 nginx:
   output_dir: /etc/unmask
+  # scenario 52: a trusted bypass IP (a monitoring probe) must pass even when it
+  # sends a stale-version UA — the bypass veto is evaluated before the
+  # stale-browser tier, so a probe on an old browser is never challenged.
+  bypass_ips:
+    - "203.0.113.222"
   # Force the compose flow.  The admin container has no local nginx, so "auto"
   # (the default) can't probe the version and would fall back to classic --
   # losing coverage of compose, which is the flow every nginx-1.17.6+ install

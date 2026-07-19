@@ -769,6 +769,20 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 	if pick == "" {
 		pick = settings.RateChallengePoWOnly
 	}
+	// Stale-browser escalation (mirrors ServeChallenge on the native path): a UA
+	// far behind current Chrome stable is a headless-scraper tell; serve it the
+	// operator's stale action (default captcha_only) even when the Global pick
+	// would pass or only PoW.  The stale action REPLACES the pick — it is the
+	// operator's explicit choice for these UAs, so captcha_only wins even over a
+	// pow_then_captcha pick (skip the pointless PoW).  A deny pick is left intact
+	// (never soften a hard block).  uaDecide runs after Phase A's veto-passes, so
+	// a bypass-IP monitoring probe / search bot / valid _bv never reaches here.
+	staleReason := ""
+	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
+		classify.IsStaleBrowser(ua, g.CurrentChromeMajor, g.StaleBrowserLagN()) {
+		pick = g.StaleBrowserResolvedAction()
+		staleReason = "ua:stale_browser:" + pick
+	}
 	if pick == "pass" {
 		label := "ua:unknown"
 		if classify.IsKnownBrowser(ua) {
@@ -781,7 +795,11 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 		tag = "ua:browser"
 	}
 	s := severityFromAction(pick)
-	return axisDecision{sev: s, reason: tag + ":" + pick, chMode: chModeFromSeverity(s)}, true
+	reason := tag + ":" + pick
+	if staleReason != "" {
+		reason = staleReason
+	}
+	return axisDecision{sev: s, reason: reason, chMode: chModeFromSeverity(s)}, true
 }
 
 // isSearchBotUA reports whether the UA is a rescued search / AI crawler that

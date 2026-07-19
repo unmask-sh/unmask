@@ -630,7 +630,7 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" $final_challenge {
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if .StaleBrowserEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
     "~^0:1:"                    0;  # search bot UA -> exempt
@@ -644,6 +644,31 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challeng
     "~^0:0:0:0:0::0:[^:]*:1$"   1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
     "~^0:0:0:0:0::0:"           $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
 }
+{{- if .StaleBrowserEnabled }}
+
+# -----------------------------------------------------------------------------
+# Stale-browser tier (Global.StaleBrowserEnabled)
+# -----------------------------------------------------------------------------
+# A UA advertising a Chromium-family major far behind current stable is a
+# distributed-scraper tell (the 2026-07-15 uic.io incident pinned Chrome/139
+# while stable was 150 and solved the transparent PoW headlessly across ~4k
+# residential-proxy IPs).  $unmask_stale_browser matches that UA shape; the
+# combiner below escalates the base decision to a challenge for it — but ONLY
+# when the request was not already exempted (a bypass IP / bypass path / search
+# bot / valid _bv keeps its pass), so monitoring probes and genuine crawlers
+# are untouched.  The challenge SCREEN (CAPTCHA vs PoW) is chosen daemon-side
+# in ServeChallenge / uaDecide so a headless PoW-solver hits the CAPTCHA wall.
+map $http_user_agent $unmask_stale_browser {
+    default 0;
+    "~{{ .StaleBrowserPattern }}" 1;
+}
+# Escalate only a not-otherwise-exempt, would-pass request (base=0) that is
+# stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_valid.
+map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+    default              $final_challenge_base;  # keep base decision (incl. all base=1 challenges)
+    "~^0:1:0:0:0:0$"     1;                       # stale + no exemption + would-pass -> challenge
+}
+{{- end }}
 {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}
 # -----------------------------------------------------------------------------
 # Veto-pass verification plumbing (Web Bot Auth + Privacy Pass)

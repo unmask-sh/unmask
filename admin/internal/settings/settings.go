@@ -1574,6 +1574,77 @@ type GlobalConfig struct {
 	// out of the box (a JS PoW that scripts can't solve).  Set "pass" to let
 	// them through, or captcha_only / deny to gate harder.
 	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
+
+	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
+	// Chromium-family major version far behind the current stable is escalated
+	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
+	// default (zero behaviour change / zero rendered-config diff on upgrade).
+	//
+	// Rationale (2026-07-15 uic.io incident): a distributed scraper pinned one
+	// outdated Chrome build (Chrome/139 while stable was 150) across ~4k
+	// residential-proxy IPs and solved the transparent PoW headlessly.  Its one
+	// tell was the frozen version.  PoW is cheap for a headless engine; a CAPTCHA
+	// is not, so escalating stale UAs to CAPTCHA raises the automation cost
+	// without hard-blocking the genuine long-tail of old-browser humans (who can
+	// still solve it).  bypass_ips (monitoring probes) are evaluated first and
+	// are never subject to this tier.
+	StaleBrowserChallenge bool `yaml:"stale_browser_challenge,omitempty"`
+	// CurrentChromeMajor is the operator-maintained "current stable" Chromium
+	// major (unmask cannot discover it on its own; update it centrally on
+	// unmask.sh and let subscribers fetch).  0 disables the tier regardless of
+	// StaleBrowserChallenge.
+	CurrentChromeMajor int `yaml:"current_chrome_major,omitempty"`
+	// StaleBrowserLag is N: a UA at least N majors behind CurrentChromeMajor is
+	// stale (currentMajor-major >= N).  Empty/<=0 falls back to
+	// DefaultStaleBrowserLag.  Larger N = only very outdated UAs are challenged.
+	StaleBrowserLag int `yaml:"stale_browser_lag,omitempty"`
+	// StaleBrowserAction is the chain a stale UA gets.  Empty ->
+	// DefaultStaleBrowserAction (captcha_only): the whole point is to demand the
+	// harder screen a headless PoW-solver cannot cheaply clear.  pow_then_captcha
+	// and deny are also accepted; pow_only is accepted but pointless (the scraper
+	// already solves PoW), so the UI steers away from it.
+	StaleBrowserAction string `yaml:"stale_browser_action,omitempty"`
+}
+
+// Stale-browser tier defaults.
+const (
+	// DefaultStaleBrowserLag: how many Chromium majors behind current stable
+	// counts as stale when the operator leaves StaleBrowserLag unset.  The
+	// 2026-07-15 scraper sat 11 behind (139 vs 150); 10 keeps a comfortable
+	// margin above the genuine 1-2-major long tail.
+	DefaultStaleBrowserLag = 10
+	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
+	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
+	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
+)
+
+// StaleBrowserEnabled reports whether the stale-browser tier is active: the
+// toggle is on AND a current-major baseline is set (0 = "I don't know current
+// stable" = inert, so a half-configured install never challenges every
+// browser).
+func (g GlobalConfig) StaleBrowserEnabled() bool {
+	return g.StaleBrowserChallenge && g.CurrentChromeMajor > 0
+}
+
+// StaleBrowserLagN returns the effective lag, applying DefaultStaleBrowserLag
+// when unset/invalid.
+func (g GlobalConfig) StaleBrowserLagN() int {
+	if g.StaleBrowserLag > 0 {
+		return g.StaleBrowserLag
+	}
+	return DefaultStaleBrowserLag
+}
+
+// StaleBrowserResolvedAction returns the effective chain for a stale UA,
+// applying DefaultStaleBrowserAction when unset/invalid.
+func (g GlobalConfig) StaleBrowserResolvedAction() string {
+	// IsValidRateChallengeMode already excludes "pass" (a stale UA must face a
+	// real screen), so an operator who somehow stored "pass" falls back to the
+	// CAPTCHA default rather than silently disabling the tier per-request.
+	if IsValidRateChallengeMode(g.StaleBrowserAction) {
+		return g.StaleBrowserAction
+	}
+	return DefaultStaleBrowserAction
 }
 
 // Site acceptance modes (= SiteAcceptanceConfig.Mode).

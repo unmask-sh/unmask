@@ -362,6 +362,57 @@ func IsOldBrowser(ua string) bool {
 	return false
 }
 
+// chromeMajorRE captures the Chromium-family major version.  Every
+// Chromium-based browser — Chrome, Edge, Opera, Brave, Vivaldi, Samsung
+// Internet, and headless Chromium — carries a `Chrome/<major>` token and
+// shares Google's ~4-week major-release cadence, so one number covers the
+// whole family.  Firefox and Safari (WebKit) use unrelated version schemes
+// and carry no Chrome token, so ChromeMajor returns 0 for them (= never
+// treated as a stale Chrome).
+var chromeMajorRE = regexp.MustCompile(`Chrome/(\d+)\.`)
+
+// ChromeMajor returns the Chromium-family major version a UA advertises, or 0
+// when the UA carries no `Chrome/<major>.` token (genuine Firefox / Safari /
+// most bots / empty).  The trailing dot anchors the major so `Chrome/139` is
+// read from `Chrome/139.0.7258.5` without mis-reading a build number.
+func ChromeMajor(ua string) int {
+	if ua == "" {
+		return 0
+	}
+	m := chromeMajorRE.FindStringSubmatch(ua)
+	if m == nil {
+		return 0
+	}
+	v, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// IsStaleBrowser reports whether a UA advertises a Chromium-family major that
+// is at least lagN releases behind currentMajor (the operator-maintained
+// "current stable", since unmask cannot know it on its own).  A distributed
+// scraper that pins one outdated Chrome build (the 2026-07-15 uic.io incident
+// pinned Chrome/139 while stable was 150) is caught here; a genuine visitor on
+// a slightly old browser is at most a few majors behind and is not.
+//
+// Returns false when the feature inputs are unset (currentMajor<=0 or lagN<=0)
+// or the UA is not Chromium (ChromeMajor==0), so callers can pass raw config
+// without pre-guarding.  The comparison is "at least lagN behind"
+// (currentMajor-major >= lagN): with currentMajor=150 and lagN=11, Chrome/139
+// and older are stale while Chrome/140+ pass.
+func IsStaleBrowser(ua string, currentMajor, lagN int) bool {
+	if currentMajor <= 0 || lagN <= 0 {
+		return false
+	}
+	major := ChromeMajor(ua)
+	if major <= 0 {
+		return false
+	}
+	return currentMajor-major >= lagN
+}
+
 // UpstreamRescueEntry is one UA pattern auto-rescued via crawler-user-agents.json
 // (= tagged search-engine / ai-crawler / advertising → SearchAI → pass).
 // Exposed for the settings UI ua-filter tab so the maintainer can see exactly
