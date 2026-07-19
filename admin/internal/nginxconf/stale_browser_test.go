@@ -2,6 +2,7 @@ package nginxconf
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -85,15 +86,22 @@ func TestStaleBrowserRenderOn(t *testing.T) {
 	}
 }
 
-// TestStaleBrowserRenderInertWhenMajorZero: the toggle on but current major
-// unset (0) must render nothing (a half-configured install must not challenge
-// every browser).
-func TestStaleBrowserRenderInertWhenMajorZero(t *testing.T) {
+// TestStaleBrowserRenderUsesBuiltinBaseline: the toggle on with current major
+// unset (0) still renders, riding the shipped DefaultCurrentChromeMajor so the
+// tier works out of the box.  The threshold uses the baseline minus the lag.
+func TestStaleBrowserRenderUsesBuiltinBaseline(t *testing.T) {
 	on := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Global.StaleBrowserChallenge = true
-		s.Global.CurrentChromeMajor = 0
+		s.Global.CurrentChromeMajor = 0 // ride the built-in baseline
+		s.Global.StaleBrowserLag = 10
 	})
-	if strings.Contains(on, "unmask_stale_browser") {
-		t.Error("current major 0 must leave the tier inert")
+	if !strings.Contains(on, "map $http_user_agent $unmask_stale_browser {") {
+		t.Error("toggle on must render the tier using the built-in baseline even with current major unset")
+	}
+	// baseline (DefaultCurrentChromeMajor) - lag = threshold; the top stale
+	// major is one below that boundary and must appear in the pattern.
+	top := settings.DefaultCurrentChromeMajor - 10
+	if !strings.Contains(on, "Chrome/(?:"+strconv.Itoa(top)+"|") {
+		t.Errorf("expected top stale major %d in the pattern", top)
 	}
 }

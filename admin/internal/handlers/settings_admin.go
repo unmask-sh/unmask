@@ -560,14 +560,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// SavedRestart: a listen-side change (Server.*) was saved; it takes effect
 		// only on `systemctl restart unmask` (serve reads these at start, not on
 		// reload).  Independent of SavedReload -- a TCP<->socket switch needs both.
-		"SavedRestart":     r.URL.Query().Get("restart") == "1",
-		"Error":            readFlash(w, r, h.cfg().Server.BasePath, "err"),
-		"Cur":              cur,
-		"Global":           h.snapshotSettings().Global,
-		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
-		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"SavedRestart": r.URL.Query().Get("restart") == "1",
+		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		"Cur":          cur,
+		"Global":       h.snapshotSettings().Global,
+		// Shipped current-Chrome-major baseline shown as the placeholder for the
+		// stale-browser tier's optional override field.
+		"StaleBrowserBaseline": settings.DefaultCurrentChromeMajor,
+		"IPGeoMMDBPath":        ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath":     ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":          h.IPGeo != nil && h.IPGeo.Loaded(),
+		"IPGeoASNLoaded":       h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -1130,11 +1133,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
-		// Stale-browser tier.  A blank/invalid current-major stores 0 (= tier
-		// inert even if the toggle is on), so a half-filled form never
-		// challenges every browser.  The action is restricted to real screens
-		// (captcha_only / pow_then_captcha / deny); anything else falls back to
-		// the captcha_only default via StaleBrowserResolvedAction at render time.
+		// Stale-browser tier.  A blank/invalid current-major stores 0, which
+		// resolves to the shipped DefaultCurrentChromeMajor at render/serve time
+		// (CurrentChromeMajorResolved) — so the toggle alone works out of the
+		// box; the field is an optional override.  The action is restricted to
+		// real screens (captcha_only / pow_then_captcha / deny); anything else
+		// falls back to the captcha_only default via StaleBrowserResolvedAction.
 		cur.Global.StaleBrowserChallenge = r.FormValue("global_stale_browser_challenge") == "1"
 		parseIntInRange := func(v string, lo, hi int) int {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
