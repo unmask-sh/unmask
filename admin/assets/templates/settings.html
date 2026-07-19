@@ -4595,7 +4595,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ end }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
-        {{ if .Retention.EventsRowsOK }}<strong>{{ comma .Retention.EventsRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if .Retention.EventsRowsOK }}<strong{{ if .Retention.EventsRowsApprox }} title="{{ t .Lang "settings.retention.approx_count_title" }}"{{ end }}>{{ if .Retention.EventsRowsApprox }}≈{{ end }}{{ comma .Retention.EventsRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
         {{ if not .Retention.EventsOldestOK }} · {{ t .Lang "settings.retention.oldest_label" }} <strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>
         {{ else if gt .Retention.EventsOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.EventsOldestTS }}">{{ .Retention.EventsOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.EventsOldestDaysAgo }}{{ end }}
       </div>

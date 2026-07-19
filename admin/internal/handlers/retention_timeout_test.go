@@ -42,6 +42,42 @@ func TestRetentionStatsPerMetricOK(t *testing.T) {
 	}
 }
 
+// TestRetentionStatsRowEstimate: the event row count is the O(1) id-range
+// estimate (MAX(id)-MIN(id)+1), not a full COUNT(*).  It stays near-exact after
+// oldest-first pruning (a dense range) and is flagged approximate.
+func TestRetentionStatsRowEstimate(t *testing.T) {
+	h := newTestHandler(t)
+	ins := func(id int) {
+		if _, err := h.DB.Exec(
+			`INSERT INTO unmask_event (id, ip_address, phase, date_created) VALUES (?, x'7f000001', 'access', '2026-01-01 00:00:00')`, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id := 1; id <= 5; id++ {
+		ins(id)
+	}
+	// Oldest-first prune (ids 1,2 gone) leaves a dense range 3..5 -> estimate 3,
+	// which is exact.
+	if _, err := h.DB.Exec(`DELETE FROM unmask_event WHERE id IN (1,2)`); err != nil {
+		t.Fatal(err)
+	}
+	v := h.retentionStats(context.Background(), time.UTC)
+	if !v.EventsRowsOK || !v.EventsRowsApprox {
+		t.Fatalf("want OK+approx, got OK=%v approx=%v", v.EventsRowsOK, v.EventsRowsApprox)
+	}
+	if v.EventsRows != 3 { // MAX(5)-MIN(3)+1
+		t.Errorf("dense range estimate = %d, want 3", v.EventsRows)
+	}
+	// A middle gap makes it a (small) OVERESTIMATE — the accepted trade for O(1):
+	// deleting id 4 leaves {3,5} (2 rows) but the id range still spans 3..5 = 3.
+	if _, err := h.DB.Exec(`DELETE FROM unmask_event WHERE id = 4`); err != nil {
+		t.Fatal(err)
+	}
+	if v := h.retentionStats(context.Background(), time.UTC); v.EventsRows != 3 {
+		t.Errorf("id-range estimate after a middle gap = %d, want 3 (range 3..5)", v.EventsRows)
+	}
+}
+
 // TestRetentionTabRendersUnknownAsQQ: the retention tab renders the current-size
 // line even when a metric could not be read, showing "??" for the unknown value
 // (here the cookie-minute count, whose table is absent in the test schema, takes
