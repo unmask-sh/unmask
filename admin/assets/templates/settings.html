@@ -1600,7 +1600,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div>
         <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.stale_current_h" }}</label>
         <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.global.stale_current_help") }}</div>
-        <input type="number" name="global_current_chrome_major" min="0" max="999" value="{{ if gt .Global.CurrentChromeMajor 0 }}{{ .Global.CurrentChromeMajor }}{{ end }}" placeholder="150" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
+        <input type="number" name="global_current_chrome_major" min="0" max="999" value="{{ if gt .Global.CurrentChromeMajor 0 }}{{ .Global.CurrentChromeMajor }}{{ end }}" placeholder="{{ .StaleBrowserBaseline }} (built-in)" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:11rem">
       </div>
       <div>
         <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.stale_lag_h" }}</label>

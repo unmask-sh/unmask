@@ -592,7 +592,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// pattern -> leave the tier off rather than emit a map that matches
 	// nothing).
 	if s.Global.StaleBrowserEnabled() {
-		if pat := staleBrowserPattern(s.Global.CurrentChromeMajor, s.Global.StaleBrowserLagN()); pat != "" {
+		if pat := staleBrowserPattern(s.Global.CurrentChromeMajorResolved(), s.Global.StaleBrowserLagN()); pat != "" {
 			d.StaleBrowserEnabled = true
 			d.StaleBrowserPattern = pat
 		}

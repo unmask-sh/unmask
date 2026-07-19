@@ -1147,7 +1147,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// (native protect.inc only redirects a $final_challenge=1 request here), so
 	// monitoring probes are untouched.
 	if g := h.cfg().Global; g.StaleBrowserEnabled() && chMode != settings.RateChallengeDeny {
-		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajor, g.StaleBrowserLagN()) {
+		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.StaleBrowserLagN()) {
 			chMode = g.StaleBrowserResolvedAction()
 		}
 	}

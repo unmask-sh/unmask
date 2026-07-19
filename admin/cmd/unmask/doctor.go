@@ -274,13 +274,18 @@ func cmdDoctor(args []string) error {
 	// and warn when the toggle is on but the baseline is missing (= inert) or
 	// looks stale itself.
 	if s.Global.StaleBrowserChallenge {
+		cur := s.Global.CurrentChromeMajorResolved()
+		threshold := cur - s.Global.StaleBrowserLagN()
+		src := fmt.Sprintf("current %d", cur)
 		if s.Global.CurrentChromeMajor <= 0 {
-			addWarn("stale-browser tier", "enabled but current_chrome_major is unset (0) — the tier is inert; set it to the current Chrome stable major")
-		} else {
-			threshold := s.Global.CurrentChromeMajor - s.Global.StaleBrowserLagN()
-			addOK("stale-browser tier", fmt.Sprintf("active: challenge Chrome-family major <= %d (current %d, lag %d) with %s — keep current_chrome_major updated as stable advances",
-				threshold, s.Global.CurrentChromeMajor, s.Global.StaleBrowserLagN(), s.Global.StaleBrowserResolvedAction()))
+			// Riding the shipped baseline: it only goes stale in the safe
+			// direction (challenges fewer browsers as it ages), but flag it so
+			// an operator on an old binary can set current_chrome_major to keep
+			// the net current.
+			src = fmt.Sprintf("current %d — built-in baseline (set current_chrome_major to track newer Chrome releases)", cur)
 		}
+		addOK("stale-browser tier", fmt.Sprintf("active: challenge Chrome-family major <= %d (%s, lag %d) with %s",
+			threshold, src, s.Global.StaleBrowserLagN(), s.Global.StaleBrowserResolvedAction()))
 	}
 
 	// 4.7. Admin allowlists: empty = "allow all" (reasonable behind a trusted
