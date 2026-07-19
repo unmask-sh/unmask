@@ -3690,7 +3690,8 @@ func tabHelpKey(tab string) string {
 // the operator can see what they're about to prune.  Zero values are fine when
 // the tab is not being rendered (= the template just hides the empty row).
 type retentionStatsView struct {
-	EventsRows           int    // unmask_event row count (= int so the template's `comma` filter accepts it)
+	EventsRows           int    // unmask_event row estimate (MAX(id)-MIN(id)+1; = int so the template's `comma` filter accepts it)
+	EventsRowsApprox     bool   // EventsRows is the fast id-range estimate (rendered with "≈"), not an exact COUNT(*)
 	EventsOldestTS       int64  // unix seconds of the oldest unmask_event row, or 0 if none
 	EventsOldest         string // server-side UTC fallback string ("YYYY-MM-DD HH:MM UTC"), or ""
 	CookieMinuteRows     int    // unmask_cookie_minute row count
@@ -3745,7 +3746,29 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		}
 		return false
 	}
-	v.EventsRowsOK = note("events count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&v.EventsRows))
+	// Row count via the id range, NOT COUNT(*).  An exact COUNT(*) scans the
+	// whole covering index (6.6M entries / ~6GB on tool1-us) and, cold or under
+	// the aggregation goroutine's write load, outran even the 10s budget — the
+	// timeout this tab kept hitting.  unmask_event is append-only and pruned
+	// oldest-first, so its id range [MIN(id), MAX(id)] is dense: MAX-MIN+1 is a
+	// near-exact estimate (measured 127 rows off out of 6.6M = 0.002% on
+	// tool1-us).  MIN(id) and MAX(id) MUST be two separate queries: SQLite only
+	// applies its min/max-is-one-index-seek optimization to a lone aggregate, so
+	// `SELECT MIN(id), MAX(id)` in one statement falls back to a full index SCAN
+	// (measured 0.7s) — two statements each SEARCH one endpoint in ~4ms O(1).  It
+	// never scans, so it never times out; EventsRowsApprox marks it "≈".
+	var minID, maxID int64
+	okMin := note("events min id", h.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(MIN(id), 0) FROM unmask_event`).Scan(&minID))
+	okMax := note("events max id", h.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(id), 0) FROM unmask_event`).Scan(&maxID))
+	v.EventsRowsOK = okMin && okMax
+	if v.EventsRowsOK {
+		v.EventsRowsApprox = true
+		if maxID > 0 {
+			v.EventsRows = int(maxID - minID + 1)
+		}
+	}
 	// Oldest unmask_event row as unix seconds.  The column is TEXT; convert
 	// driver-side so we don't have to parse multiple datetime formats in Go.
 	eventsOldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
