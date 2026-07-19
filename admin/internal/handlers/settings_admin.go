@@ -1133,27 +1133,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
-		// Stale-browser tier.  A blank/invalid current-major stores 0, which
-		// resolves to the shipped DefaultCurrentChromeMajor at render/serve time
-		// (CurrentChromeMajorResolved) — so the toggle alone works out of the
-		// box; the field is an optional override.  The action is restricted to
-		// real screens (captcha_only / pow_then_captcha / deny); anything else
-		// falls back to the captcha_only default via StaleBrowserResolvedAction.
-		cur.Global.StaleBrowserChallenge = r.FormValue("global_stale_browser_challenge") == "1"
-		parseIntInRange := func(v string, lo, hi int) int {
-			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n < lo || n > hi {
-				return 0
-			}
-			return n
-		}
-		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("global_current_chrome_major"), 1, 999)
-		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("global_stale_browser_lag"), 1, 99)
-		if a := strings.TrimSpace(r.FormValue("global_stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
-			cur.Global.StaleBrowserAction = a
-		} else {
-			cur.Global.StaleBrowserAction = ""
-		}
 	case "network":
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
 			redirBack(err.Error())
@@ -1176,6 +1155,29 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "ua-filter":
 		applyUAFilterForm(&cur.Nginx, r)
+		// Stale-browser tier (lives on the UA-filter tab: it is a UA-string rule
+		// — old Chrome version → challenge — a sibling to the challenge-target
+		// blacklist).  The fields persist in Global; the tab is only a UI home.
+		// A blank/invalid current-major stores 0, which resolves to the shipped
+		// DefaultCurrentChromeMajor at render/serve time (CurrentChromeMajorResolved)
+		// — so the toggle alone works out of the box; the field is an optional
+		// override.  Action restricted to real screens; anything else falls back
+		// to the captcha_only default via StaleBrowserResolvedAction.
+		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
+		parseIntInRange := func(v string, lo, hi int) int {
+			n, err := strconv.Atoi(strings.TrimSpace(v))
+			if err != nil || n < lo || n > hi {
+				return 0
+			}
+			return n
+		}
+		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
+		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
+		if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
+			cur.Global.StaleBrowserAction = a
+		} else {
+			cur.Global.StaleBrowserAction = ""
+		}
 		// Black-list default action (= independent of rate-limit chain).
 		if v := strings.TrimSpace(r.FormValue("ua_black_action")); v != "" {
 			if settings.IsValidRateChallengeMode(v) {
