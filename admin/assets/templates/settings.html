@@ -1398,7 +1398,37 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
       <div class="field">
         <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
-        {{ template "valueRuleList" (dict "Name" "stats_exclude_ips" "Values" .Cur.StatsExcludeIPs "Placeholder" "10.8.100.1" "Lang" .Lang) }}
+        <div class="rule-list" data-rule-name="stats_exclude_ips">
+          {{ range .StatsExcludeRules }}
+          <div class="rule-row" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+            <span class="rule-view">
+              <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+              <div class="pat{{ if not .IP }} empty{{ end }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
+            </span>
+            <input type="text" name="stats_exclude_ips_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+            <input type="text" name="stats_exclude_ips" value="{{ .IP }}" placeholder="10.8.100.1" class="rule-pat">
+            <button type="button" class="rule-edit" aria-label="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+            <button type="button" class="rule-save" aria-label="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+            <button type="button" class="rule-del" aria-label="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+            <button type="button" class="rule-add" aria-label="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+          </div>
+          {{ end }}
+          <template class="rule-row-template">
+            <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+              <span class="rule-view">
+                <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+                <div class="pat empty">{{ t .Lang "settings.network.empty_ip" }}</div>
+              </span>
+              <input type="text" name="stats_exclude_ips_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+              <input type="text" name="stats_exclude_ips" value="" placeholder="10.8.100.1" class="rule-pat">
+              <button type="button" class="rule-edit" aria-label="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+              <button type="button" class="rule-save" aria-label="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+              <button type="button" class="rule-del" aria-label="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+              <button type="button" class="rule-add" aria-label="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+            </div>
+          </template>
+        </div>
+        <button type="button" class="rule-add-bottom" data-target-list="stats_exclude_ips">{{ t .Lang "settings.ua.add_new" }}</button>
       </div>
     </div>
   </div>

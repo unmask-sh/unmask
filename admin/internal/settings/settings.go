@@ -540,6 +540,10 @@ type Nginx struct {
 	// crawler presets are the ban allowlist (nginxconf.BypassIPCIDRs vs
 	// ChallengeBypassIPCIDRs).
 	StatsExcludeIPs []string `yaml:"stats_exclude_ips,omitempty"`
+	// StatsExcludeIPsTitle: optional per-entry label, parallel to
+	// StatsExcludeIPs by index (same pattern as BypassIPsTitle).  UI-only
+	// metadata -- every consumer of the exclusion reads the IP strings alone.
+	StatsExcludeIPsTitle []string `yaml:"stats_exclude_ips_title,omitempty"`
 	// StatsExcludePrivateNetworks, when on, appends the private-network CIDRs
 	// (RFC1918 + loopback + link-local, IPv4 and IPv6) to StatsExcludeIPs at
 	// render time — a convenience preset for dropping internal monitoring / LAN
