@@ -268,6 +268,21 @@ func cmdDoctor(args []string) error {
 		addOK("roaming rebind", "disabled (rebind.disabled: true); IP changes re-challenge")
 	}
 
+	// 4.6b. Stale-browser tier: the current-major baseline is operator-
+	// maintained (unmask can't discover it), so a value left frozen slowly
+	// widens the net as real stable advances.  Surface the effective threshold
+	// and warn when the toggle is on but the baseline is missing (= inert) or
+	// looks stale itself.
+	if s.Global.StaleBrowserChallenge {
+		if s.Global.CurrentChromeMajor <= 0 {
+			addWarn("stale-browser tier", "enabled but current_chrome_major is unset (0) — the tier is inert; set it to the current Chrome stable major")
+		} else {
+			threshold := s.Global.CurrentChromeMajor - s.Global.StaleBrowserLagN()
+			addOK("stale-browser tier", fmt.Sprintf("active: challenge Chrome-family major <= %d (current %d, lag %d) with %s — keep current_chrome_major updated as stable advances",
+				threshold, s.Global.CurrentChromeMajor, s.Global.StaleBrowserLagN(), s.Global.StaleBrowserResolvedAction()))
+		}
+	}
+
 	// 4.7. Admin allowlists: empty = "allow all" (reasonable behind a trusted
 	// proxy, but easy to leave open by accident).  Surface it so the operator
 	// knows the admin UI is reachable from any IP / Host (A-1 / A-2).
