@@ -95,6 +95,30 @@ var BypassIPGroups = []BypassIPGroup{
 		File:   "iprange/duckduckbot.json",
 	},
 	{
+		ID:      "duckassistbot",
+		Label:   "DuckDuckGo (DuckAssistBot = AI answers fetcher)",
+		Source:  "https://duckduckgo.com/duckassistbot.json",
+		File:    "iprange/duckassistbot.json",
+		AddedIn: "v0.1.7",
+	},
+	{
+		ID:      "applebot",
+		Label:   "Apple (Applebot = Siri / Spotlight / Safari suggestions)",
+		Source:  "https://search.developer.apple.com/applebot.json",
+		File:    "iprange/applebot.json",
+		AddedIn: "v0.1.7",
+	},
+	{
+		// The official list is JSON embedded in an HTML page; the site
+		// aggregator extracts it (see repo-site iprangefetch).  Prefixes are
+		// bare host IPs (no CIDR suffix) — Resolve() accepts both.
+		ID:      "amazonbot",
+		Label:   "Amazon (Amazonbot = Alexa answers crawler)",
+		Source:  "https://developer.amazon.com/amazonbot/ip-addresses/",
+		File:    "iprange/amazonbot.json",
+		AddedIn: "v0.1.7",
+	},
+	{
 		ID:     "openai-gptbot",
 		Label:  "OpenAI (GPTBot = LLM training crawler)",
 		Source: "https://openai.com/gptbot.json",
@@ -115,8 +139,15 @@ var BypassIPGroups = []BypassIPGroup{
 	{
 		ID:     "perplexitybot",
 		Label:  "Perplexity (PerplexityBot)",
-		Source: "https://www.perplexity.com/perplexitybot.json",
+		Source: "https://www.perplexity.ai/perplexitybot.json",
 		File:   "iprange/perplexitybot.json",
+	},
+	{
+		ID:      "perplexity-user",
+		Label:   "Perplexity (Perplexity-User = user-triggered fetch)",
+		Source:  "https://www.perplexity.ai/perplexity-user.json",
+		File:    "iprange/perplexity-user.json",
+		AddedIn: "v0.1.7",
 	},
 	{
 		// Real-user Chrome prefetch traffic transits via *.fetch.tunnel.googlezip.net,
@@ -128,7 +159,7 @@ var BypassIPGroups = []BypassIPGroup{
 		Label:   "Chrome Private Prefetch Proxy (real-user prefetch via *.fetch.tunnel.googlezip.net)",
 		Source:  "https://developer.chrome.com/docs/privacy-security/private-prefetch-proxy-for-network-admins",
 		File:    "iprange/chrome-prefetch-proxy.json",
-		AddedIn: "v0.1",
+		AddedIn: "v0.1.0",
 	},
 }
 
@@ -200,7 +231,7 @@ func loadAll() {
 	for i := range BypassIPGroups {
 		g := &BypassIPGroups[i]
 		if g.AddedIn == "" {
-			g.AddedIn = "v0.1"
+			g.AddedIn = "v0.1.0"
 		}
 		body := readPreferringOverride(overrideDir, g.File)
 		if body == nil {

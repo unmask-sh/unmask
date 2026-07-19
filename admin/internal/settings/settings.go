@@ -2350,9 +2350,10 @@ func defaults() Settings {
 			// until the operator opts in (= SeenVersion gate).
 			BypassIPEnabledPresets: []string{
 				"google-common", "google-special", "google-user-triggered",
-				"bing", "duckduckbot",
+				"bing", "duckduckbot", "duckassistbot",
+				"applebot", "amazonbot",
 				"openai-gptbot", "openai-searchbot", "openai-chatgpt-user",
-				"perplexitybot",
+				"perplexitybot", "perplexity-user",
 				"chrome-prefetch-proxy",
 			},
 			ChallengeTargets: ChallengeTargetsConfig{

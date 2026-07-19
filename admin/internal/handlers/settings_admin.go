@@ -135,6 +135,24 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			upstreamGroupAction[cat] = cur.SearchBots.UpstreamGroupAction[cat]
 		}
 	}
+	// Range-verification badges for the detail modal: which patterns have a
+	// published vendor IP range at all (backed), and which are currently
+	// inverted to range verification (active = every preset enabled + past
+	// the NEW gate).  catHasRV drives the per-category legend line.
+	upstreamRangeBacked := make(map[string]bool, len(nginxconf.UARangePresets))
+	for pat := range nginxconf.UARangePresets {
+		upstreamRangeBacked[pat] = true
+	}
+	upstreamRangeActive := nginxconf.EffectiveRangeVerifiedPatterns(cur)
+	upstreamCatHasRV := map[string]bool{}
+	for cat, entries := range upstreamRescue {
+		for _, e := range entries {
+			if upstreamRangeBacked[e.Pattern] {
+				upstreamCatHasRV[cat] = true
+				break
+			}
+		}
+	}
 
 	// JA4 verdicts: same shape
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)
@@ -587,6 +605,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"UpstreamRescueEnabled":      upstreamEnabled,
 		"UpstreamGroupMode":          upstreamGroupMode,
 		"UpstreamGroupAction":        upstreamGroupAction,
+		"UpstreamRangeBacked":        upstreamRangeBacked,
+		"UpstreamRangeActive":        upstreamRangeActive,
+		"UpstreamCatHasRV":           upstreamCatHasRV,
 		"JA4Groups":                  ja4Groups,
 		"JA4Rules":                   ja4ExtraRules,
 		"JA4Verdicts":                cur.JA4Verdicts,

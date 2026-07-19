@@ -81,6 +81,13 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 # -----------------------------------------------------------------------------
 # Search / AI / Ads bot UA — exempt from challenge (avoid ranking accidents)
 # -----------------------------------------------------------------------------
+{{- if gt .RangeVerifiedUACount 0 }}
+# Note: {{ .RangeVerifiedUACount }} crawler UA patterns (Googlebot, bingbot, GPTBot, ...) are
+# deliberately NOT listed here.  Their vendors publish official IP ranges and
+# the matching range presets are enabled, so those crawlers are rescued by
+# geo $is_bypass_ip below instead — a spoofed UA from outside the published
+# ranges is challenged like any other client.
+{{- end }}
 map $http_user_agent $is_search_bot {
     default 0;
 {{- range .SearchBotPatterns }}
