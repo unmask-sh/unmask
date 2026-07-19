@@ -68,14 +68,34 @@ else
     log_skip "bypass IP test: 192.168.1.1 is not in bypass_ips (reason=$reason)"
 fi
 
-# Googlebot (= search bot UAs pass via the two-stage rescue)
+# Range-less crawler (Claude-Web): the UA-string rescue must survive the
+# range-verified inversion — no published IP range means UA is the only signal.
+result=$(check -A "$UA_CLAUDEWEB" -H "X-Original-URI: /any" -H "X-Original-IP: 7.7.7.8")
+code="${result%%|*}"
+rest="${result#*|}"
+action="${rest%%|*}"
+reason="${rest#*|}"
+assert_eq "200" "$code" "Claude-Web UA → 200" || fails=$((fails+1))
+assert_eq "pass" "$action" "Claude-Web UA: action=pass" || fails=$((fails+1))
+assert_in "search_ai" "$reason" "Claude-Web UA: reason contains search_ai" || fails=$((fails+1))
+
+# Googlebot from a non-Google IP (= a spoof): since the range-verified
+# inversion (uarange.go), the UA string must NOT earn the search_ai rescue —
+# Google's published ranges (folded into the bypass-IP set) carry it instead,
+# and 7.7.7.7 is not in them.  Scenario 51 covers the genuine (in-range) side.
 result=$(check -A "$UA_GOOGLEBOT" -H "X-Original-URI: /any" -H "X-Original-IP: 7.7.7.7")
 code="${result%%|*}"
 rest="${result#*|}"
 action="${rest%%|*}"
 reason="${rest#*|}"
-assert_eq "200" "$code" "Googlebot UA → 200" || fails=$((fails+1))
-assert_eq "pass" "$action" "Googlebot UA: action=pass" || fails=$((fails+1))
-assert_in "search_ai" "$reason" "Googlebot UA: reason contains search_ai" || fails=$((fails+1))
+case "$reason" in
+    *search_ai*)
+        log_fail "spoofed Googlebot UA: reason=$reason still carries the search_ai rescue"
+        fails=$((fails+1))
+        ;;
+    *)
+        log_pass "spoofed Googlebot UA: no search_ai rescue (code=$code action=$action reason=$reason)"
+        ;;
+esac
 
 exit "$fails"

@@ -324,12 +324,14 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			} else {
 				action, reason, status = "pass", "bv-captcha", http.StatusOK
 			}
-		case isSearchBotUA(ua, ja4Action, cfg.Nginx):
+		case isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA):
 			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
 			// honeypot exactly like native's is_search_bot exemption, else
 			// crawlers without an IP-range preset (ClaudeBot / YandexBot /
-			// Applebot / Amazonbot / Bytespider) get wrongly blocked = the
-			// ranking accident this project exists to prevent.
+			// Bytespider) get wrongly blocked = the ranking accident this
+			// project exists to prevent.  Range-verified vendors (Googlebot,
+			// bingbot, GPTBot, ...) are excluded from the UA rescue here and
+			// pass via the bypass-IP veto below instead (see uarange.go).
 			action, reason, status = "pass", "ua:search_ai", http.StatusOK
 		case matchers.ipBypass.Match(ip):
 			action, reason, status = "pass", "bypass:ip", http.StatusOK
@@ -350,7 +352,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := uaDecide(ua, ja4Action, cfg); ok {
+			if d, ok := uaDecide(ua, ja4Action, cfg, matchers.rangeVerifiedUA); ok {
 				decisions = append(decisions, d)
 			}
 			winner, suppressed := pickStrongest(decisions)
@@ -738,10 +740,18 @@ func ja4Decide(ja4Action, ja4Verdict string) (axisDecision, bool) {
 // pass (= sevPass) so other axes can still escalate; explicit challenge-
 // target hits contribute a captcha challenge; otherwise the Global axis
 // (Known/Unknown action) sets severity.
-func uaDecide(ua, ja4Action string, cfg settings.Settings) (axisDecision, bool) {
+//
+// rangeVerifiedUA (nil = feature inert) suppresses the search_ai pass for
+// crawler UAs whose rescue rides their vendor's IP-range presets: by the
+// time uaDecide runs, the bypass-IP veto has already passed the genuine
+// article, so a surviving match here is a spoof and takes the Global axis
+// like any unknown client.
+func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *regexp.Regexp) (axisDecision, bool) {
 	switch classify.IsBot(ua, ja4Action).String() {
 	case "search_ai":
-		return axisDecision{sev: sevPass, reason: "ua:search_ai"}, true
+		if rangeVerifiedUA == nil || !rangeVerifiedUA.MatchString(ua) {
+			return axisDecision{sev: sevPass, reason: "ua:search_ai"}, true
+		}
 	}
 	if listed, category := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
 		return axisDecision{
@@ -783,9 +793,15 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings) (axisDecision, bool) 
 // bug).  Covers both the crawler-user-agents.json match (classify.IsBot ->
 // search_ai) AND a preset/operator UA-list entry categorized search_ai (which
 // uaDecide's max-severity branch only checked for "challenge", ignoring these).
-func isSearchBotUA(ua, ja4Action string, n settings.Nginx) bool {
+func isSearchBotUA(ua, ja4Action string, n settings.Nginx, rangeVerifiedUA *regexp.Regexp) bool {
 	if classify.IsBot(ua, ja4Action).String() == "search_ai" {
-		return true
+		// Range-verified crawler UAs are exempt from the UA-string rescue:
+		// the vendor's enabled IP-range presets carry it (the genuine crawler
+		// already passed via the bypass-IP veto, which runs right after this
+		// check).  An operator Extra row can still rescue the UA below.
+		if rangeVerifiedUA == nil || !rangeVerifiedUA.MatchString(ua) {
+			return true
+		}
 	}
 	if listed, category := lookupUAListed(ua, n); listed != "" && category == "search_ai" {
 		return true
@@ -1034,6 +1050,13 @@ type pathMatchers struct {
 	honeypot  []honeypotRule
 	protected []*regexp.Regexp
 	ipBypass  *nginxconf.IPBypassMatcher
+	// rangeVerifiedUA: alternation over the crawler UA patterns whose rescue
+	// rides the enabled IP-range presets instead of the UA string (see
+	// nginxconf/uarange.go).  A UA matching this is NOT rescued as search_ai;
+	// the genuine crawler passes via ipBypass (its vendor ranges are folded
+	// into that matcher), a spoof falls through to the gating axes.  nil when
+	// no pattern is inverted.
+	rangeVerifiedUA *regexp.Regexp
 }
 
 // honeypotRule pairs a compiled honeypot pattern with its per-preset
@@ -1098,6 +1121,13 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	// challenge matcher, NOT the ban guard (banDecide above uses BanMgr, whose
 	// whitelist is the narrower NewIPBypassMatcher set without stats_exclude).
 	pm.ipBypass = nginxconf.NewChallengeBypassMatcher(n)
+
+	// Crawler UA patterns inverted to IP-range verification (uarange.go):
+	// one alternation regex.  compileCachedRe memoizes by the joined string,
+	// so the hot path pays a map lookup, not a compile.
+	if pats := nginxconf.SortedRangeVerifiedPatterns(n); len(pats) > 0 {
+		pm.rangeVerifiedUA = compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
+	}
 
 	// bypass paths: enabled presets + per-site rows from ResolvePaths.
 	//
