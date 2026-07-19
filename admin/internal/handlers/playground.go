@@ -120,6 +120,19 @@ func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 	}
 	cat := classify.IsBot(in.UA, verdictForClassify).String()
 
+	// 2b. Range-verified crawler UAs (uarange.go) are not rescued by the UA
+	// string alone; the playground can't run the geo CIDR check on the IP
+	// field (see the bypass-IP note below), so surface the conditional
+	// instead of promising a pass a spoof would not get.
+	rangeVerified := false
+	if cat == "search_ai" {
+		if pats := nginxconf.SortedRangeVerifiedPatterns(cur); len(pats) > 0 {
+			if re := compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")"); re != nil && re.MatchString(in.UA) {
+				rangeVerified = true
+			}
+		}
+	}
+
 	// 3. bypass-IP check (= simplified.  CIDR comparison runs in nginx's geo
 	//    directive, so here we only do exact match against custom bypass_ips.
 	//    Presets (Googlebot etc. IP ranges) require reading the CIDRs
@@ -133,14 +146,15 @@ func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. summary: the final behavior to surface to the user.
-	summary := summarize(match, cat, bypassIP)
+	summary := summarize(match, cat, bypassIP, rangeVerified)
 
 	out := map[string]any{
-		"ok":        1,
-		"ja4_match": match,
-		"classify":  cat,
-		"bypass_ip": bypassIP,
-		"summary":   summary,
+		"ok":             1,
+		"ja4_match":      match,
+		"classify":       cat,
+		"bypass_ip":      bypassIP,
+		"range_verified": rangeVerified,
+		"summary":        summary,
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -162,7 +176,7 @@ func matchedRegex(pat, s string) bool {
 }
 
 // summarize: a one-line "what actually happens" from the user's perspective.
-func summarize(match *playgroundJA4Match, cat string, bypassIP bool) string {
+func summarize(match *playgroundJA4Match, cat string, bypassIP, rangeVerified bool) string {
 	if bypassIP {
 		return "[OK] matches bypass IP: skip every check (= neither challenge nor honeypot fires)"
 	}
@@ -178,7 +192,10 @@ func summarize(match *playgroundJA4Match, cat string, bypassIP bool) string {
 	}
 	switch cat {
 	case "search_ai":
-		return "[OK] search / AI bot UA: passes via the two-stage rescue (= UA list + official IP range)"
+		if rangeVerified {
+			return "[COND] range-verified crawler UA: passes only from the vendor's official IP ranges (enabled bypass-IP presets); from any other address the UA is treated as a spoof and challenged"
+		}
+		return "[OK] search / AI bot UA: passes via the UA-string rescue (no published IP range to verify against)"
 	case "user_dev":
 		return "[BLOCK] user_dev (curl / library) UA: straight to challenge (= reject non-browser clients)"
 	case "old_ua":

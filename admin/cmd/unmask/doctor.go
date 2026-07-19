@@ -129,6 +129,54 @@ func cmdDoctor(args []string) error {
 		addOK("nginx map_hash", "community-bans maps sized (host or http.inc)")
 	}
 
+	// 2c. crawler IP-range freshness.  Range-verified crawler UAs (uarange.go)
+	// are rescued by their vendor's published IP ranges instead of the UA
+	// string, so a range snapshot that stops refreshing eventually challenges
+	// genuine crawlers arriving from newly added vendor IPs.  The embed
+	// snapshot carries no fetch date (vendors' creationTime can sit for years,
+	// e.g. Applebot), so the synced override files' mtime is the signal.
+	if inverted := nginxconf.EffectiveRangeVerifiedPatterns(s.Nginx); len(inverted) > 0 {
+		need := map[string]bool{}
+		for pat := range inverted {
+			for _, id := range nginxconf.UARangePresets[pat] {
+				need[id] = true
+			}
+		}
+		var missing []string
+		var oldestID string
+		var oldest time.Time
+		for i := range nginxconf.BypassIPGroups {
+			g := &nginxconf.BypassIPGroups[i]
+			if !need[g.ID] {
+				continue
+			}
+			fi, err := os.Stat(filepath.Join(nginxconf.SyncDefaultDir, filepath.Base(g.File)))
+			if err != nil {
+				missing = append(missing, g.ID)
+				continue
+			}
+			if oldest.IsZero() || fi.ModTime().Before(oldest) {
+				oldest, oldestID = fi.ModTime(), g.ID
+			}
+		}
+		sort.Strings(missing)
+		const staleAfter = 30 * 24 * time.Hour
+		switch {
+		case len(missing) > 0:
+			addWarn("crawler IP ranges", fmt.Sprintf(
+				"%d crawler UA pattern(s) rely on vendor IP ranges, but these presets have never been synced (serving the compiled-in snapshot): %s. Check the daemon log for 'iprange sync' errors; a stale snapshot can eventually challenge genuine crawlers from new vendor IPs.",
+				len(inverted), strings.Join(missing, ", ")))
+		case time.Since(oldest) > staleAfter:
+			addWarn("crawler IP ranges", fmt.Sprintf(
+				"synced range files are stale (oldest: %s, %d days) — %d crawler UA pattern(s) rely on them. Check the daemon's iprange sync against %s.",
+				oldestID, int(time.Since(oldest).Hours()/24), len(inverted), nginxconf.SyncDefaultHubURL))
+		default:
+			addOK("crawler IP ranges", fmt.Sprintf(
+				"%d preset(s) back %d range-verified crawler UA pattern(s); oldest sync %dd ago",
+				len(need), len(inverted), int(time.Since(oldest).Hours()/24)))
+		}
+	}
+
 	// 3. DB ping + tables
 	conn, err := db.Open(s.DB)
 	if err != nil {

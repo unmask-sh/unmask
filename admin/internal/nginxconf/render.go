@@ -320,8 +320,13 @@ type renderData struct {
 	UpstreamServer string
 
 	SearchBotPatterns []string // flatten of enabled presets + extras
-	JA4Verdicts       []JA4VerdictRule
-	HoneypotPatterns  []string // OR list of honeypot path patterns (= deprecated; kept while callers migrate)
+	// RangeVerifiedUACount: crawler UA patterns deliberately absent from
+	// SearchBotPatterns because their vendor's IP-range presets carry the
+	// rescue (see uarange.go).  Rendered as a conf comment so an operator
+	// diffing the conf understands why a Googlebot line is missing.
+	RangeVerifiedUACount int
+	JA4Verdicts          []JA4VerdictRule
+	HoneypotPatterns     []string // OR list of honeypot path patterns (= deprecated; kept while callers migrate)
 	// HoneypotPatternsGlobal / HoneypotPatternsPerHost are the per-site
 	// render split: one global path map + one map per unique Site + a host
 	// dispatcher.  Same four-stage shape as Bypass paths.
@@ -562,10 +567,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// group resolves to "white" / "black" / "none" via classify; collect
 	// patterns into the corresponding nginx map.  Per-pattern disable
 	// (= SearchBots.UpstreamDisabled) wins over both directions.
+	//
+	// Patterns whose vendor publishes an official IP range (and whose range
+	// presets are all enabled) are dropped from the UA whitelist here: the
+	// rescue rides geo $is_bypass_ip instead, so a spoofed UA from outside
+	// the published ranges gets the normal challenge flow.  See uarange.go.
 	upstreamDisabled := toSet(s.Nginx.SearchBots.UpstreamDisabled)
+	rangeVerified := EffectiveRangeVerifiedPatterns(s.Nginx)
 	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns := collectUpstreamPatternsByMode(
-		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled)
+		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled, rangeVerified)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
+	d.RangeVerifiedUACount = len(rangeVerified)
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {
@@ -1215,8 +1227,10 @@ func toSet(xs []string) map[string]bool {
 // the patterns that should land in the white map and the black map
 // respectively.  Mode is resolved per-category via classify.ResolveGroupMode.
 // Patterns listed in disabledSet are skipped regardless of mode (= explicit
-// per-pattern OFF wins over the group default).
-func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet map[string]bool) (white, black []string) {
+// per-pattern OFF wins over the group default).  Patterns in rangeVerified
+// are skipped on the white side only: their rescue is carried by the
+// vendor's IP-range presets (geo $is_bypass_ip), not by the UA string.
+func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, rangeVerified map[string]bool) (white, black []string) {
 	groups := classify.UpstreamRescueList()
 	// Iterate categories in sorted order: groups is a map, and Go map
 	// iteration is randomized, so ranging it directly makes the rendered
@@ -1237,6 +1251,9 @@ func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet map[
 		case classify.GroupModeWhite:
 			for _, e := range entries {
 				if e.Pattern == "" || disabledSet[e.Pattern] || whiteSeen[e.Pattern] {
+					continue
+				}
+				if rangeVerified[e.Pattern] {
 					continue
 				}
 				whiteSeen[e.Pattern] = true

@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -467,8 +469,52 @@ func TestIsSearchBotUA(t *testing.T) {
 		{"", false},
 	}
 	for _, c := range cases {
-		if got := isSearchBotUA(c.ua, "", n); got != c.want {
-			t.Errorf("isSearchBotUA(%q) = %v, want %v", c.ua, got, c.want)
+		// nil rangeVerifiedUA = no range preset enabled -> pure UA rescue.
+		if got := isSearchBotUA(c.ua, "", n, nil); got != c.want {
+			t.Errorf("isSearchBotUA(%q, nil) = %v, want %v", c.ua, got, c.want)
 		}
+	}
+}
+
+// TestIsSearchBotUARangeVerified: with every range preset enabled, crawler UAs
+// backed by an official IP range are NOT rescued by their UA string (the
+// bypass-IP veto carries the genuine article; a surviving match is a spoof),
+// while range-less crawlers (ClaudeBot) keep the UA rescue.  An operator
+// Extra row rescues a range-verified UA regardless (explicit wins).
+func TestIsSearchBotUARangeVerified(t *testing.T) {
+	allOn := make([]string, 0, len(nginxconf.BypassIPGroups))
+	for i := range nginxconf.BypassIPGroups {
+		allOn = append(allOn, nginxconf.BypassIPGroups[i].ID)
+	}
+	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
+	pats := nginxconf.SortedRangeVerifiedPatterns(n)
+	if len(pats) == 0 {
+		t.Fatal("expected inverted patterns with all presets on")
+	}
+	re := regexp.MustCompile("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
+
+	cases := []struct {
+		ua   string
+		want bool
+	}{
+		{"Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)", false},
+		{"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)", false},
+		{"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.0", false},
+		{"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amazonbot/0.1)", false},
+		// No published range -> UA rescue stays.
+		{"Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", true},
+		{"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", true},
+	}
+	for _, c := range cases {
+		if got := isSearchBotUA(c.ua, "", n, re); got != c.want {
+			t.Errorf("isSearchBotUA(%q, rangeVerified) = %v, want %v", c.ua, got, c.want)
+		}
+	}
+
+	// Operator Extra row: explicit UA-only rescue wins over the inversion.
+	n.SearchBots.Extra = []string{`Googlebot\/`}
+	ua := "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+	if !isSearchBotUA(ua, "", n, re) {
+		t.Error("operator Extra row must rescue a range-verified UA")
 	}
 }

@@ -1,9 +1,12 @@
 // version.go: semantic-version comparison for admin / preset versions.
 //
 // Used to compare a preset group's AddedIn against settings.SeenVersion.  Plain
-// lexicographic comparison gives "v0.10" < "v0.9", so we int-parse major.minor.
+// lexicographic comparison gives "v0.10" < "v0.9", so we int-parse
+// major.minor.patch.  Releases step by patch (0.0.1), so every segment counts;
+// preset AddedIn values are written in full "v0.1.7" form.
 //
-// Accepts "v0.1" / "v0.10" / "0.1.0".  Unparseable inputs map to 0,0 (= oldest).
+// Accepts "v0.1" / "v0.10" / "0.1.0"; a present segment must be numeric.
+// Unparseable inputs map to 0,0,0 (= oldest).
 package nginxconf
 
 import (
@@ -11,21 +14,26 @@ import (
 	"strings"
 )
 
-// VersionLess: true if a < b.  Format: "v?MAJOR.MINOR(.PATCH)?".  Patch is ignored.
+// VersionLess: true if a < b.  Format: "v?MAJOR.MINOR(.PATCH)?".  A missing
+// MINOR or PATCH counts as 0, so releases that step by patch ("v0.1.7") still
+// order correctly against the previous tag ("v0.1.6").
 func VersionLess(a, b string) bool {
-	am, an, _ := parseVer(a)
-	bm, bn, _ := parseVer(b)
+	am, an, ap, _ := parseVer(a)
+	bm, bn, bp, _ := parseVer(b)
 	if am != bm {
 		return am < bm
 	}
-	return an < bn
+	if an != bn {
+		return an < bn
+	}
+	return ap < bp
 }
 
 // VersionParseable: does v parse as "v?MAJOR(.MINOR)?(.PATCH)?" with numeric
 // MAJOR/MINOR?  Dev / source builds stamp a git hash ("6f94983") as the admin
 // version; such a string must not be mistaken for a release number.
 func VersionParseable(v string) bool {
-	_, _, ok := parseVer(v)
+	_, _, _, ok := parseVer(v)
 	return ok
 }
 
@@ -46,22 +54,28 @@ func PresetIsNew(seenVer, addedIn string) bool {
 	return VersionLess(seenVer, addedIn)
 }
 
-func parseVer(v string) (maj, min int, ok bool) {
+func parseVer(v string) (maj, min, patch int, ok bool) {
 	v = strings.TrimSpace(v)
 	v = strings.TrimPrefix(v, "v")
 	if v == "" {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	parts := strings.SplitN(v, ".", 3)
 	maj, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	if len(parts) > 1 {
 		var minErr error
 		if min, minErr = strconv.Atoi(parts[1]); minErr != nil {
-			return maj, 0, false
+			return maj, 0, 0, false
 		}
 	}
-	return maj, min, true
+	if len(parts) > 2 {
+		var pErr error
+		if patch, pErr = strconv.Atoi(parts[2]); pErr != nil {
+			return maj, min, 0, false
+		}
+	}
+	return maj, min, patch, true
 }

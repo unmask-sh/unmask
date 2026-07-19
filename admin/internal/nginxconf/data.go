@@ -9,35 +9,35 @@
 //   - The presets are updated with each admin release.
 package nginxconf
 
-// init: when AddedIn is empty on a preset group, default it to "v0.1".
+// init: when AddedIn is empty on a preset group, default it to "v0.1.0".
 //
-// New presets that explicitly set AddedIn: "v0.5" etc. get a
-// "since v0.5" label in the UI.  Existing groups keep their initial
+// New presets that explicitly set AddedIn: "v0.5.0" etc. get a
+// "since v0.5.0" label in the UI.  Existing groups keep their initial
 // release.
 func init() {
 	for i := range ChallengeTargetGroups {
 		if ChallengeTargetGroups[i].AddedIn == "" {
-			ChallengeTargetGroups[i].AddedIn = "v0.1"
+			ChallengeTargetGroups[i].AddedIn = "v0.1.0"
 		}
 	}
 	for i := range JA4VerdictGroups {
 		if JA4VerdictGroups[i].AddedIn == "" {
-			JA4VerdictGroups[i].AddedIn = "v0.1"
+			JA4VerdictGroups[i].AddedIn = "v0.1.0"
 		}
 	}
 	for i := range HoneypotPresetGroups {
 		if HoneypotPresetGroups[i].AddedIn == "" {
-			HoneypotPresetGroups[i].AddedIn = "v0.1"
+			HoneypotPresetGroups[i].AddedIn = "v0.1.0"
 		}
 	}
 	for i := range BypassPathPresetGroups {
 		if BypassPathPresetGroups[i].AddedIn == "" {
-			BypassPathPresetGroups[i].AddedIn = "v0.1"
+			BypassPathPresetGroups[i].AddedIn = "v0.1.0"
 		}
 	}
 	for i := range ProtectedPathPresetGroups {
 		if ProtectedPathPresetGroups[i].AddedIn == "" {
-			ProtectedPathPresetGroups[i].AddedIn = "v0.1"
+			ProtectedPathPresetGroups[i].AddedIn = "v0.1.0"
 		}
 	}
 }
@@ -155,7 +155,7 @@ type ChallengeTargetGroup struct {
 	ID       string
 	Label    string
 	Patterns []string // nginx case-insensitive regex (= evaluated with ~*)
-	AddedIn  string   // admin version added (= e.g. "v0.1".  UI labels "since vX")
+	AddedIn  string   // admin version added (= e.g. "v0.1.0".  UI labels "since vX.Y.Z")
 }
 
 var ChallengeTargetGroups = []ChallengeTargetGroup{

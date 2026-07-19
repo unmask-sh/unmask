@@ -322,6 +322,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-group .upstream-action-sel{padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#475569;max-width:9rem}
 .upstream-group .upstream-action-sel:disabled{background:#f1f5f9;color:#94a3b8;cursor:not-allowed;opacity:.6}
 .upstream-group .upstream-detail-btn{padding:.25rem .7rem;font-size:.78rem;background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;color:#475569}
+.upstream-rv{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;white-space:nowrap;vertical-align:.05rem}
+.upstream-rv.rv-on{background:#dcfce7;color:#15803d;border-color:#86efac}
+.upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.6;color:#334155}
 .upstream-group .upstream-detail-btn:hover{background:#f1f5f9;border-color:#94a3b8}
 
 .upstream-modal{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center}
@@ -1597,6 +1600,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="upstream-modal-all-on">{{ t $.Lang "settings.ua.upstream.all_enable" }}</button>
           <button type="button" class="upstream-modal-all-off">{{ t $.Lang "settings.ua.upstream.all_disable" }}</button>
         </div>
+        {{ if index $.UpstreamCatHasRV $cat }}
+        <p class="upstream-rv-legend">{{ safeHTML (t $.Lang "settings.ua.upstream.rv_note") }}</p>
+        {{ end }}
         <div class="upstream-modal-list-head">
           <span></span>
           <button type="button" class="upstream-sort-btn" data-sort="pattern">{{ t $.Lang "settings.ua.upstream.col_pattern" }} <span class="upstream-sort-ind"></span></button>
@@ -1606,7 +1612,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ range $entries }}
           <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}">
             <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamDisabled .Pattern) }}checked{{ end }}>
-            <span><code>{{ .Pattern }}</code>{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+            <span><code>{{ .Pattern }}</code>{{ if index $.UpstreamRangeBacked .Pattern }}<span class="upstream-rv{{ if index $.UpstreamRangeActive .Pattern }} rv-on{{ end }}">🛡 {{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>
           </label>
           {{ end }}
