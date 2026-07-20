@@ -864,13 +864,31 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	totalUniq := int(totalSketch.estimate())
 
 	// rate-limit row skip gate: when the aggregate already accumulates zero
-	// rate-limited serves in the window, skip the rateLimitFunnelRow raw
-	// scan -- it would only return an empty row.
+	// rate-limited serves in the window, the row would be empty -- skip it.
 	var rlTotal int64
 	_ = d.QueryRowContext(ctx, `
         SELECT COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
         WHERE bucket_kind = '`+hkServeRL+`' AND `+hourWindow(ctx, hours, "bucket_hour")).Scan(&rlTotal)
-	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, rlTotal == 0)
+
+	// Prefer the hourly rate-limit-funnel rollup (settled hours) + a short raw
+	// tail over the per-IP self-join scan of the whole window.  Fall back to that
+	// scan only until the rollup has completed its first pass (rolled == false).
+	rlRow, rolled, err := rateLimitFunnelRowAgg(ctx, d, hours, botVerdicts)
+	if err != nil {
+		return nil, err
+	}
+	if rolled || rlTotal == 0 {
+		rows, err := buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, true)
+		if err != nil {
+			return nil, err
+		}
+		if rolled && rlTotal > 0 {
+			rows = append([]FunnelRow{rlRow}, rows...)
+		}
+		return rows, nil
+	}
+	// Not rolled yet and there are rate-limited serves: raw scan (pre-rollup only).
+	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, false)
 }
 
 // buildFunnelRows turns the per-verdict aggregation maps into ordered
@@ -994,7 +1012,16 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 	return out, nil
 }
 
+// rateLimitFunnelRow scans one window with a single boundary for both the
+// counted events and the rate-limited-IP set.  The agg-path tail uses
+// rateLimitFunnelRowRange to look the IP set back slightly further than the
+// counted events (so an interaction straddling the settled/tail boundary is
+// still attributed), so this wrapper just passes the same bound for both.
 func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []string, since string, botVerdicts []string) (FunnelRow, error) {
+	return rateLimitFunnelRowRange(ctx, d, site, hosts, since, since, botVerdicts)
+}
+
+func rateLimitFunnelRowRange(ctx context.Context, d *db.DB, site string, hosts []string, outerSince, innerSince string, botVerdicts []string) (FunnelRow, error) {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	sc := siteCond(site) + hostCond(hosts)
 	botIn, botArgs := inClause(botVerdicts)
@@ -1017,7 +1044,7 @@ func rateLimitFunnelRow(ctx context.Context, d *db.DB, site string, hosts []stri
               SELECT ip_address FROM unmask_event
               WHERE %s%s AND phase='serve'
                 AND %s IN ('1', 1)
-          )`, since, sc, since, sc, jsonRL)
+          )`, outerSince, sc, innerSince, sc, jsonRL)
 	row := d.QueryRowContext(ctx, stmt, botArgs...)
 	var r FunnelRow
 	r.Verdict = "rate_limit"

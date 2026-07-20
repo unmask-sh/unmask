@@ -684,6 +684,11 @@ func cmdServe(args []string) error {
 				if err := dashboard.RollupInstallWideCountry(ctx, conn); err != nil {
 					log.Printf("install-wide country rollup: %v", err)
 				}
+				// Pre-aggregate the Funnel card's rate_limit row per hour so it
+				// stops running a per-IP self-join over unmask_event on each load.
+				if err := dashboard.RollupRateLimitFunnel(ctx, conn); err != nil {
+					log.Printf("rate-limit funnel rollup: %v", err)
+				}
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")
