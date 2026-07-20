@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -53,15 +54,58 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// site filter (= shared site_picker, single-select.  cookie / ?site=).
 	site := resolveSiteFilter(r)
 
-	// Last-24h KPIs.  On failure, fall through with 0.
-	kpiEvents := countEvents(ctx, h, 1440, "", site, hosts)
-	kpiServes := countEvents(ctx, h, 1440, "serve", site, hosts)
-	// Passed counts split by how the visitor cleared the challenge.  PoW-only
-	// is transparent (mostly real browsers); the CAPTCHA paths mean a human
-	// solved one.  The old "verify" phase does not exist in native mode.
-	kpiPoWPass := countEvents(ctx, h, 1440, "bv_pow_only", site, hosts)
-	kpiCaptchaPass := countEventsPhases(ctx, h, 1440,
-		[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
+	// Last-24h KPIs, traffic uniqueness, the recent-detections list, and the AI
+	// crawler funnel are all independent read queries.  Issue them concurrently so
+	// a cold cache pays the slowest one, not their sum -- the landing page's
+	// biggest win (they were previously run back-to-back).
+	var (
+		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
+		uTotal, uBlocked                                 int
+		uKnown                                           bool
+		recentRaw                                        []events.Row
+		recentErr                                        error
+		aiRows                                           []AITrafficRow
+		aiDetail                                         map[string][]AICrawlerRow
+		aiServed                                         []dashboard.AITrafficRow
+		overBlock                                        OverBlockHealth
+	)
+	var wg sync.WaitGroup
+	launch := func(f func()) {
+		wg.Add(1)
+		go func() { defer wg.Done(); f() }()
+	}
+	launch(func() { kpiEvents = countEvents(ctx, h, 1440, "", site, hosts) })
+	launch(func() { kpiServes = countEvents(ctx, h, 1440, "serve", site, hosts) })
+	// Passed counts split by how the visitor cleared the challenge.  PoW-only is
+	// transparent (mostly real browsers); the CAPTCHA paths mean a human solved
+	// one.  The old "verify" phase does not exist in native mode.
+	launch(func() { kpiPoWPass = countEvents(ctx, h, 1440, "bv_pow_only", site, hosts) })
+	launch(func() {
+		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
+			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
+	})
+	// Non-human %: distinct client IPs (total) vs distinct challenged-but-never-
+	// passed IPs (blocked), from the unmask_traffic_hll sketches.  "—" when the
+	// access-log feed is off (no sketch data).
+	launch(func() { uTotal, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
+	// 10 most recent detections: fetch 40 raw rows so the client-side session
+	// collapse (group by beacon_token) still shows ~10 sessions.
+	launch(func() {
+		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", site, hosts, 0, 40, 0)
+	})
+	// AI traffic funnel: "all" reads unmask_crawler_minute (sees rescued/bypassed
+	// traffic too), "served" reads the hkAITag aggregate (phase=serve only).
+	launch(func() { aiRows = aiTrafficSummary(ctx, h, 1440) })
+	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, 1440) })
+	launch(func() { aiServed, _ = dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24) })
+	// Over-block circuit-breaker health -- a global signal, so it lives on the
+	// landing rather than the per-site stats dashboard.
+	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
+	wg.Wait()
+
+	if recentErr != nil {
+		log.Printf("overview recent: %v", recentErr)
+	}
 	// "Blocked" estimate for the hero: challenges fired that produced no pass
 	// (neither PoW nor CAPTCHA) — the visitor hit the wall and never cleared.
 	// Not exact (a real user who navigated away counts too, and a serve in the
@@ -75,35 +119,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// the template renders "—" and suppresses the reassuring "😴 quiet / 0
 	// blocked" hero -- a DB-busy landing must not masquerade as a calm one.
 	kpiKnown := ctx.Err() == nil
-
-	// Non-human traffic %: by *unique client*, not request volume (so one
-	// high-volume bot doesn't dominate).  Both figures come from the
-	// unmask_traffic_hll HLL sketches written by the nginx-log pipeline:
-	//   uTotal   = distinct client IPs over all traffic
-	//   uBlocked = distinct IPs challenged but never seen with a pass cookie
-	// When the access-log feed is off there is no sketch data → the card
-	// shows "—" instead of a misleading 0%.
-	uTotal, uBlocked, uKnown := trafficUnique(ctx, h, 1440, site)
 	nonHumanPct := 0.0
 	if uKnown && uTotal > 0 {
 		nonHumanPct = float64(uBlocked) / float64(uTotal) * 100
 	}
-
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
 	if h.BanMgr != nil {
 		currentBans = len(h.BanMgr.Snapshot())
 	}
 
-	// 10 most recent detections (= any phase / id desc).  Fetch 40 raw rows
-	// so the client-side session collapse (= same logic as the hunt table:
-	// group by beacon_token + collapse into one row showing the phase chain)
-	// still has roughly 10 visible sessions in the typical case where one
-	// fire contributes 3-5 raw rows.
-	recentRaw, err := events.FetchPaged(ctx, h.DB, "", "", "", "", site, hosts, 0, 40, 0)
-	if err != nil {
-		log.Printf("overview recent: %v", err)
-	}
 	// IP rendering is unified as "flag + IP + popover" (= same as bans / hunt / dashboard).
 	// Tag each row with the IP-geo-looked-up country code + the ban state for the IP.
 	// Banned is required by the shared partial_events_table.html partial -- without
@@ -140,19 +165,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		}
 		recent = append(recent, recentRow{Row: r0, CountryCode: cc, Banned: banned})
 	}
-
-	// AI traffic funnel (= last 24h, top of overview).  Two views on the
-	// same crawler taxonomy: "all" reads unmask_crawler_minute (the access-
-	// log pipeline that sees rescued / bypassed traffic too), and "served"
-	// reads the hkAITag aggregate fed by phase=serve events (= excludes
-	// bypassed crawlers, useful for operators who tweaked the rescue
-	// presets).  Both run cheap so they share the overview render budget.
-	aiRows := aiTrafficSummary(ctx, h, 1440)
-	aiDetail := aiTrafficDrilldown(ctx, h, 1440)
-	aiServed, _ := dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24)
-	// Over-block circuit breaker health -- a global signal, so it lives on the
-	// landing rather than the per-site stats dashboard.
-	overBlock, _ := h.OverBlockHealth(ctx)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
