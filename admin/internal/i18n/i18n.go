@@ -560,7 +560,7 @@ var dict = map[Lang]map[string]string{
 		// dashboard 内 card 共通 (= h2 / src-badge / 0-row toggle / table header / etc).
 		"dashboard.overblock.banner":         "過剰ブロックを検知 — 同じ訪問者が challenge を通過できず繰り返し challenge されています",
 		"dashboard.overblock.autopass_on":    "自動全通過に切替えました (信号が戻るまで challenge を一時停止)",
-		"dashboard.card.funnel":              "チャレンジ ファネル",
+		"dashboard.card.funnel":              "challenge ファネル",
 		"dashboard.card.rate_limit":          "レート制限ヒット",
 		"dashboard.rate_limit.desc":          "1 IP あたりのリクエスト頻度が閾値を超えたリクエストの集計。<br><br><strong>挙動</strong>: PoW を省略して <strong>CAPTCHA を直接表示</strong>する (人間確認を強制)。<br><strong>計数除外</strong>: 有効な通過 cookie を持つ client / 検索 bot / bypass IP / ホワイトパスは数えない。<br><br><strong>訪問者視点</strong>: 連打や自動アクセスを続けると突然 CAPTCHA 画面が出る。<br><br>閾値・対象 path・zone は <strong>設定 &gt; rate-limit</strong> で調整できる。",
 		"dashboard.card.cookie_status":       "cookie 通過状況",
