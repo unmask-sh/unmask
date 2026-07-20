@@ -80,6 +80,13 @@ const (
 	hkAITagSiteIP    = "atsip"  // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
 	hkTrafficIP      = "tip"    // hourly bucket, key '<site>' distinct IP, ALL traffic — rolled up from unmask_traffic_hll(kind='ip') per-minute rows by RollupTrafficHLL (DailyUniqueIPs per-site view)
 	hkTrafficIPAll   = "tipall" // hourly bucket, key '' — union of every site's tip sketch for the hour, folded by RollupInstallWideHourly (DailyUniqueIPs default/unfiltered view; avoids the ~300-site read fan-out)
+	// hkTrafficBlockedAll: install-wide hourly union of the nginx-log
+	// unmask_traffic_hll 'ipc' (challenged) and 'ipp' (passed) sketches, keyed by
+	// that kind ('ipc'/'ipp'), folded by RollupInstallWideBlocked.  Feeds the
+	// overview's non-human-% card (blocked = est(ipc∪ipp)−est(ipp)) so its
+	// default view merges ~48 hourly sketches instead of the ~8k per-site rows.
+	// ('ip'/total reuses hkTrafficIPAll key='' — no need to re-roll it here.)
+	hkTrafficBlockedAll = "tblkall" // hourly bucket, key '<ipc|ipp>' install-wide distinct-IP sketch (overview non-human-% source)
 )
 
 const (

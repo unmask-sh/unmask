@@ -474,6 +474,17 @@ func countEventsPhases(ctx context.Context, h *Handler, minutes int, phases []st
 //
 // Best-effort: on a query error returns known=false.
 func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (total, blocked int, known bool) {
+	// Default (all-sites) view: read the install-wide rollups instead of scanning
+	// every site's per-minute sketches (the ~8-12k-sketch fan-out).  A site-scoped
+	// view has no fan-out, so it reads the per-minute table directly below.
+	if site == "" {
+		t, b, ok, err := dashboard.TrafficUniqueAgg(ctx, h.DB, minutes)
+		if err != nil {
+			log.Printf("trafficUnique agg: %v", err)
+			return 0, 0, false
+		}
+		return t, b, ok
+	}
 	cutoff := time.Now().Unix()/60 - int64(minutes)
 	stmt := `SELECT kind, sketch FROM unmask_traffic_hll WHERE bucket_min >= ?`
 	args := []any{cutoff}

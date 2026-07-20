@@ -322,3 +322,217 @@ func rollupInstallWideCountryRange(ctx context.Context, d *db.DB, fromHour, toHo
 	}
 	return tx.Commit()
 }
+
+// installWideBlockedState is the cursor for the install-wide 'ipc'/'ipp'
+// distinct-IP sketches (hkTrafficBlockedAll) feeding the overview's non-human-%
+// card.  Own cursor so it backfills the retained window on first run without
+// disturbing installWideState (which DailyUniqueIPs / DailyPassByDay read).
+const installWideBlockedState = "iw_blocked"
+
+// RollupInstallWideBlocked unions every site's per-minute 'ipc' (challenged) and
+// 'ipp' (passed) sketches into one install-wide sketch per (hour, kind) in
+// unmask_aggregate_hll(bucket_kind=hkTrafficBlockedAll, bucket_key='ipc'|'ipp'),
+// so the overview's non-human-% default view merges ~48 hourly sketches instead
+// of the ~8k per-site rows.  ('ip'/total reuses hkTrafficIPAll.)  Same settle /
+// batch / idempotency contract as the other rollups, on its own cursor.
+func RollupInstallWideBlocked(ctx context.Context, d *db.DB) error {
+	if d == nil {
+		return nil
+	}
+	cursor, err := stateCursor(ctx, d, installWideBlockedState)
+	if err != nil {
+		return err
+	}
+	nowHour := time.Now().Unix() / 3600
+	lastSettled := nowHour - trafficSettleHours
+	floor := nowHour - int64(hourlyKeep)*24
+	start := cursor + 1
+	if start < floor {
+		start = floor
+	}
+	for start <= lastSettled {
+		end := start + trafficRollupBatchHours - 1
+		if end > lastSettled {
+			end = lastSettled
+		}
+		if err := rollupInstallWideBlockedRange(ctx, d, start, end); err != nil {
+			return err
+		}
+		start = end + 1
+	}
+	return nil
+}
+
+func rollupInstallWideBlockedRange(ctx context.Context, d *db.DB, fromHour, toHour int64) error {
+	rows, err := d.QueryContext(ctx,
+		`SELECT bucket_min, kind, sketch FROM unmask_traffic_hll
+		 WHERE kind IN ('ipc','ipp') AND bucket_min >= ? AND bucket_min < ?`,
+		fromHour*60, (toHour+1)*60)
+	if err != nil {
+		return err
+	}
+	type hourKind struct {
+		hour int64
+		kind string
+	}
+	by := map[hourKind]*hll{}
+	for rows.Next() {
+		var bm int64
+		var kind string
+		var blob []byte
+		if err := rows.Scan(&bm, &kind, &blob); err != nil {
+			rows.Close()
+			return err
+		}
+		k := hourKind{bm / 60, kind}
+		s := by[k]
+		if s == nil {
+			s = &hll{}
+			by[k] = s
+		}
+		s.mergeBytes(blob)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	sqlite := d.Driver == db.DriverSQLite
+	up := `INSERT INTO unmask_aggregate_hll (bucket, bucket_kind, bucket_key, sketch) VALUES (?, ?, ?, ?)`
+	if sqlite {
+		up += ` ON CONFLICT(bucket, bucket_kind, bucket_key) DO UPDATE SET sketch = excluded.sketch`
+	} else {
+		up += ` ON DUPLICATE KEY UPDATE sketch = VALUES(sketch)`
+	}
+	stmt, err := tx.PrepareContext(ctx, up)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for k, s := range by {
+		bucket := time.Unix(k.hour*3600, 0).UTC().Format("2006-01-02 15")
+		if _, err := stmt.ExecContext(ctx, bucket, hkTrafficBlockedAll, k.kind, s[:]); err != nil {
+			return err
+		}
+	}
+	st := `INSERT INTO unmask_aggregate_state (name, last_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`
+	if sqlite {
+		st += ` ON CONFLICT(name) DO UPDATE SET last_id = excluded.last_id, updated_at = excluded.updated_at`
+	} else {
+		st += ` ON DUPLICATE KEY UPDATE last_id = VALUES(last_id), updated_at = VALUES(updated_at)`
+	}
+	if _, err := tx.ExecContext(ctx, st, installWideBlockedState, toHour); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// mergeInstallWideHLL merges the install-wide hourly distinct-IP sketch for one
+// traffic kind over [cutoffMin, untilMin]: settled hours from the rollup
+// (bucketKind/bucketKey on cursorState) plus a live per-minute tail straight
+// from unmask_traffic_hll (all sites).  Falls back to the whole window live when
+// the rollup has not run yet (cursor < 0).
+func mergeInstallWideHLL(ctx context.Context, d *db.DB, kind, bucketKind, bucketKey, cursorState string, cutoffMin, untilMin int64) (*hll, error) {
+	out := &hll{}
+	cursor, err := stateCursor(ctx, d, cursorState)
+	if err != nil {
+		return nil, err
+	}
+	liveMin := cutoffMin
+	if cursor >= 0 {
+		cutoffHour := time.Unix(cutoffMin*60, 0).UTC().Format("2006-01-02 15")
+		upToSec := cursor * 3600
+		if u := untilMin * 60; u < upToSec {
+			upToSec = u
+		}
+		upToHour := time.Unix(upToSec, 0).UTC().Format("2006-01-02 15")
+		rows, err := d.QueryContext(ctx,
+			`SELECT sketch FROM unmask_aggregate_hll
+			 WHERE bucket_kind = ? AND bucket_key = ? AND bucket >= ? AND bucket <= ?`,
+			bucketKind, bucketKey, cutoffHour, upToHour)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var b []byte
+			if err := rows.Scan(&b); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out.mergeBytes(b)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+		if m := (cursor + 1) * 60; m > liveMin {
+			liveMin = m
+		}
+	}
+	rows, err := d.QueryContext(ctx,
+		`SELECT sketch FROM unmask_traffic_hll WHERE kind = ? AND bucket_min >= ? AND bucket_min <= ?`,
+		kind, liveMin, untilMin)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out.mergeBytes(b)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+	return out, nil
+}
+
+// TrafficUniqueAgg computes the overview's non-human-% figures for the default
+// (all-sites) view from the install-wide rollups instead of scanning every
+// site's per-minute sketches:
+//
+//	total   = distinct client IPs over all traffic         (hkTrafficIPAll '')
+//	blocked = distinct IPs challenged but never passed      (hkTrafficBlockedAll)
+//	        = est(ipc ∪ ipp) − est(ipp)
+//
+// ok=false when there is no traffic-sketch data at all (access-log feed off /
+// just deployed) so the caller renders "—".  minutes is a trailing window.
+func TrafficUniqueAgg(ctx context.Context, d *db.DB, minutes int) (total, blocked int, ok bool, err error) {
+	untilMin := time.Now().Unix() / 60
+	cutoffMin := untilMin - int64(minutes)
+	ip, err := mergeInstallWideHLL(ctx, d, "ip", hkTrafficIPAll, "", installWideState, cutoffMin, untilMin)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	ipc, err := mergeInstallWideHLL(ctx, d, "ipc", hkTrafficBlockedAll, "ipc", installWideBlockedState, cutoffMin, untilMin)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	ipp, err := mergeInstallWideHLL(ctx, d, "ipp", hkTrafficBlockedAll, "ipp", installWideBlockedState, cutoffMin, untilMin)
+	if err != nil {
+		return 0, 0, false, err
+	}
+	total = ip.estimate()
+	// HLL has no subtraction, so est(ipc \ ipp) = est(ipc ∪ ipp) − est(ipp).
+	union := &hll{}
+	union.merge(ipc)
+	union.merge(ipp)
+	blocked = union.estimate() - ipp.estimate()
+	if blocked < 0 {
+		blocked = 0
+	}
+	// ip ⊇ ipc ⊇ (challenged), so total>0 iff there was any traffic sketch at all
+	// — mirrors trafficUnique's "no ip sketch -> —".
+	return total, blocked, total > 0, nil
+}
