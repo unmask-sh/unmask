@@ -220,6 +220,10 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .impact-stat strong{font-weight:600;color:#15803d}
 .impact-stat .impact-num{font-family:ui-monospace,Menlo,monospace;font-size:.95rem;font-weight:700;color:#0f172a}
 .impact-stat .impact-sub{color:#475569;font-size:.78rem;margin-left:.15rem}
+.impact-computing{display:inline-flex;align-items:center;gap:.35rem;color:#475569;font-weight:600}
+.impact-spinner{display:inline-block;width:.7rem;height:.7rem;border:2px solid #bbf7d0;border-top-color:#15803d;border-radius:50%;animation:impact-spin .7s linear infinite}
+@keyframes impact-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.impact-spinner{animation-duration:2s}}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -286,9 +290,12 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   <div class="impact-panel">
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.hits30d_tip" }}">
       📊 <strong>{{ t .Lang "community_bans.hits30d_label" }}</strong>
-      {{ if .CommunityBansHitsKnown }}<span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
+      <span id="cb-impact-figure" data-computing="{{ if and (not .CommunityBansHitsKnown) .CommunityBansHitsComputing }}1{{ end }}" data-poll-url="{{ .BasePath }}/admin/api/community-bans/impact">
+      {{- if .CommunityBansHitsKnown }}<span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
       {{ if gt .CommunityBansHitsUniqueIP30d 0 }}<span class="impact-sub">(uniq IP: {{ comma .CommunityBansHitsUniqueIP30d }})</span>{{ end }}
-      {{ else }}<span class="impact-num" title="collecting…">—</span>{{ end }}
+      {{- else if .CommunityBansHitsComputing }}<span class="impact-num impact-computing" title="{{ t .Lang "community_bans.hits_computing_tip" }}"><span class="impact-spinner" aria-hidden="true"></span>{{ t .Lang "community_bans.hits_computing" }}</span>
+      {{- else }}<span class="impact-num" title="collecting…">—</span>{{ end -}}
+      </span>
     </span>
     {{ if gt .CommunityBansFromHub 0 }}
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.impact_tip" }}">
@@ -457,6 +464,36 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 <div id="reports-popover" data-popover="reports"></div>
 <div id="vote-popover" data-popover="vote"></div>
 <script>
+
+// Impact figure: while the 30-day scan runs in the background the figure shows
+// a spinner.  Poll the impact endpoint and swap the spinner for the number the
+// moment it lands, so the operator never has to reload.  Progressive
+// enhancement: with JS off the spinner stays and a manual reload still works.
+(function(){
+  var fig = document.getElementById('cb-impact-figure');
+  if (!fig || fig.getAttribute('data-computing') !== '1') return;
+  var url = fig.getAttribute('data-poll-url');
+  if (!url) return;
+  var tries = 0, MAX = 40; // ~40 * 4s = ~2.5 min ceiling
+  function fmtInt(n){ try { return Number(n).toLocaleString(); } catch(e){ return String(n); } }
+  function land(d){
+    var html = '<span class="impact-num">' + fmtInt(d.count) + '</span> 件';
+    if (d.uniqueIP > 0) html += ' <span class="impact-sub">(uniq IP: ' + fmtInt(d.uniqueIP) + ')</span>';
+    fig.innerHTML = html;
+    fig.removeAttribute('data-computing');
+  }
+  function poll(){
+    if (tries++ >= MAX) return; // give up quietly; a manual reload still shows it
+    fetch(url, {credentials:'same-origin', headers:{'Accept':'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(d){
+        if (d && d.known) { land(d); return; }
+        setTimeout(poll, 4000); // still computing (or a hiccup) -> keep waiting
+      })
+      .catch(function(){ setTimeout(poll, 4000); });
+  }
+  setTimeout(poll, 3000); // first poll after 3s; the scan takes tens of seconds
+})();
 
 // refreshHoverPopover: if the shared hover popover (#info-popover) is
 // currently visible -- i.e. the user is hovering the badge while clicking

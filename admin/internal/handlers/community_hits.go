@@ -62,13 +62,25 @@ func (c *communityHitsCache) get(now time.Time, compute func() (communityHitStat
 		c.mu.Unlock()
 		return communityHitStats{}, false
 	}
+	// Nothing cached yet: compute in the BACKGROUND, never on the request path.
+	// The 30-day impact scan reads payload_json for every serve row in the
+	// window (3.4M rows / ~38s on the 6.6M-row tool1-us DB), so blocking the
+	// first Community Bans page load on it made the tab hang for tens of
+	// seconds.  Return "not known yet" so the page renders instantly; a reload
+	// after the background scan finishes shows the figure.
 	c.refreshing = true
 	c.mu.Unlock()
-	c.refresh(compute) // nothing cached yet: compute in-line once
+	go c.refresh(compute)
+	return communityHitStats{}, false
+}
+
+// Refreshing reports whether a background impact-figure computation is in
+// flight, so the template can say "computing…" instead of a bare em dash that
+// reads as "no data".
+func (c *communityHitsCache) Refreshing() bool {
 	c.mu.Lock()
-	v, ok := c.val, c.known
-	c.mu.Unlock()
-	return v, ok
+	defer c.mu.Unlock()
+	return c.refreshing
 }
 
 func (c *communityHitsCache) refresh(compute func() (communityHitStats, error)) {
@@ -94,7 +106,12 @@ func communityBansHits30d(ctx context.Context, d *db.DB) (communityHitStats, err
 		jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.ban_source'))`
 		dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// Generous budget: this runs only in the background (never on the request
+	// path) and at most once per communityHitsTTL, so a slow 30-day scan on a
+	// large DB should be allowed to finish and populate the cache rather than
+	// time out at 30s and leave the figure unknown forever (measured 38s on the
+	// 6.6M-row tool1-us DB).
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	var s communityHitStats
 	err := d.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(DISTINCT ip_address)
