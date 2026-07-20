@@ -673,6 +673,12 @@ func cmdServe(args []string) error {
 				if err := dashboard.RollupTrafficHLL(ctx, conn); err != nil {
 					log.Printf("traffic-hll rollup: %v", err)
 				}
+				// Fold the per-minute nginx-log tables into install-wide hourly
+				// aggregates so the default (unfiltered) DailyUniqueIPs /
+				// DailyPassByDay cards skip the ~300-site read fan-out.
+				if err := dashboard.RollupInstallWideHourly(ctx, conn); err != nil {
+					log.Printf("install-wide rollup: %v", err)
+				}
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")
