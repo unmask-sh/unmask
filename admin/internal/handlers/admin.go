@@ -1215,24 +1215,12 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// still render.
 	hasRL, _ := dashboard.HasRateLimited(ctx, h.DB, site, hosts, hours)
 	if hasRL {
-		run("RateLimitSummary", func() error {
+		// One card, one pass: RateLimitAll scans the rl=1 serve window once and
+		// aggregates all four breakdowns, instead of four cards each re-scanning
+		// it (4x the I/O + page-cache contention on a large cold DB).
+		run("RateLimitAll", func() error {
 			var e error
-			rlSummary, e = dashboard.RateLimitSummary(ctx, h.DB, site, hosts, hours)
-			return e
-		})
-		run("RateLimitIPs", func() error {
-			var e error
-			rlIPs, e = dashboard.RateLimitIPs(ctx, h.DB, site, hosts, hours, 30)
-			return e
-		})
-		run("RateLimitPaths", func() error {
-			var e error
-			rlPaths, e = dashboard.RateLimitPaths(ctx, h.DB, site, hosts, hours, 30)
-			return e
-		})
-		run("RateLimitQueriesByPath", func() error {
-			var e error
-			rlPathQueries, e = dashboard.RateLimitQueriesByPath(ctx, h.DB, site, hosts, hours, 5)
+			rlSummary, rlIPs, rlPaths, rlPathQueries, e = dashboard.RateLimitAll(ctx, h.DB, site, hosts, hours, 30, 30, 5)
 			return e
 		})
 	}
