@@ -1375,9 +1375,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 	// Record the admin version at the moment the user saves the settings page.
 	// On the next render, presets with AddedIn newer than this are treated as
-	// new (= forced OFF + NEW badge).  Dev / source builds carry a git hash as
-	// Version; stamping that would poison the gate (PresetIsNew reads it as
-	// unparseable), so keep the previous SeenVersion on such builds.
+	// new (= forced OFF + NEW badge).  A dev / RC build carries a
+	// "MAJOR.MINOR.PATCH-<git-hash>" Version; parseVer strips the suffix, so it
+	// stamps and orders by its release number (reviewing that release's presets
+	// while still badging a later release's).  A bare-git-hash build stays
+	// unparseable and keeps the previous SeenVersion.
 	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
 		cur.Nginx.SeenVersion = v
 	}

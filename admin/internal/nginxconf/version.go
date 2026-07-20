@@ -57,6 +57,14 @@ func PresetIsNew(seenVer, addedIn string) bool {
 func parseVer(v string) (maj, min, patch int, ok bool) {
 	v = strings.TrimSpace(v)
 	v = strings.TrimPrefix(v, "v")
+	// Strip a SemVer pre-release / build suffix ("0.1.7-dev-3a819a7", "0.1.7+meta")
+	// so a dev / release-candidate build whose Version carries a git hash still
+	// orders by its MAJOR.MINOR.PATCH release number.  The remaining segments must
+	// still each be strictly numeric — a bare git hash ("6f94983", no separator)
+	// keeps failing, so it is never mistaken for a release.
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
 	if v == "" {
 		return 0, 0, 0, false
 	}
