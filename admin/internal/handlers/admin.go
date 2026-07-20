@@ -1220,7 +1220,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		// it (4x the I/O + page-cache contention on a large cold DB).
 		run("RateLimitAll", func() error {
 			var e error
-			rlSummary, rlIPs, rlPaths, rlPathQueries, e = dashboard.RateLimitAll(ctx, h.DB, site, hosts, hours, 30, 30, 5)
+			rlSummary, rlIPs, rlPaths, rlPathQueries, e = dashboard.RateLimitAll(ctx, h.DB, site, hosts, hours, 30, 20, 5)
 			return e
 		})
 	}
