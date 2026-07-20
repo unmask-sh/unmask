@@ -915,7 +915,7 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 	sites, err := dashboard.Sites(ctx, h.DB, hours)
 	// Site list is informational on this entry handler.  When the listing
 	// query times out (= 30d range on a large operator DB), still hand off
-	// to renderDashboard with the default site so the page is not blocked
+	// to renderStats with the default site so the page is not blocked
 	// behind it.  list=1 is the only path that actually depends on the site
 	// summary rows, so keep its strict error there.
 	if err != nil {
@@ -924,7 +924,7 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "db error", http.StatusInternalServerError)
 			return
 		}
-		h.renderDashboard(w, r, defaultSite)
+		h.renderStats(w, r, defaultSite)
 		return
 	}
 	// site <= 1 -> internally dispatch and render the dashboard directly.  list=1 forces the list.
@@ -933,7 +933,7 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 		if len(sites) == 1 {
 			target = sites[0].Site
 		}
-		h.renderDashboard(w, r, target)
+		h.renderStats(w, r, target)
 		return
 	}
 	tmpl, err := loadDashboardTemplate()
@@ -963,14 +963,17 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AdminDashboard: GET {base}/admin/{site}/  — per-site dashboard.
-func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
+// AdminStats: GET {base}/admin/stats/{site}/ — the per-site stats page (the
+// charts / per-card breakdowns).  Named for its route: the "dashboard" it was
+// called before is the landing overview (AdminTopOverview, /admin/), a
+// different page — the mismatch caused repeated confusion.
+func (h *Handler) AdminStats(w http.ResponseWriter, r *http.Request) {
 	site, ok := pickSite(r)
 	if !ok {
 		http.Error(w, "invalid site id", http.StatusBadRequest)
 		return
 	}
-	h.renderDashboard(w, r, site)
+	h.renderStats(w, r, site)
 }
 
 // dashboardHosts resolves the stats-dashboard host filter, collapsing a
@@ -1011,12 +1014,12 @@ func (h *Handler) dashboardHosts(r *http.Request) []string {
 	return nil // every host with events is selected and enabled → not a real filter
 }
 
-// renderDashboard renders the dashboard template for the result of pickSite.
-// Called by both AdminDashboard (/admin/{site}/) and AdminSiteList (/admin/
+// renderStats renders the stats template for the result of pickSite.  Called
+// by both AdminStats (/admin/stats/{site}/) and AdminSiteList (/admin/stats/
 // when site<=1).
-func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site string) {
-	// The dashboard scopes by the shared site_picker (single-select), not by
-	// the legacy /admin/{site}/ path segment.  cookie / ?site=; "" = all sites.
+func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site string) {
+	// The stats page scopes by the shared site_picker (single-select), not by
+	// the legacy /admin/stats/{site}/ path segment.  cookie / ?site=; "" = all sites.
 	site = resolveSiteFilter(r)
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
@@ -1177,7 +1180,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			// banner instead of a silently-empty card the operator reads as 0).
 			defer func() {
 				if rec := recover(); rec != nil {
-					log.Printf("dashboard card %s PANIC: %v", name, rec)
+					log.Printf("stats card %s PANIC: %v", name, rec)
 					markFailed(name)
 				}
 			}()
@@ -1185,11 +1188,11 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 			defer func() { <-sem }()
 			t0 := time.Now()
 			if err := fn(); err != nil {
-				log.Printf("dashboard card %s failed: %v", name, err)
+				log.Printf("stats card %s failed: %v", name, err)
 				markFailed(name)
 			}
 			if elapsed := time.Since(t0); elapsed > 200*time.Millisecond {
-				log.Printf("dashboard card %s: %v elapsed", name, elapsed)
+				log.Printf("stats card %s: %v elapsed", name, elapsed)
 			}
 		}()
 	}
@@ -1383,7 +1386,7 @@ func (h *Handler) renderDashboard(w http.ResponseWriter, r *http.Request, site s
 	failedCardList := append([]string(nil), failedCards...)
 	cardMu.Unlock()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
-		log.Printf("dashboard queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
+		log.Printf("stats queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
 			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
 	}
 
