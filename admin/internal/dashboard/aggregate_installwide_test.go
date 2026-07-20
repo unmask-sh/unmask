@@ -354,6 +354,97 @@ func TestDailyPassByCountry_RollupMatchesLiveScan(t *testing.T) {
 	assertMatch("post-delete (settled from rollup only)")
 }
 
+// TestTrafficUniqueAgg_MatchesLiveScan seeds ip/ipc/ipp sketches across sites,
+// spanning settled and live minutes, and asserts the overview's install-wide
+// non-human-% figures (total, blocked) match a direct all-site union — before
+// the rollups (all live), after them, and after the raw settled rows are
+// deleted (settled served from the rollup alone).
+func TestTrafficUniqueAgg_MatchesLiveScan(t *testing.T) {
+	d := iwTestDB(t)
+	ctx := context.Background()
+	nowMin := time.Now().Unix() / 60
+	ins := func(site string, minutesAgo int64, kind string, ips ...string) {
+		var s hll
+		for _, ip := range ips {
+			s.add([]byte(ip))
+		}
+		if _, err := d.ExecContext(ctx,
+			`INSERT INTO unmask_traffic_hll (bucket_min, site, kind, sketch) VALUES (?,?,?,?)`,
+			nowMin-minutesAgo, site, kind, s[:]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Settled (>2h) rows on two sites + a live (<1h) row.
+	ins("s1", 3000, "ip", "a", "b")
+	ins("s1", 3000, "ipc", "c")
+	ins("s2", 3000, "ip", "c", "d")
+	ins("s2", 3000, "ipc", "d")
+	ins("s1", 30, "ip", "e")
+	ins("s1", 30, "ipc", "e")
+	ins("s1", 30, "ipp", "e")
+
+	// Reference: all-site union per kind, same register math the read path uses.
+	var refIP, refIPC, refIPP hll
+	for _, ip := range []string{"a", "b", "c", "d", "e"} {
+		refIP.add([]byte(ip))
+	}
+	for _, ip := range []string{"c", "d", "e"} {
+		refIPC.add([]byte(ip))
+	}
+	refIPP.add([]byte("e"))
+	wantTotal := refIP.estimate()
+	var refUnion hll
+	refUnion.merge(&refIPC)
+	refUnion.merge(&refIPP)
+	wantBlocked := refUnion.estimate() - refIPP.estimate()
+
+	check := func(label string) {
+		t.Helper()
+		total, blocked, ok, err := TrafficUniqueAgg(ctx, d, 60*24*30)
+		if err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		if !ok {
+			t.Fatalf("%s: ok=false", label)
+		}
+		if total != wantTotal {
+			t.Errorf("%s: total=%d want %d", label, total, wantTotal)
+		}
+		if blocked != wantBlocked {
+			t.Errorf("%s: blocked=%d want %d", label, blocked, wantBlocked)
+		}
+	}
+
+	check("pre-rollup (all live)")
+
+	if err := RollupInstallWideHourly(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	if err := RollupInstallWideBlocked(ctx, d); err != nil {
+		t.Fatal(err)
+	}
+	var blkRows int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM unmask_aggregate_hll WHERE bucket_kind=?`, hkTrafficBlockedAll).Scan(&blkRows); err != nil {
+		t.Fatal(err)
+	}
+	if blkRows == 0 {
+		t.Fatalf("no hkTrafficBlockedAll rows after rollup")
+	}
+	check("post-rollup (rollup + live tail)")
+
+	curIP, _ := stateCursor(ctx, d, installWideState)
+	curBl, _ := stateCursor(ctx, d, installWideBlockedState)
+	cur := curIP
+	if curBl < cur {
+		cur = curBl
+	}
+	if _, err := d.ExecContext(ctx, `DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, (cur+1)*60); err != nil {
+		t.Fatal(err)
+	}
+	check("post-delete (settled from rollup only)")
+}
+
 // TestRollupInstallWide_Idempotent verifies a second install-wide pass neither
 // advances behind the first nor changes the reported values (crash-replay safe).
 func TestRollupInstallWide_Idempotent(t *testing.T) {

@@ -689,6 +689,11 @@ func cmdServe(args []string) error {
 				if err := dashboard.RollupRateLimitFunnel(ctx, conn); err != nil {
 					log.Printf("rate-limit funnel rollup: %v", err)
 				}
+				// Install-wide 'ipc'/'ipp' sketches so the overview's non-human-%
+				// card skips the per-site traffic_hll fan-out.
+				if err := dashboard.RollupInstallWideBlocked(ctx, conn); err != nil {
+					log.Printf("install-wide blocked rollup: %v", err)
+				}
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")
