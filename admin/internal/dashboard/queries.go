@@ -2985,10 +2985,90 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	if tz == nil {
 		tz = time.UTC
 	}
+	type acc struct{ total, bv, bp, fc int }
+	byDate := map[string]*acc{}
+	var ordered []string // dates in first-seen order; sorted ascending before output
+	get := func(date string) *acc {
+		a := byDate[date]
+		if a == nil {
+			a = &acc{}
+			byDate[date] = a
+			ordered = append(ordered, date)
+		}
+		return a
+	}
+
+	win := windowOr(ctx, days*24)
+	cutoffMin := win.Start / 60
+	untilMin := win.End / 60
+	liveFromMin := cutoffMin
+
+	// The default (all-sites) view reads settled hours from the install-wide
+	// hourly rollup (hkCookiePass, ~720 rows) instead of scanning ~333k
+	// per-minute, per-site rows; the current unsettled hours come from the live
+	// per-minute tail below.  A site-scoped view has no fan-out to avoid, so it
+	// reads the per-minute table for the whole window (settled path skipped, so
+	// the cursor stays effectively -1 and liveFromMin is the window start).
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
-	// Pull raw minute buckets and aggregate per day in Go using the operator's
-	// cookie TZ.  This is what makes day boundaries follow the user (= 2026-05-30
-	// in Tokyo runs 2026-05-29 15:00 UTC -> 2026-05-30 14:59 UTC).
+	if cond == "" {
+		cursor, err := stateCursor(ctx, d, installWideState)
+		if err != nil {
+			return nil, nil, err
+		}
+		if cursor >= 0 {
+			cutoffHour := time.Unix(cutoffMin*60, 0).UTC().Format("2006-01-02 15")
+			// Cap the settled upper bound at the window end (a custom range that
+			// ends in the past must not pull settled hours past it).
+			upToSec := cursor * 3600
+			if u := untilMin * 60; u < upToSec {
+				upToSec = u
+			}
+			upToHour := time.Unix(upToSec, 0).UTC().Format("2006-01-02 15")
+			hrows, err := d.QueryContext(ctx,
+				`SELECT bucket_hour, bucket_key, cnt FROM unmask_aggregate_hourly
+                WHERE bucket_kind = ? AND bucket_hour >= ? AND bucket_hour <= ?`,
+				hkCookiePass, cutoffHour, upToHour)
+			if err != nil {
+				return nil, nil, err
+			}
+			for hrows.Next() {
+				var bucketHour, kind string
+				var cnt int
+				if err := hrows.Scan(&bucketHour, &kind, &cnt); err != nil {
+					hrows.Close()
+					return nil, nil, err
+				}
+				t, perr := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+				if perr != nil {
+					continue // unparseable bucket: skip rather than mis-date
+				}
+				a := get(t.In(tz).Format("2006-01-02"))
+				switch kind {
+				case "total":
+					a.total += cnt
+				case "captcha":
+					a.bv += cnt
+				case "pow":
+					a.bp += cnt
+				case "challenge_served":
+					a.fc += cnt
+				}
+			}
+			if err := hrows.Err(); err != nil {
+				hrows.Close()
+				return nil, nil, err
+			}
+			hrows.Close()
+			if m := (cursor + 1) * 60; m > liveFromMin {
+				liveFromMin = m
+			}
+		}
+	}
+
+	// Live tail (all-sites, after the cursor) or the whole window (site-scoped):
+	// raw minute buckets aggregated per day in Go using the operator's cookie TZ.
+	// This is what makes day boundaries follow the user (= 2026-05-30 in Tokyo
+	// runs 2026-05-29 15:00 UTC -> 2026-05-30 14:59 UTC).
 	stmt := fmt.Sprintf(`
         SELECT bucket_min,
                COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
@@ -2996,31 +3076,20 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
-        WHERE %s%s
-        GROUP BY bucket_min
-        ORDER BY bucket_min`, minWindow(ctx, days*24, "bucket_min"), cond)
+        WHERE bucket_min >= %d AND bucket_min <= %d%s
+        GROUP BY bucket_min`, liveFromMin, untilMin, cond)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, nil, err
 	}
 	defer rows.Close()
-
-	type acc struct{ total, bv, bp, fc int }
-	byDate := map[string]*acc{}
-	var ordered []string // insertion order = ascending date
 	for rows.Next() {
 		var bucketMin int64
 		var total, bv, bp, fc int
 		if err := rows.Scan(&bucketMin, &total, &bv, &bp, &fc); err != nil {
 			return nil, nil, err
 		}
-		date := time.Unix(bucketMin*60, 0).In(tz).Format("2006-01-02")
-		a := byDate[date]
-		if a == nil {
-			a = &acc{}
-			byDate[date] = a
-			ordered = append(ordered, date)
-		}
+		a := get(time.Unix(bucketMin*60, 0).In(tz).Format("2006-01-02"))
 		a.total += total
 		a.bv += bv
 		a.bp += bp
@@ -3029,6 +3098,8 @@ func DailyPassByDay(ctx context.Context, d *db.DB, site string, hosts []string, 
 	if err := rows.Err(); err != nil {
 		return nil, nil, err
 	}
+
+	sort.Strings(ordered)
 
 	daily := []DailyKindBucket{}
 	totals := []DailyTotal{}
@@ -3190,7 +3261,21 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 	win := windowOr(ctx, days*24)
 	cutoffMin := win.Start / 60
 	untilMin := win.End / 60
-	cursor, err := trafficRollupCursor(ctx, d)
+	// The default (site="") view reads the install-wide hourly sketch
+	// (hkTrafficIPAll, one row per hour) folded by RollupInstallWideHourly on its
+	// own cursor; a site-scoped view reads that site's per-site hourly sketch
+	// (hkTrafficIP) on the traffic cursor.  Either way the live per-minute tail
+	// below covers hours the rollup hasn't settled yet.
+	// "all sites" (the default view) maps to the install-wide rollup; a real,
+	// validated site maps to its per-site rollup.  Reuse siteCond's exact
+	// all-vs-one test (it also folds "default"/invalid into "all") so this never
+	// diverges from the live-tail filter below.
+	perSite := siteCond(site) != ""
+	settledKind, settledKey, cursorState := hkTrafficIPAll, "", installWideState
+	if perSite {
+		settledKind, settledKey, cursorState = hkTrafficIP, site, trafficIPState
+	}
+	cursor, err := stateCursor(ctx, d, cursorState)
 	if err != nil {
 		return nil, err
 	}
@@ -3218,15 +3303,10 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 			upToSec = u
 		}
 		upToHour := time.Unix(upToSec, 0).UTC().Format("2006-01-02 15")
-		args := []any{hkTrafficIP, cutoffHour, upToHour}
-		cond := ""
-		if site != "" {
-			cond = " AND bucket_key = ?"
-			args = append(args, site)
-		}
 		rows, err := d.QueryContext(ctx,
 			`SELECT bucket, sketch FROM unmask_aggregate_hll
-            WHERE bucket_kind = ? AND bucket >= ? AND bucket <= ?`+cond, args...)
+            WHERE bucket_kind = ? AND bucket_key = ? AND bucket >= ? AND bucket <= ?`,
+			settledKind, settledKey, cutoffHour, upToHour)
 		if err != nil {
 			return nil, err
 		}
@@ -3261,7 +3341,7 @@ func DailyUniqueIPs(ctx context.Context, d *db.DB, site string, days int, tz *ti
 	}
 	args := []any{liveMin, untilMin}
 	cond := ""
-	if site != "" {
+	if perSite {
 		cond = " AND site = ?"
 		args = append(args, site)
 	}

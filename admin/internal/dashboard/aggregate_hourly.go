@@ -41,20 +41,29 @@ const (
 	hkFlags        = "fl"   // key '<flags>' (decimal) phase=load (FlagsDistribution count)
 	hkAITag        = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
 	hkAITagSite    = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
+	// hkCookiePass is NOT written by AggregateHourly (which reads unmask_event);
+	// it is folded from the nginx-log unmask_cookie_minute table by
+	// RollupInstallWideHourly on its own cursor. key '<cookie kind>'
+	// (total/captcha/pow/challenge_served), summed across sites, so DailyPassByDay's
+	// default (unfiltered) view reads ~720 hourly rows instead of the per-minute,
+	// per-site fan-out. Disjoint bucket_kind + separate cursor => no conflict with
+	// AggregateHourly's "single writer" of the hk* count kinds above.
+	hkCookiePass = "ckph" // key '<cookie kind>' install-wide hourly pass counts (DailyPassByDay source)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
 const (
-	hkVerdictIP      = "vdip"  // hourly bucket, key '<verdict>'  distinct IP, all phases
-	hkCountryIP      = "ccip"  // daily  bucket, key '<country>'  distinct IP, phase=serve
-	hkSiteIP         = "siip"  // hourly bucket, key '<site>'     distinct IP, all phases
-	hkServeIP        = "svip"  // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
-	hkLoadVerdictIP  = "lvip"  // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
-	hkCaptchaForceIP = "cfip"  // hourly bucket, key '<force_reason>' distinct IP, phase=load (CaptchaForceBreakdown)
-	hkFlagsIP        = "flip"  // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
-	hkAITagIP        = "atip"  // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
-	hkAITagSiteIP    = "atsip" // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
-	hkTrafficIP      = "tip"   // hourly bucket, key '<site>' distinct IP, ALL traffic — rolled up from unmask_traffic_hll(kind='ip') per-minute rows by RollupTrafficHLL (DailyUniqueIPs source)
+	hkVerdictIP      = "vdip"   // hourly bucket, key '<verdict>'  distinct IP, all phases
+	hkCountryIP      = "ccip"   // daily  bucket, key '<country>'  distinct IP, phase=serve
+	hkSiteIP         = "siip"   // hourly bucket, key '<site>'     distinct IP, all phases
+	hkServeIP        = "svip"   // hourly bucket, key ''           distinct IP, phase=serve / payload rl != 1
+	hkLoadVerdictIP  = "lvip"   // hourly bucket, key '<verdict>'  distinct IP, phase=load (Funnel)
+	hkCaptchaForceIP = "cfip"   // hourly bucket, key '<force_reason>' distinct IP, phase=load (CaptchaForceBreakdown)
+	hkFlagsIP        = "flip"   // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
+	hkAITagIP        = "atip"   // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
+	hkAITagSiteIP    = "atsip"  // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
+	hkTrafficIP      = "tip"    // hourly bucket, key '<site>' distinct IP, ALL traffic — rolled up from unmask_traffic_hll(kind='ip') per-minute rows by RollupTrafficHLL (DailyUniqueIPs per-site view)
+	hkTrafficIPAll   = "tipall" // hourly bucket, key '' — union of every site's tip sketch for the hour, folded by RollupInstallWideHourly (DailyUniqueIPs default/unfiltered view; avoids the ~300-site read fan-out)
 )
 
 const (

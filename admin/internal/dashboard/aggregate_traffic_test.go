@@ -104,11 +104,13 @@ func TestDailyUniqueIPs_RollupMatchesDirectMerge(t *testing.T) {
 	// 1) cursor=-1 -> entirely live. Must already match.
 	assertMatch("pre-rollup (all live)")
 
-	// 2) roll up; the cursor must advance and 'tip' rows must appear.
-	if err := RollupTrafficHLL(ctx, d); err != nil {
+	// 2) roll up; the cursor must advance and install-wide 'tipall' rows must
+	//    appear.  The default (site="") view reads hkTrafficIPAll via the
+	//    install-wide rollup, not the per-site hkTrafficIP.
+	if err := RollupInstallWideHourly(ctx, d); err != nil {
 		t.Fatalf("rollup: %v", err)
 	}
-	cur, err := trafficRollupCursor(ctx, d)
+	cur, err := stateCursor(ctx, d, installWideState)
 	if err != nil {
 		t.Fatalf("cursor: %v", err)
 	}
@@ -117,11 +119,11 @@ func TestDailyUniqueIPs_RollupMatchesDirectMerge(t *testing.T) {
 	}
 	var tipRows int
 	if err := d.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM unmask_aggregate_hll WHERE bucket_kind=?`, hkTrafficIP).Scan(&tipRows); err != nil {
-		t.Fatalf("count tip: %v", err)
+		`SELECT COUNT(*) FROM unmask_aggregate_hll WHERE bucket_kind=?`, hkTrafficIPAll).Scan(&tipRows); err != nil {
+		t.Fatalf("count tipall: %v", err)
 	}
 	if tipRows == 0 {
-		t.Fatalf("no hkTrafficIP rows after rollup")
+		t.Fatalf("no hkTrafficIPAll rows after rollup")
 	}
 	assertMatch("post-rollup (rollup + live tail)")
 
@@ -154,16 +156,19 @@ func TestRollupTrafficHLL_Idempotent(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		s.add([]byte(fmt.Sprintf("9.9.9.%d", i)))
 	}
+	// Seed a real site so the read goes through the per-site hkTrafficIP path
+	// that RollupTrafficHLL actually writes (the site="" view now reads the
+	// separate install-wide rollup).
 	if _, err := d.ExecContext(ctx,
 		`INSERT INTO unmask_traffic_hll (bucket_min, site, kind, sketch) VALUES (?,?,?,?)`,
-		nowMin-3000, "", "ip", s[:]); err != nil {
+		nowMin-3000, "s1", "ip", s[:]); err != nil {
 		t.Fatalf("insert: %v", err)
 	}
 
 	if err := RollupTrafficHLL(ctx, d); err != nil {
 		t.Fatalf("rollup 1: %v", err)
 	}
-	first, err := DailyUniqueIPs(ctx, d, "", 30, time.UTC)
+	first, err := DailyUniqueIPs(ctx, d, "s1", 30, time.UTC)
 	if err != nil {
 		t.Fatalf("read 1: %v", err)
 	}
@@ -172,7 +177,7 @@ func TestRollupTrafficHLL_Idempotent(t *testing.T) {
 	if err := RollupTrafficHLL(ctx, d); err != nil {
 		t.Fatalf("rollup 2: %v", err)
 	}
-	second, err := DailyUniqueIPs(ctx, d, "", 30, time.UTC)
+	second, err := DailyUniqueIPs(ctx, d, "s1", 30, time.UTC)
 	if err != nil {
 		t.Fatalf("read 2: %v", err)
 	}

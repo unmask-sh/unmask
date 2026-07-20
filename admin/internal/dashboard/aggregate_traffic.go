@@ -151,9 +151,16 @@ func rollupTrafficRange(ctx context.Context, d *db.DB, fromHour, toHour int64) e
 // trafficRollupCursor returns the last settled UTC unix-hour folded into
 // hkTrafficIP, or -1 when nothing has been rolled yet (= read everything live).
 func trafficRollupCursor(ctx context.Context, d *db.DB) (int64, error) {
+	return stateCursor(ctx, d, trafficIPState)
+}
+
+// stateCursor returns unmask_aggregate_state.last_id for a rollup cursor name,
+// or -1 when the row is absent (= that rollup has never run, so the read side
+// should fall back to scanning the live per-minute tables).
+func stateCursor(ctx context.Context, d *db.DB, name string) (int64, error) {
 	var id int64
 	err := d.QueryRowContext(ctx,
-		`SELECT last_id FROM unmask_aggregate_state WHERE name = ?`, trafficIPState).Scan(&id)
+		`SELECT last_id FROM unmask_aggregate_state WHERE name = ?`, name).Scan(&id)
 	if err == sql.ErrNoRows {
 		return -1, nil
 	}
