@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -205,4 +206,119 @@ func installWideCookieCounts(ctx context.Context, d *db.DB, fromHour, toHour int
 		by[hourKindKey{bm / 60, kind}] += cnt
 	}
 	return by, rows.Err()
+}
+
+// installWideCountryState is the cursor for the install-wide per-country pass
+// counts (hkCountryPass).  It is separate from installWideState because its
+// source is the already-hourly unmask_traffic_country_hourly table (not the
+// per-minute tables), so it backfills independently — and so that adding it did
+// not disturb the already-advanced installWideState cursor of the first rollup.
+const installWideCountryState = "iw_country"
+
+// RollupInstallWideCountry folds the (already-hourly, per-site)
+// unmask_traffic_country_hourly table into install-wide per-(hour, country, kind)
+// counts in unmask_aggregate_hourly(bucket_kind=hkCountryPass), summed across
+// sites, so DailyPassByCountry's default view reads install-wide hourly rows
+// instead of the ~300-site country fan-out.  Same settle / batch / idempotency
+// contract as RollupInstallWideHourly, on its own cursor.  Driven by the 60s
+// ticker.
+func RollupInstallWideCountry(ctx context.Context, d *db.DB) error {
+	if d == nil {
+		return nil
+	}
+	cursor, err := stateCursor(ctx, d, installWideCountryState)
+	if err != nil {
+		return err
+	}
+	nowHour := time.Now().Unix() / 3600
+	lastSettled := nowHour - trafficSettleHours
+	floor := nowHour - int64(hourlyKeep)*24
+	start := cursor + 1
+	if start < floor {
+		start = floor
+	}
+	for start <= lastSettled {
+		end := start + trafficRollupBatchHours - 1
+		if end > lastSettled {
+			end = lastSettled
+		}
+		if err := rollupInstallWideCountryRange(ctx, d, start, end); err != nil {
+			return err
+		}
+		start = end + 1
+	}
+	return nil
+}
+
+type countryHourKey struct {
+	hour    int64
+	country string
+	kind    string
+}
+
+// rollupInstallWideCountryRange sums per-site country counts in unix-hours
+// [fromHour, toHour] into one count per (hour, country, kind) and advances the
+// cursor to toHour, all in a single tx.  The GROUP BY already collapses sites;
+// the map only materializes the rows so the read cursor is closed before the
+// write tx opens.
+func rollupInstallWideCountryRange(ctx context.Context, d *db.DB, fromHour, toHour int64) error {
+	rows, err := d.QueryContext(ctx,
+		`SELECT bucket_hour, country, kind, SUM(cnt) FROM unmask_traffic_country_hourly
+		 WHERE bucket_hour >= ? AND bucket_hour <= ?
+		 GROUP BY bucket_hour, country, kind`, fromHour, toHour)
+	if err != nil {
+		return err
+	}
+	agg := map[countryHourKey]int64{}
+	for rows.Next() {
+		var bh, cnt int64
+		var country sql.NullString
+		var kind string
+		if err := rows.Scan(&bh, &country, &kind, &cnt); err != nil {
+			rows.Close()
+			return err
+		}
+		agg[countryHourKey{bh, country.String, kind}] += cnt
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	tx, err := d.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	sqlite := d.Driver == db.DriverSQLite
+	upCnt := `INSERT INTO unmask_aggregate_hourly (bucket_hour, bucket_kind, bucket_key, cnt) VALUES (?, ?, ?, ?)`
+	if sqlite {
+		upCnt += ` ON CONFLICT(bucket_hour, bucket_kind, bucket_key) DO UPDATE SET cnt = excluded.cnt`
+	} else {
+		upCnt += ` ON DUPLICATE KEY UPDATE cnt = VALUES(cnt)`
+	}
+	stmt, err := tx.PrepareContext(ctx, upCnt)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for k, c := range agg {
+		bucket := time.Unix(k.hour*3600, 0).UTC().Format("2006-01-02 15")
+		// key = '<country>|<kind>'; country is a 2-letter ISO code or '' (unresolved),
+		// kind is a fixed token — neither contains '|', so SplitN(…,2) is exact.
+		if _, err := stmt.ExecContext(ctx, bucket, hkCountryPass, k.country+"|"+k.kind, c); err != nil {
+			return err
+		}
+	}
+	st := `INSERT INTO unmask_aggregate_state (name, last_id, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)`
+	if sqlite {
+		st += ` ON CONFLICT(name) DO UPDATE SET last_id = excluded.last_id, updated_at = excluded.updated_at`
+	} else {
+		st += ` ON DUPLICATE KEY UPDATE last_id = VALUES(last_id), updated_at = VALUES(updated_at)`
+	}
+	if _, err := tx.ExecContext(ctx, st, installWideCountryState, toHour); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

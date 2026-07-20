@@ -3157,41 +3157,11 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
 	if tz == nil {
 		tz = time.UTC
 	}
-	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
-	// Return raw hourly buckets and aggregate per (TZ-shifted date, country) in
-	// Go.  See DailyPassByDay for the rationale.
-	stmt := fmt.Sprintf(`
-        SELECT bucket_hour, country,
-               COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
-        FROM unmask_traffic_country_hourly
-        WHERE %s%s
-        GROUP BY bucket_hour, country
-        ORDER BY bucket_hour`, hourIntWindow(ctx, days*24, "bucket_hour"), cond)
-	rows, err := d.QueryContext(ctx, stmt)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	type dcKey struct{ date, country string }
 	type acc struct{ total, bv, bp, fc int }
 	byKey := map[dcKey]*acc{}
 	var ordered []dcKey
-	for rows.Next() {
-		var bucketHour int64
-		var cc sql.NullString
-		var total, bv, bp, fc int
-		if err := rows.Scan(&bucketHour, &cc, &total, &bv, &bp, &fc); err != nil {
-			return nil, err
-		}
-		date := time.Unix(bucketHour*3600, 0).In(tz).Format("2006-01-02")
-		country := ""
-		if cc.Valid {
-			country = cc.String
-		}
+	get := func(date, country string) *acc {
 		key := dcKey{date, country}
 		a := byKey[key]
 		if a == nil {
@@ -3199,6 +3169,105 @@ func DailyPassByCountry(ctx context.Context, d *db.DB, site string, days int, tz
 			byKey[key] = a
 			ordered = append(ordered, key)
 		}
+		return a
+	}
+
+	win := windowOr(ctx, days*24)
+	cutoffHour := win.Start / 3600
+	untilHour := win.End / 3600
+	liveFromHour := cutoffHour
+
+	// The default (all-sites) view reads settled hours from the install-wide
+	// per-country rollup (hkCountryPass) instead of scanning every site's
+	// country_hourly rows; the current unsettled hours come from the live tail
+	// below.  A site-scoped view reads country_hourly directly for the whole
+	// window (settled path skipped).  See DailyPassByDay for the rationale.
+	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
+	if cond == "" {
+		cursor, err := stateCursor(ctx, d, installWideCountryState)
+		if err != nil {
+			return nil, err
+		}
+		if cursor >= 0 {
+			cutoffHourStr := time.Unix(cutoffHour*3600, 0).UTC().Format("2006-01-02 15")
+			upToHour := cursor
+			if untilHour < upToHour {
+				upToHour = untilHour
+			}
+			upToHourStr := time.Unix(upToHour*3600, 0).UTC().Format("2006-01-02 15")
+			srows, err := d.QueryContext(ctx,
+				`SELECT bucket_hour, bucket_key, cnt FROM unmask_aggregate_hourly
+                WHERE bucket_kind = ? AND bucket_hour >= ? AND bucket_hour <= ?`,
+				hkCountryPass, cutoffHourStr, upToHourStr)
+			if err != nil {
+				return nil, err
+			}
+			for srows.Next() {
+				var bucketHour, key string
+				var cnt int
+				if err := srows.Scan(&bucketHour, &key, &cnt); err != nil {
+					srows.Close()
+					return nil, err
+				}
+				t, perr := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+				if perr != nil {
+					continue // unparseable bucket: skip rather than mis-date
+				}
+				country, kind, ok := strings.Cut(key, "|")
+				if !ok {
+					continue
+				}
+				a := get(t.In(tz).Format("2006-01-02"), country)
+				switch kind {
+				case "total":
+					a.total += cnt
+				case "captcha":
+					a.bv += cnt
+				case "pow":
+					a.bp += cnt
+				case "challenge_served":
+					a.fc += cnt
+				}
+			}
+			if err := srows.Err(); err != nil {
+				srows.Close()
+				return nil, err
+			}
+			srows.Close()
+			if cursor+1 > liveFromHour {
+				liveFromHour = cursor + 1
+			}
+		}
+	}
+
+	// Live tail (all-sites, after the cursor) or the whole window (site-scoped):
+	// raw hourly buckets aggregated per (TZ-shifted date, country) in Go.
+	stmt := fmt.Sprintf(`
+        SELECT bucket_hour, country,
+               COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
+        FROM unmask_traffic_country_hourly
+        WHERE bucket_hour >= %d AND bucket_hour <= %d%s
+        GROUP BY bucket_hour, country`, liveFromHour, untilHour, cond)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bucketHour int64
+		var cc sql.NullString
+		var total, bv, bp, fc int
+		if err := rows.Scan(&bucketHour, &cc, &total, &bv, &bp, &fc); err != nil {
+			return nil, err
+		}
+		country := ""
+		if cc.Valid {
+			country = cc.String
+		}
+		a := get(time.Unix(bucketHour*3600, 0).In(tz).Format("2006-01-02"), country)
 		a.total += total
 		a.bv += bv
 		a.bp += bp
