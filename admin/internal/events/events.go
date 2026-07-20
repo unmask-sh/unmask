@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"strings"
@@ -999,11 +1000,41 @@ func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, er
 	return out, rows.Err()
 }
 
+// distinctColSQL builds the "distinct non-empty values of an indexed column"
+// query used by the host / site pickers on every admin page.
+//
+// A plain `SELECT DISTINCT <col> ... ORDER BY <col> LIMIT n` scans the ENTIRE
+// (<col>, date_created) covering index because SQLite cannot early-terminate a
+// DISTINCT — on tool1-us (6.6M rows, ONE distinct host) that measured ~34s cold
+// / ~1s warm, paid on every admin page load.  For SQLite we emulate a loose
+// index scan with a recursive CTE: each step seeks the next value with
+// MIN(<col>) WHERE <col> > prev, i.e. one index seek per DISTINCT value, so the
+// cost is O(k·log n) in the number of distinct values, not O(n) rows (measured
+// ~4ms).  The recursion yields values ascending, matching the old ORDER BY.
+// `<col> > ”` excludes both NULL and ” (empty sorts first).
+//
+// MariaDB keeps the plain DISTINCT: InnoDB already does a loose index scan for
+// DISTINCT on an indexed-prefix column, so the rewrite would add nothing.
+//
+// col is a fixed internal identifier ("host"/"site"), never user input.
+func distinctColSQL(d *db.DB, col string, limit int) string {
+	if d.Driver == "sqlite" {
+		return fmt.Sprintf(`WITH RECURSIVE d(v) AS (
+    SELECT (SELECT MIN(%[1]s) FROM unmask_event WHERE %[1]s > '')
+    UNION ALL
+    SELECT (SELECT MIN(%[1]s) FROM unmask_event WHERE %[1]s > d.v) FROM d WHERE d.v IS NOT NULL
+)
+SELECT v FROM d WHERE v IS NOT NULL LIMIT %[2]d`, col, limit)
+	}
+	return fmt.Sprintf(
+		`SELECT DISTINCT %[1]s FROM unmask_event WHERE %[1]s IS NOT NULL AND %[1]s != '' ORDER BY %[1]s LIMIT %[2]d`,
+		col, limit)
+}
+
 // DistinctSites lists the distinct site values observed in unmask_event.
 // Used by site dropdown / datalist suggestions.  Capped at 100 entries.
 func DistinctSites(ctx context.Context, d *db.DB) ([]string, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT DISTINCT site FROM unmask_event WHERE site IS NOT NULL AND site != '' ORDER BY site LIMIT 100`)
+	rows, err := d.QueryContext(ctx, distinctColSQL(d, "site", 100))
 	if err != nil {
 		return nil, err
 	}
@@ -1026,8 +1057,7 @@ func DistinctSites(ctx context.Context, d *db.DB) ([]string, error) {
 // machines linger).  A separate endpoint with a date_created filter could
 // exclude retired hosts, but the shotgun list is sufficient for now.
 func DistinctHosts(ctx context.Context, d *db.DB) ([]string, error) {
-	rows, err := d.QueryContext(ctx,
-		`SELECT DISTINCT host FROM unmask_event WHERE host IS NOT NULL AND host != '' ORDER BY host LIMIT 200`)
+	rows, err := d.QueryContext(ctx, distinctColSQL(d, "host", 200))
 	if err != nil {
 		return nil, err
 	}
