@@ -49,6 +49,12 @@ const (
 	// per-site fan-out. Disjoint bucket_kind + separate cursor => no conflict with
 	// AggregateHourly's "single writer" of the hk* count kinds above.
 	hkCookiePass = "ckph" // key '<cookie kind>' install-wide hourly pass counts (DailyPassByDay source)
+	// hkCountryPass mirrors hkCookiePass with a country dimension: folded from the
+	// (already-hourly, per-site) unmask_traffic_country_hourly table by
+	// RollupInstallWideCountry, summed across sites. key '<country>|<cookie kind>'
+	// so DailyPassByCountry's default (unfiltered) view reads install-wide hourly
+	// rows instead of the per-site country fan-out.
+	hkCountryPass = "ccph" // key '<country>|<cookie kind>' install-wide hourly per-country pass counts (DailyPassByCountry source)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.

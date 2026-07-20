@@ -679,6 +679,11 @@ func cmdServe(args []string) error {
 				if err := dashboard.RollupInstallWideHourly(ctx, conn); err != nil {
 					log.Printf("install-wide rollup: %v", err)
 				}
+				// Same idea for the per-country pass chart (DailyPassByCountry):
+				// collapse the per-site country_hourly rows into install-wide ones.
+				if err := dashboard.RollupInstallWideCountry(ctx, conn); err != nil {
+					log.Printf("install-wide country rollup: %v", err)
+				}
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")

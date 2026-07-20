@@ -232,6 +232,128 @@ func TestRollupInstallWide_MultiSiteUnionAndPerSite(t *testing.T) {
 	}
 }
 
+// TestDailyPassByCountry_RollupMatchesLiveScan seeds per-site, per-country
+// hourly counts spanning settled and live hours and asserts DailyPassByCountry's
+// default (site="") view reproduces a direct all-site, per-(UTC-day, country)
+// sum — before the rollup (all live), after (install-wide hourly + live tail),
+// and after deleting the raw settled rows (settled served from hkCountryPass).
+func TestDailyPassByCountry_RollupMatchesLiveScan(t *testing.T) {
+	d := iwTestDB(t)
+	ctx := context.Background()
+	nowHour := time.Now().Unix() / 3600
+
+	type seed struct {
+		hoursAgo int64
+		site     string
+		country  string
+		kinds    map[string]int
+	}
+	seeds := []seed{
+		{100, "s1", "US", map[string]int{"total": 100, "captcha": 10, "pow": 20, "challenge_served": 5}},
+		{100, "s2", "US", map[string]int{"total": 50, "captcha": 5}},          // same hour+country, other site -> summed
+		{100, "s1", "JP", map[string]int{"total": 30, "challenge_served": 3}}, // same hour, other country
+		{60, "s1", "US", map[string]int{"total": 40, "pow": 8}},
+		{60, "s1", "", map[string]int{"total": 12}},                                   // unresolved country
+		{1, "s2", "DE", map[string]int{"total": 25, "pow": 5, "challenge_served": 1}}, // live tail
+	}
+
+	type cacc struct{ total, bv, bp, fc int }
+	ref := map[[2]string]*cacc{} // key {date, country}
+	for _, s := range seeds {
+		bh := nowHour - s.hoursAgo
+		for k, c := range s.kinds {
+			if _, err := d.ExecContext(ctx,
+				`INSERT INTO unmask_traffic_country_hourly (bucket_hour, site, country, kind, cnt) VALUES (?,?,?,?,?)`,
+				bh, s.site, s.country, k, c); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+		}
+		date := time.Unix(bh*3600, 0).UTC().Format("2006-01-02")
+		key := [2]string{date, s.country}
+		a := ref[key]
+		if a == nil {
+			a = &cacc{}
+			ref[key] = a
+		}
+		a.total += s.kinds["total"]
+		a.bv += s.kinds["captcha"]
+		a.bp += s.kinds["pow"]
+		a.fc += s.kinds["challenge_served"]
+	}
+
+	assertMatch := func(label string) {
+		t.Helper()
+		got, err := DailyPassByCountry(ctx, d, "", 30, time.UTC)
+		if err != nil {
+			t.Fatalf("%s: DailyPassByCountry: %v", label, err)
+		}
+		gotKind := map[[2]string]map[int]int{}
+		for _, b := range got {
+			key := [2]string{b.Date, b.Country}
+			if gotKind[key] == nil {
+				gotKind[key] = map[int]int{}
+			}
+			gotKind[key][b.Kind] = b.Req
+		}
+		for key, a := range ref {
+			notPass := a.fc
+			white := a.total - a.bv - a.bp - a.fc
+			if white < 0 {
+				white = 0
+			}
+			want := map[int]int{}
+			if white > 0 {
+				want[KindWhitePass] = white
+			}
+			if a.bv > 0 {
+				want[KindCaptchaPass] = a.bv
+			}
+			if a.bp > 0 {
+				want[KindPoWPass] = a.bp
+			}
+			if notPass > 0 {
+				want[KindNotPass] = notPass
+			}
+			for k, v := range want {
+				if gotKind[key][k] != v {
+					t.Errorf("%s: %v kind %d = %d, want %d", label, key, k, gotKind[key][k], v)
+				}
+			}
+			if len(gotKind[key]) != len(want) {
+				t.Errorf("%s: %v buckets = %v, want %v", label, key, gotKind[key], want)
+			}
+		}
+		if len(gotKind) != len(ref) {
+			t.Errorf("%s: (date,country) count = %d, want %d", label, len(gotKind), len(ref))
+		}
+	}
+
+	assertMatch("pre-rollup (all live)")
+
+	if err := RollupInstallWideCountry(ctx, d); err != nil {
+		t.Fatalf("rollup: %v", err)
+	}
+	cur, err := stateCursor(ctx, d, installWideCountryState)
+	if err != nil || cur < 0 {
+		t.Fatalf("cursor did not advance: cur=%d err=%v", cur, err)
+	}
+	var ccphRows int
+	if err := d.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM unmask_aggregate_hourly WHERE bucket_kind=?`, hkCountryPass).Scan(&ccphRows); err != nil {
+		t.Fatalf("count ccph: %v", err)
+	}
+	if ccphRows == 0 {
+		t.Fatalf("no hkCountryPass rows after rollup")
+	}
+	assertMatch("post-rollup (rollup + live tail)")
+
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_traffic_country_hourly WHERE bucket_hour <= ?`, cur); err != nil {
+		t.Fatalf("delete raw: %v", err)
+	}
+	assertMatch("post-delete (settled from rollup only)")
+}
+
 // TestRollupInstallWide_Idempotent verifies a second install-wide pass neither
 // advances behind the first nor changes the reported values (crash-replay safe).
 func TestRollupInstallWide_Idempotent(t *testing.T) {
