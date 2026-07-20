@@ -415,17 +415,111 @@ func sortSites(out []SiteSummary) {
 
 // HostInfo: one observed unmask instance (= host) for the host inventory.
 type HostInfo struct {
-	HostID     string
-	Events     int
-	LastSeen   string
-	LastSeenTS int64 // unix sec UTC; template renders via <time class="js-datetime">
+	HostID       string
+	Events       int
+	EventsApprox bool // Events is the O(1) id-range estimate (single-host DB), not an exact COUNT — rendered with "≈"
+	LastSeen     string
+	LastSeenTS   int64 // unix sec UTC; template renders via <time class="js-datetime">
 }
 
 // HostInventory returns one row per distinct host that has ever written to
 // unmask_event, most-recently-active first.  Unlike Sites it has no time
 // window: a retired instance should still appear (with an old last-seen) so
 // the operator can spot stale entries in a shared DB.  Capped at 200.
+//
+// The old `GROUP BY host` full-scanned the (host, date_created) covering index
+// (6.6M rows / ~34s cold on tool1-us — worse now that the pickers no longer
+// incidentally warm that index).  SQLite gets the same loose-index-scan
+// treatment as the pickers: enumerate hosts with a recursive skip-scan, then
+// one index seek per host for last-seen (MAX(date_created) WHERE host=? is an
+// idx_unmask_event_host seek, ~4ms).  The only O(rows) part left is the exact
+// per-host COUNT of a dominant host, so a single-host DB (the common case)
+// uses the O(1) MAX(id)-MIN(id)+1 estimate instead.  MariaDB keeps the plain
+// GROUP BY (InnoDB loose-scans it).
 func HostInventory(ctx context.Context, d *db.DB) ([]HostInfo, error) {
+	if d.Driver != "sqlite" {
+		return hostInventoryScan(ctx, d)
+	}
+	hosts, err := distinctHostsSkipScan(ctx, d, 200)
+	if err != nil {
+		return nil, err
+	}
+	singleHost := len(hosts) == 1
+	var estTotal int
+	if singleHost {
+		estTotal = tableRowEstimate(ctx, d)
+	}
+	out := make([]HostInfo, 0, len(hosts))
+	for _, host := range hosts {
+		hi := HostInfo{HostID: host}
+		var ls sql.NullString
+		// MAX(date_created) WHERE host=? -> idx_unmask_event_host seek (last entry
+		// of the host's range).  All-time, so a retired host keeps its true
+		// last-seen.
+		if err := d.QueryRowContext(ctx,
+			`SELECT MAX(date_created) FROM unmask_event WHERE host = ?`, host).Scan(&ls); err == nil {
+			hi.LastSeen = ls.String
+			hi.LastSeenTS = parseDateTimeToUnix(ls.String)
+		}
+		if singleHost {
+			hi.Events = estTotal
+			hi.EventsApprox = true
+		} else {
+			// Multiple hosts: each per-host count seeks the host's index range —
+			// fast for the usual balanced fleet.  (A single dominant host among
+			// many would still be O(its rows); rare, and a follow-up rollup could
+			// cover it.)
+			_ = d.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event WHERE host = ?`, host).Scan(&hi.Events)
+		}
+		out = append(out, hi)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].LastSeenTS > out[j].LastSeenTS
+	})
+	return out, nil
+}
+
+// distinctHostsSkipScan enumerates the distinct non-empty host values via a
+// recursive loose index scan (one idx_unmask_event_host seek per value), the
+// same technique the host/site pickers use.
+func distinctHostsSkipScan(ctx context.Context, d *db.DB, limit int) ([]string, error) {
+	rows, err := d.QueryContext(ctx, `WITH RECURSIVE h(v) AS (
+    SELECT (SELECT MIN(host) FROM unmask_event WHERE host > '')
+    UNION ALL
+    SELECT (SELECT MIN(host) FROM unmask_event WHERE host > h.v) FROM h WHERE h.v IS NOT NULL
+)
+SELECT v FROM h WHERE v IS NOT NULL LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// tableRowEstimate approximates the unmask_event row count from the id range
+// (MAX-MIN+1) in two O(1) index-endpoint seeks — near-exact for an append-only,
+// pruned-oldest-first table.  Same trick the retention tab uses.
+func tableRowEstimate(ctx context.Context, d *db.DB) int {
+	var minID, maxID int64
+	_ = d.QueryRowContext(ctx, `SELECT COALESCE(MIN(id), 0) FROM unmask_event`).Scan(&minID)
+	_ = d.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM unmask_event`).Scan(&maxID)
+	if maxID <= 0 {
+		return 0
+	}
+	return int(maxID - minID + 1)
+}
+
+// hostInventoryScan is the original GROUP BY implementation, kept for MariaDB
+// (InnoDB does a loose index scan for the grouped aggregate).
+func hostInventoryScan(ctx context.Context, d *db.DB) ([]HostInfo, error) {
 	rows, err := d.QueryContext(ctx, `
         SELECT host, COUNT(*) AS n, MAX(date_created) AS last_seen
         FROM unmask_event

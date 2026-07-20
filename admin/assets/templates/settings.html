@@ -4699,7 +4699,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ $dis := index $.HostDisabled .HostID }}
       <tr{{ if $dis }} class="host-row-off"{{ end }}>
         <td style="font-family:ui-monospace,Menlo,monospace">{{ .HostID }}{{ if eq .HostID $.SelfHostID }} <span class="sites-host-self">({{ t $.Lang "settings.sites.host_self" }})</span>{{ end }}{{ if $dis }} <span class="host-off-badge">{{ t $.Lang "settings.sites.host_disabled_badge" }}</span>{{ end }}</td>
-        <td style="text-align:right;font-variant-numeric:tabular-nums">{{ comma .Events }}</td>
+        <td style="text-align:right;font-variant-numeric:tabular-nums"{{ if .EventsApprox }} title="{{ t $.Lang "settings.retention.approx_count_title" }}"{{ end }}>{{ if .EventsApprox }}≈{{ end }}{{ comma .Events }}</td>
         <td>{{ if .LastSeen }}<time class="js-datetime" data-ts="{{ .LastSeenTS }}">{{ .LastSeen }}</time>{{ else }}—{{ end }}</td>
         <td style="text-align:right">
           {{ if eq .HostID $.SelfHostID }}
