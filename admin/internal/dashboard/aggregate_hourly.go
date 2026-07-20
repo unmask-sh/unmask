@@ -55,6 +55,16 @@ const (
 	// so DailyPassByCountry's default (unfiltered) view reads install-wide hourly
 	// rows instead of the per-site country fan-out.
 	hkCountryPass = "ccph" // key '<country>|<cookie kind>' install-wide hourly per-country pass counts (DailyPassByCountry source)
+	// hkRateLimitFunnel is the Funnel card's rate_limit row pre-aggregated per
+	// hour by RollupRateLimitFunnel, so funnelAgg reads ~counts instead of the
+	// per-IP self-join raw scan of unmask_event on every load. keys:
+	//   'p:<phase>'   = count of that phase's events for rate-limited IPs
+	//   's:<verdict>' = count of phase=load, flags=0 events per verdict (stealth)
+	// Correlation is hour-local (an IP is "rate-limited" for hour H if it had an
+	// rl=1 serve in [H_start-10min, H_end)), which differs from the old
+	// window-global set only for an IP rate-limited early then active later
+	// without re-triggering — arguably not rate-limit behaviour anyway.
+	hkRateLimitFunnel = "rlf" // key 'p:<phase>' / 's:<verdict>' hourly rate-limit funnel counts (Funnel rate_limit row source)
 )
 
 // unmask_aggregate_hll bucket_kind values (HLL sketches). See migration 0007.
