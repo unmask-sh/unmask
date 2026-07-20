@@ -618,23 +618,24 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{ if gt (len .RLIPs) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLIPs) 10 }})</button>{{ end }}
     </div>
     <div>
-      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.path_top" }}</h6>
-      <table class="bcd-table">
+      <h6 style="font-size:.85rem;margin:0 0 .25rem;color:#0f172a;font-weight:600">{{ t .Lang "dashboard.rl.path_top" }} <span class="cp-count">{{ len .RLPaths }}</span></h6>
+      <table class="bcd-table cp-rankable">
         <thead><tr>
           <th><span class="help-dotted" data-help-key="rl.path">{{ t .Lang "th.path" }}</span></th>
           <th class="bcd-num"><span class="help-dotted" data-help-key="rl.path_count">{{ t .Lang "th.count" }}</span></th>
         </tr></thead>
         <tbody>
-          {{range .RLPaths}}
-          <tr>
-            <td class="bcd-mono rl-path-cell" data-path="{{.Path}}">{{.Path}}</td>
-            <td class="bcd-num">{{comma .Count}}</td>
+          {{range $i, $r := .RLPaths}}
+          <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+            <td class="bcd-mono rl-path-cell" data-path="{{$r.Path}}">{{$r.Path}}</td>
+            <td class="bcd-num">{{comma $r.Count}}</td>
           </tr>
           {{else}}
           <tr><td colspan="2" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
           {{end}}
         </tbody>
       </table>
+      {{ if gt (len .RLPaths) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLPaths) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .RLPaths) 10 }})</button>{{ end }}
     </div>
   </div>
 </div>
@@ -1590,8 +1591,12 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
   document.addEventListener('click', function(e){
     var btn = e.target.closest && e.target.closest('.cp-more');
     if (!btn) return;
-    var card = btn.closest('.bcd-card');
-    var tbl = card ? card.querySelector('table.cp-rankable') : null;
+    // A card can hold several ranking sub-tables side by side (the rate-limit
+    // card has IP + path), so target the table in the button's own wrapper
+    // first; fall back to the card's single table for the simpler cards.
+    var scope = btn.parentElement;
+    var tbl = (scope && scope.querySelector('table.cp-rankable'));
+    if (!tbl) { var card = btn.closest('.bcd-card'); tbl = card ? card.querySelector('table.cp-rankable') : null; }
     if (!tbl) return;
     var expanded = tbl.classList.toggle('cp-expanded');
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
