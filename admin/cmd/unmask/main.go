@@ -54,7 +54,7 @@ import (
 // inject it: `go build -ldflags "-X main.Version=$(UNMASK_VERSION)"` (the
 // Makefile does this).  A const would silently ignore the -X flag, leaving
 // `unmask version` and the startup log stuck at the default forever.
-var Version = "0.1.6"
+var Version = "0.1.7"
 
 func main() {
 	// Resolve the init-system-specific restart command once, so every UI string

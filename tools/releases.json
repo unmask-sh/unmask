@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.6",
+  "latest": "0.1.7",
   "releases": [
+    {
+      "version": "0.1.7",
+      "date": "2026-07-21",
+      "notes": "Security and performance. A spoofed crawler User-Agent no longer walks through the challenge: for vendors that publish official IP ranges (Google, Bing, DuckDuckGo, OpenAI, Perplexity, and now Apple and Amazon), the rescue rides the verified IP ranges instead of the forgeable UA string, so a fake Googlebot from outside Google's ranges is now challenged. A new opt-in stale-browser tier escalates a browser pinned to an outdated Chrome version to a CAPTCHA — the tell of a headless PoW-solving scraper that a real old browser can still clear. Adds four official IP-range presets (Applebot, Amazonbot, DuckAssistBot, Perplexity-User) and lets stats-exclude entries carry a title. The admin dashboard — stats, the landing overview, and settings — is dramatically faster on large multi-site installs: the 30-day charts and the funnel now read background-maintained hourly rollups instead of scanning the full per-site history, so a stats page that took six to eight seconds returns in about two."
+    },
     {
       "version": "0.1.6",
       "date": "2026-07-15",
