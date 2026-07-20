@@ -1854,6 +1854,143 @@ func HasRateLimited(ctx context.Context, d *db.DB, site string, hosts []string, 
 	return total > 0, nil
 }
 
+// RateLimitAll computes all four rate-limit cards (summary / by-IP / by-path /
+// queries-per-path) from a SINGLE pass over the phase=serve, payload.rl=1 rows
+// in the window.  The stats page used to run them as four independent parallel
+// cards, each re-scanning the serve window and re-reading every serve row's
+// payload_json — so a cold DB paid ~4x the I/O and the four contended for the
+// same pages.  SQLite now fetches the rl=1 rows once and aggregates in Go;
+// MariaDB keeps the four grouped queries (InnoDB handles them and avoids
+// shipping the raw rows over the wire).
+func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, hours, ipLimit, pathLimit, perPathQ int) (RLSummary, []RLIPRow, []RLPathRow, map[string][]RLQueryCount, error) {
+	if d.Driver != db.DriverSQLite {
+		s, err := RateLimitSummary(ctx, d, site, hosts, hours)
+		if err != nil {
+			return s, nil, nil, nil, err
+		}
+		ips, err := RateLimitIPs(ctx, d, site, hosts, hours, ipLimit)
+		if err != nil {
+			return s, nil, nil, nil, err
+		}
+		paths, err := RateLimitPaths(ctx, d, site, hosts, hours, pathLimit)
+		if err != nil {
+			return s, ips, nil, nil, err
+		}
+		q, err := RateLimitQueriesByPath(ctx, d, site, hosts, hours, perPathQ)
+		return s, ips, paths, q, err
+	}
+
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
+	stmt := fmt.Sprintf(`
+        SELECT ip_address, COALESCE(user_agent, ''), date_created, COALESCE(%s, '')
+        FROM unmask_event
+        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)`,
+		jsonPath, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return RLSummary{}, nil, nil, nil, err
+	}
+	defer rows.Close()
+
+	type ipAcc struct {
+		count        int
+		ua, lastSeen string
+	}
+	ipm := map[string]*ipAcc{}
+	pathCount := map[string]int{}
+	queryCount := map[string]map[string]int{}
+	var total int
+	var minDate, maxDate string
+	for rows.Next() {
+		var raw []byte
+		var ua, dc, path string
+		if err := rows.Scan(&raw, &ua, &dc, &path); err != nil {
+			return RLSummary{}, nil, nil, nil, err
+		}
+		total++
+		if minDate == "" || dc < minDate {
+			minDate = dc
+		}
+		if dc > maxDate {
+			maxDate = dc
+		}
+		ip := ipFromBytes(raw)
+		a := ipm[ip]
+		if a == nil {
+			a = &ipAcc{}
+			ipm[ip] = a
+		}
+		a.count++
+		if ua > a.ua { // MAX(user_agent) parity
+			a.ua = ua
+		}
+		if dc > a.lastSeen {
+			a.lastSeen = dc
+		}
+		// path / query split (jsonExtract may wrap the value in quotes); rows
+		// with no orig_path are still counted above (summary / IPs) but skipped
+		// for the path breakdown, matching RateLimitPaths' `<> ''` filter.
+		p := strings.Trim(path, `"`)
+		if p == "" {
+			continue
+		}
+		base, q := p, ""
+		if i := strings.Index(p, "?"); i >= 0 {
+			base, q = p[:i], p[i+1:]
+		}
+		pathCount[base]++
+		if q != "" {
+			if queryCount[base] == nil {
+				queryCount[base] = map[string]int{}
+			}
+			queryCount[base][q]++
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RLSummary{}, nil, nil, nil, err
+	}
+
+	summary := RLSummary{Total: total, From: minDate, To: maxDate}
+
+	ipRows := make([]RLIPRow, 0, len(ipm))
+	for ip, a := range ipm {
+		ipRows = append(ipRows, RLIPRow{
+			IP: ip, Count: a.count,
+			UA: truncate(a.ua, 60), UAFull: a.ua,
+			LastSeen: a.lastSeen, LastSeenTS: parseDateTimeToUnix(a.lastSeen),
+		})
+	}
+	sort.Slice(ipRows, func(i, j int) bool { return ipRows[i].Count > ipRows[j].Count })
+	if len(ipRows) > ipLimit {
+		ipRows = ipRows[:ipLimit]
+	}
+
+	pathRows := make([]RLPathRow, 0, len(pathCount))
+	for p, c := range pathCount {
+		pathRows = append(pathRows, RLPathRow{Path: p, Count: c})
+	}
+	sort.Slice(pathRows, func(i, j int) bool { return pathRows[i].Count > pathRows[j].Count })
+	if len(pathRows) > pathLimit {
+		pathRows = pathRows[:pathLimit]
+	}
+
+	queriesByPath := map[string][]RLQueryCount{}
+	for p, qm := range queryCount {
+		qs := make([]RLQueryCount, 0, len(qm))
+		for q, c := range qm {
+			qs = append(qs, RLQueryCount{Query: q, Count: c})
+		}
+		sort.Slice(qs, func(i, j int) bool { return qs[i].Count > qs[j].Count })
+		if len(qs) > perPathQ {
+			qs = qs[:perPathQ]
+		}
+		queriesByPath[p] = qs
+	}
+
+	return summary, ipRows, pathRows, queriesByPath, nil
+}
+
 func RateLimitIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLIPRow, error) {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	stmt := fmt.Sprintf(`
