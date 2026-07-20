@@ -707,7 +707,7 @@ func cmdServe(args []string) error {
 		Handler: withAccessLog(mux),
 		// WriteTimeout governs the longest response Go will let a handler
 		// finish before the connection is force-closed.  The dashboard's
-		// renderDashboard caps its own work at 30s overall (= via per-card
+		// renderStats caps its own work at 30s overall (= via per-card
 		// context.WithTimeout + a wg.Wait race), so allow a 60s envelope
 		// here -- room for the 30s queries plus template render plus
 		// network drain on a slow link.
@@ -991,7 +991,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/stats/{$}",
 		h.AuthMiddleware(h.AdminSiteList))
 	mux.HandleFunc("GET "+base+"/admin/stats/{site}/{$}",
-		h.AuthMiddleware(h.AdminDashboard))
+		h.AuthMiddleware(h.AdminStats))
 	mux.HandleFunc("GET "+base+"/admin/api/funnel",
 		h.AuthMiddleware(h.AdminFunnelJSON))
 	mux.HandleFunc("GET "+base+"/admin/api/myip",
