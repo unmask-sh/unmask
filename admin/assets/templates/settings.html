@@ -1161,7 +1161,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label for="wba-ttl">{{ t .Lang "settings.web_bot_auth.cache_ttl.label" }}</label>
       <button type="button" class="ua-help-trigger" data-help-target="wba-ttl-help" aria-label="?">?</button>
       <script type="text/html" id="wba-ttl-help">{{ safeHTML (t .Lang "settings.web_bot_auth.cache_ttl.help") }}</script>
-      <input id="wba-ttl" type="number" name="cache_ttl_sec" min="60" max="86400" value="{{ if gt .WebBotAuth.CacheTTLSec 0 }}{{ .WebBotAuth.CacheTTLSec }}{{ else }}3600{{ end }}" style="width:8rem">
+      <input id="wba-ttl" type="number" name="cache_ttl_sec" min="60" max="86400" value="{{ if gt .WebBotAuth.CacheTTLSec 0 }}{{ .WebBotAuth.CacheTTLSec }}{{ end }}" placeholder="3600 (default)" style="width:8rem">
       <span class="muted">{{ t .Lang "settings.web_bot_auth.cache_ttl.unit" }}</span>
     </div>
 
@@ -1535,14 +1535,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
 
     {{ $kba := .Global.KnownBrowserAction }}
-    {{ if eq $kba "" }}{{ $kba = "pow_only" }}{{ end }}
     {{ $uua := .Global.UnknownUAAction }}
-    {{ if eq $uua "" }}{{ $uua = "pow_only" }}{{ end }}
 
     <div class="field" style="margin:1.4rem 0 1.8rem">
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.known_browser_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
       <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $kba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1555,6 +1554,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.unknown_ua_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
       <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $uua "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1733,8 +1733,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="ua-help-trigger" data-help-target="ua-black-action-help" aria-label="?">?</button>
       </div>
       {{ $bcm := .ChallengeTargets.DefaultAction }}
-      {{ if eq $bcm "" }}{{ $bcm = "pow_then_captcha" }}{{ end }}
       <select name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pow_only"         {{ if eq $bcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $bcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -1850,9 +1850,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_intro") }}</p>
 
     {{ $sba := .Global.StaleBrowserAction }}
-    {{ if eq $sba "" }}{{ $sba = "captcha_only" }}{{ end }}
-    {{ $slag := .Global.StaleBrowserLag }}
-    {{ if le $slag 0 }}{{ $slag = 10 }}{{ end }}
 
     <div class="field" style="padding:.75rem .9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
       <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#9a3412;margin:0">
@@ -1862,16 +1859,42 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="note" style="margin-top:.55rem;color:#9a3412;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_help") }}</div>
     </div>
 
-    <div class="field" style="margin:1.4rem 0 1.2rem;display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-end">
+    <div class="field" style="margin:1.4rem 0 1.2rem;display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start">
       <div>
         <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_current_h" }}</label>
         <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_current_help") }}</div>
-        <input type="number" name="current_chrome_major" min="0" max="999" value="{{ if gt .Global.CurrentChromeMajor 0 }}{{ .Global.CurrentChromeMajor }}{{ end }}" placeholder="{{ .StaleBrowserBaseline }} (built-in)" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:11rem">
+        {{ $cman := gt .Global.CurrentChromeMajor 0 }}
+        <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+          <input type="radio" name="stale_chrome_src" value="auto" {{ if not $cman }}checked{{ end }} onchange="document.getElementById('stale-chrome-manual').disabled=true">
+          <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleAutoChrome }}</strong>
+            <span style="color:#64748b;font-size:.8rem">({{ if eq .StaleAutoChromeSrc "hub" }}{{ t .Lang "settings.ua.stale_src_hub" }} · {{ .StaleHubFetchedAt }}{{ else }}{{ t .Lang "settings.ua.stale_src_builtin" }}{{ end }})</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+          <input type="radio" name="stale_chrome_src" value="manual" {{ if $cman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-manual');i.disabled=false;i.focus()">
+          <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
+          <input type="number" id="stale-chrome-manual" name="current_chrome_major" min="1" max="999" value="{{ if $cman }}{{ .Global.CurrentChromeMajor }}{{ end }}" {{ if not $cman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
+        </label>
+      </div>
+      <div>
+        <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_current_ff_h" }}</label>
+        <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_current_ff_help") }}</div>
+        {{ $fman := gt .Global.CurrentFirefoxMajor 0 }}
+        <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+          <input type="radio" name="stale_firefox_src" value="auto" {{ if not $fman }}checked{{ end }} onchange="document.getElementById('stale-firefox-manual').disabled=true">
+          <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleAutoFF }}</strong>
+            <span style="color:#64748b;font-size:.8rem">({{ if eq .StaleAutoFFSrc "hub" }}{{ t .Lang "settings.ua.stale_src_hub" }} · {{ .StaleHubFetchedAt }}{{ else }}{{ t .Lang "settings.ua.stale_src_builtin" }}{{ end }})</span></span>
+        </label>
+        <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+          <input type="radio" name="stale_firefox_src" value="manual" {{ if $fman }}checked{{ end }} onchange="var i=document.getElementById('stale-firefox-manual');i.disabled=false;i.focus()">
+          <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
+          <input type="number" id="stale-firefox-manual" name="current_firefox_major" min="1" max="999" value="{{ if $fman }}{{ .Global.CurrentFirefoxMajor }}{{ end }}" {{ if not $fman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
+        </label>
+        <div class="note" style="margin-top:.35rem;color:#64748b;font-size:.8rem">{{ t .Lang "settings.ua.stale_esr_note" }} {{ .StaleESRList }}</div>
       </div>
       <div>
         <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_lag_h" }}</label>
         <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_lag_help") }}</div>
-        <input type="number" name="stale_browser_lag" min="1" max="99" value="{{ $slag }}" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
+        <input type="number" name="stale_browser_lag" min="0" max="99" value="{{ if gt .Global.StaleBrowserLag 0 }}{{ .Global.StaleBrowserLag }}{{ end }}" placeholder="{{ .StaleBrowserLagDefault }} (built-in)" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
       </div>
     </div>
 
@@ -1879,6 +1902,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_action_help") }}</div>
       <select name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="deny"             {{ if eq $sba "deny" }}selected{{ end }}>deny</option>
@@ -2146,8 +2170,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="ua-help-trigger" data-help-target="ja4-action-help" aria-label="?">?</button>
       </div>
       {{ $jcm := .JA4Verdicts.DefaultAction }}
-      {{ if eq $jcm "" }}{{ $jcm = "pow_then_captcha" }}{{ end }}
       <select name="ja4_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pow_only"         {{ if eq $jcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $jcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $jcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2310,8 +2334,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="ua-help-trigger" data-help-target="honeypot-action-help" aria-label="?">?</button>
       </div>
       {{ $hcm := .Honeypot.DefaultAction }}
-      {{ if eq $hcm "" }}{{ $hcm = "pow_then_captcha" }}{{ end }}
       <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pow_only"         {{ if eq $hcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $hcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2455,8 +2479,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="ua-help-trigger" data-help-target="protected-action-help" aria-label="?">?</button>
       </div>
       {{ $pcm := .ProtectedPaths.DefaultAction }}
-      {{ if eq $pcm "" }}{{ $pcm = "pow_then_captcha" }}{{ end }}
       <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="pow_only"         {{ if eq $pcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $pcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2748,7 +2772,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="ch-pow-help">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</script>
       <input type="number" id="ch-pow-diff" name="pow_difficulty" min="8" max="24" step="1"
-             value="{{ .ChallengeValues.ResolvedPowDifficulty }}"
+             value="{{ if gt .ChallengeValues.PowDifficulty 0 }}{{ .ChallengeValues.PowDifficulty }}{{ end }}"
+             placeholder="{{ .ChallengeValues.ResolvedPowDifficulty }} (default)"
              style="width:6rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">bit</span>
     </div>
@@ -2825,7 +2850,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       <script type="text/html" id="roaming-cap-help">{{ safeHTML (t .Lang "settings.roaming.cap_help") }}</script>
       <input type="number" id="roaming-cap" name="roaming_cap" min="1" max="16" step="1"
-             value="{{ .RoamingCap }}" style="width:6rem">
+             value="{{ if gt .RoamingCapRaw 0 }}{{ .RoamingCapRaw }}{{ end }}"
+             placeholder="{{ .RoamingCap }} (default)" style="width:6rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.roaming.cap_unit" }}</span>
     </div>
     <div class="field">
@@ -3720,7 +3746,7 @@ document.addEventListener("DOMContentLoaded", function(){
   <h2 style="margin:1.4rem 0 .3rem;font-size:1.05rem">{{ t .Lang "settings.tab.deny_design" }}</h2>
   <p class="deny-shared-note">{{ safeHTML (t .Lang "settings.deny.colors_intro") }}</p>
   {{ $dt := $bv.ResolvedDenyRateTheme }}
-  {{ $dp := $bv.DenyRateCopyPreset }}{{ if eq $dp "" }}{{ $dp = "friendly" }}{{ end }}
+  {{ $dp := $bv.DenyRateCopyPreset }}
   {{ $rcl := index $bv.DenyRateColors "light" }}{{ $rcd := index $bv.DenyRateColors "dark" }}
   <div class="bcd-card deny-design-group" data-deny-kind="rate" data-deny-prefix="deny">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">{{ t .Lang "settings.rate_limit.deny_design_rl_heading" }}</div>
@@ -3728,6 +3754,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="rl-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="rl-deny-copy-preset" name="deny_copy_preset" data-deny-preset style="width:18rem">
+        <option value=""         {{ if eq $dp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="friendly" {{ if eq $dp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $dp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $dp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
@@ -3742,7 +3769,7 @@ document.addEventListener("DOMContentLoaded", function(){
   </div>
 
   {{ $bt := $bv.ResolvedDenyBanTheme }}
-  {{ $bp := $bv.DenyBanCopyPreset }}{{ if eq $bp "" }}{{ $bp = "friendly" }}{{ end }}
+  {{ $bp := $bv.DenyBanCopyPreset }}
   {{ $bcl := index $bv.DenyBanColors "light" }}{{ $bcd := index $bv.DenyBanColors "dark" }}
   <div class="bcd-card deny-design-group" data-deny-kind="ban" data-deny-prefix="ban">
     <div style="font-weight:600;color:#334155;font-size:.95rem;margin-bottom:.45rem">{{ t .Lang "settings.rate_limit.deny_design_ban_heading" }}</div>
@@ -3750,6 +3777,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="ban-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="ban-deny-copy-preset" name="ban_copy_preset" data-deny-preset style="width:18rem">
+        <option value=""         {{ if eq $bp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
         <option value="friendly" {{ if eq $bp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $bp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $bp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>

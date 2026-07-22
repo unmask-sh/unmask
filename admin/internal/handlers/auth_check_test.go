@@ -503,6 +503,19 @@ func TestUaDecideStaleBrowser(t *testing.T) {
 	if d, _ := uaDecide(scraper, "", cfg, nil); d.sev != sevPass {
 		t.Errorf("tier off: stale scraper sev=%v want pass", d.sev)
 	}
+
+	// Firefox rides the same tier over its own built-in baseline
+	// (CurrentFirefoxMajor unset -> DefaultCurrentFirefoxMajor); the current
+	// ESR major is exempt — a supported release that legitimately trails.
+	cfg.Global.StaleBrowserChallenge = true
+	ffScraper := "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0"
+	ffESRUA := "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+	if d, _ := uaDecide(ffScraper, "", cfg, nil); d.sev != sevCaptchaOnly {
+		t.Errorf("stale Firefox: sev=%v want captcha_only", d.sev)
+	}
+	if d, _ := uaDecide(ffESRUA, "", cfg, nil); d.sev != sevPass {
+		t.Errorf("Firefox ESR: sev=%v want pass (exempt)", d.sev)
+	}
 }
 
 // TestIsSearchBotUA locks the search/AI-crawler detection that the forward-auth

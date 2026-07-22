@@ -10,17 +10,26 @@ import (
 )
 
 // TestStaleBrowserPattern: the generated nginx regex matches exactly the
-// Chromium majors the daemon's classify.IsStaleBrowser treats as stale, and
-// its trailing-dot anchor rejects prefix/suffix confusions.
+// Chromium and Firefox majors the daemon's classify.IsStaleBrowser treats as
+// stale (Firefox ESR exempt), and its trailing-dot anchor rejects
+// prefix/suffix confusions.
 func TestStaleBrowserPattern(t *testing.T) {
-	// current=150 lag=11 -> threshold 139 (matches the incident tuning).
-	pat := staleBrowserPattern(150, 11)
+	// chrome=150 firefox=152 esr=140 lag=11 -> thresholds 139 / 141
+	// (matches the incident tuning).
+	pat := staleBrowserPattern(150, 152, []int{140}, 11)
 	if pat == "" {
-		t.Fatal("expected a pattern for current=150 lag=11")
+		t.Fatal("expected a pattern for chrome=150 firefox=152 lag=11")
 	}
 	re := regexp.MustCompile(pat)
-	stale := []string{"Chrome/139.0.7258.5", "Chrome/138.0.0.0", "Chrome/65.0.3325.181", "Chrome/1.0"}
-	fresh := []string{"Chrome/140.0.0.0", "Chrome/149.0.0.0", "Chrome/150.0.0.0", "Chrome/151.0.0.0"}
+	stale := []string{
+		"Chrome/139.0.7258.5", "Chrome/138.0.0.0", "Chrome/65.0.3325.181", "Chrome/1.0",
+		"Firefox/141.0", "Firefox/139.0", "Firefox/115.0",
+	}
+	fresh := []string{
+		"Chrome/140.0.0.0", "Chrome/149.0.0.0", "Chrome/150.0.0.0", "Chrome/151.0.0.0",
+		"Firefox/152.0", "Firefox/142.0",
+		"Firefox/140.0", // the exempt ESR major
+	}
 	for _, ua := range stale {
 		if !re.MatchString(ua) {
 			t.Errorf("pattern must match stale %q", ua)
@@ -32,16 +41,24 @@ func TestStaleBrowserPattern(t *testing.T) {
 		}
 	}
 	// Anchor guards: a build number that superficially contains a stale major
-	// must not match (the token is Chrome/<major>. only).
+	// must not match (the token is Chrome/<major>. / Firefox/<major>. only).
 	if re.MatchString("Chrome/1400.0.0.0") {
 		t.Error("Chrome/1400 must not match via the 140/14 prefixes")
 	}
 	if re.MatchString("Chrome/1390") {
 		t.Error("Chrome/1390 (no dot) must not match")
 	}
-	// A lag so large nothing qualifies yields no pattern.
-	if staleBrowserPattern(150, 200) != "" {
-		t.Error("threshold < 1 must yield an empty pattern")
+	if re.MatchString("Firefox/1410.0") {
+		t.Error("Firefox/1410 must not match via the 141/14 prefixes")
+	}
+	// A lag so large nothing qualifies in either family yields no pattern.
+	if staleBrowserPattern(150, 152, []int{140}, 200) != "" {
+		t.Error("thresholds < 1 must yield an empty pattern")
+	}
+	// One family alone still yields its half.
+	ffOnly := staleBrowserPattern(0, 152, []int{140}, 11)
+	if !strings.Contains(ffOnly, "Firefox/") || strings.Contains(ffOnly, "Chrome/") {
+		t.Errorf("firefox-only inputs must yield a firefox-only pattern, got %q", ffOnly)
 	}
 }
 
@@ -74,6 +91,9 @@ func TestStaleBrowserRenderOn(t *testing.T) {
 		`$serve_bot_challenge" $final_challenge_base {`,
 		`"~^0:1:0:0:0:0$"     1;`,
 		`Chrome/(?:139|`,
+		// Firefox rides its built-in baseline (152) when unset; threshold
+		// 141 with the ESR major (140) skipped -> 141 jumps straight to 139.
+		`Firefox/(?:141|139|`,
 	} {
 		if !strings.Contains(on, want) {
 			t.Errorf("tier on: expected %q in http.inc", want)
