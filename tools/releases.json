@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.7",
+  "latest": "0.1.8",
   "releases": [
+    {
+      "version": "0.1.8",
+      "date": "2026-07-22",
+      "notes": "Settings-save fixes and clearer crawler-spoof visibility. Saving a settings tab no longer silently rewrites values you did not touch — a family of long-standing save bugs is fixed, including the one that pinned the UA black-list's challenge chain onto every challenge (that default action now fires only on an actual black-list match, in both deploy modes). The UA-filter checkbox and the Bypass-IP range presets become independent axes with a live 4-state badge showing each range-backed crawler's true rescue path, so one tab can no longer silently change the other's behavior. The stale-browser tier learns Firefox (ESR stays exempt) and its current-major baselines now auto-follow a daily unmask.sh feed, so the tier keeps tracking new browser releases without manual bookkeeping. The AI-crawler drill-down marks IP-range-verified crawlers with a shield and renames served to challenge — for those vendors the challenged count is spoofed traffic, not the real bot being blocked. Bot hunt gains a User-Agent search and one-click raw-log filters from the rankings. Admin pages now send no-store, so a redeployed dashboard shows its changes on a normal reload."
+    },
     {
       "version": "0.1.7",
       "date": "2026-07-21",
