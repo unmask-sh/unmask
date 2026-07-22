@@ -96,8 +96,12 @@ function handle_request(r)
         return 302
     end
     if code == 401 or action == "challenge" then
-        -- Redirect to the challenge HTML served by unmask.
-        r.headers_out["Location"] = "/unmask/challenge/"
+        -- Redirect to the challenge HTML served by unmask.  Carry the URI the
+        -- visitor originally tried as _orig: the daemon resolves a protected
+        -- path's per-path screen (pow / captcha / strict) from it, and the
+        -- hunt page shows it as the original URL.
+        r.headers_out["Location"] = "/unmask/challenge/?_orig="
+            .. r:escape(r.unparsed_uri or r.uri or "/")
         return 302
     end
     -- unknown → fail open.
