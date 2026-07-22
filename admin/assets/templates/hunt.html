@@ -90,6 +90,12 @@ table.rank td.actions{text-align:left;white-space:nowrap}
 .rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
 .rank-act.danger{color:#b91c1c;border-color:#fca5a5}
 .rank-act.danger:hover{background:#dc2626;color:#fff;border-color:#dc2626}
+/* req count doubles as a "filter raw log by this key" link.  The magnifier is
+   faint at rest so the column still reads as numbers, and lights up on hover. */
+.req-search{display:inline-flex;align-items:center;gap:.3rem;justify-content:flex-end;text-decoration:none;color:inherit}
+.req-search .req-mag{font-size:.72rem;opacity:.3;transition:opacity .12s}
+.req-search:hover{text-decoration:underline;text-underline-offset:2px}
+.req-search:hover .req-mag{opacity:1}
 .muted{color:#94a3b8}
 .filter-bar{display:flex;gap:.5rem;align-items:center;margin-bottom:.75rem;flex-wrap:wrap}
 .filter-bar input,.filter-bar select{padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff}
@@ -214,6 +220,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <div class="live-tail" id="live-tail"></div>
 </div>
 
+{{ if not .Filtering }}
 <div class="rank-grid">
   <!-- IP ranking -->
   <div class="rank-card">
@@ -224,7 +231,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ range .IPRank }}
       <tr>
         <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
-        <td class="num">{{ .Count }}</td>
+        <td class="num"><a class="req-search" href="?range={{ $.Range }}&ip={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ip_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a></td>
         <td class="actions">
           {{ if .BypassIP }}
             <span class="rank-registered">
@@ -272,7 +279,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
              so the community share submission carries an (ip, ja4) pair
              with ban_source=ja4_ranking. */}}
         <td class="key">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
-        <td class="num">{{ .Count }}</td>
+        <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ja4={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ja4_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
             {{ if .Verdict }}
@@ -312,7 +319,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ range .UARank }}
       <tr>
         <td class="key{{ if .Key }} cellpop{{ end }}">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
-        <td class="num">{{ .Count }}</td>
+        <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ua={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ua_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if .Key }}
             {{ if .Listed }}
@@ -343,6 +350,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     </table>
   </div>
 </div>
+{{ end }}{{/* if not .Filtering (= hide rankings while a filter search is active) */}}
 {{ end }}{{/* if not .Offset (= hide live tail + rank cards on paginated views) */}}
 
 {{ if .ShowStaticAssetsTip }}
@@ -374,6 +382,7 @@ function dismissHuntTip(id){
     <input type="hidden" name="range" value="{{ .Range }}">
     <input type="text" name="ip"  placeholder="IP {{ t .Lang "hunt.filter.exact" }}" value="{{ .IPFilter }}">
     <input type="text" name="ja4" placeholder="JA4 substring" value="{{ .JA4Filter }}">
+    <input type="text" name="ua"  placeholder="{{ t .Lang "hunt.filter.ua_placeholder" }}" value="{{ .UAFilter }}" style="width:14rem">
     <input type="text" name="ref" placeholder="Ref ID" value="{{ .RefFilter }}" style="width:11rem">
     {{ if .RefFilter }}<span class="muted" style="font-size:.8rem">→ Ref ID: <code style="user-select:all">{{ .RefFilter }}</code></span>{{ end }}
     <select name="phase">
@@ -400,7 +409,7 @@ function dismissHuntTip(id){
     </select>
     {{- /* host filtering is consolidated into the shared host_picker in the top bar (= legacy in-body host-filter removed). */ -}}
     <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
-    {{ if or .IPFilter .JA4Filter .Phase .HostSelected }}
+    {{ if or .IPFilter .JA4Filter .UAFilter .Phase .HostSelected }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
     {{ end }}
   </form>

@@ -683,7 +683,7 @@ func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
 //	hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
-func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, ref, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
+func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 100
 	}
@@ -701,6 +701,18 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, ref, phase, 
 	if ja4Substr != "" {
 		stmt += " AND ja4 LIKE ?"
 		args = append(args, "%"+ja4Substr+"%")
+	}
+	// ua: case-insensitive substring over the stored User-Agent -- the hunt box
+	// uses it to pull every request carrying a given crawler UA (e.g. the fake
+	// "Googlebot" flood, whose source IPs the operator then wants to see).
+	// LIKE is ASCII-case-insensitive on both engines here (SQLite default
+	// NOCASE-less LIKE folds ASCII; MariaDB LIKE folds by the column collation),
+	// which is what a UA search wants.  Same escaping posture as ja4 above --
+	// the value rides a ? placeholder, so % / _ only widen the match, never
+	// inject; the caller trims and length-caps it.
+	if uaSubstr != "" {
+		stmt += " AND user_agent LIKE ?"
+		args = append(args, "%"+uaSubstr+"%")
 	}
 	// ref: the support correlation id, matched exactly against payload "ref".
 	// The id is 16 hex chars (the caller validates) so the LIKE pattern carries
