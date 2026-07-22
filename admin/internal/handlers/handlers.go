@@ -600,7 +600,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 		reason = "banned"
 	}
 	switch strings.TrimSpace(r.Header.Get("X-Protected-Mode")) {
-	case "captcha", "strict":
+	case "pow", "captcha", "strict":
 		reason = "protected"
 	}
 	if rl == 1 {
@@ -806,6 +806,51 @@ func banProbedOrigPath(r *http.Request, basePath string) string {
 	return ""
 }
 
+// protectedModeForOrig resolves the protected-path mode ("pow" / "captcha" /
+// "strict") for the original URI a challenge is being served for, scanning the
+// enabled preset groups and then the per-site custom rows the same way the
+// rendered $protected_mode map does (case-insensitive, first match wins).
+// Returns "" when the URI hits no protected rule.  Used when the challenge
+// request carries no X-Protected-Mode header: the forward-auth axis (a plain
+// proxy with no nginx maps) only hands the daemon the _orig query.
+func protectedModeForOrig(n settings.Nginx, site, orig string) string {
+	if orig == "" {
+		return ""
+	}
+	if i := strings.IndexByte(orig, '?'); i >= 0 {
+		orig = orig[:i]
+	}
+	modeOr := func(m string) string {
+		if nginxconf.IsValidProtectedMode(m) {
+			return m
+		}
+		return nginxconf.ProtectedModeCaptcha // rows default to the standard gate
+	}
+	enabled := make(map[string]bool, len(n.ProtectedPaths.EnabledPresets))
+	for _, id := range n.ProtectedPaths.EnabledPresets {
+		enabled[id] = true
+	}
+	for _, g := range nginxconf.ProtectedPathPresetGroups {
+		if !enabled[g.ID] {
+			continue
+		}
+		for _, rule := range g.Rules {
+			if re := compileCachedRe("(?i)" + rule.Pattern); re != nil && re.MatchString(orig) {
+				return modeOr(rule.Mode)
+			}
+		}
+	}
+	for _, row := range n.ProtectedPaths.ResolvePaths(site) {
+		if row.Disabled {
+			continue
+		}
+		if re := compileCachedRe("(?i)" + row.Path); re != nil && re.MatchString(orig) {
+			return modeOr(row.Mode)
+		}
+	}
+	return ""
+}
+
 // ServeChallenge: GET {base}/challenge/
 //
 // Rate-limit path: nginx rewrites a 429 into /unmask/_rl<orig URI> (see
@@ -868,9 +913,30 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Banned") == "1" {
 		forceReason = "banned"
 	}
-	switch strings.TrimSpace(r.Header.Get("X-Protected-Mode")) {
-	case "captcha", "strict":
+	ppMode := ""
+	switch m := strings.TrimSpace(r.Header.Get("X-Protected-Mode")); m {
+	case nginxconf.ProtectedModePoW, nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModeStrict:
 		forceReason = "protected"
+		ppMode = m
+	}
+	// The forward-auth axis serves the challenge through a plain proxy -- no
+	// nginx $protected_mode map, so no X-Protected-Mode header.  Resolve the
+	// protected rule (and its per-path mode) from the URI the visitor
+	// originally tried: the _orig query (apache mode's lua redirect), else
+	// X-Original-URI (fa-nginx's internal rewrite keeps $request_uri = the
+	// protected URI; banProbedOrigPath already rejects direct /unmask/...
+	// requests).  Gated on forceReason=="none" so a honeypot / ban / JA4
+	// escalation keeps its own screen.
+	if ppMode == "" && forceReason == "none" {
+		orig := r.URL.Query().Get("_orig")
+		if orig == "" {
+			orig = banProbedOrigPath(r, h.basePath())
+		}
+		if m := protectedModeForOrig(h.cfg().Nginx,
+			siteFromRequest(r, h.snapshotSettings()), orig); m != "" {
+			forceReason = "protected"
+			ppMode = m
+		}
 	}
 
 	// Rate-limit path detection: "/_rl/" prefix in URL.Path -> rl=1.
@@ -1082,11 +1148,23 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if forceReason == "protected" {
-		// Protected-path default (= per-path preset/extra dispatch wired
-		// up later).  Falls through to ChallengeTargets if not set.
+		// The per-path mode is the operator's screen pick for this path (the
+		// rendered $protected_mode map value / the row's mode):
+		//   pow -> PoW only; captcha -> straight CAPTCHA; strict -> captcha
+		//   in v0.1 (the PoW->CAPTCHA chain is the documented v0.2 flip).
+		// Until 0.1.7 this branch leaked the black-list chain
+		// (ChallengeTargets.DefaultAction) onto every protected serve and the
+		// per-path mode never reached the screen; the mode now drives it.
+		switch ppMode {
+		case nginxconf.ProtectedModePoW:
+			chMode = settings.RateChallengePoWOnly
+		case nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModeStrict:
+			chMode = settings.RateChallengeCaptchaOnly
+		}
+		// An explicit tab-level default action still overrides -- it has been
+		// the operator's "what do protected hits get" dropdown since it
+		// shipped, so a value set there keeps winning.
 		if act := strings.TrimSpace(h.cfg().Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
-			chMode = act
-		} else if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "honeypot" {
