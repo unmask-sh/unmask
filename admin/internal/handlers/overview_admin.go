@@ -25,6 +25,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
 // decodeCookieValue percent-decodes a cookie value.  The pickers write cookies
@@ -91,7 +92,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
 	launch(func() {
-		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", site, hosts, 0, 40, 0)
+		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", site, hosts, 0, 40, 0)
 	})
 	// AI traffic funnel: "all" reads unmask_crawler_minute (sees rescued/bypassed
 	// traffic too), "served" reads the hkAITag aggregate (phase=serve only).
@@ -275,6 +276,13 @@ type AICrawlerRow struct {
 	Served  int
 	Passed  int
 	Spark   string
+	// RangeVerified is true when this crawler's UA-only rescue has been
+	// replaced by IP-range verification (its vendor publishes ranges AND every
+	// backing preset is enabled + past the NEW gate).  For such a crawler the
+	// genuine bot arrives from a published range and is bypassed before it can
+	// be served, so Served counts only requests from OUTSIDE the range -- i.e.
+	// spoofed traffic carrying the crawler's UA.  The card reads it that way.
+	RangeVerified bool
 }
 
 // aiTrafficDrilldown reads the per-crawler breakdown that backs the card's
@@ -293,6 +301,16 @@ type AICrawlerRow struct {
 func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string][]AICrawlerRow {
 	if h.DB == nil {
 		return nil
+	}
+	// Resolve which drill-down crawler names are IP-range verified under the
+	// live settings: take the range-verified UA PATTERNS and fold each to the
+	// same display name the aggregation keys on.  A crawler in this set has its
+	// genuine bots bypassed by range, so its Served figure is spoofed traffic.
+	rangeVerifiedNames := map[string]bool{}
+	for pat := range nginxconf.EffectiveRangeVerifiedPatterns(h.cfg().Nginx) {
+		if name := classify.CrawlerNameFromPattern(pat); name != "" && name != "other" {
+			rangeVerifiedNames[name] = true
+		}
 	}
 	nowHour := time.Now().Unix() / 3600
 	sinceHour := (time.Now().Unix() - int64(minutes)*60) / 3600
@@ -349,7 +367,8 @@ func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string
 	for k, a := range byKey {
 		byCat[k[0]] = append(byCat[k[0]], AICrawlerRow{
 			Crawler: k[1], Total: a.total, Served: a.served, Passed: a.total - a.served,
-			Spark: sparkPoints(a.series),
+			Spark:         sparkPoints(a.series),
+			RangeVerified: rangeVerifiedNames[k[1]],
 		})
 	}
 	// Per-category: Total DESC, then crawler name ASC for a stable, readable
