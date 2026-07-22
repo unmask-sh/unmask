@@ -592,7 +592,8 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// pattern -> leave the tier off rather than emit a map that matches
 	// nothing).
 	if s.Global.StaleBrowserEnabled() {
-		if pat := staleBrowserPattern(s.Global.CurrentChromeMajorResolved(), s.Global.StaleBrowserLagN()); pat != "" {
+		if pat := staleBrowserPattern(s.Global.CurrentChromeMajorResolved(), s.Global.CurrentFirefoxMajorResolved(),
+			s.Global.FirefoxESRMajors(), s.Global.StaleBrowserLagN()); pat != "" {
 			d.StaleBrowserEnabled = true
 			d.StaleBrowserPattern = pat
 		}
@@ -1393,28 +1394,53 @@ func resolveGlobalAction(axis string) string {
 }
 
 // staleBrowserPattern builds the nginx regex the $unmask_stale_browser map
-// tests $http_user_agent against.  A UA is stale when its Chromium-family
-// major is at least lag behind currentMajor, i.e. major <= currentMajor-lag.
-// The pattern matches a `Chrome/<major>.` token for every stale major, so it
-// mirrors classify.IsStaleBrowser exactly (the daemon side) while running as a
-// pure nginx map (the native gate needs no plugin call).
+// tests $http_user_agent against.  A UA is stale when its Chromium-family or
+// Firefox major is at least lag behind that family's current stable, i.e.
+// major <= current-lag.  The pattern matches a `Chrome/<major>.` /
+// `Firefox/<major>.` token for every stale major (skipping the exempt
+// Firefox ESR major), so it mirrors classify.IsStaleBrowser exactly (the
+// daemon side) while running as a pure nginx map (the native gate needs no
+// plugin call).  Safari carries neither token and is out of scope by design
+// (see classify.IsStaleBrowser).
 //
 // An explicit alternation (not a hand-rolled numeric-range regex) is used on
 // purpose: it is obviously correct, unit-tested against the same threshold the
 // daemon uses, and compiled once by nginx.  The trailing `\.` anchors the
 // major so Chrome/50. never matches the "5" alternative and Chrome/1400. never
-// matches "140".  Returns "" when no positive major qualifies (currentMajor-lag
-// < 1), signalling the caller to leave the tier off.
-func staleBrowserPattern(currentMajor, lag int) string {
-	threshold := currentMajor - lag // stale iff major <= threshold
+// matches "140".  Returns "" when no positive major qualifies in either
+// family, signalling the caller to leave the tier off.
+func staleBrowserPattern(curChrome, curFirefox int, ffESRExempt []int, lag int) string {
+	var fams []string
+	if alt := staleMajorAlternation(curChrome-lag, nil); alt != "" {
+		fams = append(fams, "Chrome/(?:"+alt+")")
+	}
+	if alt := staleMajorAlternation(curFirefox-lag, ffESRExempt); alt != "" {
+		fams = append(fams, "Firefox/(?:"+alt+")")
+	}
+	if len(fams) == 0 {
+		return ""
+	}
+	return `(?:` + strings.Join(fams, "|") + `)\.`
+}
+
+// staleMajorAlternation lists every major from threshold down to 1 as a regex
+// alternation, skipping the exempt majors; "" when threshold < 1.
+func staleMajorAlternation(threshold int, exempt []int) string {
 	if threshold < 1 {
 		return ""
 	}
+	skip := map[int]bool{}
+	for _, e := range exempt {
+		skip[e] = true
+	}
 	majors := make([]string, 0, threshold)
 	for m := threshold; m >= 1; m-- {
+		if skip[m] {
+			continue
+		}
 		majors = append(majors, strconv.Itoa(m))
 	}
-	return `Chrome/(?:` + strings.Join(majors, "|") + `)\.`
+	return strings.Join(majors, "|")
 }
 
 var controlChars = regexp.MustCompile(`[\x00-\x1f"]`)

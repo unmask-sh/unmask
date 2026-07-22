@@ -21,6 +21,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
@@ -139,6 +140,7 @@ type Handler struct {
 	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
 	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
 	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	BrowserSync   *browsermajors.Sync   // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
 	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
 	PrivacyPass   *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
 
@@ -1105,12 +1107,24 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			chMode = eAct
 		}
 	} else if forceReason != "rate_limit" {
-		if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
-			chMode = act
-		}
-		// Per-group override: scan the UA against any upstream-rescue
-		// group resolved to "black" that carries an action override.
+		// ChallengeTargets.DefaultAction is the black-list chain (ua-filter
+		// tab: "chain used when a black-list UA match triggers a challenge"),
+		// not a global default.  Native nginx sends every escalation here as
+		// forceReason="none" with no target-vs-plain distinction, so gate the
+		// override on the UA actually matching a challenge target (preset /
+		// extra / upstream black group, or the catch-all All toggle).
+		// Ungated it overrode the Operating-mode pick for every plain
+		// challenge: with default_action=pow_then_captcha a current-stable
+		// Chrome that failed the transparent PoW was walked into the CAPTCHA
+		// leg the operator only meant for black-listed UAs.
 		if ua := r.Header.Get("User-Agent"); ua != "" {
+			if _, cat := lookupUAListed(ua, h.cfg().Nginx); cat == "challenge" || h.cfg().Nginx.ChallengeTargets.All {
+				if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+					chMode = act
+				}
+			}
+			// Per-group override: scan the UA against any upstream-rescue
+			// group resolved to "black" that carries an action override.
 			if grpAct := classify.ResolveActionForUA(ua,
 				h.cfg().Nginx.SearchBots.UpstreamGroupMode,
 				h.cfg().Nginx.SearchBots.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
@@ -1147,7 +1161,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// (native protect.inc only redirects a $final_challenge=1 request here), so
 	// monitoring probes are untouched.
 	if g := h.cfg().Global; g.StaleBrowserEnabled() && chMode != settings.RateChallengeDeny {
-		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.StaleBrowserLagN()) {
+		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(),
+			g.CurrentFirefoxMajorResolved(), g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
 			chMode = g.StaleBrowserResolvedAction()
 		}
 	}

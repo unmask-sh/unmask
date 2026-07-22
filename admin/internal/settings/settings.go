@@ -45,6 +45,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
@@ -1526,7 +1527,10 @@ func (c *RebindConfig) SetRebindMode(mode string) {
 		c.ASNVeto = "off"
 	default: // "asn"
 		c.Disabled = false
-		c.ASNVeto = "auto"
+		// The default posture — store it as the non-deviation ("" resolves to
+		// "auto" via ASNVetoResolved) so picking the default radio round-trips
+		// a config that never set the key.
+		c.ASNVeto = ""
 	}
 }
 
@@ -1594,6 +1598,13 @@ type GlobalConfig struct {
 	// unmask.sh and let subscribers fetch).  0 disables the tier regardless of
 	// StaleBrowserChallenge.
 	CurrentChromeMajor int `yaml:"current_chrome_major,omitempty"`
+	// CurrentFirefoxMajor: same as CurrentChromeMajor for the Firefox family
+	// (desktop/Android carry `Firefox/<major>` and share Chromium's ~4-week
+	// cadence, so StaleBrowserLag spans both).  0 -> the shipped
+	// DefaultCurrentFirefoxMajor.  The current Firefox ESR major (shipped
+	// baseline, no operator field) is always exempt — ESR legitimately trails
+	// stable by up to ~15 majors while fully patched.
+	CurrentFirefoxMajor int `yaml:"current_firefox_major,omitempty"`
 	// StaleBrowserLag is N: a UA at least N majors behind CurrentChromeMajor is
 	// stale (currentMajor-major >= N).  Empty/<=0 falls back to
 	// DefaultStaleBrowserLag.  Larger N = only very outdated UAs are challenged.
@@ -1625,6 +1636,16 @@ const (
 	// track Chrome's ~4-week cadence.  (150 = stable on 2026-07, the release
 	// that introduced the tier.)
 	DefaultCurrentChromeMajor = 150
+	// DefaultCurrentFirefoxMajor: the Firefox stable major current when this
+	// binary was built.  Same shipped-baseline contract as
+	// DefaultCurrentChromeMajor — **bump each release**.  (152 = stable on
+	// 2026-07.)
+	DefaultCurrentFirefoxMajor = 152
+	// DefaultFirefoxESRMajor: the current Firefox ESR major, exempted from the
+	// stale tier (a supported, fully-patched release that legitimately trails
+	// stable — enterprise / Debian default).  **Bump each release** when a new
+	// ESR ships (~yearly: 115 -> 128 -> 140).  (140 = ESR on 2026-07.)
+	DefaultFirefoxESRMajor = 140
 )
 
 // StaleBrowserEnabled reports whether the stale-browser tier is active.  Just
@@ -1634,14 +1655,119 @@ func (g GlobalConfig) StaleBrowserEnabled() bool {
 	return g.StaleBrowserChallenge
 }
 
-// CurrentChromeMajorResolved returns the effective "current stable" major: the
-// operator's value when set (>0), else the shipped DefaultCurrentChromeMajor so
-// the tier needs no manual bookkeeping to function.
+// HubBrowserBaselinesData: the last known hub-published current-stable majors
+// (https://unmask.sh's daily aggregate of the vendor version feeds).  Kept
+// package-level (atomic) because every consumer of the resolve chain — serve
+// handlers, the nginx render, doctor — reads it through the GlobalConfig
+// Resolved* methods; the browsermajors sync (serve) or a one-shot disk load
+// (render-nginx CLI) publishes it.
+type HubBrowserBaselinesData struct {
+	Chrome     int
+	Firefox    int
+	FirefoxESR []int
+	FetchedAt  time.Time
+}
+
+var hubBrowserBaselines atomic.Pointer[HubBrowserBaselinesData]
+
+// SetHubBrowserBaselines publishes hub-fetched baselines for the resolve chain.
+func SetHubBrowserBaselines(d HubBrowserBaselinesData) { hubBrowserBaselines.Store(&d) }
+
+// HubBrowserBaselines returns the published hub baselines; ok=false when no
+// sync/load has run (or a zero document was stored, e.g. a test resetting the
+// package state).
+func HubBrowserBaselines() (HubBrowserBaselinesData, bool) {
+	p := hubBrowserBaselines.Load()
+	if p == nil || (p.Chrome == 0 && p.Firefox == 0) {
+		return HubBrowserBaselinesData{}, false
+	}
+	return *p, true
+}
+
+// Baseline-source labels for the settings UI (= "where does the effective
+// current major come from").
+const (
+	BaselineSourceManual  = "manual"  // operator-set current_*_major
+	BaselineSourceHub     = "hub"     // hub value, newer than the built-in
+	BaselineSourceBuiltin = "builtin" // shipped Default* constant
+)
+
+// AutoChromeBaseline returns the automatic (no-operator-override) Chrome
+// baseline and its source: the NEWER of the hub-published value and the
+// shipped DefaultCurrentChromeMajor.  Both are lower-bound observations of
+// the true current stable (versions only move forward), so max() is the
+// closest estimate — and a stale hub (outage, rollback) can never drag the
+// baseline below what this binary shipped with.
+func AutoChromeBaseline() (major int, source string) {
+	major, source = DefaultCurrentChromeMajor, BaselineSourceBuiltin
+	if hub, ok := HubBrowserBaselines(); ok && hub.Chrome > major {
+		major, source = hub.Chrome, BaselineSourceHub
+	}
+	return
+}
+
+// AutoFirefoxBaseline: AutoChromeBaseline's Firefox twin.
+func AutoFirefoxBaseline() (major int, source string) {
+	major, source = DefaultCurrentFirefoxMajor, BaselineSourceBuiltin
+	if hub, ok := HubBrowserBaselines(); ok && hub.Firefox > major {
+		major, source = hub.Firefox, BaselineSourceHub
+	}
+	return
+}
+
+// CurrentChromeMajorResolved returns the effective "current stable" major:
+// the operator's value when set (>0), else the automatic baseline.
 func (g GlobalConfig) CurrentChromeMajorResolved() int {
 	if g.CurrentChromeMajor > 0 {
 		return g.CurrentChromeMajor
 	}
-	return DefaultCurrentChromeMajor
+	m, _ := AutoChromeBaseline()
+	return m
+}
+
+// ChromeBaselineSource labels CurrentChromeMajorResolved's origin for the UI.
+func (g GlobalConfig) ChromeBaselineSource() string {
+	if g.CurrentChromeMajor > 0 {
+		return BaselineSourceManual
+	}
+	_, s := AutoChromeBaseline()
+	return s
+}
+
+// CurrentFirefoxMajorResolved: CurrentChromeMajorResolved's Firefox twin.
+func (g GlobalConfig) CurrentFirefoxMajorResolved() int {
+	if g.CurrentFirefoxMajor > 0 {
+		return g.CurrentFirefoxMajor
+	}
+	m, _ := AutoFirefoxBaseline()
+	return m
+}
+
+// FirefoxBaselineSource labels CurrentFirefoxMajorResolved's origin for the UI.
+func (g GlobalConfig) FirefoxBaselineSource() string {
+	if g.CurrentFirefoxMajor > 0 {
+		return BaselineSourceManual
+	}
+	_, s := AutoFirefoxBaseline()
+	return s
+}
+
+// FirefoxESRMajors returns the exempt ESR majors: the union of the shipped
+// DefaultFirefoxESRMajor and whatever the hub publishes (both the old and the
+// new ESR during a transition window).  Union, not replacement: over-exempting
+// a just-EOL'd ESR briefly is the safe direction — its users are still real —
+// while dropping the shipped value on a hub glitch would CAPTCHA the entire
+// current-ESR population.
+func (g GlobalConfig) FirefoxESRMajors() []int {
+	out := []int{DefaultFirefoxESRMajor}
+	if hub, ok := HubBrowserBaselines(); ok {
+		for _, m := range hub.FirefoxESR {
+			if m > 0 && m != DefaultFirefoxESRMajor {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
 }
 
 // StaleBrowserLagN returns the effective lag, applying DefaultStaleBrowserLag
@@ -2314,6 +2440,11 @@ func defaults() Settings {
 		AuditRetentionDays:    90,
 		EventsBatchSize:       100,
 		EventsBatchIntervalMs: 1000,
+		// Notifications / SMTP carry their effective defaults here because the
+		// consumers read the fields directly (no Resolved* indirection), and
+		// the settings tabs display + persist exactly these values.
+		Notifications: Notifications{Format: "slack", BurstThresholdPer5m: 50},
+		SMTP:          SMTP{Port: 587},
 		DB: DB{
 			Driver:     "sqlite",
 			SQLitePath: "/var/lib/unmask/unmask.sqlite",
@@ -2327,7 +2458,11 @@ func defaults() Settings {
 				PowCookieValidSeconds:     86400 * 7,  // 7 days — automatic proof, refresh more often
 				CaptchaCookieValidSeconds: 86400 * 14, // 14 days — human-effort proof, keep longer
 				DebugRateLimitPer5Min:     20,
-				Theme:                     "default",
+				// Must be a member of the handler-side challengeThemes
+				// allowlist ("default" was not: the theme/appearance save
+				// snapped it to auto, mutating a fresh install's stored value
+				// on the very first save).
+				Theme: "auto",
 				CaptchaProvider: Captcha{
 					Provider:              "builtin",
 					BuiltinScoreThreshold: 0.5,
@@ -2455,12 +2590,11 @@ func defaults() Settings {
 				// reliably bypassed via the other path (= SearchBots + official
 				// IP range two-tier rescue), so SEO incidents don't occur.
 				All: true,
-				// preset list is unused when All=true, but the historical
-				// disabled set is preserved so toggling All OFF works.
-				DisabledPresets: []string{
-					"cli", "python_libs", "node_libs", "go_libs",
-					"java_libs", "headless", "empty",
-				},
+				// Only presets that still exist may be listed: the ua-filter
+				// save rebuilds this list from nginxconf.ChallengeTargetGroups
+				// (currently just "empty"), so retired IDs (cli / python_libs
+				// / ...) would be dropped on the first save anyway.
+				DisabledPresets: []string{"empty"},
 			},
 			Honeypot: HoneypotConfig{
 				// All presets OFF by default. Treating a real path on an

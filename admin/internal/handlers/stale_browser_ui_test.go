@@ -31,11 +31,13 @@ func TestSettingsUAFilterTabRendersStaleCard(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		`name="stale_browser_challenge"`,                 // the toggle
-		`name="current_chrome_major"`,                    // the optional override field
-		`name="stale_browser_lag" `,                      // the lag field
-		`name="stale_browser_action"`,                    // the action select
-		strconv.Itoa(settings.DefaultCurrentChromeMajor), // baseline placeholder
+		`name="stale_browser_challenge"`,                  // the toggle
+		`name="current_chrome_major"`,                     // the optional override field
+		`name="current_firefox_major"`,                    // the Firefox twin
+		`name="stale_browser_lag" `,                       // the lag field
+		`name="stale_browser_action"`,                     // the action select
+		strconv.Itoa(settings.DefaultCurrentChromeMajor),  // baseline placeholder
+		strconv.Itoa(settings.DefaultCurrentFirefoxMajor), // firefox baseline placeholder
 		`</html>`, // no truncation
 	} {
 		if !strings.Contains(body, want) {
@@ -49,5 +51,38 @@ func TestSettingsUAFilterTabRendersStaleCard(t *testing.T) {
 	// The operator's lag (12) must be the selected value, not the default.
 	if !strings.Contains(body, `value="12"`) {
 		t.Error("configured lag must render in the field")
+	}
+	// CurrentChromeMajor unset -> the AUTOMATIC radio is selected and the
+	// manual input is disabled (so a form submit round-trips the unset state).
+	if !strings.Contains(body, `name="stale_chrome_src" value="auto" checked`) {
+		t.Error("unset chrome major must select the automatic radio")
+	}
+	if !strings.Contains(body, `id="stale-chrome-manual" name="current_chrome_major" min="1" max="999" value="" disabled`) {
+		t.Error("unset chrome major must disable the manual input")
+	}
+}
+
+// TestSettingsUAFilterStaleManualRadio: an operator-pinned current major flips
+// the row to the MANUAL radio with the input enabled and carrying the value.
+func TestSettingsUAFilterStaleManualRadio(t *testing.T) {
+	h := newTestHandler(t)
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Global.StaleBrowserChallenge = true
+		s.Global.CurrentChromeMajor = 148
+	})
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, `name="stale_chrome_src" value="manual" checked`) {
+		t.Error("pinned chrome major must select the manual radio")
+	}
+	if !strings.Contains(body, `name="current_chrome_major" min="1" max="999" value="148" `) ||
+		strings.Contains(body, `value="148" disabled`) {
+		t.Error("pinned chrome major must render enabled with the value")
+	}
+	// Firefox stays automatic.
+	if !strings.Contains(body, `name="stale_firefox_src" value="auto" checked`) {
+		t.Error("firefox must stay on the automatic radio")
 	}
 }

@@ -59,33 +59,81 @@ func TestChromeMajor(t *testing.T) {
 
 func TestIsStaleBrowser(t *testing.T) {
 	const cur, lag = 150, 11 // catch <=139, the incident threshold
+	const curFF = 152        // Firefox stable baseline
+	ffESR := []int{140}      // exempt ESR majors
 	scraper := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.5 Safari/537.36"
 	current := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36"
 	oneBehind := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 	safari := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-	if !IsStaleBrowser(scraper, cur, lag) {
+	if !IsStaleBrowser(scraper, cur, curFF, ffESR, lag) {
 		t.Error("Chrome/139 must be stale at current=150 lag=11")
 	}
-	if IsStaleBrowser(current, cur, lag) {
+	if IsStaleBrowser(current, cur, curFF, ffESR, lag) {
 		t.Error("Chrome/150 must not be stale")
 	}
-	if IsStaleBrowser(oneBehind, cur, lag) {
+	if IsStaleBrowser(oneBehind, cur, curFF, ffESR, lag) {
 		t.Error("Chrome/149 (1 behind) must not be stale at lag=11")
 	}
-	// Safari has no Chrome token -> never stale (would be catastrophic to
-	// challenge every Mac visitor).
-	if IsStaleBrowser(safari, cur, lag) {
-		t.Error("Safari must never be treated as a stale Chrome")
+	// Safari carries neither token -> never stale (its numbering jumped
+	// 18 -> 26 and it is OS-pinned; challenging every Mac visitor would be
+	// catastrophic).
+	if IsStaleBrowser(safari, cur, curFF, ffESR, lag) {
+		t.Error("Safari must never be treated as a stale browser")
 	}
 	// Boundary: exactly lag behind is stale (>=).
 	edge := "Mozilla/5.0 ... Chrome/139.0.0.0 Safari/537.36"
-	if !IsStaleBrowser(edge, 150, 11) {
+	if !IsStaleBrowser(edge, 150, curFF, ffESR, 11) {
 		t.Error("exactly lag behind must be stale")
 	}
 	// Feature-off inputs are inert regardless of UA.
-	if IsStaleBrowser(scraper, 0, 11) || IsStaleBrowser(scraper, 150, 0) {
-		t.Error("unset current/lag must disable the check")
+	if IsStaleBrowser(scraper, 0, 0, ffESR, 11) || IsStaleBrowser(scraper, 150, curFF, ffESR, 0) {
+		t.Error("unset currents/lag must disable the check")
+	}
+
+	// Firefox: same lag over its own current stable.
+	ffOld := "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0"
+	ffCurrent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
+	ffESRUA := "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+	ffJustStale := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
+	if !IsStaleBrowser(ffOld, cur, curFF, ffESR, lag) {
+		t.Error("Firefox/115 (EOL ESR) must be stale at current=152 lag=11")
+	}
+	if IsStaleBrowser(ffCurrent, cur, curFF, ffESR, lag) {
+		t.Error("Firefox/152 (current) must not be stale")
+	}
+	// The current ESR trails stable beyond lag but is a supported, fully
+	// patched release (enterprise / distro default) -> exempt.
+	if IsStaleBrowser(ffESRUA, cur, curFF, ffESR, lag) {
+		t.Error("Firefox ESR major must be exempt")
+	}
+	// The exemption is exact: one above the ESR, still >= lag behind, is stale.
+	if !IsStaleBrowser(ffJustStale, cur, curFF, ffESR, lag) {
+		t.Error("Firefox/141 (11 behind, not the ESR) must be stale")
+	}
+	// Firefox side alone can be disabled by an unset current.
+	if IsStaleBrowser(ffOld, cur, 0, ffESR, lag) {
+		t.Error("unset Firefox current must leave Firefox UAs untouched")
+	}
+}
+
+func TestFirefoxMajor(t *testing.T) {
+	cases := []struct {
+		ua   string
+		want int
+	}{
+		{"Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0", 152},
+		{"Mozilla/5.0 (Android 15; Mobile; rv:140.0) Gecko/140.0 Firefox/140.0", 140},
+		// iOS Firefox is WebKit (FxiOS token, no Firefox/ token) -> 0.
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/141.0 Mobile/15E148 Safari/605.1.15", 0},
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36", 0},
+		{"Firefox/141", 0}, // no trailing dot -> not the token shape
+		{"", 0},
+	}
+	for _, c := range cases {
+		if got := FirefoxMajor(c.ua); got != c.want {
+			t.Errorf("FirefoxMajor(%q)=%d want %d", c.ua, got, c.want)
+		}
 	}
 }
 

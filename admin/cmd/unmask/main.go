@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
@@ -592,6 +593,16 @@ func cmdServe(args []string) error {
 	}
 	h.IPRangeSync = ipSync
 	go ipSync.Start(context.Background())
+
+	// Same hub-subscribe pattern for the stale-browser tier's current-stable
+	// baselines (Chrome / Firefox + ESR).  Always on and harmless when the
+	// tier is off — the values just sit ready.  A pull only ever RAISES the
+	// effective baselines above the shipped built-ins (settings-side max()),
+	// so failures are non-fatal in both directions.
+	bmSync := browsermajors.NewSync()
+	bmSync.UserAgent = "unmask/" + Version
+	h.BrowserSync = bmSync
+	go bmSync.Start(context.Background())
 
 	mux := buildRouter(s, h)
 

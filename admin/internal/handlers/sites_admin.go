@@ -73,7 +73,9 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 	if strings.TrimSpace(r.FormValue("site_mode")) == settings.SiteModeDefined {
 		c.Mode = settings.SiteModeDefined
 	} else {
-		c.Mode = settings.SiteModeAuto
+		// "auto" IS the resolve default (ResolvedMode) — store the
+		// non-deviation as unset so a no-op save leaves the config untouched.
+		c.Mode = ""
 	}
 	seen := map[string]bool{}
 	defined := []string{}

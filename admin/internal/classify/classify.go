@@ -390,27 +390,78 @@ func ChromeMajor(ua string) int {
 	return v
 }
 
-// IsStaleBrowser reports whether a UA advertises a Chromium-family major that
-// is at least lagN releases behind currentMajor (the operator-maintained
-// "current stable", since unmask cannot know it on its own).  A distributed
-// scraper that pins one outdated Chrome build (the 2026-07-15 uic.io incident
-// pinned Chrome/139 while stable was 150) is caught here; a genuine visitor on
-// a slightly old browser is at most a few majors behind and is not.
+// firefoxMajorRE captures the Firefox major version.  Desktop and Android
+// Firefox carry a `Firefox/<major>.` token and follow the same ~4-week major
+// cadence as Chromium, so one lag knob covers both families.  iOS Firefox
+// (FxiOS/) is WebKit with its own version scheme and carries no Firefox
+// token — FirefoxMajor returns 0 for it, like for Safari itself.
+var firefoxMajorRE = regexp.MustCompile(`Firefox/(\d+)\.`)
+
+// FirefoxMajor returns the Firefox major version a UA advertises, or 0 when
+// the UA carries no `Firefox/<major>.` token.  The trailing dot anchors the
+// major the same way ChromeMajor's does.
+func FirefoxMajor(ua string) int {
+	if ua == "" {
+		return 0
+	}
+	m := firefoxMajorRE.FindStringSubmatch(ua)
+	if m == nil {
+		return 0
+	}
+	v, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// IsStaleBrowser reports whether a UA advertises a Chromium-family or Firefox
+// major that is at least lagN releases behind that family's current stable
+// (operator-maintained / shipped baselines, since unmask cannot know them on
+// its own).  A distributed scraper that pins one outdated build (the
+// 2026-07-15 uic.io incident pinned Chrome/139 while stable was 150) is
+// caught here; a genuine visitor on a slightly old browser is at most a few
+// majors behind and is not.
 //
-// Returns false when the feature inputs are unset (currentMajor<=0 or lagN<=0)
-// or the UA is not Chromium (ChromeMajor==0), so callers can pass raw config
+// Chromium and Firefox share the ~4-week major cadence, so one lagN spans
+// both families.  ffESRExempt lists the supported Firefox ESR majors (both
+// the old and the new one during a transition window): ESR is a fully
+// patched release that legitimately trails stable by up to ~15 majors
+// (enterprise / Debian default), so without the exemption every ESR user
+// would be challenged.  A bot pinning exactly an ESR UA slips this tier —
+// the cost of not CAPTCHAing the real ESR population; the other axes
+// (JA4 / rate-limit / behavioral) still apply to it.
+//
+// Safari is NOT covered by design: its major numbering jumped (18 → 26 in
+// 2025), breaking "N behind" arithmetic, and its version is pinned to the OS
+// — old-but-genuine Safari UAs are far more common than old Chrome ones.  A
+// Safari UA carries neither token and passes untouched.
+//
+// Returns false when the feature inputs are unset (both currents <=0 or
+// lagN<=0) or the UA carries neither token, so callers can pass raw config
 // without pre-guarding.  The comparison is "at least lagN behind"
-// (currentMajor-major >= lagN): with currentMajor=150 and lagN=11, Chrome/139
-// and older are stale while Chrome/140+ pass.
-func IsStaleBrowser(ua string, currentMajor, lagN int) bool {
-	if currentMajor <= 0 || lagN <= 0 {
+// (current-major >= lagN): with current=150 and lagN=11, Chrome/139 and
+// older are stale while Chrome/140+ pass.
+func IsStaleBrowser(ua string, curChrome, curFirefox int, ffESRExempt []int, lagN int) bool {
+	if lagN <= 0 {
 		return false
 	}
-	major := ChromeMajor(ua)
-	if major <= 0 {
-		return false
+	if curChrome > 0 {
+		if major := ChromeMajor(ua); major > 0 {
+			return curChrome-major >= lagN
+		}
 	}
-	return currentMajor-major >= lagN
+	if curFirefox > 0 {
+		if major := FirefoxMajor(ua); major > 0 {
+			for _, esr := range ffESRExempt {
+				if esr > 0 && major == esr {
+					return false
+				}
+			}
+			return curFirefox-major >= lagN
+		}
+	}
+	return false
 }
 
 // UpstreamRescueEntry is one UA pattern auto-rescued via crawler-user-agents.json
