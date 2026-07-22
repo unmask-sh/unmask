@@ -185,6 +185,18 @@ func crawlerDisplayName(pattern string) string {
 	return name
 }
 
+// CrawlerNameFromPattern is the exported crawlerDisplayName: it turns a
+// crawler-user-agents.json / UA-range preset regex pattern into the same
+// readable crawler token the drill-down aggregation keys on.  Callers pair it
+// with a range-verified UA-pattern set (nginxconf.EffectiveRangeVerifiedPatterns)
+// to decide, per drill-down crawler row, whether that crawler is IP-range
+// verified -- so the "served" figure there can be read as spoofed traffic
+// (a range-verified vendor's genuine bots are bypassed, never served) rather
+// than as the vendor being blocked.
+func CrawlerNameFromPattern(pattern string) string {
+	return crawlerDisplayName(pattern)
+}
+
 // classRep returns a representative byte for a character-class body, or 0 when
 // the class carries no clean letter (a range `a-z` or negation `^...`).  It
 // prefers an uppercase ASCII letter (so `[cC]` -> 'C', matching the usual

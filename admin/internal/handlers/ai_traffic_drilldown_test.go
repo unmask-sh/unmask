@@ -71,6 +71,78 @@ func TestAITrafficDrilldownQuery(t *testing.T) {
 	}
 }
 
+// TestAITrafficDrilldownRangeVerified checks the RangeVerified flag: a crawler
+// whose vendor publishes IP ranges is marked ONLY when every backing preset is
+// enabled (so its genuine bots are bypassed and its "served" is all spoof),
+// while a vendor with no published range is never marked.
+func TestAITrafficDrilldownRangeVerified(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{DB: d}
+	nowHour := time.Now().Unix() / 3600
+	ins := func(cat, crawler string, total, served int) {
+		if _, err := d.Exec(
+			`INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served) VALUES (?,?,?,?,?)`,
+			nowHour, cat, crawler, total, served); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ins("search-engine", "Googlebot", 34119, 34112) // range vendor
+	ins("search-engine", "bingbot", 7356, 0)        // range vendor
+	ins("search-engine", "Yeti", 427, 50)           // NO published range
+
+	rvOf := func() map[string]bool {
+		got := aiTrafficDrilldown(context.Background(), h, 1440)
+		out := map[string]bool{}
+		for _, r := range got["search-engine"] {
+			out[r.Crawler] = r.RangeVerified
+		}
+		return out
+	}
+
+	// No presets enabled -> nothing is range-verified (UA-only rescue), so a
+	// crawler's served could still be genuine: never claim it as spoof.
+	h.SetSettings(settings.Settings{})
+	if rv := rvOf(); rv["Googlebot"] || rv["bingbot"] || rv["Yeti"] {
+		t.Errorf("presets off: nothing should be range-verified, got %+v", rv)
+	}
+
+	// Google's three range presets + bing enabled, past the seen-version gate.
+	h.SetSettings(settings.Settings{Nginx: settings.Nginx{
+		SeenVersion:            "v0.1.7",
+		BypassIPEnabledPresets: []string{"google-common", "google-special", "google-user-triggered", "bing"},
+	}})
+	rv := rvOf()
+	if !rv["Googlebot"] {
+		t.Error("Googlebot should be range-verified when all google presets are on")
+	}
+	if !rv["bingbot"] {
+		t.Error("bingbot should be range-verified when the bing preset is on")
+	}
+	if rv["Yeti"] {
+		t.Error("Yeti has no published range and must never be range-verified")
+	}
+
+	// A partial Google set (one preset missing) reverts Google to UA-only.
+	h.SetSettings(settings.Settings{Nginx: settings.Nginx{
+		SeenVersion:            "v0.1.7",
+		BypassIPEnabledPresets: []string{"google-common", "bing"},
+	}})
+	rv = rvOf()
+	if rv["Googlebot"] {
+		t.Error("Googlebot must NOT be range-verified when only part of its preset set is on")
+	}
+	if !rv["bingbot"] {
+		t.Error("bingbot should stay range-verified (its single preset is still on)")
+	}
+}
+
 // TestSparkPoints checks the sparkline polyline generator: degenerate series
 // draw nothing, and a ramp rises (its last/peak point sits higher on screen =
 // a smaller y than the first).
