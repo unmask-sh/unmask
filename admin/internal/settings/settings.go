@@ -1646,9 +1646,9 @@ const (
 	DefaultCurrentChromeMajor = 150
 	// DefaultCurrentFirefoxMajor: the Firefox stable major current when this
 	// binary was built.  Same shipped-baseline contract as
-	// DefaultCurrentChromeMajor — **bump each release**.  (152 = stable on
-	// 2026-07.)
-	DefaultCurrentFirefoxMajor = 152
+	// DefaultCurrentChromeMajor — **bump each release**.  (153 = stable on
+	// 2026-07-22.)
+	DefaultCurrentFirefoxMajor = 153
 	// DefaultFirefoxESRMajor: the current Firefox ESR major, exempted from the
 	// stale tier (a supported, fully-patched release that legitimately trails
 	// stable — enterprise / Debian default).  **Bump each release** when a new
