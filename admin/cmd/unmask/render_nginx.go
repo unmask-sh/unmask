@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
@@ -47,6 +48,14 @@ func cmdRenderNginx(args []string) error {
 	// absent dir falls back to the embedded snapshot, so installs that never
 	// pulled are unaffected.
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
+
+	// Load the hub-pulled browser baselines (stale-browser tier) the daemon
+	// persists, for the same reason: a standalone render must emit the SAME
+	// $unmask_stale_browser pattern as the running daemon.  Absent state falls
+	// back to the shipped built-ins.
+	if err := browsermajors.LoadState(""); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: browser-majors state: %v (using built-in baselines)\n", err)
+	}
 
 	// Probe nginx so Render's "auto" rate-compose mode resolves the SAME way the
 	// daemon does (compose on nginx 1.17.6+, classic below) -- otherwise a

@@ -754,10 +754,18 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 		}
 	}
 	if listed, category := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
+		// The black-list chain is the operator's ChallengeTargets.DefaultAction
+		// (ua-filter tab picker), keeping this axis in sync with native
+		// ServeChallenge.  Unset keeps the historical fixed captcha_only.
+		act := strings.TrimSpace(cfg.Nginx.ChallengeTargets.DefaultAction)
+		if !settings.IsValidRateChallengeMode(act) {
+			act = settings.RateChallengeCaptchaOnly
+		}
+		s := severityFromAction(act)
 		return axisDecision{
-			sev:    sevCaptchaOnly,
+			sev:    s,
 			reason: "ua:target:" + listed,
-			chMode: settings.RateChallengeCaptchaOnly,
+			chMode: chModeFromSeverity(s),
 		}, true
 	}
 	var pick string
@@ -779,7 +787,8 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 	// a bypass-IP monitoring probe / search bot / valid _bv never reaches here.
 	staleReason := ""
 	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
-		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.StaleBrowserLagN()) {
+		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
+			g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
 		pick = g.StaleBrowserResolvedAction()
 		staleReason = "ua:stale_browser:" + pick
 	}

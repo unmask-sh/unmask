@@ -506,6 +506,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 	sort.Strings(scopeHosts)
 
+	staleAutoChrome, staleAutoChromeSrc := settings.AutoChromeBaseline()
+	staleAutoFF, staleAutoFFSrc := settings.AutoFirefoxBaseline()
+
 	return map[string]any{
 		"Lang":                i18n.Resolve(r),
 		"TZ":                  resolveTZ(r),
@@ -566,11 +569,33 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Global":       h.snapshotSettings().Global,
 		// Shipped current-Chrome-major baseline shown as the placeholder for the
 		// stale-browser tier's optional override field.
-		"StaleBrowserBaseline": settings.DefaultCurrentChromeMajor,
-		"IPGeoMMDBPath":        ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath":     ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":          h.IPGeo != nil && h.IPGeo.Loaded(),
-		"IPGeoASNLoaded":       h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"StaleBrowserBaseline":   settings.DefaultCurrentChromeMajor,
+		"StaleBrowserFFBaseline": settings.DefaultCurrentFirefoxMajor,
+		"StaleBrowserLagDefault": settings.DefaultStaleBrowserLag,
+		// Automatic-baseline rows: the value the tier would use with no manual
+		// override, its origin (hub / builtin), when the last hub pull
+		// happened (operator cookie TZ), and the exempt ESR majors.
+		"StaleAutoChrome":    staleAutoChrome,
+		"StaleAutoChromeSrc": staleAutoChromeSrc,
+		"StaleAutoFF":        staleAutoFF,
+		"StaleAutoFFSrc":     staleAutoFFSrc,
+		"StaleHubFetchedAt": func() string {
+			if hub, ok := settings.HubBrowserBaselines(); ok && !hub.FetchedAt.IsZero() {
+				return hub.FetchedAt.In(loc).Format("2006-01-02 15:04")
+			}
+			return ""
+		}(),
+		"StaleESRList": func() string {
+			var parts []string
+			for _, m := range h.snapshotSettings().Global.FirefoxESRMajors() {
+				parts = append(parts, strconv.Itoa(m))
+			}
+			return strings.Join(parts, ", ")
+		}(),
+		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
+		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -587,9 +612,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Roaming: how many networks one _bv pass cookie stays valid on, and the
 		// active new-IP rebind mode (strict / asn / any) for the radio group.
 		// ASNDBLoaded drives the "asn mode but no ASN db -> behaves like any" note.
-		"RoamingCap":  h.cfg().Rebind.MaxEntriesResolved(),
-		"RoamingMode": h.cfg().Rebind.RebindMode(),
-		"ASNDBLoaded": h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"RoamingCap":    h.cfg().Rebind.MaxEntriesResolved(),
+		"RoamingCapRaw": h.cfg().Rebind.MaxEntries,
+		"RoamingMode":   h.cfg().Rebind.RebindMode(),
+		"ASNDBLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Active-row metadata for the in-line vendor / build / size badges.
 		"IPGeoActiveInfo": func() IPGeoPathInfo {
 			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBPath, loc)
@@ -1053,7 +1079,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1123,13 +1149,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
 		validBucket := func(v string) string {
 			v = strings.TrimSpace(v)
-			if v == "" || v == "pass" {
-				return "pass"
-			}
-			if settings.IsValidRateChallengeMode(v) {
+			if v == "pass" || settings.IsValidRateChallengeMode(v) {
 				return v
 			}
-			return "pass"
+			// Unset/garbage stores "" = the strict built-in default
+			// (pow_only).  The old fallback was "pass", which turned a
+			// malformed POST into a fail-open wave-through.
+			return ""
 		}
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
@@ -1172,17 +1198,22 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return n
 		}
 		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
+		cur.Global.CurrentFirefoxMajor = parseIntInRange(r.FormValue("current_firefox_major"), 1, 999)
 		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
 		if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
 			cur.Global.StaleBrowserAction = a
 		} else {
 			cur.Global.StaleBrowserAction = ""
 		}
-		// Black-list default action (= independent of rate-limit chain).
-		if v := strings.TrimSpace(r.FormValue("ua_black_action")); v != "" {
-			if settings.IsValidRateChallengeMode(v) {
-				cur.Nginx.ChallengeTargets.DefaultAction = v
-			}
+		// Black-list default action (= independent of rate-limit chain).  A
+		// blank/invalid value RESETS to unset so the picker's "(unset)" option
+		// round-trips: a tab save without an explicit choice must not pin the
+		// displayed fallback (that pin is how every fleet node ended up with
+		// pow_then_captcha here).
+		if v := strings.TrimSpace(r.FormValue("ua_black_action")); settings.IsValidRateChallengeMode(v) {
+			cur.Nginx.ChallengeTargets.DefaultAction = v
+		} else {
+			cur.Nginx.ChallengeTargets.DefaultAction = ""
 		}
 	case "ja4-verdicts":
 		if err := applyJA4VerdictsForm(&cur.Nginx, r, lang); err != nil {
@@ -1226,7 +1257,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		// Roaming: how many networks one _bv pass cookie stays valid on, and the
 		// new-IP rebind policy (strict / asn / any).  Both live on cur.Rebind.
-		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("roaming_cap"))); err == nil {
+		if raw := strings.TrimSpace(r.FormValue("roaming_cap")); raw == "" {
+			// Blank field = unset: track MaxEntriesResolved's ceiling default.
+			cur.Rebind.MaxEntries = 0
+		} else if v, err := strconv.Atoi(raw); err == nil {
 			if v < 1 {
 				v = 1
 			} else if v > 16 {
@@ -2110,7 +2144,10 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	}
 
 	// ── blocklist (= legacy challenge-targets) ──────────
-	n.ChallengeTargets.All = r.FormValue("black_all") != ""
+	// ChallengeTargets.All has NO control on this form (the black_all checkbox
+	// was removed with the preset overhaul), so the save must not touch it —
+	// reading the absent field here forced All=false on every ua-filter save,
+	// silently flipping a config-file-managed all:true install.
 	blackEnabled := map[string]bool{}
 	for _, id := range r.Form["black_presets"] {
 		blackEnabled[id] = true
@@ -2347,10 +2384,12 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 	n.Honeypot.URLs = urls
 
 	// honeypot default action (= chain for trips).
-	if v := strings.TrimSpace(r.FormValue("honeypot_default_action")); v != "" {
-		if settings.IsValidRateChallengeMode(v) {
-			n.Honeypot.DefaultAction = v
-		}
+	// Blank/invalid resets to unset (= the picker's "(unset)" option) so a
+	// no-op tab save cannot pin the displayed fallback.
+	if v := strings.TrimSpace(r.FormValue("honeypot_default_action")); settings.IsValidRateChallengeMode(v) {
+		n.Honeypot.DefaultAction = v
+	} else {
+		n.Honeypot.DefaultAction = ""
 	}
 	// Bans.ManualDefaultAction / CommunityBansDefaultAction are edited on the
 	// bans page itself (= /admin/bans/, op=save-defaults).  Keeping them off
@@ -2540,10 +2579,12 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	n.JA4Verdicts.ExtraUpdatedAt = outUpdated
 
 	// JA4 default action (= challenge chain when ja4 hits action=bot).
-	if v := strings.TrimSpace(r.FormValue("ja4_default_action")); v != "" {
-		if settings.IsValidRateChallengeMode(v) {
-			n.JA4Verdicts.DefaultAction = v
-		}
+	// Blank/invalid resets to unset (= the picker's "(unset)" option) so a
+	// no-op tab save cannot pin the displayed fallback.
+	if v := strings.TrimSpace(r.FormValue("ja4_default_action")); settings.IsValidRateChallengeMode(v) {
+		n.JA4Verdicts.DefaultAction = v
+	} else {
+		n.JA4Verdicts.DefaultAction = ""
 	}
 	// JA4 per-preset action override.
 	presetActions := map[string]string{}
@@ -2726,10 +2767,12 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.ProtectedPaths.EnabledPresets = enabled
 
 	// Protected default action.
-	if v := strings.TrimSpace(r.FormValue("protected_default_action")); v != "" {
-		if settings.IsValidRateChallengeMode(v) {
-			n.ProtectedPaths.DefaultAction = v
-		}
+	// Blank/invalid resets to unset (= the picker's "(unset)" option) so a
+	// no-op tab save cannot pin the displayed fallback.
+	if v := strings.TrimSpace(r.FormValue("protected_default_action")); settings.IsValidRateChallengeMode(v) {
+		n.ProtectedPaths.DefaultAction = v
+	} else {
+		n.ProtectedPaths.DefaultAction = ""
 	}
 	// per-preset action override.
 	presetActions := map[string]string{}
@@ -3161,6 +3204,10 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 			return fmt.Errorf("pow_difficulty must be an integer in 8-24 (got %q)", v)
 		}
 		c.PowDifficulty = n
+	} else {
+		// Blank field = unset: track ResolvedPowDifficulty's built-in default
+		// instead of pinning today's number.
+		c.PowDifficulty = 0
 	}
 	if v := strings.TrimSpace(r.FormValue("debug_rate_limit_per_5min")); v != "" {
 		n, err := strconv.Atoi(v)
@@ -3192,6 +3239,11 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("rate_limit_key")); v != "" {
 		if !settings.IsValidRateLimitKey(v) {
 			return fmt.Errorf("rate_limit_key must be one of ip / ja4 / ip+ja4 (got %q)", v)
+		}
+		// "ip" IS the resolve default (ResolvedKey) — store the non-deviation
+		// as unset so a no-op save leaves the config untouched.
+		if v == settings.RateLimitKeyIP {
+			v = ""
 		}
 		c.Key = v
 	}
@@ -3377,6 +3429,11 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("geo_default_action")); v != "" {
 		if !settings.IsValidGeoAction(v) {
 			return fmt.Errorf("geo_default_action invalid (got %q)", v)
+		}
+		// "skip" IS the resolve default (ResolvedDefaultAction) — store the
+		// non-deviation as unset so a no-op save leaves the config untouched.
+		if v == settings.GeoActionSkip {
+			v = ""
 		}
 		c.DefaultAction = v
 	} else {
@@ -4309,7 +4366,10 @@ func applyWebBotAuthForm(c *settings.WebBotAuthConfig, r *http.Request) {
 		add(op)
 	}
 
-	if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue("cache_ttl_sec"))); err == nil && n > 0 {
+	if raw := strings.TrimSpace(r.FormValue("cache_ttl_sec")); raw == "" {
+		// Blank field = unset (the verifier's built-in TTL applies).
+		c.CacheTTLSec = 0
+	} else if n, err := strconv.Atoi(raw); err == nil && n > 0 {
 		c.CacheTTLSec = n
 	}
 }

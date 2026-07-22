@@ -11,7 +11,10 @@ func TestRebindModeRoundTrip(t *testing.T) {
 		asnVeto  string
 	}{
 		{"strict", true, ""},
-		{"asn", false, "auto"},
+		// "asn" is the default posture: stored as the non-deviation ("" —
+		// ASNVetoResolved supplies auto) so picking the default radio
+		// round-trips a config that never set the key.
+		{"asn", false, ""},
 		{"any", false, "off"},
 	}
 	for _, c := range cases {

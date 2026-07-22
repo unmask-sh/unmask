@@ -158,10 +158,15 @@ func TestApplySitesForm(t *testing.T) {
 		}
 	}
 
-	// any non-"defined" mode value coerces to auto.
+	// any non-"defined" mode value coerces to auto, stored as the unset
+	// non-deviation ("" — ResolvedMode supplies auto) so a no-op save leaves
+	// an auto-mode config untouched.
 	applySitesForm(c, form("garbage", ""))
-	if c.Mode != settings.SiteModeAuto {
-		t.Errorf("mode = %q, want auto", c.Mode)
+	if c.Mode != "" {
+		t.Errorf("mode = %q, want \"\" (unset = auto)", c.Mode)
+	}
+	if c.ResolvedMode() != settings.SiteModeAuto {
+		t.Errorf("ResolvedMode = %q, want auto", c.ResolvedMode())
 	}
 }
 
