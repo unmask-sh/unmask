@@ -115,14 +115,22 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	loc := resolveLocation(r)
 
 	// upstream rescue summary: aggregate pattern counts for the UI banner.
+	// The count (and every checkbox below) shows the *effective* UA-string
+	// rescue: explicit disable list plus the range-backed patterns whose UA
+	// rescue is off (nginxconf.EffectiveUpstreamUAOff) — those are rescued
+	// by the vendor's IP ranges instead, which the per-pattern badge says.
 	upstreamRescue := classify.UpstreamRescueList()
 	upstreamDisabledSet := toSet(cur.SearchBots.UpstreamDisabled)
+	upstreamUAOffView := nginxconf.EffectiveUpstreamUAOff(cur)
+	for p := range upstreamDisabledSet {
+		upstreamUAOffView[p] = true
+	}
 	upstreamTotal := 0
 	upstreamEnabled := 0
 	for _, entries := range upstreamRescue {
 		for _, e := range entries {
 			upstreamTotal++
-			if !upstreamDisabledSet[e.Pattern] {
+			if !upstreamUAOffView[e.Pattern] {
 				upstreamEnabled++
 			}
 		}
@@ -136,14 +144,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}
 	}
 	// Range-verification badges for the detail modal: which patterns have a
-	// published vendor IP range at all (backed), and which are currently
-	// inverted to range verification (active = every preset enabled + past
-	// the NEW gate).  catHasRV drives the per-category legend line.
+	// published vendor IP range at all (backed), and which of the two
+	// independent rescue paths are live for each ("ip" / "or" / "ua" /
+	// "none", see nginxconf.UpstreamRVStates).  catHasRV drives the
+	// per-category legend line.  UpstreamUAOff feeds the checkbox state so
+	// the UI shows the *effective* UA rescue, explicit or auto.
 	upstreamRangeBacked := make(map[string]bool, len(nginxconf.UARangePresets))
 	for pat := range nginxconf.UARangePresets {
 		upstreamRangeBacked[pat] = true
 	}
-	upstreamRangeActive := nginxconf.EffectiveRangeVerifiedPatterns(cur)
+	upstreamRVState := nginxconf.UpstreamRVStates(cur)
 	upstreamCatHasRV := map[string]bool{}
 	for cat, entries := range upstreamRescue {
 		for _, e := range entries {
@@ -603,13 +613,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"LBExtras":                   buildLBExtraView(cur),
 		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt),
 		"UpstreamRescue":             upstreamRescue,
-		"UpstreamDisabled":           upstreamDisabledSet,
+		"UpstreamUAOff":              upstreamUAOffView,
 		"UpstreamRescueTotal":        upstreamTotal,
 		"UpstreamRescueEnabled":      upstreamEnabled,
 		"UpstreamGroupMode":          upstreamGroupMode,
 		"UpstreamGroupAction":        upstreamGroupAction,
 		"UpstreamRangeBacked":        upstreamRangeBacked,
-		"UpstreamRangeActive":        upstreamRangeActive,
+		"UpstreamRVState":            upstreamRVState,
 		"UpstreamCatHasRV":           upstreamCatHasRV,
 		"JA4Groups":                  ja4Groups,
 		"JA4Rules":                   ja4ExtraRules,
@@ -2050,6 +2060,25 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 		upDisabled = append(upDisabled, p)
 	}
 	n.SearchBots.UpstreamDisabled = upDisabled
+
+	// Explicit UA-string rescue opt-in for range-backed patterns.  The
+	// submit JS mirrors every range-backed checkbox into exactly one of the
+	// two hidden lists (checked -> upstream_ua_enabled, unchecked ->
+	// upstream_disabled), so a saved UA-filter tab is fully explicit and the
+	// preset-driven auto default (uarange.go) no longer applies to it.
+	// Non-range-backed patterns are dropped: UA rescue is their only path,
+	// so listing them would be dead weight in the YAML.
+	seenUA := map[string]bool{}
+	uaEnabled := []string{}
+	for _, p := range r.Form["upstream_ua_enabled"] {
+		p = strings.TrimSpace(p)
+		if p == "" || seenUA[p] || seen[p] || nginxconf.RangeVerifiedPresetIDs(p) == nil {
+			continue
+		}
+		seenUA[p] = true
+		uaEnabled = append(uaEnabled, p)
+	}
+	n.SearchBots.UpstreamUAEnabled = uaEnabled
 
 	// upstream group mode: each category is white / black / none.
 	// Only store entries that differ from the built-in default (= keeps

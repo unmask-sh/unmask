@@ -87,4 +87,27 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 	if strings.Contains(stale, `"~*Googlebot\/" 1;`) {
 		t.Error("seenVer v0.1.6: Googlebot (v0.1-era presets) must be inverted")
 	}
+
+	// Explicit lists beat the auto default in both directions and decouple
+	// the two axes: an UpstreamUAEnabled pattern keeps its UA line although
+	// every preset is live (OR state), and an UpstreamDisabled pattern stays
+	// out of the UA map although its presets are off (no UA-only fallback).
+	explicit := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.BypassIPEnabledPresets = allOn
+		s.Nginx.SeenVersion = "v0.1.7"
+		s.Nginx.SearchBots.UpstreamUAEnabled = []string{`Googlebot\/`}
+	})
+	if !strings.Contains(explicit, `"~*Googlebot\/" 1;`) {
+		t.Error("UpstreamUAEnabled: Googlebot must keep its UA line (OR state)")
+	}
+	if strings.Contains(explicit, `"~*bingbot" 1;`) {
+		t.Error("UpstreamUAEnabled: unrelated bingbot must stay off the UA map")
+	}
+	explicitOff := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.SeenVersion = "v0.1.7"
+		s.Nginx.SearchBots.UpstreamDisabled = []string{`Googlebot\/`}
+	})
+	if strings.Contains(explicitOff, `"~*Googlebot\/" 1;`) {
+		t.Error("UpstreamDisabled + presets off: Googlebot must NOT fall back to the UA map")
+	}
 }

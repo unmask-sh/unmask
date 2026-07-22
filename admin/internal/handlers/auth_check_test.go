@@ -539,9 +539,9 @@ func TestIsSearchBotUARangeVerified(t *testing.T) {
 		allOn = append(allOn, nginxconf.BypassIPGroups[i].ID)
 	}
 	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
-	pats := nginxconf.SortedRangeVerifiedPatterns(n)
+	pats := nginxconf.SortedUpstreamUAOff(n)
 	if len(pats) == 0 {
-		t.Fatal("expected inverted patterns with all presets on")
+		t.Fatal("expected UA-off patterns with all presets on")
 	}
 	re := regexp.MustCompile("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
 
