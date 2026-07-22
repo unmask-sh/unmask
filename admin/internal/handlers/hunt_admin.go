@@ -158,6 +158,13 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	ipFilter := strings.TrimSpace(q.Get("ip"))
 	ja4Filter := strings.TrimSpace(q.Get("ja4"))
+	// ua: substring over the stored User-Agent.  Length-capped to the column
+	// width so a pathological paste can't blow up the LIKE; the value rides a ?
+	// placeholder in FetchPaged, so trimming is all the sanitation it needs.
+	uaFilter := strings.TrimSpace(q.Get("ua"))
+	if len(uaFilter) > 255 {
+		uaFilter = uaFilter[:255]
+	}
 	// ref: the support correlation id a blocked visitor quotes.  refFromQuery
 	// pulls the 16-hex id out (tolerating a "Ref ID: <id>" paste) so the search
 	// resolves the exact serve event.
@@ -190,7 +197,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	case "1000":
 		pageSize = 1000
 	}
-	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -425,23 +432,28 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"SinceMin":    sinceMin,
 		"IPFilter":    ipFilter,
 		"JA4Filter":   ja4Filter,
+		"UAFilter":    uaFilter,
 		"RefFilter":   refFilter,
 		"Phase":       phaseFilter,
-		"Rows":        enriched,
-		"IPRank":      ipRank,
-		"JA4Rank":     ja4Rank,
-		"UARank":      uaRank,
-		"Offset":      offset,
-		"PageSize":    pageSize,
-		"NextOffset":  offset + pageSize,
-		"PrevOffset":  maxInt(offset-pageSize, 0),
-		"HasMore":     hasMore,
-		"HasPrev":     offset > 0,
+		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
+		// filter is active (host scope alone doesn't count -- rankings stay
+		// useful when narrowed to one host). The raw-log table still shows.
+		"Filtering":  ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "",
+		"Rows":       enriched,
+		"IPRank":     ipRank,
+		"JA4Rank":    ja4Rank,
+		"UARank":     uaRank,
+		"Offset":     offset,
+		"PageSize":   pageSize,
+		"NextOffset": offset + pageSize,
+		"PrevOffset": maxInt(offset-pageSize, 0),
+		"HasMore":    hasMore,
+		"HasPrev":    offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
 		"PagerSeek": buildHuntPagerSeek(
-			i18n.Resolve(r), rng, ipFilter, ja4Filter, phaseFilter, q,
+			i18n.Resolve(r), rng, ipFilter, ja4Filter, uaFilter, phaseFilter, q,
 			offset, pageSize, offset > 0, hasMore,
 			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
 		),
@@ -781,7 +793,7 @@ func huntRangeText(lang i18n.Lang, offset, gotRows int) string {
 // buildHuntPagerSeek builds a PagerSeekData for the hunt page.  The base
 // query carries range / ip / ja4 / phase plus any host=... selections so
 // pager links keep the operator's filters intact.
-func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, phase string, q url.Values, offset, pageSize int, hasPrev, hasNext bool, rangeText string) PagerSeekData {
+func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, uaFilter, phase string, q url.Values, offset, pageSize int, hasPrev, hasNext bool, rangeText string) PagerSeekData {
 	var sb strings.Builder
 	sb.WriteByte('?')
 	appendIfSet := func(k, v string) {
@@ -796,6 +808,7 @@ func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, phase string, 
 	appendIfSet("range", rng)
 	appendIfSet("ip", ipFilter)
 	appendIfSet("ja4", ja4Filter)
+	appendIfSet("ua", uaFilter)
 	appendIfSet("phase", phase)
 	// host can be repeated (= multi-select).
 	for _, h := range q["host"] {
