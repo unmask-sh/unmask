@@ -1140,10 +1140,10 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 	// whitelist is the narrower NewIPBypassMatcher set without stats_exclude).
 	pm.ipBypass = nginxconf.NewChallengeBypassMatcher(n)
 
-	// Crawler UA patterns inverted to IP-range verification (uarange.go):
-	// one alternation regex.  compileCachedRe memoizes by the joined string,
-	// so the hot path pays a map lookup, not a compile.
-	if pats := nginxconf.SortedRangeVerifiedPatterns(n); len(pats) > 0 {
+	// Range-backed crawler UA patterns whose UA-string rescue is off
+	// (uarange.go): one alternation regex.  compileCachedRe memoizes by the
+	// joined string, so the hot path pays a map lookup, not a compile.
+	if pats := nginxconf.SortedUpstreamUAOff(n); len(pats) > 0 {
 		pm.rangeVerifiedUA = compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
 	}
 

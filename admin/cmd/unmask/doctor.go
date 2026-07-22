@@ -135,7 +135,7 @@ func cmdDoctor(args []string) error {
 	// genuine crawlers arriving from newly added vendor IPs.  The embed
 	// snapshot carries no fetch date (vendors' creationTime can sit for years,
 	// e.g. Applebot), so the synced override files' mtime is the signal.
-	if inverted := nginxconf.EffectiveRangeVerifiedPatterns(s.Nginx); len(inverted) > 0 {
+	if inverted := nginxconf.EffectiveUpstreamUAOff(s.Nginx); len(inverted) > 0 {
 		need := map[string]bool{}
 		for pat := range inverted {
 			for _, id := range nginxconf.UARangePresets[pat] {
@@ -174,6 +174,25 @@ func cmdDoctor(args []string) error {
 			addOK("crawler IP ranges", fmt.Sprintf(
 				"%d preset(s) back %d range-verified crawler UA pattern(s); oldest sync %dd ago",
 				len(need), len(inverted), int(time.Since(oldest).Hours()/24)))
+		}
+	}
+
+	// 2d. crawler patterns with no rescue path at all (UA rescue explicitly
+	// off AND the backing range presets inactive).  Auto resolution never
+	// lands here, so this is always the product of explicit choices — but a
+	// genuine crawler is challenged, which usually means an SEO accident.
+	if states := nginxconf.UpstreamRVStates(s.Nginx); len(states) > 0 {
+		var none []string
+		for pat, st := range states {
+			if st == "none" {
+				none = append(none, pat)
+			}
+		}
+		if len(none) > 0 {
+			sort.Strings(none)
+			addWarn("crawler rescue", fmt.Sprintf(
+				"%d crawler UA pattern(s) have NO rescue path (UA rescue off + range presets inactive) — a genuine crawler gets challenged: %s. Re-enable the pattern on the UA-filter tab or the vendor's range preset on the Bypass IPs tab.",
+				len(none), strings.Join(none, ", ")))
 		}
 	}
 
