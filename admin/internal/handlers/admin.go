@@ -352,6 +352,13 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
+		// Admin pages are per-operator, data-driven, and redeployed often.  With
+		// no Cache-Control the browser applies heuristic caching and serves a
+		// stale dashboard after a redeploy (the inline <style>/markup that make
+		// up a page ride in its HTML, so a cached page hides every UI change).
+		// Default every admin response to no-store; handlers that serve cacheable
+		// bytes (preview images, short-poll JSON) override it with their own Set.
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		// During the install wizard, redirect every admin path to /admin/setup/.
 		if needed, _ := h.SetupNeeded(r); needed {
 			http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/setup/", http.StatusFound)
