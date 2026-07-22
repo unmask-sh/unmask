@@ -1308,6 +1308,14 @@ type SearchBotsConfig struct {
 	// search-engine / ai-crawler / advertising tag.  Edited via the
 	// "details" modal on the settings UI.
 	UpstreamDisabled []string `yaml:"upstream_disabled,omitempty"`
+	// UpstreamUAEnabled: explicit UA-string rescue opt-in for range-backed
+	// patterns (nginxconf.UARangePresets), which otherwise default to
+	// IP-range verification with no UA-only pass.  A listed pattern is
+	// rescued by its UA string in addition to the vendor ranges — the
+	// operator accepts that a spoofed UA passes too.  Non-range-backed
+	// patterns never need listing here (UA rescue is their only path).
+	// See nginxconf.EffectiveUpstreamUAOff for the resolution order.
+	UpstreamUAEnabled []string `yaml:"upstream_ua_enabled,omitempty"`
 	// UpstreamGroupMode: per-group override mapping that places a category
 	// into "white" (auto-pass), "black" (challenge-target), or "none"
 	// (ignore).  Only entries that differ from the built-in default are

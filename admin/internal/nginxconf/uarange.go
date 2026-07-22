@@ -3,17 +3,28 @@
 //
 // Rationale: an attacker picks the most-trusted UA to spoof, and the vendors
 // whose UAs are most spoofed (Google, Bing, OpenAI, ...) are exactly the ones
-// that publish their egress ranges.  So for these patterns UA-only rescue is
-// inverted: the pattern is dropped from the UA whitelist and the rescue rides
-// on the vendor's IP ranges instead (geo $is_bypass_ip / the forward-auth
-// challenge matcher).  A genuine crawler always arrives from a published
-// range, so it still passes; a fake UA from outside the ranges falls through
-// to the normal challenge flow.
+// that publish their egress ranges.  For these patterns the UA string is a
+// name tag, not an ID: the default drops them from the UA whitelist and lets
+// the rescue ride the vendor's IP ranges instead (geo $is_bypass_ip / the
+// forward-auth challenge matcher).  A genuine crawler always arrives from a
+// published range, so it still passes; a fake UA from outside the ranges
+// falls through to the normal challenge flow.
 //
-// Fallback contract (footgun guard): the inversion only applies to a pattern
-// when EVERY preset in its list is enabled AND past the SeenVersion NEW gate.
-// An operator who turns a range preset off gets UA-only rescue back for that
-// vendor — never "UA required AND range off = genuine crawler challenged".
+// The UA axis and the IP-preset axis are independent (each tab's toggle only
+// controls its own rescue path; both ON simply ORs the two paths).  The
+// per-pattern UA state resolves as:
+//
+//  1. listed in SearchBots.UpstreamDisabled  -> UA rescue OFF (explicit)
+//  2. listed in SearchBots.UpstreamUAEnabled -> UA rescue ON  (explicit;
+//     the operator accepts that a spoofed UA passes too)
+//  3. neither (auto) -> OFF while every backing preset is enabled and past
+//     the SeenVersion NEW gate, ON otherwise.  The auto rule keeps two
+//     installs safe without a config migration: a pre-v0.1.7 upgrade (and a
+//     preset an operator keeps off) stays on UA-only rescue -- never "UA
+//     dropped AND range off = genuine crawler challenged" -- and a current
+//     install gets IP-verification by default.  Saving the UA-filter tab
+//     writes the shown state into the explicit lists, after which the IP
+//     tab no longer influences this axis.
 package nginxconf
 
 import (
@@ -107,32 +118,60 @@ var UARangePresets = map[string][]string{
 	`Amazonbot`: {"amazonbot"},
 }
 
-// EffectiveRangeVerifiedPatterns returns the set of upstream UA patterns
-// whose UA-only rescue is replaced by IP-range verification under the given
-// settings: every preset in the pattern's list is enabled and past the
-// SeenVersion NEW gate.  Callers drop these patterns from the UA whitelist
-// (native render) / the search_ai pass (forward-auth) — the enabled range
-// presets then carry the rescue.
-func EffectiveRangeVerifiedPatterns(n settings.Nginx) map[string]bool {
+// RangePresetsActive reports whether every preset backing pattern is enabled
+// and past the SeenVersion NEW gate — i.e. the vendor's published ranges are
+// actually wired into geo $is_bypass_ip / the forward-auth matcher right now.
+// False for patterns with no published range.
+func RangePresetsActive(n settings.Nginx, pattern string) bool {
+	ids := UARangePresets[pattern]
+	if len(ids) == 0 {
+		return false
+	}
 	enabled := make(map[string]bool, len(n.BypassIPEnabledPresets))
 	for _, id := range n.BypassIPEnabledPresets {
 		enabled[id] = true
 	}
-	byID := make(map[string]*BypassIPGroup, len(BypassIPGroups))
+	for _, id := range ids {
+		g := bypassIPGroupByID(id)
+		if g == nil || !enabled[id] || PresetIsNew(n.SeenVersion, g.AddedIn) {
+			return false
+		}
+	}
+	return true
+}
+
+func bypassIPGroupByID(id string) *BypassIPGroup {
 	for i := range BypassIPGroups {
-		byID[BypassIPGroups[i].ID] = &BypassIPGroups[i]
+		if BypassIPGroups[i].ID == id {
+			return &BypassIPGroups[i]
+		}
+	}
+	return nil
+}
+
+// EffectiveUpstreamUAOff returns the set of range-backed upstream UA patterns
+// whose UA-string rescue is effectively off under the given settings (see the
+// package comment for the explicit-lists-then-auto resolution).  Callers drop
+// these patterns from the UA whitelist (native render) / the search_ai pass
+// (forward-auth); whether the request still passes is then purely the IP
+// axis's business (bypass-IP presets).
+func EffectiveUpstreamUAOff(n settings.Nginx) map[string]bool {
+	disabled := make(map[string]bool, len(n.SearchBots.UpstreamDisabled))
+	for _, p := range n.SearchBots.UpstreamDisabled {
+		disabled[p] = true
+	}
+	uaEnabled := make(map[string]bool, len(n.SearchBots.UpstreamUAEnabled))
+	for _, p := range n.SearchBots.UpstreamUAEnabled {
+		uaEnabled[p] = true
 	}
 	out := make(map[string]bool, len(UARangePresets))
-	for pat, ids := range UARangePresets {
-		all := len(ids) > 0
-		for _, id := range ids {
-			g := byID[id]
-			if g == nil || !enabled[id] || PresetIsNew(n.SeenVersion, g.AddedIn) {
-				all = false
-				break
-			}
-		}
-		if all {
+	for pat := range UARangePresets {
+		switch {
+		case disabled[pat]:
+			out[pat] = true
+		case uaEnabled[pat]:
+			// explicit UA-only opt-in
+		case RangePresetsActive(n, pat):
 			out[pat] = true
 		}
 	}
@@ -146,10 +185,39 @@ func RangeVerifiedPresetIDs(pattern string) []string {
 	return UARangePresets[pattern]
 }
 
-// SortedRangeVerifiedPatterns: EffectiveRangeVerifiedPatterns as a sorted
-// slice, for deterministic joins (regex alternation, rendered comments).
-func SortedRangeVerifiedPatterns(n settings.Nginx) []string {
-	set := EffectiveRangeVerifiedPatterns(n)
+// UpstreamRVStates classifies every range-backed pattern for the settings
+// UI's badge: which of the two independent rescue paths (UA string / vendor
+// IP range) are live for it right now.
+//
+//	"ip"   — UA off, ranges active: genuine crawler passes by IP, spoof challenged
+//	"or"   — UA on,  ranges active: passes by either (spoofed UA passes too)
+//	"ua"   — UA on,  ranges inactive: UA-string rescue only
+//	"none" — UA off, ranges inactive: no rescue; a genuine crawler is
+//	         challenged (reachable only via explicit choices — auto never
+//	         resolves here)
+func UpstreamRVStates(n settings.Nginx) map[string]string {
+	uaOff := EffectiveUpstreamUAOff(n)
+	out := make(map[string]string, len(UARangePresets))
+	for pat := range UARangePresets {
+		active := RangePresetsActive(n, pat)
+		switch {
+		case uaOff[pat] && active:
+			out[pat] = "ip"
+		case active:
+			out[pat] = "or"
+		case uaOff[pat]:
+			out[pat] = "none"
+		default:
+			out[pat] = "ua"
+		}
+	}
+	return out
+}
+
+// SortedUpstreamUAOff: EffectiveUpstreamUAOff as a sorted slice, for
+// deterministic joins (regex alternation, rendered comments).
+func SortedUpstreamUAOff(n settings.Nginx) []string {
+	set := EffectiveUpstreamUAOff(n)
 	out := make([]string, 0, len(set))
 	for p := range set {
 		out = append(out, p)
