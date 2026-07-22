@@ -323,7 +323,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-group .upstream-action-sel:disabled{background:#f1f5f9;color:#94a3b8;cursor:not-allowed;opacity:.6}
 .upstream-group .upstream-detail-btn{padding:.25rem .7rem;font-size:.78rem;background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;color:#475569}
 .upstream-rv{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;white-space:nowrap;vertical-align:.05rem}
-.upstream-rv.rv-on{background:#dcfce7;color:#15803d;border-color:#86efac}
+/* rescue-path badge for range-backed patterns (4 states, uarange.go):
+   ip = UA off + ranges live (green, the spoof-safe default), or = both paths
+   pass (amber: a spoofed UA passes too), ua = UA-string only (grey), none =
+   no rescue at all (red: a genuine crawler gets challenged). */
+.upstream-rv.rv-ip{background:#dcfce7;color:#15803d;border-color:#86efac}
+.upstream-rv.rv-or{background:#fef3c7;color:#92400e;border-color:#fcd34d}
+.upstream-rv.rv-none{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
 .upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.6;color:#334155}
 .upstream-group .upstream-detail-btn:hover{background:#f1f5f9;border-color:#94a3b8}
 
@@ -1640,9 +1646,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
         <div class="upstream-modal-list">
           {{ range $entries }}
-          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}">
-            <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamDisabled .Pattern) }}checked{{ end }}>
-            <span><code>{{ .Pattern }}</code>{{ if index $.UpstreamRangeBacked .Pattern }}<span class="upstream-rv{{ if index $.UpstreamRangeActive .Pattern }} rv-on{{ end }}">🛡 {{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+          {{ $st := "" }}{{ if index $.UpstreamRangeBacked .Pattern }}{{ $st = index $.UpstreamRVState .Pattern }}{{ end }}
+          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ end }}>
+            <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamUAOff .Pattern) }}checked{{ end }}>
+            <span><code>{{ .Pattern }}</code>{{ if $st }}<span class="upstream-rv rv-{{ $st }}">{{ t $.Lang (printf "settings.ua.upstream.rv_badge.%s" $st) }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>
           </label>
           {{ end }}
@@ -2026,6 +2033,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c, i){
       if (i < snap.length) c.checked = !!snap[i];
     });
+    rvSyncAll(modal);
   }
   function syncHidden(form) {
     form.querySelectorAll('input.js-upstream-disabled-hidden').forEach(function(x){ x.remove(); });
@@ -2037,15 +2045,42 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       var groupOff = p && !p.checked;
       modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
         // disabled list = parent OFF entire group + (parent ON & row unchecked).
-        if (!groupOff && c.checked) return;
+        // Checked range-backed rows are mirrored into upstream_ua_enabled
+        // instead (explicit UA-rescue opt-in): the server treats a saved tab
+        // as fully explicit, so the preset-driven auto default stops applying.
+        var off = groupOff || !c.checked;
+        var row = c.closest('.upstream-row');
+        if (!off && !(row && row.dataset.rv === '1')) return;
         var h = document.createElement('input');
         h.type = 'hidden';
-        h.name = 'upstream_disabled';
+        h.name = off ? 'upstream_disabled' : 'upstream_ua_enabled';
         h.value = c.value;
         h.className = 'js-upstream-disabled-hidden';
         form.appendChild(h);
       });
     });
+  }
+  // Live rescue-path badge for range-backed rows: recompute the 4-state
+  // badge from checkbox + data-rv-active so the operator sees "no rescue"
+  // BEFORE saving, not after.
+  var RV_LABELS = {
+    ip:   '{{ t $.Lang "settings.ua.upstream.rv_badge.ip" }}',
+    or:   '{{ t $.Lang "settings.ua.upstream.rv_badge.or" }}',
+    ua:   '{{ t $.Lang "settings.ua.upstream.rv_badge.ua" }}',
+    none: '{{ t $.Lang "settings.ua.upstream.rv_badge.none" }}'
+  };
+  function rvSync(row) {
+    if (!row || row.dataset.rv !== '1') return;
+    var badge = row.querySelector('.upstream-rv');
+    var chk = row.querySelector('.upstream-pattern-chk');
+    if (!badge || !chk) return;
+    var active = row.dataset.rvActive === '1';
+    var st = active ? (chk.checked ? 'or' : 'ip') : (chk.checked ? 'ua' : 'none');
+    badge.className = 'upstream-rv rv-' + st;
+    badge.textContent = RV_LABELS[st];
+  }
+  function rvSyncAll(modal) {
+    modal.querySelectorAll('.upstream-row[data-rv="1"]').forEach(rvSync);
   }
   // Initial render: just sync the count badge.  Mode comes pre-set from the
   // server-rendered radios (= no JS-side initial computation needed).
@@ -2107,6 +2142,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         if (!c.closest('.upstream-row').classList.contains('hidden')) c.checked = true;
       });
       refreshCount(modal.dataset.cat);
+      rvSyncAll(modal);
     });
   });
   document.querySelectorAll('.upstream-modal-all-off').forEach(function(b){
@@ -2116,12 +2152,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         if (!c.closest('.upstream-row').classList.contains('hidden')) c.checked = false;
       });
       refreshCount(modal.dataset.cat);
+      rvSyncAll(modal);
     });
   });
   document.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
     c.addEventListener('change', function(){
       var modal = c.closest('.upstream-modal');
       refreshCount(modal.dataset.cat);
+      rvSync(c.closest('.upstream-row'));
     });
   });
   document.querySelectorAll('.upstream-sort-btn').forEach(function(b){
