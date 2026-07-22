@@ -1,17 +1,23 @@
 #!/bin/bash
-# 51: range-verified crawler rescue — the genuine-crawler and fallback sides.
+# 51: range-verified crawler rescue — genuine crawler, auto fallback, and the
+# explicit (decoupled) lists.
 #
 # Scenario 15 pins the spoof side (a Googlebot UA from a non-Google IP gets
-# challenged).  This one pins the other two contracts of uarange.go on the
+# challenged).  This one pins the other contracts of uarange.go on the
 # forward-auth endpoint, where the daemon re-reads everything on restart:
 #
 #   A. genuine crawler: a Googlebot UA from inside Google's published ranges
 #      passes via the bypass-IP set (reason=bypass:ip).  Simulated by writing
 #      an iprange override file (the hub-sync target) containing a test CIDR
 #      and restarting the admin.
-#   B. fallback contract: disabling the vendor's range presets reverts that
-#      vendor to UA-only rescue (reason carries search_ai again) — never
-#      "UA required with the ranges turned off".
+#   B. auto fallback: with no explicit lists saved, disabling the vendor's
+#      range presets reverts that vendor to UA-only rescue (reason carries
+#      search_ai again) — never "UA dropped AND ranges off" by default.
+#   C. explicit UA-off: search_bots.upstream_disabled beats the auto
+#      fallback — presets off AND the pattern disabled = no rescue at all
+#      (both axes off is reachable only through explicit choices).
+#   D. explicit UA opt-in: search_bots.upstream_ua_enabled keeps the UA line
+#      although every preset is live (the OR state — either axis passes).
 #
 # Needs the docker e2e stack (it writes files inside the admin container and
 # restarts it); skips cleanly when the suite targets a remote BASE_URL.
@@ -113,9 +119,9 @@ case "$r" in
     *) log_pass "Googlebot UA outside the range stays unrescued (reason=$r)" ;;
 esac
 
-# B. Fallback contract: with the Google range presets disabled, the vendor
-#    reverts to UA-only rescue — the same UA from a non-Google IP is rescued
-#    again (old behavior, restorable per vendor).
+# B. Auto fallback: with the Google range presets disabled and no explicit
+#    lists saved, the vendor reverts to UA-only rescue — the same UA from a
+#    non-Google IP is rescued again (v0.1.7-compatible default).
 admin_exec "sed -i 's/^  seen_version: v0.1.0\$/  seen_version: v0.1.0\n  bypass_ip_enabled_presets: [\"chrome-prefetch-proxy\"]/' '$CONF'"
 if ! admin_exec "grep -q 'bypass_ip_enabled_presets' '$CONF'"; then
     log_fail "failed to inject bypass_ip_enabled_presets into $CONF (seen_version anchor moved?)"
@@ -127,5 +133,40 @@ if ! restart_admin; then
 fi
 assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
     "range presets off → Googlebot falls back to UA-only rescue (reason carries search_ai)"
+
+# C. Explicit UA-off beats the auto fallback: presets still off, and the
+#    pattern in upstream_disabled — no rescue path remains (yaml flow plain
+#    scalar keeps the backslash: [Googlebot\/]).
+admin_exec "sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_disabled: [Googlebot\\\\/],' '$CONF'"
+if ! admin_exec "grep -q 'upstream_disabled' '$CONF'"; then
+    log_fail "failed to inject search_bots.upstream_disabled into $CONF"
+    exit 1
+fi
+if ! restart_admin; then
+    log_fail "admin did not come back after the explicit-off restart (healthz $(healthz))"
+    exit 1
+fi
+r=$(reason_for_ip "$IP_OUT_RANGE")
+case "$r" in
+    *search_ai*|*bypass:ip*)
+        log_fail "explicit UA-off + presets off: expected no rescue, got reason=$r"
+        ;;
+    *) log_pass "explicit UA-off + presets off → no rescue (reason=$r)" ;;
+esac
+
+# D. Explicit UA opt-in (the OR state): restore the original config (presets
+#    all on) and add the pattern to upstream_ua_enabled — the UA line stays in
+#    the rescue although every preset is live, so a non-Google IP passes by UA.
+admin_exec "cp '$CONF.bak51' '$CONF' && sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_ua_enabled: [Googlebot\\\\/],' '$CONF'"
+if ! admin_exec "grep -q 'upstream_ua_enabled' '$CONF'"; then
+    log_fail "failed to inject search_bots.upstream_ua_enabled into $CONF"
+    exit 1
+fi
+if ! restart_admin; then
+    log_fail "admin did not come back after the opt-in restart (healthz $(healthz))"
+    exit 1
+fi
+assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
+    "explicit UA opt-in + presets on → rescued by UA from outside the ranges (OR state)"
 
 exit 0

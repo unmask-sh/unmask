@@ -576,12 +576,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// patterns into the corresponding nginx map.  Per-pattern disable
 	// (= SearchBots.UpstreamDisabled) wins over both directions.
 	//
-	// Patterns whose vendor publishes an official IP range (and whose range
-	// presets are all enabled) are dropped from the UA whitelist here: the
-	// rescue rides geo $is_bypass_ip instead, so a spoofed UA from outside
-	// the published ranges gets the normal challenge flow.  See uarange.go.
+	// Range-backed patterns whose UA-string rescue is effectively off are
+	// dropped from the UA whitelist here: the rescue rides geo $is_bypass_ip
+	// instead, so a spoofed UA from outside the published ranges gets the
+	// normal challenge flow.  See uarange.go for the per-pattern resolution
+	// (explicit lists first, then the preset-driven auto default).
 	upstreamDisabled := toSet(s.Nginx.SearchBots.UpstreamDisabled)
-	rangeVerified := EffectiveRangeVerifiedPatterns(s.Nginx)
+	rangeVerified := EffectiveUpstreamUAOff(s.Nginx)
 	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns := collectUpstreamPatternsByMode(
 		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled, rangeVerified)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
