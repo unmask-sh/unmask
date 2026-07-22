@@ -307,7 +307,10 @@ func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string
 	// same display name the aggregation keys on.  A crawler in this set has its
 	// genuine bots bypassed by range, so its Served figure is spoofed traffic.
 	rangeVerifiedNames := map[string]bool{}
-	for pat := range nginxconf.EffectiveRangeVerifiedPatterns(h.cfg().Nginx) {
+	for pat := range nginxconf.UARangePresets {
+		if !nginxconf.RangePresetsActive(h.cfg().Nginx, pat) {
+			continue
+		}
 		if name := classify.CrawlerNameFromPattern(pat); name != "" && name != "other" {
 			rangeVerifiedNames[name] = true
 		}
