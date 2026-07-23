@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1012,8 +1013,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		[]byte("<!--probe=ON force_reason="+forceReason+"-->"))
 	// Resolve per-site challenge + branding once; reuse for every placeholder
 	// substitution below.  Default verbatim when the site has no Sites entry.
-	ch := h.cfg().Challenge.Resolve(site)
-	br := h.cfg().Branding.Resolve(site)
+	// Authorized test-page preview may resolve the challenge + branding VALUES
+	// for another site via the site-scoped route (/challenge/{site}/), while
+	// events / cookies / PoW seed stay bound to the physical request host --
+	// see testSiteOverride for who is allowed.
+	cfgSite := site
+	if o, ok := h.testSiteOverride(r); ok {
+		cfgSite = o
+	}
+	ch := h.cfg().Challenge.Resolve(cfgSite)
+	br := h.cfg().Branding.Resolve(cfgSite)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
 		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(ch.CaptchaProvider)))
 	theme := pickChallengeTheme(r, ch.Theme)
@@ -1542,7 +1551,8 @@ func (h *Handler) TestIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	_, _ = w.Write([]byte(buildTestPage(prefix, testIndexBody, "")))
+	body := strings.Replace(testIndexBody, "<<SITE_PICKER>>", h.testSitePickerHTML(r), 1)
+	_, _ = w.Write([]byte(buildTestPage(prefix, body, "")))
 }
 
 // ResetCookie: GET {base}/test/reset-cookie + GET {base}/admin/test/reset-cookie —
@@ -1707,6 +1717,99 @@ func (h *Handler) PublicTestGate(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// testSiteHostRE: allowed shape of the {site} path segment on the site-scoped
+// challenge / verify routes.  Site ids are host-derived (normalizeSite), so
+// beyond the dashless short ids this also accepts dotted hostnames
+// ("shop.example.com").  Bounded (RFC 1035 name length) so an oversized path
+// value never reaches Resolve / logs.
+var testSiteHostRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$`)
+
+// hasAdminSession reports whether the request carries a valid admin session
+// cookie.  Deliberately cookie-only (no DB roundtrip): callers gate read-only
+// preview niceties with it, not state changes.
+func (h *Handler) hasAdminSession(r *http.Request) bool {
+	c, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return false
+	}
+	return verifySessionCookie(h.cfg().Secret.BVSecret, c.Value) != nil
+}
+
+// testSiteOverride returns the site whose VALUES (challenge knobs / branding)
+// this request may preview via the site-scoped routes (/challenge/{site}/,
+// /api/{site}/verify).  Honored only for callers allowed to pick arbitrary
+// sites:
+//   - an admin session (the /unmask/admin/test/ picker), or
+//   - the request host has public test pages ON and the operator opted in to
+//     the public site picker (intranet-style deployments).
+//
+// Anyone else keeps the host-derived site, so the site-scoped URLs stay
+// behavior-identical for regular visitors: a visitor must not get to pick a
+// WEAKER site's CAPTCHA provider / difficulty for the host they are actually
+// passing (see the settings help text).
+func (h *Handler) testSiteOverride(r *http.Request) (string, bool) {
+	s := strings.TrimSpace(r.PathValue("site"))
+	if s == "" || !testSiteHostRE.MatchString(s) {
+		return "", false
+	}
+	s = normalizeSite(s)
+	if h.hasAdminSession(r) {
+		return s, true
+	}
+	cfg := h.snapshotSettings()
+	ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
+	if ch.PublicTestPages && ch.PublicTestPagesSitePicker {
+		return s, true
+	}
+	return "", false
+}
+
+// testSitePickerHTML builds the "Site" section of the test index page: a
+// picker that re-targets the force-* links at /challenge/{site}/ so a site's
+// OWN values (branding / difficulty / CAPTCHA provider) can be exercised
+// end-to-end.  Empty unless the caller may pick sites (admin side always;
+// public side only when the operator opted in) and at least one site has its
+// own settings.
+func (h *Handler) testSitePickerHTML(r *http.Request) string {
+	cfg := h.snapshotSettings()
+	if !strings.Contains(r.URL.Path, "/admin/test") {
+		ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
+		if !ch.PublicTestPages || !ch.PublicTestPagesSitePicker {
+			return ""
+		}
+	}
+	seen := map[string]bool{}
+	var sites []string
+	for s, v := range cfg.Challenge.Sites {
+		if !v.Disabled && !seen[s] {
+			seen[s] = true
+			sites = append(sites, s)
+		}
+	}
+	for s, v := range cfg.Branding.Sites {
+		if !v.Disabled && !seen[s] {
+			seen[s] = true
+			sites = append(sites, s)
+		}
+	}
+	if len(sites) == 0 {
+		return ""
+	}
+	sort.Strings(sites)
+	var b strings.Builder
+	b.WriteString(`<h2>Site</h2>
+<p class="muted" style="margin:0 0 .5rem">Serve the force-* pages with a specific site's own settings (branding / PoW difficulty / CAPTCHA provider).  <code>default</code> is the plain per-host resolution.</p>
+<div id="site-picker" class="theme-picker">
+  <button type="button" data-site="">default</button>
+`)
+	for _, s := range sites {
+		es := htmlEscape(s)
+		b.WriteString(`  <button type="button" data-site="` + es + `">` + es + `</button>` + "\n")
+	}
+	b.WriteString(`</div>`)
+	return b.String()
+}
+
 // buildTestPage is the HTML wrapper for the test pages.  Embeds the prefix and emits 3 links + an optional banner.
 func buildTestPage(prefix, body, banner string) string {
 	bannerHTML := ""
@@ -1762,6 +1865,8 @@ a:hover{text-decoration:underline}
 const testIndexBody = `<h1>unmask test pages</h1>
 <p>List of debug pages for sanity-check use.  Production traffic does not normally hit these URLs.</p>
 
+<<SITE_PICKER>>
+
 <h2>Theme</h2>
 <div id="theme-picker" class="theme-picker">
   <button type="button" data-theme="">default</button>
@@ -1792,15 +1897,15 @@ const testIndexBody = `<h1>unmask test pages</h1>
     <span class="desc">Delete the pass cookies (<code>_bv</code> / <code>_br</code>) so the challenge can be re-triggered.</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-pow" data-test-link target="_blank" rel="noopener">Always PoW ↗</a>
+    <a href="<<PREFIX>>/force-pow" data-test-link data-force="pow" target="_blank" rel="noopener">Always PoW ↗</a>
     <span class="desc">Serve challenge.html in <code>pow_only</code> mode.  Exercise the flow that forces PoW (SHA-256 hashcash).</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-pow-then-captcha" data-test-link target="_blank" rel="noopener">PoW &rarr; CAPTCHA ↗</a>
+    <a href="<<PREFIX>>/force-pow-then-captcha" data-test-link data-force="pow_then_captcha" target="_blank" rel="noopener">PoW &rarr; CAPTCHA ↗</a>
     <span class="desc">Serve the full <code>pow_then_captcha</code> chain.  PoW first, CAPTCHA second.</span>
   </li>
   <li>
-    <a href="<<PREFIX>>/force-captcha" data-test-link target="_blank" rel="noopener">Always CAPTCHA ↗</a>
+    <a href="<<PREFIX>>/force-captcha" data-test-link data-force="captcha" target="_blank" rel="noopener">Always CAPTCHA ↗</a>
     <span class="desc">Serve challenge.html in <code>captcha_only</code> mode.  Exercise the flow that forces the behavioral CAPTCHA.</span>
   </li>
 </ul>
@@ -1810,15 +1915,26 @@ const testIndexBody = `<h1>unmask test pages</h1>
 (function(){
   var themeButtons = document.querySelectorAll('#theme-picker button');
   var powButtons   = document.querySelectorAll('#pow-display-picker button');
+  var siteButtons  = document.querySelectorAll('#site-picker button');
   var redirectInp  = document.getElementById('test-redirect-input');
   var links        = document.querySelectorAll('a[data-test-link]');
+  // Site-scoped serve base: /unmask/challenge/<site>/ resolves THAT site's
+  // values server-side (authorized callers only); challenge.js then routes its
+  // API calls to /unmask/api/<site>/ so render and verify stay consistent.
+  var CH_BASE = '<<PREFIX>>'.replace(/\/(?:admin\/)?test$/, '') + '/challenge/';
   var theme = '';
   var pow   = '';
+  var site  = '';
   var redirectTo = '';
   try { theme      = localStorage.getItem('unmask:test-theme')        || ''; } catch(e) {}
   try { pow        = localStorage.getItem('unmask:test-pow-display')  || ''; } catch(e) {}
+  try { site       = localStorage.getItem('unmask:test-site')         || ''; } catch(e) {}
   try { redirectTo = localStorage.getItem('unmask:test-redirect-to')  || ''; } catch(e) {}
+  // No picker rendered (no permission / no per-site settings): never rewrite.
+  if (!siteButtons.length) site = '';
   if (redirectInp && redirectTo) redirectInp.value = redirectTo;
+  // Site mode rewrites the link PATH, so keep the original force-* href around.
+  links.forEach(function(a){ a.dataset.origHref = a.getAttribute('href') || ''; });
   function update(){
     themeButtons.forEach(function(b){
       b.classList.toggle('active', (b.dataset.theme || '') === theme);
@@ -1826,9 +1942,16 @@ const testIndexBody = `<h1>unmask test pages</h1>
     powButtons.forEach(function(b){
       b.classList.toggle('active', (b.dataset.powDisplay || '') === pow);
     });
+    siteButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.site || '') === site);
+    });
     links.forEach(function(a){
-      var href = (a.getAttribute('href') || '').split('?')[0];
+      var href = (a.dataset.origHref || '').split('?')[0];
       var qs = [];
+      if (site && a.dataset.force) {
+        href = CH_BASE + encodeURIComponent(site) + '/';
+        qs.push('_force=' + encodeURIComponent(a.dataset.force));
+      }
       if (theme) qs.push('theme=' + encodeURIComponent(theme));
       if (pow !== '') qs.push('_pow_display=' + encodeURIComponent(pow));
       if (redirectTo && redirectTo !== '/') qs.push('_test_redirect=' + encodeURIComponent(redirectTo));
@@ -1839,6 +1962,13 @@ const testIndexBody = `<h1>unmask test pages</h1>
     b.addEventListener('click', function(){
       theme = b.dataset.theme || '';
       try { localStorage.setItem('unmask:test-theme', theme); } catch(e){}
+      update();
+    });
+  });
+  siteButtons.forEach(function(b){
+    b.addEventListener('click', function(){
+      site = b.dataset.site || '';
+      try { localStorage.setItem('unmask:test-site', site); } catch(e){}
       update();
     });
   });
@@ -2009,7 +2139,16 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	host := requestHost(r) // binds the issued _bv to this vhost
 	site := siteFromRequest(r, *h.cfg())
-	ch := h.cfg().Challenge.Resolve(site)
+	// Same authorized preview override as ServeChallenge: a site-scoped page
+	// (/challenge/{site}/) routes its verify to /api/{site}/verify, which must
+	// resolve the SAME values the page was rendered with (CAPTCHA provider /
+	// threshold), else a previewed provider could never verify.  The issued
+	// _bv stays bound to the physical host above.
+	cfgSite := site
+	if o, ok := h.testSiteOverride(r); ok {
+		cfgSite = o
+	}
+	ch := h.cfg().Challenge.Resolve(cfgSite)
 	// The _bv cookie value is dot-delimited ("<issued>.<sig>.<kind>"), so the
 	// kind is kept site-agnostic: a per-site _bv binding needs a dot-safe site
 	// encoding plus a site-aware native verifier — tracked as a later phase in
