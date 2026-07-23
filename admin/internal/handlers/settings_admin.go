@@ -1308,7 +1308,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// Branding tab save: applyBrandingFormV2 updates Default + Sites
 		// from the same form payload.  See settings.Branding for the data
 		// shape and handlers.go ServeBrandingLogo for the logo serve path.
-		if err := applyBrandingFormV2(&cur.Branding, h.ConfigPath, r); err != nil {
+		if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -1318,7 +1318,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// save buttons on the same page confused operators; appearance
 		// dispatches them all from one button press.  All operate on the
 		// Default record.
-		if err := applyBrandingFormV2(&cur.Branding, h.ConfigPath, r); err != nil {
+		if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -4044,9 +4044,39 @@ var (
 	svgStripJSHref = regexp.MustCompile(`(?i)\s(?:xlink:)?href\s*=\s*("(?:javascript|data:text/html)[^"]*"|'(?:javascript|data:text/html)[^']*'|(?:javascript|data:text/html)[^\s>]*)`)
 )
 
+// brandingLogoDir: where uploaded logos are persisted.  Variable data lives
+// under /var/lib (FHS), NOT next to config.yml in /etc — binary uploads in
+// /etc surprise operators and config-management tooling.  A var so tests can
+// point it at a temp dir.  Configs from before this move keep working: the
+// serve path reads the absolute LogoPath stored in the config, and the next
+// upload writes here and removes the old file wherever it was.
+var brandingLogoDir = "/var/lib/unmask/branding"
+
+// brandingLogoName: per-scope logo file name.  The Default record and every
+// per-site override MUST land on distinct files — a single shared "logo.<ext>"
+// silently cross-overwrote Default and site logos (the reason per-site logos
+// never worked).  scope "" = Default.
+func brandingLogoName(scope, ext string) string {
+	if scope == "" {
+		return "logo" + ext
+	}
+	s := strings.ToLower(scope)
+	var b strings.Builder
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '.', c == '-':
+			b.WriteRune(c)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	return "logo." + b.String() + ext
+}
+
 // applyBrandingForm mutates cur in place with the values from the branding
-// form (= section=branding).  configPath is the path to the active
-// config.yml so the logo can be persisted next to it (= <dir>/branding/logo.<ext>).
+// form (= section=branding).  scope selects the logo file name ("" =
+// Default, else the site identifier) so records never share a file; the
+// bytes are persisted under brandingLogoDir.
 //
 // Operates on a *settings.BrandingValues record (= one Default or one site
 // entry).  applyBrandingFormV2 wraps this for the default + sites save path.
@@ -4054,7 +4084,7 @@ var (
 // The logo file accepts a single upload.  Missing file = leave existing
 // logo untouched (= operator only changed text fields).  branding_logo_clear=1
 // removes the on-disk file + clears LogoPath.
-func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.Request) error {
+func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
@@ -4116,16 +4146,10 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 	if ext == ".svg" {
 		data = sanitizeSVG(data)
 	}
-	dir := filepath.Join(filepath.Dir(configPath), "branding")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(brandingLogoDir, 0o755); err != nil {
 		return fmt.Errorf("logo: mkdir failed: %w", err)
 	}
-	// Drop any prior logo whose extension differs from the new upload so
-	// stale files do not accumulate on disk.
-	if cur.LogoPath != "" && strings.ToLower(filepath.Ext(cur.LogoPath)) != ext {
-		_ = os.Remove(cur.LogoPath)
-	}
-	path := filepath.Join(dir, "logo"+ext)
+	path := filepath.Join(brandingLogoDir, brandingLogoName(scope, ext))
 	// Write to a temp file in the same dir and rename into place so a concurrent
 	// reader (the /branding/logo serve) never sees a half-written file, matching
 	// the atomic tmp+rename pattern used for every other on-disk write.
@@ -4137,6 +4161,14 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 		_ = os.Remove(tmp)
 		return fmt.Errorf("logo: rename failed: %w", err)
 	}
+	// Drop the record's prior file when the new upload landed elsewhere — an
+	// extension change, or a legacy location (pre-move configs stored logos
+	// next to config.yml in /etc/unmask/branding).  Only after the new file
+	// is safely in place, and only this record's own path, so Default and
+	// site overrides can never remove each other's files.
+	if old := cur.LogoPath; old != "" && old != path {
+		_ = os.Remove(old)
+	}
 	cur.LogoPath = path
 	return nil
 }
@@ -4146,8 +4178,8 @@ func applyBrandingForm(cur *settings.BrandingValues, configPath string, r *http.
 // per-site cards have their own add / edit / delete endpoints (see the
 // HandleBrandingSite* methods below).  Until the cards land, this is a thin
 // adapter onto applyBrandingForm targeting cur.Default.
-func applyBrandingFormV2(cur *settings.Branding, configPath string, r *http.Request) error {
-	return applyBrandingForm(&cur.Default, configPath, r)
+func applyBrandingFormV2(cur *settings.Branding, r *http.Request) error {
+	return applyBrandingForm(&cur.Default, "", r)
 }
 
 // applyChallengeFormV2: top-level entry point for the challenge tab save.
@@ -4200,7 +4232,7 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		// Default values pre-filled, so the new entry inherits Default's
 		// fields with whatever the operator changed.
 		bv := cur.Branding.Sites[site]
-		if err := applyBrandingForm(&bv, h.ConfigPath, r); err != nil {
+		if err := applyBrandingForm(&bv, site, r); err != nil {
 			return err
 		}
 		bv.Disabled = false
