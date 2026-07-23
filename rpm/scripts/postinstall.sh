@@ -41,12 +41,14 @@ chmod 0640 "$CONFIG" 2>/dev/null || true
 
 # Setup token (= protects against a third party racing through the wizard
 # first).  Skip if a user already exists in the user table (= idempotent
-# across upgrades).
-TOKEN_FILE=$CONFIG_DIR/.setup-token
+# across upgrades).  The token is transient state, so it lives under
+# /var/lib/unmask (FHS), not next to config.yml; the daemon also reads the
+# pre-0.1.9 /etc/unmask/.setup-token as a fallback for upgrades mid-setup.
+TOKEN_FILE=/var/lib/unmask/.setup-token
 # Generate the token only on a fresh install (= $1 == "1" for rpm /
 # "configure" for deb).  apk passes the package version string as $1 (never
 # "1" / "configure"), so detect Alpine via /lib/apk and treat it as a fresh
-# install too -- otherwise /etc/unmask/.setup-token is never created on Alpine
+# install too -- otherwise the setup token is never created on Alpine
 # and the setup wizard's anti-hijack token check is bypassable (= the first
 # visitor could create the admin account).  The inner `[ ! -f "$TOKEN_FILE" ]`
 # guard keeps this idempotent across apk upgrades.
