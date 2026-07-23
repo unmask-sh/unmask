@@ -26,9 +26,10 @@ func TestSetupNeeded_StaleTokenWithAdminClears(t *testing.T) {
 	if _, err := h.DB.Exec(`INSERT INTO unmask_user (username) VALUES ('admin')`); err != nil {
 		t.Fatal(err)
 	}
-	old := SetupTokenPath
+	old, oldLegacy := SetupTokenPath, legacySetupTokenPath
 	SetupTokenPath = filepath.Join(t.TempDir(), ".setup-token")
-	t.Cleanup(func() { SetupTokenPath = old })
+	legacySetupTokenPath = ""
+	t.Cleanup(func() { SetupTokenPath, legacySetupTokenPath = old, oldLegacy })
 	if err := os.WriteFile(SetupTokenPath, []byte("stale"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -49,9 +50,10 @@ func TestSetupNeeded_TokenNoAdminStillWizard(t *testing.T) {
 	if _, err := h.DB.Exec(`CREATE TABLE unmask_user (id INTEGER PRIMARY KEY, username TEXT)`); err != nil {
 		t.Fatal(err)
 	}
-	old := SetupTokenPath
+	old, oldLegacy := SetupTokenPath, legacySetupTokenPath
 	SetupTokenPath = filepath.Join(t.TempDir(), ".setup-token")
-	t.Cleanup(func() { SetupTokenPath = old })
+	legacySetupTokenPath = ""
+	t.Cleanup(func() { SetupTokenPath, legacySetupTokenPath = old, oldLegacy })
 	if err := os.WriteFile(SetupTokenPath, []byte("tok"), 0o600); err != nil {
 		t.Fatal(err)
 	}

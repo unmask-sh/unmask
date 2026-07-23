@@ -88,7 +88,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		mapDir = strings.TrimSpace(cur.Nginx.OutputDir)
 	}
 	if mapDir == "" {
-		mapDir = "/etc/unmask"
+		mapDir = "/var/lib/unmask/nginx"
 	}
 	var doc communitybans.FeedDocument
 	if h.CommunityBans != nil {
@@ -225,7 +225,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		mapDir = strings.TrimSpace(cur.Nginx.OutputDir)
 	}
 	if mapDir == "" {
-		mapDir = "/etc/unmask"
+		mapDir = "/var/lib/unmask/nginx"
 	}
 	var doc communitybans.FeedDocument
 	if h.CommunityBans != nil {
