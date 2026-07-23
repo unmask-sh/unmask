@@ -4641,6 +4641,21 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div style="font-size:.85rem;color:#334155;line-height:1.8">
       <div>{{ t .Lang "settings.retention.db_driver_label" }}: <strong>{{ if eq .Retention.DBDriver "mariadb" }}MariaDB{{ else }}SQLite{{ end }}</strong>{{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}</div>
       {{ if .Retention.DBDetail }}<div style="font-size:.75rem;color:#94a3b8;margin-top:.15rem">{{ .Retention.DBDetail }}</div>{{ end }}
+      {{ if .Retention.WriteChecked }}
+      <div style="margin-top:.2rem">{{ t .Lang "settings.retention.write_label" }}:
+        {{ if .Retention.WriteOK }}<strong style="color:#15803d">✓ {{ t .Lang "settings.retention.write_ok" }}</strong>
+        {{ else }}<strong style="color:#b91c1c">✗ {{ t .Lang "settings.retention.write_ng" }}</strong>{{ end }}
+        {{ if .Retention.DaemonUser }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_daemon_user" }} <code>{{ .Retention.DaemonUser }}</code></span>{{ end }}
+        {{ if .Retention.DBFileOwner }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_file_owner" }} <code>{{ .Retention.DBFileOwner }}</code></span>{{ end }}
+      </div>
+      {{ if not .Retention.WriteOK }}
+      <div class="banner bad" style="margin-top:.5rem">
+        {{ t .Lang "settings.retention.write_ng_detail" }}
+        {{ if .Retention.WriteErr }}<div style="margin-top:.3rem;font-size:.75rem"><code>{{ .Retention.WriteErr }}</code></div>{{ end }}
+        {{ if .Retention.FixCmd }}<div style="margin-top:.4rem"><code style="user-select:all">{{ .Retention.FixCmd }}</code></div>{{ end }}
+      </div>
+      {{ end }}
+      {{ end }}
     </div>
     <div style="margin-top:.7rem;font-size:.8rem"><a href="{{ .BasePath }}/admin/setup/">{{ t .Lang "settings.retention.db_reconfigure_link" }}</a></div>
   </div>
