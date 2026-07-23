@@ -41,10 +41,11 @@ func reconfHandler(t *testing.T, withAdmin bool) (*Handler, int64) {
 	h := &Handler{DB: conn, UserRepo: repo, ConfigPath: filepath.Join(dir, "config.yml")}
 	h.SetSettings(settings.Settings{Secret: settings.Secret{BVSecret: "test-secret"}})
 	// Point the token path at a non-existent temp file so the bootstrap path is
-	// driven purely by the user count, not a stray /etc/unmask/.setup-token.
-	oldTok := SetupTokenPath
+	// driven purely by the user count, not a stray token on the host.
+	oldTok, oldLegacy := SetupTokenPath, legacySetupTokenPath
 	SetupTokenPath = filepath.Join(dir, ".setup-token")
-	t.Cleanup(func() { SetupTokenPath = oldTok })
+	legacySetupTokenPath = ""
+	t.Cleanup(func() { SetupTokenPath, legacySetupTokenPath = oldTok, oldLegacy })
 	return h, uid
 }
 
