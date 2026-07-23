@@ -23,12 +23,14 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/user"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
@@ -3805,6 +3807,17 @@ type retentionStatsView struct {
 	EventsOldestOK       bool
 	CookieMinuteRowsOK   bool
 	CookieMinuteOldestOK bool
+	// Write-health probe: a real (no-op) write statement executed by THIS
+	// daemon process.  A DB the daemon can read but not write is invisible from
+	// the outside — challenges keep serving (config/HMAC only) while every
+	// event insert fails, so stats stay empty.  The classic cause is running
+	// `unmask migrate` as root, which leaves unmask.sqlite owned root:root.
+	WriteChecked bool   // probe ran (false only when the DB handle is absent)
+	WriteOK      bool   // the daemon can write
+	WriteErr     string // short driver error when NG (e.g. "readonly database")
+	DaemonUser   string // user this daemon process runs as
+	DBFileOwner  string // sqlite only: "user:group" owner of the DB file
+	FixCmd       string // NG + sqlite: suggested chown/restart one-liner
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -3904,7 +3917,56 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			}
 		}
 	}
+
+	// Write-health probe.  DELETE of a never-existing id is a real write
+	// statement (SQLite starts a write transaction and MariaDB executes a
+	// write plan, so a root-owned / readonly DB fails here exactly like the
+	// daemon's event inserts do) that touches no data and seeks the primary
+	// key — O(1) even on a multi-GB table.  Runs on its own short deadline,
+	// independent of the stats budget above: a slow COUNT must not read as
+	// "cannot write".
+	pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer pcancel()
+	v.WriteChecked = true
+	if _, err := h.DB.ExecContext(pctx, `DELETE FROM unmask_event WHERE id = -1`); err != nil {
+		v.WriteErr = truncateAt(err.Error(), 200)
+	} else {
+		v.WriteOK = true
+	}
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		v.DaemonUser = u.Username
+	}
+	if v.DBDriver != "mariadb" && dbc.SQLitePath != "" {
+		if st, err := os.Stat(dbc.SQLitePath); err == nil {
+			if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+				v.DBFileOwner = ownerNames(sys.Uid, sys.Gid)
+			}
+		}
+		if !v.WriteOK {
+			du := v.DaemonUser
+			if du == "" {
+				du = "unmask"
+			}
+			// The glob also catches -wal / -shm, which carry the same wrong
+			// owner when the daemon could never write them.
+			v.FixCmd = fmt.Sprintf("sudo chown %s: %s*  &&  sudo systemctl restart unmask", du, dbc.SQLitePath)
+		}
+	}
 	return v
+}
+
+// ownerNames renders a uid:gid pair with names when resolvable
+// ("root:root", "unmask:unmask", or "1001:1001" as the numeric fallback).
+func ownerNames(uid, gid uint32) string {
+	us := strconv.FormatUint(uint64(uid), 10)
+	gs := strconv.FormatUint(uint64(gid), 10)
+	if u, err := user.LookupId(us); err == nil && u.Username != "" {
+		us = u.Username
+	}
+	if g, err := user.LookupGroupId(gs); err == nil && g.Name != "" {
+		gs = g.Name
+	}
+	return us + ":" + gs
 }
 
 // humanBytes: render a byte count as a one-decimal SI-style string

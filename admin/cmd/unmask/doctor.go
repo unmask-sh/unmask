@@ -25,10 +25,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -225,6 +227,42 @@ func cmdDoctor(args []string) error {
 			addErr("DB table check", fmt.Sprintf("missing: %s (= run unmask migrate)", strings.Join(missing, ", ")))
 		} else {
 			addOK("DB tables", strings.Join(tables, " / "))
+		}
+		// DB write access.  A DB the daemon can read but not write keeps
+		// serving challenges (config + HMAC only) while recording NOTHING —
+		// empty stats with a healthy-looking gate.  The classic cause is a
+		// root-owned unmask.sqlite left behind by running `unmask migrate` as
+		// root.  What is provable depends on the backend:
+		//   - MariaDB: permissions ride the DSN credentials — the same ones
+		//     the daemon uses — so a live no-op write (PK seek, O(1)) is
+		//     definitive in both directions, whoever runs doctor.
+		//   - SQLite: permissions ride the FILE owner, and doctor's own uid
+		//     (root writes anywhere; another user may fail where the daemon
+		//     succeeds) makes a live probe misleading — compare the file owner
+		//     against the packaged service user (unmask) instead, which is
+		//     definitive regardless of who runs doctor.
+		if conn.Driver != db.DriverSQLite {
+			ctxW, cancelW := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancelW()
+			if _, werr := conn.ExecContext(ctxW, `DELETE FROM unmask_event WHERE id = -1`); werr != nil {
+				addErr("DB write", fmt.Sprintf("cannot write (%v) — challenges keep serving but no events/stats are recorded; check the DB user's grants", werr))
+			} else {
+				addOK("DB write", "writable with the configured credentials")
+			}
+		} else if s.DB.SQLitePath != "" {
+			owner, ownerOK := fileOwnerUID(s.DB.SQLitePath)
+			svc, svcErr := user.Lookup("unmask")
+			switch {
+			case ownerOK && svcErr == nil && strconv.FormatUint(uint64(owner), 10) != svc.Uid:
+				addWarn("DB file owner", fmt.Sprintf("%s is not owned by the unmask user — a daemon running as unmask cannot record events (stats stay empty, challenges still serve); run: chown unmask: %s*  &&  systemctl restart unmask", s.DB.SQLitePath, s.DB.SQLitePath))
+			case ownerOK && svcErr == nil:
+				addOK("DB write", "DB file owned by the unmask user")
+			default:
+				// Source/dev install without an unmask system user: the
+				// admin UI's retention tab runs an in-daemon probe, which is
+				// the definitive check there.
+				addOK("DB write", "no unmask system user — see the write check on the admin retention tab")
+			}
 		}
 		// Query-planner statistics.  Without sqlite_stat1 the planner cannot judge
 		// how selective the event tables' date filter is, so the stats and bot-hunt
@@ -949,6 +987,20 @@ func printSummary(checks []doctorCheck) error {
 
 // checkMMDBPath inspects one mmdb file and reports vendor / build / age.
 // Empty path is a no-op (= caller has filtered already).
+// fileOwnerUID returns the owning uid of path (false when it cannot stat or
+// the platform stat carries no uid — doctor is linux-first, so this is rare).
+func fileOwnerUID(path string) (uint32, bool) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	sys, ok := st.Sys().(*syscall.Stat_t)
+	if !ok {
+		return 0, false
+	}
+	return sys.Uid, true
+}
+
 func checkMMDBPath(title, path string,
 	addOK, addWarn, addErr func(t, m string)) {
 	if path == "" {
