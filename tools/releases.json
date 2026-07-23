@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.8",
+  "latest": "0.1.9",
   "releases": [
+    {
+      "version": "0.1.9",
+      "date": "2026-07-24",
+      "notes": "Operational visibility and multi-site polish. The admin now tells you when the daemon cannot write its own database — a read-only DB (classically a root-owned unmask.sqlite left behind by running unmask migrate as root) keeps serving challenges while silently recording nothing; the retention tab runs an in-daemon write probe with a copy-pasteable fix, and unmask doctor gains the matching check. Per-site challenge logos now actually work (each scope gets its own file instead of overwriting a shared one), and the test pages gain a site picker so a multi-site install can exercise a specific site's challenge end-to-end. Uploaded logos and the setup-wizard token move from /etc/unmask to /var/lib/unmask where variable data belongs."
+    },
     {
       "version": "0.1.8",
       "date": "2026-07-22",
