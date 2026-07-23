@@ -3256,6 +3256,10 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 		// back on doesn't silently lose what the operator typed.
 		c.PublicTestPagesPassword = strings.TrimSpace(r.FormValue("public_test_pages_password"))
 	}
+	// public_test_pages_site_picker: same hidden-marker pattern as above.
+	if r.FormValue("public_test_pages_site_picker_present") != "" {
+		c.PublicTestPagesSitePicker = r.FormValue("public_test_pages_site_picker") == "1"
+	}
 	// show_credit: also belongs to the challenge tab; handle it here.
 	c.ShowCredit = r.FormValue("show_credit") == "1"
 	return nil
