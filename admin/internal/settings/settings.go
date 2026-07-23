@@ -133,6 +133,14 @@ type ChallengeValues struct {
 	// Any username is accepted; only the password is checked.  Empty value
 	// (= default) leaves the pages open to anyone once PublicTestPages is on.
 	PublicTestPagesPassword string `yaml:"public_test_pages_password,omitempty"`
+	// PublicTestPagesSitePicker: also show the site picker on the PUBLIC test
+	// pages, so visitors can exercise the challenge of a site that has its own
+	// settings (branding / PoW difficulty / CAPTCHA provider).  Reveals the
+	// list of sites with custom settings and lets a visitor solve under any
+	// listed site's difficulty, so this is meant for intranet-style closed
+	// deployments; default false.  The admin-side test page (login required)
+	// always has the picker regardless of this flag.
+	PublicTestPagesSitePicker bool `yaml:"public_test_pages_site_picker,omitempty"`
 	// CAPTCHA provider: "builtin" (= unmask's standard behavioral) | "turnstile" |
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
 	CaptchaProvider Captcha `yaml:"captcha,omitempty"`

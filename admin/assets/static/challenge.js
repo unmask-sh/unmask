@@ -5,13 +5,15 @@
 
   // ============================================================
   // multi-site support: extract site ID from our own URL pathname.
-  //   /unmask/challenge/         → site = "default"
-  //   /unmask/challenge/test-1/  → site = "test-1"
-  //   /unmask/challenge.html     → site = "default" (legacy)
+  //   /unmask/challenge/            → site = "default"
+  //   /unmask/challenge/test-1/     → site = "test-1"
+  //   /unmask/challenge/shop.ex.jp/ → site = "shop.ex.jp" (host-derived id,
+  //                                    used by the test-page site picker)
+  //   /unmask/challenge.html        → site = "default" (legacy)
   // All fetch URLs are built as API_BASE + "/" + relative path.
   // ============================================================
   var SITE = 'default';
-  var m = location.pathname.match(/^\/unmask\/challenge\/([a-z0-9][a-z0-9-]*)\/?$/);
+  var m = location.pathname.match(/^\/unmask\/challenge\/([a-z0-9][a-z0-9.-]*)\/?$/);
   if (m) SITE = m[1];
   var API_BASE = '/unmask/api' + (SITE === 'default' ? '' : '/' + SITE);
 
