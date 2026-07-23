@@ -2859,6 +2859,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </label>
         <p class="desc" style="margin:.3rem 0 0;font-size:.78rem">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_password_hint") }}</p>
       </div>
+      {{/* Public site picker opt-in.  The admin-side test page always has the
+           site picker (login-gated); this widens it to the PUBLIC test pages
+           for intranet-style deployments where "public" is already private. */}}
+      <div style="margin-top:.6rem;padding-left:1.4rem;font-size:.85rem;color:#475569">
+        <div style="display:flex;align-items:center;gap:.4rem">
+          <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
+            <input type="hidden" name="public_test_pages_site_picker_present" value="1">
+            <input type="checkbox" name="public_test_pages_site_picker" value="1" {{ if .ChallengeValues.PublicTestPagesSitePicker }}checked{{ end }}>
+            <span>{{ t .Lang "settings.challenge.public_test_pages_site_picker" }}</span>
+          </label>
+          <button type="button" class="ua-help-trigger" data-help-target="ch-test-site-picker-help" aria-label="?">?</button>
+        </div>
+        <script type="text/html" id="ch-test-site-picker-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_site_picker_help") }}</script>
+      </div>
       {{/* Quick links to the actual test pages.  Admin side is always
            available to logged-in users; public side returns 404 until
            the checkbox above is enabled. */}}
