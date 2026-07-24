@@ -204,7 +204,11 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Forwarded-Host"),
 		r.Host,
 	)
-	cfg := h.snapshotSettings()
+	// Keep the published snapshot POINTER too: it identifies the settings
+	// generation and is the bypassMatchers cache key (a value copy's address
+	// changes per call and can never hit).
+	snap := h.cfg()
+	cfg := *snap
 	site := siteFromRequest(r, cfg)
 	// The old _br cookie (= the previous transient PoW marker) is gone.
 	// In the current design, the PoW-passed cookie is the 4-seg _bv
@@ -220,7 +224,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// place.
 	ja4 := resolveForwardedJA4(r, cfg)
 
-	matchers := h.bypassMatchers(cfg.Nginx, site)
+	matchers := h.bypassMatchers(snap, site)
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
 
 	// Fail-open defaults: the decision pipeline below reassigns these on every
@@ -1097,12 +1101,16 @@ type honeypotRule struct {
 	action string
 }
 
-// bypassMatchersCache: reused until the (settings pointer, site) pair
-// changes.  site is part of the key so swapping vhosts mid-process does
-// not return a cached compile that was filtered for a different host.
+// bypassMatchersCache: reused until the (published-snapshot pointer, site)
+// pair changes.  The key is the pointer the handler PUBLISHES (settingsPtr
+// via h.cfg()) — settings updates swap that pointer, so it identifies a
+// settings generation.  site is part of the key so swapping vhosts
+// mid-process does not return a cached compile that was filtered for a
+// different host.  (The original key was the address of a per-call value
+// copy, which never matched — every /api/check rebuilt ~100 matchers.)
 var (
 	matchersMu     sync.Mutex
-	cachedNginxPtr *settings.Nginx
+	cachedSnap     *settings.Settings
 	cachedSite     string
 	cachedMatchers pathMatchers
 )
@@ -1133,12 +1141,16 @@ func compileCachedRe(pattern string) *regexp.Regexp {
 // BypassPathsConfig.ResolvePaths(site) / ProtectedPathsConfig.ResolvePaths /
 // HoneypotConfig.ResolveURLs so a row's Site filter is honored once, here,
 // and the downstream matchers stay site-agnostic.
-func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
+//
+// snap must be the PUBLISHED snapshot pointer (h.cfg()), not the address of
+// a local copy — the cache above keys on it.
+func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatchers {
 	matchersMu.Lock()
 	defer matchersMu.Unlock()
-	if cachedNginxPtr == &n && cachedSite == site { // normally false (= a local copy has a different pointer)
+	if cachedSnap == snap && cachedSite == site {
 		return cachedMatchers
 	}
+	n := snap.Nginx
 	pm := pathMatchers{}
 
 	// bypass IPs (CHALLENGE side): preset ranges (Googlebot etc.) + enabled
@@ -1252,7 +1264,7 @@ func (h *Handler) bypassMatchers(n settings.Nginx, site string) pathMatchers {
 		}
 	}
 
-	cachedNginxPtr = &n
+	cachedSnap = snap
 	cachedSite = site
 	cachedMatchers = pm
 	return pm

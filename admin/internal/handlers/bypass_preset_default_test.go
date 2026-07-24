@@ -92,7 +92,7 @@ func TestBypassMatchersApplyPresetDefaults(t *testing.T) {
 	h := newTestHandler(t)
 
 	match := func(n settings.Nginx, uri string) bool {
-		pm := h.bypassMatchers(n, "example.test")
+		pm := h.bypassMatchers(&settings.Settings{Nginx: n}, "example.test")
 		for _, re := range pm.bypass {
 			if re.MatchString(uri) {
 				return true
