@@ -43,6 +43,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -2914,6 +2915,63 @@ func LoadFromYAML(body string) (Settings, error) {
 	return s, nil
 }
 
+// settingsTopLevelKeys: the yaml names of every Settings field, from the
+// struct tags.  Static reflection, NOT the marshal output — an omitempty
+// section that happens to be empty must still count as "ours", or a stale
+// copy of it in the file would be preserved alongside and duplicate the key.
+func settingsTopLevelKeys() map[string]bool {
+	t := reflect.TypeOf(Settings{})
+	out := make(map[string]bool, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name := strings.Split(f.Tag.Get("yaml"), ",")[0]
+		if name == "" {
+			name = strings.ToLower(f.Name) // yaml.v3 default naming
+		}
+		if name != "-" {
+			out[name] = true
+		}
+	}
+	return out
+}
+
+// preservedUnknownYAML extracts the top-level mappings in the file at path
+// that Settings does not know about — sections owned by OTHER programs
+// sharing the config file (unmask.sh's feed_server block was silently eaten
+// by a Save and only surfaced when the host restarted: the 2026-07-21
+// incident).  Returned as re-marshaled yaml (comments survive — parsed as
+// yaml.Node), nil when there is nothing to preserve.
+func preservedUnknownYAML(path string) []byte {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return nil
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return nil
+	}
+	known := settingsTopLevelKeys()
+	keep := &yaml.Node{Kind: yaml.MappingNode}
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if known[root.Content[i].Value] {
+			continue
+		}
+		keep.Content = append(keep.Content, root.Content[i], root.Content[i+1])
+	}
+	if len(keep.Content) == 0 {
+		return nil
+	}
+	b, err := yaml.Marshal(keep)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
 func Save(s Settings, path string) error {
 	if path == "" {
 		return fmt.Errorf("save: path is empty")
@@ -2928,6 +2986,13 @@ func Save(s Settings, path string) error {
 			"# Bootstrap values (= db/secret/server/...) are not web-editable; write them manually at install time only.\n\n",
 	)
 	body = append(header, body...)
+	// Top-level sections this struct does not know about are other programs'
+	// property (or a future unmask's) — carry them over verbatim instead of
+	// silently dropping them.
+	if extra := preservedUnknownYAML(path); len(extra) > 0 {
+		body = append(body, []byte("\n# ---- sections below are not managed by unmask (preserved as-is on save) ----\n")...)
+		body = append(body, extra...)
+	}
 
 	tmp := path + ".tmp"
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
