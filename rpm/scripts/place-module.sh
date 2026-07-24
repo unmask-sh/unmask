@@ -25,11 +25,18 @@
 #      (b) closest within the same minor branch (= host 1.18.4 -> -1.18.0.so, assuming patch ABI compatibility)
 #      (c) none -> disable_unmask_module (= strip wiring so nginx still starts) + exit 0
 #   4. Extract --modules-path= from `nginx -V`.
-#   5. Copy the chosen .so to $modules_path/ngx_http_unmask_module.so.
+#   5. Copy the chosen .so to $modules_path/ngx_http_unmask_module.so —
+#      or, when the modules path is unwritable (immutable /usr, ostree-style
+#      distros), to /var/lib/unmask/plugin/ and point load_module there.
 #   6. restorecon if selinux is in use.
 
 PLUGIN_BASE=/usr/share/unmask/plugin
 SO_NAME=ngx_http_unmask_module.so
+# Fallback .so home for hosts whose /usr is read-only at runtime (Fedora
+# Silverblue / ostree and friends).  The distro-conventional modules path is
+# still preferred when writable: it inherits the right SELinux label and
+# matches what nginx tooling expects.
+FALLBACK_SO_DIR=/var/lib/unmask/plugin
 # Breadcrumb dropped when the fail-safe strips the native wiring (nginx -t failed
 # referencing unmask).  `unmask doctor` surfaces it so an operator sees native
 # protection is silently OFF rather than assuming install-and-go worked.  Cleared
@@ -50,6 +57,7 @@ disable_unmask_module() {
           /usr/share/nginx/modules/50-mod-unmask.conf 2>/dev/null
     rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf 2>/dev/null
     [ -n "$mp" ] && rm -f "$mp/$SO_NAME" 2>/dev/null
+    rm -f "$FALLBACK_SO_DIR/$SO_NAME" 2>/dev/null
     if [ -w /etc/nginx/nginx.conf ] && grep -q 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null; then
         t="/etc/nginx/nginx.conf.unmask-disable.$$"
         if grep -v 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf > "$t" 2>/dev/null; then
@@ -203,6 +211,28 @@ _rl_have_so() {
     done
     return 1
 }
+
+# install_so <src> <primary-dir> <fallback-dir>: atomically install the .so
+# into primary-dir; when that fails (read-only /usr on an immutable distro),
+# fall back to fallback-dir.  Prints the installed path on stdout, returns
+# non-zero when neither landed.  tmp + rename(2) so a running nginx worker
+# that still mmaps the old .so doesn't hit ETXTBSY mid-upgrade, and a SIGKILL
+# during the copy can't leave a half-written .so on disk.
+install_so() {
+    _is_src=$1
+    for _is_dir in "$2" "$3"; do
+        [ -d "$_is_dir" ] || mkdir -p "$_is_dir" 2>/dev/null || continue
+        _is_tmp="$_is_dir/$SO_NAME.tmp.$$"
+        if cp -f "$_is_src" "$_is_tmp" 2>/dev/null \
+           && chmod 0644 "$_is_tmp" 2>/dev/null \
+           && mv -f "$_is_tmp" "$_is_dir/$SO_NAME" 2>/dev/null; then
+            echo "$_is_dir/$SO_NAME"
+            return 0
+        fi
+        rm -f "$_is_tmp" 2>/dev/null
+    done
+    return 1
+}
 resolve_libcrypto() {
     local so ver
     so=$(_rl_ldd_soname)
@@ -346,18 +376,21 @@ EOF
     exit 0
 fi
 
-[ -d "$MODULES_PATH" ] || mkdir -p "$MODULES_PATH"
-
-# ---- 4. cp ----
+# ---- 4. install (with an immutable-/usr fallback) ----
 SRC="$PLUGIN_DIR/${SO_NAME%.so}-${PICKED}.so"
-DEST="$MODULES_PATH/$SO_NAME"
-# Atomic install: write to a sibling tmp + rename(2) so a running nginx
-# worker that still mmaps the old .so doesn't hit ETXTBSY mid-upgrade, and
-# a SIGKILL during the copy can't leave a half-written .so on disk.
-tmp_so="$DEST.tmp.$$"
-cp -f "$SRC" "$tmp_so"
-chmod 0644 "$tmp_so"
-mv -f "$tmp_so" "$DEST"
+DEST=$(install_so "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR") || {
+    echo "ERROR: could not write the module to $MODULES_PATH nor $FALLBACK_SO_DIR. Skipping placement." >&2
+    exit 0
+}
+if [ "$DEST" = "$FALLBACK_SO_DIR/$SO_NAME" ]; then
+    echo "  modules-path $MODULES_PATH is not writable (immutable /usr?) -> placed under $FALLBACK_SO_DIR"
+    echo "  note: SELinux-enforcing hosts may need a local label before nginx can load from there:"
+    echo "        semanage fcontext -a -t lib_t '$FALLBACK_SO_DIR(/.*)?' && restorecon -R $FALLBACK_SO_DIR"
+else
+    # Placed at the conventional path: drop a stale fallback copy from an
+    # earlier read-only phase so exactly one .so exists on the host.
+    rm -f "$FALLBACK_SO_DIR/$SO_NAME" 2>/dev/null
+fi
 
 # ---- 5. selinux ----
 if command -v restorecon >/dev/null 2>&1; then
@@ -450,8 +483,23 @@ if [ -z "$LOAD_DROPPED" ] && [ -w "$NGINX_CONF" ]; then
             echo "  load_module added to: $NGINX_CONF (= at the top of main scope)"
             LOAD_DROPPED=1
         } || rm -f "$tmp"
-    else
+    elif grep -qF "load_module \"$DEST\"" "$NGINX_CONF"; then
         echo "  load_module already present in $NGINX_CONF (= idempotent skip)"
+        LOAD_DROPPED=1
+    else
+        # A line exists but points at a different .so path — the module moved
+        # between the modules path and the immutable-/usr fallback dir.
+        # Replace it, or nginx keeps loading a stale copy that can be
+        # ABI-incompatible after the next host-nginx upgrade.
+        tmp="$NGINX_CONF.tmp.$$"
+        {
+            echo "$LOAD_LINE"
+            grep -v 'load_module.*ngx_http_unmask_module' "$NGINX_CONF"
+        } > "$tmp" && {
+            chmod 0644 "$tmp"
+            mv -f "$tmp" "$NGINX_CONF"
+            echo "  load_module path updated in: $NGINX_CONF (-> $DEST)"
+        } || rm -f "$tmp"
         LOAD_DROPPED=1
     fi
 fi
