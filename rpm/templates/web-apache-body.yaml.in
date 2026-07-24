@@ -59,8 +59,12 @@ overrides:
 #   - apk (Alpine): /etc/apache2/conf.d/unmask-web.conf (= httpd.conf auto-includes
 #       conf.d/) + /etc/apache2/unmask.lua
 # The Lua file path must match what the snippet documents per distro
-# (= /etc/httpd/unmask.lua on RHEL, /etc/apache2/unmask.lua on Debian/Alpine);
-# without the apk/deb entries the LuaHookAccessChecker path in the docs is absent.
+# (= /etc/httpd/unmask.lua on RHEL, /etc/apache2/unmask.lua on Debian/Alpine).
+# Those /etc paths are SYMLINKS to the main package's copy under
+# /usr/share/unmask/snippets/ — Lua code is a program, not configuration, so
+# the payload lives in /usr/share (FHS) while the documented
+# LuaHookAccessChecker path (and every operator vhost already citing it)
+# keeps working.  The main package is a hard depends, so the target exists.
 contents:
   # --- rpm (RHEL-family): /etc/httpd ---
   - src: ../snippets/apache-forward-auth.conf
@@ -69,20 +73,18 @@ contents:
     file_info:
       mode: 0644
     packager: rpm
-  - src: ../snippets/apache-unmask.lua
+  - src: /usr/share/unmask/snippets/apache-unmask.lua
     dst: /etc/httpd/unmask.lua
-    file_info:
-      mode: 0644
+    type: symlink
     packager: rpm
   # --- deb (Debian-family): /etc/apache2 (conf-available + a2enconf) ---
   - src: /usr/share/unmask/snippets/apache-forward-auth.conf
     dst: /etc/apache2/conf-available/unmask-web.conf
     type: symlink
     packager: deb
-  - src: ../snippets/apache-unmask.lua
+  - src: /usr/share/unmask/snippets/apache-unmask.lua
     dst: /etc/apache2/unmask.lua
-    file_info:
-      mode: 0644
+    type: symlink
     packager: deb
   # --- apk (Alpine): /etc/apache2/conf.d (auto-included by httpd.conf) ---
   - src: ../snippets/apache-forward-auth.conf
@@ -91,10 +93,9 @@ contents:
     file_info:
       mode: 0644
     packager: apk
-  - src: ../snippets/apache-unmask.lua
+  - src: /usr/share/unmask/snippets/apache-unmask.lua
     dst: /etc/apache2/unmask.lua
-    file_info:
-      mode: 0644
+    type: symlink
     packager: apk
 
 scripts:
