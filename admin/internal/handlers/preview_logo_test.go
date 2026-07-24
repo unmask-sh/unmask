@@ -80,7 +80,7 @@ func TestBrandingInjectJSONLogoOverride(t *testing.T) {
 	br := settings.BrandingValues{LogoPath: "/nonexistent/logo.png"}
 	override := "/unmask/admin/test/preview-logo?t=" + strings.Repeat("a", 32)
 
-	withOverride := brandingInjectJSON(br, "/unmask", override, false)
+	withOverride := brandingInjectJSON(br, "/unmask", override, false, "")
 	if !strings.Contains(withOverride, "preview-logo") {
 		t.Fatalf("override URL missing from brand JSON: %s", withOverride)
 	}
@@ -88,7 +88,7 @@ func TestBrandingInjectJSONLogoOverride(t *testing.T) {
 		t.Fatalf("saved logo route leaked despite override: %s", withOverride)
 	}
 
-	saved := brandingInjectJSON(br, "/unmask", "", false)
+	saved := brandingInjectJSON(br, "/unmask", "", false, "")
 	if !strings.Contains(saved, "/branding/logo") {
 		t.Fatalf("saved logo route missing without override: %s", saved)
 	}
@@ -98,7 +98,7 @@ func TestBrandingInjectJSONLogoOverride(t *testing.T) {
 
 	// suppress: the removed-state preview shows no logo even with one saved,
 	// and even if a token override is also (nonsensically) supplied.
-	suppressed := brandingInjectJSON(br, "/unmask", override, true)
+	suppressed := brandingInjectJSON(br, "/unmask", override, true, "")
 	if strings.Contains(suppressed, "logo_url") {
 		t.Fatalf("suppressLogo still emitted a logo_url: %s", suppressed)
 	}
