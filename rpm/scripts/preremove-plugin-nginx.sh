@@ -23,6 +23,10 @@ if ! command -v nginx >/dev/null 2>&1; then
     exit 0
 fi
 
+# The immutable-/usr fallback copy (see place-module.sh) goes regardless of
+# whether nginx / its modules path is still around.
+rm -f /var/lib/unmask/plugin/ngx_http_unmask_module.so 2>/dev/null
+
 MODULES_PATH=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
 if [ -z "$MODULES_PATH" ]; then
     exit 0

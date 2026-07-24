@@ -58,6 +58,33 @@ _rl_nginx_v() { echo ""; }
 _rl_have_so() { return 1; }
 check "no ldd/no -V/no SONAME -> empty" "" "$(resolve_libcrypto)"
 
+# --- case 5: install_so — primary writable / read-only-primary fallback ---
+# (the immutable-/usr path: modules dir unwritable -> /var/lib fallback)
+T=$(mktemp -d)
+trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
+printf 'SOBYTES' > "$T/src.so"
+
+mkdir -p "$T/primary" "$T/fallback"
+got=$(install_so "$T/src.so" "$T/primary" "$T/fallback")
+check "install_so -> primary when writable" "$T/primary/$SO_NAME" "$got"
+check "install_so primary content" "SOBYTES" "$(cat "$T/primary/$SO_NAME")"
+
+mkdir -p "$T/ro"
+chmod a-w "$T/ro"
+got=$(install_so "$T/src.so" "$T/ro" "$T/fallback")
+check "install_so -> fallback when primary read-only" "$T/fallback/$SO_NAME" "$got"
+check "install_so fallback content" "SOBYTES" "$(cat "$T/fallback/$SO_NAME")"
+if [ -e "$T/ro/$SO_NAME" ]; then
+    check "install_so leaves nothing in read-only primary" "absent" "present"
+else
+    check "install_so leaves nothing in read-only primary" "absent" "absent"
+fi
+
+# Unwritable primary whose PARENT allows mkdir of a missing dir: missing
+# primary is created (the normal first-install path).
+got=$(install_so "$T/src.so" "$T/newdir/modules" "$T/fallback")
+check "install_so mkdirs a missing primary" "$T/newdir/modules/$SO_NAME" "$got"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"
