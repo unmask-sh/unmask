@@ -65,7 +65,10 @@ func Open(s settings.DB) (*DB, error) {
 			"?_pragma=journal_mode(WAL)" +
 			"&_pragma=synchronous(NORMAL)" +
 			"&_pragma=busy_timeout(5000)" +
-			"&_pragma=cache_size(-20000)" + // -20000 = 20MB page cache
+			"&_pragma=cache_size(-131072)" + // -131072 = 128MB page cache: production event DBs run
+			// multi-GB (tool1-us ~6GB), where 20MB thrashed on every
+			// cold hunt/stats scan; 128MB is still modest next to the
+			// 256MB mmap below and pages are evicted under memory pressure
 			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
 			"&_pragma=mmap_size(268435456)" // 256MB mmap to speed up page reads
 		dialector = glsqlite.Open(dsn)
