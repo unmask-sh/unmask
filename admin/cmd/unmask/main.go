@@ -947,6 +947,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// Content-Type from the on-disk file.  Cache-busting is via ?v=<mtime>
 	// in the URL embedded in challenge.html / the admin preview thumbnail.
 	mux.HandleFunc("GET "+base+"/branding/logo", h.ServeBrandingLogo)
+	// Site-scoped logo: the test-page site picker fetches a previewed site's
+	// own logo through this route (authorized callers only; see ServeBrandingLogo).
+	mux.HandleFunc("GET "+base+"/branding/{site}/logo", h.ServeBrandingLogo)
 	// Rate-limit path (nginx rewrites the original URI into /unmask/_rl<orig URI>).
 	// Path subtree match (trailing slash, no {$}) catches any path after
 	// _rl/.  Kept as a separate namespace to avoid collisions with
