@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -18,7 +20,10 @@ import (
 func pickerSettings(h *Handler) settings.Settings {
 	s := *h.cfg()
 	s.Challenge.Sites = map[string]settings.ChallengeValues{
-		"shop.example.jp": {PowDifficulty: 9},
+		"shop.example.jp": {PowDifficulty: 9, CaptchaProvider: settings.Captcha{Provider: "turnstile", TurnstileSiteKey: "0xSITEKEY"}},
+	}
+	s.Branding.Sites = map[string]settings.BrandingValues{
+		"shop.example.jp": {LogoPath: "/tmp/shop-logo.png", SiteName: "Shop"},
 	}
 	return s
 }
@@ -141,11 +146,64 @@ func TestServeChallengeSiteOverrideValues(t *testing.T) {
 		return w.Body.String()
 	}
 
-	if body := serve(true); !strings.Contains(body, "/*__POW_DIFFICULTY__*/9") {
-		t.Fatal("authorized caller did not get the overridden site's difficulty")
+	// The site preview overrides the site's VISIBLE knobs but NOT the PoW
+	// difficulty: the _bv it yields is verified at the physical host after the
+	// redirect (native module / fa-check), which resolve the HOST's difficulty
+	// — a lower previewed difficulty produced a PoW that verifier rejected, so
+	// the visitor looped.  Both authorized and unauthorized callers get the
+	// host difficulty (10); the CAPTCHA provider and logo DO follow the site.
+	authed := serve(true)
+	if !strings.Contains(authed, "/*__POW_DIFFICULTY__*/10") {
+		t.Fatal("authorized preview must keep the HOST's PoW difficulty (else the solved _bv loops)")
+	}
+	if strings.Contains(authed, "/*__POW_DIFFICULTY__*/9") {
+		t.Fatal("authorized preview must NOT embed the previewed site's lower difficulty")
+	}
+	if !strings.Contains(authed, `"provider":"turnstile"`) {
+		t.Fatal("authorized preview must use the previewed site's CAPTCHA provider")
+	}
+	if !strings.Contains(authed, "/branding/shop.example.jp/logo") {
+		t.Fatal("authorized preview must point the logo at the site-scoped route")
 	}
 	if body := serve(false); !strings.Contains(body, "/*__POW_DIFFICULTY__*/10") {
 		t.Fatal("unauthorized caller must keep the host-derived difficulty")
+	}
+}
+
+// The site-scoped logo route serves the previewed site's logo for an
+// authorized caller and the host's for everyone else — the branding parallel
+// to the challenge/verify override.
+func TestServeBrandingLogoSiteScoped(t *testing.T) {
+	dir := t.TempDir()
+	shopLogo := dir + "/shop.png"
+	if err := os.WriteFile(shopLogo, []byte("\x89PNG\r\n\x1a\nshop"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestHandler(t)
+	s := *h.cfg()
+	s.Branding.Sites = map[string]settings.BrandingValues{
+		"shop.example.jp": {LogoPath: shopLogo},
+	}
+	h.SetSettings(s)
+
+	get := func(withSession bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/unmask/branding/shop.example.jp/logo", nil)
+		r.SetPathValue("site", "shop.example.jp")
+		if withSession {
+			r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "admin", false, false))
+		}
+		w := httptest.NewRecorder()
+		h.ServeBrandingLogo(w, r)
+		return w
+	}
+	// Authorized: the shop logo bytes come back.
+	if w := get(true); w.Code != http.StatusOK || w.Body.Len() == 0 {
+		t.Fatalf("authorized site-scoped logo: want 200 with bytes, got %d len=%d", w.Code, w.Body.Len())
+	}
+	// Unauthorized: falls back to the host (no host logo here) -> 404, never
+	// the shop bytes.
+	if w := get(false); w.Code != http.StatusNotFound {
+		t.Fatalf("unauthorized site-scoped logo: want 404 (host has no logo), got %d", w.Code)
 	}
 }
 

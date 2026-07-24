@@ -270,7 +270,11 @@ var buildVersionStamp = time.Now().Unix()
 // logo_url is built from the configured logo file's extension (e.g. .svg /
 // .png) so the browser fetches /<base>/branding/logo.<ext>; an empty path
 // omits the field and the JS hides the <img> slot.
-func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride string, suppressLogo bool) string {
+// logoSite, when non-empty, points the logo URL at the site-scoped serve route
+// (/branding/<site>/logo) so a test-page site preview fetches THAT site's logo
+// rather than the physical host's (the plain /branding/logo route resolves the
+// request host's branding).  Empty for normal traffic.
+func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride string, suppressLogo bool, logoSite string) string {
 	type out struct {
 		LogoURL    string `json:"logo_url,omitempty"`
 		SiteName   string `json:"site_name,omitempty"`
@@ -301,6 +305,9 @@ func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride str
 		case ".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif":
 			base := strings.TrimRight(basePath, "/")
 			url := base + "/branding/logo"
+			if logoSite != "" {
+				url = base + "/branding/" + logoSite + "/logo"
+			}
 			// Cache-bust via mtime so a new upload propagates to visitors
 			// without waiting for the 5-min Cache-Control max-age.
 			if st, err := os.Stat(p); err == nil {
@@ -330,7 +337,15 @@ func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride str
 // 404 so cached URLs cannot fall through to a different file.
 func (h *Handler) ServeBrandingLogo(w http.ResponseWriter, r *http.Request) {
 	cfg := h.snapshotSettings()
+	// The site-scoped route (/branding/{site}/logo) previews another site's
+	// logo for an authorized test-page caller (admin session, or the public
+	// site picker opt-in) — same gate as the site-scoped challenge/verify.  An
+	// unauthorized caller, or the plain /branding/logo route, resolves the
+	// request host's branding as before.
 	site := siteFromRequest(r, cfg)
+	if o, ok := h.testSiteOverride(r); ok {
+		site = o
+	}
 	b := cfg.Branding.Resolve(site)
 	if strings.TrimSpace(b.LogoPath) == "" {
 		http.NotFound(w, r)
@@ -1076,8 +1091,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			logoOverride = h.previewLogoURL(raw)
 		}
 	}
+	// A site preview points the logo at the site-scoped serve route so it
+	// fetches the previewed site's logo, not the request host's.
+	logoSite := ""
+	if cfgSite != site {
+		logoSite = cfgSite
+	}
 	body = bytes.ReplaceAll(body, []byte(brandingPlaceholder),
-		[]byte("/*__BRANDING__*/"+brandingInjectJSON(br, h.basePath(), logoOverride, suppressLogo)))
+		[]byte("/*__BRANDING__*/"+brandingInjectJSON(br, h.basePath(), logoOverride, suppressLogo, logoSite)))
 	// Inline challenge.js into the page instead of loading it as an external
 	// <script src>.  A client that fails to fetch the 53KB external file (an
 	// extension, a flaky network, an odd proxy) renders the challenge but never
@@ -1269,8 +1290,23 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// PoW difficulty (settings.Challenge.PowDifficulty; the target
 	// leading-zero-bits used by challenge.js's SHA-256 hashcash).
+	//
+	// This is the ONE value a site preview must NOT override.  The _bv this
+	// page yields is verified AFTER the post-solve redirect, by the physical
+	// host's native module (or forward-auth check) — which resolve the HOST's
+	// difficulty; neither knows the previewed site (the redirect lands on the
+	// host's own path, not the site-scoped one).  A previewed site whose
+	// difficulty differs (typically lower) produced a PoW the physical verifier
+	// rejected, so the visitor looped forever.  Branding / theme / CAPTCHA
+	// provider stay overridden — the CAPTCHA path is verified by this daemon,
+	// which honors the previewed site, and its cookie is host-bound, not
+	// difficulty-bound.
+	powDiff := ch.ResolvedPowDifficulty()
+	if cfgSite != site {
+		powDiff = h.cfg().Challenge.Resolve(site).ResolvedPowDifficulty()
+	}
 	body = bytes.ReplaceAll(body, []byte(powDiffPlaceholder),
-		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", ch.ResolvedPowDifficulty())))
+		[]byte(fmt.Sprintf("/*__POW_DIFFICULTY__*/%d", powDiff)))
 	// bv_max_entries: the roaming cap challenge.js uses when prepending the new
 	// PoW signature to the _bv "~"-list (must match the Go issuer's cap).
 	body = bytes.ReplaceAll(body, []byte(bvMaxEntriesPlaceholder),
