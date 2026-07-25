@@ -21,8 +21,20 @@ func (h *Handler) ObserveCrawlerForBan(ip, ua string) {
 	if h == nil || h.CrawlerVerify == nil || h.BanMgr == nil {
 		return
 	}
-	cv := h.SnapshotSettings().Nginx.CrawlerVerify
+	snap := h.cfg()
+	cv := snap.Nginx.CrawlerVerify
 	if !cv.Enabled {
+		return
+	}
+	// Respect the per-crawler enable state (skip a crawler the operator turned off).
+	if claimed := crawlerverify.ClaimedCrawler(ua); claimed == "" || !cv.CrawlerActive(claimed) {
+		return
+	}
+	// Skip a crawler-claim already covered by a bypass IP range: the range is
+	// authoritative (same gate as forward-auth), so rDNS would be a redundant
+	// lookup and a genuine in-range crawler is Verified anyway (never banned).
+	// bypassMatchers is memoized on the settings pointer, so this is cheap.
+	if h.bypassMatchers(snap, "").ipBypass.Match(ip) {
 		return
 	}
 	action := cv.ResolvedForgedAction()

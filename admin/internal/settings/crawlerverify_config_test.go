@@ -20,3 +20,21 @@ func TestResolvedForgedAction(t *testing.T) {
 		}
 	}
 }
+
+// TestCrawlerActive: an empty disabled-list means every crawler is active; a
+// listed name (case-insensitive) is off.
+func TestCrawlerActive(t *testing.T) {
+	if !(CrawlerVerifyConfig{}).CrawlerActive("Googlebot") {
+		t.Error("empty disabled-list: all crawlers should be active")
+	}
+	cv := CrawlerVerifyConfig{DisabledCrawlers: []string{"Googlebot", "baiduspider"}}
+	if cv.CrawlerActive("Googlebot") {
+		t.Error("Googlebot should be inactive")
+	}
+	if !cv.CrawlerActive("YandexBot") {
+		t.Error("YandexBot should stay active")
+	}
+	if cv.CrawlerActive("Baiduspider") { // case-insensitive
+		t.Error("Baiduspider should be inactive (case-insensitive match)")
+	}
+}
