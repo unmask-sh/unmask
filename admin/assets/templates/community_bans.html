@@ -631,7 +631,7 @@ document.addEventListener('click', function(e){
       if (pin.hasPinFor(td)) return;
       if (!isTruncated(td)) return;
       td.style.cursor = 'help';
-      pin.showHover(fmt(td.dataset.full), e.pageX, e.pageY);
+      pin.showHover(fmt(td.dataset.full), e.pageX, e.pageY, td);
     });
     td.addEventListener('mouseleave', function(){ pin.hideHover(); });
     td.addEventListener('click', function(e){
@@ -688,7 +688,7 @@ document.addEventListener('click', function(e){
       pop.classList.remove('popover-no-pin');
       t.style.cursor = 'help';
     }
-    pin.showHover(fmt(t.dataset.info), e.pageX, e.pageY);
+    pin.showHover(fmt(t.dataset.info), e.pageX, e.pageY, t);
   });
   document.addEventListener('mouseout', function(e){
     var t = infoTarget(e.target);
@@ -760,7 +760,7 @@ document.addEventListener('click', function(e){
       var ip = td.dataset.ip;
       if (!ip) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); }); }, 200);
+      timer = setTimeout(function(){ fetchAndFmt(ip, function(html){ pin.showHover(html, x, y, td); }); }, 200);
     });
     td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     td.addEventListener('click', function(e){
@@ -1291,7 +1291,7 @@ document.addEventListener('click', function(e){
     var infoP = document.getElementById('info-popover');
     if (infoP) infoP.style.display = 'none';
     var x = e.pageX, y = e.pageY;
-    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y, row);
     fetchFor(row).then(function(d){
       pin.handleClick(renderCommentSection(d), x, y, row, t.followupComments);
       // After the clone exists, remember its row so the form/delete handlers
@@ -1299,7 +1299,7 @@ document.addEventListener('click', function(e){
       var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
       if (clone) cloneToRow.set(clone, row);
     }).catch(function(err){
-      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y, row);
     });
   }, true);
 
@@ -1320,13 +1320,13 @@ document.addEventListener('click', function(e){
     var infoP = document.getElementById('info-popover');
     if (infoP) infoP.style.display = 'none';
     var x = e.pageX, y = e.pageY;
-    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y);
+    pin.showHover('<div class="detail-panel"><span class="loading">' + esc(t.loading) + '</span></div>', x, y, row);
     fetchFor(row).then(function(d){
       pin.handleClick(renderReporterCommentsSection(d), x, y, row, t.reporterComments);
       var clone = document.body.querySelector('.popover-clone[data-popover="comment"]:last-of-type');
       if (clone) cloneToRow.set(clone, row);
     }).catch(function(err){
-      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y);
+      pin.showHover('<div class="detail-panel"><span class="err">' + esc(t.err) + ' ' + esc(err.message || err) + '</span></div>', x, y, row);
     });
   }, true);
 
@@ -1414,14 +1414,14 @@ document.addEventListener('click', function(e){
       var row = t.closest('tr.feed-row');
       if (!row) return;
       var x = e.pageX, y = e.pageY;
-      pin.showHover(detailLoading(), x, y);
+      pin.showHover(detailLoading(), x, y, t);
       fetchFor(row).then(function(d){
         // Skip the render if the user has already moused out (= primary is
         // hidden) or pinned (= a clone exists).  Avoids the loading spinner
         // briefly flashing the stale row's data after the cursor moved on.
         if (primary.style.display === 'none') return;
         if (pin.hasPinFor(t)) return;
-        pin.showHover(renderFn(d), x, y);
+        pin.showHover(renderFn(d), x, y, t);
       }).catch(function(){ pin.hideHover(); });
     });
     document.addEventListener('mouseout', function(e){

@@ -5405,7 +5405,7 @@ document.addEventListener('DOMContentLoaded', function(){
       if (pin.hasPinFor && pin.hasPinFor(trigger)) return;
       clearTimeout(hoverTimer);
       var x = e.pageX, y = e.pageY;
-      hoverTimer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+      hoverTimer = setTimeout(function(){ pin.showHover(html, x, y, trigger); }, 150);
     });
     trigger.addEventListener('mouseleave', function(){
       clearTimeout(hoverTimer);

@@ -198,7 +198,7 @@ document.addEventListener('DOMContentLoaded', function(){
       clearTimeout(bt);
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      bt = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+      bt = setTimeout(function(){ pin.showHover(html, x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(bt); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -425,7 +425,7 @@ document.addEventListener('DOMContentLoaded', function(){
       clearTimeout(timer);
       if (pin.hasPinFor(chain)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y); }, 200);
+      timer = setTimeout(function(){ pin.showHover(timelineHtml(), x, y, chain); }, 200);
     });
     chain.addEventListener('mouseleave', function(){
       clearTimeout(timer); pin.hideHover();
@@ -605,7 +605,7 @@ document.addEventListener('DOMContentLoaded', function(){
       clearTimeout(timer);
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y); }, 200);
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -698,7 +698,7 @@ document.addEventListener('DOMContentLoaded', function(){
       var html = dtPopHtml(tr);
       if (!html) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 200);
+      timer = setTimeout(function(){ pin.showHover(html, x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){

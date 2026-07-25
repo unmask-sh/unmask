@@ -1290,7 +1290,7 @@ function renderCountryChart(wrapId, data){
       label.style.cursor = 'help';
       label.addEventListener('mouseenter', e => {
         if (pin.hasPinFor(label)) return;
-        pin.showHover(popHTML(cc), e.pageX, e.pageY);
+        pin.showHover(popHTML(cc), e.pageX, e.pageY, label);
       });
       label.addEventListener('mouseleave', () => pin.hideHover());
       label.addEventListener('click', e => {
@@ -1338,7 +1338,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       // if this trigger is already pinned, skip the hover primary (= avoid duplicate display).
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+      timer = setTimeout(function(){ pin.showHover(html, x, y, el); }, 150);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -1386,7 +1386,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       clearTimeout(timer);
       if (el.getAttribute('data-help') === '1' || !truncated() || pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(html, x, y); }, 150);
+      timer = setTimeout(function(){ pin.showHover(html, x, y, el); }, 150);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -1433,7 +1433,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       if (pin.hasPinFor(cell)) return;
       const x = e.clientX + window.scrollX;
       const y = e.clientY + window.scrollY;
-      timer = setTimeout(function(){ pin.showHover(buildHtml(path, list), x, y); }, 150);
+      timer = setTimeout(function(){ pin.showHover(buildHtml(path, list), x, y, cell); }, 150);
     });
     cell.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     cell.addEventListener('click', function(e){
@@ -1518,7 +1518,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       const ip = td.dataset.ip;
       const x = e.pageX, y = e.pageY;
       timer = setTimeout(() => {
-        fetchAndFmt(ip, html => pin.showHover(html, x, y));
+        fetchAndFmt(ip, html => pin.showHover(html, x, y, td));
       }, 200);
     });
     td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
@@ -1570,7 +1570,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       el.classList.add('cellpop-active');
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y); }, 200);
+      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){

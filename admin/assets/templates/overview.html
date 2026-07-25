@@ -408,7 +408,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       const ip = td.dataset.ip;
       const x = e.pageX, y = e.pageY;
       timer = setTimeout(() => {
-        fetchAndFmt(ip, html => pin.showHover(html, x, y));
+        fetchAndFmt(ip, html => pin.showHover(html, x, y, td));
       }, 200);
     });
     td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
