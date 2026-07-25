@@ -519,6 +519,39 @@ map $unmask_geo_action $is_geo_challenge {
     "skip"  0;
 }
 
+# -----------------------------------------------------------------------------
+# ASN-based decision ($unmask_asn / $unmask_asn_action) — the by-network
+# sibling of the country block above.  Blocks a cloud/VPS/proxy network without
+# blocking a whole country.  Only CIDRs of the operator's targeted ASNs are
+# emitted (walked from the ASN mmdb at render time), so the block stays small.
+# Empty when no ASN rules exist or the ASN mmdb is absent -> the axis no-ops.
+# forward-auth mode does the live ASN lookup in admin /authcheck (asnDecide).
+geo $remote_addr $unmask_asn {
+    default "";
+{{ .AsnCIDRs }}
+}
+
+map $unmask_asn $unmask_asn_action {
+    default "{{ .AsnDefaultAction }}";
+{{- range .AsnRules }}
+    "{{ .ASN }}" "{{ .Action }}";
+{{- end }}
+}
+
+map $unmask_asn_action $is_asn_challenge {
+    default 1;
+    ""      0;
+    "skip"  0;
+}
+
+# Network-level veto = geo OR asn.  Folded into one variable so it drops into
+# the existing $final_challenge composite key at the geo position without
+# widening it (every enumerated combination keeps the same field count).
+map "$is_geo_challenge:$is_asn_challenge" $is_net_challenge {
+    default 1;
+    "0:0"   0;
+}
+
 {{- if .CommunityBansSubscribe }}
 
 # -----------------------------------------------------------------------------
@@ -613,13 +646,13 @@ map $unmask_bp_global $is_bypass_path {
 # $final_challenge — final decision on whether to trigger challenge
 # -----------------------------------------------------------------------------
 # 9 input signals:
-#   bv_any_valid : is_search_bot : is_bypass_ip : is_bypass_path : is_geo_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
+#   bv_any_valid : is_search_bot : is_bypass_ip : is_bypass_path : is_net_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
 #
 # Decision priority:
 #   1. bv_any_valid=1                 -> exempt (already carries CAPTCHA / PoW pass cookie)
 #   2. is_search_bot / is_bypass_ip   -> exempt (Googlebot accident prevention / trusted IP)
 #   3. is_bypass_path=1               -> exempt (bypass path)
-#   4. is_geo_challenge=1             -> challenge (country list veto; chMode picked by admin)
+#   4. is_net_challenge=1             -> challenge (country OR asn veto; chMode picked by admin)
 #   5. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
 #   6. is_challenge_target=0          -> exempt (CLI / library; matches ua-filter whitelist)
 #   7. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
@@ -630,7 +663,7 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_geo_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if .StaleBrowserEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if .StaleBrowserEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
     "~^0:1:"                    0;  # search bot UA -> exempt

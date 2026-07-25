@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -452,6 +453,55 @@ func GeoCIDRsForCountries(path string, codes []string) (string, error) {
 		b.WriteString(cidr.String())
 		b.WriteString(" ")
 		b.WriteString(rec.Country.ISOCode)
+		b.WriteString(";\n")
+	}
+	if err := nets.Err(); err != nil {
+		return b.String(), err
+	}
+	return b.String(), nil
+}
+
+// CIDRsForASNs walks the ASN mmdb once and returns the nginx `geo`-block body
+// (indented "CIDR ASN;\n" lines) for the given AS numbers only.  The by-network
+// analogue of GeoCIDRsForCountries: native mode routes on $unmask_asn without
+// linking libmaxminddb.  Only the operator's targeted ASNs are emitted, so the
+// output is bounded by those networks' prefix count, not the whole DB.
+func CIDRsForASNs(path string, asns []uint) (string, error) {
+	if path == "" || len(asns) == 0 {
+		return "", nil
+	}
+	wanted := make(map[uint]bool, len(asns))
+	for _, a := range asns {
+		if a != 0 {
+			wanted[a] = true
+		}
+	}
+	if len(wanted) == 0 {
+		return "", nil
+	}
+	db, err := maxminddb.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", path, err)
+	}
+	defer db.Close()
+
+	var b strings.Builder
+	var rec struct {
+		ASN uint `maxminddb:"autonomous_system_number"`
+	}
+	nets := db.Networks(maxminddb.SkipAliasedNetworks)
+	for nets.Next() {
+		cidr, err := nets.Network(&rec)
+		if err != nil {
+			continue
+		}
+		if rec.ASN == 0 || !wanted[rec.ASN] {
+			continue
+		}
+		b.WriteString("    ")
+		b.WriteString(cidr.String())
+		b.WriteString(" ")
+		b.WriteString(strconv.FormatUint(uint64(rec.ASN), 10))
 		b.WriteString(";\n")
 	}
 	if err := nets.Err(); err != nil {
