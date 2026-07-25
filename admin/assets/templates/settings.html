@@ -3270,6 +3270,71 @@ document.addEventListener("DOMContentLoaded", function(){
     </table>
     <div id="geo-empty" class="geo-empty"{{ if .Nginx.Geo.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.geo.empty" }}</div>
 
+    <hr style="margin:1.6rem 0 1rem;border:none;border-top:1px solid #e2e8f0">
+
+    <h3 style="font-size:.95rem;margin:0 0 .4rem">🖧 {{ t .Lang "settings.asn.section_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.section_help") }}</div>
+    {{ if not $.AsnMmdbLoaded }}
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem;color:#b45309;background:#fffbeb;border-left:.1875rem solid #f59e0b;padding:.4rem .6rem">{{ safeHTML (t .Lang "settings.asn.no_db") }}</div>
+    {{ end }}
+
+    {{ $ada := .Nginx.Asn.DefaultAction }}{{ if eq $ada "" }}{{ $ada = "skip" }}{{ end }}
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
+      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+        <select name="asn_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $ada "skip"             }}selected{{ end }}>skip (= no ASN-based decision)</option>
+          <option value="pow_only"         {{ if eq $ada "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $ada "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $ada "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $ada "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="geo-tools">
+      <input type="text" id="asn-add-input" placeholder="{{ t .Lang "settings.asn.add_ph" }}" style="width:12rem">
+      <input type="text" id="asn-add-label" placeholder="{{ t .Lang "settings.asn.label_ph" }}" style="width:14rem">
+      <button type="button" id="asn-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
+    </div>
+
+    <table class="geo">
+      <thead>
+        <tr>
+          <th class="col-country">{{ t .Lang "settings.asn.col_asn" }}</th>
+          <th>{{ t .Lang "settings.asn.col_label" }}</th>
+          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
+          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
+          <th class="col-del"></th>
+        </tr>
+      </thead>
+      <tbody id="asn-rows">
+        {{ range $i, $r := .Nginx.Asn.Rules }}
+        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
+          <td class="col-country">
+            <input type="hidden" name="asn_number" value="{{ $r.ASN }}">
+            <span class="cc-code">AS{{ $r.ASN }}</span>
+          </td>
+          <td><input type="text" name="asn_label" value="{{ $r.Label }}" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>
+          <td class="col-action">
+            <select name="asn_action">
+              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+            </select>
+          </td>
+          <td class="col-enabled">
+            <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
+          </td>
+          <td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <div id="asn-empty" class="geo-empty"{{ if .Nginx.Asn.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.asn.empty" }}</div>
+
     <div style="margin-top:1rem">
       <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
     </div>
@@ -3395,6 +3460,65 @@ document.addEventListener("DOMContentLoaded", function(){
 
   // Initial empty-state visibility.
   empty.style.display = tbody.children.length ? 'none' : '';
+})();
+</script>
+
+<script>
+// ASN rules table (sibling of the geo table above; simpler — free-text AS
+// number + label, no country master).  Lives in the same geo form so one save
+// persists both.
+(function(){
+  var tbody   = document.getElementById('asn-rows');
+  var empty   = document.getElementById('asn-empty');
+  var addNum  = document.getElementById('asn-add-input');
+  var addLbl  = document.getElementById('asn-add-label');
+  var addBtn  = document.getElementById('asn-add-btn');
+  if (!tbody) return;
+
+  var ACTIONS = ['', 'skip', 'pow_only', 'captcha_only', 'pow_then_captcha', 'deny'];
+  var ALABEL  = { '': '(inherit)', skip: 'skip', pow_only: 'pow_only', captcha_only: 'captcha_only', pow_then_captcha: 'pow_then_captcha', deny: 'deny' };
+
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function reindex(){
+    Array.prototype.forEach.call(tbody.children, function(tr, i){
+      tr.setAttribute('data-i', i);
+      var en = tr.querySelector('input[type=checkbox][name^="asn_enabled_"]');
+      if (en) en.name = 'asn_enabled_' + i;
+    });
+    empty.style.display = tbody.children.length ? 'none' : '';
+  }
+
+  function addRow(asn, label){
+    var opts = ACTIONS.map(function(a){ return '<option value="'+a+'">'+ALABEL[a]+'</option>'; }).join('');
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="col-country"><input type="hidden" name="asn_number" value="'+asn+'"><span class="cc-code">AS'+asn+'</span></td>' +
+      '<td><input type="text" name="asn_label" value="'+esc(label||'')+'" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
+      '<td class="col-action"><select name="asn_action">'+opts+'</select></td>' +
+      '<td class="col-enabled"><input type="checkbox" value="1" checked></td>' +
+      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
+    tbody.appendChild(tr);
+    reindex();
+  }
+
+  function doAdd(){
+    var raw = (addNum.value || '').trim().replace(/^AS/i, '');
+    var n = parseInt(raw, 10);
+    if (!n || n < 1 || !/^\d+$/.test(raw)) { addNum.focus(); return; }
+    var dup = Array.prototype.some.call(tbody.querySelectorAll('input[name="asn_number"]'), function(h){ return h.value === String(n); });
+    if (dup) { addNum.value = ''; addNum.focus(); return; }
+    addRow(n, (addLbl.value || '').trim());
+    addNum.value = ''; addLbl.value = ''; addNum.focus();
+  }
+
+  addBtn.addEventListener('click', doAdd);
+  addNum.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+  addLbl.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
+  tbody.addEventListener('click', function(e){
+    if (e.target.classList.contains('del-btn')) { e.target.closest('tr').remove(); reindex(); }
+  });
+  reindex();
 })();
 </script>
 {{ end }}

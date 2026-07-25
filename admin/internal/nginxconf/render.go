@@ -426,6 +426,15 @@ type renderData struct {
 	// long-tail of unlisted countries).  Mirrors settings.Geo.DefaultAction.
 	GeoDefaultAction string
 
+	// AsnCIDRs / AsnRules / AsnDefaultAction: the by-network sibling of the
+	// Geo* fields above.  Native mode gets a `geo $remote_addr $unmask_asn`
+	// block (only the CIDRs of the operator's targeted ASNs, walked from the
+	// ASN mmdb) + a `map $unmask_asn $unmask_asn_action` block.  Empty when no
+	// ASN rules exist or the ASN mmdb is missing -- the axis then no-ops.
+	AsnCIDRs         string
+	AsnRules         []AsnRuleRender
+	AsnDefaultAction string
+
 	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
 	// CommunityBansSubscribe is true.  MapDir is the base directory of the
@@ -509,6 +518,12 @@ type RatePathZoneRender struct {
 type GeoRuleRender struct {
 	Country string // ISO 3166-1 alpha-2 uppercase
 	Action  string // resolved action (= rule.Action || geo.DefaultAction)
+}
+
+// AsnRuleRender: one entry of the $unmask_asn_action map.
+type AsnRuleRender struct {
+	ASN    uint   // autonomous system number
+	Action string // resolved action (= rule.Action || asn.DefaultAction)
 }
 
 // sanitizeConfPath strips characters that could break out of an nginx
@@ -1028,6 +1043,40 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// On error: silently leave GeoCIDRs empty.  The geo block then
 		// degrades to default "" → action map default action.  Operators
 		// see the WARN in `unmask doctor` (= mmdb path check).
+	}
+
+	// ASN (native mode): the by-network sibling of the geo block above.  Walk
+	// the ASN mmdb once, materialising a `geo $remote_addr $unmask_asn { ... }`
+	// block listing only the CIDRs of the ASNs the operator has rules for, plus
+	// a per-ASN action map.  Requires the ASN mmdb (MMDBASNPath); with only the
+	// country db configured the axis stays inert.
+	d.AsnDefaultAction = s.Nginx.Asn.ResolvedDefaultAction()
+	asnSet := map[uint]bool{}
+	for _, r := range s.Nginx.Asn.Rules {
+		if !r.Enabled || r.ASN == 0 || asnSet[r.ASN] {
+			continue
+		}
+		asnSet[r.ASN] = true
+		action := strings.TrimSpace(r.Action)
+		if action == "" {
+			action = d.AsnDefaultAction
+		}
+		if !settings.IsValidGeoAction(action) {
+			action = settings.GeoActionSkip
+		}
+		d.AsnRules = append(d.AsnRules, AsnRuleRender{ASN: r.ASN, Action: action})
+	}
+	sort.Slice(d.AsnRules, func(i, j int) bool { return d.AsnRules[i].ASN < d.AsnRules[j].ASN })
+	if len(d.AsnRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
+		asns := make([]uint, 0, len(d.AsnRules))
+		for _, a := range d.AsnRules {
+			asns = append(asns, a.ASN)
+		}
+		if cidrs, err := ipgeo.CIDRsForASNs(s.IPGeo.MMDBASNPath, asns); err == nil {
+			d.AsnCIDRs = cidrs
+		}
+		// On error: leave AsnCIDRs empty; the block degrades to the default
+		// action.  doctor's mmdb path check surfaces a missing/broken db.
 	}
 
 	// CommunityBans: render the 3 map includes only in fetch_apply mode.
