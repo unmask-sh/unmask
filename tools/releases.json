@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.9",
+  "latest": "0.1.10",
   "releases": [
+    {
+      "version": "0.1.10",
+      "date": "2026-07-25",
+      "notes": "Fixes and cleanup. The 0.1.9 test-page site picker works again (its challenge could not be passed and the per-site logo did not show). Saving settings from the web UI no longer deletes config sections owned by other programs sharing config.yml. The forward-auth decision endpoint stops rebuilding its matchers on every request, and the SQLite page cache grows to 128MB for multi-GB event databases. FHS cleanup: the nginx module survives an immutable /usr via a /var/lib fallback, the Apache Lua hook payload moved to /usr/share (the /etc paths stay as symlinks), and the setup token moved to /var/lib. Breaking for hand-edited nginx wiring: both deploy modes now share ONE daemon upstream, `upstream unmask_daemon` (defined only in upstream.conf; http.inc no longer defines an upstream), and the daemon-down hook is `@unmask_daemon_down`. Packaged installs converge automatically on upgrade + re-render; if you hand-copied forward-auth/server.inc or hand-include the rendered files, update the names and include upstream.conf — `nginx -t` names anything left over."
+    },
     {
       "version": "0.1.9",
       "date": "2026-07-24",
