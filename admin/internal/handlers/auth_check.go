@@ -343,8 +343,11 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			action, reason, status = "pass", "bypass:path", http.StatusOK
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
-			decisions := make([]axisDecision, 0, 5)
+			decisions := make([]axisDecision, 0, 6)
 			if d, ok := h.geoDecide(ip, cfg); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := h.asnDecide(ip, cfg); ok {
 				decisions = append(decisions, d)
 			}
 			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip); ok {
@@ -617,6 +620,44 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 	default:
 		s := severityFromAction(act)
 		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, true
+	}
+}
+
+// asnDecide consults settings.Nginx.Asn for the visitor's autonomous system.
+// The by-network sibling of geoDecide: same lookup source (the ASN mmdb via
+// IPGeo), same decision machinery.  Inert when no ASN db is loaded so an
+// install with only the country db never fires ASN rules.
+func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
+	if h.IPGeo == nil || !h.IPGeo.ASNLoaded() {
+		return axisDecision{}, false
+	}
+	return asnDecideForASN(h.IPGeo.LookupInfo(ip).ASN, cfg.Nginx.Asn)
+}
+
+// asnDecideForASN: pure decision given a resolved AS number.  Mirrors
+// geoDecideForCountry.
+//   - ASN 0 -> silent (mmdb miss / private IP, fail-open)
+//   - resolved action "skip" or empty -> silent
+//   - "deny" -> sevDeny
+//   - challenge-mode action -> matching severity, chMode set
+func asnDecideForASN(asn uint, cfg settings.AsnConfig) (axisDecision, bool) {
+	if asn == 0 {
+		return axisDecision{}, false
+	}
+	act := cfg.ResolvedDefaultAction()
+	rule := cfg.LookupRule(asn)
+	if rule != nil && strings.TrimSpace(rule.Action) != "" {
+		act = rule.Action
+	}
+	tag := "asn:AS" + strconv.FormatUint(uint64(asn), 10)
+	switch act {
+	case "", settings.GeoActionSkip:
+		return axisDecision{}, false
+	case settings.GeoActionDeny:
+		return axisDecision{sev: sevDeny, reason: tag + ":deny"}, true
+	default:
+		s := severityFromAction(act)
+		return axisDecision{sev: s, reason: tag + ":" + act, chMode: chModeFromSeverity(s)}, true
 	}
 }
 

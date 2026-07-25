@@ -630,6 +630,7 @@ type Nginx struct {
 	ProtectedPaths   ProtectedPathsConfig   `yaml:"protected_paths"`
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
+	Asn              AsnConfig              `yaml:"asn,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
 	// rendered server.inc — before any ban / honeypot / challenge gate.  A
@@ -1029,6 +1030,68 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 	for i := range g.Rules {
 		r := &g.Rules[i]
 		if r.Enabled && r.Country == country {
+			return r
+		}
+	}
+	return nil
+}
+
+// AsnConfig: autonomous-system-number decision axis, the by-network sibling of
+// GeoConfig.  Where geo answers "which country is this IP in", ASN answers
+// "which network operator", which is the granularity operators actually need:
+// a country block is too coarse (can't block a cloud/VPS provider without
+// blocking a whole country), so ASN rules target the data-center / bulletproof
+// / rotating-proxy networks that host scrapers (AS16509 Amazon, AS14061
+// DigitalOcean, ...) while leaving the residential ISPs of the same country
+// untouched.
+//
+// Requires IPGeo.MMDBASNPath (= the ASN mmdb).  Without it the axis is inert
+// (forward-auth: LookupInfo returns ASN 0; native: no CIDRs are emitted), so
+// an install that configured only the country db never fires ASN rules -- a
+// warning is surfaced in `unmask doctor` and the settings UI.
+//
+// Actions, evaluation order, and the challenge chain reuse the geo machinery
+// verbatim (GeoAction* / severityFromAction / chMode) -- an ASN rule is just a
+// geo rule keyed by AS number instead of country code.  Crucially the axis
+// runs AFTER the bypass-IP check (published crawler ranges), so blocking a
+// cloud ASN never challenges Googlebot/GPTBot (they pass on their vendor
+// ranges first): the search-bot-safety rule holds.
+type AsnConfig struct {
+	// DefaultAction: applied to ASNs that match no rule.  Empty -> "skip"
+	// (= blocklist semantics, the common case: rules name the networks to act
+	// on, everything else passes).
+	DefaultAction string `yaml:"default_action,omitempty"`
+	// Rules: per-ASN overrides.
+	Rules []AsnRule `yaml:"rules,omitempty"`
+}
+
+// AsnRule: one autonomous-system override.  The by-network analogue of GeoRule.
+type AsnRule struct {
+	ASN       uint   `yaml:"asn"`                  // autonomous system number (0 = invalid, skipped)
+	Label     string `yaml:"label,omitempty"`      // operator note, e.g. "Amazon AWS" (display only)
+	Action    string `yaml:"action,omitempty"`     // GeoAction*; empty = inherit DefaultAction
+	Enabled   bool   `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
+	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
+}
+
+// ResolvedDefaultAction: empty -> "skip" (no ASN intervention for the long
+// tail of unmatched networks).
+func (a AsnConfig) ResolvedDefaultAction() string {
+	if a.DefaultAction == "" {
+		return GeoActionSkip
+	}
+	return a.DefaultAction
+}
+
+// LookupRule returns the enabled rule for the given AS number, or nil.  Linear
+// scan (rule count is small).
+func (a AsnConfig) LookupRule(asn uint) *AsnRule {
+	if asn == 0 {
+		return nil
+	}
+	for i := range a.Rules {
+		r := &a.Rules[i]
+		if r.Enabled && r.ASN == asn {
 			return r
 		}
 	}
