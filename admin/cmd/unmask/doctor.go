@@ -119,6 +119,15 @@ func cmdDoctor(args []string) error {
 			addErr("nginx-rendered.conf render", err.Error())
 		} else {
 			addOK("nginx-rendered.conf render (dry-run)", "")
+			// 2c. render freshness: does the conf nginx actually loads match what
+			// config.yml renders NOW?  A hand-edit to config.yml that skips
+			// `render-nginx` (or the web UI) leaves nginx serving the stale conf --
+			// the config change is silently not in effect.  Compare the fresh
+			// dry-run to the live output_dir copy, ignoring the generated_at /
+			// unmask_version stamp lines (which differ every render even when the
+			// substance is identical, so an mtime check would false-positive on a
+			// hourly community-bans write-back that re-Saves without re-rendering).
+			checkRenderFreshness(tmpDir, s.Nginx.OutputDir, addWarn, addOK)
 		}
 	}
 
@@ -921,6 +930,82 @@ func sloTarget(server settings.Server) (string, func(ctx context.Context, networ
 		port = 9477
 	}
 	return fmt.Sprintf("http://%s:%d%s/healthz", host, port, base), nil
+}
+
+// checkRenderFreshness compares the freshly re-rendered conf (in freshDir,
+// the doctor dry-run) against the live copy nginx loads (in outputDir).  A
+// mismatch means config.yml has changed since the conf was last rendered --
+// typically a hand-edit that skipped `render-nginx` -- so nginx is serving a
+// stale conf and the config change is not in effect.  Compares http.inc +
+// server.inc (the substantive native outputs); the daemon re-renders on every
+// save, so a match is the normal state.
+func checkRenderFreshness(freshDir, outputDir string, addWarn, addOK func(string, string)) {
+	if outputDir == "" {
+		return // output_dir unset already flagged elsewhere
+	}
+	var stale []string
+	compared := 0
+	for _, name := range []string{"http.inc", "server.inc"} {
+		fresh, e1 := os.ReadFile(filepath.Join(freshDir, name))
+		live, e2 := os.ReadFile(filepath.Join(outputDir, name))
+		if e1 != nil || e2 != nil {
+			continue // not rendered yet / not this mode -- nothing to compare
+		}
+		compared++
+		// The rendered conf echoes its own output dir in a usage-example
+		// comment, so a dry-run into a temp dir always differs on that line;
+		// normalize the fresh copy's dir back to the live one before comparing.
+		freshS := strings.ReplaceAll(stripRenderStamps(fresh), freshDir, outputDir)
+		liveS := stripRenderStamps(live)
+		if freshS != liveS {
+			stale = append(stale, name)
+			// DEBUG
+			fl := strings.Split(freshS, "\n")
+			ll := strings.Split(liveS, "\n")
+			for i := 0; i < len(fl) && i < len(ll); i++ {
+				if fl[i] != ll[i] {
+					fmt.Fprintf(os.Stderr, "DBG %s line %d:\n  live : %q\n  fresh: %q\n", name, i, ll[i], fl[i])
+					break
+				}
+			}
+			fmt.Fprintf(os.Stderr, "DBG %s lines live=%d fresh=%d\n", name, len(ll), len(fl))
+		}
+	}
+	switch {
+	case compared == 0:
+		// No live conf to compare (fresh install pre-render, or output_dir empty).
+		// Silent: the render dry-run above already reports render health.
+	case len(stale) > 0:
+		addWarn("nginx render freshness", fmt.Sprintf(
+			"%s in %s %s out of date with config.yml — a config change has not been applied to nginx. Run `unmask render-nginx` then reload nginx (the web UI does this automatically on save).",
+			strings.Join(stale, ", "), outputDir, plural(len(stale), "is", "are")))
+	default:
+		addOK("nginx render freshness", "rendered conf matches config.yml")
+	}
+}
+
+// stripRenderStamps removes the per-render generated_at / unmask_version
+// header lines so two renders of the SAME config compare equal (those stamps
+// change every render even when the substance is identical).
+func stripRenderStamps(b []byte) string {
+	lines := strings.Split(string(b), "\n")
+	out := lines[:0]
+	for _, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if strings.HasPrefix(t, "#  generated_at:") || strings.HasPrefix(t, "#  unmask_version:") ||
+			strings.HasPrefix(t, "# generated_at:") || strings.HasPrefix(t, "# unmask_version:") {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 func writableDir(p string) error {
