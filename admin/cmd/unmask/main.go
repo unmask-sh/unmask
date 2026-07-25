@@ -33,6 +33,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -456,17 +457,18 @@ func cmdServe(args []string) error {
 	dashboard.SetDisabledHosts(s.Hosts.Disabled)
 
 	h := &handlers.Handler{
-		DB:          conn,
-		ConfigPath:  settings.ResolvePath(*configPath),
-		Version:     Version,
-		HostID:      hostID,
-		IPGeo:       gip,
-		NginxLog:    nlog,
-		BanMgr:      banMgr,
-		UserRepo:    userRepo,
-		Notifier:    notifierInst,
-		Mailer:      mailerInst,
-		RateLimiter: limiter,
+		DB:            conn,
+		ConfigPath:    settings.ResolvePath(*configPath),
+		Version:       Version,
+		HostID:        hostID,
+		IPGeo:         gip,
+		CrawlerVerify: crawlerverify.New(nil), // net.DefaultResolver; gated by cfg.Nginx.CrawlerVerify.Enabled
+		NginxLog:      nlog,
+		BanMgr:        banMgr,
+		UserRepo:      userRepo,
+		Notifier:      notifierInst,
+		Mailer:        mailerInst,
+		RateLimiter:   limiter,
 	}
 	// Publish the initial settings snapshot.  settingsPtr is unexported, so the
 	// daemon seeds it through the exported setter rather than a struct literal.

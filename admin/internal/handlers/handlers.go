@@ -27,6 +27,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
@@ -129,21 +130,22 @@ type Handler struct {
 	// serialize through settingsMu and publish via SetSettings /
 	// updateSettingsInMemory / the save handlers.
 	settingsPtr   atomic.Pointer[settings.Settings]
-	ConfigPath    string                // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
-	Version       string                // unmask version (for display)
-	HostID        string                // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
-	IPGeo         *ipgeo.Reader         // optional, may be nil/empty (mmdb unset)
-	NginxLog      *nginxlog.Reader      // optional, may be nil/empty (access_log_path unset)
-	BanMgr        *ban.Manager          // optional, may be nil (ban_file_path unset)
-	UserRepo      *user.Repository      // internal user management (login / users tab / audit hook)
-	Notifier      *notifier.Notifier    // optional, may be nil (notification URL unset)
-	Mailer        *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
-	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
-	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
-	BrowserSync   *browsermajors.Sync   // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
-	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
-	PrivacyPass   *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
+	ConfigPath    string                  // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
+	Version       string                  // unmask version (for display)
+	HostID        string                  // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
+	IPGeo         *ipgeo.Reader           // optional, may be nil/empty (mmdb unset)
+	CrawlerVerify *crawlerverify.Verifier // optional; nil disables rDNS crawler auth
+	NginxLog      *nginxlog.Reader        // optional, may be nil/empty (access_log_path unset)
+	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
+	UserRepo      *user.Repository        // internal user management (login / users tab / audit hook)
+	Notifier      *notifier.Notifier      // optional, may be nil (notification URL unset)
+	Mailer        *mail.Mailer            // optional, may be nil (SMTP unset).  Used by alert / password reset.
+	RateLimiter   *ratelimit.Limiter      // sliding-window counter for forward-auth mode.  nil disables counting.
+	CommunityBans *communitybans.Client   // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	IPRangeSync   *nginxconf.Sync         // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	BrowserSync   *browsermajors.Sync     // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
+	WebBotAuth    *webbotauth.Verifier    // optional, may be nil.  RFC 9421 signature verification for bot requests.
+	PrivacyPass   *privacypass.Verifier   // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
 
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.

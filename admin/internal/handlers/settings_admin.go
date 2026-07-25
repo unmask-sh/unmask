@@ -669,6 +669,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
+		"CrawlerVerify":              cur.CrawlerVerify,
+		"CrawlerVerifyForgedAction":  cur.CrawlerVerify.ResolvedForgedAction(),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -2328,6 +2330,22 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.StatsExcludeIPs = outStx
 	n.StatsExcludeIPsTitle = outStxTitle
 	n.StatsExcludePrivateNetworks = r.FormValue("stats_exclude_private_networks") == "1"
+
+	// Reverse-DNS crawler verification (rDNS): the DNS-based sibling of the
+	// IP-range presets above -- verify a crawler-claiming UA against its vendor's
+	// published rDNS instead of a static range.
+	n.CrawlerVerify.Enabled = r.FormValue("crawler_verify_enabled") == "1"
+	fa := strings.TrimSpace(r.FormValue("crawler_verify_forged_action"))
+	if fa != "" && !settings.IsValidGeoAction(fa) {
+		fa = ""
+	}
+	// pow_then_captcha IS ResolvedForgedAction's default -- store the
+	// non-deviation as unset so re-saving the rendered form is a no-op.
+	if fa == settings.GeoActionPoWThenCaptcha {
+		fa = ""
+	}
+	n.CrawlerVerify.ForgedAction = fa
+
 	return nil
 }
 

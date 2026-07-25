@@ -139,6 +139,52 @@ func TestVerify_CacheExpires(t *testing.T) {
 	}
 }
 
+func TestCached_NotApplicableNoDNS(t *testing.T) {
+	f := &fakeResolver{}
+	r, ok := newV(f).Cached("1.2.3.4", "Mozilla/5.0 Chrome/120")
+	if !ok || r.Status != NotApplicable {
+		t.Fatalf("got %+v ok=%v, want NotApplicable/true", r, ok)
+	}
+	if f.addrHit != 0 {
+		t.Error("Cached must never do DNS")
+	}
+}
+
+func TestCached_MissThenAsyncFill(t *testing.T) {
+	f := &fakeResolver{
+		ptr: map[string][]string{"66.249.66.1": {"crawl.googlebot.com"}},
+		fwd: map[string][]string{"crawl.googlebot.com": {"66.249.66.1"}},
+	}
+	v := newV(f)
+	// A crawler UA with an empty cache is a miss (caller falls through).
+	if _, ok := v.Cached("66.249.66.1", "Googlebot"); ok {
+		t.Fatal("expected cache miss before any verification")
+	}
+	v.VerifyAsync("66.249.66.1", "Googlebot")
+	// The background worker populates the cache shortly.
+	var got Result
+	ok := false
+	for i := 0; i < 400 && !ok; i++ {
+		got, ok = v.Cached("66.249.66.1", "Googlebot")
+		if !ok {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+	if !ok || got.Status != Verified {
+		t.Fatalf("async fill = %+v ok=%v, want Verified", got, ok)
+	}
+}
+
+func TestVerifyAsync_NoDNSForNonCrawler(t *testing.T) {
+	f := &fakeResolver{}
+	v := newV(f)
+	v.VerifyAsync("1.2.3.4", "Mozilla/5.0 Chrome/120")
+	time.Sleep(20 * time.Millisecond)
+	if f.addrHit != 0 {
+		t.Error("VerifyAsync must not schedule DNS for a non-crawler UA")
+	}
+}
+
 func TestDomainMatch(t *testing.T) {
 	if !domainMatch("crawl-1.googlebot.com.", []string{"googlebot.com"}) {
 		t.Error("subdomain with trailing dot should match")
