@@ -1121,12 +1121,17 @@ type AsnProviderSel struct {
 // organization-name substring (covers every ASN of a network operator without
 // listing their numbers).
 type AsnRule struct {
-	ASN       uint   `yaml:"asn,omitempty"`        // exact AS number (0 -> this is an Org rule)
-	Org       string `yaml:"org,omitempty"`        // organization-name substring (empty -> this is an ASN rule)
-	Label     string `yaml:"label,omitempty"`      // operator note (display only)
-	Action    string `yaml:"action,omitempty"`     // GeoAction*; empty = inherit DefaultAction
-	Enabled   bool   `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
-	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
+	ASN    uint   `yaml:"asn,omitempty"`    // exact AS number (0 -> this is an Org rule)
+	Org    string `yaml:"org,omitempty"`    // organization-name substring (empty -> this is an ASN rule)
+	Label  string `yaml:"label,omitempty"`  // operator note (display only)
+	Action string `yaml:"action,omitempty"` // GeoAction*; empty = inherit DefaultAction
+	// RatePerMin: 0 -> Action applies to every request (block/challenge).
+	// >0 -> the softer "rate" mode: this network is allowed RatePerMin requests
+	// per minute and Action applies only to the OVERAGE.  Lets an operator throttle
+	// a datacenter instead of denying it outright.
+	RatePerMin int   `yaml:"rate_per_min,omitempty"`
+	Enabled    bool  `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
+	UpdatedAt  int64 `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
 }
 
 // ResolvedDefaultAction: empty -> "skip" (no ASN intervention for the long
@@ -1147,6 +1152,15 @@ func (a AsnConfig) ResolvedDefaultAction() string {
 // within the ASN axis a single winning action is enough.  The resolved action
 // resolves "" -> DefaultAction.
 func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched bool) {
+	action, _, matched = a.ResolveRule(asn, org)
+	return action, matched
+}
+
+// ResolveRule is ResolveAction plus the matched rule's RatePerMin (0 for a
+// provider match or an action-only rule).  RatePerMin>0 selects the "rate" mode:
+// the caller throttles the network to that many requests/min and applies action
+// only to the overage.
+func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin int, matched bool) {
 	resolve := func(raw string) string {
 		if strings.TrimSpace(raw) == "" {
 			return a.ResolvedDefaultAction()
@@ -1158,7 +1172,7 @@ func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched b
 		for i := range a.Rules {
 			r := &a.Rules[i]
 			if r.Enabled && r.ASN == asn && r.Org == "" {
-				return resolve(r.Action), true
+				return resolve(r.Action), r.RatePerMin, true
 			}
 		}
 	}
@@ -1166,10 +1180,10 @@ func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched b
 	for i := range a.Rules {
 		r := &a.Rules[i]
 		if r.Enabled && r.Org != "" && OrgMatchesAny(org, []string{r.Org}) {
-			return resolve(r.Action), true
+			return resolve(r.Action), r.RatePerMin, true
 		}
 	}
-	// 3. enabled catalog provider (org match).
+	// 3. enabled catalog provider (org match).  Providers have no rate cap (yet).
 	for i := range a.Providers {
 		p := &a.Providers[i]
 		if !p.Enabled {
@@ -1177,10 +1191,10 @@ func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched b
 		}
 		hp := HostingProviderByID(p.ID)
 		if hp != nil && OrgMatchesAny(org, hp.OrgPatterns) {
-			return resolve(p.Action), true
+			return resolve(p.Action), 0, true
 		}
 	}
-	return "", false
+	return "", 0, false
 }
 
 // EnabledOrgPatterns returns every org-name substring that an enabled rule or
@@ -1204,7 +1218,11 @@ func (a AsnConfig) EnabledOrgPatterns() []struct {
 		}{pat, act})
 	}
 	for i := range a.Rules {
-		if r := &a.Rules[i]; r.Enabled && r.Org != "" {
+		// RatePerMin>0 rules are the "throttle" mode -- forward-auth only for now;
+		// the native geo block would misrender them as an immediate action
+		// (block/challenge every request, not just the overage), so skip them
+		// until the native limit_req rendering lands.
+		if r := &a.Rules[i]; r.Enabled && r.Org != "" && r.RatePerMin == 0 {
 			add(r.Org, r.Action)
 		}
 	}
@@ -1234,7 +1252,9 @@ func (a AsnConfig) EnabledASNRules() []struct {
 	}
 	for i := range a.Rules {
 		r := &a.Rules[i]
-		if r.Enabled && r.ASN != 0 && r.Org == "" {
+		// Skip RatePerMin>0 rules -- forward-auth only until native limit_req
+		// rendering lands (see EnabledOrgPatterns).
+		if r.Enabled && r.ASN != 0 && r.Org == "" && r.RatePerMin == 0 {
 			act := r.Action
 			if strings.TrimSpace(act) == "" {
 				act = a.ResolvedDefaultAction()

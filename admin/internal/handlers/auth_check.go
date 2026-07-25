@@ -683,39 +683,68 @@ func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, boo
 		return axisDecision{}, false
 	}
 	info := h.IPGeo.LookupInfo(ip)
-	return asnDecideFor(info.ASN, info.ASNOrg, cfg.Nginx.Asn)
+	d, netKey, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn)
+	if !ok {
+		return axisDecision{}, false
+	}
+	return applyAsnRate(d, netKey, rate, h.RateLimiter)
 }
 
-// asnDecideFor: pure decision given a resolved AS number + organization name.
-//   - no match -> silent (other axes decide)
-//   - resolved action "skip" or empty -> silent
-//   - "deny" -> sevDeny
-//   - challenge-mode action -> matching severity, chMode set
-//
-// The reason tag names the AS number when known, else the matched org.
-func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, bool) {
+// applyAsnRate turns an ASN action decision into its rate-limited form.  rate<=0
+// -> the action applies to every request (return d unchanged).  rate>0 -> the
+// matched AS number is throttled to `rate` req/min (one shared counter); the
+// action fires only on the overage, and stays silent under the cap.  A nil
+// limiter can't count, so it fails open (silent).
+func applyAsnRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {
+	if rate <= 0 {
+		return d, true
+	}
+	if rl == nil {
+		return axisDecision{}, false
+	}
+	if !rl.Hit("asnrate|"+netKey, ratelimit.Spec{RequestsPerMin: rate, WindowSec: 60}).Hit {
+		return axisDecision{}, false // under the cap -> pass
+	}
+	d.reason = netKey + ":rate>" + strconv.Itoa(rate) + strings.TrimPrefix(d.reason, netKey)
+	return d, true
+}
+
+// asnResolve is the pure ASN resolution: the matched rule/provider -> an action
+// decision, plus the network key (per-AS-number counter) and the rule's
+// RatePerMin.  netKey is "asn:AS<n>" (or "asn:<org>" when the AS number is
+// unknown).
+//   - no match / action skip|empty -> silent
+//   - deny -> sevDeny ; challenge-mode action -> matching severity + chMode
+func asnResolve(asn uint, org string, cfg settings.AsnConfig) (d axisDecision, netKey string, rate int, ok bool) {
 	if asn == 0 && org == "" {
-		return axisDecision{}, false
+		return axisDecision{}, "", 0, false
 	}
-	act, matched := cfg.ResolveAction(asn, org)
+	act, r, matched := cfg.ResolveRule(asn, org)
 	if !matched {
-		return axisDecision{}, false
+		return axisDecision{}, "", 0, false
 	}
-	tag := "asn:"
+	netKey = "asn:"
 	if asn != 0 {
-		tag += "AS" + strconv.FormatUint(uint64(asn), 10)
+		netKey += "AS" + strconv.FormatUint(uint64(asn), 10)
 	} else {
-		tag += org
+		netKey += org
 	}
 	switch act {
 	case "", settings.GeoActionSkip:
-		return axisDecision{}, false
+		return axisDecision{}, "", 0, false
 	case settings.GeoActionDeny:
-		return axisDecision{sev: sevDeny, reason: tag + ":deny"}, true
+		return axisDecision{sev: sevDeny, reason: netKey + ":deny"}, netKey, r, true
 	default:
 		s := severityFromAction(act)
-		return axisDecision{sev: s, reason: tag + ":" + act, chMode: chModeFromSeverity(s)}, true
+		return axisDecision{sev: s, reason: netKey + ":" + act, chMode: chModeFromSeverity(s)}, netKey, r, true
 	}
+}
+
+// asnDecideFor is the immediate action decision (rate ignored), retained for the
+// unit test and any caller that only needs the per-request verdict.
+func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, bool) {
+	d, _, _, ok := asnResolve(asn, org, cfg)
+	return d, ok
 }
 
 // honeypotDecide returns a decision when the URI matches a honeypot path.
