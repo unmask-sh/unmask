@@ -1460,6 +1460,34 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
     </div>
   </div>
+
+  {{/* Reverse-DNS crawler verification (rDNS): the DNS-based sibling of the IP
+       range presets above -- verify a crawler-claiming UA against its vendor's
+       published rDNS, so a genuine crawler is rescued even off-range and a
+       forgery is challenged/denied. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.rdns.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="rdns-help" aria-label="?">?</button>
+      <script type="text/html" id="rdns-help">{{ safeHTML (t .Lang "settings.rdns.help") }}</script>
+    </h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.rdns.desc") }}</p>
+    <label class="rdns-enable" style="display:flex;align-items:center;gap:.4rem;margin:.4rem 0 .7rem">
+      <input type="checkbox" name="crawler_verify_enabled" value="1" {{ if .CrawlerVerify.Enabled }}checked{{ end }}>
+      <span>{{ t .Lang "settings.rdns.enable" }}</span>
+    </label>
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center">
+      <label style="font-size:.85rem">{{ t .Lang "settings.rdns.forged_action" }}:
+        <select name="crawler_verify_forged_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="pow_only"         {{ if eq .CrawlerVerifyForgedAction "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq .CrawlerVerifyForgedAction "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq .CrawlerVerifyForgedAction "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq .CrawlerVerifyForgedAction "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+      <span class="note" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.rdns.forged_hint" }}</span>
+    </div>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
