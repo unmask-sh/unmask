@@ -434,6 +434,11 @@ type renderData struct {
 	AsnCIDRs         string
 	AsnRules         []AsnRuleRender
 	AsnDefaultAction string
+	// AsnRateZones: one limit_req zone per RatePerMin>0 ASN rule.  Each throttles
+	// the rule's networks to N req/min (counter keyed per AS number, via a geo
+	// block over ipgeo.ASNRateCIDRs), with verified crawlers / bypass IPs exempt
+	// (SEO safety).  Empty when no rate rule / ASN mmdb.
+	AsnRateZones []AsnRateZoneRender
 
 	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
@@ -525,6 +530,19 @@ type GeoRuleRender struct {
 type AsnRuleRender struct {
 	Key    string // map key ("AS16509" / "org:microsoft")
 	Action string // resolved action (= rule.Action || asn.DefaultAction)
+}
+
+// AsnRateZoneRender: one native rate zone for a RatePerMin>0 ASN rule.  GeoBody
+// is the "<CIDR> <ASN>;" block from ipgeo.ASNRateCIDRs, written into a
+// `geo $remote_addr <RawVar>` so the counter is per AS number; <KeyVar> re-maps
+// RawVar to "" for verified crawlers / bypass IPs so they are never throttled.
+type AsnRateZoneRender struct {
+	ZoneName       string // asnrate_<i>
+	RequestsPerMin int
+	Burst          int
+	RawVar         string // $asnrate_<i>_raw : the network's ASN, else ""
+	KeyVar         string // $asnrate_<i>_key : RawVar minus the search-bot/bypass exemption
+	GeoBody        string // rendered "<CIDR> <ASN>;" lines
 }
 
 // sanitizeConfPath strips characters that could break out of an nginx
@@ -1087,6 +1105,37 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			}
 			// On error: leave AsnCIDRs empty; the block degrades to the default
 			// action.  doctor's mmdb path check surfaces a missing/broken db.
+		}
+	}
+
+	// ASN rate zones: one limit_req zone per RatePerMin>0 rule (separate from the
+	// immediate-action geo block above, which skips rate rules).  Each walks the
+	// mmdb for the rule's networks emitting a per-CIDR ASN value, so the counter
+	// is per AS number.  Skipped when the mmdb is missing or the walk is empty.
+	if mmdb := strings.TrimSpace(s.IPGeo.MMDBASNPath); mmdb != "" {
+		for i, rr := range s.Nginx.Asn.RateRules() {
+			t := ipgeo.ASNTarget{ASN: rr.ASN}
+			if rr.ASN == 0 {
+				t = ipgeo.ASNTarget{OrgPattern: rr.Org}
+			}
+			body, err := ipgeo.ASNRateCIDRs(mmdb, []ipgeo.ASNTarget{t})
+			if err != nil || strings.TrimSpace(body) == "" {
+				continue // no CIDRs (or walk error) -> no zone
+			}
+			name := fmt.Sprintf("asnrate_%d", i)
+			d.AsnRateZones = append(d.AsnRateZones, AsnRateZoneRender{
+				ZoneName:       name,
+				RequestsPerMin: rr.RatePerMin,
+				// nginx limit_req is a leaky bucket (rate=Nr/m -> 1 per 60/N s),
+				// far stricter than forward-auth's sliding N-per-window.  A burst
+				// of one window's worth (=RatePerMin) lets a normal minute's
+				// traffic through, then throttles the sustained overage -- and
+				// nginx rejects an explicit burst=0, so this also keeps it valid.
+				Burst:   rr.RatePerMin,
+				RawVar:  "$" + name + "_raw",
+				KeyVar:  "$" + name + "_key",
+				GeoBody: body,
+			})
 		}
 	}
 
