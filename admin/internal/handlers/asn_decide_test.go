@@ -3,6 +3,7 @@ package handlers
 import (
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -77,6 +78,61 @@ func TestAsnConfigResolveAction(t *testing.T) {
 	// Non-MS -> no match.
 	if _, ok := cfg.ResolveAction(7922, "Comcast"); ok {
 		t.Error("unrelated org must not match")
+	}
+}
+
+// TestApplyAsnRate: an action-only rule (rate 0) fires every request; a rate
+// rule stays silent under the cap and applies the action to the overage.
+func TestApplyAsnRate(t *testing.T) {
+	base := axisDecision{sev: sevCaptchaOnly, reason: "asn:AS16509:captcha_only", chMode: settings.RateChallengeCaptchaOnly}
+
+	// rate 0 -> immediate, unchanged.
+	if d, ok := applyAsnRate(base, "asn:AS16509", 0, nil); !ok || d.reason != base.reason {
+		t.Errorf("rate 0 should pass through: %+v ok=%v", d, ok)
+	}
+
+	// rate 2 -> first two requests are under the cap (silent), the third trips.
+	rl := ratelimit.New()
+	for i := 1; i <= 2; i++ {
+		if _, ok := applyAsnRate(base, "asn:AS16509", 2, rl); ok {
+			t.Errorf("request %d should be under the cap (silent)", i)
+		}
+	}
+	d, ok := applyAsnRate(base, "asn:AS16509", 2, rl)
+	if !ok {
+		t.Fatal("the over-cap request should produce a decision")
+	}
+	if d.sev != sevCaptchaOnly || d.reason != "asn:AS16509:rate>2:captcha_only" {
+		t.Errorf("over-cap decision = (sev=%d, reason=%q), want captcha_only / asn:AS16509:rate>2:captcha_only", d.sev, d.reason)
+	}
+
+	// nil limiter -> fail open (silent) even with a rate.
+	if _, ok := applyAsnRate(base, "asn:AS16509", 5, nil); ok {
+		t.Error("nil limiter should fail open (silent)")
+	}
+}
+
+// TestAsnConfigResolveRule pins the rate field: a rule with RatePerMin exposes
+// it (the "throttle" mode), an action-only rule and a provider report 0.
+func TestAsnConfigResolveRule(t *testing.T) {
+	cfg := settings.AsnConfig{
+		Providers: []settings.AsnProviderSel{{ID: "google", Action: settings.GeoActionDeny, Enabled: true}},
+		Rules: []settings.AsnRule{
+			{ASN: 16509, Action: settings.GeoActionCaptchaOnly, RatePerMin: 100, Enabled: true}, // rate rule
+			{ASN: 14061, Action: settings.GeoActionDeny, Enabled: true},                         // action-only
+		},
+	}
+	// Rate rule: action + rate exposed.
+	if act, rate, ok := cfg.ResolveRule(16509, "Amazon"); !ok || act != settings.GeoActionCaptchaOnly || rate != 100 {
+		t.Errorf("rate rule = (%q, %d, %v), want (captcha_only, 100, true)", act, rate, ok)
+	}
+	// Action-only rule: rate 0.
+	if act, rate, ok := cfg.ResolveRule(14061, "DigitalOcean"); !ok || act != settings.GeoActionDeny || rate != 0 {
+		t.Errorf("action rule = (%q, %d, %v), want (deny, 0, true)", act, rate, ok)
+	}
+	// Provider match: rate 0 (providers have no rate cap).
+	if act, rate, ok := cfg.ResolveRule(15169, "Google LLC"); !ok || act != settings.GeoActionDeny || rate != 0 {
+		t.Errorf("provider = (%q, %d, %v), want (deny, 0, true)", act, rate, ok)
 	}
 }
 
