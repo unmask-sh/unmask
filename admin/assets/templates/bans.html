@@ -435,7 +435,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
       if (!ip) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){
-        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y); });
+        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y, td); });
       }, 200);
     });
     td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
