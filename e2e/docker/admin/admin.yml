@@ -196,6 +196,17 @@ nginx:
       - country: CN
         action: deny
         enabled: true
+  # ASN axis fixture (scenario 52).  AS16509 (a stand-in for a cloud/VPS
+  # network) -> deny; the country of the fixture IP is US (default skip) so
+  # only the ASN axis votes.  ASN resolution comes from the 3rd field of
+  # UNMASK_TEST_GEO_OVERRIDE (no real ASN mmdb in the test container).
+  asn:
+    default_action: skip
+    rules:
+      - asn: 16509
+        label: e2e cloud fixture
+        action: deny
+        enabled: true
   ja4_verdicts:
     extra:
       - pattern: "t13e2e0bot01_xxx_yyy"
