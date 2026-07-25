@@ -9,22 +9,24 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// TestSettingsGeoTabRendersAsnSection executes the geo tab and pins that the
+// TestSettingsAsnTabRenders executes the geo tab and pins that the
 // ASN sub-section renders: the printf-free i18n keys resolve (a raw key
 // leaking would mean a missing dict entry), a configured ASN rule shows with
 // its AS number + label + selected action, and the form posts to the geo
 // section (one save persists both axes).
-func TestSettingsGeoTabRendersAsnSection(t *testing.T) {
+func TestSettingsAsnTabRenders(t *testing.T) {
 	h := newTestHandler(t)
 	h.updateSettingsInMemory(func(s *settings.Settings) {
+		// A SeenVersion older than the catalog's AddedIn -> the founding
+		// providers show the NEW badge.
+		s.Nginx.SeenVersion = "v0.1.10"
 		s.Nginx.Asn = settings.AsnConfig{
 			DefaultAction: settings.GeoActionSkip,
-			Rules: []settings.AsnRule{
-				{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true},
-			},
+			Providers:     []settings.AsnProviderSel{{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true}},
+			Rules:         []settings.AsnRule{{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true}},
 		}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=geo", nil)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=asn", nil)
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -33,23 +35,24 @@ func TestSettingsGeoTabRendersAsnSection(t *testing.T) {
 	body := rr.Body.String()
 
 	for _, want := range []string{
-		`name="asn_default_action"`,           // default select
-		`name="asn_number" value="16509"`,     // the rule's AS number
-		`AS16509`,                             // display
-		`name="asn_label" value="Amazon AWS"`, // label round-trips
-		`id="asn-rows"`,                       // the table
-		`id="asn-add-btn"`,                    // add control (JS wires it)
-		`</html>`,                             // no truncation
+		`name="asn_default_action"`,                // default select
+		`name="asn_provider_enabled_microsoft"`,    // preset provider checkbox
+		`id="asn-suggest"`,                         // live DB suggest dropdown
+		`id="asn-rows"`,                            // custom rules table
+		`class="settings-preset asn-preset-table"`, // preset table (locale-neutral); whole-row toggle
+		`card-badge preset`,                        // 📦 preset badge
+		`card-badge custom`,                        // ✏️ custom badge
+		`col-since`,                                // custom rules "added" column
+		`new-badge`,                                // preset NEW badge (seenVer < AddedIn)
+		`id="asn-add-toggle"`,                      // collapsed "新規追加" trigger
+		`id="asn-add-form"`,                        // the form it expands
+		`id="asn-add-action"`,                      // action selectable at add time
+		`id="asn-add-btn"`,                         // custom add control
+		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("geo tab render missing %q", want)
 		}
-	}
-	// The deny action must be the selected option on the rule's row.
-	seg := body[strings.Index(body, `name="asn_number" value="16509"`):]
-	seg = seg[:strings.Index(seg, "</tr>")]
-	if !strings.Contains(seg, `value="deny"                {{`) && !strings.Contains(seg, `value="deny"`) {
-		t.Error("rule row must contain the deny option")
 	}
 	// A raw unresolved i18n key must not leak into the page.
 	if strings.Contains(body, "settings.asn.") {

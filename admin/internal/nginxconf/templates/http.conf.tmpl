@@ -534,7 +534,7 @@ geo $remote_addr $unmask_asn {
 map $unmask_asn $unmask_asn_action {
     default "{{ .AsnDefaultAction }}";
 {{- range .AsnRules }}
-    "{{ .ASN }}" "{{ .Action }}";
+    "{{ .Key }}" "{{ .Action }}";
 {{- end }}
 }
 
