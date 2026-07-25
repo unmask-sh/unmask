@@ -41,6 +41,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
@@ -302,6 +303,21 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// a bypass IP/path, or a signed-agent header.  The old forward-auth pipeline
 	// put ban in the max-severity group AFTER those veto-passes, letting a banned
 	// bot slip through on a bypass path or a still-valid _bv (up to 3 days).
+	// rDNS crawler authentication.  The request path only READS the cache (no
+	// DNS, no latency); a miss schedules a background check and falls through to
+	// normal handling for this request.  Verified/Forged are authoritative for a
+	// crawler-claiming UA, so they sit at the top of the veto switch -- above the
+	// UA rescue and bypass, which a forgery must not reach.
+	var cvResult crawlerverify.Result
+	cvActionable := false
+	if h.CrawlerVerify != nil && cfg.Nginx.CrawlerVerify.Enabled {
+		if res, ok := h.CrawlerVerify.Cached(ip, ua); !ok {
+			h.CrawlerVerify.VerifyAsync(ip, ua)
+		} else if res.Status == crawlerverify.Verified || res.Status == crawlerverify.Forged {
+			cvResult, cvActionable = res, true
+		}
+	}
+
 	if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
 		if d.sev == sevDeny {
 			action, reason, status = "block", d.reason, http.StatusForbidden
@@ -311,6 +327,20 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		honeypotChMode = d.chMode
 	} else {
 		switch {
+		// (2a) rDNS crawler verdict — authoritative for a claimed crawler.
+		case cvActionable && cvResult.Status == crawlerverify.Verified:
+			// A genuine crawler, confirmed against the vendor's rDNS regardless of
+			// whether its IP is in a bypass range preset (ranges drift).
+			action, reason, status = "pass", "crawler:verified:"+cvResult.Crawler, http.StatusOK
+		case cvActionable && cvResult.Status == crawlerverify.Forged:
+			// UA claims a crawler but rDNS disproves it: the fake-Googlebot class.
+			d := forgedCrawlerDecision(cfg.Nginx.CrawlerVerify, cvResult.Crawler)
+			if d.sev == sevDeny {
+				action, reason, status = "block", d.reason, http.StatusForbidden
+			} else {
+				action, reason, status = "challenge", d.reason, http.StatusUnauthorized
+			}
+			honeypotChMode = d.chMode
 		// (2) Veto-passes, in native order.  Each is a hard pass that wins over
 		// the gating axes below.
 		case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
@@ -413,6 +443,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		reason != "bypass:ip" &&
 		reason != "bypass:path" &&
 		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
+		!strings.HasPrefix(reason, "crawler:verified") && // rDNS-verified crawlers are as trusted as a bypass IP
+
 		!strings.HasPrefix(reason, "signed_agent:") && // verified Web Bot Auth agents aren't rate-limited
 		!strings.HasPrefix(reason, "privacy_pass:") && // attested PAT clients aren't rate-limited
 		action != "block"
@@ -589,6 +621,19 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 // geoDecide consults settings.Nginx.Geo for the visitor's country.  Country
 // resolution (= mmdb lookup) and the per-country policy decision are split
 // so the latter can be table-tested.
+// forgedCrawlerDecision maps the operator's ForgedAction to a decision, reusing
+// the shared severity/chMode mapping so a forged crawler challenges (or denies)
+// exactly like the gating axes.
+func forgedCrawlerDecision(cfg settings.CrawlerVerifyConfig, crawler string) axisDecision {
+	reason := "crawler:forged:" + crawler
+	act := cfg.ResolvedForgedAction()
+	if act == settings.GeoActionDeny {
+		return axisDecision{sev: sevDeny, reason: reason}
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: reason, chMode: chModeFromSeverity(s)}
+}
+
 func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
 	if h.IPGeo == nil || !h.IPGeo.Loaded() {
 		return axisDecision{}, false

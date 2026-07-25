@@ -631,6 +631,7 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 	Asn              AsnConfig              `yaml:"asn,omitempty"`
+	CrawlerVerify    CrawlerVerifyConfig    `yaml:"crawler_verify,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
 	// rendered server.inc — before any ban / honeypot / challenge gate.  A
@@ -1070,6 +1071,27 @@ type AsnConfig struct {
 	// Rules: custom per-network overrides — an exact AS number, or a free
 	// organization-name substring, keyed by whichever field is set.
 	Rules []AsnRule `yaml:"rules,omitempty"`
+}
+
+// CrawlerVerifyConfig controls forward-confirmed reverse-DNS (rDNS) crawler
+// authentication (crawlerverify pkg).  When Enabled, a visitor whose UA claims a
+// verifiable crawler (Googlebot/Bingbot/...) is checked against the vendor's
+// published rDNS; a genuine one is rescued and a forgery gets ForgedAction.
+// Verification is asynchronous (never blocks the request), so this adds no
+// request latency -- see crawlerverify's load discipline.
+type CrawlerVerifyConfig struct {
+	Enabled      bool   `yaml:"enabled,omitempty"`
+	ForgedAction string `yaml:"forged_action,omitempty"` // GeoAction*; empty -> pow_then_captcha (safe default)
+}
+
+// ResolvedForgedAction is the action applied to a proven-forged crawler.  An
+// unset/invalid value defaults to pow_then_captcha (challenge, not deny) so an
+// operator enabling the axis never hard-blocks by accident.
+func (c CrawlerVerifyConfig) ResolvedForgedAction() string {
+	if c.ForgedAction == "" || !IsValidGeoAction(c.ForgedAction) || c.ForgedAction == GeoActionSkip {
+		return GeoActionPoWThenCaptcha
+	}
+	return c.ForgedAction
 }
 
 // AsnProviderSel: one enabled catalog provider + the action to apply to it.

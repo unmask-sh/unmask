@@ -103,6 +103,13 @@ type cacheEntry struct {
 }
 
 // Verifier performs (cached) rDNS verification.  Safe for concurrent use.
+//
+// Load discipline: the request path should call Cached (in-memory, no DNS) and,
+// on a miss, VerifyAsync (a bounded background job) -- NOT Verify.  DNS then
+// never sits in the request path, and a flood of forged crawler UAs from many
+// IPs cannot amplify into unbounded DNS traffic: the worker pool caps concurrent
+// lookups and a full queue is simply dropped (fail-open -- the existing gating
+// axes still handle that request).
 type Verifier struct {
 	res     Resolver
 	timeout time.Duration
@@ -110,9 +117,20 @@ type Verifier struct {
 	ttlSoft time.Duration // Unresolved: cache briefly so a DNS blip isn't hammered
 	maxKeys int
 
-	mu    sync.Mutex
-	cache map[string]cacheEntry
-	now   func() time.Time // injectable clock for tests
+	mu       sync.Mutex
+	cache    map[string]cacheEntry
+	inflight map[string]bool // keys with a background job scheduled (dedup)
+	now      func() time.Time
+
+	workers   int
+	jobs      chan job
+	startOnce sync.Once
+}
+
+type job struct {
+	ip  string
+	c   *crawler
+	key string
 }
 
 // New builds a Verifier.  A nil resolver uses net.DefaultResolver.
@@ -121,13 +139,84 @@ func New(res Resolver) *Verifier {
 		res = net.DefaultResolver
 	}
 	return &Verifier{
-		res:     res,
-		timeout: 2 * time.Second,
-		ttlOK:   6 * time.Hour,
-		ttlSoft: 1 * time.Minute,
-		maxKeys: 8192,
-		cache:   map[string]cacheEntry{},
-		now:     time.Now,
+		res:      res,
+		timeout:  2 * time.Second,
+		ttlOK:    6 * time.Hour,
+		ttlSoft:  1 * time.Minute,
+		maxKeys:  8192,
+		cache:    map[string]cacheEntry{},
+		inflight: map[string]bool{},
+		now:      time.Now,
+		workers:  6,
+		jobs:     make(chan job, 256),
+	}
+}
+
+// Cached returns a decision for (ip, ua) using ONLY the in-memory cache -- no
+// DNS, so it is safe to call inline on every request.  ok=false means "not yet
+// known": the caller should fall through to its normal handling and may call
+// VerifyAsync to populate the cache for next time.  A UA that claims no crawler
+// is definitively NotApplicable (ok=true), never a lookup.
+func (v *Verifier) Cached(ip, ua string) (Result, bool) {
+	c := matchClaim(ua)
+	if c == nil {
+		return Result{Status: NotApplicable}, true
+	}
+	return v.cacheGet(ip + "|" + c.name)
+}
+
+// VerifyAsync schedules a background rDNS verification whose result lands in the
+// cache.  It is a no-op when the UA claims no crawler, when a fresh result is
+// already cached, when a job for this key is already in flight, or when the
+// bounded queue is full (the load cap -- dropped work is retried on a later
+// request from the same IP).  Never blocks.
+func (v *Verifier) VerifyAsync(ip, ua string) {
+	c := matchClaim(ua)
+	if c == nil {
+		return
+	}
+	key := ip + "|" + c.name
+	v.mu.Lock()
+	if e, ok := v.cache[key]; ok && !v.now().After(e.expiry) {
+		v.mu.Unlock()
+		return
+	}
+	if v.inflight[key] {
+		v.mu.Unlock()
+		return
+	}
+	v.inflight[key] = true
+	v.mu.Unlock()
+
+	v.startOnce.Do(v.startWorkers)
+	select {
+	case v.jobs <- job{ip: ip, c: c, key: key}:
+	default:
+		// Queue full: drop and clear the in-flight mark so a later request retries.
+		v.mu.Lock()
+		delete(v.inflight, key)
+		v.mu.Unlock()
+	}
+}
+
+func (v *Verifier) startWorkers() {
+	for i := 0; i < v.workers; i++ {
+		go func() {
+			for j := range v.jobs {
+				ctx := context.Background()
+				if v.timeout > 0 {
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, v.timeout)
+					v.cacheSet(j.key, v.lookup(ctx, j.ip, j.c))
+					cancel()
+				} else {
+					v.cacheSet(j.key, v.lookup(ctx, j.ip, j.c))
+				}
+				v.mu.Lock()
+				delete(v.inflight, j.key)
+				v.mu.Unlock()
+			}
+		}()
 	}
 }
 
