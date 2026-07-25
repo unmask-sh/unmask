@@ -74,7 +74,7 @@ func TestSignedRouteGatedByWebBotAuth(t *testing.T) {
 		// (= {base}/api/check, same handler forward-auth uses).  The original
 		// template proxied to a phantom /_unmask/check and every signed
 		// request 404'd at the daemon.
-		if !strings.Contains(out, "proxy_pass http://unmask/unmask/api/check;") {
+		if !strings.Contains(out, "proxy_pass http://unmask_daemon/unmask/api/check;") {
 			t.Errorf("signed-verify subrequest must proxy to the real /unmask/api/check endpoint")
 		}
 		if strings.Contains(out, "try_files $uri") || strings.Contains(out, "=404") {
@@ -175,7 +175,7 @@ func TestPATRouteGatedByPrivacyPass(t *testing.T) {
 		if !strings.Contains(out, "try_files /__unmask_pat_continue__ @unmask_pat_continue") {
 			t.Errorf("PAT route success path must re-enter via the sentinel try_files")
 		}
-		if !strings.Contains(out, "proxy_pass http://unmask/unmask/api/check;") {
+		if !strings.Contains(out, "proxy_pass http://unmask_daemon/unmask/api/check;") {
 			t.Errorf("PAT-verify subrequest must proxy to the real /unmask/api/check endpoint")
 		}
 		if !strings.Contains(out, "proxy_set_header Authorization     $http_authorization;") {

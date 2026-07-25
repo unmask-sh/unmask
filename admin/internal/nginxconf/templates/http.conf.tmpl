@@ -925,17 +925,9 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 {{- end }}
 
 # -----------------------------------------------------------------------------
-# unmask upstream (= proxy target for server.inc).  Lives at the tail of
-# this file so a single `include http.inc;` covers both http-scope
-# directives + the upstream block.
-#
-# bind forms (= server.bind in config.yml):
-#   - TCP    : "127.0.0.1:8765"        -> `server 127.0.0.1:8765;`
-#   - socket : "unix:/path/to.sock"    -> `server unix:/path/to.sock;`
-# Socket eliminates port collisions + slightly faster than TCP loopback.
-# server.socket_mode / .socket_group in config.yml control its permissions.
+# The daemon upstream (`upstream unmask_daemon`) is NOT defined here: both
+# deploy modes share the single definition in upstream.conf (rendered next to
+# this file; the unmask-web-nginx package symlinks it into conf.d/).  Native
+# setups that include the rendered files by hand need
+# `include <output-dir>/upstream.conf;` alongside http.inc.
 # -----------------------------------------------------------------------------
-upstream unmask {
-    server {{ .UpstreamServer }};
-    keepalive 16;
-}

@@ -107,12 +107,12 @@ func Render(s settings.Settings, outDir, version string) error {
 		"templates/forward-auth-lbtrust.conf.tmpl", data, 0o644); err != nil {
 		return err
 	}
-	// http scope (forward-auth): the admin upstream forward-auth/server.inc
-	// proxies to.  Native mode carries its own `upstream unmask` at the tail of
-	// http.inc; forward-auth has no http.inc, so `upstream unmask_daemon` is
-	// emitted here and the unmask-web-nginx postinstall symlinks it into conf.d/.
-	// Rendered (not just postinstall-generated) so it tracks server.bind / port
-	// on every save.
+	// The daemon upstream both deploy modes proxy to (`upstream
+	// unmask_daemon`) -- the ONLY place it is defined (http.inc carries
+	// none, so loading http.inc + upstream.conf together never duplicates
+	// it).  The unmask-web-nginx postinstall symlinks it into conf.d/.
+	// Rendered (not just postinstall-generated) so it tracks server.bind /
+	// port on every save.
 	if err := renderToFile(outDir, "upstream.conf",
 		"templates/upstream.conf.tmpl", data, 0o644); err != nil {
 		return err
