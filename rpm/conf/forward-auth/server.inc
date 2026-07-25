@@ -17,7 +17,7 @@
 #   /unmask/healthz     → 200 health
 #   /unmask/metrics     → Prometheus metrics (= localhost only)
 #   /_unmask/check      → internal subrequest (= for forward-auth mode)
-#   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_admin_down
+#   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_down
 #
 # Each /unmask/* location carries `auth_request off;` to avoid a self-loop if
 # the server scope enables auth_request /_unmask/check; (= unmask itself does
@@ -54,7 +54,7 @@
 location ^~ /unmask/admin/ {
     auth_request /_unmask/check;
     error_page 401 = /unmask/challenge/;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
     # Verdict-header strip: a visitor could otherwise send X-JA4-Verdict /
@@ -84,13 +84,13 @@ location ^~ /unmask/admin/ {
 }
 
 # /unmask/challenge/ — challenge HTML (= PoW / CAPTCHA).  Passes various hint headers.
-# When the admin is down (= 502/503/504), fall back to @unmask_admin_down.
-# Default behavior is 503 + Retry-After; defining @unmask_admin_down BEFORE
+# When the admin is down (= 502/503/504), fall back to @unmask_down.
+# Default behavior is 503 + Retry-After; defining @unmask_down BEFORE
 # this include (see the note at its definition below) switches to full
 # fail-open (= pass through to the backend).
 location ^~ /unmask/challenge/ {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
     # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
@@ -108,7 +108,7 @@ location ^~ /unmask/challenge/ {
     proxy_set_header  X-Original-IP    $remote_addr;
     proxy_set_header  X-Original-UA    $http_user_agent;
     proxy_intercept_errors on;
-    error_page 502 503 504 = @unmask_admin_down;
+    error_page 502 503 504 = @unmask_down;
 }
 location = /unmask/challenge.html {
     auth_request off;
@@ -126,7 +126,7 @@ location = /unmask/api/check { return 404; }
 # /unmask/api/  — verify endpoints (= POSTed by the challenge JS).
 location ^~ /unmask/api/ {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
     # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
@@ -148,14 +148,14 @@ location ^~ /unmask/api/ {
 # /unmask/static/  — assets (= challenge.js / flag PNG etc.).
 location ^~ /unmask/static/ {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host  $host;
 }
 
 # /unmask/_rl/  — challenge for rate-limit overage.  Rewritten from @unmask_rate_challenge.
 location ^~ /unmask/_rl/ {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
     # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
@@ -184,14 +184,14 @@ location = /unmask/metrics {
     allow 127.0.0.1;
     allow ::1;
     deny  all;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host  $host;
 }
 
 # /unmask/healthz  — 200 health probe.
 location = /unmask/healthz {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host  $host;
 }
 
@@ -207,7 +207,7 @@ location = /unmask/healthz {
 # /unmask/admin/ prefix location.
 location ^~ /unmask/test/ {
     auth_request off;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host             $host;
     proxy_set_header  X-Real-IP        $remote_addr;
     # Verdict-header strip (see /unmask/admin/ above): X-Client-JA4 carries the
@@ -231,7 +231,7 @@ location ^~ /unmask/test/ {
 location = /_unmask/check {
     internal;
     auth_request off;
-    proxy_pass http://unmask_admin/unmask/api/check;
+    proxy_pass http://unmask_daemon/unmask/api/check;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
     proxy_set_header Host             $host;
@@ -286,7 +286,7 @@ location @unmask_to_challenge {
 # (proxy_intercept_errors -> @unmask_blocked_down returns a bare 403, fail-closed).
 location @unmask_blocked {
     rewrite ^ /unmask/_ban$request_uri break;
-    proxy_pass        http://unmask_admin;
+    proxy_pass        http://unmask_daemon;
     proxy_set_header  Host          $host;
     proxy_set_header  X-Real-IP     $remote_addr;
     # Strip admin-internal headers a blocked visitor must not smuggle (the block
@@ -326,10 +326,10 @@ location @unmask_fail_open {
 # definition of a named location, so one placed after the include is silently
 # ignored.  Examples (above the include line):
 #   # (a) fail closed so the LB drains this node:
-#   location @unmask_admin_down { add_header Retry-After "10" always; return 503; }
+#   location @unmask_down { add_header Retry-After "10" always; return 503; }
 #   # (b) pass the original request straight to your backend:
-#   location @unmask_admin_down { proxy_pass http://backend; proxy_set_header Host $host; }
+#   location @unmask_down { proxy_pass http://backend; proxy_set_header Host $host; }
 #   include /etc/unmask/forward-auth/server.inc;
-location @unmask_admin_down {
+location @unmask_down {
     return 302 /;
 }

@@ -40,7 +40,7 @@ contents:
   # Note: the shipped server block (= the old unmask-web.conf default_server)
   # has been removed.  Users add `include /etc/unmask/{native,forward-auth}/server.inc;`
   # to their own vhost as a one-liner.  The upstream block (= resolves
-  # proxy_pass http://unmask_admin) is auto-loaded by postinstall via the
+  # proxy_pass http://unmask_daemon) is auto-loaded by postinstall via the
   # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.
 
 overrides:
