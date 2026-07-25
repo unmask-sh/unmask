@@ -857,6 +857,24 @@ map {{ .MatchVar }} {{ .KeyVar }} {
 limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
+# ASN rate zones (auto-rendered from settings.nginx.asn rate rules): throttle a
+# datacenter/network to N req/min instead of denying it outright.  Each zone's
+# geo maps the rule's CIDRs to the network's own AS number (so the counter is
+# per AS number, matching forward-auth), "" elsewhere; the key then drops
+# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) to "" so a
+# genuine Googlebot on a throttled ASN is NEVER rate-limited (SEO safety).
+{{- range .AsnRateZones }}
+geo $remote_addr {{ .RawVar }} {
+    default "";
+{{ .GeoBody }}}
+map "$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
+    default    {{ .RawVar }};
+    "~^1:"     "";
+    "~^.:1:"   "";
+}
+limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
+
 # Distinguish whether the request went through rate-limit (i.e. carries ?_rl=1).
 map $args $rl_hit {
     default "0";

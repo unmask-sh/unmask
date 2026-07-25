@@ -26,6 +26,12 @@ limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} node
 # this limit only counts on the zone's PathPatterns (= no shadow location).
 limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 {{- end }}
+{{- range .AsnRateZones }}
+# ASN rate zone "{{ .ZoneName }}": its key ({{ .KeyVar }}) is "" off the rule's
+# networks (and for exempt crawlers / bypass IPs), so this limit only counts
+# traffic from the throttled AS number.
+limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
+{{- end }}
 # JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
 # force challenge.  The original URI is passed to the challenge handler via the
 # `_orig` query, so unmask can record "URL the user originally tried" on
