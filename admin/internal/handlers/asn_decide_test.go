@@ -6,41 +6,43 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// TestAsnDecideForASN mirrors TestGeoDecideForCountry: per-ASN policy
-// resolution covering default fallback, rule override, the "skip" no-op, the
-// "deny" hard 403, ASN 0 (mmdb miss / private IP), and a disabled rule.
-func TestAsnDecideForASN(t *testing.T) {
-	rules := []settings.AsnRule{
-		{ASN: 16509, Action: settings.GeoActionDeny, Enabled: true},         // Amazon -> deny
-		{ASN: 14061, Action: settings.GeoActionCaptchaOnly, Enabled: true},  // DigitalOcean -> captcha
-		{ASN: 396982, Action: settings.GeoActionSkip, Enabled: true},        // GCP -> explicit skip
-		{ASN: 13335, Action: settings.RateChallengePoWOnly, Enabled: false}, // disabled -> no opinion
-		{ASN: 20473, Action: "", Enabled: true},                             // inherit default
+// TestAsnDecideFor covers the ASN axis decision across its three targeting
+// modes: an exact-ASN custom rule, an org-substring custom rule (covers a whole
+// operator), and an enabled catalog provider.  Exact-ASN wins over an org match
+// for the same visitor (more specific).
+func TestAsnDecideFor(t *testing.T) {
+	cfg := settings.AsnConfig{
+		DefaultAction: settings.GeoActionSkip,
+		Providers: []settings.AsnProviderSel{
+			{ID: "digitalocean", Action: settings.GeoActionCaptchaOnly, Enabled: true},
+			{ID: "google", Action: settings.GeoActionDeny, Enabled: false}, // disabled -> no opinion
+		},
+		Rules: []settings.AsnRule{
+			{ASN: 16509, Action: settings.GeoActionDeny, Enabled: true},         // exact
+			{Org: "OVH", Action: settings.GeoActionPoWOnly, Enabled: true},      // org substring
+			{ASN: 99999, Action: settings.GeoActionCaptchaOnly, Enabled: false}, // disabled
+		},
 	}
-	skipDefault := settings.AsnConfig{DefaultAction: settings.GeoActionSkip, Rules: rules}
-	denyDefault := settings.AsnConfig{DefaultAction: settings.GeoActionDeny, Rules: rules}
 
 	cases := []struct {
 		name    string
 		asn     uint
-		cfg     settings.AsnConfig
+		org     string
 		wantOK  bool
 		wantSev axisSeverity
 		wantR   string
 	}{
-		{"asn 0 -> silent", 0, skipDefault, false, sevPass, ""},
-		{"Amazon deny", 16509, skipDefault, true, sevDeny, "asn:AS16509:deny"},
-		{"DigitalOcean captcha", 14061, skipDefault, true, sevCaptchaOnly, "asn:AS14061:captcha_only"},
-		{"GCP explicit skip -> silent", 396982, skipDefault, false, sevPass, ""},
-		{"disabled rule -> default skip -> silent", 13335, skipDefault, false, sevPass, ""},
-		{"inherit default skip -> silent", 20473, skipDefault, false, sevPass, ""},
-		{"inherit default deny -> deny", 20473, denyDefault, true, sevDeny, "asn:AS20473:deny"},
-		{"unlisted ASN, default skip -> silent", 7922, skipDefault, false, sevPass, ""},
-		{"unlisted ASN, default deny -> deny", 7922, denyDefault, true, sevDeny, "asn:AS7922:deny"},
+		{"nothing resolved -> silent", 0, "", false, sevPass, ""},
+		{"exact ASN deny", 16509, "Amazon.com", true, sevDeny, "asn:AS16509:deny"},
+		{"org rule matches operator (reason names the visitor's AS)", 12876, "OVH SAS", true, sevPoWOnly, "asn:AS12876:pow_only"},
+		{"provider match (DigitalOcean)", 14061, "DigitalOcean, LLC", true, sevCaptchaOnly, "asn:AS14061:captcha_only"},
+		{"disabled provider -> silent", 15169, "Google LLC", false, sevPass, ""},
+		{"disabled custom rule -> silent", 99999, "Somewhere", false, sevPass, ""},
+		{"unmatched -> silent", 7922, "Comcast", false, sevPass, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d, ok := asnDecideForASN(c.asn, c.cfg)
+			d, ok := asnDecideFor(c.asn, c.org, cfg)
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v (decision=%+v)", ok, c.wantOK, d)
 			}
@@ -55,23 +57,41 @@ func TestAsnDecideForASN(t *testing.T) {
 	}
 }
 
-// TestAsnConfigHelpers pins ResolvedDefaultAction and LookupRule (enabled/
-// disabled/zero).
-func TestAsnConfigHelpers(t *testing.T) {
-	if got := (settings.AsnConfig{}).ResolvedDefaultAction(); got != settings.GeoActionSkip {
-		t.Errorf("empty default -> %q, want skip", got)
+// TestAsnConfigResolveAction pins precedence: exact ASN beats org/provider,
+// disabled entries are ignored, an unrelated org does not match.
+func TestAsnConfigResolveAction(t *testing.T) {
+	cfg := settings.AsnConfig{
+		Providers: []settings.AsnProviderSel{{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true}},
+		Rules: []settings.AsnRule{
+			{ASN: 8075, Action: settings.GeoActionPoWOnly, Enabled: true}, // exact, an MS ASN
+		},
 	}
-	cfg := settings.AsnConfig{Rules: []settings.AsnRule{
-		{ASN: 16509, Action: settings.GeoActionDeny, Enabled: true},
-		{ASN: 14061, Action: settings.GeoActionDeny, Enabled: false},
-	}}
-	if r := cfg.LookupRule(16509); r == nil || r.ASN != 16509 {
-		t.Error("enabled rule not found")
+	// 8075 is Microsoft's org AND has an exact rule -> exact rule wins (pow_only).
+	if act, ok := cfg.ResolveAction(8075, "Microsoft Corporation"); !ok || act != settings.GeoActionPoWOnly {
+		t.Errorf("exact should win over provider: got %q ok=%v", act, ok)
 	}
-	if r := cfg.LookupRule(14061); r != nil {
-		t.Error("disabled rule must not resolve")
+	// Another MS ASN with no exact rule -> provider deny (org match).
+	if act, ok := cfg.ResolveAction(8068, "Microsoft Corporation"); !ok || act != settings.GeoActionDeny {
+		t.Errorf("provider should match: got %q ok=%v", act, ok)
 	}
-	if r := cfg.LookupRule(0); r != nil {
-		t.Error("ASN 0 must not resolve")
+	// Non-MS -> no match.
+	if _, ok := cfg.ResolveAction(7922, "Comcast"); ok {
+		t.Error("unrelated org must not match")
+	}
+}
+
+// TestOrgMatchesAny pins case-insensitive substring matching.
+func TestOrgMatchesAny(t *testing.T) {
+	if !settings.OrgMatchesAny("Microsoft Corporation", []string{"microsoft"}) {
+		t.Error("case-insensitive match failed")
+	}
+	if !settings.OrgMatchesAny("AKAMAI-LINODE-AP", []string{"Linode", "Akamai"}) {
+		t.Error("multi-pattern match failed")
+	}
+	if settings.OrgMatchesAny("Comcast", []string{"Google"}) {
+		t.Error("false positive")
+	}
+	if settings.OrgMatchesAny("", []string{"Google"}) {
+		t.Error("empty org must not match")
 	}
 }

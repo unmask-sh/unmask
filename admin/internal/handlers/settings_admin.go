@@ -81,7 +81,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -608,6 +608,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
 		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
 		"AsnMmdbLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"AsnProviders":     h.asnProviderView(cur.Asn),
+		"AsnCustomRules":   asnCustomRuleView(cur.Asn),
 		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
@@ -1092,7 +1094,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo", "asn":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1294,8 +1296,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
-		// ASN rules live in a sub-section of the geo tab (same mmdb family), so
-		// the one geo save persists both axes.
+	case "asn":
 		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
 			redirBack(err.Error())
 			return
@@ -3483,6 +3484,7 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 	}
 
 	countries := r.Form["geo_country"]
+	labels := r.Form["geo_label"]
 	actions := r.Form["geo_action"]
 	enabledArr := r.Form["geo_enabled"]
 	updatedAt := r.Form["geo_updated_at"]
@@ -3530,8 +3532,14 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			ts = now
 		}
 
+		var label string
+		if i < len(labels) {
+			label = strings.TrimSpace(labels[i])
+		}
+
 		rules = append(rules, settings.GeoRule{
 			Country:   code,
+			Label:     label,
 			Action:    action,
 			Enabled:   enOn,
 			UpdatedAt: ts,
@@ -3544,6 +3552,87 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 // applyAsnForm: receive the ASN sub-section of the geo tab.  The by-network
 // sibling of applyGeoForm — same shape, keyed by AS number instead of country
 // code.
+// asnProviderRow: one catalog provider as the settings UI sees it.
+type asnProviderRow struct {
+	ID       string
+	Label    string
+	Enabled  bool
+	Action   string // "" = inherit default
+	ASNCount int    // distinct ASNs matched in the loaded mmdb (-1 = not computed / no db)
+	AddedIn  string // release the provider joined the catalog (v-form)
+	IsNew    bool   // added in a release newer than the operator's SeenVersion
+}
+
+// asnProviderView returns the catalog providers merged with the operator's
+// current selection, plus the number of ASNs each currently matches in the
+// loaded mmdb (one walk for all providers; -1 when no ASN db is loaded).
+func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
+	seenVer := h.snapshotSettings().Nginx.SeenVersion
+	sel := map[string]settings.AsnProviderSel{}
+	for _, p := range cfg.Providers {
+		sel[p.ID] = p
+	}
+	// One mmdb walk tallies matched-ASN counts per provider.
+	counts := map[string]int{}
+	haveCounts := false
+	if h.IPGeo != nil && h.IPGeo.ASNLoaded() {
+		if path := strings.TrimSpace(h.cfg().IPGeo.MMDBASNPath); path != "" {
+			pats := map[string][]string{}
+			for _, hp := range settings.HostingProviders {
+				pats[hp.ID] = hp.OrgPatterns
+			}
+			if c, err := ipgeo.ASNCounts(path, pats); err == nil {
+				counts = c
+				haveCounts = true
+			}
+		}
+	}
+	out := make([]asnProviderRow, 0, len(settings.HostingProviders))
+	for _, hp := range settings.HostingProviders {
+		row := asnProviderRow{
+			ID:       hp.ID,
+			Label:    hp.Label,
+			ASNCount: -1,
+			AddedIn:  hp.AddedIn,
+			IsNew:    nginxconf.PresetIsNew(seenVer, hp.AddedIn),
+		}
+		if s, ok := sel[hp.ID]; ok {
+			row.Enabled = s.Enabled
+			row.Action = s.Action
+		}
+		if haveCounts {
+			row.ASNCount = counts[hp.ID]
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// asnCustomRow: one custom rule (exact ASN or org substring) for the UI.
+type asnCustomRow struct {
+	Value     string // "AS16509" for exact, or the org string
+	IsOrg     bool
+	Label     string
+	Action    string
+	Enabled   bool
+	UpdatedAt int64
+}
+
+func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
+	out := make([]asnCustomRow, 0, len(cfg.Rules))
+	for _, r := range cfg.Rules {
+		row := asnCustomRow{Label: r.Label, Action: r.Action, Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
+		if r.ASN != 0 {
+			row.Value = "AS" + strconv.FormatUint(uint64(r.ASN), 10)
+		} else {
+			row.Value = r.Org
+			row.IsOrg = true
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("asn_default_action")); v != "" {
 		if !settings.IsValidGeoAction(v) {
@@ -3557,38 +3646,47 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		c.DefaultAction = ""
 	}
 
-	asns := r.Form["asn_number"]
-	labels := r.Form["asn_label"]
+	// ── preset providers (catalog) ───
+	// One checkbox + action select per catalog provider.  Store only enabled
+	// ones (or ones with a non-inherit action, so a toggled-off provider that
+	// carried an action round-trips its choice); a fully-default+disabled
+	// provider is dropped to keep the YAML tidy.
+	providers := make([]settings.AsnProviderSel, 0, len(settings.HostingProviders))
+	for _, hp := range settings.HostingProviders {
+		enOn := r.FormValue("asn_provider_enabled_"+hp.ID) == "1"
+		action := strings.TrimSpace(r.FormValue("asn_provider_action_" + hp.ID))
+		if action != "" && !settings.IsValidGeoAction(action) {
+			return fmt.Errorf("provider %s: action invalid (got %q)", hp.ID, action)
+		}
+		if !enOn && action == "" {
+			continue
+		}
+		providers = append(providers, settings.AsnProviderSel{ID: hp.ID, Action: action, Enabled: enOn})
+	}
+	c.Providers = providers
+
+	// ── custom rules (exact AS number OR org substring) ───
+	nums := r.Form["asn_number"]  // may hold "16509", "AS16509", or an org string
+	labels := r.Form["asn_label"] // parallel to the row (org rules use this too)
 	actions := r.Form["asn_action"]
 	enabledArr := r.Form["asn_enabled"]
 	updatedAt := r.Form["asn_updated_at"]
 
-	rules := make([]settings.AsnRule, 0, len(asns))
-	seen := map[uint]bool{}
+	rules := make([]settings.AsnRule, 0, len(nums))
+	seenNum := map[uint]bool{}
+	seenOrg := map[string]bool{}
 	now := time.Now().Unix()
-	for i, raw := range asns {
+	for i, raw := range nums {
 		s := strings.TrimSpace(raw)
 		if s == "" {
 			continue
 		}
-		// Accept "AS16509" or "16509".
-		s = strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
-		n, err := strconv.ParseUint(s, 10, 32)
-		if err != nil || n == 0 {
-			return fmt.Errorf("ASN %q: must be a positive number (e.g. 16509 or AS16509)", raw)
-		}
-		asn := uint(n)
-		if seen[asn] {
-			return fmt.Errorf("duplicate ASN %d", asn)
-		}
-		seen[asn] = true
-
 		var action string
 		if i < len(actions) {
 			action = strings.TrimSpace(actions[i])
 		}
 		if action != "" && !settings.IsValidGeoAction(action) {
-			return fmt.Errorf("ASN %d: action invalid (got %q)", asn, action)
+			return fmt.Errorf("rule %q: action invalid (got %q)", s, action)
 		}
 		var label string
 		if i < len(labels) {
@@ -3597,13 +3695,11 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 				label = string([]rune(label)[:80])
 			}
 		}
-
 		enVal := r.FormValue(fmt.Sprintf("asn_enabled_%d", i))
 		if enVal == "" && i < len(enabledArr) {
 			enVal = enabledArr[i]
 		}
 		enOn := enVal == "1"
-
 		var ts int64
 		if i < len(updatedAt) {
 			if v, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
@@ -3614,13 +3710,28 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 			ts = now
 		}
 
-		rules = append(rules, settings.AsnRule{
-			ASN:       asn,
-			Label:     label,
-			Action:    action,
-			Enabled:   enOn,
-			UpdatedAt: ts,
-		})
+		rule := settings.AsnRule{Label: label, Action: action, Enabled: enOn, UpdatedAt: ts}
+		// "AS16509" / "16509" -> exact AS number; anything else -> org substring.
+		numStr := strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
+		if n, err := strconv.ParseUint(numStr, 10, 32); err == nil && n != 0 {
+			if seenNum[uint(n)] {
+				return fmt.Errorf("duplicate ASN %d", n)
+			}
+			seenNum[uint(n)] = true
+			rule.ASN = uint(n)
+		} else {
+			org := s
+			if len([]rune(org)) > 80 {
+				org = string([]rune(org)[:80])
+			}
+			key := strings.ToLower(org)
+			if seenOrg[key] {
+				return fmt.Errorf("duplicate org rule %q", org)
+			}
+			seenOrg[key] = true
+			rule.Org = org
+		}
+		rules = append(rules, rule)
 	}
 	c.Rules = rules
 	return nil
