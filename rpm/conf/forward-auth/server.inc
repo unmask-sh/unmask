@@ -17,7 +17,7 @@
 #   /unmask/healthz     → 200 health
 #   /unmask/metrics     → Prometheus metrics (= localhost only)
 #   /_unmask/check      → internal subrequest (= for forward-auth mode)
-#   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_down
+#   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_daemon_down
 #
 # Each /unmask/* location carries `auth_request off;` to avoid a self-loop if
 # the server scope enables auth_request /_unmask/check; (= unmask itself does
@@ -84,8 +84,8 @@ location ^~ /unmask/admin/ {
 }
 
 # /unmask/challenge/ — challenge HTML (= PoW / CAPTCHA).  Passes various hint headers.
-# When the admin is down (= 502/503/504), fall back to @unmask_down.
-# Default behavior is 503 + Retry-After; defining @unmask_down BEFORE
+# When the admin is down (= 502/503/504), fall back to @unmask_daemon_down.
+# Default behavior is 503 + Retry-After; defining @unmask_daemon_down BEFORE
 # this include (see the note at its definition below) switches to full
 # fail-open (= pass through to the backend).
 location ^~ /unmask/challenge/ {
@@ -108,7 +108,7 @@ location ^~ /unmask/challenge/ {
     proxy_set_header  X-Original-IP    $remote_addr;
     proxy_set_header  X-Original-UA    $http_user_agent;
     proxy_intercept_errors on;
-    error_page 502 503 504 = @unmask_down;
+    error_page 502 503 504 = @unmask_daemon_down;
 }
 location = /unmask/challenge.html {
     auth_request off;
@@ -326,10 +326,10 @@ location @unmask_fail_open {
 # definition of a named location, so one placed after the include is silently
 # ignored.  Examples (above the include line):
 #   # (a) fail closed so the LB drains this node:
-#   location @unmask_down { add_header Retry-After "10" always; return 503; }
+#   location @unmask_daemon_down { add_header Retry-After "10" always; return 503; }
 #   # (b) pass the original request straight to your backend:
-#   location @unmask_down { proxy_pass http://backend; proxy_set_header Host $host; }
+#   location @unmask_daemon_down { proxy_pass http://backend; proxy_set_header Host $host; }
 #   include /etc/unmask/forward-auth/server.inc;
-location @unmask_down {
+location @unmask_daemon_down {
     return 302 /;
 }
