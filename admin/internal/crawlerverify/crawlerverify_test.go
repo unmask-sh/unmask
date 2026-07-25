@@ -185,6 +185,32 @@ func TestVerifyAsync_NoDNSForNonCrawler(t *testing.T) {
 	}
 }
 
+func TestVerifyAsyncNotify_FiresWithResult(t *testing.T) {
+	f := &fakeResolver{ptr: map[string][]string{"1.2.3.4": {"host.cheap-vps.example"}}} // non-google PTR -> Forged
+	v := newV(f)
+	done := make(chan Result, 1)
+	v.VerifyAsyncNotify("1.2.3.4", "Googlebot", func(r Result) { done <- r })
+	select {
+	case r := <-done:
+		if r.Status != Forged || r.Crawler != "Googlebot" {
+			t.Fatalf("onDone = %+v, want Forged/Googlebot", r)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("onDone never fired")
+	}
+}
+
+func TestVerifyAsyncNotify_SkipsNonCrawler(t *testing.T) {
+	v := newV(&fakeResolver{})
+	fired := make(chan struct{}, 1)
+	v.VerifyAsyncNotify("1.2.3.4", "Mozilla/5.0 Chrome/120", func(r Result) { fired <- struct{}{} })
+	select {
+	case <-fired:
+		t.Error("onDone must not fire for a non-crawler UA")
+	case <-time.After(120 * time.Millisecond):
+	}
+}
+
 func TestDomainMatch(t *testing.T) {
 	if !domainMatch("crawl-1.googlebot.com.", []string{"googlebot.com"}) {
 		t.Error("subdomain with trailing dot should match")

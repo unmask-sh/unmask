@@ -43,6 +43,7 @@ import (
 
 const (
 	SourceHoneypot        = "honeypot"
+	SourceCrawlerForged   = "crawler_forged" // rDNS proved a UA's crawler claim false
 	SourceManual          = "manual"
 	SourceProtectedFailed = "protected_failed" // v0.2+
 	SourceRateLimitAbuse  = "rate_limit_abuse" // v0.2+
