@@ -27,7 +27,7 @@
 #   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)
 #
 
-UNMASK_VERSION ?= 0.1.9
+UNMASK_VERSION ?= 0.1.10
 GOOS           ?= linux
 # Default from `go env`; on hosts without Go (e.g. the arm64 qemu builder
 # container running build-module-multi) fall back to uname -m, NOT a hardcoded
