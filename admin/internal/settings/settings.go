@@ -1082,6 +1082,21 @@ type AsnConfig struct {
 type CrawlerVerifyConfig struct {
 	Enabled      bool   `yaml:"enabled,omitempty"`
 	ForgedAction string `yaml:"forged_action,omitempty"` // GeoAction*; empty -> pow_then_captcha (safe default)
+	// DisabledCrawlers: crawler names (crawlerverify.Crawlers) the operator
+	// turned OFF individually -- e.g. a range preset already covers Googlebot, so
+	// rDNS for it is redundant.  Empty = every catalog crawler is verified.
+	DisabledCrawlers []string `yaml:"disabled_crawlers,omitempty"`
+}
+
+// CrawlerActive reports whether rDNS should verify the named crawler (i.e. the
+// operator has not turned it off).  Case-insensitive.
+func (c CrawlerVerifyConfig) CrawlerActive(name string) bool {
+	for _, d := range c.DisabledCrawlers {
+		if strings.EqualFold(strings.TrimSpace(d), name) {
+			return false
+		}
+	}
+	return true
 }
 
 // ResolvedForgedAction is the action applied to a proven-forged crawler.  An

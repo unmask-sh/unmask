@@ -254,6 +254,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .asn-suggest-item .s-kind.org{background:#ede9fe;color:#6d28d9}
 .asn-suggest-item .s-kind.asn{background:#dbeafe;color:#1e40af}
 .asn-suggest-empty{padding:.45rem .6rem;color:#94a3b8;font-size:.78rem}
+/* rDNS per-crawler badges: range-backed (rDNS is off-range only) vs range-less
+   (rDNS is the primary verification) */
+.rdns-badge{display:inline-block;padding:.02rem .34rem;border-radius:.25rem;font-size:.64rem;font-weight:700;cursor:help}
+.rdns-badge.range{background:#dbeafe;color:#1e40af}
+.rdns-badge.only{background:#fef3c7;color:#92400e}
 /* JA4 verdict tab: pill for displaying the action enum (= behavior visible by color) */
 .action-pill{display:inline-block;padding:.05rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.05em}
 .action-bot{background:#fee2e2;color:#991b1b}
@@ -1485,6 +1490,24 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </select>
       </label>
       <span class="note" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.rdns.forged_hint" }}</span>
+    </div>
+
+    {{/* Per-crawler enable list.  A range-backed crawler (Googlebot etc.) is
+         already covered by its IP-range preset, so rDNS for it is an off-range
+         safety net the operator may switch off; a range-less one (YandexBot)
+         relies on rDNS as its only verification. */}}
+    <div class="rdns-crawlers">
+      <input type="hidden" name="crawler_verify_present" value="1">
+      <div class="desc" style="font-size:.8rem;margin:.2rem 0 .4rem">{{ t .Lang "settings.rdns.crawlers_h" }}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:.45rem 1rem">
+        {{ range .CrawlerVerifyCrawlers }}
+        <label style="display:inline-flex;align-items:center;gap:.35rem;font-size:.82rem">
+          <input type="checkbox" name="crawler_verify_crawler" value="{{ .Name }}" {{ if .Active }}checked{{ end }}>
+          <span>{{ .Name }}</span>
+          {{ if .RangeBacked }}<span class="rdns-badge range" title="{{ t $.Lang "settings.rdns.range_backed_hint" }}">{{ t $.Lang "settings.rdns.range_backed" }}</span>{{ else }}<span class="rdns-badge only" title="{{ t $.Lang "settings.rdns.rdns_only_hint" }}">{{ t $.Lang "settings.rdns.rdns_only" }}</span>{{ end }}
+        </label>
+        {{ end }}
+      </div>
     </div>
   </div>
 

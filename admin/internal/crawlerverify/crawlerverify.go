@@ -57,16 +57,47 @@ type crawler struct {
 	name    string
 	uaNeed  string
 	domains []string // bare domains; host matches if == d or ends in "."+d
+	// rangeBacked: the vendor publishes IP ranges that unmask ships a bypass
+	// preset for, so an in-range visitor is already verified by the range and
+	// rDNS is only an off-range safety net.  false = range-less (rDNS is the
+	// primary verification for this crawler).  Informational for the UI.
+	rangeBacked bool
 }
 
 // crawlers: the bots that publish an rDNS-verification method.  Ordered so a
 // more specific needle would win if two overlapped (none currently do).
 var crawlers = []crawler{
-	{"Googlebot", "googlebot", []string{"googlebot.com", "google.com"}},
-	{"Bingbot", "bingbot", []string{"search.msn.com"}},
-	{"YandexBot", "yandex", []string{"yandex.com", "yandex.net", "yandex.ru"}},
-	{"Applebot", "applebot", []string{"applebot.apple.com"}},
-	{"Baiduspider", "baiduspider", []string{"baidu.com", "baidu.jp"}},
+	{"Googlebot", "googlebot", []string{"googlebot.com", "google.com"}, true},
+	{"Bingbot", "bingbot", []string{"search.msn.com"}, true},
+	{"YandexBot", "yandex", []string{"yandex.com", "yandex.net", "yandex.ru"}, false},
+	{"Applebot", "applebot", []string{"applebot.apple.com"}, true},
+	{"Baiduspider", "baiduspider", []string{"baidu.com", "baidu.jp"}, false},
+}
+
+// CrawlerInfo describes one rDNS-verifiable crawler for the settings UI.
+type CrawlerInfo struct {
+	Name        string
+	RangeBacked bool // true -> a bypass range preset usually covers it (rDNS is off-range only); false -> range-less (rDNS is the primary verification)
+}
+
+// Crawlers returns the catalog of rDNS-verifiable crawlers (UI: the per-crawler
+// enable list).
+func Crawlers() []CrawlerInfo {
+	out := make([]CrawlerInfo, len(crawlers))
+	for i, c := range crawlers {
+		out[i] = CrawlerInfo{Name: c.name, RangeBacked: c.rangeBacked}
+	}
+	return out
+}
+
+// ClaimedCrawler returns the crawler name a UA claims to be, or "" for none.
+// Lets the decision layer gate on the operator's per-crawler enable state
+// before touching the cache / scheduling DNS.
+func ClaimedCrawler(ua string) string {
+	if c := matchClaim(ua); c != nil {
+		return c.name
+	}
+	return ""
 }
 
 // matchClaim returns the crawler a UA claims to be, or nil.
