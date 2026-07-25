@@ -27,8 +27,13 @@ func TestBypassIPsTabRendersRDNS(t *testing.T) {
 	for _, want := range []string{
 		`name="crawler_verify_enabled"`,
 		`name="crawler_verify_forged_action"`,
-		`crawler_verify_enabled" value="1" checked`, // Enabled=true reflected
-		`value="deny"             selected`,         // ForgedAction=deny reflected
+		`crawler_verify_enabled" value="1" checked`,       // Enabled=true reflected
+		`value="deny"             selected`,               // ForgedAction=deny reflected
+		`name="crawler_verify_present"`,                   // per-crawler presence marker
+		`name="crawler_verify_crawler" value="Googlebot"`, // per-crawler checkbox
+		`name="crawler_verify_crawler" value="YandexBot"`, // range-less crawler present
+		`rdns-badge range`,                                // Googlebot = range-backed badge
+		`rdns-badge only`,                                 // YandexBot = range-less badge
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("bypass-ips tab missing %q", want)

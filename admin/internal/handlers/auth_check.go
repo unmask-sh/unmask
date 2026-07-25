@@ -303,14 +303,19 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// a bypass IP/path, or a signed-agent header.  The old forward-auth pipeline
 	// put ban in the max-severity group AFTER those veto-passes, letting a banned
 	// bot slip through on a bypass path or a still-valid _bv (up to 3 days).
-	// rDNS crawler authentication.  The request path only READS the cache (no
-	// DNS, no latency); a miss schedules a background check and falls through to
-	// normal handling for this request.  Verified/Forged are authoritative for a
-	// crawler-claiming UA, so they sit at the top of the veto switch -- above the
-	// UA rescue and bypass, which a forgery must not reach.
+	// rDNS crawler authentication.  It runs ONLY for a crawler-claim NOT already
+	// covered by a bypass IP range: for a vendor that publishes ranges (Googlebot,
+	// Bingbot) an in-range visitor is authoritatively verified by the range, so
+	// rDNS would be a redundant DNS lookup.  rDNS earns its keep off-range -- a
+	// range-less crawler (YandexBot/Baiduspider), a range that has drifted, or a
+	// forgery claiming a range vendor from outside its range.  The request path
+	// only READS the cache (no DNS, no latency); a miss schedules a background
+	// check and falls through.  Verified/Forged sit at the top of the veto switch,
+	// above the blind UA rescue a forgery must not reach.
 	var cvResult crawlerverify.Result
 	cvActionable := false
-	if h.CrawlerVerify != nil && cfg.Nginx.CrawlerVerify.Enabled {
+	if claimed := crawlerverify.ClaimedCrawler(ua); h.CrawlerVerify != nil && cfg.Nginx.CrawlerVerify.Enabled &&
+		claimed != "" && cfg.Nginx.CrawlerVerify.CrawlerActive(claimed) && !matchers.ipBypass.Match(ip) {
 		if res, ok := h.CrawlerVerify.Cached(ip, ua); !ok {
 			h.CrawlerVerify.VerifyAsync(ip, ua)
 		} else if res.Status == crawlerverify.Verified || res.Status == crawlerverify.Forged {

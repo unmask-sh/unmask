@@ -35,6 +35,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -671,6 +672,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
 		"CrawlerVerify":              cur.CrawlerVerify,
 		"CrawlerVerifyForgedAction":  cur.CrawlerVerify.ResolvedForgedAction(),
+		"CrawlerVerifyCrawlers":      crawlerVerifyCrawlerRows(cur.CrawlerVerify),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -2228,6 +2230,24 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_updated_at"])
 }
 
+// crawlerVerifyRow is one rDNS-verifiable crawler for the settings card: its
+// name, whether a range preset usually covers it (informational), and the
+// operator's per-crawler enable state.
+type crawlerVerifyRow struct {
+	Name        string
+	RangeBacked bool
+	Active      bool
+}
+
+func crawlerVerifyCrawlerRows(cv settings.CrawlerVerifyConfig) []crawlerVerifyRow {
+	cs := crawlerverify.Crawlers()
+	rows := make([]crawlerVerifyRow, len(cs))
+	for i, c := range cs {
+		rows[i] = crawlerVerifyRow{Name: c.Name, RangeBacked: c.RangeBacked, Active: cv.CrawlerActive(c.Name)}
+	}
+	return rows
+}
+
 // applyBypassIPsForm: receive the bypass-ips tab form. Zip the row-UI 4
 // parallel arrays (ip + title + enabled + updated_at) into the BypassIPs*
 // 4 slices for save.
@@ -2345,6 +2365,24 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		fa = ""
 	}
 	n.CrawlerVerify.ForgedAction = fa
+
+	// Per-crawler enable state.  The card renders a checkbox per catalog crawler
+	// (value = its name, checked = verified); a name absent from the submitted set
+	// is disabled.  Gated on a presence marker so a form that doesn't render the
+	// card can't wipe the setting.
+	if r.FormValue("crawler_verify_present") == "1" {
+		enabled := map[string]bool{}
+		for _, name := range r.Form["crawler_verify_crawler"] {
+			enabled[strings.TrimSpace(name)] = true
+		}
+		var disabled []string
+		for _, ci := range crawlerverify.Crawlers() {
+			if !enabled[ci.Name] {
+				disabled = append(disabled, ci.Name)
+			}
+		}
+		n.CrawlerVerify.DisabledCrawlers = disabled
+	}
 
 	return nil
 }
