@@ -4,7 +4,7 @@
 # Role:
 #   1. Place upstream auto-load symlinks in /etc/nginx/conf.d/
 #       00-unmask-upstream.conf -> /var/lib/unmask/nginx/upstream.conf
-#         (= so proxy_pass http://unmask_admin; resolves in every server block. shared by both modes)
+#         (= so proxy_pass http://unmask_daemon; resolves in every server block. shared by both modes)
 #       00-unmask.conf          -> /var/lib/unmask/nginx/http.inc
 #         (= JA4 maps / log_format etc.  native-mode only.  In environments
 #            without the plugin, the target is not rendered but nginx -t still
@@ -15,10 +15,10 @@
 echo "unmask-web-nginx: installing nginx integration..."
 
 # upstream auto-load.  Forward-auth mode's server.inc does `proxy_pass
-# http://unmask_admin;`, so that upstream must exist in http {} scope.  Native
+# http://unmask_daemon;`, so that upstream must exist in http {} scope.  Native
 # mode defines its own `upstream unmask` inside the rendered http.inc; for
 # forward-auth (no plugin, no http.inc) `unmask render-nginx` renders
-# `upstream unmask_admin` to /var/lib/unmask/nginx/upstream.conf and tracks
+# `upstream unmask_daemon` to /var/lib/unmask/nginx/upstream.conf and tracks
 # server.bind / port there.  Write a default-port block here too so the upstream
 # resolves before the first render (install order / pre-setup); render overwrites
 # it on the first settings save.
@@ -33,13 +33,13 @@ UNMASK_PORT=$(awk '
     s && /^[[:space:]]+port:/ { v=$2; gsub(/[^0-9]/,"",v); if (v != "") { print v; exit } }
 ' /etc/unmask/config.yml 2>/dev/null)
 [ -n "$UNMASK_PORT" ] || UNMASK_PORT=9477
-if [ ! -e "$UPSTREAM_SRC" ] || ! grep -q 'upstream unmask_admin' "$UPSTREAM_SRC" 2>/dev/null; then
+if [ ! -e "$UPSTREAM_SRC" ] || ! grep -q 'upstream unmask_daemon' "$UPSTREAM_SRC" 2>/dev/null; then
     cat > "$UPSTREAM_SRC" <<UPSTREAM
 # unmask admin upstream for forward-auth mode (install-time default).
 # Port read from server.port in /etc/unmask/config.yml (= $UNMASK_PORT here;
 # default 9477).  'unmask render-nginx' overwrites this from server.bind / port
 # on the next settings save, so re-rendering after a port change keeps it in sync.
-upstream unmask_admin {
+upstream unmask_daemon {
     server 127.0.0.1:$UNMASK_PORT;
     keepalive 16;
 }

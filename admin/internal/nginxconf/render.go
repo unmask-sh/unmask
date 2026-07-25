@@ -109,7 +109,7 @@ func Render(s settings.Settings, outDir, version string) error {
 	}
 	// http scope (forward-auth): the admin upstream forward-auth/server.inc
 	// proxies to.  Native mode carries its own `upstream unmask` at the tail of
-	// http.inc; forward-auth has no http.inc, so `upstream unmask_admin` is
+	// http.inc; forward-auth has no http.inc, so `upstream unmask_daemon` is
 	// emitted here and the unmask-web-nginx postinstall symlinks it into conf.d/.
 	// Rendered (not just postinstall-generated) so it tracks server.bind / port
 	// on every save.

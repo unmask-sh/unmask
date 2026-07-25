@@ -11,10 +11,10 @@
 #
 #  forward-auth mode has no http.inc (that is native-only, and it carries its own
 #  `upstream unmask` at its tail), so the admin upstream that
-#  forward-auth/server.inc proxies to (`http://unmask_admin`) is defined here
+#  forward-auth/server.inc proxies to (`http://unmask_daemon`) is defined here
 #  instead.  The unmask-web-nginx package symlinks it into conf.d/ so it loads in
 #  http {}.
-upstream unmask_admin {
+upstream unmask_daemon {
     server {{ .UpstreamServer }};
     keepalive 16;
 }

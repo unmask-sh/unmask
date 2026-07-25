@@ -1,7 +1,7 @@
 // render-nginx: generate the nginx config snippets from config.yml + embedded
 // preset.  Native mode: http.inc (with its own `upstream unmask` at the tail),
 // server.inc, protect.inc.  Forward-auth mode: forward-auth-lbtrust.conf (the
-// LB-trust JA4 gate) and upstream.conf (`upstream unmask_admin`) -- the latter,
+// LB-trust JA4 gate) and upstream.conf (`upstream unmask_daemon`) -- the latter,
 // once hand-written by the postinstall to /etc/unmask, now renders to output_dir
 // so it tracks server.bind / port.
 // Per-host gating of the admin UI is done at the HTTP layer via
