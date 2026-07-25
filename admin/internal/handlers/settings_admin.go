@@ -607,6 +607,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
 		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
 		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
+		"AsnMmdbLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
@@ -1290,6 +1291,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "geo":
 		if err := applyGeoForm(&cur.Nginx.Geo, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+		// ASN rules live in a sub-section of the geo tab (same mmdb family), so
+		// the one geo save persists both axes.
+		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -3525,6 +3532,91 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 
 		rules = append(rules, settings.GeoRule{
 			Country:   code,
+			Action:    action,
+			Enabled:   enOn,
+			UpdatedAt: ts,
+		})
+	}
+	c.Rules = rules
+	return nil
+}
+
+// applyAsnForm: receive the ASN sub-section of the geo tab.  The by-network
+// sibling of applyGeoForm — same shape, keyed by AS number instead of country
+// code.
+func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
+	if v := strings.TrimSpace(r.FormValue("asn_default_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("asn_default_action invalid (got %q)", v)
+		}
+		if v == settings.GeoActionSkip {
+			v = "" // "skip" is the resolve default; store as unset (no-op save clean)
+		}
+		c.DefaultAction = v
+	} else {
+		c.DefaultAction = ""
+	}
+
+	asns := r.Form["asn_number"]
+	labels := r.Form["asn_label"]
+	actions := r.Form["asn_action"]
+	enabledArr := r.Form["asn_enabled"]
+	updatedAt := r.Form["asn_updated_at"]
+
+	rules := make([]settings.AsnRule, 0, len(asns))
+	seen := map[uint]bool{}
+	now := time.Now().Unix()
+	for i, raw := range asns {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		// Accept "AS16509" or "16509".
+		s = strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
+		n, err := strconv.ParseUint(s, 10, 32)
+		if err != nil || n == 0 {
+			return fmt.Errorf("ASN %q: must be a positive number (e.g. 16509 or AS16509)", raw)
+		}
+		asn := uint(n)
+		if seen[asn] {
+			return fmt.Errorf("duplicate ASN %d", asn)
+		}
+		seen[asn] = true
+
+		var action string
+		if i < len(actions) {
+			action = strings.TrimSpace(actions[i])
+		}
+		if action != "" && !settings.IsValidGeoAction(action) {
+			return fmt.Errorf("ASN %d: action invalid (got %q)", asn, action)
+		}
+		var label string
+		if i < len(labels) {
+			label = strings.TrimSpace(labels[i])
+			if len([]rune(label)) > 80 {
+				label = string([]rune(label)[:80])
+			}
+		}
+
+		enVal := r.FormValue(fmt.Sprintf("asn_enabled_%d", i))
+		if enVal == "" && i < len(enabledArr) {
+			enVal = enabledArr[i]
+		}
+		enOn := enVal == "1"
+
+		var ts int64
+		if i < len(updatedAt) {
+			if v, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
+				ts = v
+			}
+		}
+		if ts == 0 {
+			ts = now
+		}
+
+		rules = append(rules, settings.AsnRule{
+			ASN:       asn,
+			Label:     label,
 			Action:    action,
 			Enabled:   enOn,
 			UpdatedAt: ts,
