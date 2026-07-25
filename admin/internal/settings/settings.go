@@ -1197,6 +1197,36 @@ func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin 
 	return "", 0, false
 }
 
+// AsnRateRule is one enabled rate-mode rule (RatePerMin>0): its target (exact
+// AS number XOR org substring), the per-minute cap, and the resolved over-limit
+// action.  The by-network sibling of a rate zone.
+type AsnRateRule struct {
+	ASN        uint
+	Org        string
+	RatePerMin int
+	Action     string // resolved ("" -> DefaultAction)
+}
+
+// RateRules returns the enabled RatePerMin>0 custom rules -- what the native
+// rate-zone render (one limit_req_zone per rule, keyed on ipgeo.ASNRateCIDRs)
+// and the settings UI enumerate.  Providers carry no rate cap, so they are not
+// included.  Action-only rules (RatePerMin 0) are handled by the ordinary
+// EnabledASNRules / EnabledOrgPatterns geo block.
+func (a AsnConfig) RateRules() []AsnRateRule {
+	var out []AsnRateRule
+	for i := range a.Rules {
+		r := &a.Rules[i]
+		if r.Enabled && r.RatePerMin > 0 && (r.ASN != 0 || r.Org != "") {
+			act := r.Action
+			if strings.TrimSpace(act) == "" {
+				act = a.ResolvedDefaultAction()
+			}
+			out = append(out, AsnRateRule{ASN: r.ASN, Org: r.Org, RatePerMin: r.RatePerMin, Action: act})
+		}
+	}
+	return out
+}
+
 // EnabledOrgPatterns returns every org-name substring that an enabled rule or
 // provider matches on, paired with its resolved action, for the native render
 // walk.  Exact-ASN rules are returned separately by EnabledASNRules.
