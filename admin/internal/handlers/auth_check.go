@@ -625,31 +625,38 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 
 // asnDecide consults settings.Nginx.Asn for the visitor's autonomous system.
 // The by-network sibling of geoDecide: same lookup source (the ASN mmdb via
-// IPGeo), same decision machinery.  Inert when no ASN db is loaded so an
-// install with only the country db never fires ASN rules.
+// IPGeo), same decision machinery.  Matches on the exact AS number and the
+// organization name (so a "Microsoft" org rule / the Microsoft catalog
+// provider covers all of Azure's ASNs).  Inert when no ASN db is loaded.
 func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
 	if h.IPGeo == nil || !h.IPGeo.ASNLoaded() {
 		return axisDecision{}, false
 	}
-	return asnDecideForASN(h.IPGeo.LookupInfo(ip).ASN, cfg.Nginx.Asn)
+	info := h.IPGeo.LookupInfo(ip)
+	return asnDecideFor(info.ASN, info.ASNOrg, cfg.Nginx.Asn)
 }
 
-// asnDecideForASN: pure decision given a resolved AS number.  Mirrors
-// geoDecideForCountry.
-//   - ASN 0 -> silent (mmdb miss / private IP, fail-open)
+// asnDecideFor: pure decision given a resolved AS number + organization name.
+//   - no match -> silent (other axes decide)
 //   - resolved action "skip" or empty -> silent
 //   - "deny" -> sevDeny
 //   - challenge-mode action -> matching severity, chMode set
-func asnDecideForASN(asn uint, cfg settings.AsnConfig) (axisDecision, bool) {
-	if asn == 0 {
+//
+// The reason tag names the AS number when known, else the matched org.
+func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, bool) {
+	if asn == 0 && org == "" {
 		return axisDecision{}, false
 	}
-	act := cfg.ResolvedDefaultAction()
-	rule := cfg.LookupRule(asn)
-	if rule != nil && strings.TrimSpace(rule.Action) != "" {
-		act = rule.Action
+	act, matched := cfg.ResolveAction(asn, org)
+	if !matched {
+		return axisDecision{}, false
 	}
-	tag := "asn:AS" + strconv.FormatUint(uint64(asn), 10)
+	tag := "asn:"
+	if asn != 0 {
+		tag += "AS" + strconv.FormatUint(uint64(asn), 10)
+	} else {
+		tag += org
+	}
 	switch act {
 	case "", settings.GeoActionSkip:
 		return axisDecision{}, false

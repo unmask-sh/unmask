@@ -7,13 +7,11 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// TestAsnRenderBlocks pins the native ASN wiring: with rules present the
-// action map + is_asn_challenge + the combined is_net_challenge are emitted,
-// the final-challenge composite key routes on is_net_challenge (not the bare
-// is_geo_challenge), and with no rules the axis degrades to the skip default.
+// TestAsnRenderBlocks pins the native ASN wiring: the action map + the
+// is_net_challenge combining map are always defined, the final-challenge
+// composite key routes on is_net_challenge, and enabled rules/providers emit
+// their keyed action-map entries (exact "AS<n>" and org "org:<pattern>").
 func TestAsnRenderBlocks(t *testing.T) {
-	// No ASN rules: action map defaults to skip, no CIDRs, but the maps still
-	// exist (so $unmask_asn_action / $is_asn_challenge are always defined).
 	off := renderHTTPInc(t, nil)
 	if !strings.Contains(off, "map $unmask_asn $unmask_asn_action") {
 		t.Error("no rules: $unmask_asn_action map must still be defined")
@@ -25,33 +23,34 @@ func TestAsnRenderBlocks(t *testing.T) {
 		t.Error("composite final-challenge key must route on is_net_challenge")
 	}
 
-	// Rules present: the per-ASN action map lists them, and the geo block
-	// header is emitted (CIDRs stay empty without an ASN mmdb, which is fine —
-	// the axis then no-ops until a db is configured).
 	on := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.Asn = settings.AsnConfig{
 			DefaultAction: settings.GeoActionSkip,
+			Providers: []settings.AsnProviderSel{
+				{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true},
+				{ID: "google", Action: settings.GeoActionPoWOnly, Enabled: false}, // disabled -> omitted
+			},
 			Rules: []settings.AsnRule{
-				{ASN: 16509, Action: settings.GeoActionDeny, Enabled: true},
-				{ASN: 14061, Action: settings.GeoActionCaptchaOnly, Enabled: true},
-				{ASN: 99999, Action: settings.GeoActionPoWOnly, Enabled: false}, // disabled -> omitted
+				{ASN: 16509, Action: settings.GeoActionCaptchaOnly, Enabled: true}, // exact
+				{Org: "Hetzner", Action: settings.GeoActionDeny, Enabled: true},    // org
+				{ASN: 99999, Action: settings.GeoActionDeny, Enabled: false},       // disabled
 			},
 		}
 	})
 	for _, want := range []string{
 		`geo $remote_addr $unmask_asn {`,
-		`"14061" "captcha_only";`,
-		`"16509" "deny";`,
+		`"AS16509" "captcha_only";`, // exact custom rule
+		`"org:hetzner" "deny";`,     // org custom rule (lower-cased key)
+		`"org:microsoft" "deny";`,   // enabled provider (org pattern)
 	} {
 		if !strings.Contains(on, want) {
-			t.Errorf("rules on: expected %q in http.inc", want)
+			t.Errorf("expected %q in http.inc", want)
 		}
 	}
-	if strings.Contains(on, `"99999"`) {
-		t.Error("disabled ASN rule must not be rendered")
+	if strings.Contains(on, `"AS99999"`) {
+		t.Error("disabled custom rule must not render")
 	}
-	// ASN action map entries are sorted by number (deterministic output).
-	if i, j := strings.Index(on, `"14061"`), strings.Index(on, `"16509"`); i < 0 || j < 0 || i > j {
-		t.Error("ASN action map must be sorted ascending by AS number")
+	if strings.Contains(on, `"org:google"`) {
+		t.Error("disabled provider must not render")
 	}
 }

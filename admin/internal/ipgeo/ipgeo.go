@@ -40,6 +40,10 @@ type Reader struct {
 	asnPath   string
 	loaded    bool // whether geoDB opened OR overrides populated
 	asnReady  bool // whether asnDB opened
+
+	// asnIdx is the lazily-built org/ASN suggestion index (nil until the first
+	// SuggestASN call walks asnDB).  Immutable once built; discarded on Reload.
+	asnIdx *asnSuggestIndex
 }
 
 // Open opens the IP-geo DBs at the given paths.  Both are optional;
@@ -165,6 +169,7 @@ func (r *Reader) Reload(geoPath, asnPath string) {
 		}
 		r.asnReady = false
 		r.asnPath = asnPath
+		r.asnIdx = nil // stale for the new DB; rebuilt on next SuggestASN
 		if asnPath != "" {
 			if db, err := maxminddb.Open(asnPath); err == nil {
 				r.asnDB = db

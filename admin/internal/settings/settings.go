@@ -980,6 +980,7 @@ type GeoConfig struct {
 // GeoRule: one country override.
 type GeoRule struct {
 	Country   string `yaml:"country"`              // ISO 3166-1 alpha-2 (upper-case after save)
+	Label     string `yaml:"label,omitempty"`      // operator note (display only; not used in the decision)
 	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultAction
 	Enabled   bool   `yaml:"enabled"`              // false -> rule kept in yaml but skipped at evaluation
 	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed" timestamps
@@ -1057,18 +1058,35 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 // cloud ASN never challenges Googlebot/GPTBot (they pass on their vendor
 // ranges first): the search-bot-safety rule holds.
 type AsnConfig struct {
-	// DefaultAction: applied to ASNs that match no rule.  Empty -> "skip"
-	// (= blocklist semantics, the common case: rules name the networks to act
-	// on, everything else passes).
+	// DefaultAction: applied to networks that match no rule.  Empty -> "skip"
+	// (= blocklist semantics, the common case).
 	DefaultAction string `yaml:"default_action,omitempty"`
-	// Rules: per-ASN overrides.
+	// Providers: enabled entries from the built-in hosting-provider catalog
+	// (asncatalog.go).  Each names a provider (Amazon, Microsoft, ...) whose
+	// ASNs are matched by organization name -- one entry covers all of a
+	// provider's networks.  Enabling every provider is the "block all major
+	// data centers" posture.
+	Providers []AsnProviderSel `yaml:"providers,omitempty"`
+	// Rules: custom per-network overrides — an exact AS number, or a free
+	// organization-name substring, keyed by whichever field is set.
 	Rules []AsnRule `yaml:"rules,omitempty"`
 }
 
-// AsnRule: one autonomous-system override.  The by-network analogue of GeoRule.
+// AsnProviderSel: one enabled catalog provider + the action to apply to it.
+type AsnProviderSel struct {
+	ID      string `yaml:"id"`               // HostingProviders[].ID
+	Action  string `yaml:"action,omitempty"` // GeoAction*; empty = inherit DefaultAction
+	Enabled bool   `yaml:"enabled"`
+}
+
+// AsnRule: one custom autonomous-system override.  Exactly one of ASN / Org
+// identifies the target: ASN is an exact number, Org is a case-insensitive
+// organization-name substring (covers every ASN of a network operator without
+// listing their numbers).
 type AsnRule struct {
-	ASN       uint   `yaml:"asn"`                  // autonomous system number (0 = invalid, skipped)
-	Label     string `yaml:"label,omitempty"`      // operator note, e.g. "Amazon AWS" (display only)
+	ASN       uint   `yaml:"asn,omitempty"`        // exact AS number (0 -> this is an Org rule)
+	Org       string `yaml:"org,omitempty"`        // organization-name substring (empty -> this is an ASN rule)
+	Label     string `yaml:"label,omitempty"`      // operator note (display only)
 	Action    string `yaml:"action,omitempty"`     // GeoAction*; empty = inherit DefaultAction
 	Enabled   bool   `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
 	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
@@ -1083,19 +1101,130 @@ func (a AsnConfig) ResolvedDefaultAction() string {
 	return a.DefaultAction
 }
 
-// LookupRule returns the enabled rule for the given AS number, or nil.  Linear
-// scan (rule count is small).
-func (a AsnConfig) LookupRule(asn uint) *AsnRule {
-	if asn == 0 {
-		return nil
+// ResolveAction returns the action to apply to a visitor resolved to the
+// given AS number + organization name, or "" when no enabled rule/provider
+// matches (= this axis stays silent, other axes decide).  Precedence: an
+// exact-ASN custom rule wins over an org match (custom or provider), because
+// it is the more specific target; among matches the strongest is not chosen
+// here — the caller (asnDecide) already runs max-severity across axes, and
+// within the ASN axis a single winning action is enough.  The resolved action
+// resolves "" -> DefaultAction.
+func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched bool) {
+	resolve := func(raw string) string {
+		if strings.TrimSpace(raw) == "" {
+			return a.ResolvedDefaultAction()
+		}
+		return raw
+	}
+	// 1. exact AS number custom rule (most specific).
+	if asn != 0 {
+		for i := range a.Rules {
+			r := &a.Rules[i]
+			if r.Enabled && r.ASN == asn && r.Org == "" {
+				return resolve(r.Action), true
+			}
+		}
+	}
+	// 2. org-substring custom rule.
+	for i := range a.Rules {
+		r := &a.Rules[i]
+		if r.Enabled && r.Org != "" && OrgMatchesAny(org, []string{r.Org}) {
+			return resolve(r.Action), true
+		}
+	}
+	// 3. enabled catalog provider (org match).
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		hp := HostingProviderByID(p.ID)
+		if hp != nil && OrgMatchesAny(org, hp.OrgPatterns) {
+			return resolve(p.Action), true
+		}
+	}
+	return "", false
+}
+
+// EnabledOrgPatterns returns every org-name substring that an enabled rule or
+// provider matches on, paired with its resolved action, for the native render
+// walk.  Exact-ASN rules are returned separately by EnabledASNRules.
+func (a AsnConfig) EnabledOrgPatterns() []struct {
+	Pattern string
+	Action  string
+} {
+	var out []struct {
+		Pattern string
+		Action  string
+	}
+	add := func(pat, act string) {
+		if strings.TrimSpace(act) == "" {
+			act = a.ResolvedDefaultAction()
+		}
+		out = append(out, struct {
+			Pattern string
+			Action  string
+		}{pat, act})
+	}
+	for i := range a.Rules {
+		if r := &a.Rules[i]; r.Enabled && r.Org != "" {
+			add(r.Org, r.Action)
+		}
+	}
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		if hp := HostingProviderByID(p.ID); hp != nil {
+			for _, pat := range hp.OrgPatterns {
+				add(pat, p.Action)
+			}
+		}
+	}
+	return out
+}
+
+// EnabledASNRules returns the enabled exact-AS-number custom rules with their
+// resolved actions, for the native render walk.
+func (a AsnConfig) EnabledASNRules() []struct {
+	ASN    uint
+	Action string
+} {
+	var out []struct {
+		ASN    uint
+		Action string
 	}
 	for i := range a.Rules {
 		r := &a.Rules[i]
-		if r.Enabled && r.ASN == asn {
-			return r
+		if r.Enabled && r.ASN != 0 && r.Org == "" {
+			act := r.Action
+			if strings.TrimSpace(act) == "" {
+				act = a.ResolvedDefaultAction()
+			}
+			out = append(out, struct {
+				ASN    uint
+				Action string
+			}{r.ASN, act})
 		}
 	}
-	return nil
+	return out
+}
+
+// HasEnabled reports whether any provider or rule is enabled (= the axis is
+// active).  Used to skip the render walk entirely when nothing is configured.
+func (a AsnConfig) HasEnabled() bool {
+	for i := range a.Providers {
+		if a.Providers[i].Enabled {
+			return true
+		}
+	}
+	for i := range a.Rules {
+		if a.Rules[i].Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // BypassPathsConfig: allowlisted paths (= bypass all unmask checks per path).

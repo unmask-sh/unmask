@@ -520,9 +520,10 @@ type GeoRuleRender struct {
 	Action  string // resolved action (= rule.Action || geo.DefaultAction)
 }
 
-// AsnRuleRender: one entry of the $unmask_asn_action map.
+// AsnRuleRender: one entry of the $unmask_asn_action map.  Key is the token
+// the geo block writes for a matching CIDR ("AS<n>" or "org:<pattern>").
 type AsnRuleRender struct {
-	ASN    uint   // autonomous system number
+	Key    string // map key ("AS16509" / "org:microsoft")
 	Action string // resolved action (= rule.Action || asn.DefaultAction)
 }
 
@@ -1047,36 +1048,46 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 
 	// ASN (native mode): the by-network sibling of the geo block above.  Walk
 	// the ASN mmdb once, materialising a `geo $remote_addr $unmask_asn { ... }`
-	// block listing only the CIDRs of the ASNs the operator has rules for, plus
-	// a per-ASN action map.  Requires the ASN mmdb (MMDBASNPath); with only the
-	// country db configured the axis stays inert.
+	// block listing only the CIDRs the operator's rules/providers target, plus
+	// a $unmask_asn -> $unmask_asn_action map.  Each target's map key is a
+	// stable token: "AS<n>" for exact rules, "org:<pattern>" for org / provider
+	// matches.  Requires the ASN mmdb (MMDBASNPath); inert without it.
 	d.AsnDefaultAction = s.Nginx.Asn.ResolvedDefaultAction()
-	asnSet := map[uint]bool{}
-	for _, r := range s.Nginx.Asn.Rules {
-		if !r.Enabled || r.ASN == 0 || asnSet[r.ASN] {
-			continue
+	if s.Nginx.Asn.HasEnabled() {
+		var targets []ipgeo.ASNTarget
+		seenKey := map[string]bool{}
+		addRule := func(key, action string, t ipgeo.ASNTarget) {
+			if seenKey[key] {
+				return
+			}
+			seenKey[key] = true
+			act := strings.TrimSpace(action)
+			if act == "" {
+				act = d.AsnDefaultAction
+			}
+			if !settings.IsValidGeoAction(act) {
+				act = settings.GeoActionSkip
+			}
+			t.Value = key
+			targets = append(targets, t)
+			d.AsnRules = append(d.AsnRules, AsnRuleRender{Key: key, Action: act})
 		}
-		asnSet[r.ASN] = true
-		action := strings.TrimSpace(r.Action)
-		if action == "" {
-			action = d.AsnDefaultAction
+		// Exact-ASN rules first (more specific), then org rules, then providers.
+		for _, r := range s.Nginx.Asn.EnabledASNRules() {
+			key := "AS" + strconv.FormatUint(uint64(r.ASN), 10)
+			addRule(key, r.Action, ipgeo.ASNTarget{ASN: r.ASN})
 		}
-		if !settings.IsValidGeoAction(action) {
-			action = settings.GeoActionSkip
+		for _, o := range s.Nginx.Asn.EnabledOrgPatterns() {
+			key := "org:" + strings.ToLower(o.Pattern)
+			addRule(key, o.Action, ipgeo.ASNTarget{OrgPattern: o.Pattern})
 		}
-		d.AsnRules = append(d.AsnRules, AsnRuleRender{ASN: r.ASN, Action: action})
-	}
-	sort.Slice(d.AsnRules, func(i, j int) bool { return d.AsnRules[i].ASN < d.AsnRules[j].ASN })
-	if len(d.AsnRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
-		asns := make([]uint, 0, len(d.AsnRules))
-		for _, a := range d.AsnRules {
-			asns = append(asns, a.ASN)
+		if len(targets) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
+			if cidrs, err := ipgeo.CIDRsForASNTargets(s.IPGeo.MMDBASNPath, targets); err == nil {
+				d.AsnCIDRs = cidrs
+			}
+			// On error: leave AsnCIDRs empty; the block degrades to the default
+			// action.  doctor's mmdb path check surfaces a missing/broken db.
 		}
-		if cidrs, err := ipgeo.CIDRsForASNs(s.IPGeo.MMDBASNPath, asns); err == nil {
-			d.AsnCIDRs = cidrs
-		}
-		// On error: leave AsnCIDRs empty; the block degrades to the default
-		// action.  doctor's mmdb path check surfaces a missing/broken db.
 	}
 
 	// CommunityBans: render the 3 map includes only in fetch_apply mode.
