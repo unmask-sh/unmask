@@ -27,6 +27,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -536,6 +537,75 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 		b.WriteString(cidr.String())
 		b.WriteString(" ")
 		b.WriteString(val)
+		b.WriteString(";\n")
+	}
+	if err := nets.Err(); err != nil {
+		return b.String(), err
+	}
+	return b.String(), nil
+}
+
+// ASNRateCIDRs is the geo-block body for a native ASN rate-limit zone.  For every
+// network matching a target (exact AS number or org substring) it emits
+// "<CIDR> <the network's own AS number>;", so a limit_req_zone keyed on that
+// variable counts per AS number -- an org target throttles each of its ASNs
+// individually, matching forward-auth's per-AS counter (applyAsnRate).  The
+// target's Value is ignored (the emitted value is always the network's ASN).
+//
+// This is Phase-3 (native) groundwork: the rate zone rendering / limit_req
+// wiring is not built yet, so nothing calls this in production.  Kept pure +
+// separate from that high-blast-radius nginx render so it can land + be tested
+// on its own.
+func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
+	if path == "" || len(targets) == 0 {
+		return "", nil
+	}
+	nums := map[uint]bool{}
+	var orgs []string
+	for _, t := range targets {
+		if t.ASN != 0 {
+			nums[t.ASN] = true
+		} else if t.OrgPattern != "" {
+			orgs = append(orgs, strings.ToLower(t.OrgPattern))
+		}
+	}
+	if len(nums) == 0 && len(orgs) == 0 {
+		return "", nil
+	}
+	db, err := maxminddb.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", path, err)
+	}
+	defer db.Close()
+
+	var b strings.Builder
+	var rec struct {
+		ASN uint   `maxminddb:"autonomous_system_number"`
+		Org string `maxminddb:"autonomous_system_organization"`
+	}
+	nets := db.Networks(maxminddb.SkipAliasedNetworks)
+	for nets.Next() {
+		cidr, err := nets.Network(&rec)
+		if err != nil || rec.ASN == 0 {
+			continue
+		}
+		match := nums[rec.ASN]
+		if !match && rec.Org != "" && len(orgs) > 0 {
+			low := strings.ToLower(rec.Org)
+			for _, o := range orgs {
+				if strings.Contains(low, o) {
+					match = true
+					break
+				}
+			}
+		}
+		if !match {
+			continue
+		}
+		b.WriteString("    ")
+		b.WriteString(cidr.String())
+		b.WriteString(" ")
+		b.WriteString(strconv.FormatUint(uint64(rec.ASN), 10))
 		b.WriteString(";\n")
 	}
 	if err := nets.Err(); err != nil {
