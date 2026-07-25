@@ -130,6 +130,12 @@ type Reader struct {
 	// unset); takes the category from classifyCrawler so the two always agree.
 	crawlerNamer func(ua, tag string) string
 
+	// crawlerObserve: (ip, ua) for every access-log line, so the native rDNS
+	// post-pass can verify a crawler-claiming visitor and auto-ban a forgery.
+	// Wired by main via SetCrawlerObserver; nil-safe.  The callback itself is
+	// cheap for non-crawler UAs (matchClaim short-circuits before any DNS/lock).
+	crawlerObserve func(ip, ua string)
+
 	stop  chan struct{}
 	doneA chan struct{} // recv goroutine completion signal
 	doneB chan struct{} // flush goroutine completion signal
@@ -183,6 +189,16 @@ func (r *Reader) SetCrawlerClassifier(f func(ua string) string) {
 		return
 	}
 	r.classifyCrawler = f
+}
+
+// SetCrawlerObserver: register the (ip, ua) hook fired for every access-log
+// line, used by the native rDNS post-pass to verify a crawler-claiming visitor
+// and auto-ban a forgery.  Without it, no post-pass runs.
+func (r *Reader) SetCrawlerObserver(f func(ip, ua string)) {
+	if r == nil {
+		return
+	}
+	r.crawlerObserve = f
 }
 
 // SetCrawlerNamer: register the (UA, category) -> individual-crawler-name
@@ -525,6 +541,12 @@ func (r *Reader) onLine(line string) {
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie).
 	r.bumpCrawler(p.ua, p.fc)
+	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
+	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
+	// circuits before any DNS or lock.
+	if r.crawlerObserve != nil {
+		r.crawlerObserve(p.ip, p.ua)
+	}
 }
 
 // Bump: increment the minute bucket by 1 from outside

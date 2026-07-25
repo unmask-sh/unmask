@@ -522,6 +522,10 @@ func cmdServe(args []string) error {
 				action, _ := nginxconf.ResolveHoneypotAction(uri, site, h.SnapshotSettings().Nginx)
 				banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "", action)
 			})
+			// Native rDNS post-pass: auto-ban forged crawlers off the access log
+			// (native has no daemon in the request path).  Gated by
+			// CrawlerVerify.Enabled inside the handler; nil-safe.
+			nlog.SetCrawlerObserver(h.ObserveCrawlerForBan)
 		}
 	}
 

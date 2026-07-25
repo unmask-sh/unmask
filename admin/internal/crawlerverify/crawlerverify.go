@@ -128,9 +128,10 @@ type Verifier struct {
 }
 
 type job struct {
-	ip  string
-	c   *crawler
-	key string
+	ip     string
+	c      *crawler
+	key    string
+	onDone func(Result) // optional; called with the settled result after cacheSet
 }
 
 // New builds a Verifier.  A nil resolver uses net.DefaultResolver.
@@ -170,7 +171,16 @@ func (v *Verifier) Cached(ip, ua string) (Result, bool) {
 // already cached, when a job for this key is already in flight, or when the
 // bounded queue is full (the load cap -- dropped work is retried on a later
 // request from the same IP).  Never blocks.
-func (v *Verifier) VerifyAsync(ip, ua string) {
+func (v *Verifier) VerifyAsync(ip, ua string) { v.enqueue(ip, ua, nil) }
+
+// VerifyAsyncNotify is VerifyAsync plus a callback invoked with the settled
+// result once the background lookup completes.  The native log-follower uses it
+// to auto-ban a forgery.  Same no-op / dedup / load-cap rules as VerifyAsync;
+// onDone does NOT fire when the job is skipped (cached / in-flight / queue-full)
+// -- a cached answer is already available via Cached.
+func (v *Verifier) VerifyAsyncNotify(ip, ua string, onDone func(Result)) { v.enqueue(ip, ua, onDone) }
+
+func (v *Verifier) enqueue(ip, ua string, onDone func(Result)) {
 	c := matchClaim(ua)
 	if c == nil {
 		return
@@ -190,7 +200,7 @@ func (v *Verifier) VerifyAsync(ip, ua string) {
 
 	v.startOnce.Do(v.startWorkers)
 	select {
-	case v.jobs <- job{ip: ip, c: c, key: key}:
+	case v.jobs <- job{ip: ip, c: c, key: key, onDone: onDone}:
 	default:
 		// Queue full: drop and clear the in-flight mark so a later request retries.
 		v.mu.Lock()
@@ -204,17 +214,21 @@ func (v *Verifier) startWorkers() {
 		go func() {
 			for j := range v.jobs {
 				ctx := context.Background()
+				var cancel context.CancelFunc
 				if v.timeout > 0 {
-					var cancel context.CancelFunc
 					ctx, cancel = context.WithTimeout(ctx, v.timeout)
-					v.cacheSet(j.key, v.lookup(ctx, j.ip, j.c))
-					cancel()
-				} else {
-					v.cacheSet(j.key, v.lookup(ctx, j.ip, j.c))
 				}
+				res := v.lookup(ctx, j.ip, j.c)
+				if cancel != nil {
+					cancel()
+				}
+				v.cacheSet(j.key, res)
 				v.mu.Lock()
 				delete(v.inflight, j.key)
 				v.mu.Unlock()
+				if j.onDone != nil {
+					j.onDone(res)
+				}
 			}
 		}()
 	}
