@@ -1670,6 +1670,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_only") }}</p>
     </script>
   </div>
 
@@ -1848,6 +1850,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "captcha_only") }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2010,6 +2014,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <script type="text/html" id="ua-stale-help">
       <div><strong>{{ t .Lang "settings.ua.stale_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.stale_help_long") }}</p>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "captcha_only") }}</p>
     </script>
   </div>
 
@@ -2316,6 +2322,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2480,6 +2488,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_then_captcha") }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2625,6 +2635,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
     </script>
 
     <div class="ua-section">
