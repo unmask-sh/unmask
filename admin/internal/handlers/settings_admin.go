@@ -614,9 +614,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnDefaultRate":       cur.Asn.DefaultRatePerMin,
 		"AsnDefaultRuleAction": cur.Asn.ResolvedDefaultRuleAction(), // what a blank row action inherits
 		"GeoDefaultRuleAction": cur.Geo.ResolvedDefaultRuleAction(),
-		"GeoExemptRows":        bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
-		"AsnExemptRows":        bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
-		"IPGeoASNLoaded":       h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		// What an UNSET chain picker acts as: protected paths / the ja4 default
+		// chain fall back to the rate-limit default chmode; surfaced so the
+		// "(unset)" option can show the value it resolves to.
+		"RateDefaultChMode": h.snapshotSettings().RateLimit.Default.ResolvedChallengeMode(),
+		"GeoExemptRows":     bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
+		"AsnExemptRows":     bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
+		"IPGeoASNLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
