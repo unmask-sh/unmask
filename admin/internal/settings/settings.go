@@ -977,6 +977,10 @@ type GeoConfig struct {
 	// country means "act on it", so the inherit target defaults to a
 	// challenge (pow_then_captcha), not to the unmatched behavior.
 	DefaultRuleAction string `yaml:"default_rule_action,omitempty"`
+	// DefaultRatePerMin: the rate a rule inherits when its own RatePerMin is
+	// nil, mirroring AsnConfig.DefaultRatePerMin.  0 -> no default throttle
+	// (a non-overriding rule fires its action every request).
+	DefaultRatePerMin int `yaml:"default_rate_per_min,omitempty"`
 	// Rules: per-country overrides.  Index is meaningless for behavior
 	// but stable for UI display.  Disabled rules are persisted but skipped
 	// at evaluation time.
@@ -998,9 +1002,15 @@ func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
 type GeoRule struct {
 	Country   string `yaml:"country"`              // ISO 3166-1 alpha-2 (upper-case after save)
 	Label     string `yaml:"label,omitempty"`      // operator note (display only; not used in the decision)
-	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultAction
+	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultRuleAction
 	Enabled   bool   `yaml:"enabled"`              // false -> rule kept in yaml but skipped at evaluation
 	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed" timestamps
+	// RatePerMin: throttle this country instead of acting on every request --
+	// the by-country sibling of AsnRule.RatePerMin.  nil = inherit
+	// GeoConfig.DefaultRatePerMin; explicit *0 = no throttle (the action fires
+	// immediately); *N = cap the country at N req/min and apply the action
+	// only to the overage.
+	RatePerMin *int `yaml:"rate_per_min,omitempty"`
 }
 
 // Geo action constants.  Reuses RateChallenge* values for the challenge
@@ -1049,6 +1059,50 @@ func (g GeoConfig) ResolvedDefaultRuleAction() string {
 		return RateChallengePoWThenCaptcha
 	}
 	return g.DefaultRuleAction
+}
+
+// EffectiveRatePerMin resolves a rule's rate the same way AsnConfig does:
+// an explicit override (incl. 0 = no throttle) wins, nil inherits
+// DefaultRatePerMin.  Exported because the native render decides per rule
+// whether it goes to the immediate-action map or a rate zone.
+func (g GeoConfig) EffectiveRatePerMin(override *int) int {
+	if override != nil {
+		return *override
+	}
+	return g.DefaultRatePerMin
+}
+
+// GeoRateRule is one enabled rate-mode country rule: the country, the
+// per-minute cap, and the resolved over-limit action.  The by-country sibling
+// of AsnRateRule.
+type GeoRateRule struct {
+	Country    string
+	RatePerMin int
+	Action     string // resolved ("" -> DefaultRuleAction)
+}
+
+// RateRules returns every enabled rule whose EFFECTIVE rate is >0 -- what the
+// native rate-zone render and the settings UI enumerate.  Rules with an
+// effective rate of 0 stay with the ordinary immediate-action country map.
+func (g GeoConfig) RateRules() []GeoRateRule {
+	var out []GeoRateRule
+	for i := range g.Rules {
+		r := &g.Rules[i]
+		cc := strings.ToUpper(strings.TrimSpace(r.Country))
+		if !r.Enabled || cc == "" {
+			continue
+		}
+		rate := g.EffectiveRatePerMin(r.RatePerMin)
+		if rate <= 0 {
+			continue
+		}
+		act := strings.TrimSpace(r.Action)
+		if act == "" {
+			act = g.ResolvedDefaultRuleAction()
+		}
+		out = append(out, GeoRateRule{Country: cc, RatePerMin: rate, Action: act})
+	}
+	return out
 }
 
 // LookupRule returns the enabled rule for the given uppercase country code,
