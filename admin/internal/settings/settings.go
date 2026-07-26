@@ -1062,6 +1062,11 @@ type AsnConfig struct {
 	// DefaultAction: applied to networks that match no rule.  Empty -> "skip"
 	// (= blocklist semantics, the common case).
 	DefaultAction string `yaml:"default_action,omitempty"`
+	// DefaultRatePerMin: the rate a rule/provider inherits when its own
+	// RatePerMin is nil, mirroring DefaultAction.  0 -> no default throttle (a
+	// non-overriding rule fires its action every request).  Set to N to throttle
+	// every matched network to N req/min by default.
+	DefaultRatePerMin int `yaml:"default_rate_per_min,omitempty"`
 	// Providers: enabled entries from the built-in hosting-provider catalog
 	// (asncatalog.go).  Each names a provider (Amazon, Microsoft, ...) whose
 	// ASNs are matched by organization name -- one entry covers all of a
@@ -1111,9 +1116,10 @@ func (c CrawlerVerifyConfig) ResolvedForgedAction() string {
 
 // AsnProviderSel: one enabled catalog provider + the action to apply to it.
 type AsnProviderSel struct {
-	ID      string `yaml:"id"`               // HostingProviders[].ID
-	Action  string `yaml:"action,omitempty"` // GeoAction*; empty = inherit DefaultAction
-	Enabled bool   `yaml:"enabled"`
+	ID         string `yaml:"id"`                     // HostingProviders[].ID
+	Action     string `yaml:"action,omitempty"`       // GeoAction*; empty = inherit DefaultAction
+	RatePerMin *int   `yaml:"rate_per_min,omitempty"` // nil = inherit DefaultRatePerMin; *0 = no throttle; *N = throttle (see AsnRule)
+	Enabled    bool   `yaml:"enabled"`
 }
 
 // AsnRule: one custom autonomous-system override.  Exactly one of ASN / Org
@@ -1125,11 +1131,12 @@ type AsnRule struct {
 	Org    string `yaml:"org,omitempty"`    // organization-name substring (empty -> this is an ASN rule)
 	Label  string `yaml:"label,omitempty"`  // operator note (display only)
 	Action string `yaml:"action,omitempty"` // GeoAction*; empty = inherit DefaultAction
-	// RatePerMin: 0 -> Action applies to every request (block/challenge).
-	// >0 -> the softer "rate" mode: this network is allowed RatePerMin requests
-	// per minute and Action applies only to the OVERAGE.  Lets an operator throttle
-	// a datacenter instead of denying it outright.
-	RatePerMin int   `yaml:"rate_per_min,omitempty"`
+	// RatePerMin selects the "rate" (throttle) mode, mirroring how Action inherits
+	// DefaultAction:
+	//   nil (unset) -> inherit AsnConfig.DefaultRatePerMin
+	//   *0          -> no throttle (Action fires on every request)
+	//   *N          -> throttle this network to N req/min, Action on the overage
+	RatePerMin *int  `yaml:"rate_per_min,omitempty"`
 	Enabled    bool  `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
 	UpdatedAt  int64 `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
 }
@@ -1156,10 +1163,20 @@ func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched b
 	return action, matched
 }
 
-// ResolveRule is ResolveAction plus the matched rule's RatePerMin (0 for a
-// provider match or an action-only rule).  RatePerMin>0 selects the "rate" mode:
-// the caller throttles the network to that many requests/min and applies action
-// only to the overage.
+// effectiveRate resolves a rule/provider's RatePerMin override against the
+// config default, mirroring how "" action inherits DefaultAction: nil ->
+// DefaultRatePerMin, an explicit *value (incl. 0 = "no throttle") -> that value.
+func (a AsnConfig) effectiveRate(override *int) int {
+	if override != nil {
+		return *override
+	}
+	return a.DefaultRatePerMin
+}
+
+// ResolveRule is ResolveAction plus the matched rule/provider's EFFECTIVE
+// RatePerMin (its override, else DefaultRatePerMin).  ratePerMin>0 selects the
+// "rate" mode: the caller throttles the network to that many requests/min and
+// applies action only to the overage.
 func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin int, matched bool) {
 	resolve := func(raw string) string {
 		if strings.TrimSpace(raw) == "" {
@@ -1172,7 +1189,7 @@ func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin 
 		for i := range a.Rules {
 			r := &a.Rules[i]
 			if r.Enabled && r.ASN == asn && r.Org == "" {
-				return resolve(r.Action), r.RatePerMin, true
+				return resolve(r.Action), a.effectiveRate(r.RatePerMin), true
 			}
 		}
 	}
@@ -1180,10 +1197,10 @@ func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin 
 	for i := range a.Rules {
 		r := &a.Rules[i]
 		if r.Enabled && r.Org != "" && OrgMatchesAny(org, []string{r.Org}) {
-			return resolve(r.Action), r.RatePerMin, true
+			return resolve(r.Action), a.effectiveRate(r.RatePerMin), true
 		}
 	}
-	// 3. enabled catalog provider (org match).  Providers have no rate cap (yet).
+	// 3. enabled catalog provider (org match).
 	for i := range a.Providers {
 		p := &a.Providers[i]
 		if !p.Enabled {
@@ -1191,7 +1208,7 @@ func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin 
 		}
 		hp := HostingProviderByID(p.ID)
 		if hp != nil && OrgMatchesAny(org, hp.OrgPatterns) {
-			return resolve(p.Action), 0, true
+			return resolve(p.Action), a.effectiveRate(p.RatePerMin), true
 		}
 	}
 	return "", 0, false
@@ -1207,21 +1224,39 @@ type AsnRateRule struct {
 	Action     string // resolved ("" -> DefaultAction)
 }
 
-// RateRules returns the enabled RatePerMin>0 custom rules -- what the native
-// rate-zone render (one limit_req_zone per rule, keyed on ipgeo.ASNRateCIDRs)
-// and the settings UI enumerate.  Providers carry no rate cap, so they are not
-// included.  Action-only rules (RatePerMin 0) are handled by the ordinary
-// EnabledASNRules / EnabledOrgPatterns geo block.
+// RateRules returns every enabled rule/provider whose EFFECTIVE rate (override
+// or DefaultRatePerMin) is >0 -- what the native rate-zone render (one
+// limit_req_zone per entry, keyed on ipgeo.ASNRateCIDRs) and the settings UI
+// enumerate.  A provider expands to one entry per OrgPattern.  Entries with an
+// effective rate of 0 stay with the ordinary immediate-action geo block
+// (EnabledASNRules / EnabledOrgPatterns).
 func (a AsnConfig) RateRules() []AsnRateRule {
+	act := func(raw string) string {
+		if strings.TrimSpace(raw) == "" {
+			return a.ResolvedDefaultAction()
+		}
+		return raw
+	}
 	var out []AsnRateRule
 	for i := range a.Rules {
 		r := &a.Rules[i]
-		if r.Enabled && r.RatePerMin > 0 && (r.ASN != 0 || r.Org != "") {
-			act := r.Action
-			if strings.TrimSpace(act) == "" {
-				act = a.ResolvedDefaultAction()
+		if r.Enabled && (r.ASN != 0 || r.Org != "") && a.effectiveRate(r.RatePerMin) > 0 {
+			out = append(out, AsnRateRule{ASN: r.ASN, Org: r.Org, RatePerMin: a.effectiveRate(r.RatePerMin), Action: act(r.Action)})
+		}
+	}
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		rate := a.effectiveRate(p.RatePerMin)
+		if rate <= 0 {
+			continue
+		}
+		if hp := HostingProviderByID(p.ID); hp != nil {
+			for _, pat := range hp.OrgPatterns {
+				out = append(out, AsnRateRule{Org: pat, RatePerMin: rate, Action: act(p.Action)})
 			}
-			out = append(out, AsnRateRule{ASN: r.ASN, Org: r.Org, RatePerMin: r.RatePerMin, Action: act})
 		}
 	}
 	return out
@@ -1248,17 +1283,15 @@ func (a AsnConfig) EnabledOrgPatterns() []struct {
 		}{pat, act})
 	}
 	for i := range a.Rules {
-		// RatePerMin>0 rules are the "throttle" mode -- forward-auth only for now;
-		// the native geo block would misrender them as an immediate action
-		// (block/challenge every request, not just the overage), so skip them
-		// until the native limit_req rendering lands.
-		if r := &a.Rules[i]; r.Enabled && r.Org != "" && r.RatePerMin == 0 {
+		// Effective-rate>0 rules are the "throttle" mode -- they render as a rate
+		// zone (RateRules), NOT the immediate-action geo block, so skip them here.
+		if r := &a.Rules[i]; r.Enabled && r.Org != "" && a.effectiveRate(r.RatePerMin) == 0 {
 			add(r.Org, r.Action)
 		}
 	}
 	for i := range a.Providers {
 		p := &a.Providers[i]
-		if !p.Enabled {
+		if !p.Enabled || a.effectiveRate(p.RatePerMin) > 0 { // rate providers -> rate zone, not here
 			continue
 		}
 		if hp := HostingProviderByID(p.ID); hp != nil {
@@ -1282,9 +1315,9 @@ func (a AsnConfig) EnabledASNRules() []struct {
 	}
 	for i := range a.Rules {
 		r := &a.Rules[i]
-		// Skip RatePerMin>0 rules -- forward-auth only until native limit_req
-		// rendering lands (see EnabledOrgPatterns).
-		if r.Enabled && r.ASN != 0 && r.Org == "" && r.RatePerMin == 0 {
+		// Skip effective-rate>0 rules -- they render as a rate zone (RateRules),
+		// not the immediate-action geo block (see EnabledOrgPatterns).
+		if r.Enabled && r.ASN != 0 && r.Org == "" && a.effectiveRate(r.RatePerMin) == 0 {
 			act := r.Action
 			if strings.TrimSpace(act) == "" {
 				act = a.ResolvedDefaultAction()

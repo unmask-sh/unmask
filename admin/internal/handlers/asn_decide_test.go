@@ -118,8 +118,8 @@ func TestAsnConfigResolveRule(t *testing.T) {
 	cfg := settings.AsnConfig{
 		Providers: []settings.AsnProviderSel{{ID: "google", Action: settings.GeoActionDeny, Enabled: true}},
 		Rules: []settings.AsnRule{
-			{ASN: 16509, Action: settings.GeoActionCaptchaOnly, RatePerMin: 100, Enabled: true}, // rate rule
-			{ASN: 14061, Action: settings.GeoActionDeny, Enabled: true},                         // action-only
+			{ASN: 16509, Action: settings.GeoActionCaptchaOnly, RatePerMin: iptr(100), Enabled: true}, // rate rule
+			{ASN: 14061, Action: settings.GeoActionDeny, Enabled: true},                               // action-only
 		},
 	}
 	// Rate rule: action + rate exposed.
@@ -151,3 +151,5 @@ func TestOrgMatchesAny(t *testing.T) {
 		t.Error("empty org must not match")
 	}
 }
+
+func iptr(n int) *int { return &n }

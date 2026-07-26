@@ -21,9 +21,10 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		// providers show the NEW badge.
 		s.Nginx.SeenVersion = "v0.1.10"
 		s.Nginx.Asn = settings.AsnConfig{
-			DefaultAction: settings.GeoActionSkip,
-			Providers:     []settings.AsnProviderSel{{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true}},
-			Rules:         []settings.AsnRule{{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true}},
+			DefaultAction:     settings.GeoActionSkip,
+			DefaultRatePerMin: 200, // feature B: rules with a nil rate inherit this
+			Providers:         []settings.AsnProviderSel{{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true}},
+			Rules:             []settings.AsnRule{{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true}},
 		}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=asn", nil)
@@ -53,6 +54,9 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`col-rate`,                                 // rate column
 		`class="rate-unit"`,                        // "req/min" unit suffix (clarifies it's a rate)
 		`data-help-target="asn-rate-help"`,         // "?" help on the rate column
+		`name="asn_default_rate"`,                  // feature B: config-level default rate input
+		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
+		`placeholder="200"`,                        // a nil-rate row shows the inherited default as its placeholder
 		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {

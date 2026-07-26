@@ -15,7 +15,7 @@ func TestBuildRenderDataAsnRateGuard(t *testing.T) {
 	s := settings.Settings{}
 	// rate rule present, but MMDBASNPath empty
 	s.Nginx.Asn = settings.AsnConfig{
-		Rules: []settings.AsnRule{{ASN: 13335, Action: settings.GeoActionCaptchaOnly, RatePerMin: 100, Enabled: true}},
+		Rules: []settings.AsnRule{{ASN: 13335, Action: settings.GeoActionCaptchaOnly, RatePerMin: iptr(100), Enabled: true}},
 	}
 	d, err := buildRenderData(s, t.TempDir(), "test")
 	if err != nil {
@@ -25,3 +25,5 @@ func TestBuildRenderDataAsnRateGuard(t *testing.T) {
 		t.Errorf("no mmdb -> want 0 rate zones, got %d", len(d.AsnRateZones))
 	}
 }
+
+func iptr(n int) *int { return &n }
