@@ -57,7 +57,7 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`name="asn_default_rate"`,                  // feature B: config-level default rate input
 		`name="asn_provider_rate_microsoft"`,       // per-preset rate override on the preset table
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
-		`placeholder="200"`,                        // a nil-rate row shows the inherited default as its placeholder
+		`(200)`,                                    // a nil-rate row's placeholder carries the inherited default, "inherit (200)"-style (locale-neutral paren check)
 		`data-rule-name="ax_path"`,                 // ASN-axis exempt path list
 		`data-help-target="ax-help"`,               // its help popover
 		`name="ax_path"`,                           // exempt path input (rule-list template row)
