@@ -48,6 +48,9 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`id="asn-add-form"`,                        // the form it expands
 		`id="asn-add-action"`,                      // action selectable at add time
 		`id="asn-add-btn"`,                         // custom add control
+		`id="asn-add-rate"`,                        // add-form rate input
+		`name="asn_rate"`,                          // per-row rate input
+		`col-rate`,                                 // rate column
 		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {

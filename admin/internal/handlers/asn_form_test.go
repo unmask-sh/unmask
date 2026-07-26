@@ -37,6 +37,7 @@ func TestApplyAsnForm(t *testing.T) {
 	form["asn_number"] = []string{"AS16509", "Contabo"}
 	form["asn_label"] = []string{"Amazon", "cheap VPS"}
 	form["asn_action"] = []string{"captcha_only", "deny"}
+	form["asn_rate"] = []string{"100", ""} // row0 throttled to 100/min, row1 immediate
 	form.Set("asn_enabled_0", "1")
 	form.Set("asn_enabled_1", "1")
 
@@ -50,11 +51,11 @@ func TestApplyAsnForm(t *testing.T) {
 	if len(c.Rules) != 2 {
 		t.Fatalf("want 2 custom rules, got %d (%+v)", len(c.Rules), c.Rules)
 	}
-	if c.Rules[0].ASN != 16509 || c.Rules[0].Org != "" || c.Rules[0].Action != "captcha_only" {
-		t.Errorf("row0 = %+v, want exact ASN16509 captcha_only", c.Rules[0])
+	if c.Rules[0].ASN != 16509 || c.Rules[0].Org != "" || c.Rules[0].Action != "captcha_only" || c.Rules[0].RatePerMin != 100 {
+		t.Errorf("row0 = %+v, want exact ASN16509 captcha_only rate 100", c.Rules[0])
 	}
-	if c.Rules[1].Org != "Contabo" || c.Rules[1].ASN != 0 || c.Rules[1].Action != "deny" {
-		t.Errorf("row1 = %+v, want org Contabo deny", c.Rules[1])
+	if c.Rules[1].Org != "Contabo" || c.Rules[1].ASN != 0 || c.Rules[1].Action != "deny" || c.Rules[1].RatePerMin != 0 {
+		t.Errorf("row1 = %+v, want org Contabo deny rate 0", c.Rules[1])
 	}
 }
 
