@@ -612,6 +612,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnProviders":     h.asnProviderView(cur.Asn),
 		"AsnCustomRules":   asnCustomRuleView(cur.Asn),
 		"AsnDefaultRate":   cur.Asn.DefaultRatePerMin,
+		"NetExemptRows":    bypassPathRows(cur.NetExemptPaths.Paths), // geo/asn-only exempt paths (RSS etc.)
 		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
@@ -1303,6 +1304,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "asn":
 		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+		// The geo/asn-only net-exempt paths live on the ASN tab (RSS feeds etc.);
+		// they write NetExemptPaths, outside the Asn struct, so parse them here.
+		if err := applyNetExemptForm(&cur.Nginx, r, lang); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -3081,6 +3088,66 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		})
 	}
 	n.BypassPaths.Paths = rows
+	return nil
+}
+
+// applyNetExemptForm: receive the net-exempt paths (geo/asn-only exemption)
+// rows from the ASN tab.  Same row shape as the bypass-paths rows -- ne_path /
+// _title / _enabled / _updated_at / _site zipped into BypassPath -- but no
+// presets, and written to NetExemptPaths (drops only the geo/asn axis) instead
+// of BypassPaths (which vetoes every judgment).
+func applyNetExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
+	pats := r.Form["ne_path"]
+	titles := r.Form["ne_title"]
+	rowEnabled := r.Form["ne_enabled"]
+	upds := r.Form["ne_updated_at"]
+	sites := r.Form["ne_site"]
+	maxLen := len(pats)
+	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	rows := make([]settings.BypassPath, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var p, t, site string
+		isEnabled := true
+		var ts int64
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.TrimSpace(titles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		if i < len(rowEnabled) {
+			isEnabled = rowEnabled[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if i < len(sites) {
+			site = strings.TrimSpace(sites[i])
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_path_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		rows = append(rows, settings.BypassPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Site:      site,
+		})
+	}
+	n.NetExemptPaths.Paths = rows
 	return nil
 }
 
