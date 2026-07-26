@@ -585,6 +585,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"StaleBrowserBaseline":   settings.DefaultCurrentChromeMajor,
 		"StaleBrowserFFBaseline": settings.DefaultCurrentFirefoxMajor,
 		"StaleBrowserLagDefault": settings.DefaultStaleBrowserLag,
+		"StaleLagChromeResolved": h.snapshotSettings().Global.StaleBrowserLagN(), // what the FF "follow Chrome" auto option currently means
 		// Automatic-baseline rows: the value the tier would use with no manual
 		// override, its origin (hub / builtin), when the last hub pull
 		// happened (operator cookie TZ), and the exempt ESR majors.
@@ -1227,7 +1228,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
 		cur.Global.CurrentFirefoxMajor = parseIntInRange(r.FormValue("current_firefox_major"), 1, 999)
+		// Lags follow the same auto/manual convention as the currents: the
+		// number input is disabled (= not submitted) on "auto", so a blank
+		// stores 0 -- Chrome resolves to the built-in default, Firefox follows
+		// the Chrome-side lag (FirefoxStaleLagN).
 		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
+		cur.Global.StaleBrowserLagFirefox = parseIntInRange(r.FormValue("stale_browser_lag_firefox"), 1, 99)
 		if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
 			cur.Global.StaleBrowserAction = a
 		} else {
