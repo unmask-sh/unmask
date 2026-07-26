@@ -3273,7 +3273,7 @@ document.addEventListener("DOMContentLoaded", function(){
         <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }}{{ if $r.Action }} <span class="action-pill action-suspect">{{ $r.Action }}</span>{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect">{{ if $r.Action }}{{ $r.Action }}{{ else }}(inherit){{ end }}</span></div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
@@ -3512,7 +3512,7 @@ document.addEventListener("DOMContentLoaded", function(){
         <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }}{{ if $r.Action }} <span class="action-pill action-suspect">{{ $r.Action }}</span>{{ end }}{{ if $r.RateStr }} <span class="action-pill action-suspect">{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}</span>{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect">{{ if $r.Action }}{{ $r.Action }}{{ else }}(inherit){{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
@@ -3646,6 +3646,7 @@ document.addEventListener("DOMContentLoaded", function(){
   var defRate = document.querySelector('input[name="asn_default_rate"]');
   var RATE_PH_PAT  = '{{ t .Lang "settings.asn.rate_inherit_ph" }}';  // e.g. "inherit (%v)"
   var RATE_PH_NONE = '{{ t .Lang "settings.asn.rate_ph" }}';          // e.g. "none"
+  var RATE_UNIT    = '{{ t .Lang "settings.asn.rate_unit" }}';        // e.g. "req/min"
   function ratePh(){
     var v = parseInt(defRate && defRate.value, 10);
     return RATE_PH_PAT.replace('%v', (v > 0) ? String(v) : RATE_PH_NONE);
@@ -3655,6 +3656,13 @@ document.addEventListener("DOMContentLoaded", function(){
     Array.prototype.forEach.call(
       document.querySelectorAll('input[name="asn_rate"], input[name^="asn_provider_rate_"]'),
       function(i){ i.placeholder = ph; });
+    // The view rows' inherited-rate pills track the default too, so the list
+    // always reads what will actually apply.
+    var v = parseInt(defRate && defRate.value, 10);
+    var pill = (v > 0) ? ph + ' ' + RATE_UNIT : ph;
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.asn-rate-pill.inherit'),
+      function(p){ p.textContent = pill; });
   }
   if (defRate) defRate.addEventListener('input', refreshRatePh);
 
@@ -3785,99 +3793,6 @@ document.addEventListener("DOMContentLoaded", function(){
       setTimeout(refreshRatePh, 0);
     }
   });
-  }
-  function doAdd(){
-    var raw = (addNum.value || '').trim();
-    if (!raw) { addNum.focus(); return; }
-    // "AS16509"/"16509" -> exact; else -> org substring.
-    var numStr = raw.replace(/^AS/i, '');
-    var isNum = /^\d+$/.test(numStr) && parseInt(numStr,10) > 0;
-    var val = isNum ? ('AS'+parseInt(numStr,10)) : raw;
-    var dup = Array.prototype.some.call(tbody.querySelectorAll('input[name="asn_number"]'), function(h){ return h.value.toLowerCase() === val.toLowerCase(); });
-    if (dup) { addNum.value = ''; addNum.focus(); return; }
-    var rate = addRate ? (parseInt(addRate.value, 10) || 0) : 0;
-    addRow(val, !isNum, (addLbl.value || '').trim(), addAct ? addAct.value : '', rate);
-    addNum.value = ''; addLbl.value = ''; if (addAct) addAct.value = ''; if (addRate) addRate.value = ''; addNum.focus();
-  }
-  addBtn.addEventListener('click', doAdd);
-
-  // ── live suggest: query the installed ASN mmdb as the operator types ──
-  // text  -> orgs (with member AS numbers, elided);  number -> exact AS pinpoint.
-  var sugBox = document.getElementById('asn-suggest');
-  var SUGGEST_URL = {{ .BasePath }} + '/admin/settings/asn/suggest';
-  var SUG_NONE = '{{ t .Lang "settings.asn.suggest_none" }}';
-  var sugTimer = null, sugItems = [], sugActive = -1, sugSeq = 0;
-  function fmtSize(s){
-    if (s >= 1000000) return (s/1000000).toFixed(1)+'M×/24';
-    if (s >= 1000) return Math.round(s/1000)+'k×/24';
-    return s+'×/24';
-  }
-  // Page height is kept stable by a fixed-height spacer below the save button
-  // (== the dropdown max-height, reserved from first paint), so opening the
-  // dropdown never changes scrollHeight.  No JS height juggling needed.
-  function hideSug(){ if (!sugBox) return; sugBox.hidden = true; sugBox.innerHTML=''; sugItems=[]; sugActive=-1; }
-  function renderSug(items){
-    sugItems = items; sugActive = -1;
-    if (!items.length){ sugBox.innerHTML = '<div class="asn-suggest-empty">'+esc(SUG_NONE)+'</div>'; sugBox.hidden=false; return; }
-    sugBox.innerHTML = items.map(function(it, i){
-      if (it.kind === 'asn'){
-        return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
-          + '<span class="s-org"><span class="s-kind asn">AS</span>'+esc(it.value)+' — '+esc(it.org)+'</span>'
-          + '<span class="s-size">'+fmtSize(it.size24)+'</span></div></div>';
-      }
-      var asns = (it.asns||[]).map(function(n){ return 'AS'+n; }).join(', ');
-      if (it.asn_more>0) asns += ' +'+it.asn_more;
-      return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
-        + '<span class="s-org"><span class="s-kind org">ORG</span>'+esc(it.org)+'</span>'
-        + '<span class="s-size">'+fmtSize(it.size24)+'</span></div>'
-        + (asns ? '<div class="s-asns">'+esc(asns)+'</div>' : '') + '</div>';
-    }).join('');
-    sugBox.hidden = false;
-  }
-  function pickSug(i){
-    var it = sugItems[i]; if (!it) return;
-    addNum.value = it.value;
-    if (!addLbl.value && it.kind === 'org') addLbl.value = it.org;
-    hideSug(); addNum.focus();
-  }
-  function querySug(){
-    var q = (addNum.value||'').trim();
-    if (q.length < 2){ hideSug(); return; }
-    var seq = ++sugSeq;
-    fetch(SUGGEST_URL + '?q=' + encodeURIComponent(q), {credentials:'same-origin'})
-      .then(function(r){ return r.ok ? r.json() : {items:[]}; })
-      .then(function(d){ if (seq === sugSeq) renderSug(d.items||[]); })
-      .catch(function(){ if (seq === sugSeq) hideSug(); });
-  }
-  function moveSug(d){
-    if (!sugBox || sugBox.hidden || !sugItems.length) return false;
-    sugActive = (sugActive + d + sugItems.length) % sugItems.length;
-    Array.prototype.forEach.call(sugBox.children, function(el,i){ el.classList.toggle('active', i===sugActive); });
-    return true;
-  }
-  if (sugBox){
-    addNum.addEventListener('input', function(){ clearTimeout(sugTimer); sugTimer = setTimeout(querySug, 180); });
-    addNum.addEventListener('blur', function(){ setTimeout(hideSug, 150); });
-    sugBox.addEventListener('mousedown', function(e){ // mousedown fires before blur
-      var el = e.target.closest('.asn-suggest-item');
-      if (el){ e.preventDefault(); pickSug(parseInt(el.getAttribute('data-i'),10)); }
-    });
-  }
-  addNum.addEventListener('keydown', function(e){
-    if (e.key === 'ArrowDown'){ if (moveSug(1)) e.preventDefault(); return; }
-    if (e.key === 'ArrowUp'){ if (moveSug(-1)) e.preventDefault(); return; }
-    if (e.key === 'Escape'){ if (sugBox && !sugBox.hidden){ hideSug(); e.preventDefault(); } return; }
-    if (e.key === 'Enter'){
-      e.preventDefault();
-      if (sugBox && !sugBox.hidden && sugActive >= 0){ pickSug(sugActive); return; }
-      doAdd();
-    }
-  });
-  addLbl.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
-  tbody.addEventListener('click', function(e){
-    if (e.target.classList.contains('del-btn')) { e.target.closest('tr').remove(); reindex(); }
-  });
-  reindex();
 })();
 </script>
 {{ end }}
