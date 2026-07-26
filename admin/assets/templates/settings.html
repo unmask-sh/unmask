@@ -3363,10 +3363,68 @@ document.addEventListener("DOMContentLoaded", function(){
       </tbody>
     </table>
     <div id="geo-empty" class="geo-empty"{{ if .Nginx.Geo.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.geo.empty" }}</div>
+  </div>
 
-    <div style="margin-top:1rem">
-      <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
+  {{/* ── Geo-exempt paths: skip the COUNTRY axis only.  The ASN axis and
+       ja4/honeypot/ua/rate/ban still run.  For endpoints that legitimately
+       draw overseas traffic -- RSS/Atom feeds. ── */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.geo.exempt.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="gx-help" aria-label="?">?</button>
+      <script type="text/html" id="gx-help">{{ safeHTML (t .Lang "settings.geo.exempt.desc") }}</script>
+    </h2>
+    <div class="rule-list" data-rule-name="gx_path">
+      {{ range .GeoExemptRows }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="gx_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+        <input type="text" name="gx_site" list="gx-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="gx_enabled" value="1">
+          <input type="hidden" name="gx_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="gx_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="gx_path"  value="" placeholder="{{ t .Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+          <input type="text" name="gx_site" list="gx-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
     </div>
+    <button type="button" class="rule-add-bottom" data-target-list="gx_path">{{ t .Lang "settings.ua.add_new" }}</button>
+    <datalist id="gx-site-candidates">
+      {{ range .Sites }}<option value="{{ . }}">{{ end }}
+    </datalist>
+  </div>
+
+  <div style="margin-top:1rem">
+    <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
   </div>
 </form>
 
@@ -3673,29 +3731,29 @@ document.addEventListener("DOMContentLoaded", function(){
     <div id="asn-empty" class="geo-empty"{{ if .AsnCustomRules }} style="display:none"{{ end }}>{{ t .Lang "settings.asn.empty" }}</div>
   </div>
 
-  {{/* ── Net-exempt paths: skip the geo/asn (country + ASN) axis ONLY.  Unlike a
-       full bypass path, ja4/honeypot/ua/rate/ban still run.  For endpoints that
-       legitimately draw datacenter/overseas bots -- RSS/Atom feeds. ── */}}
+  {{/* ── ASN-exempt paths: skip the ASN axis ONLY.  The country axis and
+       ja4/honeypot/ua/rate/ban still run.  For endpoints that legitimately
+       draw datacenter bots -- RSS/Atom feeds. ── */}}
   <div class="bcd-card">
     <h2>
-      {{ t .Lang "settings.asn.net_exempt.title" }}
-      <button type="button" class="ua-help-trigger" data-help-target="ne-help" aria-label="?">?</button>
-      <script type="text/html" id="ne-help">{{ safeHTML (t .Lang "settings.asn.net_exempt.desc") }}</script>
+      {{ t .Lang "settings.asn.exempt.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="ax-help" aria-label="?">?</button>
+      <script type="text/html" id="ax-help">{{ safeHTML (t .Lang "settings.asn.exempt.desc") }}</script>
     </h2>
-    <div class="rule-list" data-rule-name="ne_path">
-      {{ range .NetExemptRows }}
+    <div class="rule-list" data-rule-name="ax_path">
+      {{ range .AsnExemptRows }}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
-        <input type="hidden" name="ne_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="ne_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="ax_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
-        <input type="text" name="ne_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="ne_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.net_exempt.placeholder" }}" class="rule-pat">
-        <input type="text" name="ne_site" list="ne-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+        <input type="text" name="ax_site" list="ax-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -3707,15 +3765,15 @@ document.addEventListener("DOMContentLoaded", function(){
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
-          <input type="hidden" name="ne_enabled" value="1">
-          <input type="hidden" name="ne_updated_at" value="0">
+          <input type="hidden" name="ax_enabled" value="1">
+          <input type="hidden" name="ax_updated_at" value="0">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
           </span>
-          <input type="text" name="ne_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="ne_path"  value="" placeholder="{{ t .Lang "settings.asn.net_exempt.placeholder" }}" class="rule-pat">
-          <input type="text" name="ne_site" list="ne-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <input type="text" name="ax_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="ax_path"  value="" placeholder="{{ t .Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+          <input type="text" name="ax_site" list="ax-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -3725,8 +3783,8 @@ document.addEventListener("DOMContentLoaded", function(){
         </div>
       </template>
     </div>
-    <button type="button" class="rule-add-bottom" data-target-list="ne_path">{{ t .Lang "settings.ua.add_new" }}</button>
-    <datalist id="ne-site-candidates">
+    <button type="button" class="rule-add-bottom" data-target-list="ax_path">{{ t .Lang "settings.ua.add_new" }}</button>
+    <datalist id="ax-site-candidates">
       {{ range .Sites }}<option value="{{ . }}">{{ end }}
     </datalist>
   </div>
