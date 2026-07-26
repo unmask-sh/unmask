@@ -58,6 +58,7 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`(200)`,                                    // a nil-rate row's placeholder carries the inherited default, "inherit (200)"-style (locale-neutral paren check)
 		`asn-rate-pill inherit`,                    // view row shows the inherited rate as a pill (no info hidden vs the old table)
 		`name="asn_default_rule_action"`,           // registered-rule inherit target select
+		`class="def-num"`,                          // ①/② markers pairing the two defaults with the usage guide
 		`asn-act-pill inherit`,                     // blank-action row's pill resolves the rule default...
 		`(pow_then_captcha)`,                       // ...to "inherit (pow_then_captcha)" (locale-neutral paren check)
 		`data-rule-name="ax_path"`,                 // ASN-axis exempt path list
