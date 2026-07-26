@@ -3651,7 +3651,7 @@ document.addEventListener("DOMContentLoaded", function(){
               <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
+          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
         </tr>
         {{ end }}
       </tbody>
@@ -3678,7 +3678,7 @@ document.addEventListener("DOMContentLoaded", function(){
         <option value="deny">deny</option>
       </select>
       <label style="font-size:.82rem;color:#475569;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.col_rate" }}:
-        <input type="number" id="asn-add-rate" min="0" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5rem;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
+        <input type="number" id="asn-add-rate" min="0" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
         <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
       </label>
       <button type="button" id="asn-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
@@ -3718,7 +3718,7 @@ document.addEventListener("DOMContentLoaded", function(){
               <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
+          <td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
           <td class="col-enabled">
             <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
           </td>
@@ -3883,7 +3883,7 @@ document.addEventListener("DOMContentLoaded", function(){
       '<td class="col-country"><input type="hidden" name="asn_number" value="'+esc(val)+'"><input type="hidden" name="asn_updated_at" value="0"><span class="cc-code">'+esc(val)+'</span>'+badge+'</td>' +
       '<td><input type="text" name="asn_label" value="'+esc(label||'')+'" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
       '<td class="col-action"><select name="asn_action">'+opts+'</select></td>' +
-      '<td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="'+(rate>0?esc(String(rate)):'')+'" placeholder="'+esc(ratePh())+'" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span></td>' +
+      '<td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="'+(rate>0?esc(String(rate)):'')+'" placeholder="'+esc(ratePh())+'" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span></td>' +
       '<td class="col-enabled"><input type="checkbox" value="1" checked></td>' +
       '<td class="col-since" style="font-size:.72rem;color:#94a3b8;white-space:nowrap">—</td>' +
       '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
