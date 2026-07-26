@@ -2005,14 +2005,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ $clman := gt .Global.StaleBrowserLag 0 }}
           <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Chrome</div>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_chrome_lag_src" value="auto" {{ if not $clman }}checked{{ end }} onchange="document.getElementById('stale-chrome-lag-manual').disabled=true;window.unmaskStaleFFLagSync&&window.unmaskStaleFFLagSync()">
+            <input type="radio" name="stale_chrome_lag_src" value="auto" {{ if not $clman }}checked{{ end }} onchange="document.getElementById('stale-chrome-lag-manual').disabled=true">
             <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefault }}</strong>
               <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
           </label>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_chrome_lag_src" value="manual" {{ if $clman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-lag-manual');i.disabled=false;i.focus();window.unmaskStaleFFLagSync&&window.unmaskStaleFFLagSync()">
+            <input type="radio" name="stale_chrome_lag_src" value="manual" {{ if $clman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-lag-manual');i.disabled=false;i.focus()">
             <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
-            <input type="number" id="stale-chrome-lag-manual" name="stale_browser_lag" min="1" max="99" value="{{ if $clman }}{{ .Global.StaleBrowserLag }}{{ end }}" {{ if not $clman }}disabled{{ end }} oninput="window.unmaskStaleFFLagSync&&window.unmaskStaleFFLagSync()" style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
+            <input type="number" id="stale-chrome-lag-manual" name="stale_browser_lag" min="1" max="99" value="{{ if $clman }}{{ .Global.StaleBrowserLag }}{{ end }}" {{ if not $clman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
           </label>
         </div>
         <div style="flex:0 1 26rem">
@@ -2020,7 +2020,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Firefox</div>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
             <input type="radio" name="stale_firefox_lag_src" value="auto" {{ if not $flman }}checked{{ end }} onchange="document.getElementById('stale-firefox-lag-manual').disabled=true">
-            <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong><span id="stale-ff-lag-auto-val">{{ .StaleLagChromeResolved }}</span></strong></span>
+            <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefaultFF }}</strong>
+              <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
           </label>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
             <input type="radio" name="stale_firefox_lag_src" value="manual" {{ if $flman }}checked{{ end }} onchange="var i=document.getElementById('stale-firefox-lag-manual');i.disabled=false;i.focus()">
@@ -2029,18 +2030,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </label>
         </div>
       </div>
-      <script>
-      // The Firefox "auto" effective value mirrors what it currently resolves
-      // to (today: the Chrome-side lag).  Live so edits show immediately; the
-      // label carries no wording about the mechanism on purpose.
-      window.unmaskStaleFFLagSync = function(){
-        var span = document.getElementById('stale-ff-lag-auto-val');
-        var man = document.getElementById('stale-chrome-lag-manual');
-        if (!span) return;
-        var v = parseInt(man && !man.disabled ? man.value : '', 10);
-        span.textContent = (v > 0) ? String(v) : '{{ .StaleBrowserLagDefault }}';
-      };
-      </script>
     </div>
 
     <div class="field" style="margin:1.4rem 0 1.2rem">

@@ -91,9 +91,10 @@ func TestStaleBrowserRenderOn(t *testing.T) {
 		`$serve_bot_challenge" $final_challenge_base {`,
 		`"~^0:1:0:0:0:0$"     1;`,
 		`Chrome/(?:139|`,
-		// Firefox rides its built-in baseline (153) when unset; threshold
-		// 142 with the ESR major (140) skipped -> 141 jumps straight to 139.
-		`Firefox/(?:142|141|139|`,
+		// Firefox is independent of the Chrome-side lag: unset rides its OWN
+		// built-in lag (10) over its built-in baseline (153) -> threshold 143,
+		// with the ESR major (140) skipped so 141 jumps straight to 139.
+		`Firefox/(?:143|142|141|139|`,
 	} {
 		if !strings.Contains(on, want) {
 			t.Errorf("tier on: expected %q in http.inc", want)
