@@ -38,22 +38,17 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 	for _, want := range []string{
 		`name="asn_default_action"`,                // default select
 		`name="asn_provider_enabled_microsoft"`,    // preset provider checkbox
-		`id="asn-suggest"`,                         // live DB suggest dropdown
-		`id="asn-rows"`,                            // custom rules table
+		`id="asn-suggest"`,                         // shared live DB suggest dropdown (re-parented per row)
+		`data-rule-name="asn_number"`,              // custom rules as the shared rule-list
+		`data-target-list="asn_number"`,            // its "+ add new" button appends an editing row
 		`class="settings-preset asn-preset-table"`, // preset table (locale-neutral); whole-row toggle
 		`card-badge preset`,                        // 📦 preset badge
 		`card-badge custom`,                        // ✏️ custom badge
-		`col-since`,                                // custom rules "added" column
+		`col-since`,                                // preset "added" column
 		`new-badge`,                                // preset NEW badge (seenVer < AddedIn)
-		`id="asn-add-toggle"`,                      // collapsed "新規追加" trigger
-		`id="asn-add-form"`,                        // the form it expands
-		`id="asn-add-action"`,                      // action selectable at add time
-		`id="asn-add-btn"`,                         // custom add control
-		`id="asn-add-rate"`,                        // add-form rate input
-		`name="asn_rate"`,                          // per-row rate input
-		`col-rate`,                                 // rate column
+		`name="asn_rate"`,                          // per-row rate input (rule-list editing row)
 		`class="rate-unit"`,                        // "req/min" unit suffix (clarifies it's a rate)
-		`data-help-target="asn-rate-help"`,         // "?" help on the rate column
+		`data-help-target="asn-rate-help"`,         // "?" rate help (custom-rules heading)
 		`name="asn_default_rate"`,                  // feature B: config-level default rate input
 		`name="asn_provider_rate_microsoft"`,       // per-preset rate override on the preset table
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
@@ -92,6 +87,7 @@ func TestSettingsGeoTabRendersExemptPaths(t *testing.T) {
 	h := newTestHandler(t)
 	h.updateSettingsInMemory(func(s *settings.Settings) {
 		s.Nginx.Geo.ExemptPaths = []settings.BypassPath{{Path: "^/feed", Title: "RSS"}}
+		s.Nginx.Geo.Rules = []settings.GeoRule{{Country: "JP", Label: "home", Action: settings.GeoActionSkip, Enabled: true, UpdatedAt: 1}}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=geo", nil)
 	rr := httptest.NewRecorder()
@@ -101,7 +97,12 @@ func TestSettingsGeoTabRendersExemptPaths(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		`data-rule-name="gx_path"`, // country-axis exempt path list
+		`data-rule-name="geo_country"`,   // country rules as the shared rule-list
+		`data-target-list="geo_country"`, // its "+ add new" button
+		`name="geo_country"`,             // per-row country input (editing row)
+		`name="geo_action"`,              // per-row action select
+		`id="geo-country-datalist"`,      // country autocomplete backing the input
+		`data-rule-name="gx_path"`,       // country-axis exempt path list
 		`data-help-target="gx-help"`,
 		`name="gx_path"`,
 		`^/feed`, // the stored row surfaces
