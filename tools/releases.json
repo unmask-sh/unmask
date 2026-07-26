@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.10",
+  "latest": "0.1.11",
   "releases": [
+    {
+      "version": "0.1.11",
+      "date": "2026-07-27",
+      "notes": "Network-axis maturation. Verify a claimed crawler by reverse DNS (PTR → vendor domain → forward-confirm) so a genuine Googlebot/Bingbot/YandexBot/Applebot/Baiduspider is rescued even outside its published ranges while a forged one is challenged or auto-banned — asynchronous (no request latency), range-aware, per-crawler toggleable. Throttle a network or country instead of blocking it: ASN and country rules gain a per-minute rate that acts only on the overage, with a config default and per-row override, in both modes (native limit_req zone, forward-auth live count) and verified crawlers/bypass IPs exempt so SEO is never rate-limited. Exempt a path from just the country or ASN decision (RSS/Atom feeds from datacenter readers) while every other check keeps running. A new opt-in header-integrity axis challenges a Chromium UA that carries no Sec-CH-UA over HTTPS on h2/h3 — clamped to a challenge, silent on HTTP/HTTP1.1/Firefox/Safari/TLS-intercept proxies. The stale-browser lag is now settable per browser (Chrome and Firefox independently)."
+    },
     {
       "version": "0.1.10",
       "date": "2026-07-25",
