@@ -3608,6 +3608,7 @@ document.addEventListener("DOMContentLoaded", function(){
         <option value="pow_then_captcha">pow_then_captcha</option>
         <option value="deny">deny</option>
       </select>
+      <input type="number" id="asn-add-rate" min="0" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" title="{{ t .Lang "settings.asn.rate_hint" }}" style="width:8rem;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
       <button type="button" id="asn-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
     </div>
 
@@ -3617,6 +3618,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <th class="col-country">{{ t .Lang "settings.asn.col_target" }}</th>
           <th>{{ t .Lang "settings.asn.col_label" }}</th>
           <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
+          <th class="col-rate">{{ t .Lang "settings.asn.col_rate" }}</th>
           <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
           <th class="col-since">{{ t .Lang "settings.asn.col_since" }}</th>
           <th class="col-del"></th>
@@ -3641,6 +3643,7 @@ document.addEventListener("DOMContentLoaded", function(){
               <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
+          <td class="col-rate"><input type="number" name="asn_rate" min="0" value="{{ if gt $r.RatePerMin 0 }}{{ $r.RatePerMin }}{{ end }}" placeholder="0" title="{{ t $.Lang "settings.asn.rate_hint" }}" style="width:5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"></td>
           <td class="col-enabled">
             <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
           </td>
@@ -3697,6 +3700,7 @@ document.addEventListener("DOMContentLoaded", function(){
   var addNum = document.getElementById('asn-add-input');
   var addLbl = document.getElementById('asn-add-label');
   var addAct = document.getElementById('asn-add-action');
+  var addRate = document.getElementById('asn-add-rate');
   var addBtn = document.getElementById('asn-add-btn');
   var addToggle = document.getElementById('asn-add-toggle');
   var addForm = document.getElementById('asn-add-form');
@@ -3719,7 +3723,7 @@ document.addEventListener("DOMContentLoaded", function(){
     });
     empty.style.display = tbody.children.length ? 'none' : '';
   }
-  function addRow(val, isOrg, label, action){
+  function addRow(val, isOrg, label, action, rate){
     var opts = ACTIONS.map(function(a){ return '<option value="'+a+'"'+(a===action?' selected':'')+'>'+ALABEL[a]+'</option>'; }).join('');
     var badge = isOrg ? ' <span class="added">'+ORGBADGE+'</span>' : '';
     var tr = document.createElement('tr');
@@ -3727,6 +3731,7 @@ document.addEventListener("DOMContentLoaded", function(){
       '<td class="col-country"><input type="hidden" name="asn_number" value="'+esc(val)+'"><input type="hidden" name="asn_updated_at" value="0"><span class="cc-code">'+esc(val)+'</span>'+badge+'</td>' +
       '<td><input type="text" name="asn_label" value="'+esc(label||'')+'" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
       '<td class="col-action"><select name="asn_action">'+opts+'</select></td>' +
+      '<td class="col-rate"><input type="number" name="asn_rate" min="0" value="'+(rate>0?esc(String(rate)):'')+'" placeholder="0" style="width:5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"></td>' +
       '<td class="col-enabled"><input type="checkbox" value="1" checked></td>' +
       '<td class="col-since" style="font-size:.72rem;color:#94a3b8;white-space:nowrap">—</td>' +
       '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
@@ -3742,8 +3747,9 @@ document.addEventListener("DOMContentLoaded", function(){
     var val = isNum ? ('AS'+parseInt(numStr,10)) : raw;
     var dup = Array.prototype.some.call(tbody.querySelectorAll('input[name="asn_number"]'), function(h){ return h.value.toLowerCase() === val.toLowerCase(); });
     if (dup) { addNum.value = ''; addNum.focus(); return; }
-    addRow(val, !isNum, (addLbl.value || '').trim(), addAct ? addAct.value : '');
-    addNum.value = ''; addLbl.value = ''; if (addAct) addAct.value = ''; addNum.focus();
+    var rate = addRate ? (parseInt(addRate.value, 10) || 0) : 0;
+    addRow(val, !isNum, (addLbl.value || '').trim(), addAct ? addAct.value : '', rate);
+    addNum.value = ''; addLbl.value = ''; if (addAct) addAct.value = ''; if (addRate) addRate.value = ''; addNum.focus();
   }
   addBtn.addEventListener('click', doAdd);
 
