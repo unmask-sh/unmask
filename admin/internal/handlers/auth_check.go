@@ -205,6 +205,22 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Forwarded-Host"),
 		r.Host,
 	)
+	// Header-integrity inputs.  Via the forward-auth subrequest the snippet
+	// forwards the original client's values on X-Original-*; on a direct hit
+	// (native machinery / a bare curl) fall back to the live request.  A direct
+	// request that terminated TLS on this daemon has r.TLS set; behind an LB the
+	// snippet's X-Original-Scheme carries the edge scheme.
+	secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
+	scheme := firstNonEmpty(r.Header.Get("X-Original-Scheme"), func() string {
+		if r.TLS != nil {
+			return "https"
+		}
+		return ""
+	}())
+	// h2/h3: the snippet forwards nginx's $http2/$http3 (non-empty on those
+	// protocols); a direct request exposes it via r.ProtoMajor / Proto.
+	modernHTTP := r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" ||
+		r.ProtoMajor >= 2
 	// Keep the published snapshot POINTER too: it identifies the settings
 	// generation and is the bypassMatchers cache key (a value copy's address
 	// changes per call and can never hit).
@@ -402,6 +418,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 				decisions = append(decisions, d)
 			}
 			if d, ok := uaDecide(ua, ja4Action, cfg, matchers.rangeVerifiedUA); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := headerDecide(ua, secChUA, scheme, modernHTTP, cfg.Global); ok {
 				decisions = append(decisions, d)
 			}
 			winner, suppressed := pickStrongest(decisions)
@@ -906,6 +925,32 @@ func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, s
 	}
 	s := severityFromAction(act)
 	return axisDecision{sev: s, reason: "protected-path", chMode: chModeFromSeverity(s)}, true
+}
+
+// headerDecide fires the header-integrity axis: a UA advertising a
+// Chromium-family browser, over HTTPS on h2/h3, that carries no Sec-CH-UA is a
+// spoof tell (a real Chromium sends client hints in that context).  All four
+// preconditions must hold -- anything failing one is silent, which is the
+// structural FP fence: the axis never fires on the populations that
+// legitimately lack the header (HTTP, HTTP/1.1, Firefox/Safari, TLS-intercept
+// proxies over http).  Severity is clamped to the operator's action, which is
+// itself clamped to pow/captcha (never deny) by HeaderIntegrityResolvedAction.
+func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.GlobalConfig) (axisDecision, bool) {
+	if !g.HeaderIntegrity {
+		return axisDecision{}, false
+	}
+	if classify.ChromeMajor(ua) == 0 { // not Chromium-family -> no opinion
+		return axisDecision{}, false
+	}
+	if scheme != "https" || !modernHTTP {
+		return axisDecision{}, false // no secure/modern context -> CH legitimately absent
+	}
+	if strings.TrimSpace(secChUA) != "" {
+		return axisDecision{}, false // the header is present -> consistent
+	}
+	act := g.HeaderIntegrityResolvedAction()
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: "header:no_sch_ua", chMode: chModeFromSeverity(s)}, true
 }
 
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
