@@ -319,7 +319,12 @@ type renderData struct {
 	//                         stable (built by staleBrowserPattern()).
 	StaleBrowserEnabled bool
 	StaleBrowserPattern string
-	UpstreamAddr        string
+	// HeaderIntegrityEnabled (Global.HeaderIntegrity): fold a header-integrity
+	// escalation into $final_challenge.  When off, the maps are not emitted
+	// (zero rendered-config diff).  Fires for a Chromium UA over https on h2/h3
+	// with no Sec-CH-UA -- clamped to a challenge, keyed after every exemption.
+	HeaderIntegrityEnabled bool
+	UpstreamAddr           string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -352,8 +357,17 @@ type renderData struct {
 	// rules group by Site and are emitted as separate path-only maps + a host
 	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
 	// no anchor stripping needed because no map ever concatenates host + uri.
-	BypassPathsGlobal       []string               // patterns from rules with Site == ""
-	BypassPathsPerHost      []BypassPathHostMaps   // one entry per unique non-empty Site
+	BypassPathsGlobal  []string             // patterns from rules with Site == ""
+	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
+	// GeoExemptPaths* / AsnExemptPaths*: per-axis path exemptions (RSS/Atom
+	// feeds etc.).  Same global + per-host split as bypass paths, but each
+	// feeds its own signal ($is_geo_exempt_path / $is_asn_exempt_path), which
+	// drops ONLY that axis inside $is_net_challenge (ja4/honeypot/rate still
+	// run).  No presets -- operators list their own feed paths.
+	GeoExemptPathsGlobal    []string
+	GeoExemptPathsPerHost   []BypassPathHostMaps
+	AsnExemptPathsGlobal    []string
+	AsnExemptPathsPerHost   []BypassPathHostMaps
 	ChallengeAll            bool                   // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string               // OR list of UA patterns evaluated when false
 	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
@@ -434,6 +448,14 @@ type renderData struct {
 	AsnCIDRs         string
 	AsnRules         []AsnRuleRender
 	AsnDefaultAction string
+	// GeoRateZones: one limit_req zone per RatePerMin>0 country rule (the
+	// by-country twin of AsnRateZones; keyed on $unmask_country).
+	GeoRateZones []GeoRateZoneRender
+	// AsnRateZones: one limit_req zone per RatePerMin>0 ASN rule.  Each throttles
+	// the rule's networks to N req/min (counter keyed per AS number, via a geo
+	// block over ipgeo.ASNRateCIDRs), with verified crawlers / bypass IPs exempt
+	// (SEO safety).  Empty when no rate rule / ASN mmdb.
+	AsnRateZones []AsnRateZoneRender
 
 	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
@@ -520,10 +542,37 @@ type GeoRuleRender struct {
 	Action  string // resolved action (= rule.Action || geo.DefaultAction)
 }
 
-// AsnRuleRender: one entry of the $unmask_asn_action map.
+// AsnRuleRender: one entry of the $unmask_asn_action map.  Key is the token
+// the geo block writes for a matching CIDR ("AS<n>" or "org:<pattern>").
 type AsnRuleRender struct {
-	ASN    uint   // autonomous system number
+	Key    string // map key ("AS16509" / "org:microsoft")
 	Action string // resolved action (= rule.Action || asn.DefaultAction)
+}
+
+// AsnRateZoneRender: one native rate zone for a RatePerMin>0 ASN rule.  GeoBody
+// is the "<CIDR> <ASN>;" block from ipgeo.ASNRateCIDRs, written into a
+// `geo $remote_addr <RawVar>` so the counter is per AS number; <KeyVar> re-maps
+// RawVar to "" for verified crawlers / bypass IPs so they are never throttled.
+type AsnRateZoneRender struct {
+	ZoneName       string // asnrate_<i>
+	RequestsPerMin int
+	Burst          int
+	RawVar         string // $asnrate_<i>_raw : the network's ASN, else ""
+	KeyVar         string // $asnrate_<i>_key : RawVar minus the search-bot/bypass exemption
+	GeoBody        string // rendered "<CIDR> <ASN>;" lines
+}
+
+// GeoRateZoneRender: one native rate zone for a RatePerMin>0 country rule --
+// the by-country twin of AsnRateZoneRender.  No GeoBody: the zone keys on the
+// already-resolved $unmask_country (whose geo block includes rate-mode
+// countries), so the counter is per country, matching forward-auth's
+// "geo:<CC>" counter.  The key map drops verified crawlers / bypass IPs.
+type GeoRateZoneRender struct {
+	ZoneName       string // georate_<i>
+	RequestsPerMin int
+	Burst          int
+	KeyVar         string // $georate_<i>_key
+	Country        string // ISO code the zone counts
 }
 
 // sanitizeConfPath strips characters that could break out of an nginx
@@ -609,11 +658,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// nothing).
 	if s.Global.StaleBrowserEnabled() {
 		if pat := staleBrowserPattern(s.Global.CurrentChromeMajorResolved(), s.Global.CurrentFirefoxMajorResolved(),
-			s.Global.FirefoxESRMajors(), s.Global.StaleBrowserLagN()); pat != "" {
+			s.Global.FirefoxESRMajors(), s.Global.StaleBrowserLagN(), s.Global.FirefoxStaleLagN()); pat != "" {
 			d.StaleBrowserEnabled = true
 			d.StaleBrowserPattern = pat
 		}
 	}
+	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {
@@ -888,6 +938,39 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// means `^/api/` is honored literally with no double-anchor wart.
 	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bp)
 
+	// Per-axis exempt paths: same render machinery (global + per-host maps) as
+	// bypass paths, but no presets.  Each feeds its own signal so a matched
+	// feed drops only that axis inside $is_net_challenge.
+	exemptPathRules := func(rows []settings.BypassPath) []BypassPathRule {
+		out := []BypassPathRule{}
+		seen := map[string]bool{}
+		for _, r := range rows {
+			if r.Disabled {
+				continue
+			}
+			p := trimSpaceAndQuotes(r.Path)
+			if p == "" {
+				continue
+			}
+			site := trimSpaceAndQuotes(r.Site)
+			key := site + "|" + p
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, BypassPathRule{Pattern: p, Site: site})
+		}
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Site != out[j].Site {
+				return out[i].Site < out[j].Site
+			}
+			return out[i].Pattern < out[j].Pattern
+		})
+		return out
+	}
+	d.GeoExemptPathsGlobal, d.GeoExemptPathsPerHost = splitBypassPathsForRender(exemptPathRules(s.Nginx.Geo.ExemptPaths))
+	d.AsnExemptPathsGlobal, d.AsnExemptPathsPerHost = splitBypassPathsForRender(exemptPathRules(s.Nginx.Asn.ExemptPaths))
+
 	// RateLimit zones: default goes first, followed by named zones in order.
 	// If Default.Name is empty, fall back to "unmask_rate" (= matches
 	// protect.inc and existing install examples).  RequestsPerMin/Burst
@@ -1013,6 +1096,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// handler so behavior matches across the two modes.
 	d.GeoDefaultAction = s.Nginx.Geo.ResolvedDefaultAction()
 	geoCountrySet := map[string]bool{}
+	var geoCIDRCodes []string
 	for _, r := range s.Nginx.Geo.Rules {
 		if !r.Enabled {
 			continue
@@ -1022,9 +1106,19 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			continue
 		}
 		geoCountrySet[cc] = true
+		// Every enabled country -- immediate-action AND rate-mode -- joins the
+		// CIDR walk so $unmask_country resolves it; rate-mode countries then
+		// skip the action map (they render as a rate zone instead, mirroring
+		// the ASN split between the geo block and AsnRateZones).
+		geoCIDRCodes = append(geoCIDRCodes, cc)
+		if s.Nginx.Geo.EffectiveRatePerMin(r.RatePerMin) > 0 {
+			continue
+		}
 		action := strings.TrimSpace(r.Action)
 		if action == "" {
-			action = d.GeoDefaultAction
+			// A registered country's blank action inherits DefaultRuleAction,
+			// not the unmatched-country default (mirrors geoDecideForCountry).
+			action = s.Nginx.Geo.ResolvedDefaultRuleAction()
 		}
 		if !settings.IsValidGeoAction(action) {
 			action = settings.GeoActionSkip
@@ -1032,51 +1126,105 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.GeoRules = append(d.GeoRules, GeoRuleRender{Country: cc, Action: action})
 	}
 	sort.Slice(d.GeoRules, func(i, j int) bool { return d.GeoRules[i].Country < d.GeoRules[j].Country })
-	if len(d.GeoRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
-		codes := make([]string, 0, len(d.GeoRules))
-		for _, g := range d.GeoRules {
-			codes = append(codes, g.Country)
-		}
-		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, codes); err == nil {
+	if len(geoCIDRCodes) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
+		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, geoCIDRCodes); err == nil {
 			d.GeoCIDRs = cidrs
 		}
 		// On error: silently leave GeoCIDRs empty.  The geo block then
 		// degrades to default "" → action map default action.  Operators
 		// see the WARN in `unmask doctor` (= mmdb path check).
 	}
+	// Country rate zones: one limit_req zone per rate-mode rule, keyed on
+	// $unmask_country -- so they only work when the CIDR walk resolved (no
+	// mmdb -> $unmask_country is always "" and a zone would never count).
+	if d.GeoCIDRs != "" {
+		for i, rr := range s.Nginx.Geo.RateRules() {
+			name := fmt.Sprintf("georate_%d", i)
+			d.GeoRateZones = append(d.GeoRateZones, GeoRateZoneRender{
+				ZoneName:       name,
+				RequestsPerMin: rr.RatePerMin,
+				// Same leaky-bucket-vs-window reasoning as the ASN zones:
+				// burst of one window's worth, and nginx rejects burst=0.
+				Burst:   rr.RatePerMin,
+				KeyVar:  "$" + name + "_key",
+				Country: rr.Country,
+			})
+		}
+	}
 
 	// ASN (native mode): the by-network sibling of the geo block above.  Walk
 	// the ASN mmdb once, materialising a `geo $remote_addr $unmask_asn { ... }`
-	// block listing only the CIDRs of the ASNs the operator has rules for, plus
-	// a per-ASN action map.  Requires the ASN mmdb (MMDBASNPath); with only the
-	// country db configured the axis stays inert.
+	// block listing only the CIDRs the operator's rules/providers target, plus
+	// a $unmask_asn -> $unmask_asn_action map.  Each target's map key is a
+	// stable token: "AS<n>" for exact rules, "org:<pattern>" for org / provider
+	// matches.  Requires the ASN mmdb (MMDBASNPath); inert without it.
 	d.AsnDefaultAction = s.Nginx.Asn.ResolvedDefaultAction()
-	asnSet := map[uint]bool{}
-	for _, r := range s.Nginx.Asn.Rules {
-		if !r.Enabled || r.ASN == 0 || asnSet[r.ASN] {
-			continue
+	if s.Nginx.Asn.HasEnabled() {
+		var targets []ipgeo.ASNTarget
+		seenKey := map[string]bool{}
+		addRule := func(key, action string, t ipgeo.ASNTarget) {
+			if seenKey[key] {
+				return
+			}
+			seenKey[key] = true
+			act := strings.TrimSpace(action)
+			if act == "" {
+				act = d.AsnDefaultAction
+			}
+			if !settings.IsValidGeoAction(act) {
+				act = settings.GeoActionSkip
+			}
+			t.Value = key
+			targets = append(targets, t)
+			d.AsnRules = append(d.AsnRules, AsnRuleRender{Key: key, Action: act})
 		}
-		asnSet[r.ASN] = true
-		action := strings.TrimSpace(r.Action)
-		if action == "" {
-			action = d.AsnDefaultAction
+		// Exact-ASN rules first (more specific), then org rules, then providers.
+		for _, r := range s.Nginx.Asn.EnabledASNRules() {
+			key := "AS" + strconv.FormatUint(uint64(r.ASN), 10)
+			addRule(key, r.Action, ipgeo.ASNTarget{ASN: r.ASN})
 		}
-		if !settings.IsValidGeoAction(action) {
-			action = settings.GeoActionSkip
+		for _, o := range s.Nginx.Asn.EnabledOrgPatterns() {
+			key := "org:" + strings.ToLower(o.Pattern)
+			addRule(key, o.Action, ipgeo.ASNTarget{OrgPattern: o.Pattern})
 		}
-		d.AsnRules = append(d.AsnRules, AsnRuleRender{ASN: r.ASN, Action: action})
+		if len(targets) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
+			if cidrs, err := ipgeo.CIDRsForASNTargets(s.IPGeo.MMDBASNPath, targets); err == nil {
+				d.AsnCIDRs = cidrs
+			}
+			// On error: leave AsnCIDRs empty; the block degrades to the default
+			// action.  doctor's mmdb path check surfaces a missing/broken db.
+		}
 	}
-	sort.Slice(d.AsnRules, func(i, j int) bool { return d.AsnRules[i].ASN < d.AsnRules[j].ASN })
-	if len(d.AsnRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
-		asns := make([]uint, 0, len(d.AsnRules))
-		for _, a := range d.AsnRules {
-			asns = append(asns, a.ASN)
+
+	// ASN rate zones: one limit_req zone per RatePerMin>0 rule (separate from the
+	// immediate-action geo block above, which skips rate rules).  Each walks the
+	// mmdb for the rule's networks emitting a per-CIDR ASN value, so the counter
+	// is per AS number.  Skipped when the mmdb is missing or the walk is empty.
+	if mmdb := strings.TrimSpace(s.IPGeo.MMDBASNPath); mmdb != "" {
+		for i, rr := range s.Nginx.Asn.RateRules() {
+			t := ipgeo.ASNTarget{ASN: rr.ASN}
+			if rr.ASN == 0 {
+				t = ipgeo.ASNTarget{OrgPattern: rr.Org}
+			}
+			body, err := ipgeo.ASNRateCIDRs(mmdb, []ipgeo.ASNTarget{t})
+			if err != nil || strings.TrimSpace(body) == "" {
+				continue // no CIDRs (or walk error) -> no zone
+			}
+			name := fmt.Sprintf("asnrate_%d", i)
+			d.AsnRateZones = append(d.AsnRateZones, AsnRateZoneRender{
+				ZoneName:       name,
+				RequestsPerMin: rr.RatePerMin,
+				// nginx limit_req is a leaky bucket (rate=Nr/m -> 1 per 60/N s),
+				// far stricter than forward-auth's sliding N-per-window.  A burst
+				// of one window's worth (=RatePerMin) lets a normal minute's
+				// traffic through, then throttles the sustained overage -- and
+				// nginx rejects an explicit burst=0, so this also keeps it valid.
+				Burst:   rr.RatePerMin,
+				RawVar:  "$" + name + "_raw",
+				KeyVar:  "$" + name + "_key",
+				GeoBody: body,
+			})
 		}
-		if cidrs, err := ipgeo.CIDRsForASNs(s.IPGeo.MMDBASNPath, asns); err == nil {
-			d.AsnCIDRs = cidrs
-		}
-		// On error: leave AsnCIDRs empty; the block degrades to the default
-		// action.  doctor's mmdb path check surfaces a missing/broken db.
 	}
 
 	// CommunityBans: render the 3 map includes only in fetch_apply mode.
@@ -1459,12 +1607,12 @@ func resolveGlobalAction(axis string) string {
 // major so Chrome/50. never matches the "5" alternative and Chrome/1400. never
 // matches "140".  Returns "" when no positive major qualifies in either
 // family, signalling the caller to leave the tier off.
-func staleBrowserPattern(curChrome, curFirefox int, ffESRExempt []int, lag int) string {
+func staleBrowserPattern(curChrome, curFirefox int, ffESRExempt []int, lagChrome, lagFirefox int) string {
 	var fams []string
-	if alt := staleMajorAlternation(curChrome-lag, nil); alt != "" {
+	if alt := staleMajorAlternation(curChrome-lagChrome, nil); alt != "" {
 		fams = append(fams, "Chrome/(?:"+alt+")")
 	}
-	if alt := staleMajorAlternation(curFirefox-lag, ffESRExempt); alt != "" {
+	if alt := staleMajorAlternation(curFirefox-lagFirefox, ffESRExempt); alt != "" {
 		fams = append(fams, "Firefox/(?:"+alt+")")
 	}
 	if len(fams) == 0 {

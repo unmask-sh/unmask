@@ -172,7 +172,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
  * .editing class reveals the input.  No drag reorder (= OR eval, order doesn't matter). */
 .rule-list{display:flex;flex-direction:column;gap:.5rem}
 .rule-row{display:flex;align-items:flex-start;gap:.6rem;padding:.55rem .7rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem;transition:background .12s,border-color .12s}
-.rule-row.editing{background:#f0f9ff;border-color:#93c5fd}
+.rule-row.editing{background:#f0f9ff;border-color:#93c5fd;align-items:center}
 .rule-row.disabled-row .rule-view{opacity:.5}
 .rule-row .rule-toggle{margin-top:.25rem}
 /* view mode: title (= large) + pattern (= small mono) stacked vertically (= same shape as preset) */
@@ -234,6 +234,58 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-preset tbody td a{color:#0f172a;text-decoration:none;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.75rem;color:#64748b}
 .settings-preset tbody td a:hover{text-decoration:underline}
 .settings-preset .badge.new{display:inline-block;margin-left:.4rem;padding:.05rem .4rem;border-radius:.25rem;background:#fef3c7;color:#92400e;font-size:.7rem;font-weight:700}
+/* asn preset: the whole provider row toggles the checkbox (a pinpoint checkbox
+   is a poor target) -- everything but the action <td> is a click surface. */
+.asn-preset-table tbody tr{cursor:pointer}
+.asn-preset-table tbody tr:hover{background:#f8fafc}
+.asn-preset-table td.asn-action-cell{cursor:default}
+.asn-preset-table td.asn-rate-cell{cursor:default}
+/* asn custom-rule live suggest (queries the installed ASN mmdb) */
+/* country / AS code inside a rule-list view row (geo + asn custom rules) */
+.rule-view .pat .cc-code{font-weight:700;color:#0f172a}
+.asn-suggest-wrap{position:relative;display:inline-block}
+/* inside a rule-list row the wrap takes the rule-pat slot (flex:2) and is
+   editing-only, mirroring the .rule-pat toggle it now contains */
+.rule-row .asn-suggest-wrap{flex:2;display:flex}
+.rule-row .asn-suggest-wrap .rule-pat{flex:1;width:100%}
+.rule-row:not(.editing) .asn-suggest-wrap{display:none}
+.asn-suggest-box{position:absolute;top:100%;left:0;z-index:30;min-width:24rem;max-width:36rem;max-height:20rem;overflow-y:auto;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;box-shadow:0 .4rem 1.4rem rgba(15,23,42,.14);margin-top:.15rem}
+.asn-suggest-box[hidden]{display:none}
+.asn-suggest-item{padding:.35rem .55rem;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;flex-direction:column;gap:.12rem}
+.asn-suggest-item:last-child{border-bottom:0}
+.asn-suggest-item:hover,.asn-suggest-item.active{background:#eff6ff}
+.asn-suggest-item .s-top{display:flex;align-items:baseline;justify-content:space-between;gap:.6rem}
+.asn-suggest-item .s-org{font-weight:600;color:#0f172a;font-size:.82rem}
+.asn-suggest-item .s-size{color:#94a3b8;font-size:.7rem;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,monospace}
+.asn-suggest-item .s-asns{color:#64748b;font-size:.72rem;font-family:ui-monospace,SFMono-Regular,monospace}
+.asn-suggest-item .s-kind{display:inline-block;margin-right:.35rem;padding:.02rem .32rem;border-radius:.2rem;font-size:.66rem;font-weight:700;vertical-align:.05rem}
+.asn-suggest-item .s-kind.org{background:#ede9fe;color:#6d28d9}
+.asn-suggest-item .s-kind.asn{background:#dbeafe;color:#1e40af}
+.asn-suggest-empty{padding:.45rem .6rem;color:#94a3b8;font-size:.78rem}
+/* rDNS per-crawler badges: range-backed (rDNS is off-range only) vs range-less
+   (rDNS is the primary verification) */
+.rdns-badge{display:inline-block;padding:.02rem .34rem;border-radius:.25rem;font-size:.64rem;font-weight:700;cursor:help}
+.rdns-badge.range{background:#dbeafe;color:#1e40af}
+.rdns-badge.only{background:#fef3c7;color:#92400e}
+/* rate-limit column unit suffix (e.g. "req/分") next to the cap input */
+.rate-unit{font-size:.7rem;color:#94a3b8;white-space:nowrap}
+/* circled-number markers pairing the two defaults (unmatched ① / registered ②)
+   with the usage guide that references them */
+.def-num{color:#2563eb;font-weight:700;margin-right:.15rem}
+/* the unit label inside a rule-list editing row: shown only while editing,
+   vertically centered against the rate input */
+.rule-row .rule-edit-unit{display:none}
+.rule-row.editing .rule-edit-unit{display:inline-flex;align-items:center}
+/* column-label header for rule lists with many inputs (asn/geo custom rules):
+   hidden until some row is in editing mode -- placeholders vanish once a value
+   is typed, so the header keeps the columns identifiable while editing */
+.rule-edit-header{display:none;gap:.6rem;padding:0 .7rem;font-size:.72rem;color:#64748b;font-weight:600}
+.rule-list:has(.rule-row.editing) .rule-edit-header{display:flex}
+.rule-edit-header .reh-toggle{width:1rem}
+.rule-edit-header .reh-title{flex:1}
+.rule-edit-header .reh-pat{flex:2}
+.rule-edit-header .reh-action{width:9rem}
+.rule-edit-header .reh-rate{width:5.5rem}
 /* JA4 verdict tab: pill for displaying the action enum (= behavior visible by color) */
 .action-pill{display:inline-block;padding:.05rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.05em}
 .action-bot{background:#fee2e2;color:#991b1b}
@@ -448,6 +500,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
     <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
     <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
+    <li><a href="?tab=asn"          {{ if eq .Tab "asn"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.asn"          }}</a></li>
     <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
@@ -527,6 +580,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <a class="sti" href="?tab=rate-limit"><b>{{ t .Lang "settings.tab.rate_limit" }}</b><span>{{ t .Lang "settings.top.desc.rate_limit" }}</span></a>
   <a class="sti" href="?tab=protected"><b>{{ t .Lang "settings.tab.protected" }}</b><span>{{ t .Lang "settings.top.desc.protected" }}</span></a>
   <a class="sti" href="?tab=geo"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
+  <a class="sti" href="?tab=asn"><b>{{ t .Lang "settings.tab.asn" }}</b><span>{{ t .Lang "settings.top.desc.asn" }}</span></a>
   <a class="sti" href="?tab=honeypot"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
 </div>
 
@@ -1438,6 +1492,52 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
     </div>
   </div>
+
+  {{/* Reverse-DNS crawler verification (rDNS): the DNS-based sibling of the IP
+       range presets above -- verify a crawler-claiming UA against its vendor's
+       published rDNS, so a genuine crawler is rescued even off-range and a
+       forgery is challenged/denied. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.rdns.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="rdns-help" aria-label="?">?</button>
+      <script type="text/html" id="rdns-help">{{ safeHTML (t .Lang "settings.rdns.help") }}</script>
+    </h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.rdns.desc") }}</p>
+    <label class="rdns-enable" style="display:flex;align-items:center;gap:.4rem;margin:.4rem 0 .7rem">
+      <input type="checkbox" name="crawler_verify_enabled" value="1" {{ if .CrawlerVerify.Enabled }}checked{{ end }}>
+      <span>{{ t .Lang "settings.rdns.enable" }}</span>
+    </label>
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center">
+      <label style="font-size:.85rem">{{ t .Lang "settings.rdns.forged_action" }}:
+        <select name="crawler_verify_forged_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="pow_only"         {{ if eq .CrawlerVerifyForgedAction "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq .CrawlerVerifyForgedAction "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq .CrawlerVerifyForgedAction "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq .CrawlerVerifyForgedAction "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+      <span class="note" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.rdns.forged_hint" }}</span>
+    </div>
+
+    {{/* Per-crawler enable list.  A range-backed crawler (Googlebot etc.) is
+         already covered by its IP-range preset, so rDNS for it is an off-range
+         safety net the operator may switch off; a range-less one (YandexBot)
+         relies on rDNS as its only verification. */}}
+    <div class="rdns-crawlers">
+      <input type="hidden" name="crawler_verify_present" value="1">
+      <div class="desc" style="font-size:.8rem;margin:.2rem 0 .4rem">{{ t .Lang "settings.rdns.crawlers_h" }}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:.45rem 1rem">
+        {{ range .CrawlerVerifyCrawlers }}
+        <label style="display:inline-flex;align-items:center;gap:.35rem;font-size:.82rem">
+          <input type="checkbox" name="crawler_verify_crawler" value="{{ .Name }}" {{ if .Active }}checked{{ end }}>
+          <span>{{ .Name }}</span>
+          {{ if .RangeBacked }}<span class="rdns-badge range" title="{{ t $.Lang "settings.rdns.range_backed_hint" }}">{{ t $.Lang "settings.rdns.range_backed" }}</span>{{ else }}<span class="rdns-badge only" title="{{ t $.Lang "settings.rdns.rdns_only_hint" }}">{{ t $.Lang "settings.rdns.rdns_only" }}</span>{{ end }}
+        </label>
+        {{ end }}
+      </div>
+    </div>
+  </div>
+
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 {{ end }}
@@ -1539,15 +1639,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="ua-help-trigger" data-help-target="global-default-help" aria-label="?">?</button>
     </h2>
     <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
+    <div class="note" style="margin:0 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.usage_examples") }}</div>
 
     {{ $kba := .Global.KnownBrowserAction }}
     {{ $uua := .Global.UnknownUAAction }}
 
     <div class="field" style="margin:1.4rem 0 1.8rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.known_browser_h" }}</label>
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">①</span>{{ t .Lang "settings.global.known_browser_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
       <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $kba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1557,10 +1658,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
 
     <div class="field" style="margin:1.4rem 0 1.2rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.unknown_ua_h" }}</label>
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">②</span>{{ t .Lang "settings.global.unknown_ua_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
       <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $uua "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1579,6 +1680,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_only") }}</p>
     </script>
   </div>
 
@@ -1741,7 +1844,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $bcm := .ChallengeTargets.DefaultAction }}
       <select name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
         <option value="pow_only"         {{ if eq $bcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $bcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -1757,6 +1860,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "captcha_only") }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -1849,6 +1954,36 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div><!-- /.ua-section custom -->
   </div><!-- /.bcd-card blacklist parent -->
 
+  {{/* Header-integrity axis: a Chromium UA over https/h2h3 with no Sec-CH-UA.
+       Sibling of the stale-browser tier; clamped to a challenge (never deny). */}}
+  <div class="bcd-card">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.ua.header_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="ua-header-help" aria-label="?">?</button>
+    </h2>
+    {{ $hia := .Global.HeaderIntegrityAction }}
+    <div class="field" style="padding:.75rem .9rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#1e40af;margin:0">
+        <input type="checkbox" name="header_integrity" value="1" {{ if .Global.HeaderIntegrity }}checked{{ end }}>
+        {{ t .Lang "settings.ua.header_toggle" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;color:#1e40af;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_help") }}</div>
+    </div>
+    <div class="field" style="margin:1.2rem 0 .4rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.header_action_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_action_help") }}</div>
+      <select name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
+        <option value="captcha_only" {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_only"     {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
+      </select>
+    </div>
+    <script type="text/html" id="ua-header-help">
+      <div><strong>{{ t .Lang "settings.ua.header_h" }}</strong></div>
+      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.header_help") }}</p>
+    </script>
+  </div>
+
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.ua.stale_h" }}
@@ -1898,10 +2033,42 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </label>
         <div class="note" style="margin-top:.35rem;color:#64748b;font-size:.8rem">{{ t .Lang "settings.ua.stale_esr_note" }} {{ .StaleESRList }}</div>
       </div>
-      <div>
-        <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_lag_h" }}</label>
-        <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_lag_help") }}</div>
-        <input type="number" name="stale_browser_lag" min="0" max="99" value="{{ if gt .Global.StaleBrowserLag 0 }}{{ .Global.StaleBrowserLag }}{{ end }}" placeholder="{{ .StaleBrowserLagDefault }} (built-in)" style="padding:.35rem .55rem;font-size:.9rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:7rem">
+    </div>
+
+    {{/* Lag allowance mirrors the current-major layout above: one full-width
+         row, Chrome and Firefox as the same two columns. */}}
+    <div class="field" style="margin:1.4rem 0 1.2rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_lag_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_lag_help") }}</div>
+      <div style="display:flex;gap:1.6rem;flex-wrap:wrap;align-items:flex-start">
+        <div style="flex:0 1 26rem">
+          {{ $clman := gt .Global.StaleBrowserLag 0 }}
+          <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Chrome</div>
+          <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+            <input type="radio" name="stale_chrome_lag_src" value="auto" {{ if not $clman }}checked{{ end }} onchange="document.getElementById('stale-chrome-lag-manual').disabled=true">
+            <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefault }}</strong>
+              <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+            <input type="radio" name="stale_chrome_lag_src" value="manual" {{ if $clman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-lag-manual');i.disabled=false;i.focus()">
+            <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
+            <input type="number" id="stale-chrome-lag-manual" name="stale_browser_lag" min="1" max="99" value="{{ if $clman }}{{ .Global.StaleBrowserLag }}{{ end }}" {{ if not $clman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
+          </label>
+        </div>
+        <div style="flex:0 1 26rem">
+          {{ $flman := gt .Global.StaleBrowserLagFirefox 0 }}
+          <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Firefox</div>
+          <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+            <input type="radio" name="stale_firefox_lag_src" value="auto" {{ if not $flman }}checked{{ end }} onchange="document.getElementById('stale-firefox-lag-manual').disabled=true">
+            <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefaultFF }}</strong>
+              <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
+          </label>
+          <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
+            <input type="radio" name="stale_firefox_lag_src" value="manual" {{ if $flman }}checked{{ end }} onchange="var i=document.getElementById('stale-firefox-lag-manual');i.disabled=false;i.focus()">
+            <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
+            <input type="number" id="stale-firefox-lag-manual" name="stale_browser_lag_firefox" min="1" max="99" value="{{ if $flman }}{{ .Global.StaleBrowserLagFirefox }}{{ end }}" {{ if not $flman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
+          </label>
+        </div>
       </div>
     </div>
 
@@ -1909,7 +2076,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_action_help") }}</div>
       <select name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
         <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="deny"             {{ if eq $sba "deny" }}selected{{ end }}>deny</option>
@@ -1919,6 +2086,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <script type="text/html" id="ua-stale-help">
       <div><strong>{{ t .Lang "settings.ua.stale_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.stale_help_long") }}</p>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "captcha_only") }}</p>
     </script>
   </div>
 
@@ -2209,7 +2378,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $jcm := .JA4Verdicts.DefaultAction }}
       <select name="ja4_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $jcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $jcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $jcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2225,6 +2394,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2373,7 +2544,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $hcm := .Honeypot.DefaultAction }}
       <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_only"         {{ if eq $hcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $hcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2389,6 +2560,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_then_captcha") }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2518,7 +2691,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $pcm := .ProtectedPaths.DefaultAction }}
       <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $pcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $pcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2534,6 +2707,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
       </ul>
+    
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
     </script>
 
     <div class="ua-section">
@@ -3143,29 +3318,6 @@ document.addEventListener("DOMContentLoaded", function(){
 {{ end }}
 
 {{ if eq .Tab "geo" }}
-<style>
-  .geo-tools{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:.5rem}
-  .geo-tools .grow{flex:1}
-  .geo-tools button,.geo-tools select,.geo-tools input{font-size:.82rem;padding:.3rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
-  .geo-tools button{cursor:pointer}
-  .geo-tools button.primary{background:#1e40af;color:#fff;border-color:#1e40af}
-  table.geo{width:100%;border-collapse:collapse;font-size:.85rem}
-  table.geo thead th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
-  table.geo tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
-  table.geo tbody tr.row-disabled{opacity:.45}
-  table.geo .col-check{width:1.8rem}
-  table.geo .col-country{width:18rem}
-  table.geo .col-action{width:11rem}
-  table.geo .col-enabled{width:5rem;text-align:center}
-  table.geo .cc-cell{display:flex;align-items:baseline;gap:.4rem}
-  table.geo .cc-code{font-family:ui-monospace,Menlo,monospace;font-weight:700;color:#0f172a}
-  table.geo .cc-name{font-size:.78rem;color:#64748b}
-  table.geo .col-del{width:3rem;text-align:center}
-  table.geo input[type="text"],table.geo select{width:100%;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.2rem}
-  table.geo .country-input{font-family:ui-monospace,Menlo,monospace;text-transform:uppercase}
-  table.geo .del-btn{background:none;border:none;cursor:pointer;color:#dc2626;font-size:1.1rem;padding:0}
-  .geo-empty{padding:1rem;text-align:center;color:#94a3b8;font-size:.82rem}
-</style>
 
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=geo">
   <div class="bcd-card">
@@ -3187,7 +3339,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
     {{ $gda := .Nginx.Geo.DefaultAction }}{{ if eq $gda "" }}{{ $gda = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
-      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">①</span>{{ t .Lang "settings.geo.default_action" }}:
         <select name="geo_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $gda "skip"             }}selected{{ end }}>skip (= no country-based decision)</option>
           <option value="pow_only"         {{ if eq $gda "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -3198,89 +3350,212 @@ document.addEventListener("DOMContentLoaded", function(){
       </label>
     </div>
 
+    {{/* Registered-rule default: what a rule's blank (inherit) action resolves
+         to.  Separate from the unmatched-country default above. */}}
+    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rule_default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rule_default_note") }}</div>
+    {{ $gdra := .GeoDefaultRuleAction }}
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:center;margin-bottom:.6rem">
+      <label style="font-size:.85rem"><span class="def-num">②</span>{{ t .Lang "settings.asn.rule_default_action" }}:
+        <select name="geo_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $gdra "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $gdra "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $gdra "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $gdra "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $gdra "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+      <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.default_rate" }}:
+        <input type="number" name="geo_default_rate" min="0" value="{{ if gt .GeoDefaultRate 0 }}{{ .GeoDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
+        <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="geo-defrate-help" aria-label="?">?</button>
+        <script type="text/html" id="geo-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
+      </label>
+    </div>
+
     <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rules_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rules_help") }}</div>
 
-    <div class="geo-tools">
-      <input type="text" id="geo-add-input" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" style="width:18rem">
-      <button type="button" id="geo-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
-      <span class="grow"></span>
-      <span id="geo-sel-counter" style="font-size:.78rem;color:#64748b">selected: 0</span>
-      <select id="geo-bulk-action" style="font-size:.82rem">
-        <option value="">{{ t .Lang "settings.geo.bulk_pick" }}…</option>
-        <option value="skip">action: skip</option>
-        <option value="pow_only">action: pow_only</option>
-        <option value="captcha_only">action: captcha_only</option>
-        <option value="pow_then_captcha">action: pow_then_captcha</option>
-        <option value="deny">action: deny</option>
-        <option value="enable">enable rules</option>
-        <option value="disable">disable rules</option>
-        <option value="delete">delete</option>
-      </select>
-      <button type="button" id="geo-bulk-apply">{{ t .Lang "settings.geo.bulk_apply" }}</button>
+    {{/* Country rules as the shared rule-list (same look + interaction as the
+         exempt-path lists below): view row = memo / country + action pill;
+         pencil opens in-row editing; "+ add new" appends a blank editing row. */}}
+    <div class="rule-list" data-rule-name="geo_country">
+      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.geo.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.geo.col_country" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
+      {{ range $i, $r := .Nginx.Geo.Rules }}
+      {{ $c := index $.GeoCountryMap $r.Country }}
+      {{ $rs := rateStr $r.RatePerMin }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
+        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+        <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect geo-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $rs }} inherit{{ end }}">{{ if $rs }}{{ if eq $rs "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $rs }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
+        <input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat">
+        <select name="geo_action" class="rule-action">
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}</option>
+          <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+        </select>
+        <input type="number" name="geo_rate" min="0" value="{{ $rs }}" placeholder="{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="geo_enabled" value="1">
+          <input type="hidden" name="geo_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.geo.add_ph" }}</div>
+          </span>
+          <input type="text" name="geo_label" value="" placeholder="{{ t .Lang "settings.geo.label_ph" }}" class="rule-title">
+          <input type="text" name="geo_country" value="" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" class="rule-pat">
+          <select name="geo_action" class="rule-action">
+            <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRuleAction }}</option>
+            <option value="skip">skip</option>
+            <option value="pow_only">pow_only</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="deny">deny</option>
+          </select>
+          <input type="number" name="geo_rate" min="0" value="" placeholder="{{ if gt .GeoDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
     </div>
-
+    <button type="button" class="rule-add-bottom" data-target-list="geo_country">{{ t .Lang "settings.ua.add_new" }}</button>
     <datalist id="geo-country-datalist">
       {{ range .GeoCountriesAll }}
       <option value="{{ .Code }}">{{ .Code }} — {{ .NameEN }} ({{ .NameJP }})</option>
       {{ end }}
     </datalist>
+  </div>
 
-    <table class="geo">
-      <thead>
-        <tr>
-          <th class="col-check"><input type="checkbox" id="geo-check-all" title="{{ t .Lang "settings.geo.col_check" }}"></th>
-          <th class="col-country">{{ t .Lang "settings.geo.col_country" }}</th>
-          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
-          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
-          <th class="col-del"></th>
-        </tr>
-      </thead>
-      <tbody id="geo-rows">
-        {{ range $i, $r := .Nginx.Geo.Rules }}
-        {{ $c := index $.GeoCountryMap $r.Country }}
-        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
-          <td class="col-check"><input type="checkbox" class="geo-sel"></td>
-          <td class="col-country">
-            <input type="hidden" name="geo_country" value="{{ $r.Country }}">
-            <span class="cc-cell">
-              <span class="cc-code">{{ $r.Country }}</span>
-              <span class="cc-name">{{ if $c.NameEN }}{{ $c.NameEN }} ({{ $c.NameJP }}){{ end }}</span>
-            </span>
-          </td>
-          <td class="col-action">
-            <select name="geo_action">
-              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
-              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
-              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
-              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
-              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
-            </select>
-          </td>
-          <td class="col-enabled">
-            <input type="checkbox" name="geo_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
-          </td>
-          <td class="col-del">
-            <button type="button" class="del-btn" title="delete">✖</button>
-          </td>
-        </tr>
+  {{/* ── Geo-exempt paths: skip the COUNTRY axis only.  The ASN axis and
+       ja4/honeypot/ua/rate/ban still run.  For endpoints that legitimately
+       draw overseas traffic -- RSS/Atom feeds. ── */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.geo.exempt.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="gx-help" aria-label="?">?</button>
+      <script type="text/html" id="gx-help">{{ safeHTML (t .Lang "settings.geo.exempt.desc") }}</script>
+    </h2>
+    <div class="rule-list" data-rule-name="gx_path">
+      {{ range .GeoExemptRows }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="gx_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+        <input type="text" name="gx_site" list="gx-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="gx_enabled" value="1">
+          <input type="hidden" name="gx_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="gx_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="gx_path"  value="" placeholder="{{ t .Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+          <input type="text" name="gx_site" list="gx-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="gx_path">{{ t .Lang "settings.ua.add_new" }}</button>
+    <datalist id="gx-site-candidates">
+      {{ range .Sites }}<option value="{{ . }}">{{ end }}
+    </datalist>
+  </div>
+
+  <div style="margin-top:1rem">
+    <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
+  </div>
+</form>
+
+<script>
+(function(){
+  // Inherit-action labels track the registered-rule default action live: the
+  // "(inherit)" option in every row's action select and the view rows'
+  // inherit pills re-resolve as the operator changes the default.
+  var d = document.querySelector('select[name="geo_default_rule_action"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}'; // e.g. "inherit (%v)"
+  function refresh(){
+    var lbl = PAT.replace('%v', d.value);
+    Array.prototype.forEach.call(
+      document.querySelectorAll('select[name="geo_action"] option[value=""]'),
+      function(o){ o.textContent = lbl; });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.geo-act-pill.inherit'),
+      function(p){ p.textContent = lbl; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
+
+{{ end }}
+
+{{ if eq .Tab "asn" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=asn">
+  <div class="bcd-card">
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.asn.intro") }}</div>
+
+    <div class="bcd-card" style="margin:0 0 1rem;padding:.7rem 1rem;background:{{ if .AsnMmdbLoaded }}#f0fdf4;border:1px solid #86efac{{ else }}#fff5e6;border:1px solid #f0c270{{ end }}">
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem">
+        <strong style="font-size:.85rem">{{ if .AsnMmdbLoaded }}✓{{ else }}⚠{{ end }} ASN mmdb</strong>
+        {{ if .AsnMmdbLoaded }}
+          <span class="muted" style="font-size:.78rem">{{ safeHTML (t .Lang "settings.asn.mmdb_loaded_hint") }}</span>
+        {{ else }}
+          <span class="muted" style="font-size:.78rem">{{ safeHTML (t .Lang "settings.asn.no_db") }}</span>
         {{ end }}
-      </tbody>
-    </table>
-    <div id="geo-empty" class="geo-empty"{{ if .Nginx.Geo.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.geo.empty" }}</div>
+      </div>
+    </div>
 
-    <hr style="margin:1.6rem 0 1rem;border:none;border-top:1px solid #e2e8f0">
-
-    <h3 style="font-size:.95rem;margin:0 0 .4rem">🖧 {{ t .Lang "settings.asn.section_h" }}</h3>
-    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.section_help") }}</div>
-    {{ if not $.AsnMmdbLoaded }}
-    <div class="note" style="margin-bottom:.5rem;font-size:.8rem;color:#b45309;background:#fffbeb;border-left:.1875rem solid #f59e0b;padding:.4rem .6rem">{{ safeHTML (t .Lang "settings.asn.no_db") }}</div>
-    {{ end }}
-
+    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.asn.default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.default_help") }}</div>
     {{ $ada := .Nginx.Asn.DefaultAction }}{{ if eq $ada "" }}{{ $ada = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
-      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">①</span>{{ t .Lang "settings.geo.default_action" }}:
         <select name="asn_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $ada "skip"             }}selected{{ end }}>skip (= no ASN-based decision)</option>
           <option value="pow_only"         {{ if eq $ada "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -3291,234 +3566,410 @@ document.addEventListener("DOMContentLoaded", function(){
       </label>
     </div>
 
-    <div class="geo-tools">
-      <input type="text" id="asn-add-input" placeholder="{{ t .Lang "settings.asn.add_ph" }}" style="width:12rem">
-      <input type="text" id="asn-add-label" placeholder="{{ t .Lang "settings.asn.label_ph" }}" style="width:14rem">
-      <button type="button" id="asn-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
+    {{/* Registered-rule defaults are NOT part of the "no rule matched" behavior
+         above: they are the values REGISTERED rows (presets + custom rules)
+         inherit when their own action / rate field is blank.  Kept as its own
+         section so the two defaults are not read as one. */}}
+    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.asn.rule_default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.rule_default_note") }}</div>
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:center;margin-bottom:.6rem">
+      {{ $adra := .AsnDefaultRuleAction }}
+      <label style="font-size:.85rem"><span class="def-num">②</span>{{ t .Lang "settings.asn.rule_default_action" }}:
+        <select name="asn_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $adra "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $adra "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $adra "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $adra "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $adra "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+      <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.default_rate" }}:
+        <input type="number" name="asn_default_rate" min="0" value="{{ if gt .AsnDefaultRate 0 }}{{ .AsnDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
+        <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="asn-defrate-help" aria-label="?">?</button>
+        <script type="text/html" id="asn-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
+      </label>
     </div>
+  </div>
 
-    <table class="geo">
+  {{/* ── Preset: hosting-provider catalog (enable + action, like bypass-ips presets) ── */}}
+  <div class="bcd-card">
+    <h2>
+      <span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span>
+      {{ t .Lang "settings.asn.preset.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="asn-preset-help" aria-label="?">?</button>
+      <script type="text/html" id="asn-preset-help">{{ safeHTML (t .Lang "settings.asn.preset.help") }}</script></h2>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.preset.warn") }}</div>
+    <div class="asn-preset-tools" style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap">
+      <button type="button" id="asn-preset-all-on">{{ t .Lang "settings.asn.preset.all_on" }}</button>
+      <button type="button" id="asn-preset-all-off">{{ t .Lang "settings.asn.preset.all_off" }}</button>
+      <label style="font-size:.8rem">{{ t .Lang "settings.asn.preset.bulk_action" }}:
+        <select id="asn-preset-bulk-action" style="font-size:.8rem;padding:.15rem .3rem">
+          <option value="">…</option>
+          <option value="skip">skip</option>
+          <option value="pow_only">pow_only</option>
+          <option value="captcha_only">captcha_only</option>
+          <option value="pow_then_captcha">pow_then_captcha</option>
+          <option value="deny">deny</option>
+        </select>
+      </label>
+    </div>
+    <table class="settings-preset asn-preset-table">
       <thead>
         <tr>
-          <th class="col-country">{{ t .Lang "settings.asn.col_asn" }}</th>
-          <th>{{ t .Lang "settings.asn.col_label" }}</th>
-          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
-          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
-          <th class="col-del"></th>
+          <th></th>
+          <th>{{ t .Lang "settings.asn.preset.col.provider" }}</th>
+          <th class="num">{{ t .Lang "settings.asn.preset.col.count" }}</th>
+          <th class="col-since">{{ t .Lang "settings.asn.col_since" }}</th>
+          <th>{{ t .Lang "settings.geo.col_action" }}</th>
+          <th class="col-rate">{{ t .Lang "settings.asn.col_rate" }}</th>
         </tr>
       </thead>
-      <tbody id="asn-rows">
-        {{ range $i, $r := .Nginx.Asn.Rules }}
-        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
-          <td class="col-country">
-            <input type="hidden" name="asn_number" value="{{ $r.ASN }}">
-            <span class="cc-code">AS{{ $r.ASN }}</span>
+      <tbody>
+        {{ range .AsnProviders }}
+        <tr>
+          <td><input type="checkbox" class="asn-preset-chk" name="asn_provider_enabled_{{ .ID }}" value="1" {{ if .Enabled }}checked{{ end }}></td>
+          <td>{{ .Label }}</td>
+          <td class="num">{{ if ge .ASNCount 0 }}{{ .ASNCount }}{{ else }}-{{ end }}</td>
+          <td class="col-since" style="white-space:nowrap">
+            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}
+            {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
           </td>
-          <td><input type="text" name="asn_label" value="{{ $r.Label }}" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>
-          <td class="col-action">
-            <select name="asn_action">
-              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
-              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
-              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
-              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
-              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+          <td class="asn-action-cell">
+            <select name="asn_provider_action_{{ .ID }}" class="asn-preset-action" style="padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem">
+              <option value=""                 {{ if eq .Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
+              <option value="skip"             {{ if eq .Action "skip"             }}selected{{ end }}>skip</option>
+              <option value="pow_only"         {{ if eq .Action "pow_only"         }}selected{{ end }}>pow_only</option>
+              <option value="captcha_only"     {{ if eq .Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+              <option value="pow_then_captcha" {{ if eq .Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td class="col-enabled">
-            <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
-          </td>
-          <td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>
+          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
         </tr>
         {{ end }}
       </tbody>
     </table>
-    <div id="asn-empty" class="geo-empty"{{ if .Nginx.Asn.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.asn.empty" }}</div>
+  </div>
 
-    <div style="margin-top:1rem">
-      <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
+  {{/* ── Custom rules: exact AS number or org substring (shared rule-list look) ── */}}
+  <div class="bcd-card">
+    <h2><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span> {{ t .Lang "settings.asn.rules_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="asn-rate-help" aria-label="?">?</button>
+      <script type="text/html" id="asn-rate-help">{{ safeHTML (t .Lang "settings.asn.rate_hint") }}</script>
+    </h2>
+    <p class="desc">{{ safeHTML (t .Lang "settings.asn.rules_help") }}</p>
+
+    {{/* Custom rules as the shared rule-list: view row = label / target +
+         badges; pencil opens in-row editing (AS number or org substring with
+         the live mmdb suggest, action, rate); "+ add new" appends a blank
+         editing row. */}}
+    <div class="rule-list" data-rule-name="asn_number">
+      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.asn.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.asn.col_target" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
+      {{ range $i, $r := .AsnCustomRules }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
+        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+        <input type="hidden" name="asn_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect asn-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
+        <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+        <select name="asn_action" class="rule-action">
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
+          <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+        </select>
+        <input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="asn_enabled" value="1">
+          <input type="hidden" name="asn_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.asn.add_ph" }}</div>
+          </span>
+          <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title">
+          <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+          <select name="asn_action" class="rule-action">
+            <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRuleAction }}</option>
+            <option value="skip">skip</option>
+            <option value="pow_only">pow_only</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="deny">deny</option>
+          </select>
+          <input type="number" name="asn_rate" min="0" value="" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
     </div>
+    <button type="button" class="rule-add-bottom" data-target-list="asn_number">{{ t .Lang "settings.ua.add_new" }}</button>
+    {{/* One shared suggest dropdown; JS re-parents it into the focused row's
+         .asn-suggest-wrap (position:relative) as the operator types. */}}
+    <div id="asn-suggest" class="asn-suggest-box" hidden></div>
+  </div>
+
+  {{/* ── ASN-exempt paths: skip the ASN axis ONLY.  The country axis and
+       ja4/honeypot/ua/rate/ban still run.  For endpoints that legitimately
+       draw datacenter bots -- RSS/Atom feeds. ── */}}
+  <div class="bcd-card">
+    <h2>
+      {{ t .Lang "settings.asn.exempt.title" }}
+      <button type="button" class="ua-help-trigger" data-help-target="ax-help" aria-label="?">?</button>
+      <script type="text/html" id="ax-help">{{ safeHTML (t .Lang "settings.asn.exempt.desc") }}</script>
+    </h2>
+    <div class="rule-list" data-rule-name="ax_path">
+      {{ range .AsnExemptRows }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+        <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
+        <input type="hidden" name="ax_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+        <input type="text" name="ax_site" list="ax-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="ax_enabled" value="1">
+          <input type="hidden" name="ax_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
+          </span>
+          <input type="text" name="ax_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="ax_path"  value="" placeholder="{{ t .Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+          <input type="text" name="ax_site" list="ax-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="ax_path">{{ t .Lang "settings.ua.add_new" }}</button>
+    <datalist id="ax-site-candidates">
+      {{ range .Sites }}<option value="{{ . }}">{{ end }}
+    </datalist>
+  </div>
+
+  <div style="margin-top:1rem">
+    <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
   </div>
 </form>
+{{/* Reserve room below the save button from first paint (== the dropdown's
+     max-height), so opening the absolutely-positioned suggest list never grows
+     the page scrollHeight -- which is what jitters the scrollbar.  The space
+     must exist *before* the dropdown opens, so this is a fixed height, not
+     JS-driven. */}}
+<div id="asn-suggest-spacer" aria-hidden="true" style="height:20rem"></div>
 
 <script>
 (function(){
-  var tbody     = document.getElementById('geo-rows');
-  var empty     = document.getElementById('geo-empty');
-  var addInput  = document.getElementById('geo-add-input');
-  var addBtn    = document.getElementById('geo-add-btn');
-  var checkAll  = document.getElementById('geo-check-all');
-  var selCount  = document.getElementById('geo-sel-counter');
-  var bulkPick  = document.getElementById('geo-bulk-action');
-  var bulkBtn   = document.getElementById('geo-bulk-apply');
-
-  // Country master for client-side validation + name display.  Datalist
-  // option text format: "JP - Japan (native name)", so we slice off the
-  // code prefix.
-  var COUNTRIES = {};
-  document.querySelectorAll('#geo-country-datalist option').forEach(function(o){
-    var label = o.textContent || '';
-    var dash = label.indexOf(' — ');
-    COUNTRIES[o.value] = dash >= 0 ? label.slice(dash + 3) : '';
-  });
-
-  function refreshSelCount(){
-    var n = tbody.querySelectorAll('input.geo-sel:checked').length;
-    selCount.textContent = 'selected: ' + n;
+  // Rate placeholders track the default-rate field live: an empty rate field
+  // reads "inherit (N)" / "inherit (none)" and updates as the default changes,
+  // so a blank row always shows what will actually apply.
+  var defRate = document.querySelector('input[name="asn_default_rate"]');
+  var RATE_PH_PAT  = '{{ t .Lang "settings.asn.rate_inherit_ph" }}';  // e.g. "inherit (%v)"
+  var RATE_PH_NONE = '{{ t .Lang "settings.asn.rate_ph" }}';          // e.g. "none"
+  var RATE_UNIT    = '{{ t .Lang "settings.asn.rate_unit" }}';        // e.g. "req/min"
+  function ratePh(){
+    var v = parseInt(defRate && defRate.value, 10);
+    return RATE_PH_PAT.replace('%v', (v > 0) ? String(v) : RATE_PH_NONE);
   }
-  function reindexCheckboxNames(){
-    // After add / delete, re-number the per-row checkbox name suffixes so
-    // applyGeoForm's positional zip lines up with the country/action arrays.
-    Array.from(tbody.children).forEach(function(tr, i){
-      tr.dataset.i = i;
-      var en = tr.querySelector('input[name^="geo_enabled_"]');
-      if (en) en.name = 'geo_enabled_' + i;
-    });
-    empty.style.display = tbody.children.length ? 'none' : '';
+  function refreshRatePh(){
+    var ph = ratePh();
+    Array.prototype.forEach.call(
+      document.querySelectorAll('input[name="asn_rate"], input[name^="asn_provider_rate_"]'),
+      function(i){ i.placeholder = ph; });
+    // The view rows' inherited-rate pills track the default too, so the list
+    // always reads what will actually apply.
+    var v = parseInt(defRate && defRate.value, 10);
+    var pill = (v > 0) ? ph + ' ' + RATE_UNIT : ph;
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.asn-rate-pill.inherit'),
+      function(p){ p.textContent = pill; });
   }
-  function addRow(code){
-    var tr = document.createElement('tr');
-    var idx = tbody.children.length;
-    tr.dataset.i = idx;
-    var name = COUNTRIES[code] || '';
-    // textContent assignment dodges innerHTML escaping for the name.
-    var ccCode = document.createElement('span'); ccCode.className = 'cc-code'; ccCode.textContent = code;
-    var ccName = document.createElement('span'); ccName.className = 'cc-name'; ccName.textContent = name;
-    var ccCell = document.createElement('span'); ccCell.className = 'cc-cell'; ccCell.appendChild(ccCode); ccCell.appendChild(ccName);
-    tr.innerHTML =
-      '<td class="col-check"><input type="checkbox" class="geo-sel"></td>' +
-      '<td class="col-country"><input type="hidden" name="geo_country" value="' + code + '"></td>' +
-      '<td class="col-action"><select name="geo_action">' +
-        '<option value="">(inherit)</option>' +
-        '<option value="skip">skip</option>' +
-        '<option value="pow_only">pow_only</option>' +
-        '<option value="captcha_only">captcha_only</option>' +
-        '<option value="pow_then_captcha">pow_then_captcha</option>' +
-        '<option value="deny">deny</option>' +
-      '</select></td>' +
-      '<td class="col-enabled"><input type="checkbox" name="geo_enabled_' + idx + '" value="1" checked></td>' +
-      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
-    tr.querySelector('td.col-country').appendChild(ccCell);
-    tbody.appendChild(tr);
-    reindexCheckboxNames();
+  if (defRate) defRate.addEventListener('input', refreshRatePh);
+
+  // The inherit-action labels track the registered-rule default action the
+  // same way: the "(inherit)" option in every row/preset action select and the
+  // view rows' inherit pills re-resolve as the operator changes it.
+  var defRuleAct = document.querySelector('select[name="asn_default_rule_action"]');
+  function refreshActInherit(){
+    if (!defRuleAct) return;
+    var lbl = RATE_PH_PAT.replace('%v', defRuleAct.value);
+    Array.prototype.forEach.call(
+      document.querySelectorAll('select[name="asn_action"] option[value=""], select[name^="asn_provider_action_"] option[value=""]'),
+      function(o){ o.textContent = lbl; });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.asn-act-pill.inherit'),
+      function(p){ p.textContent = lbl; });
   }
-  addBtn.addEventListener('click', function(){
-    var raw = (addInput.value || '').trim().toUpperCase();
-    if (!raw) return;
-    if (!COUNTRIES[raw]) { alert('Unknown country code: ' + raw); return; }
-    // Skip if already present.
-    var exists = Array.from(tbody.querySelectorAll('input[name="geo_country"]'))
-      .some(function(i){ return i.value.trim().toUpperCase() === raw; });
-    if (exists) { addInput.value = ''; return; }
-    addRow(raw);
-    addInput.value = '';
-  });
-  addInput.addEventListener('keydown', function(e){
-    if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
-  });
+  if (defRuleAct) defRuleAct.addEventListener('change', refreshActInherit);
 
-  checkAll.addEventListener('change', function(){
-    tbody.querySelectorAll('input.geo-sel').forEach(function(i){ i.checked = checkAll.checked; });
-    refreshSelCount();
-  });
-  tbody.addEventListener('change', function(e){
-    if (e.target.classList.contains('geo-sel')) refreshSelCount();
-    if (e.target.name && e.target.name.indexOf('geo_enabled_') === 0) {
-      var tr = e.target.closest('tr');
-      if (tr) tr.classList.toggle('row-disabled', !e.target.checked);
-    }
-  });
-  tbody.addEventListener('click', function(e){
-    if (e.target.classList.contains('del-btn')) {
-      e.target.closest('tr').remove();
-      reindexCheckboxNames();
-      refreshSelCount();
-    }
+  // preset bulk controls
+  var chks = Array.prototype.slice.call(document.querySelectorAll('.asn-preset-chk'));
+  var onBtn = document.getElementById('asn-preset-all-on');
+  var offBtn = document.getElementById('asn-preset-all-off');
+  var bulk = document.getElementById('asn-preset-bulk-action');
+  if (onBtn) onBtn.addEventListener('click', function(){ chks.forEach(function(c){ c.checked = true; }); });
+  if (offBtn) offBtn.addEventListener('click', function(){ chks.forEach(function(c){ c.checked = false; }); });
+  if (bulk) bulk.addEventListener('change', function(){
+    if (!bulk.value) return;
+    document.querySelectorAll('.asn-preset-action').forEach(function(s){ s.value = bulk.value; });
+    bulk.value = '';
   });
 
-  bulkBtn.addEventListener('click', function(){
-    var op = bulkPick.value;
-    if (!op) return;
-    var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(tr){
-      var c = tr.querySelector('input.geo-sel');
-      return c && c.checked;
-    });
-    if (rows.length === 0) { alert('select rows first'); return; }
-    rows.forEach(function(tr){
-      if (op === 'skip' || op === 'pow_only' || op === 'captcha_only' || op === 'pow_then_captcha' || op === 'deny') {
-        var sel = tr.querySelector('select[name="geo_action"]'); if (sel) sel.value = op;
-      } else if (op === 'enable' || op === 'disable') {
-        var en = tr.querySelector('input[name^="geo_enabled_"]');
-        if (en) { en.checked = op === 'enable'; tr.classList.toggle('row-disabled', op === 'disable'); }
-      } else if (op === 'delete') {
-        tr.remove();
-      }
-    });
-    if (op === 'delete') reindexCheckboxNames();
-    refreshSelCount();
+  // whole-row toggle: clicking anywhere in a provider row flips its checkbox,
+  // except the action <td> (so the dropdown stays usable) and the checkbox
+  // itself (which the browser already toggles natively -- avoid a double flip).
+  var presetTable = document.querySelector('.asn-preset-table');
+  if (presetTable) presetTable.addEventListener('click', function(e){
+    if (e.target.closest('.asn-action-cell')) return;
+    if (e.target.closest('.asn-rate-cell')) return;
+    if (e.target.classList.contains('asn-preset-chk')) return;
+    var row = e.target.closest('tr');
+    var box = row && row.querySelector('.asn-preset-chk');
+    if (box) box.checked = !box.checked;
   });
 
-  // Initial empty-state visibility.
-  empty.style.display = tbody.children.length ? 'none' : '';
-})();
-</script>
-
-<script>
-// ASN rules table (sibling of the geo table above; simpler — free-text AS
-// number + label, no country master).  Lives in the same geo form so one save
-// persists both.
-(function(){
-  var tbody   = document.getElementById('asn-rows');
-  var empty   = document.getElementById('asn-empty');
-  var addNum  = document.getElementById('asn-add-input');
-  var addLbl  = document.getElementById('asn-add-label');
-  var addBtn  = document.getElementById('asn-add-btn');
-  if (!tbody) return;
-
-  var ACTIONS = ['', 'skip', 'pow_only', 'captcha_only', 'pow_then_captcha', 'deny'];
-  var ALABEL  = { '': '(inherit)', skip: 'skip', pow_only: 'pow_only', captcha_only: 'captcha_only', pow_then_captcha: 'pow_then_captcha', deny: 'deny' };
-
+  // ── custom rules: shared rule-list + live mmdb suggest (delegated) ──
+  // The generic rule-list script (bottom of the page) drives the row editing;
+  // this block only (a) re-parents the one shared suggest dropdown into
+  // whichever row's asn_number input the operator is typing in, querying the
+  // installed ASN mmdb (text -> orgs with member AS numbers; number -> exact
+  // AS pinpoint), and (b) re-stamps rate placeholders on freshly added rows.
+  var asnList = document.querySelector('.rule-list[data-rule-name="asn_number"]');
+  var sugBox = document.getElementById('asn-suggest');
+  if (!asnList || !sugBox) return;
+  var SUGGEST_URL = {{ .BasePath }} + '/admin/settings/asn/suggest';
+  var SUG_NONE = '{{ t .Lang "settings.asn.suggest_none" }}';
+  var sugTimer = null, sugItems = [], sugActive = -1, sugSeq = 0, curNum = null;
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-
-  function reindex(){
-    Array.prototype.forEach.call(tbody.children, function(tr, i){
-      tr.setAttribute('data-i', i);
-      var en = tr.querySelector('input[type=checkbox][name^="asn_enabled_"]');
-      if (en) en.name = 'asn_enabled_' + i;
-    });
-    empty.style.display = tbody.children.length ? 'none' : '';
+  function fmtSize(s){
+    if (s >= 1000000) return (s/1000000).toFixed(1)+'M×/24';
+    if (s >= 1000) return Math.round(s/1000)+'k×/24';
+    return s+'×/24';
   }
-
-  function addRow(asn, label){
-    var opts = ACTIONS.map(function(a){ return '<option value="'+a+'">'+ALABEL[a]+'</option>'; }).join('');
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td class="col-country"><input type="hidden" name="asn_number" value="'+asn+'"><span class="cc-code">AS'+asn+'</span></td>' +
-      '<td><input type="text" name="asn_label" value="'+esc(label||'')+'" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
-      '<td class="col-action"><select name="asn_action">'+opts+'</select></td>' +
-      '<td class="col-enabled"><input type="checkbox" value="1" checked></td>' +
-      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
-    tbody.appendChild(tr);
-    reindex();
+  // Page height is kept stable by a fixed-height spacer below the save button
+  // (== the dropdown max-height, reserved from first paint), so opening the
+  // dropdown never changes scrollHeight.  No JS height juggling needed.
+  function hideSug(){ sugBox.hidden = true; sugBox.innerHTML=''; sugItems=[]; sugActive=-1; }
+  function renderSug(items){
+    sugItems = items; sugActive = -1;
+    if (!items.length){ sugBox.innerHTML = '<div class="asn-suggest-empty">'+esc(SUG_NONE)+'</div>'; sugBox.hidden=false; return; }
+    sugBox.innerHTML = items.map(function(it, i){
+      if (it.kind === 'asn'){
+        return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
+          + '<span class="s-org"><span class="s-kind asn">AS</span>'+esc(it.value)+' — '+esc(it.org)+'</span>'
+          + '<span class="s-size">'+fmtSize(it.size24)+'</span></div></div>';
+      }
+      var asns = (it.asns||[]).map(function(n){ return 'AS'+n; }).join(', ');
+      if (it.asn_more>0) asns += ' +'+it.asn_more;
+      return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
+        + '<span class="s-org"><span class="s-kind org">ORG</span>'+esc(it.org)+'</span>'
+        + '<span class="s-size">'+fmtSize(it.size24)+'</span></div>'
+        + (asns ? '<div class="s-asns">'+esc(asns)+'</div>' : '') + '</div>';
+    }).join('');
+    sugBox.hidden = false;
   }
-
-  function doAdd(){
-    var raw = (addNum.value || '').trim().replace(/^AS/i, '');
-    var n = parseInt(raw, 10);
-    if (!n || n < 1 || !/^\d+$/.test(raw)) { addNum.focus(); return; }
-    var dup = Array.prototype.some.call(tbody.querySelectorAll('input[name="asn_number"]'), function(h){ return h.value === String(n); });
-    if (dup) { addNum.value = ''; addNum.focus(); return; }
-    addRow(n, (addLbl.value || '').trim());
-    addNum.value = ''; addLbl.value = ''; addNum.focus();
+  function pickSug(i){
+    var it = sugItems[i]; if (!it || !curNum) return;
+    curNum.value = it.value;
+    var row = curNum.closest('.rule-row');
+    var ttl = row && row.querySelector('input.rule-title');
+    if (ttl && !ttl.value && it.kind === 'org') ttl.value = it.org;
+    // Mark the row changed so the server re-stamps updated_at on save.
+    var upd = row && row.querySelector('input[type=hidden][name="asn_updated_at"]');
+    if (upd) upd.value = '0';
+    hideSug(); curNum.focus();
   }
-
-  addBtn.addEventListener('click', doAdd);
-  addNum.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
-  addLbl.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
-  tbody.addEventListener('click', function(e){
-    if (e.target.classList.contains('del-btn')) { e.target.closest('tr').remove(); reindex(); }
+  function querySug(){
+    if (!curNum) return;
+    var q = (curNum.value||'').trim();
+    if (q.length < 2){ hideSug(); return; }
+    var seq = ++sugSeq;
+    fetch(SUGGEST_URL + '?q=' + encodeURIComponent(q), {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : {items:[]}; })
+      .then(function(d){ if (seq === sugSeq) renderSug(d.items||[]); })
+      .catch(function(){ if (seq === sugSeq) hideSug(); });
+  }
+  function moveSug(d){
+    if (sugBox.hidden || !sugItems.length) return false;
+    sugActive = (sugActive + d + sugItems.length) % sugItems.length;
+    Array.prototype.forEach.call(sugBox.children, function(el,i){ el.classList.toggle('active', i===sugActive); });
+    return true;
+  }
+  // Delegated wiring: rows come and go (template clones), so listen on the list.
+  asnList.addEventListener('input', function(e){
+    var inp = e.target.closest('input[name="asn_number"]');
+    if (!inp) return;
+    curNum = inp;
+    var w = inp.closest('.asn-suggest-wrap');
+    if (w && sugBox.parentNode !== w) w.appendChild(sugBox);
+    clearTimeout(sugTimer); sugTimer = setTimeout(querySug, 180);
   });
-  reindex();
+  asnList.addEventListener('focusout', function(e){
+    if (e.target && e.target.name === 'asn_number') setTimeout(hideSug, 150);
+  });
+  sugBox.addEventListener('mousedown', function(e){ // mousedown fires before blur
+    var el = e.target.closest('.asn-suggest-item');
+    if (el){ e.preventDefault(); pickSug(parseInt(el.getAttribute('data-i'),10)); }
+  });
+  asnList.addEventListener('keydown', function(e){
+    if (!e.target || e.target.name !== 'asn_number') return;
+    if (e.key === 'ArrowDown'){ if (moveSug(1)) e.preventDefault(); return; }
+    if (e.key === 'ArrowUp'){ if (moveSug(-1)) e.preventDefault(); return; }
+    if (e.key === 'Escape'){ if (!sugBox.hidden){ hideSug(); e.preventDefault(); } return; }
+    if (e.key === 'Enter'){
+      e.preventDefault(); // pick, never submit the form from the target field
+      if (!sugBox.hidden && sugActive >= 0) pickSug(sugActive);
+    }
+  });
+  // Rows cloned from the template carry the placeholder rendered at page load;
+  // re-stamp after any row addition so a changed default rate shows through.
+  document.addEventListener('click', function(e){
+    if (e.target.closest('.rule-add-bottom[data-target-list="asn_number"]') ||
+        (e.target.closest('.rule-list[data-rule-name="asn_number"]') && e.target.closest('.rule-add'))) {
+      setTimeout(refreshRatePh, 0);
+    }
+  });
 })();
 </script>
 {{ end }}
@@ -3930,7 +4381,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="rl-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="rl-deny-copy-preset" name="deny_copy_preset" data-deny-preset style="width:18rem">
-        <option value=""         {{ if eq $dp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""         {{ if eq $dp "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "friendly" }}</option>
         <option value="friendly" {{ if eq $dp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $dp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $dp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
@@ -3953,7 +4404,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="ban-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="ban-deny-copy-preset" name="ban_copy_preset" data-deny-preset style="width:18rem">
-        <option value=""         {{ if eq $bp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""         {{ if eq $bp "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "friendly" }}</option>
         <option value="friendly" {{ if eq $bp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $bp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $bp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
@@ -5370,7 +5821,9 @@ document.addEventListener('DOMContentLoaded', function(){
         const clone = row.cloneNode(true);
         clone.classList.add('editing');
         clone.classList.remove('disabled-row');
-        clone.querySelectorAll('input[type=text]').forEach(function(i){ i.value = ''; });
+        clone.querySelectorAll('input[type=text], input[type=number]').forEach(function(i){ i.value = ''; });
+        // reset selects (action pickers etc.) to their first option (= inherit/default)
+        clone.querySelectorAll('select').forEach(function(s){ s.selectedIndex = 0; });
         // reset checkbox / hidden to enabled (= 1) on the new row.
         const cb = clone.querySelector('input.rule-toggle');
         if (cb) cb.checked = true;

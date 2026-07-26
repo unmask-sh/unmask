@@ -41,6 +41,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
@@ -204,6 +205,22 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Forwarded-Host"),
 		r.Host,
 	)
+	// Header-integrity inputs.  Via the forward-auth subrequest the snippet
+	// forwards the original client's values on X-Original-*; on a direct hit
+	// (native machinery / a bare curl) fall back to the live request.  A direct
+	// request that terminated TLS on this daemon has r.TLS set; behind an LB the
+	// snippet's X-Original-Scheme carries the edge scheme.
+	secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
+	scheme := firstNonEmpty(r.Header.Get("X-Original-Scheme"), func() string {
+		if r.TLS != nil {
+			return "https"
+		}
+		return ""
+	}())
+	// h2/h3: the snippet forwards nginx's $http2/$http3 (non-empty on those
+	// protocols); a direct request exposes it via r.ProtoMajor / Proto.
+	modernHTTP := r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" ||
+		r.ProtoMajor >= 2
 	// Keep the published snapshot POINTER too: it identifies the settings
 	// generation and is the bypassMatchers cache key (a value copy's address
 	// changes per call and can never hit).
@@ -302,6 +319,26 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// a bypass IP/path, or a signed-agent header.  The old forward-auth pipeline
 	// put ban in the max-severity group AFTER those veto-passes, letting a banned
 	// bot slip through on a bypass path or a still-valid _bv (up to 3 days).
+	// rDNS crawler authentication.  It runs ONLY for a crawler-claim NOT already
+	// covered by a bypass IP range: for a vendor that publishes ranges (Googlebot,
+	// Bingbot) an in-range visitor is authoritatively verified by the range, so
+	// rDNS would be a redundant DNS lookup.  rDNS earns its keep off-range -- a
+	// range-less crawler (YandexBot/Baiduspider), a range that has drifted, or a
+	// forgery claiming a range vendor from outside its range.  The request path
+	// only READS the cache (no DNS, no latency); a miss schedules a background
+	// check and falls through.  Verified/Forged sit at the top of the veto switch,
+	// above the blind UA rescue a forgery must not reach.
+	var cvResult crawlerverify.Result
+	cvActionable := false
+	if claimed := crawlerverify.ClaimedCrawler(ua); h.CrawlerVerify != nil && cfg.Nginx.CrawlerVerify.Enabled &&
+		claimed != "" && cfg.Nginx.CrawlerVerify.CrawlerActive(claimed) && !matchers.ipBypass.Match(ip) {
+		if res, ok := h.CrawlerVerify.Cached(ip, ua); !ok {
+			h.CrawlerVerify.VerifyAsync(ip, ua)
+		} else if res.Status == crawlerverify.Verified || res.Status == crawlerverify.Forged {
+			cvResult, cvActionable = res, true
+		}
+	}
+
 	if d, ok := banDecide(r.Context(), h.BanMgr, ip, cfg); ok {
 		if d.sev == sevDeny {
 			action, reason, status = "block", d.reason, http.StatusForbidden
@@ -311,6 +348,20 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		honeypotChMode = d.chMode
 	} else {
 		switch {
+		// (2a) rDNS crawler verdict — authoritative for a claimed crawler.
+		case cvActionable && cvResult.Status == crawlerverify.Verified:
+			// A genuine crawler, confirmed against the vendor's rDNS regardless of
+			// whether its IP is in a bypass range preset (ranges drift).
+			action, reason, status = "pass", "crawler:verified:"+cvResult.Crawler, http.StatusOK
+		case cvActionable && cvResult.Status == crawlerverify.Forged:
+			// UA claims a crawler but rDNS disproves it: the fake-Googlebot class.
+			d := forgedCrawlerDecision(cfg.Nginx.CrawlerVerify, cvResult.Crawler)
+			if d.sev == sevDeny {
+				action, reason, status = "block", d.reason, http.StatusForbidden
+			} else {
+				action, reason, status = "challenge", d.reason, http.StatusUnauthorized
+			}
+			honeypotChMode = d.chMode
 		// (2) Veto-passes, in native order.  Each is a hard pass that wins over
 		// the gating axes below.
 		case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
@@ -344,11 +395,18 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
 			decisions := make([]axisDecision, 0, 6)
-			if d, ok := h.geoDecide(ip, cfg); ok {
-				decisions = append(decisions, d)
+			// Per-axis exempt paths (RSS/Atom feeds etc.): each skips ONLY its
+			// own axis; honeypot / protected / ja4 / ua below still run.  (A
+			// full pass is bypass:path, in the veto switch before this case.)
+			if !matchPath(uri, matchers.geoExempt) {
+				if d, ok := h.geoDecide(ip, cfg); ok {
+					decisions = append(decisions, d)
+				}
 			}
-			if d, ok := h.asnDecide(ip, cfg); ok {
-				decisions = append(decisions, d)
+			if !matchPath(uri, matchers.asnExempt) {
+				if d, ok := h.asnDecide(ip, cfg); ok {
+					decisions = append(decisions, d)
+				}
 			}
 			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip); ok {
 				decisions = append(decisions, d)
@@ -360,6 +418,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 				decisions = append(decisions, d)
 			}
 			if d, ok := uaDecide(ua, ja4Action, cfg, matchers.rangeVerifiedUA); ok {
+				decisions = append(decisions, d)
+			}
+			if d, ok := headerDecide(ua, secChUA, scheme, modernHTTP, cfg.Global); ok {
 				decisions = append(decisions, d)
 			}
 			winner, suppressed := pickStrongest(decisions)
@@ -413,6 +474,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		reason != "bypass:ip" &&
 		reason != "bypass:path" &&
 		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
+		!strings.HasPrefix(reason, "crawler:verified") && // rDNS-verified crawlers are as trusted as a bypass IP
+
 		!strings.HasPrefix(reason, "signed_agent:") && // verified Web Bot Auth agents aren't rate-limited
 		!strings.HasPrefix(reason, "privacy_pass:") && // attested PAT clients aren't rate-limited
 		action != "block"
@@ -589,12 +652,32 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 // geoDecide consults settings.Nginx.Geo for the visitor's country.  Country
 // resolution (= mmdb lookup) and the per-country policy decision are split
 // so the latter can be table-tested.
+// forgedCrawlerDecision maps the operator's ForgedAction to a decision, reusing
+// the shared severity/chMode mapping so a forged crawler challenges (or denies)
+// exactly like the gating axes.
+func forgedCrawlerDecision(cfg settings.CrawlerVerifyConfig, crawler string) axisDecision {
+	reason := "crawler:forged:" + crawler
+	act := cfg.ResolvedForgedAction()
+	if act == settings.GeoActionDeny {
+		return axisDecision{sev: sevDeny, reason: reason}
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: reason, chMode: chModeFromSeverity(s)}
+}
+
 func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
 	if h.IPGeo == nil || !h.IPGeo.Loaded() {
 		return axisDecision{}, false
 	}
 	country := strings.ToUpper(strings.TrimSpace(h.IPGeo.LookupInfo(ip).Country))
-	return geoDecideForCountry(country, cfg.Nginx.Geo)
+	d, rate, ok := geoDecideForCountry(country, cfg.Nginx.Geo)
+	if !ok {
+		return axisDecision{}, false
+	}
+	// rate>0 throttles the country to N req/min (one shared counter per
+	// country); the action fires only on the overage -- the by-country twin
+	// of the ASN rate path.
+	return applyNetRate(d, "geo:"+country, rate, h.RateLimiter)
 }
 
 // geoDecideForCountry: pure decision given a resolved country string.
@@ -603,62 +686,139 @@ func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, boo
 //     declines to act for this country; lets other axes decide)
 //   - "deny" -> sevDeny
 //   - challenge-mode action -> matching severity, chMode set
-func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, bool) {
+//
+// A REGISTERED country with a blank action inherits DefaultRuleAction (a
+// registered row exists to act); only an unmatched country falls to
+// DefaultAction.  rate is the matched rule's effective RatePerMin (0 for an
+// unmatched country -- the default action is never throttled).
+func geoDecideForCountry(country string, geo settings.GeoConfig) (d axisDecision, rate int, ok bool) {
 	if country == "" {
-		return axisDecision{}, false
+		return axisDecision{}, 0, false
 	}
 	act := geo.ResolvedDefaultAction()
-	rule := geo.LookupRule(country)
-	if rule != nil && strings.TrimSpace(rule.Action) != "" {
+	if rule := geo.LookupRule(country); rule != nil {
 		act = rule.Action
+		if strings.TrimSpace(act) == "" {
+			act = geo.ResolvedDefaultRuleAction()
+		}
+		rate = geo.EffectiveRatePerMin(rule.RatePerMin)
 	}
 	switch act {
 	case "", settings.GeoActionSkip:
-		return axisDecision{}, false
+		return axisDecision{}, 0, false
 	case settings.GeoActionDeny:
-		return axisDecision{sev: sevDeny, reason: "geo:" + country + ":deny"}, true
+		return axisDecision{sev: sevDeny, reason: "geo:" + country + ":deny"}, rate, true
 	default:
 		s := severityFromAction(act)
-		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, true
+		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, rate, true
 	}
 }
 
 // asnDecide consults settings.Nginx.Asn for the visitor's autonomous system.
 // The by-network sibling of geoDecide: same lookup source (the ASN mmdb via
-// IPGeo), same decision machinery.  Inert when no ASN db is loaded so an
-// install with only the country db never fires ASN rules.
+// IPGeo), same decision machinery.  Matches on the exact AS number and the
+// organization name (so a "Microsoft" org rule / the Microsoft catalog
+// provider covers all of Azure's ASNs).  Inert when no ASN db is loaded.
 func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, bool) {
 	if h.IPGeo == nil || !h.IPGeo.ASNLoaded() {
 		return axisDecision{}, false
 	}
-	return asnDecideForASN(h.IPGeo.LookupInfo(ip).ASN, cfg.Nginx.Asn)
+	info := h.IPGeo.LookupInfo(ip)
+	d, netKey, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn)
+	if !ok {
+		return axisDecision{}, false
+	}
+	return applyNetRate(d, netKey, rate, h.RateLimiter)
 }
 
-// asnDecideForASN: pure decision given a resolved AS number.  Mirrors
-// geoDecideForCountry.
-//   - ASN 0 -> silent (mmdb miss / private IP, fail-open)
-//   - resolved action "skip" or empty -> silent
-//   - "deny" -> sevDeny
-//   - challenge-mode action -> matching severity, chMode set
-func asnDecideForASN(asn uint, cfg settings.AsnConfig) (axisDecision, bool) {
-	if asn == 0 {
+// applyNetRate turns a network-axis (asn/geo) action decision into its
+// rate-limited form.  rate<=0
+// -> the action applies to every request (return d unchanged).  rate>0 -> the
+// matched AS number is throttled to `rate` req/min (one shared counter); the
+// action fires only on the overage, and stays silent under the cap.  A nil
+// limiter can't count, so it fails open (silent).
+// netRateOverageAction resolves the action a native rate-limit OVERAGE should
+// serve for a client, re-deriving its ASN / country from the IP (native only
+// carries "you hit a rate zone", not which rule).  It answers the ASN/geo
+// per-rule action when the client matches a rate-mode rule, else "".  Exact-AS
+// / org rules win over the country rule when both match (ASN is the more
+// specific network signal), matching the max-specificity intent -- but note
+// the caller only reaches here on an overage, so either rule firing is enough.
+func (h *Handler) netRateOverageAction(ip string, cfg settings.Settings) string {
+	if h.IPGeo == nil || ip == "" {
+		return ""
+	}
+	info := h.IPGeo.LookupInfo(ip)
+	// ASN first (more specific).
+	if h.IPGeo.ASNLoaded() {
+		for _, rr := range cfg.Nginx.Asn.RateRules() {
+			if (rr.ASN != 0 && info.ASN == rr.ASN) ||
+				(rr.ASN == 0 && rr.Org != "" && settings.OrgMatchesAny(info.ASNOrg, []string{rr.Org})) {
+				return rr.Action
+			}
+		}
+	}
+	if h.IPGeo.Loaded() {
+		cc := strings.ToUpper(strings.TrimSpace(info.Country))
+		for _, rr := range cfg.Nginx.Geo.RateRules() {
+			if rr.Country == cc {
+				return rr.Action
+			}
+		}
+	}
+	return ""
+}
+
+func applyNetRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {
+	if rate <= 0 {
+		return d, true
+	}
+	if rl == nil {
 		return axisDecision{}, false
 	}
-	act := cfg.ResolvedDefaultAction()
-	rule := cfg.LookupRule(asn)
-	if rule != nil && strings.TrimSpace(rule.Action) != "" {
-		act = rule.Action
+	if !rl.Hit("netrate|"+netKey, ratelimit.Spec{RequestsPerMin: rate, WindowSec: 60}).Hit {
+		return axisDecision{}, false // under the cap -> pass
 	}
-	tag := "asn:AS" + strconv.FormatUint(uint64(asn), 10)
+	d.reason = netKey + ":rate>" + strconv.Itoa(rate) + strings.TrimPrefix(d.reason, netKey)
+	return d, true
+}
+
+// asnResolve is the pure ASN resolution: the matched rule/provider -> an action
+// decision, plus the network key (per-AS-number counter) and the rule's
+// RatePerMin.  netKey is "asn:AS<n>" (or "asn:<org>" when the AS number is
+// unknown).
+//   - no match / action skip|empty -> silent
+//   - deny -> sevDeny ; challenge-mode action -> matching severity + chMode
+func asnResolve(asn uint, org string, cfg settings.AsnConfig) (d axisDecision, netKey string, rate int, ok bool) {
+	if asn == 0 && org == "" {
+		return axisDecision{}, "", 0, false
+	}
+	act, r, matched := cfg.ResolveRule(asn, org)
+	if !matched {
+		return axisDecision{}, "", 0, false
+	}
+	netKey = "asn:"
+	if asn != 0 {
+		netKey += "AS" + strconv.FormatUint(uint64(asn), 10)
+	} else {
+		netKey += org
+	}
 	switch act {
 	case "", settings.GeoActionSkip:
-		return axisDecision{}, false
+		return axisDecision{}, "", 0, false
 	case settings.GeoActionDeny:
-		return axisDecision{sev: sevDeny, reason: tag + ":deny"}, true
+		return axisDecision{sev: sevDeny, reason: netKey + ":deny"}, netKey, r, true
 	default:
 		s := severityFromAction(act)
-		return axisDecision{sev: s, reason: tag + ":" + act, chMode: chModeFromSeverity(s)}, true
+		return axisDecision{sev: s, reason: netKey + ":" + act, chMode: chModeFromSeverity(s)}, netKey, r, true
 	}
+}
+
+// asnDecideFor is the immediate action decision (rate ignored), retained for the
+// unit test and any caller that only needs the per-request verdict.
+func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, bool) {
+	d, _, _, ok := asnResolve(asn, org, cfg)
+	return d, ok
 }
 
 // honeypotDecide returns a decision when the URI matches a honeypot path.
@@ -767,6 +927,32 @@ func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, s
 	return axisDecision{sev: s, reason: "protected-path", chMode: chModeFromSeverity(s)}, true
 }
 
+// headerDecide fires the header-integrity axis: a UA advertising a
+// Chromium-family browser, over HTTPS on h2/h3, that carries no Sec-CH-UA is a
+// spoof tell (a real Chromium sends client hints in that context).  All four
+// preconditions must hold -- anything failing one is silent, which is the
+// structural FP fence: the axis never fires on the populations that
+// legitimately lack the header (HTTP, HTTP/1.1, Firefox/Safari, TLS-intercept
+// proxies over http).  Severity is clamped to the operator's action, which is
+// itself clamped to pow/captcha (never deny) by HeaderIntegrityResolvedAction.
+func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.GlobalConfig) (axisDecision, bool) {
+	if !g.HeaderIntegrity {
+		return axisDecision{}, false
+	}
+	if classify.ChromeMajor(ua) == 0 { // not Chromium-family -> no opinion
+		return axisDecision{}, false
+	}
+	if scheme != "https" || !modernHTTP {
+		return axisDecision{}, false // no secure/modern context -> CH legitimately absent
+	}
+	if strings.TrimSpace(secChUA) != "" {
+		return axisDecision{}, false // the header is present -> consistent
+	}
+	act := g.HeaderIntegrityResolvedAction()
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: "header:no_sch_ua", chMode: chModeFromSeverity(s)}, true
+}
+
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
 // Severity is captcha_only (= JA4 bot is a strong signal so the chain
 // skips PoW and goes straight to CAPTCHA, matching the legacy semantics).
@@ -833,7 +1019,7 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 	staleReason := ""
 	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
 		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
-			g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
+			g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
 		pick = g.StaleBrowserResolvedAction()
 		staleReason = "ua:stale_browser:" + pick
 	}
@@ -1119,6 +1305,8 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 
 type pathMatchers struct {
 	bypass    []*regexp.Regexp
+	geoExempt []*regexp.Regexp // country-axis-only exemption (RSS/Atom feeds etc.); asn/ja4/honeypot/ua still run
+	asnExempt []*regexp.Regexp // ASN-axis-only exemption; geo/ja4/honeypot/ua still run
 	honeypot  []honeypotRule
 	protected []*regexp.Regexp
 	ipBypass  *nginxconf.IPBypassMatcher
@@ -1246,6 +1434,23 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			pm.bypass = append(pm.bypass, re)
 		}
 	}
+
+	// Per-axis exempt paths (no presets).  Same compile convention as bypass
+	// paths; each list is matched in the decision's default case to skip ONLY
+	// its own axis (geoDecide or asnDecide).
+	compileExemptRows := func(rows []settings.BypassPath) (out []*regexp.Regexp) {
+		for _, row := range rows {
+			if row.Disabled {
+				continue
+			}
+			if re := compileCachedRe("(?i)" + row.Path); re != nil {
+				out = append(out, re)
+			}
+		}
+		return out
+	}
+	pm.geoExempt = compileExemptRows(n.Geo.ResolveExemptPaths(site))
+	pm.asnExempt = compileExemptRows(n.Asn.ResolveExemptPaths(site))
 
 	// honeypot: enabled presets + per-site URLs.  Each rule carries its
 	// per-preset (PresetAction[g.ID]) / per-row (u.Action) action override so
