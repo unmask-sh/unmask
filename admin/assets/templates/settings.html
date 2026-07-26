@@ -241,7 +241,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .asn-preset-table td.asn-action-cell{cursor:default}
 .asn-preset-table td.asn-rate-cell{cursor:default}
 /* asn custom-rule live suggest (queries the installed ASN mmdb) */
+/* country / AS code inside a rule-list view row (geo + asn custom rules) */
+.rule-view .pat .cc-code{font-weight:700;color:#0f172a}
 .asn-suggest-wrap{position:relative;display:inline-block}
+/* inside a rule-list row the wrap takes the rule-pat slot (flex:2) and is
+   editing-only, mirroring the .rule-pat toggle it now contains */
+.rule-row .asn-suggest-wrap{flex:2;display:flex}
+.rule-row .asn-suggest-wrap .rule-pat{flex:1;width:100%}
+.rule-row:not(.editing) .asn-suggest-wrap{display:none}
 .asn-suggest-box{position:absolute;top:100%;left:0;z-index:30;min-width:24rem;max-width:36rem;max-height:20rem;overflow-y:auto;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;box-shadow:0 .4rem 1.4rem rgba(15,23,42,.14);margin-top:.15rem}
 .asn-suggest-box[hidden]{display:none}
 .asn-suggest-item{padding:.35rem .55rem;cursor:pointer;border-bottom:1px solid #f1f5f9;display:flex;flex-direction:column;gap:.12rem}
@@ -3219,32 +3226,6 @@ document.addEventListener("DOMContentLoaded", function(){
 {{ end }}
 
 {{ if eq .Tab "geo" }}
-<style>
-  .geo-tools{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin-bottom:.5rem}
-  /* a class selector out-specifies the UA [hidden] rule, so restore it for the
-     collapsible add form (geo/asn "新規追加"): without this it never hides. */
-  .geo-tools[hidden]{display:none}
-  .geo-tools .grow{flex:1}
-  .geo-tools button,.geo-tools select,.geo-tools input{font-size:.82rem;padding:.3rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
-  .geo-tools button{cursor:pointer}
-  .geo-tools button.primary{background:#1e40af;color:#fff;border-color:#1e40af}
-  table.geo{width:100%;border-collapse:collapse;font-size:.85rem}
-  table.geo thead th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
-  table.geo tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
-  table.geo tbody tr.row-disabled{opacity:.45}
-  table.geo .col-check{width:1.8rem}
-  table.geo .col-country{width:18rem}
-  table.geo .col-action{width:11rem}
-  table.geo .col-enabled{width:5rem;text-align:center}
-  table.geo .cc-cell{display:flex;align-items:baseline;gap:.4rem}
-  table.geo .cc-code{font-family:ui-monospace,Menlo,monospace;font-weight:700;color:#0f172a}
-  table.geo .cc-name{font-size:.78rem;color:#64748b}
-  table.geo .col-del{width:3rem;text-align:center}
-  table.geo input[type="text"],table.geo select{width:100%;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.2rem}
-  table.geo .country-input{font-family:ui-monospace,Menlo,monospace;text-transform:uppercase}
-  table.geo .del-btn{background:none;border:none;cursor:pointer;color:#dc2626;font-size:1.1rem;padding:0}
-  .geo-empty{padding:1rem;text-align:center;color:#94a3b8;font-size:.82rem}
-</style>
 
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=geo">
   <div class="bcd-card">
@@ -3280,89 +3261,73 @@ document.addEventListener("DOMContentLoaded", function(){
     <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rules_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rules_help") }}</div>
 
-    <button type="button" id="geo-add-toggle" class="rule-add-bottom" aria-expanded="false">{{ t .Lang "settings.ua.add_new" }}</button>
-    <div class="geo-tools" id="geo-add-form" hidden>
-      <input type="text" id="geo-add-input" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" style="width:14rem">
-      <input type="text" id="geo-add-label" placeholder="{{ t .Lang "settings.geo.label_ph" }}" style="width:12rem">
-      <select id="geo-add-action" title="{{ t .Lang "settings.geo.col_action" }}" style="font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
-        <option value="">(inherit default)</option>
-        <option value="skip">skip</option>
-        <option value="pow_only">pow_only</option>
-        <option value="captcha_only">captcha_only</option>
-        <option value="pow_then_captcha">pow_then_captcha</option>
-        <option value="deny">deny</option>
-      </select>
-      <button type="button" id="geo-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
+    {{/* Country rules as the shared rule-list (same look + interaction as the
+         exempt-path lists below): view row = memo / country + action pill;
+         pencil opens in-row editing; "+ add new" appends a blank editing row. */}}
+    <div class="rule-list" data-rule-name="geo_country">
+      {{ range $i, $r := .Nginx.Geo.Rules }}
+      {{ $c := index $.GeoCountryMap $r.Country }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
+        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+        <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }}{{ if $r.Action }} <span class="action-pill action-suspect">{{ $r.Action }}</span>{{ end }}</div>
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
+        <input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat">
+        <select name="geo_action" class="rule-action">
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+          <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+        </select>
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="geo_enabled" value="1">
+          <input type="hidden" name="geo_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.geo.add_ph" }}</div>
+          </span>
+          <input type="text" name="geo_label" value="" placeholder="{{ t .Lang "settings.geo.label_ph" }}" class="rule-title">
+          <input type="text" name="geo_country" value="" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" class="rule-pat">
+          <select name="geo_action" class="rule-action">
+            <option value="" selected>(inherit)</option>
+            <option value="skip">skip</option>
+            <option value="pow_only">pow_only</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="deny">deny</option>
+          </select>
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
     </div>
-    {{/* Multi-select bulk toolbar stays visible: it acts on rows ticked in the
-         table (action / enable / disable / delete), separate from adding. */}}
-    <div class="geo-tools">
-      <span id="geo-sel-counter" style="font-size:.78rem;color:#64748b">selected: 0</span>
-      <select id="geo-bulk-action" style="font-size:.82rem">
-        <option value="">{{ t .Lang "settings.geo.bulk_pick" }}…</option>
-        <option value="skip">action: skip</option>
-        <option value="pow_only">action: pow_only</option>
-        <option value="captcha_only">action: captcha_only</option>
-        <option value="pow_then_captcha">action: pow_then_captcha</option>
-        <option value="deny">action: deny</option>
-        <option value="enable">enable rules</option>
-        <option value="disable">disable rules</option>
-        <option value="delete">delete</option>
-      </select>
-      <button type="button" id="geo-bulk-apply">{{ t .Lang "settings.geo.bulk_apply" }}</button>
-    </div>
-
+    <button type="button" class="rule-add-bottom" data-target-list="geo_country">{{ t .Lang "settings.ua.add_new" }}</button>
     <datalist id="geo-country-datalist">
       {{ range .GeoCountriesAll }}
       <option value="{{ .Code }}">{{ .Code }} — {{ .NameEN }} ({{ .NameJP }})</option>
       {{ end }}
     </datalist>
-
-    <table class="geo">
-      <thead>
-        <tr>
-          <th class="col-check"><input type="checkbox" id="geo-check-all" title="{{ t .Lang "settings.geo.col_check" }}"></th>
-          <th class="col-country">{{ t .Lang "settings.geo.col_country" }}</th>
-          <th>{{ t .Lang "settings.geo.col_label" }}</th>
-          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
-          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
-          <th class="col-del"></th>
-        </tr>
-      </thead>
-      <tbody id="geo-rows">
-        {{ range $i, $r := .Nginx.Geo.Rules }}
-        {{ $c := index $.GeoCountryMap $r.Country }}
-        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
-          <td class="col-check"><input type="checkbox" class="geo-sel"></td>
-          <td class="col-country">
-            <input type="hidden" name="geo_country" value="{{ $r.Country }}">
-            <span class="cc-cell">
-              <span class="cc-code">{{ $r.Country }}</span>
-              <span class="cc-name">{{ if $c.NameEN }}{{ $c.NameEN }} ({{ $c.NameJP }}){{ end }}</span>
-            </span>
-          </td>
-          <td><input type="text" name="geo_label" value="{{ $r.Label }}" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>
-          <td class="col-action">
-            <select name="geo_action">
-              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
-              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
-              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
-              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
-              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
-            </select>
-          </td>
-          <td class="col-enabled">
-            <input type="checkbox" name="geo_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
-          </td>
-          <td class="col-del">
-            <button type="button" class="del-btn" title="delete">✖</button>
-          </td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    <div id="geo-empty" class="geo-empty"{{ if .Nginx.Geo.Rules }} style="display:none"{{ end }}>{{ t .Lang "settings.geo.empty" }}</div>
   </div>
 
   {{/* ── Geo-exempt paths: skip the COUNTRY axis only.  The ASN axis and
@@ -3428,137 +3393,6 @@ document.addEventListener("DOMContentLoaded", function(){
   </div>
 </form>
 
-<script>
-(function(){
-  var tbody     = document.getElementById('geo-rows');
-  var empty     = document.getElementById('geo-empty');
-  var addInput  = document.getElementById('geo-add-input');
-  var addBtn    = document.getElementById('geo-add-btn');
-  var checkAll  = document.getElementById('geo-check-all');
-  var selCount  = document.getElementById('geo-sel-counter');
-  var bulkPick  = document.getElementById('geo-bulk-action');
-  var bulkBtn   = document.getElementById('geo-bulk-apply');
-  var addAction = document.getElementById('geo-add-action');
-  var addLabel  = document.getElementById('geo-add-label');
-  var addToggle = document.getElementById('geo-add-toggle');
-  var addForm   = document.getElementById('geo-add-form');
-  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  // "新規追加" reveals the input form (collapsed by default, like other tabs).
-  if (addToggle && addForm) addToggle.addEventListener('click', function(){
-    addForm.hidden = !addForm.hidden;
-    addToggle.setAttribute('aria-expanded', addForm.hidden ? 'false' : 'true');
-    if (!addForm.hidden) addInput.focus();
-  });
-
-  // Country master for client-side validation + name display.  Datalist
-  // option text format: "JP - Japan (native name)", so we slice off the
-  // code prefix.
-  var COUNTRIES = {};
-  document.querySelectorAll('#geo-country-datalist option').forEach(function(o){
-    var label = o.textContent || '';
-    var dash = label.indexOf(' — ');
-    COUNTRIES[o.value] = dash >= 0 ? label.slice(dash + 3) : '';
-  });
-
-  function refreshSelCount(){
-    var n = tbody.querySelectorAll('input.geo-sel:checked').length;
-    selCount.textContent = 'selected: ' + n;
-  }
-  function reindexCheckboxNames(){
-    // After add / delete, re-number the per-row checkbox name suffixes so
-    // applyGeoForm's positional zip lines up with the country/action arrays.
-    Array.from(tbody.children).forEach(function(tr, i){
-      tr.dataset.i = i;
-      var en = tr.querySelector('input[name^="geo_enabled_"]');
-      if (en) en.name = 'geo_enabled_' + i;
-    });
-    empty.style.display = tbody.children.length ? 'none' : '';
-  }
-  function actionOptions(sel){
-    return ['', 'skip', 'pow_only', 'captcha_only', 'pow_then_captcha', 'deny'].map(function(a){
-      return '<option value="' + a + '"' + (a === sel ? ' selected' : '') + '>' + (a === '' ? '(inherit)' : a) + '</option>';
-    }).join('');
-  }
-  function addRow(code, action, label){
-    var tr = document.createElement('tr');
-    var idx = tbody.children.length;
-    tr.dataset.i = idx;
-    var name = COUNTRIES[code] || '';
-    // textContent assignment dodges innerHTML escaping for the name.
-    var ccCode = document.createElement('span'); ccCode.className = 'cc-code'; ccCode.textContent = code;
-    var ccName = document.createElement('span'); ccName.className = 'cc-name'; ccName.textContent = name;
-    var ccCell = document.createElement('span'); ccCell.className = 'cc-cell'; ccCell.appendChild(ccCode); ccCell.appendChild(ccName);
-    tr.innerHTML =
-      '<td class="col-check"><input type="checkbox" class="geo-sel"></td>' +
-      '<td class="col-country"><input type="hidden" name="geo_country" value="' + code + '"></td>' +
-      '<td><input type="text" name="geo_label" value="' + esc(label || '') + '" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
-      '<td class="col-action"><select name="geo_action">' + actionOptions(action || '') + '</select></td>' +
-      '<td class="col-enabled"><input type="checkbox" name="geo_enabled_' + idx + '" value="1" checked></td>' +
-      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
-    tr.querySelector('td.col-country').appendChild(ccCell);
-    tbody.appendChild(tr);
-    reindexCheckboxNames();
-  }
-  addBtn.addEventListener('click', function(){
-    var raw = (addInput.value || '').trim().toUpperCase();
-    if (!raw) return;
-    if (!COUNTRIES[raw]) { alert('Unknown country code: ' + raw); return; }
-    // Skip if already present.
-    var exists = Array.from(tbody.querySelectorAll('input[name="geo_country"]'))
-      .some(function(i){ return i.value.trim().toUpperCase() === raw; });
-    if (exists) { addInput.value = ''; return; }
-    addRow(raw, addAction ? addAction.value : '', addLabel ? addLabel.value : '');
-    addInput.value = ''; if (addAction) addAction.value = ''; if (addLabel) addLabel.value = ''; addInput.focus();
-  });
-  addInput.addEventListener('keydown', function(e){
-    if (e.key === 'Enter') { e.preventDefault(); addBtn.click(); }
-  });
-
-  checkAll.addEventListener('change', function(){
-    tbody.querySelectorAll('input.geo-sel').forEach(function(i){ i.checked = checkAll.checked; });
-    refreshSelCount();
-  });
-  tbody.addEventListener('change', function(e){
-    if (e.target.classList.contains('geo-sel')) refreshSelCount();
-    if (e.target.name && e.target.name.indexOf('geo_enabled_') === 0) {
-      var tr = e.target.closest('tr');
-      if (tr) tr.classList.toggle('row-disabled', !e.target.checked);
-    }
-  });
-  tbody.addEventListener('click', function(e){
-    if (e.target.classList.contains('del-btn')) {
-      e.target.closest('tr').remove();
-      reindexCheckboxNames();
-      refreshSelCount();
-    }
-  });
-
-  bulkBtn.addEventListener('click', function(){
-    var op = bulkPick.value;
-    if (!op) return;
-    var rows = Array.from(tbody.querySelectorAll('tr')).filter(function(tr){
-      var c = tr.querySelector('input.geo-sel');
-      return c && c.checked;
-    });
-    if (rows.length === 0) { alert('select rows first'); return; }
-    rows.forEach(function(tr){
-      if (op === 'skip' || op === 'pow_only' || op === 'captcha_only' || op === 'pow_then_captcha' || op === 'deny') {
-        var sel = tr.querySelector('select[name="geo_action"]'); if (sel) sel.value = op;
-      } else if (op === 'enable' || op === 'disable') {
-        var en = tr.querySelector('input[name^="geo_enabled_"]');
-        if (en) { en.checked = op === 'enable'; tr.classList.toggle('row-disabled', op === 'disable'); }
-      } else if (op === 'delete') {
-        tr.remove();
-      }
-    });
-    if (op === 'delete') reindexCheckboxNames();
-    refreshSelCount();
-  });
-
-  // Initial empty-state visibility.
-  empty.style.display = tbody.children.length ? 'none' : '';
-})();
-</script>
 {{ end }}
 
 {{ if eq .Tab "asn" }}
@@ -3660,75 +3494,79 @@ document.addEventListener("DOMContentLoaded", function(){
 
   {{/* ── Custom rules: exact AS number or org substring (shared rule-list look) ── */}}
   <div class="bcd-card">
-    <h2><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span> {{ t .Lang "settings.asn.rules_h" }}</h2>
+    <h2><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span> {{ t .Lang "settings.asn.rules_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="asn-rate-help" aria-label="?">?</button>
+      <script type="text/html" id="asn-rate-help">{{ safeHTML (t .Lang "settings.asn.rate_hint") }}</script>
+    </h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.asn.rules_help") }}</p>
-    <button type="button" id="asn-add-toggle" class="rule-add-bottom" aria-expanded="false">{{ t .Lang "settings.ua.add_new" }}</button>
-    <div class="geo-tools" id="asn-add-form" hidden>
-      <span class="asn-suggest-wrap">
-        <input type="text" id="asn-add-input" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" style="width:16rem">
-        <div id="asn-suggest" class="asn-suggest-box" hidden></div>
-      </span>
-      <input type="text" id="asn-add-label" placeholder="{{ t .Lang "settings.asn.label_ph" }}" style="width:14rem">
-      <select id="asn-add-action" title="{{ t .Lang "settings.geo.col_action" }}" style="font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
-        <option value="">(inherit default)</option>
-        <option value="skip">skip</option>
-        <option value="pow_only">pow_only</option>
-        <option value="captcha_only">captcha_only</option>
-        <option value="pow_then_captcha">pow_then_captcha</option>
-        <option value="deny">deny</option>
-      </select>
-      <label style="font-size:.82rem;color:#475569;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.col_rate" }}:
-        <input type="number" id="asn-add-rate" min="0" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
-        <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
-      </label>
-      <button type="button" id="asn-add-btn" class="primary">{{ t .Lang "settings.geo.add_btn" }}</button>
-    </div>
 
-    <table class="geo">
-      <thead>
-        <tr>
-          <th class="col-country">{{ t .Lang "settings.asn.col_target" }}</th>
-          <th>{{ t .Lang "settings.asn.col_label" }}</th>
-          <th class="col-action">{{ t .Lang "settings.geo.col_action" }}</th>
-          <th class="col-rate">{{ t .Lang "settings.asn.col_rate" }}
-            <button type="button" class="ua-help-trigger" data-help-target="asn-rate-help" aria-label="?">?</button>
-            <script type="text/html" id="asn-rate-help">{{ safeHTML (t .Lang "settings.asn.rate_hint") }}</script>
-          </th>
-          <th class="col-enabled">{{ t .Lang "settings.geo.col_enabled" }}</th>
-          <th class="col-since">{{ t .Lang "settings.asn.col_since" }}</th>
-          <th class="col-del"></th>
-        </tr>
-      </thead>
-      <tbody id="asn-rows">
-        {{ range $i, $r := .AsnCustomRules }}
-        <tr data-i="{{ $i }}"{{ if not $r.Enabled }} class="row-disabled"{{ end }}>
-          <td class="col-country">
-            <input type="hidden" name="asn_number" value="{{ $r.Value }}">
-            <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
-            <span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="added">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }}
-          </td>
-          <td><input type="text" name="asn_label" value="{{ $r.Label }}" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>
-          <td class="col-action">
-            <select name="asn_action">
-              <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
-              <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
-              <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
-              <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
-              <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-              <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
-            </select>
-          </td>
-          <td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
-          <td class="col-enabled">
-            <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
-          </td>
-          <td class="col-since" style="font-size:.72rem;color:#94a3b8;white-space:nowrap">{{ if gt $r.UpdatedAt 0 }}<time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ else }}—{{ end }}</td>
-          <td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>
-        </tr>
-        {{ end }}
-      </tbody>
-    </table>
-    <div id="asn-empty" class="geo-empty"{{ if .AsnCustomRules }} style="display:none"{{ end }}>{{ t .Lang "settings.asn.empty" }}</div>
+    {{/* Custom rules as the shared rule-list: view row = label / target +
+         badges; pencil opens in-row editing (AS number or org substring with
+         the live mmdb suggest, action, rate); "+ add new" appends a blank
+         editing row. */}}
+    <div class="rule-list" data-rule-name="asn_number">
+      {{ range $i, $r := .AsnCustomRules }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
+        <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
+        <input type="hidden" name="asn_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
+        <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
+        <span class="rule-view">
+          <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }}{{ if $r.Action }} <span class="action-pill action-suspect">{{ $r.Action }}</span>{{ end }}{{ if $r.RateStr }} <span class="action-pill action-suspect">{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}</span>{{ end }}</div>
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+        </span>
+        <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
+        <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+        <select name="asn_action" class="rule-action">
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+          <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
+        </select>
+        <input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem">
+        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
+        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+      </div>
+      {{ end }}
+      <template class="rule-row-template">
+        <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+          <input type="checkbox" class="rule-toggle" checked>
+          <input type="hidden" name="asn_enabled" value="1">
+          <input type="hidden" name="asn_updated_at" value="0">
+          <span class="rule-view">
+            <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+            <div class="pat empty">{{ t .Lang "settings.asn.add_ph" }}</div>
+          </span>
+          <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title">
+          <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+          <select name="asn_action" class="rule-action">
+            <option value="" selected>(inherit)</option>
+            <option value="skip">skip</option>
+            <option value="pow_only">pow_only</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="deny">deny</option>
+          </select>
+          <input type="number" name="asn_rate" min="0" value="" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem">
+          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+        </div>
+      </template>
+    </div>
+    <button type="button" class="rule-add-bottom" data-target-list="asn_number">{{ t .Lang "settings.ua.add_new" }}</button>
+    {{/* One shared suggest dropdown; JS re-parents it into the focused row's
+         .asn-suggest-wrap (position:relative) as the operator types. */}}
+    <div id="asn-suggest" class="asn-suggest-box" hidden></div>
   </div>
 
   {{/* ── ASN-exempt paths: skip the ASN axis ONLY.  The country axis and
@@ -3815,7 +3653,7 @@ document.addEventListener("DOMContentLoaded", function(){
   function refreshRatePh(){
     var ph = ratePh();
     Array.prototype.forEach.call(
-      document.querySelectorAll('input[name="asn_rate"], input[name^="asn_provider_rate_"], #asn-add-rate'),
+      document.querySelectorAll('input[name="asn_rate"], input[name^="asn_provider_rate_"]'),
       function(i){ i.placeholder = ph; });
   }
   if (defRate) defRate.addEventListener('input', refreshRatePh);
@@ -3846,49 +3684,107 @@ document.addEventListener("DOMContentLoaded", function(){
     if (box) box.checked = !box.checked;
   });
 
-  // custom rules table (exact AS number or org substring)
-  var tbody = document.getElementById('asn-rows');
-  var empty = document.getElementById('asn-empty');
-  var addNum = document.getElementById('asn-add-input');
-  var addLbl = document.getElementById('asn-add-label');
-  var addAct = document.getElementById('asn-add-action');
-  var addRate = document.getElementById('asn-add-rate');
-  var addBtn = document.getElementById('asn-add-btn');
-  var addToggle = document.getElementById('asn-add-toggle');
-  var addForm = document.getElementById('asn-add-form');
-  if (!tbody) return;
-  // "新規追加" reveals the input form (collapsed by default, like other tabs).
-  if (addToggle && addForm) addToggle.addEventListener('click', function(){
-    addForm.hidden = !addForm.hidden;
-    addToggle.setAttribute('aria-expanded', addForm.hidden ? 'false' : 'true');
-    if (!addForm.hidden) { addNum.focus(); } else { hideSug(); }
-  });
-  var ORGBADGE = '{{ t .Lang "settings.asn.org_badge" }}';
-  var ACTIONS = ['', 'skip', 'pow_only', 'captcha_only', 'pow_then_captcha', 'deny'];
-  var ALABEL = { '': '(inherit)', skip: 'skip', pow_only: 'pow_only', captcha_only: 'captcha_only', pow_then_captcha: 'pow_then_captcha', deny: 'deny' };
+  // ── custom rules: shared rule-list + live mmdb suggest (delegated) ──
+  // The generic rule-list script (bottom of the page) drives the row editing;
+  // this block only (a) re-parents the one shared suggest dropdown into
+  // whichever row's asn_number input the operator is typing in, querying the
+  // installed ASN mmdb (text -> orgs with member AS numbers; number -> exact
+  // AS pinpoint), and (b) re-stamps rate placeholders on freshly added rows.
+  var asnList = document.querySelector('.rule-list[data-rule-name="asn_number"]');
+  var sugBox = document.getElementById('asn-suggest');
+  if (!asnList || !sugBox) return;
+  var SUGGEST_URL = {{ .BasePath }} + '/admin/settings/asn/suggest';
+  var SUG_NONE = '{{ t .Lang "settings.asn.suggest_none" }}';
+  var sugTimer = null, sugItems = [], sugActive = -1, sugSeq = 0, curNum = null;
   function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  function reindex(){
-    Array.prototype.forEach.call(tbody.children, function(tr, i){
-      tr.setAttribute('data-i', i);
-      var en = tr.querySelector('input[type=checkbox][name^="asn_enabled_"]');
-      if (en) en.name = 'asn_enabled_' + i;
-    });
-    empty.style.display = tbody.children.length ? 'none' : '';
+  function fmtSize(s){
+    if (s >= 1000000) return (s/1000000).toFixed(1)+'M×/24';
+    if (s >= 1000) return Math.round(s/1000)+'k×/24';
+    return s+'×/24';
   }
-  function addRow(val, isOrg, label, action, rate){
-    var opts = ACTIONS.map(function(a){ return '<option value="'+a+'"'+(a===action?' selected':'')+'>'+ALABEL[a]+'</option>'; }).join('');
-    var badge = isOrg ? ' <span class="added">'+ORGBADGE+'</span>' : '';
-    var tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td class="col-country"><input type="hidden" name="asn_number" value="'+esc(val)+'"><input type="hidden" name="asn_updated_at" value="0"><span class="cc-code">'+esc(val)+'</span>'+badge+'</td>' +
-      '<td><input type="text" name="asn_label" value="'+esc(label||'')+'" style="width:100%;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .35rem"></td>' +
-      '<td class="col-action"><select name="asn_action">'+opts+'</select></td>' +
-      '<td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="'+(rate>0?esc(String(rate)):'')+'" placeholder="'+esc(ratePh())+'" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span></td>' +
-      '<td class="col-enabled"><input type="checkbox" value="1" checked></td>' +
-      '<td class="col-since" style="font-size:.72rem;color:#94a3b8;white-space:nowrap">—</td>' +
-      '<td class="col-del"><button type="button" class="del-btn" title="delete">✖</button></td>';
-    tbody.appendChild(tr);
-    reindex();
+  // Page height is kept stable by a fixed-height spacer below the save button
+  // (== the dropdown max-height, reserved from first paint), so opening the
+  // dropdown never changes scrollHeight.  No JS height juggling needed.
+  function hideSug(){ sugBox.hidden = true; sugBox.innerHTML=''; sugItems=[]; sugActive=-1; }
+  function renderSug(items){
+    sugItems = items; sugActive = -1;
+    if (!items.length){ sugBox.innerHTML = '<div class="asn-suggest-empty">'+esc(SUG_NONE)+'</div>'; sugBox.hidden=false; return; }
+    sugBox.innerHTML = items.map(function(it, i){
+      if (it.kind === 'asn'){
+        return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
+          + '<span class="s-org"><span class="s-kind asn">AS</span>'+esc(it.value)+' — '+esc(it.org)+'</span>'
+          + '<span class="s-size">'+fmtSize(it.size24)+'</span></div></div>';
+      }
+      var asns = (it.asns||[]).map(function(n){ return 'AS'+n; }).join(', ');
+      if (it.asn_more>0) asns += ' +'+it.asn_more;
+      return '<div class="asn-suggest-item" data-i="'+i+'"><div class="s-top">'
+        + '<span class="s-org"><span class="s-kind org">ORG</span>'+esc(it.org)+'</span>'
+        + '<span class="s-size">'+fmtSize(it.size24)+'</span></div>'
+        + (asns ? '<div class="s-asns">'+esc(asns)+'</div>' : '') + '</div>';
+    }).join('');
+    sugBox.hidden = false;
+  }
+  function pickSug(i){
+    var it = sugItems[i]; if (!it || !curNum) return;
+    curNum.value = it.value;
+    var row = curNum.closest('.rule-row');
+    var ttl = row && row.querySelector('input.rule-title');
+    if (ttl && !ttl.value && it.kind === 'org') ttl.value = it.org;
+    // Mark the row changed so the server re-stamps updated_at on save.
+    var upd = row && row.querySelector('input[type=hidden][name="asn_updated_at"]');
+    if (upd) upd.value = '0';
+    hideSug(); curNum.focus();
+  }
+  function querySug(){
+    if (!curNum) return;
+    var q = (curNum.value||'').trim();
+    if (q.length < 2){ hideSug(); return; }
+    var seq = ++sugSeq;
+    fetch(SUGGEST_URL + '?q=' + encodeURIComponent(q), {credentials:'same-origin'})
+      .then(function(r){ return r.ok ? r.json() : {items:[]}; })
+      .then(function(d){ if (seq === sugSeq) renderSug(d.items||[]); })
+      .catch(function(){ if (seq === sugSeq) hideSug(); });
+  }
+  function moveSug(d){
+    if (sugBox.hidden || !sugItems.length) return false;
+    sugActive = (sugActive + d + sugItems.length) % sugItems.length;
+    Array.prototype.forEach.call(sugBox.children, function(el,i){ el.classList.toggle('active', i===sugActive); });
+    return true;
+  }
+  // Delegated wiring: rows come and go (template clones), so listen on the list.
+  asnList.addEventListener('input', function(e){
+    var inp = e.target.closest('input[name="asn_number"]');
+    if (!inp) return;
+    curNum = inp;
+    var w = inp.closest('.asn-suggest-wrap');
+    if (w && sugBox.parentNode !== w) w.appendChild(sugBox);
+    clearTimeout(sugTimer); sugTimer = setTimeout(querySug, 180);
+  });
+  asnList.addEventListener('focusout', function(e){
+    if (e.target && e.target.name === 'asn_number') setTimeout(hideSug, 150);
+  });
+  sugBox.addEventListener('mousedown', function(e){ // mousedown fires before blur
+    var el = e.target.closest('.asn-suggest-item');
+    if (el){ e.preventDefault(); pickSug(parseInt(el.getAttribute('data-i'),10)); }
+  });
+  asnList.addEventListener('keydown', function(e){
+    if (!e.target || e.target.name !== 'asn_number') return;
+    if (e.key === 'ArrowDown'){ if (moveSug(1)) e.preventDefault(); return; }
+    if (e.key === 'ArrowUp'){ if (moveSug(-1)) e.preventDefault(); return; }
+    if (e.key === 'Escape'){ if (!sugBox.hidden){ hideSug(); e.preventDefault(); } return; }
+    if (e.key === 'Enter'){
+      e.preventDefault(); // pick, never submit the form from the target field
+      if (!sugBox.hidden && sugActive >= 0) pickSug(sugActive);
+    }
+  });
+  // Rows cloned from the template carry the placeholder rendered at page load;
+  // re-stamp after any row addition so a changed default rate shows through.
+  document.addEventListener('click', function(e){
+    if (e.target.closest('.rule-add-bottom[data-target-list="asn_number"]') ||
+        (e.target.closest('.rule-list[data-rule-name="asn_number"]') && e.target.closest('.rule-add'))) {
+      setTimeout(refreshRatePh, 0);
+    }
+  });
   }
   function doAdd(){
     var raw = (addNum.value || '').trim();
@@ -5833,7 +5729,9 @@ document.addEventListener('DOMContentLoaded', function(){
         const clone = row.cloneNode(true);
         clone.classList.add('editing');
         clone.classList.remove('disabled-row');
-        clone.querySelectorAll('input[type=text]').forEach(function(i){ i.value = ''; });
+        clone.querySelectorAll('input[type=text], input[type=number]').forEach(function(i){ i.value = ''; });
+        // reset selects (action pickers etc.) to their first option (= inherit/default)
+        clone.querySelectorAll('select').forEach(function(s){ s.selectedIndex = 0; });
         // reset checkbox / hidden to enabled (= 1) on the new row.
         const cb = clone.querySelector('input.rule-toggle');
         if (cb) cb.checked = true;
