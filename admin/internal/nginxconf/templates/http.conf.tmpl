@@ -534,7 +534,7 @@ geo $remote_addr $unmask_asn {
 map $unmask_asn $unmask_asn_action {
     default "{{ .AsnDefaultAction }}";
 {{- range .AsnRules }}
-    "{{ .ASN }}" "{{ .Action }}";
+    "{{ .Key }}" "{{ .Action }}";
 {{- end }}
 }
 
@@ -544,10 +544,100 @@ map $unmask_asn_action $is_asn_challenge {
     "skip"  0;
 }
 
-# Network-level veto = geo OR asn.  Folded into one variable so it drops into
-# the existing $final_challenge composite key at the geo position without
-# widening it (every enumerated combination keeps the same field count).
-map "$is_geo_challenge:$is_asn_challenge" $is_net_challenge {
+# -----------------------------------------------------------------------------
+# Per-axis exempt paths ($is_geo_exempt_path / $is_asn_exempt_path)
+# -----------------------------------------------------------------------------
+# Scope: a matching request skips ONE axis only -- geo-exempt paths skip the
+# country decision, asn-exempt paths skip the ASN decision.  Everything else
+# (the other axis, ja4 verdict / honeypot / protected paths / UA filter / rate
+# limit / ban) still runs -- unlike $is_bypass_path, which vetoes EVERY
+# judgment.  For endpoints that legitimately draw datacenter or overseas bots:
+# RSS/Atom feeds pulled by Feedly / Inoreader from AWS/GCP IPs that a country
+# or ASN policy would otherwise sweep up.  Same $request_uri-keyed convention
+# as bypass paths: path-anchored regex used verbatim, per-host rules via a
+# $host dispatcher.
+map $request_uri $unmask_gx_global {
+    default "0";
+{{- range .GeoExemptPathsGlobal }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- if .GeoExemptPathsPerHost }}
+{{- range .GeoExemptPathsPerHost }}
+map $request_uri $unmask_gx_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- end }}
+map $host $unmask_gx_per_host {
+    default "0";
+{{- range .GeoExemptPathsPerHost }}
+    "{{ .Host }}" $unmask_gx_host_{{ .VarName }};
+{{- end }}
+}
+map "$unmask_gx_global$unmask_gx_per_host" $is_geo_exempt_path {
+    default "0";
+    "~1" "1";
+}
+{{- else }}
+map $unmask_gx_global $is_geo_exempt_path {
+    default "0";
+    "1" "1";
+}
+{{- end }}
+
+map $request_uri $unmask_ax_global {
+    default "0";
+{{- range .AsnExemptPathsGlobal }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- if .AsnExemptPathsPerHost }}
+{{- range .AsnExemptPathsPerHost }}
+map $request_uri $unmask_ax_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- end }}
+map $host $unmask_ax_per_host {
+    default "0";
+{{- range .AsnExemptPathsPerHost }}
+    "{{ .Host }}" $unmask_ax_host_{{ .VarName }};
+{{- end }}
+}
+map "$unmask_ax_global$unmask_ax_per_host" $is_asn_exempt_path {
+    default "0";
+    "~1" "1";
+}
+{{- else }}
+map $unmask_ax_global $is_asn_exempt_path {
+    default "0";
+    "1" "1";
+}
+{{- end }}
+
+# Effective per-axis verdicts: each axis fires only when it votes AND its own
+# exempt-path list does not match.
+map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff {
+    default 1;
+    "~^0:"  0;  # country axis not firing
+    "~:1$"  0;  # path exempted from the country axis
+}
+map "$is_asn_challenge:$is_asn_exempt_path" $asn_challenge_eff {
+    default 1;
+    "~^0:"  0;  # ASN axis not firing
+    "~:1$"  0;  # path exempted from the ASN axis
+}
+
+# Network-level veto = geo OR asn (each after its own path exemption).  Folded
+# into one variable so it drops into the existing $final_challenge composite
+# key at the geo position without widening it.  The other $final_challenge
+# fields (ja4 / honeypot / protected / UA) are untouched by the exemptions.
+map "$geo_challenge_eff:$asn_challenge_eff" $is_net_challenge {
     default 1;
     "0:0"   0;
 }
@@ -663,7 +753,7 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if .StaleBrowserEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
     "~^0:1:"                    0;  # search bot UA -> exempt
@@ -697,9 +787,45 @@ map $http_user_agent $unmask_stale_browser {
 }
 # Escalate only a not-otherwise-exempt, would-pass request (base=0) that is
 # stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_valid.
-map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+# When the header-integrity tier also runs it consumes this result next, so
+# emit into an intermediate; otherwise this IS the final decision.
+map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if .HeaderIntegrityEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
     default              $final_challenge_base;  # keep base decision (incl. all base=1 challenges)
     "~^0:1:0:0:0:0$"     1;                       # stale + no exemption + would-pass -> challenge
+}
+{{- end }}
+{{- if .HeaderIntegrityEnabled }}
+
+# -----------------------------------------------------------------------------
+# Header-integrity tier (Global.HeaderIntegrity)
+# -----------------------------------------------------------------------------
+# A UA advertising a Chromium-family browser, over https on h2/h3, that carries
+# no Sec-CH-UA is a spoof tell (a real Chromium sends client hints in that
+# context).  All preconditions must hold -- the axis is silent on http, h1,
+# Firefox/Safari, and TLS-intercept proxies that strip the header over http --
+# so it never fires on the populations that legitimately lack it.  Like the
+# stale tier it only ESCALATES a not-otherwise-exempt, would-pass request; the
+# challenge SCREEN is clamped to CAPTCHA daemon-side (never deny).
+map $http_user_agent $unmask_ua_chromium {
+    default 0;
+    "~(?i)Chrome/[0-9]" 1;   # Chrome / Edge / Opera / Brave / Chromium all carry Chrome/<major>
+}
+# $server_protocol is "HTTP/2.0" / "HTTP/3.0" on those transports and is always
+# defined (unlike $http2/$http3, which error when the module isn't loaded).
+map $server_protocol $unmask_http_modern {
+    default 0;
+    "~^HTTP/[23]" 1;
+}
+# Fire only for chromium + https + h2/h3 + empty Sec-CH-UA.
+map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua" $unmask_header_mismatch {
+    default 0;
+    "~^1:https:1:$" 1;   # trailing empty field = no Sec-CH-UA header
+}
+# Escalate a would-pass ({{ if .StaleBrowserEnabled }}post-stale{{ else }}base{{ end }}), not-otherwise-exempt request that mismatches.
+# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
+map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+    default          {{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
+    "~^0:1:0:0:0:0$" 1;   # mismatch + no exemption + would-pass -> challenge
 }
 {{- end }}
 {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}
@@ -855,6 +981,37 @@ map {{ .MatchVar }} {{ .KeyVar }} {
 # manually writing `limit_req zone=...`.
 {{- range .RateZones }}
 limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
+
+# ASN rate zones (auto-rendered from settings.nginx.asn rate rules): throttle a
+# datacenter/network to N req/min instead of denying it outright.  Each zone's
+# geo maps the rule's CIDRs to the network's own AS number (so the counter is
+# per AS number, matching forward-auth), "" elsewhere; the key then drops
+# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) to "" so a
+# genuine Googlebot on a throttled ASN is NEVER rate-limited (SEO safety).
+{{- range .AsnRateZones }}
+geo $remote_addr {{ .RawVar }} {
+    default "";
+{{ .GeoBody }}}
+map "$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
+    default    {{ .RawVar }};
+    "~^1:"     "";
+    "~^.:1:"   "";
+}
+limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
+
+# Country rate zones (auto-rendered from settings.nginx.geo rate rules): the
+# by-country twin of the ASN zones above.  Each keys on the already-resolved
+# $unmask_country -- exact-match on the zone's country, "" otherwise, with
+# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) dropped to
+# "" so a genuine crawler from a throttled country is NEVER rate-limited.
+{{- range .GeoRateZones }}
+map "$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
+    default    "";
+    "0:0:{{ .Country }}" "{{ .Country }}";
+}
+limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
 # Distinguish whether the request went through rate-limit (i.e. carries ?_rl=1).

@@ -438,27 +438,26 @@ func FirefoxMajor(ua string) int {
 // Safari UA carries neither token and passes untouched.
 //
 // Returns false when the feature inputs are unset (both currents <=0 or
-// lagN<=0) or the UA carries neither token, so callers can pass raw config
-// without pre-guarding.  The comparison is "at least lagN behind"
-// (current-major >= lagN): with current=150 and lagN=11, Chrome/139 and
-// older are stale while Chrome/140+ pass.
-func IsStaleBrowser(ua string, curChrome, curFirefox int, ffESRExempt []int, lagN int) bool {
-	if lagN <= 0 {
-		return false
-	}
-	if curChrome > 0 {
+// both lags <=0) or the UA carries neither token, so callers can pass raw
+// config without pre-guarding.  The comparison is "at least lag behind"
+// (current-major >= lag): with current=150 and lag=11, Chrome/139 and older
+// are stale while Chrome/140+ pass.  The lag is per family -- the release
+// cadences match today, but one major stops meaning the same amount of time
+// if they diverge, so each family compares against its own N.
+func IsStaleBrowser(ua string, curChrome, curFirefox int, ffESRExempt []int, lagChrome, lagFirefox int) bool {
+	if curChrome > 0 && lagChrome > 0 {
 		if major := ChromeMajor(ua); major > 0 {
-			return curChrome-major >= lagN
+			return curChrome-major >= lagChrome
 		}
 	}
-	if curFirefox > 0 {
+	if curFirefox > 0 && lagFirefox > 0 {
 		if major := FirefoxMajor(ua); major > 0 {
 			for _, esr := range ffESRExempt {
 				if esr > 0 && major == esr {
 					return false
 				}
 			}
-			return curFirefox-major >= lagN
+			return curFirefox-major >= lagFirefox
 		}
 	}
 	return false

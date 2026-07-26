@@ -33,6 +33,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -456,17 +457,18 @@ func cmdServe(args []string) error {
 	dashboard.SetDisabledHosts(s.Hosts.Disabled)
 
 	h := &handlers.Handler{
-		DB:          conn,
-		ConfigPath:  settings.ResolvePath(*configPath),
-		Version:     Version,
-		HostID:      hostID,
-		IPGeo:       gip,
-		NginxLog:    nlog,
-		BanMgr:      banMgr,
-		UserRepo:    userRepo,
-		Notifier:    notifierInst,
-		Mailer:      mailerInst,
-		RateLimiter: limiter,
+		DB:            conn,
+		ConfigPath:    settings.ResolvePath(*configPath),
+		Version:       Version,
+		HostID:        hostID,
+		IPGeo:         gip,
+		CrawlerVerify: crawlerverify.New(nil), // net.DefaultResolver; gated by cfg.Nginx.CrawlerVerify.Enabled
+		NginxLog:      nlog,
+		BanMgr:        banMgr,
+		UserRepo:      userRepo,
+		Notifier:      notifierInst,
+		Mailer:        mailerInst,
+		RateLimiter:   limiter,
 	}
 	// Publish the initial settings snapshot.  settingsPtr is unexported, so the
 	// daemon seeds it through the exported setter rather than a struct literal.
@@ -520,6 +522,10 @@ func cmdServe(args []string) error {
 				action, _ := nginxconf.ResolveHoneypotAction(uri, site, h.SnapshotSettings().Nginx)
 				banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "", action)
 			})
+			// Native rDNS post-pass: auto-ban forged crawlers off the access log
+			// (native has no daemon in the request path).  Gated by
+			// CrawlerVerify.Enabled inside the handler; nil-safe.
+			nlog.SetCrawlerObserver(h.ObserveCrawlerForBan)
 		}
 	}
 
@@ -1069,6 +1075,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminSettingsIndex))
 	mux.HandleFunc("POST "+base+"/admin/settings/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))
+	// ASN custom-rule autocomplete: searches the installed ASN mmdb (org name /
+	// AS number).  Read-only, so viewer-and-above (plain AuthMiddleware).
+	mux.HandleFunc("GET "+base+"/admin/settings/asn/suggest",
+		h.AuthMiddleware(h.AdminASNSuggest))
 	// per-site card endpoints for the Branding / Challenge tabs (= v2
 	// scalar override surface).  Each writes one Sites[<host>] entry.
 	mux.HandleFunc("POST "+base+"/admin/settings/branding/site/save",

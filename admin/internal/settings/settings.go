@@ -631,6 +631,7 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 	Asn              AsnConfig              `yaml:"asn,omitempty"`
+	CrawlerVerify    CrawlerVerifyConfig    `yaml:"crawler_verify,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
 	// rendered server.inc — before any ban / honeypot / challenge gate.  A
@@ -971,18 +972,45 @@ type GeoConfig struct {
 	// Set to a challenge action or "deny" for allowlist semantics
 	// (= the matching rules carry "pass" for the few allowed countries).
 	DefaultAction string `yaml:"default_action,omitempty"`
+	// DefaultRuleAction: what a REGISTERED rule with a blank action inherits.
+	// Distinct from DefaultAction (= unmatched countries): registering a
+	// country means "act on it", so the inherit target defaults to a
+	// challenge (pow_then_captcha), not to the unmatched behavior.
+	DefaultRuleAction string `yaml:"default_rule_action,omitempty"`
+	// DefaultRatePerMin: the rate a rule inherits when its own RatePerMin is
+	// nil, mirroring AsnConfig.DefaultRatePerMin.  0 -> no default throttle
+	// (a non-overriding rule fires its action every request).
+	DefaultRatePerMin int `yaml:"default_rate_per_min,omitempty"`
 	// Rules: per-country overrides.  Index is meaningless for behavior
 	// but stable for UI display.  Disabled rules are persisted but skipped
 	// at evaluation time.
 	Rules []GeoRule `yaml:"rules,omitempty"`
+	// ExemptPaths: paths excluded from the COUNTRY axis only (the ASN axis and
+	// every other judgment -- ja4 / honeypot / UA / rate / ban -- still run).
+	// For endpoints that legitimately draw overseas traffic (RSS/Atom feeds)
+	// that a country policy would otherwise sweep up.  Reuses BypassPath rows.
+	ExemptPaths []BypassPath `yaml:"exempt_paths,omitempty"`
+}
+
+// ResolveExemptPaths filters ExemptPaths by site: an empty Site matches every
+// host, a set Site matches only that host.  Order is preserved.
+func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
+	return filterExemptPaths(g.ExemptPaths, site)
 }
 
 // GeoRule: one country override.
 type GeoRule struct {
 	Country   string `yaml:"country"`              // ISO 3166-1 alpha-2 (upper-case after save)
-	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultAction
+	Label     string `yaml:"label,omitempty"`      // operator note (display only; not used in the decision)
+	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultRuleAction
 	Enabled   bool   `yaml:"enabled"`              // false -> rule kept in yaml but skipped at evaluation
 	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed" timestamps
+	// RatePerMin: throttle this country instead of acting on every request --
+	// the by-country sibling of AsnRule.RatePerMin.  nil = inherit
+	// GeoConfig.DefaultRatePerMin; explicit *0 = no throttle (the action fires
+	// immediately); *N = cap the country at N req/min and apply the action
+	// only to the overage.
+	RatePerMin *int `yaml:"rate_per_min,omitempty"`
 }
 
 // Geo action constants.  Reuses RateChallenge* values for the challenge
@@ -1023,6 +1051,60 @@ func (g GeoConfig) ResolvedDefaultAction() string {
 	return g.DefaultAction
 }
 
+// ResolvedDefaultRuleAction: the inherit target for a registered rule with a
+// blank action.  Empty -> pow_then_captcha (registering a country means "act
+// on it"; a challenge is the safe default, deny would over-block).
+func (g GeoConfig) ResolvedDefaultRuleAction() string {
+	if g.DefaultRuleAction == "" {
+		return RateChallengePoWThenCaptcha
+	}
+	return g.DefaultRuleAction
+}
+
+// EffectiveRatePerMin resolves a rule's rate the same way AsnConfig does:
+// an explicit override (incl. 0 = no throttle) wins, nil inherits
+// DefaultRatePerMin.  Exported because the native render decides per rule
+// whether it goes to the immediate-action map or a rate zone.
+func (g GeoConfig) EffectiveRatePerMin(override *int) int {
+	if override != nil {
+		return *override
+	}
+	return g.DefaultRatePerMin
+}
+
+// GeoRateRule is one enabled rate-mode country rule: the country, the
+// per-minute cap, and the resolved over-limit action.  The by-country sibling
+// of AsnRateRule.
+type GeoRateRule struct {
+	Country    string
+	RatePerMin int
+	Action     string // resolved ("" -> DefaultRuleAction)
+}
+
+// RateRules returns every enabled rule whose EFFECTIVE rate is >0 -- what the
+// native rate-zone render and the settings UI enumerate.  Rules with an
+// effective rate of 0 stay with the ordinary immediate-action country map.
+func (g GeoConfig) RateRules() []GeoRateRule {
+	var out []GeoRateRule
+	for i := range g.Rules {
+		r := &g.Rules[i]
+		cc := strings.ToUpper(strings.TrimSpace(r.Country))
+		if !r.Enabled || cc == "" {
+			continue
+		}
+		rate := g.EffectiveRatePerMin(r.RatePerMin)
+		if rate <= 0 {
+			continue
+		}
+		act := strings.TrimSpace(r.Action)
+		if act == "" {
+			act = g.ResolvedDefaultRuleAction()
+		}
+		out = append(out, GeoRateRule{Country: cc, RatePerMin: rate, Action: act})
+	}
+	return out
+}
+
 // LookupRule returns the enabled rule for the given uppercase country code,
 // or nil if none / disabled.  Linear scan — rule count is expected to be
 // small (= dozens), so building a map is not worth the alloc.
@@ -1057,21 +1139,102 @@ func (g GeoConfig) LookupRule(country string) *GeoRule {
 // cloud ASN never challenges Googlebot/GPTBot (they pass on their vendor
 // ranges first): the search-bot-safety rule holds.
 type AsnConfig struct {
-	// DefaultAction: applied to ASNs that match no rule.  Empty -> "skip"
-	// (= blocklist semantics, the common case: rules name the networks to act
-	// on, everything else passes).
+	// DefaultAction: applied to networks that match no rule.  Empty -> "skip"
+	// (= blocklist semantics, the common case).
 	DefaultAction string `yaml:"default_action,omitempty"`
-	// Rules: per-ASN overrides.
+	// DefaultRuleAction: what a REGISTERED rule/provider with a blank action
+	// inherits.  Distinct from DefaultAction (= unmatched networks):
+	// registering a network means "act on it", so the inherit target defaults
+	// to a challenge (pow_then_captcha), not to the unmatched behavior.
+	DefaultRuleAction string `yaml:"default_rule_action,omitempty"`
+	// DefaultRatePerMin: the rate a rule/provider inherits when its own
+	// RatePerMin is nil, mirroring DefaultAction.  0 -> no default throttle (a
+	// non-overriding rule fires its action every request).  Set to N to throttle
+	// every matched network to N req/min by default.
+	DefaultRatePerMin int `yaml:"default_rate_per_min,omitempty"`
+	// Providers: enabled entries from the built-in hosting-provider catalog
+	// (asncatalog.go).  Each names a provider (Amazon, Microsoft, ...) whose
+	// ASNs are matched by organization name -- one entry covers all of a
+	// provider's networks.  Enabling every provider is the "block all major
+	// data centers" posture.
+	Providers []AsnProviderSel `yaml:"providers,omitempty"`
+	// Rules: custom per-network overrides — an exact AS number, or a free
+	// organization-name substring, keyed by whichever field is set.
 	Rules []AsnRule `yaml:"rules,omitempty"`
+	// ExemptPaths: paths excluded from the ASN axis only (the country axis and
+	// every other judgment -- ja4 / honeypot / UA / rate / ban -- still run).
+	// For endpoints that legitimately draw datacenter bots -- RSS/Atom feeds
+	// pulled by Feedly / Inoreader from AWS/GCP.  Reuses BypassPath rows.
+	ExemptPaths []BypassPath `yaml:"exempt_paths,omitempty"`
 }
 
-// AsnRule: one autonomous-system override.  The by-network analogue of GeoRule.
+// ResolveExemptPaths filters ExemptPaths by site: an empty Site matches every
+// host, a set Site matches only that host.  Order is preserved.
+func (a AsnConfig) ResolveExemptPaths(site string) []BypassPath {
+	return filterExemptPaths(a.ExemptPaths, site)
+}
+
+// CrawlerVerifyConfig controls forward-confirmed reverse-DNS (rDNS) crawler
+// authentication (crawlerverify pkg).  When Enabled, a visitor whose UA claims a
+// verifiable crawler (Googlebot/Bingbot/...) is checked against the vendor's
+// published rDNS; a genuine one is rescued and a forgery gets ForgedAction.
+// Verification is asynchronous (never blocks the request), so this adds no
+// request latency -- see crawlerverify's load discipline.
+type CrawlerVerifyConfig struct {
+	Enabled      bool   `yaml:"enabled,omitempty"`
+	ForgedAction string `yaml:"forged_action,omitempty"` // GeoAction*; empty -> pow_then_captcha (safe default)
+	// DisabledCrawlers: crawler names (crawlerverify.Crawlers) the operator
+	// turned OFF individually -- e.g. a range preset already covers Googlebot, so
+	// rDNS for it is redundant.  Empty = every catalog crawler is verified.
+	DisabledCrawlers []string `yaml:"disabled_crawlers,omitempty"`
+}
+
+// CrawlerActive reports whether rDNS should verify the named crawler (i.e. the
+// operator has not turned it off).  Case-insensitive.
+func (c CrawlerVerifyConfig) CrawlerActive(name string) bool {
+	for _, d := range c.DisabledCrawlers {
+		if strings.EqualFold(strings.TrimSpace(d), name) {
+			return false
+		}
+	}
+	return true
+}
+
+// ResolvedForgedAction is the action applied to a proven-forged crawler.  An
+// unset/invalid value defaults to pow_then_captcha (challenge, not deny) so an
+// operator enabling the axis never hard-blocks by accident.
+func (c CrawlerVerifyConfig) ResolvedForgedAction() string {
+	if c.ForgedAction == "" || !IsValidGeoAction(c.ForgedAction) || c.ForgedAction == GeoActionSkip {
+		return GeoActionPoWThenCaptcha
+	}
+	return c.ForgedAction
+}
+
+// AsnProviderSel: one enabled catalog provider + the action to apply to it.
+type AsnProviderSel struct {
+	ID         string `yaml:"id"`                     // HostingProviders[].ID
+	Action     string `yaml:"action,omitempty"`       // GeoAction*; empty = inherit DefaultAction
+	RatePerMin *int   `yaml:"rate_per_min,omitempty"` // nil = inherit DefaultRatePerMin; *0 = no throttle; *N = throttle (see AsnRule)
+	Enabled    bool   `yaml:"enabled"`
+}
+
+// AsnRule: one custom autonomous-system override.  Exactly one of ASN / Org
+// identifies the target: ASN is an exact number, Org is a case-insensitive
+// organization-name substring (covers every ASN of a network operator without
+// listing their numbers).
 type AsnRule struct {
-	ASN       uint   `yaml:"asn"`                  // autonomous system number (0 = invalid, skipped)
-	Label     string `yaml:"label,omitempty"`      // operator note, e.g. "Amazon AWS" (display only)
-	Action    string `yaml:"action,omitempty"`     // GeoAction*; empty = inherit DefaultAction
-	Enabled   bool   `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
-	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
+	ASN    uint   `yaml:"asn,omitempty"`    // exact AS number (0 -> this is an Org rule)
+	Org    string `yaml:"org,omitempty"`    // organization-name substring (empty -> this is an ASN rule)
+	Label  string `yaml:"label,omitempty"`  // operator note (display only)
+	Action string `yaml:"action,omitempty"` // GeoAction*; empty = inherit DefaultAction
+	// RatePerMin selects the "rate" (throttle) mode, mirroring how Action inherits
+	// DefaultAction:
+	//   nil (unset) -> inherit AsnConfig.DefaultRatePerMin
+	//   *0          -> no throttle (Action fires on every request)
+	//   *N          -> throttle this network to N req/min, Action on the overage
+	RatePerMin *int  `yaml:"rate_per_min,omitempty"`
+	Enabled    bool  `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
+	UpdatedAt  int64 `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
 }
 
 // ResolvedDefaultAction: empty -> "skip" (no ASN intervention for the long
@@ -1083,19 +1246,213 @@ func (a AsnConfig) ResolvedDefaultAction() string {
 	return a.DefaultAction
 }
 
-// LookupRule returns the enabled rule for the given AS number, or nil.  Linear
-// scan (rule count is small).
-func (a AsnConfig) LookupRule(asn uint) *AsnRule {
-	if asn == 0 {
-		return nil
+// ResolvedDefaultRuleAction: the inherit target for a registered rule /
+// provider with a blank action.  Empty -> pow_then_captcha (enabling a
+// network entry means "act on it"; a challenge is the safe default).
+func (a AsnConfig) ResolvedDefaultRuleAction() string {
+	if a.DefaultRuleAction == "" {
+		return RateChallengePoWThenCaptcha
+	}
+	return a.DefaultRuleAction
+}
+
+// ResolveAction returns the action to apply to a visitor resolved to the
+// given AS number + organization name, or "" when no enabled rule/provider
+// matches (= this axis stays silent, other axes decide).  Precedence: an
+// exact-ASN custom rule wins over an org match (custom or provider), because
+// it is the more specific target; among matches the strongest is not chosen
+// here — the caller (asnDecide) already runs max-severity across axes, and
+// within the ASN axis a single winning action is enough.  The resolved action
+// resolves "" -> DefaultAction.
+func (a AsnConfig) ResolveAction(asn uint, org string) (action string, matched bool) {
+	action, _, matched = a.ResolveRule(asn, org)
+	return action, matched
+}
+
+// effectiveRate resolves a rule/provider's RatePerMin override against the
+// config default, mirroring how "" action inherits DefaultAction: nil ->
+// DefaultRatePerMin, an explicit *value (incl. 0 = "no throttle") -> that value.
+func (a AsnConfig) effectiveRate(override *int) int {
+	if override != nil {
+		return *override
+	}
+	return a.DefaultRatePerMin
+}
+
+// ResolveRule is ResolveAction plus the matched rule/provider's EFFECTIVE
+// RatePerMin (its override, else DefaultRatePerMin).  ratePerMin>0 selects the
+// "rate" mode: the caller throttles the network to that many requests/min and
+// applies action only to the overage.
+func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin int, matched bool) {
+	// A registered row's blank action inherits DefaultRuleAction -- NOT the
+	// unmatched-network DefaultAction (a registered row exists to act).
+	resolve := func(raw string) string {
+		if strings.TrimSpace(raw) == "" {
+			return a.ResolvedDefaultRuleAction()
+		}
+		return raw
+	}
+	// 1. exact AS number custom rule (most specific).
+	if asn != 0 {
+		for i := range a.Rules {
+			r := &a.Rules[i]
+			if r.Enabled && r.ASN == asn && r.Org == "" {
+				return resolve(r.Action), a.effectiveRate(r.RatePerMin), true
+			}
+		}
+	}
+	// 2. org-substring custom rule.
+	for i := range a.Rules {
+		r := &a.Rules[i]
+		if r.Enabled && r.Org != "" && OrgMatchesAny(org, []string{r.Org}) {
+			return resolve(r.Action), a.effectiveRate(r.RatePerMin), true
+		}
+	}
+	// 3. enabled catalog provider (org match).
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		hp := HostingProviderByID(p.ID)
+		if hp != nil && OrgMatchesAny(org, hp.OrgPatterns) {
+			return resolve(p.Action), a.effectiveRate(p.RatePerMin), true
+		}
+	}
+	return "", 0, false
+}
+
+// AsnRateRule is one enabled rate-mode rule (RatePerMin>0): its target (exact
+// AS number XOR org substring), the per-minute cap, and the resolved over-limit
+// action.  The by-network sibling of a rate zone.
+type AsnRateRule struct {
+	ASN        uint
+	Org        string
+	RatePerMin int
+	Action     string // resolved ("" -> DefaultAction)
+}
+
+// RateRules returns every enabled rule/provider whose EFFECTIVE rate (override
+// or DefaultRatePerMin) is >0 -- what the native rate-zone render (one
+// limit_req_zone per entry, keyed on ipgeo.ASNRateCIDRs) and the settings UI
+// enumerate.  A provider expands to one entry per OrgPattern.  Entries with an
+// effective rate of 0 stay with the ordinary immediate-action geo block
+// (EnabledASNRules / EnabledOrgPatterns).
+func (a AsnConfig) RateRules() []AsnRateRule {
+	act := func(raw string) string {
+		if strings.TrimSpace(raw) == "" {
+			return a.ResolvedDefaultRuleAction()
+		}
+		return raw
+	}
+	var out []AsnRateRule
+	for i := range a.Rules {
+		r := &a.Rules[i]
+		if r.Enabled && (r.ASN != 0 || r.Org != "") && a.effectiveRate(r.RatePerMin) > 0 {
+			out = append(out, AsnRateRule{ASN: r.ASN, Org: r.Org, RatePerMin: a.effectiveRate(r.RatePerMin), Action: act(r.Action)})
+		}
+	}
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled {
+			continue
+		}
+		rate := a.effectiveRate(p.RatePerMin)
+		if rate <= 0 {
+			continue
+		}
+		if hp := HostingProviderByID(p.ID); hp != nil {
+			for _, pat := range hp.OrgPatterns {
+				out = append(out, AsnRateRule{Org: pat, RatePerMin: rate, Action: act(p.Action)})
+			}
+		}
+	}
+	return out
+}
+
+// EnabledOrgPatterns returns every org-name substring that an enabled rule or
+// provider matches on, paired with its resolved action, for the native render
+// walk.  Exact-ASN rules are returned separately by EnabledASNRules.
+func (a AsnConfig) EnabledOrgPatterns() []struct {
+	Pattern string
+	Action  string
+} {
+	var out []struct {
+		Pattern string
+		Action  string
+	}
+	add := func(pat, act string) {
+		if strings.TrimSpace(act) == "" {
+			act = a.ResolvedDefaultRuleAction()
+		}
+		out = append(out, struct {
+			Pattern string
+			Action  string
+		}{pat, act})
+	}
+	for i := range a.Rules {
+		// Effective-rate>0 rules are the "throttle" mode -- they render as a rate
+		// zone (RateRules), NOT the immediate-action geo block, so skip them here.
+		if r := &a.Rules[i]; r.Enabled && r.Org != "" && a.effectiveRate(r.RatePerMin) == 0 {
+			add(r.Org, r.Action)
+		}
+	}
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled || a.effectiveRate(p.RatePerMin) > 0 { // rate providers -> rate zone, not here
+			continue
+		}
+		if hp := HostingProviderByID(p.ID); hp != nil {
+			for _, pat := range hp.OrgPatterns {
+				add(pat, p.Action)
+			}
+		}
+	}
+	return out
+}
+
+// EnabledASNRules returns the enabled exact-AS-number custom rules with their
+// resolved actions, for the native render walk.
+func (a AsnConfig) EnabledASNRules() []struct {
+	ASN    uint
+	Action string
+} {
+	var out []struct {
+		ASN    uint
+		Action string
 	}
 	for i := range a.Rules {
 		r := &a.Rules[i]
-		if r.Enabled && r.ASN == asn {
-			return r
+		// Skip effective-rate>0 rules -- they render as a rate zone (RateRules),
+		// not the immediate-action geo block (see EnabledOrgPatterns).
+		if r.Enabled && r.ASN != 0 && r.Org == "" && a.effectiveRate(r.RatePerMin) == 0 {
+			act := r.Action
+			if strings.TrimSpace(act) == "" {
+				act = a.ResolvedDefaultRuleAction()
+			}
+			out = append(out, struct {
+				ASN    uint
+				Action string
+			}{r.ASN, act})
 		}
 	}
-	return nil
+	return out
+}
+
+// HasEnabled reports whether any provider or rule is enabled (= the axis is
+// active).  Used to skip the render walk entirely when nothing is configured.
+func (a AsnConfig) HasEnabled() bool {
+	for i := range a.Providers {
+		if a.Providers[i].Enabled {
+			return true
+		}
+	}
+	for i := range a.Rules {
+		if a.Rules[i].Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // BypassPathsConfig: allowlisted paths (= bypass all unmask checks per path).
@@ -1152,6 +1509,20 @@ type BypassPath struct {
 func (b BypassPathsConfig) ResolvePaths(site string) []BypassPath {
 	out := make([]BypassPath, 0, len(b.Paths))
 	for _, p := range b.Paths {
+		if p.Site == "" || p.Site == site {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filterExemptPaths: shared site filter for the per-axis exempt-path lists
+// (GeoConfig.ExemptPaths / AsnConfig.ExemptPaths).  Same semantics as
+// BypassPathsConfig.ResolvePaths: an empty Site matches every host, a set
+// Site matches only that host.  Order is preserved.
+func filterExemptPaths(rows []BypassPath, site string) []BypassPath {
+	out := make([]BypassPath, 0, len(rows))
+	for _, p := range rows {
 		if p.Site == "" || p.Site == site {
 			out = append(out, p)
 		}
@@ -1659,6 +2030,19 @@ type GlobalConfig struct {
 	// them through, or captcha_only / deny to gate harder.
 	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
 
+	// HeaderIntegrity enables the header-integrity axis: a UA advertising a
+	// Chromium-family browser over HTTPS on h2/h3 that carries no Sec-CH-UA
+	// header is a spoof tell (a real Chromium sends client hints there).  Off
+	// by default (zero behavior change / zero rendered-config diff on upgrade).
+	// The axis is clamped to a challenge -- it NEVER denies (the header can be
+	// legitimately stripped by a corporate TLS-intercept proxy, so a hard block
+	// would over-block real users -- the chrome_fake_h1 lesson).
+	HeaderIntegrity bool `yaml:"header_integrity,omitempty"`
+	// HeaderIntegrityAction: the chain a header-mismatch gets.  Empty ->
+	// captcha_only (the point is to demand the interaction a header-spoofing
+	// bot can't cheaply provide).  Only pow_only / captcha_only are valid; deny
+	// is rejected on save so this axis can never hard-block.
+	HeaderIntegrityAction string `yaml:"header_integrity_action,omitempty"`
 	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
 	// Chromium-family major version far behind the current stable is escalated
 	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
@@ -1689,6 +2073,11 @@ type GlobalConfig struct {
 	// stale (currentMajor-major >= N).  Empty/<=0 falls back to
 	// DefaultStaleBrowserLag.  Larger N = only very outdated UAs are challenged.
 	StaleBrowserLag int `yaml:"stale_browser_lag,omitempty"`
+	// StaleBrowserLagFirefox: Firefox's own lag, fully independent of the
+	// Chrome-side value (one N used to span both, but if the release paces
+	// diverge, one major stops meaning the same amount of time per family).
+	// Empty/<=0 -> DefaultStaleBrowserLagFirefox.
+	StaleBrowserLagFirefox int `yaml:"stale_browser_lag_firefox,omitempty"`
 	// StaleBrowserAction is the chain a stale UA gets.  Empty ->
 	// DefaultStaleBrowserAction (captcha_only): the whole point is to demand the
 	// harder screen a headless PoW-solver cannot cheaply clear.  pow_then_captcha
@@ -1704,6 +2093,12 @@ const (
 	// 2026-07-15 scraper sat 11 behind (139 vs 150); 10 keeps a comfortable
 	// margin above the genuine 1-2-major long tail.
 	DefaultStaleBrowserLag = 10
+	// DefaultStaleBrowserLagFirefox: Firefox's own built-in lag, judged
+	// independently per family.  It happens to equal the Chromium value today
+	// because the release cadences (and the genuine-old-UA long tails) look
+	// alike -- not because the families share a constant; revisit separately
+	// if either pace changes.
+	DefaultStaleBrowserLagFirefox = 10
 	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
 	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
 	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
@@ -1859,6 +2254,16 @@ func (g GlobalConfig) StaleBrowserLagN() int {
 	return DefaultStaleBrowserLag
 }
 
+// FirefoxStaleLagN returns Firefox's effective lag: its own value when set,
+// otherwise Firefox's own built-in default.  Deliberately independent of the
+// Chrome-side lag -- per-family settings must not leak into each other.
+func (g GlobalConfig) FirefoxStaleLagN() int {
+	if g.StaleBrowserLagFirefox > 0 {
+		return g.StaleBrowserLagFirefox
+	}
+	return DefaultStaleBrowserLagFirefox
+}
+
 // StaleBrowserResolvedAction returns the effective chain for a stale UA,
 // applying DefaultStaleBrowserAction when unset/invalid.
 func (g GlobalConfig) StaleBrowserResolvedAction() string {
@@ -1869,6 +2274,19 @@ func (g GlobalConfig) StaleBrowserResolvedAction() string {
 		return g.StaleBrowserAction
 	}
 	return DefaultStaleBrowserAction
+}
+
+// HeaderIntegrityResolvedAction: the chain a header-mismatch gets.  Clamped to
+// pow_only / captcha_only -- deny is never honored here even if somehow stored
+// (this axis structurally cannot hard-block; a stripped header is a legitimate
+// state).  Empty / anything else -> captcha_only.
+func (g GlobalConfig) HeaderIntegrityResolvedAction() string {
+	switch g.HeaderIntegrityAction {
+	case RateChallengePoWOnly, RateChallengeCaptchaOnly:
+		return g.HeaderIntegrityAction
+	default:
+		return RateChallengeCaptchaOnly
+	}
 }
 
 // Site acceptance modes (= SiteAcceptanceConfig.Mode).

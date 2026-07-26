@@ -27,6 +27,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
@@ -129,21 +130,22 @@ type Handler struct {
 	// serialize through settingsMu and publish via SetSettings /
 	// updateSettingsInMemory / the save handlers.
 	settingsPtr   atomic.Pointer[settings.Settings]
-	ConfigPath    string                // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
-	Version       string                // unmask version (for display)
-	HostID        string                // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
-	IPGeo         *ipgeo.Reader         // optional, may be nil/empty (mmdb unset)
-	NginxLog      *nginxlog.Reader      // optional, may be nil/empty (access_log_path unset)
-	BanMgr        *ban.Manager          // optional, may be nil (ban_file_path unset)
-	UserRepo      *user.Repository      // internal user management (login / users tab / audit hook)
-	Notifier      *notifier.Notifier    // optional, may be nil (notification URL unset)
-	Mailer        *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
-	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
-	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
-	BrowserSync   *browsermajors.Sync   // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
-	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
-	PrivacyPass   *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
+	ConfigPath    string                  // settings save target (the web editing UI atomic-writes here).  Empty -> cannot save.
+	Version       string                  // unmask version (for display)
+	HostID        string                  // host identifier of this unmask instance.  Embedded in events for per-host aggregation on a shared DB.
+	IPGeo         *ipgeo.Reader           // optional, may be nil/empty (mmdb unset)
+	CrawlerVerify *crawlerverify.Verifier // optional; nil disables rDNS crawler auth
+	NginxLog      *nginxlog.Reader        // optional, may be nil/empty (access_log_path unset)
+	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
+	UserRepo      *user.Repository        // internal user management (login / users tab / audit hook)
+	Notifier      *notifier.Notifier      // optional, may be nil (notification URL unset)
+	Mailer        *mail.Mailer            // optional, may be nil (SMTP unset).  Used by alert / password reset.
+	RateLimiter   *ratelimit.Limiter      // sliding-window counter for forward-auth mode.  nil disables counting.
+	CommunityBans *communitybans.Client   // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	IPRangeSync   *nginxconf.Sync         // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	BrowserSync   *browsermajors.Sync     // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
+	WebBotAuth    *webbotauth.Verifier    // optional, may be nil.  RFC 9421 signature verification for bot requests.
+	PrivacyPass   *privacypass.Verifier   // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
 
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
@@ -505,6 +507,14 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 		}
 		site := siteFromRequest(r, h.snapshotSettings())
 		if h.cfg().RateLimit.ResolveZone(orig, site).ResolvedChallengeMode() == settings.RateChallengeDeny {
+			h.serveRateDeny(w, r, site)
+			return
+		}
+		// An ASN/geo rate rule whose per-rule action is "deny" is also a hard
+		// cap over the limit: resolve the client's network and short-circuit to
+		// the deny page rather than a recoverable challenge (matching the
+		// path-zone deny above).
+		if h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()) == settings.RateChallengeDeny {
 			h.serveRateDeny(w, r, site)
 			return
 		}
@@ -1203,6 +1213,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if act := strings.TrimSpace(h.cfg().Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
+	} else if forceReason == "rate_limit" {
+		// Native rate zones carry only "you hit a zone", not which ASN/geo rule
+		// -- re-derive the client's network from the IP and, if it matches a
+		// rate-mode rule, serve that rule's per-rule action instead of the base
+		// default (the plumbing this branch used to lack).  A path-zone deny was
+		// already short-circuited to serveRateDeny upstream, so only ASN/geo
+		// per-rule actions land here; "" (no network rule) leaves chMode alone.
+		if act := h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
 	} else if forceReason == "ja4_bot" {
 		// JA4 default → preset / custom override (per verdict name).
 		if act := strings.TrimSpace(h.cfg().Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
@@ -1270,8 +1290,27 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// monitoring probes are untouched.
 	if g := h.cfg().Global; g.StaleBrowserEnabled() && chMode != settings.RateChallengeDeny {
 		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(),
-			g.CurrentFirefoxMajorResolved(), g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
+			g.CurrentFirefoxMajorResolved(), g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
 			chMode = g.StaleBrowserResolvedAction()
+		}
+	}
+	// Header-integrity escalation (native): the nginx tier only signals "1"
+	// with no chMode, so resolve the axis's clamped action here for a request
+	// that mismatches.  Same never-soften-a-deny guard as the stale tier.  On
+	// the forward-auth path headerDecide already set the reason/chMode, so this
+	// only augments the native serve (a direct hit re-checks cheaply).
+	if g := h.cfg().Global; g.HeaderIntegrity && chMode != settings.RateChallengeDeny {
+		ua := firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent"))
+		secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
+		scheme := firstNonEmpty(r.Header.Get("X-Original-Scheme"), func() string {
+			if r.TLS != nil {
+				return "https"
+			}
+			return ""
+		}())
+		modern := r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" || r.ProtoMajor >= 2
+		if _, ok := headerDecide(ua, secChUA, scheme, modern, g); ok {
+			chMode = g.HeaderIntegrityResolvedAction()
 		}
 	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
