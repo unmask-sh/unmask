@@ -1220,6 +1220,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// override.  Action restricted to real screens; anything else falls back
 		// to the captcha_only default via StaleBrowserResolvedAction.
 		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
+		// Header-integrity axis: toggle + optional action (pow_only / captcha_only
+		// only -- deny is never accepted here; a blank / anything else stores unset
+		// so HeaderIntegrityResolvedAction applies its captcha_only default).
+		cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
+		switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
+		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly:
+			cur.Global.HeaderIntegrityAction = strings.TrimSpace(r.FormValue("header_integrity_action"))
+		default:
+			cur.Global.HeaderIntegrityAction = ""
+		}
 		parseIntInRange := func(v string, lo, hi int) int {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil || n < lo || n > hi {

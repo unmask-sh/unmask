@@ -2030,6 +2030,19 @@ type GlobalConfig struct {
 	// them through, or captcha_only / deny to gate harder.
 	UnknownUAAction string `yaml:"unknown_ua_action,omitempty"`
 
+	// HeaderIntegrity enables the header-integrity axis: a UA advertising a
+	// Chromium-family browser over HTTPS on h2/h3 that carries no Sec-CH-UA
+	// header is a spoof tell (a real Chromium sends client hints there).  Off
+	// by default (zero behavior change / zero rendered-config diff on upgrade).
+	// The axis is clamped to a challenge -- it NEVER denies (the header can be
+	// legitimately stripped by a corporate TLS-intercept proxy, so a hard block
+	// would over-block real users -- the chrome_fake_h1 lesson).
+	HeaderIntegrity bool `yaml:"header_integrity,omitempty"`
+	// HeaderIntegrityAction: the chain a header-mismatch gets.  Empty ->
+	// captcha_only (the point is to demand the interaction a header-spoofing
+	// bot can't cheaply provide).  Only pow_only / captcha_only are valid; deny
+	// is rejected on save so this axis can never hard-block.
+	HeaderIntegrityAction string `yaml:"header_integrity_action,omitempty"`
 	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
 	// Chromium-family major version far behind the current stable is escalated
 	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
@@ -2261,6 +2274,19 @@ func (g GlobalConfig) StaleBrowserResolvedAction() string {
 		return g.StaleBrowserAction
 	}
 	return DefaultStaleBrowserAction
+}
+
+// HeaderIntegrityResolvedAction: the chain a header-mismatch gets.  Clamped to
+// pow_only / captcha_only -- deny is never honored here even if somehow stored
+// (this axis structurally cannot hard-block; a stripped header is a legitimate
+// state).  Empty / anything else -> captcha_only.
+func (g GlobalConfig) HeaderIntegrityResolvedAction() string {
+	switch g.HeaderIntegrityAction {
+	case RateChallengePoWOnly, RateChallengeCaptchaOnly:
+		return g.HeaderIntegrityAction
+	default:
+		return RateChallengeCaptchaOnly
+	}
 }
 
 // Site acceptance modes (= SiteAcceptanceConfig.Mode).
