@@ -29,8 +29,9 @@ func asnForm(t *testing.T, form url.Values) *settings.AsnConfig {
 // the default "skip" stores as unset.
 func TestApplyAsnForm(t *testing.T) {
 	form := url.Values{}
-	form.Set("asn_default_action", "skip") // -> stored unset
-	form.Set("asn_default_rate", "150")    // feature B: config-level inherited default
+	form.Set("asn_default_action", "skip")      // -> stored unset
+	form.Set("asn_default_rule_action", "deny") // registered-row inherit target
+	form.Set("asn_default_rate", "150")         // feature B: config-level inherited default
 	// preset provider
 	form.Set("asn_provider_enabled_microsoft", "1")
 	form.Set("asn_provider_action_microsoft", "deny")
@@ -49,6 +50,22 @@ func TestApplyAsnForm(t *testing.T) {
 	}
 	if c.DefaultRatePerMin != 150 {
 		t.Errorf("asn_default_rate=150 must parse into DefaultRatePerMin, got %d", c.DefaultRatePerMin)
+	}
+	if c.DefaultRuleAction != "deny" {
+		t.Errorf("asn_default_rule_action=deny must persist, got %q", c.DefaultRuleAction)
+	}
+	// The resolve default (pow_then_captcha) stores as unset for a no-op save.
+	f2 := url.Values{}
+	f2.Set("asn_default_rule_action", "pow_then_captcha")
+	r2 := httptest.NewRequest("POST", "/save?section=asn", strings.NewReader(f2.Encode()))
+	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	_ = r2.ParseForm()
+	var c2 settings.AsnConfig
+	if err := applyAsnForm(&c2, r2); err != nil {
+		t.Fatalf("applyAsnForm: %v", err)
+	}
+	if c2.DefaultRuleAction != "" {
+		t.Errorf("pow_then_captcha (the resolve default) must store unset, got %q", c2.DefaultRuleAction)
 	}
 	if len(c.Providers) != 1 || c.Providers[0].ID != "microsoft" || c.Providers[0].Action != "deny" || !c.Providers[0].Enabled ||
 		c.Providers[0].RatePerMin == nil || *c.Providers[0].RatePerMin != 80 {
