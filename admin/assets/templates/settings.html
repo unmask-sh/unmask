@@ -269,6 +269,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rdns-badge.only{background:#fef3c7;color:#92400e}
 /* rate-limit column unit suffix (e.g. "req/分") next to the cap input */
 .rate-unit{font-size:.7rem;color:#94a3b8;white-space:nowrap}
+/* the unit label inside a rule-list editing row: shown only while editing,
+   vertically centered against the rate input */
+.rule-row .rule-edit-unit{display:none}
+.rule-row.editing .rule-edit-unit{display:inline-flex;align-items:center}
 /* JA4 verdict tab: pill for displaying the action enum (= behavior visible by color) */
 .action-pill{display:inline-block;padding:.05rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.05em}
 .action-bot{background:#fee2e2;color:#991b1b}
@@ -3525,7 +3529,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
         </select>
-        <input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem">
+        <input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -3553,7 +3557,7 @@ document.addEventListener("DOMContentLoaded", function(){
             <option value="pow_then_captcha">pow_then_captcha</option>
             <option value="deny">deny</option>
           </select>
-          <input type="number" name="asn_rate" min="0" value="" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem">
+          <input type="number" name="asn_rate" min="0" value="" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
