@@ -1085,7 +1085,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		geoCountrySet[cc] = true
 		action := strings.TrimSpace(r.Action)
 		if action == "" {
-			action = d.GeoDefaultAction
+			// A registered country's blank action inherits DefaultRuleAction,
+			// not the unmatched-country default (mirrors geoDecideForCountry).
+			action = s.Nginx.Geo.ResolvedDefaultRuleAction()
 		}
 		if !settings.IsValidGeoAction(action) {
 			action = settings.GeoActionSkip

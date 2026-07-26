@@ -3262,6 +3262,23 @@ document.addEventListener("DOMContentLoaded", function(){
       </label>
     </div>
 
+    {{/* Registered-rule default: what a rule's blank (inherit) action resolves
+         to.  Separate from the unmatched-country default above. */}}
+    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rule_default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rule_default_note") }}</div>
+    {{ $gdra := .GeoDefaultRuleAction }}
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
+      <label style="font-size:.85rem">{{ t .Lang "settings.asn.rule_default_action" }}:
+        <select name="geo_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $gdra "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $gdra "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $gdra "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $gdra "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $gdra "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
+    </div>
+
     <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rules_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rules_help") }}</div>
 
@@ -3277,13 +3294,13 @@ document.addEventListener("DOMContentLoaded", function(){
         <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect">{{ if $r.Action }}{{ $r.Action }}{{ else }}(inherit){{ end }}</span></div>
+          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect geo-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}{{ end }}</span></div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
         <input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat">
         <select name="geo_action" class="rule-action">
-          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}</option>
           <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
           <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
           <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
@@ -3310,7 +3327,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <input type="text" name="geo_label" value="" placeholder="{{ t .Lang "settings.geo.label_ph" }}" class="rule-title">
           <input type="text" name="geo_country" value="" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" class="rule-pat">
           <select name="geo_action" class="rule-action">
-            <option value="" selected>(inherit)</option>
+            <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRuleAction }}</option>
             <option value="skip">skip</option>
             <option value="pow_only">pow_only</option>
             <option value="captcha_only">captcha_only</option>
@@ -3397,6 +3414,27 @@ document.addEventListener("DOMContentLoaded", function(){
   </div>
 </form>
 
+<script>
+(function(){
+  // Inherit-action labels track the registered-rule default action live: the
+  // "(inherit)" option in every row's action select and the view rows'
+  // inherit pills re-resolve as the operator changes the default.
+  var d = document.querySelector('select[name="geo_default_rule_action"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}'; // e.g. "inherit (%v)"
+  function refresh(){
+    var lbl = PAT.replace('%v', d.value);
+    Array.prototype.forEach.call(
+      document.querySelectorAll('select[name="geo_action"] option[value=""]'),
+      function(o){ o.textContent = lbl; });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.geo-act-pill.inherit'),
+      function(p){ p.textContent = lbl; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
+
 {{ end }}
 
 {{ if eq .Tab "asn" }}
@@ -3429,13 +3467,23 @@ document.addEventListener("DOMContentLoaded", function(){
       </label>
     </div>
 
-    {{/* Default rate is NOT part of the "no rule matched" behavior above: it is
-         the value REGISTERED rows (presets + custom rules) inherit when their
-         own rate field is blank.  Kept as its own section so the two defaults
-         are not read as one. */}}
-    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.asn.default_rate_h" }}</h3>
-    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.default_rate_note") }}</div>
-    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
+    {{/* Registered-rule defaults are NOT part of the "no rule matched" behavior
+         above: they are the values REGISTERED rows (presets + custom rules)
+         inherit when their own action / rate field is blank.  Kept as its own
+         section so the two defaults are not read as one. */}}
+    <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.asn.rule_default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.rule_default_note") }}</div>
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:center;margin-bottom:.6rem">
+      {{ $adra := .AsnDefaultRuleAction }}
+      <label style="font-size:.85rem">{{ t .Lang "settings.asn.rule_default_action" }}:
+        <select name="asn_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
+          <option value="skip"             {{ if eq $adra "skip"             }}selected{{ end }}>skip</option>
+          <option value="pow_only"         {{ if eq $adra "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq $adra "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq $adra "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq $adra "deny"             }}selected{{ end }}>deny (= 403)</option>
+        </select>
+      </label>
       <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.default_rate" }}:
         <input type="number" name="asn_default_rate" min="0" value="{{ if gt .AsnDefaultRate 0 }}{{ .AsnDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
         <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
@@ -3490,7 +3538,7 @@ document.addEventListener("DOMContentLoaded", function(){
           </td>
           <td class="asn-action-cell">
             <select name="asn_provider_action_{{ .ID }}" class="asn-preset-action" style="padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem">
-              <option value=""                 {{ if eq .Action ""                 }}selected{{ end }}>(inherit default)</option>
+              <option value=""                 {{ if eq .Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
               <option value="skip"             {{ if eq .Action "skip"             }}selected{{ end }}>skip</option>
               <option value="pow_only"         {{ if eq .Action "pow_only"         }}selected{{ end }}>pow_only</option>
               <option value="captcha_only"     {{ if eq .Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
@@ -3525,13 +3573,13 @@ document.addEventListener("DOMContentLoaded", function(){
         <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect">{{ if $r.Action }}{{ $r.Action }}{{ else }}(inherit){{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
+          <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect asn-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
         <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
         <select name="asn_action" class="rule-action">
-          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>(inherit)</option>
+          <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
           <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
           <option value="pow_only"         {{ if eq $r.Action "pow_only"         }}selected{{ end }}>pow_only</option>
           <option value="captcha_only"     {{ if eq $r.Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
@@ -3559,7 +3607,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title">
           <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
           <select name="asn_action" class="rule-action">
-            <option value="" selected>(inherit)</option>
+            <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRuleAction }}</option>
             <option value="skip">skip</option>
             <option value="pow_only">pow_only</option>
             <option value="captcha_only">captcha_only</option>
@@ -3678,6 +3726,22 @@ document.addEventListener("DOMContentLoaded", function(){
       function(p){ p.textContent = pill; });
   }
   if (defRate) defRate.addEventListener('input', refreshRatePh);
+
+  // The inherit-action labels track the registered-rule default action the
+  // same way: the "(inherit)" option in every row/preset action select and the
+  // view rows' inherit pills re-resolve as the operator changes it.
+  var defRuleAct = document.querySelector('select[name="asn_default_rule_action"]');
+  function refreshActInherit(){
+    if (!defRuleAct) return;
+    var lbl = RATE_PH_PAT.replace('%v', defRuleAct.value);
+    Array.prototype.forEach.call(
+      document.querySelectorAll('select[name="asn_action"] option[value=""], select[name^="asn_provider_action_"] option[value=""]'),
+      function(o){ o.textContent = lbl; });
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.asn-act-pill.inherit'),
+      function(p){ p.textContent = lbl; });
+  }
+  if (defRuleAct) defRuleAct.addEventListener('change', refreshActInherit);
 
   // preset bulk controls
   var chks = Array.prototype.slice.call(document.querySelectorAll('.asn-preset-chk'));

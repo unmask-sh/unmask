@@ -24,7 +24,10 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 			DefaultAction:     settings.GeoActionSkip,
 			DefaultRatePerMin: 200, // feature B: rules with a nil rate inherit this
 			Providers:         []settings.AsnProviderSel{{ID: "microsoft", Action: settings.GeoActionDeny, Enabled: true}},
-			Rules:             []settings.AsnRule{{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true}},
+			Rules: []settings.AsnRule{
+				{ASN: 16509, Label: "Amazon AWS", Action: settings.GeoActionDeny, Enabled: true},
+				{ASN: 20473, Label: "inherit row", Action: "", Enabled: true}, // blank action -> inherit pill resolves DefaultRuleAction
+			},
 		}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=asn", nil)
@@ -54,6 +57,9 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
 		`(200)`,                                    // a nil-rate row's placeholder carries the inherited default, "inherit (200)"-style (locale-neutral paren check)
 		`asn-rate-pill inherit`,                    // view row shows the inherited rate as a pill (no info hidden vs the old table)
+		`name="asn_default_rule_action"`,           // registered-rule inherit target select
+		`asn-act-pill inherit`,                     // blank-action row's pill resolves the rule default...
+		`(pow_then_captcha)`,                       // ...to "inherit (pow_then_captcha)" (locale-neutral paren check)
 		`data-rule-name="ax_path"`,                 // ASN-axis exempt path list
 		`data-help-target="ax-help"`,               // its help popover
 		`name="ax_path"`,                           // exempt path input (rule-list template row)

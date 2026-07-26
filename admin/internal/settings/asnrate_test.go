@@ -21,8 +21,8 @@ func TestAsnConfigRateRules(t *testing.T) {
 	}
 	got := cfg.RateRules()
 	want := []AsnRateRule{
-		{ASN: 16509, RatePerMin: 100, Action: GeoActionCaptchaOnly}, // AsnRateRule.RatePerMin is the resolved int
-		{Org: "OVH", RatePerMin: 50, Action: GeoActionPoWOnly},      // "" resolved to DefaultAction
+		{ASN: 16509, RatePerMin: 100, Action: GeoActionCaptchaOnly},       // AsnRateRule.RatePerMin is the resolved int
+		{Org: "OVH", RatePerMin: 50, Action: RateChallengePoWThenCaptcha}, // "" resolved to DefaultRuleAction (NOT the unmatched default)
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("RateRules() = %+v, want %+v", got, want)

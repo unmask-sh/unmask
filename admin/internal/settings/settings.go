@@ -972,6 +972,11 @@ type GeoConfig struct {
 	// Set to a challenge action or "deny" for allowlist semantics
 	// (= the matching rules carry "pass" for the few allowed countries).
 	DefaultAction string `yaml:"default_action,omitempty"`
+	// DefaultRuleAction: what a REGISTERED rule with a blank action inherits.
+	// Distinct from DefaultAction (= unmatched countries): registering a
+	// country means "act on it", so the inherit target defaults to a
+	// challenge (pow_then_captcha), not to the unmatched behavior.
+	DefaultRuleAction string `yaml:"default_rule_action,omitempty"`
 	// Rules: per-country overrides.  Index is meaningless for behavior
 	// but stable for UI display.  Disabled rules are persisted but skipped
 	// at evaluation time.
@@ -1036,6 +1041,16 @@ func (g GeoConfig) ResolvedDefaultAction() string {
 	return g.DefaultAction
 }
 
+// ResolvedDefaultRuleAction: the inherit target for a registered rule with a
+// blank action.  Empty -> pow_then_captcha (registering a country means "act
+// on it"; a challenge is the safe default, deny would over-block).
+func (g GeoConfig) ResolvedDefaultRuleAction() string {
+	if g.DefaultRuleAction == "" {
+		return RateChallengePoWThenCaptcha
+	}
+	return g.DefaultRuleAction
+}
+
 // LookupRule returns the enabled rule for the given uppercase country code,
 // or nil if none / disabled.  Linear scan — rule count is expected to be
 // small (= dozens), so building a map is not worth the alloc.
@@ -1073,6 +1088,11 @@ type AsnConfig struct {
 	// DefaultAction: applied to networks that match no rule.  Empty -> "skip"
 	// (= blocklist semantics, the common case).
 	DefaultAction string `yaml:"default_action,omitempty"`
+	// DefaultRuleAction: what a REGISTERED rule/provider with a blank action
+	// inherits.  Distinct from DefaultAction (= unmatched networks):
+	// registering a network means "act on it", so the inherit target defaults
+	// to a challenge (pow_then_captcha), not to the unmatched behavior.
+	DefaultRuleAction string `yaml:"default_rule_action,omitempty"`
 	// DefaultRatePerMin: the rate a rule/provider inherits when its own
 	// RatePerMin is nil, mirroring DefaultAction.  0 -> no default throttle (a
 	// non-overriding rule fires its action every request).  Set to N to throttle
@@ -1172,6 +1192,16 @@ func (a AsnConfig) ResolvedDefaultAction() string {
 	return a.DefaultAction
 }
 
+// ResolvedDefaultRuleAction: the inherit target for a registered rule /
+// provider with a blank action.  Empty -> pow_then_captcha (enabling a
+// network entry means "act on it"; a challenge is the safe default).
+func (a AsnConfig) ResolvedDefaultRuleAction() string {
+	if a.DefaultRuleAction == "" {
+		return RateChallengePoWThenCaptcha
+	}
+	return a.DefaultRuleAction
+}
+
 // ResolveAction returns the action to apply to a visitor resolved to the
 // given AS number + organization name, or "" when no enabled rule/provider
 // matches (= this axis stays silent, other axes decide).  Precedence: an
@@ -1200,9 +1230,11 @@ func (a AsnConfig) effectiveRate(override *int) int {
 // "rate" mode: the caller throttles the network to that many requests/min and
 // applies action only to the overage.
 func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin int, matched bool) {
+	// A registered row's blank action inherits DefaultRuleAction -- NOT the
+	// unmatched-network DefaultAction (a registered row exists to act).
 	resolve := func(raw string) string {
 		if strings.TrimSpace(raw) == "" {
-			return a.ResolvedDefaultAction()
+			return a.ResolvedDefaultRuleAction()
 		}
 		return raw
 	}
@@ -1255,7 +1287,7 @@ type AsnRateRule struct {
 func (a AsnConfig) RateRules() []AsnRateRule {
 	act := func(raw string) string {
 		if strings.TrimSpace(raw) == "" {
-			return a.ResolvedDefaultAction()
+			return a.ResolvedDefaultRuleAction()
 		}
 		return raw
 	}
@@ -1297,7 +1329,7 @@ func (a AsnConfig) EnabledOrgPatterns() []struct {
 	}
 	add := func(pat, act string) {
 		if strings.TrimSpace(act) == "" {
-			act = a.ResolvedDefaultAction()
+			act = a.ResolvedDefaultRuleAction()
 		}
 		out = append(out, struct {
 			Pattern string
@@ -1342,7 +1374,7 @@ func (a AsnConfig) EnabledASNRules() []struct {
 		if r.Enabled && r.ASN != 0 && r.Org == "" && a.effectiveRate(r.RatePerMin) == 0 {
 			act := r.Action
 			if strings.TrimSpace(act) == "" {
-				act = a.ResolvedDefaultAction()
+				act = a.ResolvedDefaultRuleAction()
 			}
 			out = append(out, struct {
 				ASN    uint

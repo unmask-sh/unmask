@@ -605,16 +605,18 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			}
 			return strings.Join(parts, ", ")
 		}(),
-		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
-		"AsnMmdbLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
-		"AsnProviders":     h.asnProviderView(cur.Asn),
-		"AsnCustomRules":   asnCustomRuleView(cur.Asn),
-		"AsnDefaultRate":   cur.Asn.DefaultRatePerMin,
-		"GeoExemptRows":    bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
-		"AsnExemptRows":    bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
-		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"IPGeoMMDBPath":        ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath":     ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":          h.IPGeo != nil && h.IPGeo.Loaded(),
+		"AsnMmdbLoaded":        h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"AsnProviders":         h.asnProviderView(cur.Asn),
+		"AsnCustomRules":       asnCustomRuleView(cur.Asn),
+		"AsnDefaultRate":       cur.Asn.DefaultRatePerMin,
+		"AsnDefaultRuleAction": cur.Asn.ResolvedDefaultRuleAction(), // what a blank row action inherits
+		"GeoDefaultRuleAction": cur.Geo.ResolvedDefaultRuleAction(),
+		"GeoExemptRows":        bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
+		"AsnExemptRows":        bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
+		"IPGeoASNLoaded":       h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -3611,6 +3613,19 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 	} else {
 		c.DefaultAction = ""
 	}
+	// Registered-rule inherit target.  pow_then_captcha IS the resolve
+	// default (ResolvedDefaultRuleAction) -> store the non-deviation as unset.
+	if v := strings.TrimSpace(r.FormValue("geo_default_rule_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("geo_default_rule_action invalid (got %q)", v)
+		}
+		if v == settings.RateChallengePoWThenCaptcha {
+			v = ""
+		}
+		c.DefaultRuleAction = v
+	} else {
+		c.DefaultRuleAction = ""
+	}
 
 	countries := r.Form["geo_country"]
 	labels := r.Form["geo_label"]
@@ -3785,6 +3800,20 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		c.DefaultAction = v
 	} else {
 		c.DefaultAction = ""
+	}
+
+	// Registered-rule inherit target.  pow_then_captcha IS the resolve
+	// default (ResolvedDefaultRuleAction) -> store the non-deviation as unset.
+	if v := strings.TrimSpace(r.FormValue("asn_default_rule_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("asn_default_rule_action invalid (got %q)", v)
+		}
+		if v == settings.RateChallengePoWThenCaptcha {
+			v = ""
+		}
+		c.DefaultRuleAction = v
+	} else {
+		c.DefaultRuleAction = ""
 	}
 
 	// Default rate: blank / 0 -> no default throttle.  A rule/provider inherits

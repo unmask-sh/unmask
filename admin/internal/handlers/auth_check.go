@@ -660,14 +660,20 @@ func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, boo
 //     declines to act for this country; lets other axes decide)
 //   - "deny" -> sevDeny
 //   - challenge-mode action -> matching severity, chMode set
+//
+// A REGISTERED country with a blank action inherits DefaultRuleAction (a
+// registered row exists to act); only an unmatched country falls to
+// DefaultAction.
 func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, bool) {
 	if country == "" {
 		return axisDecision{}, false
 	}
 	act := geo.ResolvedDefaultAction()
-	rule := geo.LookupRule(country)
-	if rule != nil && strings.TrimSpace(rule.Action) != "" {
+	if rule := geo.LookupRule(country); rule != nil {
 		act = rule.Action
+		if strings.TrimSpace(act) == "" {
+			act = geo.ResolvedDefaultRuleAction()
+		}
 	}
 	switch act {
 	case "", settings.GeoActionSkip:
