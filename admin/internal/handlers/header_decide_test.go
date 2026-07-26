@@ -61,4 +61,10 @@ func TestHeaderDecide(t *testing.T) {
 	if d, _ := headerDecide(chrome, "", "https", true, powish); d.sev != sevPoWOnly {
 		t.Errorf("pow_only action -> sevPoWOnly, got %d", d.sev)
 	}
+	// pow_then_captcha is a valid (non-deny) escalation and must round-trip
+	// through severity to the pow_then_captcha chMode, not collapse to captcha.
+	chainish := settings.GlobalConfig{HeaderIntegrity: true, HeaderIntegrityAction: settings.RateChallengePoWThenCaptcha}
+	if d, _ := headerDecide(chrome, "", "https", true, chainish); d.sev != sevPoWThenCaptcha || d.chMode != settings.RateChallengePoWThenCaptcha {
+		t.Errorf("pow_then_captcha action -> sevPoWThenCaptcha/chMode pow_then_captcha, got sev=%d chMode=%q", d.sev, d.chMode)
+	}
 }

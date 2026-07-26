@@ -1974,8 +1974,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_action_help") }}</div>
       <select name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
-        <option value="captcha_only" {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="pow_only"     {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="captcha_only"     {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_only"         {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="pow_then_captcha" {{ if eq $hia "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
       </select>
     </div>
     <script type="text/html" id="ua-header-help">
