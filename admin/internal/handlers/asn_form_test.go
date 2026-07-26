@@ -30,6 +30,7 @@ func asnForm(t *testing.T, form url.Values) *settings.AsnConfig {
 func TestApplyAsnForm(t *testing.T) {
 	form := url.Values{}
 	form.Set("asn_default_action", "skip") // -> stored unset
+	form.Set("asn_default_rate", "150")    // feature B: config-level inherited default
 	// preset provider
 	form.Set("asn_provider_enabled_microsoft", "1")
 	form.Set("asn_provider_action_microsoft", "deny")
@@ -45,16 +46,19 @@ func TestApplyAsnForm(t *testing.T) {
 	if c.DefaultAction != "" {
 		t.Errorf("default skip must store unset, got %q", c.DefaultAction)
 	}
+	if c.DefaultRatePerMin != 150 {
+		t.Errorf("asn_default_rate=150 must parse into DefaultRatePerMin, got %d", c.DefaultRatePerMin)
+	}
 	if len(c.Providers) != 1 || c.Providers[0].ID != "microsoft" || c.Providers[0].Action != "deny" || !c.Providers[0].Enabled {
 		t.Errorf("providers = %+v, want [microsoft deny enabled]", c.Providers)
 	}
 	if len(c.Rules) != 2 {
 		t.Fatalf("want 2 custom rules, got %d (%+v)", len(c.Rules), c.Rules)
 	}
-	if c.Rules[0].ASN != 16509 || c.Rules[0].Org != "" || c.Rules[0].Action != "captcha_only" || c.Rules[0].RatePerMin != 100 {
+	if c.Rules[0].ASN != 16509 || c.Rules[0].Org != "" || c.Rules[0].Action != "captcha_only" || (c.Rules[0].RatePerMin == nil || *c.Rules[0].RatePerMin != 100) {
 		t.Errorf("row0 = %+v, want exact ASN16509 captcha_only rate 100", c.Rules[0])
 	}
-	if c.Rules[1].Org != "Contabo" || c.Rules[1].ASN != 0 || c.Rules[1].Action != "deny" || c.Rules[1].RatePerMin != 0 {
+	if c.Rules[1].Org != "Contabo" || c.Rules[1].ASN != 0 || c.Rules[1].Action != "deny" || c.Rules[1].RatePerMin != nil {
 		t.Errorf("row1 = %+v, want org Contabo deny rate 0", c.Rules[1])
 	}
 }
