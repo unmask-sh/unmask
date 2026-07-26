@@ -140,12 +140,13 @@ func TestGeoDecideForCountry(t *testing.T) {
 		// unmatched-country DefaultAction, even when that is skip.
 		{"IT registered blank action -> inherits rule default pow_then_captcha", "IT", geoSkipDefault, true, sevPoWThenCaptcha, "geo:IT:pow_then_captcha"},
 		{"IT registered blank action + rule default deny -> deny", "IT", geoRuleDeny, true, sevDeny, "geo:IT:deny"},
+		// The rate leg of the return value is pinned separately below.
 		{"unlisted GB with default skip -> silent", "GB", geoSkipDefault, false, sevPass, ""},
 		{"unlisted GB with default deny -> deny", "GB", geoDenyDefault, true, sevDeny, "geo:GB:deny"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d, ok := geoDecideForCountry(c.country, c.geo)
+			d, _, ok := geoDecideForCountry(c.country, c.geo)
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v (decision=%+v)", ok, c.wantOK, d)
 			}
@@ -157,6 +158,27 @@ func TestGeoDecideForCountry(t *testing.T) {
 					d.sev, d.reason, c.wantSev, c.wantR)
 			}
 		})
+	}
+
+	// The rate leg: a matched rule surfaces its effective RatePerMin (inherit /
+	// explicit), an unmatched country never carries one.
+	rate30 := 30
+	geoRated := settings.GeoConfig{
+		DefaultAction:     settings.RateChallengeDeny,
+		DefaultRatePerMin: 100,
+		Rules: []settings.GeoRule{
+			{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true},                      // nil -> inherit 100
+			{Country: "BR", Action: settings.RateChallengeDeny, RatePerMin: &rate30, Enabled: true}, // explicit 30
+		},
+	}
+	if _, rate, ok := geoDecideForCountry("CN", geoRated); !ok || rate != 100 {
+		t.Errorf("CN should inherit rate 100, got rate=%d ok=%v", rate, ok)
+	}
+	if _, rate, _ := geoDecideForCountry("BR", geoRated); rate != 30 {
+		t.Errorf("BR explicit rate 30, got %d", rate)
+	}
+	if _, rate, ok := geoDecideForCountry("GB", geoRated); !ok || rate != 0 {
+		t.Errorf("unmatched GB rides the default action with NO rate, got rate=%d ok=%v", rate, ok)
 	}
 }
 

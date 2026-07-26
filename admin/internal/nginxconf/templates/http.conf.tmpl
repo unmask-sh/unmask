@@ -965,6 +965,19 @@ map "$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
+# Country rate zones (auto-rendered from settings.nginx.geo rate rules): the
+# by-country twin of the ASN zones above.  Each keys on the already-resolved
+# $unmask_country -- exact-match on the zone's country, "" otherwise, with
+# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) dropped to
+# "" so a genuine crawler from a throttled country is NEVER rate-limited.
+{{- range .GeoRateZones }}
+map "$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
+    default    "";
+    "0:0:{{ .Country }}" "{{ .Country }}";
+}
+limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
+
 # Distinguish whether the request went through rate-limit (i.e. carries ?_rl=1).
 map $args $rl_hit {
     default "0";

@@ -443,6 +443,9 @@ type renderData struct {
 	AsnCIDRs         string
 	AsnRules         []AsnRuleRender
 	AsnDefaultAction string
+	// GeoRateZones: one limit_req zone per RatePerMin>0 country rule (the
+	// by-country twin of AsnRateZones; keyed on $unmask_country).
+	GeoRateZones []GeoRateZoneRender
 	// AsnRateZones: one limit_req zone per RatePerMin>0 ASN rule.  Each throttles
 	// the rule's networks to N req/min (counter keyed per AS number, via a geo
 	// block over ipgeo.ASNRateCIDRs), with verified crawlers / bypass IPs exempt
@@ -552,6 +555,19 @@ type AsnRateZoneRender struct {
 	RawVar         string // $asnrate_<i>_raw : the network's ASN, else ""
 	KeyVar         string // $asnrate_<i>_key : RawVar minus the search-bot/bypass exemption
 	GeoBody        string // rendered "<CIDR> <ASN>;" lines
+}
+
+// GeoRateZoneRender: one native rate zone for a RatePerMin>0 country rule --
+// the by-country twin of AsnRateZoneRender.  No GeoBody: the zone keys on the
+// already-resolved $unmask_country (whose geo block includes rate-mode
+// countries), so the counter is per country, matching forward-auth's
+// "geo:<CC>" counter.  The key map drops verified crawlers / bypass IPs.
+type GeoRateZoneRender struct {
+	ZoneName       string // georate_<i>
+	RequestsPerMin int
+	Burst          int
+	KeyVar         string // $georate_<i>_key
+	Country        string // ISO code the zone counts
 }
 
 // sanitizeConfPath strips characters that could break out of an nginx
@@ -1074,6 +1090,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// handler so behavior matches across the two modes.
 	d.GeoDefaultAction = s.Nginx.Geo.ResolvedDefaultAction()
 	geoCountrySet := map[string]bool{}
+	var geoCIDRCodes []string
 	for _, r := range s.Nginx.Geo.Rules {
 		if !r.Enabled {
 			continue
@@ -1083,6 +1100,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			continue
 		}
 		geoCountrySet[cc] = true
+		// Every enabled country -- immediate-action AND rate-mode -- joins the
+		// CIDR walk so $unmask_country resolves it; rate-mode countries then
+		// skip the action map (they render as a rate zone instead, mirroring
+		// the ASN split between the geo block and AsnRateZones).
+		geoCIDRCodes = append(geoCIDRCodes, cc)
+		if s.Nginx.Geo.EffectiveRatePerMin(r.RatePerMin) > 0 {
+			continue
+		}
 		action := strings.TrimSpace(r.Action)
 		if action == "" {
 			// A registered country's blank action inherits DefaultRuleAction,
@@ -1095,17 +1120,30 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.GeoRules = append(d.GeoRules, GeoRuleRender{Country: cc, Action: action})
 	}
 	sort.Slice(d.GeoRules, func(i, j int) bool { return d.GeoRules[i].Country < d.GeoRules[j].Country })
-	if len(d.GeoRules) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
-		codes := make([]string, 0, len(d.GeoRules))
-		for _, g := range d.GeoRules {
-			codes = append(codes, g.Country)
-		}
-		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, codes); err == nil {
+	if len(geoCIDRCodes) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
+		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, geoCIDRCodes); err == nil {
 			d.GeoCIDRs = cidrs
 		}
 		// On error: silently leave GeoCIDRs empty.  The geo block then
 		// degrades to default "" → action map default action.  Operators
 		// see the WARN in `unmask doctor` (= mmdb path check).
+	}
+	// Country rate zones: one limit_req zone per rate-mode rule, keyed on
+	// $unmask_country -- so they only work when the CIDR walk resolved (no
+	// mmdb -> $unmask_country is always "" and a zone would never count).
+	if d.GeoCIDRs != "" {
+		for i, rr := range s.Nginx.Geo.RateRules() {
+			name := fmt.Sprintf("georate_%d", i)
+			d.GeoRateZones = append(d.GeoRateZones, GeoRateZoneRender{
+				ZoneName:       name,
+				RequestsPerMin: rr.RatePerMin,
+				// Same leaky-bucket-vs-window reasoning as the ASN zones:
+				// burst of one window's worth, and nginx rejects burst=0.
+				Burst:   rr.RatePerMin,
+				KeyVar:  "$" + name + "_key",
+				Country: rr.Country,
+			})
+		}
 	}
 
 	// ASN (native mode): the by-network sibling of the geo block above.  Walk
