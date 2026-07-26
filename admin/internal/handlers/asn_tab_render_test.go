@@ -58,9 +58,9 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`name="asn_provider_rate_microsoft"`,       // per-preset rate override on the preset table
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
 		`placeholder="200"`,                        // a nil-rate row shows the inherited default as its placeholder
-		`data-rule-name="ne_path"`,                 // net-exempt (geo/asn-only) path list
-		`data-help-target="ne-help"`,               // net-exempt help popover
-		`name="ne_path"`,                           // net-exempt path input (rule-list template row)
+		`data-rule-name="ax_path"`,                 // ASN-axis exempt path list
+		`data-help-target="ax-help"`,               // its help popover
+		`name="ax_path"`,                           // exempt path input (rule-list template row)
 		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {
@@ -77,5 +77,44 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		if strings.Contains(body, leaked) {
 			t.Errorf("ASN default heading leaked geo (country) wording %q -- must say network/ASN", leaked)
 		}
+	}
+	// The geo-axis exempt list lives on the GEO tab, not here.
+	if strings.Contains(body, `data-rule-name="gx_path"`) {
+		t.Error("geo-exempt list must not render on the ASN tab")
+	}
+}
+
+// TestSettingsGeoTabRendersExemptPaths executes the geo tab and pins that the
+// country-axis exempt-path list renders there (and only there): the gx
+// rule-list with a stored row, its help popover, and no leakage of the
+// ASN-axis (ax) list onto this tab.
+func TestSettingsGeoTabRendersExemptPaths(t *testing.T) {
+	h := newTestHandler(t)
+	h.updateSettingsInMemory(func(s *settings.Settings) {
+		s.Nginx.Geo.ExemptPaths = []settings.BypassPath{{Path: "^/feed", Title: "RSS"}}
+	})
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=geo", nil)
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		`data-rule-name="gx_path"`, // country-axis exempt path list
+		`data-help-target="gx-help"`,
+		`name="gx_path"`,
+		`^/feed`, // the stored row surfaces
+		`</html>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("geo tab render missing %q", want)
+		}
+	}
+	if strings.Contains(body, `data-rule-name="ax_path"`) {
+		t.Error("asn-exempt list must not render on the geo tab")
+	}
+	if strings.Contains(body, "settings.geo.exempt.") {
+		t.Error("raw settings.geo.exempt.* i18n key leaked (missing dict entry)")
 	}
 }

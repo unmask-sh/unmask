@@ -612,7 +612,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnProviders":     h.asnProviderView(cur.Asn),
 		"AsnCustomRules":   asnCustomRuleView(cur.Asn),
 		"AsnDefaultRate":   cur.Asn.DefaultRatePerMin,
-		"NetExemptRows":    bypassPathRows(cur.NetExemptPaths.Paths), // geo/asn-only exempt paths (RSS etc.)
+		"GeoExemptRows":    bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
+		"AsnExemptRows":    bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
 		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
@@ -1302,14 +1303,18 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
+		// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
+		if err := applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang); err != nil {
+			redirBack(err.Error())
+			return
+		}
 	case "asn":
 		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
-		// The geo/asn-only net-exempt paths live on the ASN tab (RSS feeds etc.);
-		// they write NetExemptPaths, outside the Asn struct, so parse them here.
-		if err := applyNetExemptForm(&cur.Nginx, r, lang); err != nil {
+		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
+		if err := applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -3091,17 +3096,17 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	return nil
 }
 
-// applyNetExemptForm: receive the net-exempt paths (geo/asn-only exemption)
-// rows from the ASN tab.  Same row shape as the bypass-paths rows -- ne_path /
-// _title / _enabled / _updated_at / _site zipped into BypassPath -- but no
-// presets, and written to NetExemptPaths (drops only the geo/asn axis) instead
-// of BypassPaths (which vetoes every judgment).
-func applyNetExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
-	pats := r.Form["ne_path"]
-	titles := r.Form["ne_title"]
-	rowEnabled := r.Form["ne_enabled"]
-	upds := r.Form["ne_updated_at"]
-	sites := r.Form["ne_site"]
+// applyExemptPathsForm: receive one per-axis exempt-path list (geo tab uses
+// prefix "gx", asn tab "ax").  Same row shape as the bypass-paths rows --
+// <prefix>_path / _title / _enabled / _updated_at / _site zipped into
+// BypassPath -- but no presets, and written to the axis's ExemptPaths (drops
+// only that axis) instead of BypassPaths (which vetoes every judgment).
+func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Request, lang i18n.Lang) error {
+	pats := r.Form[prefix+"_path"]
+	titles := r.Form[prefix+"_title"]
+	rowEnabled := r.Form[prefix+"_enabled"]
+	upds := r.Form[prefix+"_updated_at"]
+	sites := r.Form[prefix+"_site"]
 	maxLen := len(pats)
 	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
 		if l > maxLen {
@@ -3147,7 +3152,7 @@ func applyNetExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			Site:      site,
 		})
 	}
-	n.NetExemptPaths.Paths = rows
+	*dst = rows
 	return nil
 }
 

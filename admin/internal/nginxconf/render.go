@@ -354,12 +354,15 @@ type renderData struct {
 	// no anchor stripping needed because no map ever concatenates host + uri.
 	BypassPathsGlobal  []string             // patterns from rules with Site == ""
 	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
-	// NetExemptPaths*: geo/asn-only exemption (RSS/Atom feeds etc.).  Same
-	// global + per-host split as bypass paths, but feeds $is_net_exempt_path,
-	// which drops ONLY the geo/asn axis in $is_net_challenge (ja4/honeypot/rate
-	// still run).  No presets -- operators list their own feed paths.
-	NetExemptPathsGlobal    []string
-	NetExemptPathsPerHost   []BypassPathHostMaps
+	// GeoExemptPaths* / AsnExemptPaths*: per-axis path exemptions (RSS/Atom
+	// feeds etc.).  Same global + per-host split as bypass paths, but each
+	// feeds its own signal ($is_geo_exempt_path / $is_asn_exempt_path), which
+	// drops ONLY that axis inside $is_net_challenge (ja4/honeypot/rate still
+	// run).  No presets -- operators list their own feed paths.
+	GeoExemptPathsGlobal    []string
+	GeoExemptPathsPerHost   []BypassPathHostMaps
+	AsnExemptPathsGlobal    []string
+	AsnExemptPathsPerHost   []BypassPathHostMaps
 	ChallengeAll            bool                   // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string               // OR list of UA patterns evaluated when false
 	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
@@ -913,34 +916,38 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// means `^/api/` is honored literally with no double-anchor wart.
 	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bp)
 
-	// Net-exempt paths: same render machinery (global + per-host maps) as bypass
-	// paths, but no presets.  Feeds $is_net_exempt_path -> $is_net_challenge, so
-	// a matched feed drops only the geo/asn axis.
-	ne := []BypassPathRule{}
-	neSeen := map[string]bool{}
-	for _, r := range s.Nginx.NetExemptPaths.Paths {
-		if r.Disabled {
-			continue
+	// Per-axis exempt paths: same render machinery (global + per-host maps) as
+	// bypass paths, but no presets.  Each feeds its own signal so a matched
+	// feed drops only that axis inside $is_net_challenge.
+	exemptPathRules := func(rows []settings.BypassPath) []BypassPathRule {
+		out := []BypassPathRule{}
+		seen := map[string]bool{}
+		for _, r := range rows {
+			if r.Disabled {
+				continue
+			}
+			p := trimSpaceAndQuotes(r.Path)
+			if p == "" {
+				continue
+			}
+			site := trimSpaceAndQuotes(r.Site)
+			key := site + "|" + p
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, BypassPathRule{Pattern: p, Site: site})
 		}
-		p := trimSpaceAndQuotes(r.Path)
-		if p == "" {
-			continue
-		}
-		site := trimSpaceAndQuotes(r.Site)
-		key := site + "|" + p
-		if neSeen[key] {
-			continue
-		}
-		neSeen[key] = true
-		ne = append(ne, BypassPathRule{Pattern: p, Site: site})
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Site != out[j].Site {
+				return out[i].Site < out[j].Site
+			}
+			return out[i].Pattern < out[j].Pattern
+		})
+		return out
 	}
-	sort.Slice(ne, func(i, j int) bool {
-		if ne[i].Site != ne[j].Site {
-			return ne[i].Site < ne[j].Site
-		}
-		return ne[i].Pattern < ne[j].Pattern
-	})
-	d.NetExemptPathsGlobal, d.NetExemptPathsPerHost = splitBypassPathsForRender(ne)
+	d.GeoExemptPathsGlobal, d.GeoExemptPathsPerHost = splitBypassPathsForRender(exemptPathRules(s.Nginx.Geo.ExemptPaths))
+	d.AsnExemptPathsGlobal, d.AsnExemptPathsPerHost = splitBypassPathsForRender(exemptPathRules(s.Nginx.Asn.ExemptPaths))
 
 	// RateLimit zones: default goes first, followed by named zones in order.
 	// If Default.Name is empty, fall back to "unmask_rate" (= matches
