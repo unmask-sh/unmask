@@ -269,6 +269,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rdns-badge.only{background:#fef3c7;color:#92400e}
 /* rate-limit column unit suffix (e.g. "req/分") next to the cap input */
 .rate-unit{font-size:.7rem;color:#94a3b8;white-space:nowrap}
+/* circled-number markers pairing the two defaults (unmatched ① / registered ②)
+   with the usage guide that references them */
+.def-num{color:#2563eb;font-weight:700;margin-right:.15rem}
 /* the unit label inside a rule-list editing row: shown only while editing,
    vertically centered against the rate input */
 .rule-row .rule-edit-unit{display:none}
@@ -3251,7 +3254,7 @@ document.addEventListener("DOMContentLoaded", function(){
 
     {{ $gda := .Nginx.Geo.DefaultAction }}{{ if eq $gda "" }}{{ $gda = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
-      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">①</span>{{ t .Lang "settings.geo.default_action" }}:
         <select name="geo_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $gda "skip"             }}selected{{ end }}>skip (= no country-based decision)</option>
           <option value="pow_only"         {{ if eq $gda "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -3268,7 +3271,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rule_default_note") }}</div>
     {{ $gdra := .GeoDefaultRuleAction }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
-      <label style="font-size:.85rem">{{ t .Lang "settings.asn.rule_default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">②</span>{{ t .Lang "settings.asn.rule_default_action" }}:
         <select name="geo_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $gdra "skip"             }}selected{{ end }}>skip</option>
           <option value="pow_only"         {{ if eq $gdra "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -3454,9 +3457,10 @@ document.addEventListener("DOMContentLoaded", function(){
     </div>
 
     <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.asn.default_h" }}</h3>
+    <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.default_help") }}</div>
     {{ $ada := .Nginx.Asn.DefaultAction }}{{ if eq $ada "" }}{{ $ada = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
-      <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">①</span>{{ t .Lang "settings.geo.default_action" }}:
         <select name="asn_default_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $ada "skip"             }}selected{{ end }}>skip (= no ASN-based decision)</option>
           <option value="pow_only"         {{ if eq $ada "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -3475,7 +3479,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.rule_default_note") }}</div>
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:center;margin-bottom:.6rem">
       {{ $adra := .AsnDefaultRuleAction }}
-      <label style="font-size:.85rem">{{ t .Lang "settings.asn.rule_default_action" }}:
+      <label style="font-size:.85rem"><span class="def-num">②</span>{{ t .Lang "settings.asn.rule_default_action" }}:
         <select name="asn_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $adra "skip"             }}selected{{ end }}>skip</option>
           <option value="pow_only"         {{ if eq $adra "pow_only"         }}selected{{ end }}>pow_only</option>
