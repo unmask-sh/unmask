@@ -1954,6 +1954,36 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div><!-- /.ua-section custom -->
   </div><!-- /.bcd-card blacklist parent -->
 
+  {{/* Header-integrity axis: a Chromium UA over https/h2h3 with no Sec-CH-UA.
+       Sibling of the stale-browser tier; clamped to a challenge (never deny). */}}
+  <div class="bcd-card">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.ua.header_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="ua-header-help" aria-label="?">?</button>
+    </h2>
+    {{ $hia := .Global.HeaderIntegrityAction }}
+    <div class="field" style="padding:.75rem .9rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#1e40af;margin:0">
+        <input type="checkbox" name="header_integrity" value="1" {{ if .Global.HeaderIntegrity }}checked{{ end }}>
+        {{ t .Lang "settings.ua.header_toggle" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;color:#1e40af;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_help") }}</div>
+    </div>
+    <div class="field" style="margin:1.2rem 0 .4rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.header_action_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_action_help") }}</div>
+      <select name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
+        <option value="captcha_only" {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_only"     {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
+      </select>
+    </div>
+    <script type="text/html" id="ua-header-help">
+      <div><strong>{{ t .Lang "settings.ua.header_h" }}</strong></div>
+      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.header_help") }}</p>
+    </script>
+  </div>
+
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.ua.stale_h" }}

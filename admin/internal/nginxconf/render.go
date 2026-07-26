@@ -319,7 +319,12 @@ type renderData struct {
 	//                         stable (built by staleBrowserPattern()).
 	StaleBrowserEnabled bool
 	StaleBrowserPattern string
-	UpstreamAddr        string
+	// HeaderIntegrityEnabled (Global.HeaderIntegrity): fold a header-integrity
+	// escalation into $final_challenge.  When off, the maps are not emitted
+	// (zero rendered-config diff).  Fires for a Chromium UA over https on h2/h3
+	// with no Sec-CH-UA -- clamped to a challenge, keyed after every exemption.
+	HeaderIntegrityEnabled bool
+	UpstreamAddr           string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -658,6 +663,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			d.StaleBrowserPattern = pat
 		}
 	}
+	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {

@@ -753,7 +753,7 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if .StaleBrowserEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
     "~^0:1:"                    0;  # search bot UA -> exempt
@@ -787,9 +787,45 @@ map $http_user_agent $unmask_stale_browser {
 }
 # Escalate only a not-otherwise-exempt, would-pass request (base=0) that is
 # stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_valid.
-map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+# When the header-integrity tier also runs it consumes this result next, so
+# emit into an intermediate; otherwise this IS the final decision.
+map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if .HeaderIntegrityEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
     default              $final_challenge_base;  # keep base decision (incl. all base=1 challenges)
     "~^0:1:0:0:0:0$"     1;                       # stale + no exemption + would-pass -> challenge
+}
+{{- end }}
+{{- if .HeaderIntegrityEnabled }}
+
+# -----------------------------------------------------------------------------
+# Header-integrity tier (Global.HeaderIntegrity)
+# -----------------------------------------------------------------------------
+# A UA advertising a Chromium-family browser, over https on h2/h3, that carries
+# no Sec-CH-UA is a spoof tell (a real Chromium sends client hints in that
+# context).  All preconditions must hold -- the axis is silent on http, h1,
+# Firefox/Safari, and TLS-intercept proxies that strip the header over http --
+# so it never fires on the populations that legitimately lack it.  Like the
+# stale tier it only ESCALATES a not-otherwise-exempt, would-pass request; the
+# challenge SCREEN is clamped to CAPTCHA daemon-side (never deny).
+map $http_user_agent $unmask_ua_chromium {
+    default 0;
+    "~(?i)Chrome/[0-9]" 1;   # Chrome / Edge / Opera / Brave / Chromium all carry Chrome/<major>
+}
+# $server_protocol is "HTTP/2.0" / "HTTP/3.0" on those transports and is always
+# defined (unlike $http2/$http3, which error when the module isn't loaded).
+map $server_protocol $unmask_http_modern {
+    default 0;
+    "~^HTTP/[23]" 1;
+}
+# Fire only for chromium + https + h2/h3 + empty Sec-CH-UA.
+map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua" $unmask_header_mismatch {
+    default 0;
+    "~^1:https:1:$" 1;   # trailing empty field = no Sec-CH-UA header
+}
+# Escalate a would-pass ({{ if .StaleBrowserEnabled }}post-stale{{ else }}base{{ end }}), not-otherwise-exempt request that mismatches.
+# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
+map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+    default          {{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
+    "~^0:1:0:0:0:0$" 1;   # mismatch + no exemption + would-pass -> challenge
 }
 {{- end }}
 {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}

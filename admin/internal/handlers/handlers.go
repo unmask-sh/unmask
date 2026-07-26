@@ -1294,6 +1294,25 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			chMode = g.StaleBrowserResolvedAction()
 		}
 	}
+	// Header-integrity escalation (native): the nginx tier only signals "1"
+	// with no chMode, so resolve the axis's clamped action here for a request
+	// that mismatches.  Same never-soften-a-deny guard as the stale tier.  On
+	// the forward-auth path headerDecide already set the reason/chMode, so this
+	// only augments the native serve (a direct hit re-checks cheaply).
+	if g := h.cfg().Global; g.HeaderIntegrity && chMode != settings.RateChallengeDeny {
+		ua := firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent"))
+		secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
+		scheme := firstNonEmpty(r.Header.Get("X-Original-Scheme"), func() string {
+			if r.TLS != nil {
+				return "https"
+			}
+			return ""
+		}())
+		modern := r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" || r.ProtoMajor >= 2
+		if _, ok := headerDecide(ua, secChUA, scheme, modern, g); ok {
+			chMode = g.HeaderIntegrityResolvedAction()
+		}
+	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm
 	}
