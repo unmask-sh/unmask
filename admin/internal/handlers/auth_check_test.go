@@ -113,10 +113,12 @@ func TestGeoDecideForCountry(t *testing.T) {
 		{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true},
 		{Country: "DE", Action: settings.GeoActionSkip, Enabled: true},
 		{Country: "RU", Action: settings.RateChallengeCaptchaOnly, Enabled: false}, // disabled -> no opinion
-		{Country: "FR", Action: ""}, // inherit default
+		{Country: "FR", Action: ""},                // disabled (Enabled unset) -> no opinion, falls to default
+		{Country: "IT", Action: "", Enabled: true}, // ENABLED registered rule, blank action -> inherits DefaultRuleAction
 	}
 	geoSkipDefault := settings.GeoConfig{DefaultAction: settings.GeoActionSkip, Rules: rules}
 	geoDenyDefault := settings.GeoConfig{DefaultAction: settings.RateChallengeDeny, Rules: rules}
+	geoRuleDeny := settings.GeoConfig{DefaultAction: settings.GeoActionSkip, DefaultRuleAction: settings.RateChallengeDeny, Rules: rules}
 
 	cases := []struct {
 		name    string
@@ -131,8 +133,13 @@ func TestGeoDecideForCountry(t *testing.T) {
 		{"CN rule deny", "CN", geoSkipDefault, true, sevDeny, "geo:CN:deny"},
 		{"DE rule explicit skip -> silent", "DE", geoSkipDefault, false, sevPass, ""},
 		{"RU disabled rule -> falls to default skip -> silent", "RU", geoSkipDefault, false, sevPass, ""},
-		{"FR inherit default skip -> silent", "FR", geoSkipDefault, false, sevPass, ""},
-		{"FR inherit default deny -> deny", "FR", geoDenyDefault, true, sevDeny, "geo:FR:deny"},
+		{"FR disabled row -> falls to default skip -> silent", "FR", geoSkipDefault, false, sevPass, ""},
+		{"FR disabled row -> falls to default deny -> deny", "FR", geoDenyDefault, true, sevDeny, "geo:FR:deny"},
+		// A REGISTERED (enabled) rule with a blank action inherits
+		// DefaultRuleAction (default pow_then_captcha) -- NOT the
+		// unmatched-country DefaultAction, even when that is skip.
+		{"IT registered blank action -> inherits rule default pow_then_captcha", "IT", geoSkipDefault, true, sevPoWThenCaptcha, "geo:IT:pow_then_captcha"},
+		{"IT registered blank action + rule default deny -> deny", "IT", geoRuleDeny, true, sevDeny, "geo:IT:deny"},
 		{"unlisted GB with default skip -> silent", "GB", geoSkipDefault, false, sevPass, ""},
 		{"unlisted GB with default deny -> deny", "GB", geoDenyDefault, true, sevDeny, "geo:GB:deny"},
 	}
