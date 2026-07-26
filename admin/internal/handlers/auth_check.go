@@ -718,6 +718,38 @@ func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, boo
 // matched AS number is throttled to `rate` req/min (one shared counter); the
 // action fires only on the overage, and stays silent under the cap.  A nil
 // limiter can't count, so it fails open (silent).
+// netRateOverageAction resolves the action a native rate-limit OVERAGE should
+// serve for a client, re-deriving its ASN / country from the IP (native only
+// carries "you hit a rate zone", not which rule).  It answers the ASN/geo
+// per-rule action when the client matches a rate-mode rule, else "".  Exact-AS
+// / org rules win over the country rule when both match (ASN is the more
+// specific network signal), matching the max-specificity intent -- but note
+// the caller only reaches here on an overage, so either rule firing is enough.
+func (h *Handler) netRateOverageAction(ip string, cfg settings.Settings) string {
+	if h.IPGeo == nil || ip == "" {
+		return ""
+	}
+	info := h.IPGeo.LookupInfo(ip)
+	// ASN first (more specific).
+	if h.IPGeo.ASNLoaded() {
+		for _, rr := range cfg.Nginx.Asn.RateRules() {
+			if (rr.ASN != 0 && info.ASN == rr.ASN) ||
+				(rr.ASN == 0 && rr.Org != "" && settings.OrgMatchesAny(info.ASNOrg, []string{rr.Org})) {
+				return rr.Action
+			}
+		}
+	}
+	if h.IPGeo.Loaded() {
+		cc := strings.ToUpper(strings.TrimSpace(info.Country))
+		for _, rr := range cfg.Nginx.Geo.RateRules() {
+			if rr.Country == cc {
+				return rr.Action
+			}
+		}
+	}
+	return ""
+}
+
 func applyNetRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {
 	if rate <= 0 {
 		return d, true
