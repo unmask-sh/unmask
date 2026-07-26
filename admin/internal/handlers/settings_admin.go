@@ -35,6 +35,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -81,7 +82,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -581,9 +582,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Global":       h.snapshotSettings().Global,
 		// Shipped current-Chrome-major baseline shown as the placeholder for the
 		// stale-browser tier's optional override field.
-		"StaleBrowserBaseline":   settings.DefaultCurrentChromeMajor,
-		"StaleBrowserFFBaseline": settings.DefaultCurrentFirefoxMajor,
-		"StaleBrowserLagDefault": settings.DefaultStaleBrowserLag,
+		"StaleBrowserBaseline":     settings.DefaultCurrentChromeMajor,
+		"StaleBrowserFFBaseline":   settings.DefaultCurrentFirefoxMajor,
+		"StaleBrowserLagDefault":   settings.DefaultStaleBrowserLag,
+		"StaleBrowserLagDefaultFF": settings.DefaultStaleBrowserLagFirefox, // judged per family; equal to Chromium's today by coincidence
 		// Automatic-baseline rows: the value the tier would use with no manual
 		// override, its origin (hub / builtin), when the last hub pull
 		// happened (operator cookie TZ), and the exempt ESR majors.
@@ -604,11 +606,23 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			}
 			return strings.Join(parts, ", ")
 		}(),
-		"IPGeoMMDBPath":    ipgeoCur.MMDBPath,
-		"IPGeoMMDBASNPath": ipgeoCur.MMDBASNPath,
-		"IPGeoLoaded":      h.IPGeo != nil && h.IPGeo.Loaded(),
-		"AsnMmdbLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
-		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"IPGeoMMDBPath":        ipgeoCur.MMDBPath,
+		"IPGeoMMDBASNPath":     ipgeoCur.MMDBASNPath,
+		"IPGeoLoaded":          h.IPGeo != nil && h.IPGeo.Loaded(),
+		"AsnMmdbLoaded":        h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"AsnProviders":         h.asnProviderView(cur.Asn),
+		"AsnCustomRules":       asnCustomRuleView(cur.Asn),
+		"AsnDefaultRate":       cur.Asn.DefaultRatePerMin,
+		"AsnDefaultRuleAction": cur.Asn.ResolvedDefaultRuleAction(), // what a blank row action inherits
+		"GeoDefaultRuleAction": cur.Geo.ResolvedDefaultRuleAction(),
+		"GeoDefaultRate":       cur.Geo.DefaultRatePerMin,
+		// What an UNSET chain picker acts as: protected paths / the ja4 default
+		// chain fall back to the rate-limit default chmode; surfaced so the
+		// "(unset)" option can show the value it resolves to.
+		"RateDefaultChMode": h.snapshotSettings().RateLimit.Default.ResolvedChallengeMode(),
+		"GeoExemptRows":     bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
+		"AsnExemptRows":     bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
+		"IPGeoASNLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -667,6 +681,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
 		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt),
 		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
+		"CrawlerVerify":              cur.CrawlerVerify,
+		"CrawlerVerifyForgedAction":  cur.CrawlerVerify.ResolvedForgedAction(),
+		"CrawlerVerifyCrawlers":      crawlerVerifyCrawlerRows(cur.CrawlerVerify),
 		"BypassPresetGroups":         bypassPresetGroups,
 		"IPRangeSync":                h.IPRangeSyncStatus(),
 		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
@@ -1092,7 +1109,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo", "asn":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1203,6 +1220,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// override.  Action restricted to real screens; anything else falls back
 		// to the captcha_only default via StaleBrowserResolvedAction.
 		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
+		// Header-integrity axis: toggle + optional action (pow_only / captcha_only
+		// only -- deny is never accepted here; a blank / anything else stores unset
+		// so HeaderIntegrityResolvedAction applies its captcha_only default).
+		cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
+		switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
+		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly:
+			cur.Global.HeaderIntegrityAction = strings.TrimSpace(r.FormValue("header_integrity_action"))
+		default:
+			cur.Global.HeaderIntegrityAction = ""
+		}
 		parseIntInRange := func(v string, lo, hi int) int {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil || n < lo || n > hi {
@@ -1212,7 +1239,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
 		cur.Global.CurrentFirefoxMajor = parseIntInRange(r.FormValue("current_firefox_major"), 1, 999)
+		// Lags follow the same auto/manual convention as the currents: the
+		// number input is disabled (= not submitted) on "auto", so a blank
+		// stores 0 -- Chrome resolves to the built-in default, Firefox follows
+		// the Chrome-side lag (FirefoxStaleLagN).
 		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
+		cur.Global.StaleBrowserLagFirefox = parseIntInRange(r.FormValue("stale_browser_lag_firefox"), 1, 99)
 		if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
 			cur.Global.StaleBrowserAction = a
 		} else {
@@ -1294,9 +1326,18 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
-		// ASN rules live in a sub-section of the geo tab (same mmdb family), so
-		// the one geo save persists both axes.
+		// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
+		if err := applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang); err != nil {
+			redirBack(err.Error())
+			return
+		}
+	case "asn":
 		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
+		if err := applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -2225,6 +2266,24 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_updated_at"])
 }
 
+// crawlerVerifyRow is one rDNS-verifiable crawler for the settings card: its
+// name, whether a range preset usually covers it (informational), and the
+// operator's per-crawler enable state.
+type crawlerVerifyRow struct {
+	Name        string
+	RangeBacked bool
+	Active      bool
+}
+
+func crawlerVerifyCrawlerRows(cv settings.CrawlerVerifyConfig) []crawlerVerifyRow {
+	cs := crawlerverify.Crawlers()
+	rows := make([]crawlerVerifyRow, len(cs))
+	for i, c := range cs {
+		rows[i] = crawlerVerifyRow{Name: c.Name, RangeBacked: c.RangeBacked, Active: cv.CrawlerActive(c.Name)}
+	}
+	return rows
+}
+
 // applyBypassIPsForm: receive the bypass-ips tab form. Zip the row-UI 4
 // parallel arrays (ip + title + enabled + updated_at) into the BypassIPs*
 // 4 slices for save.
@@ -2327,6 +2386,40 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.StatsExcludeIPs = outStx
 	n.StatsExcludeIPsTitle = outStxTitle
 	n.StatsExcludePrivateNetworks = r.FormValue("stats_exclude_private_networks") == "1"
+
+	// Reverse-DNS crawler verification (rDNS): the DNS-based sibling of the
+	// IP-range presets above -- verify a crawler-claiming UA against its vendor's
+	// published rDNS instead of a static range.
+	n.CrawlerVerify.Enabled = r.FormValue("crawler_verify_enabled") == "1"
+	fa := strings.TrimSpace(r.FormValue("crawler_verify_forged_action"))
+	if fa != "" && !settings.IsValidGeoAction(fa) {
+		fa = ""
+	}
+	// pow_then_captcha IS ResolvedForgedAction's default -- store the
+	// non-deviation as unset so re-saving the rendered form is a no-op.
+	if fa == settings.GeoActionPoWThenCaptcha {
+		fa = ""
+	}
+	n.CrawlerVerify.ForgedAction = fa
+
+	// Per-crawler enable state.  The card renders a checkbox per catalog crawler
+	// (value = its name, checked = verified); a name absent from the submitted set
+	// is disabled.  Gated on a presence marker so a form that doesn't render the
+	// card can't wipe the setting.
+	if r.FormValue("crawler_verify_present") == "1" {
+		enabled := map[string]bool{}
+		for _, name := range r.Form["crawler_verify_crawler"] {
+			enabled[strings.TrimSpace(name)] = true
+		}
+		var disabled []string
+		for _, ci := range crawlerverify.Crawlers() {
+			if !enabled[ci.Name] {
+				disabled = append(disabled, ci.Name)
+			}
+		}
+		n.CrawlerVerify.DisabledCrawlers = disabled
+	}
+
 	return nil
 }
 
@@ -3026,6 +3119,66 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	return nil
 }
 
+// applyExemptPathsForm: receive one per-axis exempt-path list (geo tab uses
+// prefix "gx", asn tab "ax").  Same row shape as the bypass-paths rows --
+// <prefix>_path / _title / _enabled / _updated_at / _site zipped into
+// BypassPath -- but no presets, and written to the axis's ExemptPaths (drops
+// only that axis) instead of BypassPaths (which vetoes every judgment).
+func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Request, lang i18n.Lang) error {
+	pats := r.Form[prefix+"_path"]
+	titles := r.Form[prefix+"_title"]
+	rowEnabled := r.Form[prefix+"_enabled"]
+	upds := r.Form[prefix+"_updated_at"]
+	sites := r.Form[prefix+"_site"]
+	maxLen := len(pats)
+	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
+		if l > maxLen {
+			maxLen = l
+		}
+	}
+	rows := make([]settings.BypassPath, 0, maxLen)
+	now := time.Now().Unix()
+	for i := 0; i < maxLen; i++ {
+		var p, t, site string
+		isEnabled := true
+		var ts int64
+		if i < len(pats) {
+			p = strings.TrimSpace(pats[i])
+		}
+		if i < len(titles) {
+			t = strings.TrimSpace(titles[i])
+			t = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(t)
+		}
+		if i < len(rowEnabled) {
+			isEnabled = rowEnabled[i] == "1"
+		}
+		if i < len(upds) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		}
+		if i < len(sites) {
+			site = strings.TrimSpace(sites[i])
+		}
+		if p == "" {
+			continue
+		}
+		if _, err := regexp.Compile(p); err != nil {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_path_regex", p, err))
+		}
+		if ts <= 0 {
+			ts = now
+		}
+		rows = append(rows, settings.BypassPath{
+			Path:      p,
+			Title:     t,
+			Disabled:  !isEnabled,
+			UpdatedAt: ts,
+			Site:      site,
+		})
+	}
+	*dst = rows
+	return nil
+}
+
 // applyRedirectExemptForm parses the HTTPS-redirect exemption UI: preset
 // checkboxes (redirect_exempt_preset_enabled) + custom rows (re_type / re_pattern
 // / re_title / re_enabled).  Same deviation model as bypass paths, minus the
@@ -3481,9 +3634,36 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 	} else {
 		c.DefaultAction = ""
 	}
+	// Registered-rule inherit target.  pow_then_captcha IS the resolve
+	// default (ResolvedDefaultRuleAction) -> store the non-deviation as unset.
+	if v := strings.TrimSpace(r.FormValue("geo_default_rule_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("geo_default_rule_action invalid (got %q)", v)
+		}
+		if v == settings.RateChallengePoWThenCaptcha {
+			v = ""
+		}
+		c.DefaultRuleAction = v
+	} else {
+		c.DefaultRuleAction = ""
+	}
+
+	// Default rate the geo tab inherits (registered-rule inherit action is
+	// parsed above), mirroring the ASN tab.
+	c.DefaultRatePerMin = 0
+	if raw := strings.TrimSpace(r.FormValue("geo_default_rate")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			if v > 1_000_000 {
+				v = 1_000_000
+			}
+			c.DefaultRatePerMin = v
+		}
+	}
 
 	countries := r.Form["geo_country"]
+	labels := r.Form["geo_label"]
 	actions := r.Form["geo_action"]
+	rates := r.Form["geo_rate"]
 	enabledArr := r.Form["geo_enabled"]
 	updatedAt := r.Form["geo_updated_at"]
 
@@ -3530,11 +3710,33 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			ts = now
 		}
 
+		var label string
+		if i < len(labels) {
+			label = strings.TrimSpace(labels[i])
+		}
+
+		// Nullable rate: blank -> nil (inherit DefaultRatePerMin); an explicit
+		// number (incl. 0 = "no throttle") -> a pointer to it.  Same as ASN.
+		var rate *int
+		if i < len(rates) {
+			if raw := strings.TrimSpace(rates[i]); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+					if v > 1_000_000 {
+						v = 1_000_000
+					}
+					rv := v
+					rate = &rv
+				}
+			}
+		}
+
 		rules = append(rules, settings.GeoRule{
-			Country:   code,
-			Action:    action,
-			Enabled:   enOn,
-			UpdatedAt: ts,
+			Country:    code,
+			Label:      label,
+			Action:     action,
+			RatePerMin: rate,
+			Enabled:    enOn,
+			UpdatedAt:  ts,
 		})
 	}
 	c.Rules = rules
@@ -3544,6 +3746,99 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 // applyAsnForm: receive the ASN sub-section of the geo tab.  The by-network
 // sibling of applyGeoForm — same shape, keyed by AS number instead of country
 // code.
+// asnProviderRow: one catalog provider as the settings UI sees it.
+type asnProviderRow struct {
+	ID       string
+	Label    string
+	Enabled  bool
+	Action   string // "" = inherit default
+	ASNCount int    // distinct ASNs matched in the loaded mmdb (-1 = not computed / no db)
+	AddedIn  string // release the provider joined the catalog (v-form)
+	IsNew    bool   // added in a release newer than the operator's SeenVersion
+	RateStr  string // per-provider rate override ("" = inherit the config default)
+}
+
+// asnProviderView returns the catalog providers merged with the operator's
+// current selection, plus the number of ASNs each currently matches in the
+// loaded mmdb (one walk for all providers; -1 when no ASN db is loaded).
+func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
+	seenVer := h.snapshotSettings().Nginx.SeenVersion
+	sel := map[string]settings.AsnProviderSel{}
+	for _, p := range cfg.Providers {
+		sel[p.ID] = p
+	}
+	// One mmdb walk tallies matched-ASN counts per provider.
+	counts := map[string]int{}
+	haveCounts := false
+	if h.IPGeo != nil && h.IPGeo.ASNLoaded() {
+		if path := strings.TrimSpace(h.cfg().IPGeo.MMDBASNPath); path != "" {
+			pats := map[string][]string{}
+			for _, hp := range settings.HostingProviders {
+				pats[hp.ID] = hp.OrgPatterns
+			}
+			if c, err := ipgeo.ASNCounts(path, pats); err == nil {
+				counts = c
+				haveCounts = true
+			}
+		}
+	}
+	out := make([]asnProviderRow, 0, len(settings.HostingProviders))
+	for _, hp := range settings.HostingProviders {
+		row := asnProviderRow{
+			ID:       hp.ID,
+			Label:    hp.Label,
+			ASNCount: -1,
+			AddedIn:  hp.AddedIn,
+			IsNew:    nginxconf.PresetIsNew(seenVer, hp.AddedIn),
+		}
+		if s, ok := sel[hp.ID]; ok {
+			row.Enabled = s.Enabled
+			row.Action = s.Action
+			row.RateStr = rateStr(s.RatePerMin)
+		}
+		if haveCounts {
+			row.ASNCount = counts[hp.ID]
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+// asnCustomRow: one custom rule (exact ASN or org substring) for the UI.
+type asnCustomRow struct {
+	Value     string // "AS16509" for exact, or the org string
+	IsOrg     bool
+	Label     string
+	Action    string
+	RateStr   string // rate input value: "" = inherit default, "0" = no throttle, "N" = throttle
+	Enabled   bool
+	UpdatedAt int64
+}
+
+// rateStr renders a nullable rate override for a form input: nil (inherit) -> "",
+// an explicit value (incl. 0) -> its decimal string.
+func rateStr(r *int) string {
+	if r == nil {
+		return ""
+	}
+	return strconv.Itoa(*r)
+}
+
+func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
+	out := make([]asnCustomRow, 0, len(cfg.Rules))
+	for _, r := range cfg.Rules {
+		row := asnCustomRow{Label: r.Label, Action: r.Action, RateStr: rateStr(r.RatePerMin), Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
+		if r.ASN != 0 {
+			row.Value = "AS" + strconv.FormatUint(uint64(r.ASN), 10)
+		} else {
+			row.Value = r.Org
+			row.IsOrg = true
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
 func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("asn_default_action")); v != "" {
 		if !settings.IsValidGeoAction(v) {
@@ -3557,38 +3852,89 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		c.DefaultAction = ""
 	}
 
-	asns := r.Form["asn_number"]
-	labels := r.Form["asn_label"]
+	// Registered-rule inherit target.  pow_then_captcha IS the resolve
+	// default (ResolvedDefaultRuleAction) -> store the non-deviation as unset.
+	if v := strings.TrimSpace(r.FormValue("asn_default_rule_action")); v != "" {
+		if !settings.IsValidGeoAction(v) {
+			return fmt.Errorf("asn_default_rule_action invalid (got %q)", v)
+		}
+		if v == settings.RateChallengePoWThenCaptcha {
+			v = ""
+		}
+		c.DefaultRuleAction = v
+	} else {
+		c.DefaultRuleAction = ""
+	}
+
+	// Default rate: blank / 0 -> no default throttle.  A rule/provider inherits
+	// this when its own rate is left blank (nil), mirroring DefaultAction.
+	c.DefaultRatePerMin = 0
+	if raw := strings.TrimSpace(r.FormValue("asn_default_rate")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			if v > 1_000_000 {
+				v = 1_000_000
+			}
+			c.DefaultRatePerMin = v
+		}
+	}
+
+	// ── preset providers (catalog) ───
+	// One checkbox + action select per catalog provider.  Store only enabled
+	// ones (or ones with a non-inherit action, so a toggled-off provider that
+	// carried an action round-trips its choice); a fully-default+disabled
+	// provider is dropped to keep the YAML tidy.
+	providers := make([]settings.AsnProviderSel, 0, len(settings.HostingProviders))
+	for _, hp := range settings.HostingProviders {
+		enOn := r.FormValue("asn_provider_enabled_"+hp.ID) == "1"
+		action := strings.TrimSpace(r.FormValue("asn_provider_action_" + hp.ID))
+		if action != "" && !settings.IsValidGeoAction(action) {
+			return fmt.Errorf("provider %s: action invalid (got %q)", hp.ID, action)
+		}
+		// Nullable rate override, same rules as the custom rows: blank -> nil
+		// (inherit DefaultRatePerMin), an explicit number (incl. 0 = no throttle)
+		// -> a pointer to it.
+		var rate *int
+		if raw := strings.TrimSpace(r.FormValue("asn_provider_rate_" + hp.ID)); raw != "" {
+			if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+				if v > 1_000_000 {
+					v = 1_000_000
+				}
+				rv := v
+				rate = &rv
+			}
+		}
+		// Drop a fully-default row (disabled, inherit action, inherit rate) to
+		// keep the YAML tidy; a rate override alone is enough to keep it.
+		if !enOn && action == "" && rate == nil {
+			continue
+		}
+		providers = append(providers, settings.AsnProviderSel{ID: hp.ID, Action: action, Enabled: enOn, RatePerMin: rate})
+	}
+	c.Providers = providers
+
+	// ── custom rules (exact AS number OR org substring) ───
+	nums := r.Form["asn_number"]  // may hold "16509", "AS16509", or an org string
+	labels := r.Form["asn_label"] // parallel to the row (org rules use this too)
 	actions := r.Form["asn_action"]
+	rates := r.Form["asn_rate"] // per-minute cap; "" / "0" -> action every request
 	enabledArr := r.Form["asn_enabled"]
 	updatedAt := r.Form["asn_updated_at"]
 
-	rules := make([]settings.AsnRule, 0, len(asns))
-	seen := map[uint]bool{}
+	rules := make([]settings.AsnRule, 0, len(nums))
+	seenNum := map[uint]bool{}
+	seenOrg := map[string]bool{}
 	now := time.Now().Unix()
-	for i, raw := range asns {
+	for i, raw := range nums {
 		s := strings.TrimSpace(raw)
 		if s == "" {
 			continue
 		}
-		// Accept "AS16509" or "16509".
-		s = strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
-		n, err := strconv.ParseUint(s, 10, 32)
-		if err != nil || n == 0 {
-			return fmt.Errorf("ASN %q: must be a positive number (e.g. 16509 or AS16509)", raw)
-		}
-		asn := uint(n)
-		if seen[asn] {
-			return fmt.Errorf("duplicate ASN %d", asn)
-		}
-		seen[asn] = true
-
 		var action string
 		if i < len(actions) {
 			action = strings.TrimSpace(actions[i])
 		}
 		if action != "" && !settings.IsValidGeoAction(action) {
-			return fmt.Errorf("ASN %d: action invalid (got %q)", asn, action)
+			return fmt.Errorf("rule %q: action invalid (got %q)", s, action)
 		}
 		var label string
 		if i < len(labels) {
@@ -3597,13 +3943,11 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 				label = string([]rune(label)[:80])
 			}
 		}
-
 		enVal := r.FormValue(fmt.Sprintf("asn_enabled_%d", i))
 		if enVal == "" && i < len(enabledArr) {
 			enVal = enabledArr[i]
 		}
 		enOn := enVal == "1"
-
 		var ts int64
 		if i < len(updatedAt) {
 			if v, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
@@ -3613,14 +3957,43 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		if ts == 0 {
 			ts = now
 		}
+		// Nullable rate: blank -> nil (inherit DefaultRatePerMin); an explicit
+		// number (incl. 0 = "no throttle") -> a pointer to it.
+		var rate *int
+		if i < len(rates) {
+			if raw := strings.TrimSpace(rates[i]); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+					if v > 1_000_000 { // sanity cap; a per-minute rate above this is meaningless
+						v = 1_000_000
+					}
+					rv := v
+					rate = &rv
+				}
+			}
+		}
 
-		rules = append(rules, settings.AsnRule{
-			ASN:       asn,
-			Label:     label,
-			Action:    action,
-			Enabled:   enOn,
-			UpdatedAt: ts,
-		})
+		rule := settings.AsnRule{Label: label, Action: action, RatePerMin: rate, Enabled: enOn, UpdatedAt: ts}
+		// "AS16509" / "16509" -> exact AS number; anything else -> org substring.
+		numStr := strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
+		if n, err := strconv.ParseUint(numStr, 10, 32); err == nil && n != 0 {
+			if seenNum[uint(n)] {
+				return fmt.Errorf("duplicate ASN %d", n)
+			}
+			seenNum[uint(n)] = true
+			rule.ASN = uint(n)
+		} else {
+			org := s
+			if len([]rune(org)) > 80 {
+				org = string([]rune(org)[:80])
+			}
+			key := strings.ToLower(org)
+			if seenOrg[key] {
+				return fmt.Errorf("duplicate org rule %q", org)
+			}
+			seenOrg[key] = true
+			rule.Org = org
+		}
+		rules = append(rules, rule)
 	}
 	c.Rules = rules
 	return nil

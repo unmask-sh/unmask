@@ -461,22 +461,41 @@ func GeoCIDRsForCountries(path string, codes []string) (string, error) {
 	return b.String(), nil
 }
 
-// CIDRsForASNs walks the ASN mmdb once and returns the nginx `geo`-block body
-// (indented "CIDR ASN;\n" lines) for the given AS numbers only.  The by-network
-// analogue of GeoCIDRsForCountries: native mode routes on $unmask_asn without
-// linking libmaxminddb.  Only the operator's targeted ASNs are emitted, so the
-// output is bounded by those networks' prefix count, not the whole DB.
-func CIDRsForASNs(path string, asns []uint) (string, error) {
-	if path == "" || len(asns) == 0 {
+// ASNTarget: one ASN-rule target for the native render walk.  Either an exact
+// AS number (ASN != 0) or a case-insensitive organization-name substring
+// (OrgPattern != "").  Value is the nginx map key emitted for a matching CIDR
+// -- the AS number for exact rules, or the pattern token for org rules -- so
+// the $unmask_asn -> $unmask_asn_action map can route on it.
+type ASNTarget struct {
+	ASN        uint
+	OrgPattern string
+	Value      string // map key written into the geo block for a matching CIDR
+}
+
+// CIDRsForASNTargets walks the ASN mmdb once and returns the nginx `geo`-block
+// body (indented "CIDR VALUE;\n" lines) for the given targets.  Exact-ASN
+// targets match by number; org targets match when the network's org name
+// contains the (lower-cased) pattern.  Only targeted CIDRs are emitted, so the
+// output is bounded by those networks' prefix count, not the whole DB.  A CIDR
+// matching several targets is emitted once, keyed by the first target in
+// order (callers pass more-specific targets first).
+func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
+	if path == "" || len(targets) == 0 {
 		return "", nil
 	}
-	wanted := make(map[uint]bool, len(asns))
-	for _, a := range asns {
-		if a != 0 {
-			wanted[a] = true
+	byNum := make(map[uint]string)
+	type orgT struct{ low, val string }
+	var orgs []orgT
+	for _, t := range targets {
+		if t.ASN != 0 {
+			if _, ok := byNum[t.ASN]; !ok {
+				byNum[t.ASN] = t.Value
+			}
+		} else if t.OrgPattern != "" {
+			orgs = append(orgs, orgT{strings.ToLower(t.OrgPattern), t.Value})
 		}
 	}
-	if len(wanted) == 0 {
+	if len(byNum) == 0 && len(orgs) == 0 {
 		return "", nil
 	}
 	db, err := maxminddb.Open(path)
@@ -487,7 +506,8 @@ func CIDRsForASNs(path string, asns []uint) (string, error) {
 
 	var b strings.Builder
 	var rec struct {
-		ASN uint `maxminddb:"autonomous_system_number"`
+		ASN uint   `maxminddb:"autonomous_system_number"`
+		Org string `maxminddb:"autonomous_system_organization"`
 	}
 	nets := db.Networks(maxminddb.SkipAliasedNetworks)
 	for nets.Next() {
@@ -495,7 +515,91 @@ func CIDRsForASNs(path string, asns []uint) (string, error) {
 		if err != nil {
 			continue
 		}
-		if rec.ASN == 0 || !wanted[rec.ASN] {
+		val := ""
+		if rec.ASN != 0 {
+			if v, ok := byNum[rec.ASN]; ok {
+				val = v
+			}
+		}
+		if val == "" && rec.Org != "" && len(orgs) > 0 {
+			low := strings.ToLower(rec.Org)
+			for _, o := range orgs {
+				if strings.Contains(low, o.low) {
+					val = o.val
+					break
+				}
+			}
+		}
+		if val == "" {
+			continue
+		}
+		b.WriteString("    ")
+		b.WriteString(cidr.String())
+		b.WriteString(" ")
+		b.WriteString(val)
+		b.WriteString(";\n")
+	}
+	if err := nets.Err(); err != nil {
+		return b.String(), err
+	}
+	return b.String(), nil
+}
+
+// ASNRateCIDRs is the geo-block body for a native ASN rate-limit zone.  For every
+// network matching a target (exact AS number or org substring) it emits
+// "<CIDR> <the network's own AS number>;", so a limit_req_zone keyed on that
+// variable counts per AS number -- an org target throttles each of its ASNs
+// individually, matching forward-auth's per-AS counter (applyNetRate).  The
+// target's Value is ignored (the emitted value is always the network's ASN).
+//
+// This is Phase-3 (native) groundwork: the rate zone rendering / limit_req
+// wiring is not built yet, so nothing calls this in production.  Kept pure +
+// separate from that high-blast-radius nginx render so it can land + be tested
+// on its own.
+func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
+	if path == "" || len(targets) == 0 {
+		return "", nil
+	}
+	nums := map[uint]bool{}
+	var orgs []string
+	for _, t := range targets {
+		if t.ASN != 0 {
+			nums[t.ASN] = true
+		} else if t.OrgPattern != "" {
+			orgs = append(orgs, strings.ToLower(t.OrgPattern))
+		}
+	}
+	if len(nums) == 0 && len(orgs) == 0 {
+		return "", nil
+	}
+	db, err := maxminddb.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open %s: %w", path, err)
+	}
+	defer db.Close()
+
+	var b strings.Builder
+	var rec struct {
+		ASN uint   `maxminddb:"autonomous_system_number"`
+		Org string `maxminddb:"autonomous_system_organization"`
+	}
+	nets := db.Networks(maxminddb.SkipAliasedNetworks)
+	for nets.Next() {
+		cidr, err := nets.Network(&rec)
+		if err != nil || rec.ASN == 0 {
+			continue
+		}
+		match := nums[rec.ASN]
+		if !match && rec.Org != "" && len(orgs) > 0 {
+			low := strings.ToLower(rec.Org)
+			for _, o := range orgs {
+				if strings.Contains(low, o) {
+					match = true
+					break
+				}
+			}
+		}
+		if !match {
 			continue
 		}
 		b.WriteString("    ")
@@ -508,6 +612,67 @@ func CIDRsForASNs(path string, asns []uint) (string, error) {
 		return b.String(), err
 	}
 	return b.String(), nil
+}
+
+// ASNCounts walks the ASN mmdb once and returns, per input target key, the
+// number of distinct AS numbers whose org matches the pattern (for org
+// targets) or 1 (for exact-ASN presence).  Used by the settings UI to show
+// "matches N networks" next to a provider without a second walk per provider.
+// Keyed by the caller's target Value.
+func ASNCounts(path string, orgPatternsByKey map[string][]string) (map[string]int, error) {
+	if path == "" || len(orgPatternsByKey) == 0 {
+		return map[string]int{}, nil
+	}
+	// Lower-case patterns once.
+	type pk struct {
+		key string
+		low string
+	}
+	var pats []pk
+	for key, ps := range orgPatternsByKey {
+		for _, p := range ps {
+			if p != "" {
+				pats = append(pats, pk{key, strings.ToLower(p)})
+			}
+		}
+	}
+	db, err := maxminddb.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
+	defer db.Close()
+
+	seen := map[string]map[uint]bool{} // key -> set of ASNs
+	var rec struct {
+		ASN uint   `maxminddb:"autonomous_system_number"`
+		Org string `maxminddb:"autonomous_system_organization"`
+	}
+	nets := db.Networks(maxminddb.SkipAliasedNetworks)
+	for nets.Next() {
+		if _, err := nets.Network(&rec); err != nil {
+			continue
+		}
+		if rec.ASN == 0 || rec.Org == "" {
+			continue
+		}
+		low := strings.ToLower(rec.Org)
+		for _, p := range pats {
+			if strings.Contains(low, p.low) {
+				if seen[p.key] == nil {
+					seen[p.key] = map[uint]bool{}
+				}
+				seen[p.key][rec.ASN] = true
+			}
+		}
+	}
+	if err := nets.Err(); err != nil {
+		return nil, err
+	}
+	out := make(map[string]int, len(seen))
+	for k, set := range seen {
+		out[k] = len(set)
+	}
+	return out, nil
 }
 
 // verifyMMDB opens the downloaded file with the same library admin uses and

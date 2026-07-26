@@ -16,7 +16,7 @@ import (
 func TestStaleBrowserPattern(t *testing.T) {
 	// chrome=150 firefox=152 esr=140 lag=11 -> thresholds 139 / 141
 	// (matches the incident tuning).
-	pat := staleBrowserPattern(150, 152, []int{140}, 11)
+	pat := staleBrowserPattern(150, 152, []int{140}, 11, 11)
 	if pat == "" {
 		t.Fatal("expected a pattern for chrome=150 firefox=152 lag=11")
 	}
@@ -52,11 +52,11 @@ func TestStaleBrowserPattern(t *testing.T) {
 		t.Error("Firefox/1410 must not match via the 141/14 prefixes")
 	}
 	// A lag so large nothing qualifies in either family yields no pattern.
-	if staleBrowserPattern(150, 152, []int{140}, 200) != "" {
+	if staleBrowserPattern(150, 152, []int{140}, 200, 200) != "" {
 		t.Error("thresholds < 1 must yield an empty pattern")
 	}
 	// One family alone still yields its half.
-	ffOnly := staleBrowserPattern(0, 152, []int{140}, 11)
+	ffOnly := staleBrowserPattern(0, 152, []int{140}, 11, 11)
 	if !strings.Contains(ffOnly, "Firefox/") || strings.Contains(ffOnly, "Chrome/") {
 		t.Errorf("firefox-only inputs must yield a firefox-only pattern, got %q", ffOnly)
 	}
@@ -91,9 +91,10 @@ func TestStaleBrowserRenderOn(t *testing.T) {
 		`$serve_bot_challenge" $final_challenge_base {`,
 		`"~^0:1:0:0:0:0$"     1;`,
 		`Chrome/(?:139|`,
-		// Firefox rides its built-in baseline (153) when unset; threshold
-		// 142 with the ESR major (140) skipped -> 141 jumps straight to 139.
-		`Firefox/(?:142|141|139|`,
+		// Firefox is independent of the Chrome-side lag: unset rides its OWN
+		// built-in lag (10) over its built-in baseline (153) -> threshold 143,
+		// with the ESR major (140) skipped so 141 jumps straight to 139.
+		`Firefox/(?:143|142|141|139|`,
 	} {
 		if !strings.Contains(on, want) {
 			t.Errorf("tier on: expected %q in http.inc", want)

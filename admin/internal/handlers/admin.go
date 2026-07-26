@@ -260,6 +260,10 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"tf": func(lang i18n.Lang, key string, args ...any) string {
 				return i18n.Tf(lang, key, args...)
 			},
+			// rateStr: a nullable rate pointer -> its string, "" when nil
+			// (inherit).  Lets the geo tab render GeoRule.RatePerMin directly
+			// (the ASN tab pre-flattens rows Go-side; geo ranges the config).
+			"rateStr": rateStr,
 			// helpJSON: for dashboard help-popover.  Returns dict "help.*" as JSON.
 			// html/template auto-escapes strings inside <script> as JS literals,
 			// double-quoting them (= "{\"...\":\"...\"}").  Wrap as template.JS to
