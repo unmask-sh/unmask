@@ -615,6 +615,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnDefaultRate":       cur.Asn.DefaultRatePerMin,
 		"AsnDefaultRuleAction": cur.Asn.ResolvedDefaultRuleAction(), // what a blank row action inherits
 		"GeoDefaultRuleAction": cur.Geo.ResolvedDefaultRuleAction(),
+		"GeoDefaultRate":       cur.Geo.DefaultRatePerMin,
 		// What an UNSET chain picker acts as: protected paths / the ja4 default
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.
@@ -3637,9 +3638,22 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 		c.DefaultRuleAction = ""
 	}
 
+	// Default rate the geo tab inherits (registered-rule inherit action is
+	// parsed above), mirroring the ASN tab.
+	c.DefaultRatePerMin = 0
+	if raw := strings.TrimSpace(r.FormValue("geo_default_rate")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			if v > 1_000_000 {
+				v = 1_000_000
+			}
+			c.DefaultRatePerMin = v
+		}
+	}
+
 	countries := r.Form["geo_country"]
 	labels := r.Form["geo_label"]
 	actions := r.Form["geo_action"]
+	rates := r.Form["geo_rate"]
 	enabledArr := r.Form["geo_enabled"]
 	updatedAt := r.Form["geo_updated_at"]
 
@@ -3691,12 +3705,28 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			label = strings.TrimSpace(labels[i])
 		}
 
+		// Nullable rate: blank -> nil (inherit DefaultRatePerMin); an explicit
+		// number (incl. 0 = "no throttle") -> a pointer to it.  Same as ASN.
+		var rate *int
+		if i < len(rates) {
+			if raw := strings.TrimSpace(rates[i]); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+					if v > 1_000_000 {
+						v = 1_000_000
+					}
+					rv := v
+					rate = &rv
+				}
+			}
+		}
+
 		rules = append(rules, settings.GeoRule{
-			Country:   code,
-			Label:     label,
-			Action:    action,
-			Enabled:   enOn,
-			UpdatedAt: ts,
+			Country:    code,
+			Label:      label,
+			Action:     action,
+			RatePerMin: rate,
+			Enabled:    enOn,
+			UpdatedAt:  ts,
 		})
 	}
 	c.Rules = rules

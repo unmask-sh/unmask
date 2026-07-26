@@ -87,18 +87,18 @@ func TestApplyAsnRate(t *testing.T) {
 	base := axisDecision{sev: sevCaptchaOnly, reason: "asn:AS16509:captcha_only", chMode: settings.RateChallengeCaptchaOnly}
 
 	// rate 0 -> immediate, unchanged.
-	if d, ok := applyAsnRate(base, "asn:AS16509", 0, nil); !ok || d.reason != base.reason {
+	if d, ok := applyNetRate(base, "asn:AS16509", 0, nil); !ok || d.reason != base.reason {
 		t.Errorf("rate 0 should pass through: %+v ok=%v", d, ok)
 	}
 
 	// rate 2 -> first two requests are under the cap (silent), the third trips.
 	rl := ratelimit.New()
 	for i := 1; i <= 2; i++ {
-		if _, ok := applyAsnRate(base, "asn:AS16509", 2, rl); ok {
+		if _, ok := applyNetRate(base, "asn:AS16509", 2, rl); ok {
 			t.Errorf("request %d should be under the cap (silent)", i)
 		}
 	}
-	d, ok := applyAsnRate(base, "asn:AS16509", 2, rl)
+	d, ok := applyNetRate(base, "asn:AS16509", 2, rl)
 	if !ok {
 		t.Fatal("the over-cap request should produce a decision")
 	}
@@ -107,7 +107,7 @@ func TestApplyAsnRate(t *testing.T) {
 	}
 
 	// nil limiter -> fail open (silent) even with a rate.
-	if _, ok := applyAsnRate(base, "asn:AS16509", 5, nil); ok {
+	if _, ok := applyNetRate(base, "asn:AS16509", 5, nil); ok {
 		t.Error("nil limiter should fail open (silent)")
 	}
 }

@@ -3325,7 +3325,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <h3 style="font-size:.95rem;margin:1.2rem 0 .4rem">{{ t .Lang "settings.geo.rule_default_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.rule_default_note") }}</div>
     {{ $gdra := .GeoDefaultRuleAction }}
-    <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
+    <div class="field" style="display:flex;flex-wrap:wrap;gap:.9rem;align-items:center;margin-bottom:.6rem">
       <label style="font-size:.85rem"><span class="def-num">②</span>{{ t .Lang "settings.asn.rule_default_action" }}:
         <select name="geo_default_rule_action" style="font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;margin-left:.3rem">
           <option value="skip"             {{ if eq $gdra "skip"             }}selected{{ end }}>skip</option>
@@ -3334,6 +3334,12 @@ document.addEventListener("DOMContentLoaded", function(){
           <option value="pow_then_captcha" {{ if eq $gdra "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="deny"             {{ if eq $gdra "deny"             }}selected{{ end }}>deny (= 403)</option>
         </select>
+      </label>
+      <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.default_rate" }}:
+        <input type="number" name="geo_default_rate" min="0" value="{{ if gt .GeoDefaultRate 0 }}{{ .GeoDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
+        <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="geo-defrate-help" aria-label="?">?</button>
+        <script type="text/html" id="geo-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
       </label>
     </div>
 
@@ -3344,16 +3350,17 @@ document.addEventListener("DOMContentLoaded", function(){
          exempt-path lists below): view row = memo / country + action pill;
          pencil opens in-row editing; "+ add new" appends a blank editing row. */}}
     <div class="rule-list" data-rule-name="geo_country">
-      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.geo.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.geo.col_country" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span></div>
+      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.geo.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.geo.col_country" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
       {{ range $i, $r := .Nginx.Geo.Rules }}
       {{ $c := index $.GeoCountryMap $r.Country }}
+      {{ $rs := rateStr $r.RatePerMin }}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect geo-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}{{ end }}</span></div>
+          <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect geo-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $rs }} inherit{{ end }}">{{ if $rs }}{{ if eq $rs "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $rs }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
@@ -3366,6 +3373,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
         </select>
+        <input type="number" name="geo_rate" min="0" value="{{ $rs }}" placeholder="{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -3393,6 +3401,7 @@ document.addEventListener("DOMContentLoaded", function(){
             <option value="pow_then_captcha">pow_then_captcha</option>
             <option value="deny">deny</option>
           </select>
+          <input type="number" name="geo_rate" min="0" value="" placeholder="{{ if gt .GeoDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>

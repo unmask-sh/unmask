@@ -549,7 +549,7 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 // network matching a target (exact AS number or org substring) it emits
 // "<CIDR> <the network's own AS number>;", so a limit_req_zone keyed on that
 // variable counts per AS number -- an org target throttles each of its ASNs
-// individually, matching forward-auth's per-AS counter (applyAsnRate).  The
+// individually, matching forward-auth's per-AS counter (applyNetRate).  The
 // target's Value is ignored (the emitted value is always the network's ASN).
 //
 // This is Phase-3 (native) groundwork: the rate zone rendering / limit_req

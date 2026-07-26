@@ -651,7 +651,14 @@ func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, boo
 		return axisDecision{}, false
 	}
 	country := strings.ToUpper(strings.TrimSpace(h.IPGeo.LookupInfo(ip).Country))
-	return geoDecideForCountry(country, cfg.Nginx.Geo)
+	d, rate, ok := geoDecideForCountry(country, cfg.Nginx.Geo)
+	if !ok {
+		return axisDecision{}, false
+	}
+	// rate>0 throttles the country to N req/min (one shared counter per
+	// country); the action fires only on the overage -- the by-country twin
+	// of the ASN rate path.
+	return applyNetRate(d, "geo:"+country, rate, h.RateLimiter)
 }
 
 // geoDecideForCountry: pure decision given a resolved country string.
@@ -663,10 +670,11 @@ func (h *Handler) geoDecide(ip string, cfg settings.Settings) (axisDecision, boo
 //
 // A REGISTERED country with a blank action inherits DefaultRuleAction (a
 // registered row exists to act); only an unmatched country falls to
-// DefaultAction.
-func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, bool) {
+// DefaultAction.  rate is the matched rule's effective RatePerMin (0 for an
+// unmatched country -- the default action is never throttled).
+func geoDecideForCountry(country string, geo settings.GeoConfig) (d axisDecision, rate int, ok bool) {
 	if country == "" {
-		return axisDecision{}, false
+		return axisDecision{}, 0, false
 	}
 	act := geo.ResolvedDefaultAction()
 	if rule := geo.LookupRule(country); rule != nil {
@@ -674,15 +682,16 @@ func geoDecideForCountry(country string, geo settings.GeoConfig) (axisDecision, 
 		if strings.TrimSpace(act) == "" {
 			act = geo.ResolvedDefaultRuleAction()
 		}
+		rate = geo.EffectiveRatePerMin(rule.RatePerMin)
 	}
 	switch act {
 	case "", settings.GeoActionSkip:
-		return axisDecision{}, false
+		return axisDecision{}, 0, false
 	case settings.GeoActionDeny:
-		return axisDecision{sev: sevDeny, reason: "geo:" + country + ":deny"}, true
+		return axisDecision{sev: sevDeny, reason: "geo:" + country + ":deny"}, rate, true
 	default:
 		s := severityFromAction(act)
-		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, true
+		return axisDecision{sev: s, reason: "geo:" + country + ":" + act, chMode: chModeFromSeverity(s)}, rate, true
 	}
 }
 
@@ -700,22 +709,23 @@ func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, boo
 	if !ok {
 		return axisDecision{}, false
 	}
-	return applyAsnRate(d, netKey, rate, h.RateLimiter)
+	return applyNetRate(d, netKey, rate, h.RateLimiter)
 }
 
-// applyAsnRate turns an ASN action decision into its rate-limited form.  rate<=0
+// applyNetRate turns a network-axis (asn/geo) action decision into its
+// rate-limited form.  rate<=0
 // -> the action applies to every request (return d unchanged).  rate>0 -> the
 // matched AS number is throttled to `rate` req/min (one shared counter); the
 // action fires only on the overage, and stays silent under the cap.  A nil
 // limiter can't count, so it fails open (silent).
-func applyAsnRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {
+func applyNetRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {
 	if rate <= 0 {
 		return d, true
 	}
 	if rl == nil {
 		return axisDecision{}, false
 	}
-	if !rl.Hit("asnrate|"+netKey, ratelimit.Spec{RequestsPerMin: rate, WindowSec: 60}).Hit {
+	if !rl.Hit("netrate|"+netKey, ratelimit.Spec{RequestsPerMin: rate, WindowSec: 60}).Hit {
 		return axisDecision{}, false // under the cap -> pass
 	}
 	d.reason = netKey + ":rate>" + strconv.Itoa(rate) + strings.TrimPrefix(d.reason, netKey)
