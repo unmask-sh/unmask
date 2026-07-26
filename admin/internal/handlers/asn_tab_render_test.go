@@ -51,6 +51,8 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`id="asn-add-rate"`,                        // add-form rate input
 		`name="asn_rate"`,                          // per-row rate input
 		`col-rate`,                                 // rate column
+		`class="rate-unit"`,                        // "req/min" unit suffix (clarifies it's a rate)
+		`data-help-target="asn-rate-help"`,         // "?" help on the rate column
 		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {
