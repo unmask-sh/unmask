@@ -66,28 +66,28 @@ func TestIsStaleBrowser(t *testing.T) {
 	oneBehind := "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 	safari := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
 
-	if !IsStaleBrowser(scraper, cur, curFF, ffESR, lag) {
+	if !IsStaleBrowser(scraper, cur, curFF, ffESR, lag, lag) {
 		t.Error("Chrome/139 must be stale at current=150 lag=11")
 	}
-	if IsStaleBrowser(current, cur, curFF, ffESR, lag) {
+	if IsStaleBrowser(current, cur, curFF, ffESR, lag, lag) {
 		t.Error("Chrome/150 must not be stale")
 	}
-	if IsStaleBrowser(oneBehind, cur, curFF, ffESR, lag) {
+	if IsStaleBrowser(oneBehind, cur, curFF, ffESR, lag, lag) {
 		t.Error("Chrome/149 (1 behind) must not be stale at lag=11")
 	}
 	// Safari carries neither token -> never stale (its numbering jumped
 	// 18 -> 26 and it is OS-pinned; challenging every Mac visitor would be
 	// catastrophic).
-	if IsStaleBrowser(safari, cur, curFF, ffESR, lag) {
+	if IsStaleBrowser(safari, cur, curFF, ffESR, lag, lag) {
 		t.Error("Safari must never be treated as a stale browser")
 	}
 	// Boundary: exactly lag behind is stale (>=).
 	edge := "Mozilla/5.0 ... Chrome/139.0.0.0 Safari/537.36"
-	if !IsStaleBrowser(edge, 150, curFF, ffESR, 11) {
+	if !IsStaleBrowser(edge, 150, curFF, ffESR, 11, 11) {
 		t.Error("exactly lag behind must be stale")
 	}
 	// Feature-off inputs are inert regardless of UA.
-	if IsStaleBrowser(scraper, 0, 0, ffESR, 11) || IsStaleBrowser(scraper, 150, curFF, ffESR, 0) {
+	if IsStaleBrowser(scraper, 0, 0, ffESR, 11, 11) || IsStaleBrowser(scraper, 150, curFF, ffESR, 0, 0) {
 		t.Error("unset currents/lag must disable the check")
 	}
 
@@ -96,23 +96,34 @@ func TestIsStaleBrowser(t *testing.T) {
 	ffCurrent := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0"
 	ffESRUA := "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
 	ffJustStale := "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
-	if !IsStaleBrowser(ffOld, cur, curFF, ffESR, lag) {
+	if !IsStaleBrowser(ffOld, cur, curFF, ffESR, lag, lag) {
 		t.Error("Firefox/115 (EOL ESR) must be stale at current=152 lag=11")
 	}
-	if IsStaleBrowser(ffCurrent, cur, curFF, ffESR, lag) {
+	if IsStaleBrowser(ffCurrent, cur, curFF, ffESR, lag, lag) {
 		t.Error("Firefox/152 (current) must not be stale")
 	}
 	// The current ESR trails stable beyond lag but is a supported, fully
 	// patched release (enterprise / distro default) -> exempt.
-	if IsStaleBrowser(ffESRUA, cur, curFF, ffESR, lag) {
+	if IsStaleBrowser(ffESRUA, cur, curFF, ffESR, lag, lag) {
 		t.Error("Firefox ESR major must be exempt")
 	}
+	// Per-family lags are independent: a huge Firefox lag exempts Firefox
+	// without touching Chrome's threshold, and vice versa.
+	if IsStaleBrowser(ffOld, cur, curFF, ffESR, lag, 99) {
+		t.Error("Firefox/115 must NOT be stale when the Firefox lag is 99")
+	}
+	if !IsStaleBrowser(ffOld, cur, curFF, ffESR, 99, lag) {
+		t.Error("Firefox/115 must be stale via its own lag even when Chrome's is 99")
+	}
+	if !IsStaleBrowser(scraper, cur, curFF, ffESR, lag, 99) {
+		t.Error("Chrome/139 must stay stale when only the Firefox lag is raised")
+	}
 	// The exemption is exact: one above the ESR, still >= lag behind, is stale.
-	if !IsStaleBrowser(ffJustStale, cur, curFF, ffESR, lag) {
+	if !IsStaleBrowser(ffJustStale, cur, curFF, ffESR, lag, lag) {
 		t.Error("Firefox/141 (11 behind, not the ESR) must be stale")
 	}
 	// Firefox side alone can be disabled by an unset current.
-	if IsStaleBrowser(ffOld, cur, 0, ffESR, lag) {
+	if IsStaleBrowser(ffOld, cur, 0, ffESR, lag, lag) {
 		t.Error("unset Firefox current must leave Firefox UAs untouched")
 	}
 }

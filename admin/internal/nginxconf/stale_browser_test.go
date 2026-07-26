@@ -16,7 +16,7 @@ import (
 func TestStaleBrowserPattern(t *testing.T) {
 	// chrome=150 firefox=152 esr=140 lag=11 -> thresholds 139 / 141
 	// (matches the incident tuning).
-	pat := staleBrowserPattern(150, 152, []int{140}, 11)
+	pat := staleBrowserPattern(150, 152, []int{140}, 11, 11)
 	if pat == "" {
 		t.Fatal("expected a pattern for chrome=150 firefox=152 lag=11")
 	}
@@ -52,11 +52,11 @@ func TestStaleBrowserPattern(t *testing.T) {
 		t.Error("Firefox/1410 must not match via the 141/14 prefixes")
 	}
 	// A lag so large nothing qualifies in either family yields no pattern.
-	if staleBrowserPattern(150, 152, []int{140}, 200) != "" {
+	if staleBrowserPattern(150, 152, []int{140}, 200, 200) != "" {
 		t.Error("thresholds < 1 must yield an empty pattern")
 	}
 	// One family alone still yields its half.
-	ffOnly := staleBrowserPattern(0, 152, []int{140}, 11)
+	ffOnly := staleBrowserPattern(0, 152, []int{140}, 11, 11)
 	if !strings.Contains(ffOnly, "Firefox/") || strings.Contains(ffOnly, "Chrome/") {
 		t.Errorf("firefox-only inputs must yield a firefox-only pattern, got %q", ffOnly)
 	}

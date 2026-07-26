@@ -637,7 +637,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// nothing).
 	if s.Global.StaleBrowserEnabled() {
 		if pat := staleBrowserPattern(s.Global.CurrentChromeMajorResolved(), s.Global.CurrentFirefoxMajorResolved(),
-			s.Global.FirefoxESRMajors(), s.Global.StaleBrowserLagN()); pat != "" {
+			s.Global.FirefoxESRMajors(), s.Global.StaleBrowserLagN(), s.Global.FirefoxStaleLagN()); pat != "" {
 			d.StaleBrowserEnabled = true
 			d.StaleBrowserPattern = pat
 		}
@@ -1563,12 +1563,12 @@ func resolveGlobalAction(axis string) string {
 // major so Chrome/50. never matches the "5" alternative and Chrome/1400. never
 // matches "140".  Returns "" when no positive major qualifies in either
 // family, signalling the caller to leave the tier off.
-func staleBrowserPattern(curChrome, curFirefox int, ffESRExempt []int, lag int) string {
+func staleBrowserPattern(curChrome, curFirefox int, ffESRExempt []int, lagChrome, lagFirefox int) string {
 	var fams []string
-	if alt := staleMajorAlternation(curChrome-lag, nil); alt != "" {
+	if alt := staleMajorAlternation(curChrome-lagChrome, nil); alt != "" {
 		fams = append(fams, "Chrome/(?:"+alt+")")
 	}
-	if alt := staleMajorAlternation(curFirefox-lag, ffESRExempt); alt != "" {
+	if alt := staleMajorAlternation(curFirefox-lagFirefox, ffESRExempt); alt != "" {
 		fams = append(fams, "Firefox/(?:"+alt+")")
 	}
 	if len(fams) == 0 {

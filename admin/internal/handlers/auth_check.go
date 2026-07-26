@@ -932,7 +932,7 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 	staleReason := ""
 	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
 		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
-			g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
+			g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
 		pick = g.StaleBrowserResolvedAction()
 		staleReason = "ua:stale_browser:" + pick
 	}
