@@ -3666,18 +3666,19 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 
 // asnCustomRow: one custom rule (exact ASN or org substring) for the UI.
 type asnCustomRow struct {
-	Value     string // "AS16509" for exact, or the org string
-	IsOrg     bool
-	Label     string
-	Action    string
-	Enabled   bool
-	UpdatedAt int64
+	Value      string // "AS16509" for exact, or the org string
+	IsOrg      bool
+	Label      string
+	Action     string
+	RatePerMin int // 0 = action every request; >0 = throttle to N/min, action on the overage
+	Enabled    bool
+	UpdatedAt  int64
 }
 
 func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
 	out := make([]asnCustomRow, 0, len(cfg.Rules))
 	for _, r := range cfg.Rules {
-		row := asnCustomRow{Label: r.Label, Action: r.Action, Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
+		row := asnCustomRow{Label: r.Label, Action: r.Action, RatePerMin: r.RatePerMin, Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
 		if r.ASN != 0 {
 			row.Value = "AS" + strconv.FormatUint(uint64(r.ASN), 10)
 		} else {
@@ -3725,6 +3726,7 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 	nums := r.Form["asn_number"]  // may hold "16509", "AS16509", or an org string
 	labels := r.Form["asn_label"] // parallel to the row (org rules use this too)
 	actions := r.Form["asn_action"]
+	rates := r.Form["asn_rate"] // per-minute cap; "" / "0" -> action every request
 	enabledArr := r.Form["asn_enabled"]
 	updatedAt := r.Form["asn_updated_at"]
 
@@ -3765,8 +3767,17 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		if ts == 0 {
 			ts = now
 		}
+		var rate int
+		if i < len(rates) {
+			if v, err := strconv.Atoi(strings.TrimSpace(rates[i])); err == nil && v > 0 {
+				if v > 1_000_000 { // sanity cap; a per-minute rate above this is meaningless
+					v = 1_000_000
+				}
+				rate = v
+			}
+		}
 
-		rule := settings.AsnRule{Label: label, Action: action, Enabled: enOn, UpdatedAt: ts}
+		rule := settings.AsnRule{Label: label, Action: action, RatePerMin: rate, Enabled: enOn, UpdatedAt: ts}
 		// "AS16509" / "16509" -> exact AS number; anything else -> org substring.
 		numStr := strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
 		if n, err := strconv.ParseUint(numStr, 10, 32); err == nil && n != 0 {
