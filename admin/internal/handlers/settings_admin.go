@@ -611,6 +611,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnMmdbLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		"AsnProviders":     h.asnProviderView(cur.Asn),
 		"AsnCustomRules":   asnCustomRuleView(cur.Asn),
+		"AsnDefaultRate":   cur.Asn.DefaultRatePerMin,
 		"IPGeoASNLoaded":   h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
@@ -3666,19 +3667,28 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 
 // asnCustomRow: one custom rule (exact ASN or org substring) for the UI.
 type asnCustomRow struct {
-	Value      string // "AS16509" for exact, or the org string
-	IsOrg      bool
-	Label      string
-	Action     string
-	RatePerMin int // 0 = action every request; >0 = throttle to N/min, action on the overage
-	Enabled    bool
-	UpdatedAt  int64
+	Value     string // "AS16509" for exact, or the org string
+	IsOrg     bool
+	Label     string
+	Action    string
+	RateStr   string // rate input value: "" = inherit default, "0" = no throttle, "N" = throttle
+	Enabled   bool
+	UpdatedAt int64
+}
+
+// rateStr renders a nullable rate override for a form input: nil (inherit) -> "",
+// an explicit value (incl. 0) -> its decimal string.
+func rateStr(r *int) string {
+	if r == nil {
+		return ""
+	}
+	return strconv.Itoa(*r)
 }
 
 func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
 	out := make([]asnCustomRow, 0, len(cfg.Rules))
 	for _, r := range cfg.Rules {
-		row := asnCustomRow{Label: r.Label, Action: r.Action, RatePerMin: r.RatePerMin, Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
+		row := asnCustomRow{Label: r.Label, Action: r.Action, RateStr: rateStr(r.RatePerMin), Enabled: r.Enabled, UpdatedAt: r.UpdatedAt}
 		if r.ASN != 0 {
 			row.Value = "AS" + strconv.FormatUint(uint64(r.ASN), 10)
 		} else {
@@ -3701,6 +3711,18 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		c.DefaultAction = v
 	} else {
 		c.DefaultAction = ""
+	}
+
+	// Default rate: blank / 0 -> no default throttle.  A rule/provider inherits
+	// this when its own rate is left blank (nil), mirroring DefaultAction.
+	c.DefaultRatePerMin = 0
+	if raw := strings.TrimSpace(r.FormValue("asn_default_rate")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 {
+			if v > 1_000_000 {
+				v = 1_000_000
+			}
+			c.DefaultRatePerMin = v
+		}
 	}
 
 	// ── preset providers (catalog) ───
@@ -3767,13 +3789,18 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		if ts == 0 {
 			ts = now
 		}
-		var rate int
+		// Nullable rate: blank -> nil (inherit DefaultRatePerMin); an explicit
+		// number (incl. 0 = "no throttle") -> a pointer to it.
+		var rate *int
 		if i < len(rates) {
-			if v, err := strconv.Atoi(strings.TrimSpace(rates[i])); err == nil && v > 0 {
-				if v > 1_000_000 { // sanity cap; a per-minute rate above this is meaningless
-					v = 1_000_000
+			if raw := strings.TrimSpace(rates[i]); raw != "" {
+				if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+					if v > 1_000_000 { // sanity cap; a per-minute rate above this is meaningless
+						v = 1_000_000
+					}
+					rv := v
+					rate = &rv
 				}
-				rate = v
 			}
 		}
 

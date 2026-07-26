@@ -3530,6 +3530,12 @@ document.addEventListener("DOMContentLoaded", function(){
           <option value="deny"             {{ if eq $ada "deny"             }}selected{{ end }}>deny (= 403)</option>
         </select>
       </label>
+      <label style="font-size:.85rem;display:inline-flex;align-items:center;gap:.3rem">{{ t .Lang "settings.asn.default_rate" }}:
+        <input type="number" name="asn_default_rate" min="0" value="{{ if gt .AsnDefaultRate 0 }}{{ .AsnDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
+        <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="asn-defrate-help" aria-label="?">?</button>
+        <script type="text/html" id="asn-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
+      </label>
     </div>
   </div>
 
@@ -3651,7 +3657,7 @@ document.addEventListener("DOMContentLoaded", function(){
               <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="{{ if gt $r.RatePerMin 0 }}{{ $r.RatePerMin }}{{ end }}" placeholder="{{ t $.Lang "settings.asn.rate_ph" }}" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
+          <td class="col-rate" style="white-space:nowrap"><input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ $.AsnDefaultRate }}{{ else }}{{ t $.Lang "settings.asn.rate_ph" }}{{ end }}" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
           <td class="col-enabled">
             <input type="checkbox" name="asn_enabled_{{ $i }}" value="1" {{ if $r.Enabled }}checked{{ end }}>
           </td>
