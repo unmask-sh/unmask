@@ -3618,6 +3618,7 @@ type asnProviderRow struct {
 	ASNCount int    // distinct ASNs matched in the loaded mmdb (-1 = not computed / no db)
 	AddedIn  string // release the provider joined the catalog (v-form)
 	IsNew    bool   // added in a release newer than the operator's SeenVersion
+	RateStr  string // per-provider rate override ("" = inherit the config default)
 }
 
 // asnProviderView returns the catalog providers merged with the operator's
@@ -3656,6 +3657,7 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 		if s, ok := sel[hp.ID]; ok {
 			row.Enabled = s.Enabled
 			row.Action = s.Action
+			row.RateStr = rateStr(s.RatePerMin)
 		}
 		if haveCounts {
 			row.ASNCount = counts[hp.ID]
@@ -3737,10 +3739,25 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		if action != "" && !settings.IsValidGeoAction(action) {
 			return fmt.Errorf("provider %s: action invalid (got %q)", hp.ID, action)
 		}
-		if !enOn && action == "" {
+		// Nullable rate override, same rules as the custom rows: blank -> nil
+		// (inherit DefaultRatePerMin), an explicit number (incl. 0 = no throttle)
+		// -> a pointer to it.
+		var rate *int
+		if raw := strings.TrimSpace(r.FormValue("asn_provider_rate_" + hp.ID)); raw != "" {
+			if v, err := strconv.Atoi(raw); err == nil && v >= 0 {
+				if v > 1_000_000 {
+					v = 1_000_000
+				}
+				rv := v
+				rate = &rv
+			}
+		}
+		// Drop a fully-default row (disabled, inherit action, inherit rate) to
+		// keep the YAML tidy; a rate override alone is enough to keep it.
+		if !enOn && action == "" && rate == nil {
 			continue
 		}
-		providers = append(providers, settings.AsnProviderSel{ID: hp.ID, Action: action, Enabled: enOn})
+		providers = append(providers, settings.AsnProviderSel{ID: hp.ID, Action: action, Enabled: enOn, RatePerMin: rate})
 	}
 	c.Providers = providers
 

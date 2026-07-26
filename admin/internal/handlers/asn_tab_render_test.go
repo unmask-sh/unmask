@@ -55,6 +55,7 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`class="rate-unit"`,                        // "req/min" unit suffix (clarifies it's a rate)
 		`data-help-target="asn-rate-help"`,         // "?" help on the rate column
 		`name="asn_default_rate"`,                  // feature B: config-level default rate input
+		`name="asn_provider_rate_microsoft"`,       // per-preset rate override on the preset table
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
 		`placeholder="200"`,                        // a nil-rate row shows the inherited default as its placeholder
 		`</html>`,                                  // no truncation
@@ -66,5 +67,12 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 	// A raw unresolved i18n key must not leak into the page.
 	if strings.Contains(body, "settings.asn.") {
 		t.Error("raw settings.asn.* i18n key leaked (missing dict entry)")
+	}
+	// The ASN "default" heading must use its own network-worded key, not the
+	// geo one -- neither language's country phrasing may reach the ASN tab.
+	for _, leaked := range []string{"ルール非登録の国", "for countries with no rule"} {
+		if strings.Contains(body, leaked) {
+			t.Errorf("ASN default heading leaked geo (country) wording %q -- must say network/ASN", leaked)
+		}
 	}
 }
