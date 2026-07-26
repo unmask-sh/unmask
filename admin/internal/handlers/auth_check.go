@@ -379,13 +379,15 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
 			decisions := make([]axisDecision, 0, 6)
-			// Net-exempt paths (RSS/Atom feeds etc.) skip the geo/asn axis ONLY;
-			// honeypot / protected / ja4 / ua below still run.  (A full pass is
-			// bypass:path, evaluated in the veto switch before this default case.)
-			if !matchPath(uri, matchers.netExempt) {
+			// Per-axis exempt paths (RSS/Atom feeds etc.): each skips ONLY its
+			// own axis; honeypot / protected / ja4 / ua below still run.  (A
+			// full pass is bypass:path, in the veto switch before this case.)
+			if !matchPath(uri, matchers.geoExempt) {
 				if d, ok := h.geoDecide(ip, cfg); ok {
 					decisions = append(decisions, d)
 				}
+			}
+			if !matchPath(uri, matchers.asnExempt) {
 				if d, ok := h.asnDecide(ip, cfg); ok {
 					decisions = append(decisions, d)
 				}
@@ -1210,7 +1212,8 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 
 type pathMatchers struct {
 	bypass    []*regexp.Regexp
-	netExempt []*regexp.Regexp // geo/asn-only exemption (RSS/Atom feeds etc.); ja4/honeypot/ua still run
+	geoExempt []*regexp.Regexp // country-axis-only exemption (RSS/Atom feeds etc.); asn/ja4/honeypot/ua still run
+	asnExempt []*regexp.Regexp // ASN-axis-only exemption; geo/ja4/honeypot/ua still run
 	honeypot  []honeypotRule
 	protected []*regexp.Regexp
 	ipBypass  *nginxconf.IPBypassMatcher
@@ -1339,17 +1342,22 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		}
 	}
 
-	// net-exempt paths: geo/asn-only passthrough (no presets).  Same compile
-	// convention as bypass paths; matched in the decision's default case to skip
-	// only geoDecide/asnDecide.
-	for _, row := range n.NetExemptPaths.ResolvePaths(site) {
-		if row.Disabled {
-			continue
+	// Per-axis exempt paths (no presets).  Same compile convention as bypass
+	// paths; each list is matched in the decision's default case to skip ONLY
+	// its own axis (geoDecide or asnDecide).
+	compileExemptRows := func(rows []settings.BypassPath) (out []*regexp.Regexp) {
+		for _, row := range rows {
+			if row.Disabled {
+				continue
+			}
+			if re := compileCachedRe("(?i)" + row.Path); re != nil {
+				out = append(out, re)
+			}
 		}
-		if re := compileCachedRe("(?i)" + row.Path); re != nil {
-			pm.netExempt = append(pm.netExempt, re)
-		}
+		return out
 	}
+	pm.geoExempt = compileExemptRows(n.Geo.ResolveExemptPaths(site))
+	pm.asnExempt = compileExemptRows(n.Asn.ResolveExemptPaths(site))
 
 	// honeypot: enabled presets + per-site URLs.  Each rule carries its
 	// per-preset (PresetAction[g.ID]) / per-row (u.Action) action override so

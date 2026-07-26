@@ -631,7 +631,6 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 	Asn              AsnConfig              `yaml:"asn,omitempty"`
-	NetExemptPaths   NetExemptPathsConfig   `yaml:"net_exempt_paths,omitempty"` // paths excluded from the geo/asn axis only
 	CrawlerVerify    CrawlerVerifyConfig    `yaml:"crawler_verify,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
@@ -977,6 +976,17 @@ type GeoConfig struct {
 	// but stable for UI display.  Disabled rules are persisted but skipped
 	// at evaluation time.
 	Rules []GeoRule `yaml:"rules,omitempty"`
+	// ExemptPaths: paths excluded from the COUNTRY axis only (the ASN axis and
+	// every other judgment -- ja4 / honeypot / UA / rate / ban -- still run).
+	// For endpoints that legitimately draw overseas traffic (RSS/Atom feeds)
+	// that a country policy would otherwise sweep up.  Reuses BypassPath rows.
+	ExemptPaths []BypassPath `yaml:"exempt_paths,omitempty"`
+}
+
+// ResolveExemptPaths filters ExemptPaths by site: an empty Site matches every
+// host, a set Site matches only that host.  Order is preserved.
+func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
+	return filterExemptPaths(g.ExemptPaths, site)
 }
 
 // GeoRule: one country override.
@@ -1077,6 +1087,17 @@ type AsnConfig struct {
 	// Rules: custom per-network overrides — an exact AS number, or a free
 	// organization-name substring, keyed by whichever field is set.
 	Rules []AsnRule `yaml:"rules,omitempty"`
+	// ExemptPaths: paths excluded from the ASN axis only (the country axis and
+	// every other judgment -- ja4 / honeypot / UA / rate / ban -- still run).
+	// For endpoints that legitimately draw datacenter bots -- RSS/Atom feeds
+	// pulled by Feedly / Inoreader from AWS/GCP.  Reuses BypassPath rows.
+	ExemptPaths []BypassPath `yaml:"exempt_paths,omitempty"`
+}
+
+// ResolveExemptPaths filters ExemptPaths by site: an empty Site matches every
+// host, a set Site matches only that host.  Order is preserved.
+func (a AsnConfig) ResolveExemptPaths(site string) []BypassPath {
+	return filterExemptPaths(a.ExemptPaths, site)
 }
 
 // CrawlerVerifyConfig controls forward-confirmed reverse-DNS (rDNS) crawler
@@ -1409,24 +1430,13 @@ func (b BypassPathsConfig) ResolvePaths(site string) []BypassPath {
 	return out
 }
 
-// NetExemptPathsConfig: paths excluded from the network axis (geo country +
-// asn) ONLY.  Unlike BypassPaths -- which is a full veto-pass out of every
-// judgment -- a net-exempt path still runs ja4 / honeypot / UA filter / rate
-// limit / ban; it only stops the country/ASN block from firing.  Use it for
-// endpoints that legitimately draw datacenter or overseas bots -- RSS/Atom
-// feeds pulled by Feedly / Inoreader (AWS/GCP IPs) that a geo or asn policy
-// would otherwise sweep up.  No presets: operators list their own feed paths.
-// Reuses BypassPath rows (Path / Title / Disabled / Site); the geo/asn scope
-// is implied by the field, so no per-row axis selector is needed.
-type NetExemptPathsConfig struct {
-	Paths []BypassPath `yaml:"paths,omitempty"`
-}
-
-// ResolvePaths mirrors BypassPathsConfig.ResolvePaths: an empty Site matches
-// every host, a set Site matches only that host.  Order is preserved.
-func (n NetExemptPathsConfig) ResolvePaths(site string) []BypassPath {
-	out := make([]BypassPath, 0, len(n.Paths))
-	for _, p := range n.Paths {
+// filterExemptPaths: shared site filter for the per-axis exempt-path lists
+// (GeoConfig.ExemptPaths / AsnConfig.ExemptPaths).  Same semantics as
+// BypassPathsConfig.ResolvePaths: an empty Site matches every host, a set
+// Site matches only that host.  Order is preserved.
+func filterExemptPaths(rows []BypassPath, site string) []BypassPath {
+	out := make([]BypassPath, 0, len(rows))
+	for _, p := range rows {
 		if p.Site == "" || p.Site == site {
 			out = append(out, p)
 		}
