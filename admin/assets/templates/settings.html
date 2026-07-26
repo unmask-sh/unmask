@@ -239,6 +239,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .asn-preset-table tbody tr{cursor:pointer}
 .asn-preset-table tbody tr:hover{background:#f8fafc}
 .asn-preset-table td.asn-action-cell{cursor:default}
+.asn-preset-table td.asn-rate-cell{cursor:default}
 /* asn custom-rule live suggest (queries the installed ASN mmdb) */
 .asn-suggest-wrap{position:relative;display:inline-block}
 .asn-suggest-box{position:absolute;top:100%;left:0;z-index:30;min-width:24rem;max-width:36rem;max-height:20rem;overflow-y:auto;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;box-shadow:0 .4rem 1.4rem rgba(15,23,42,.14);margin-top:.15rem}
@@ -3518,7 +3519,7 @@ document.addEventListener("DOMContentLoaded", function(){
       </div>
     </div>
 
-    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }}</h3>
+    <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.asn.default_h" }}</h3>
     {{ $ada := .Nginx.Asn.DefaultAction }}{{ if eq $ada "" }}{{ $ada = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
       <label style="font-size:.85rem">{{ t .Lang "settings.geo.default_action" }}:
@@ -3569,6 +3570,7 @@ document.addEventListener("DOMContentLoaded", function(){
           <th class="num">{{ t .Lang "settings.asn.preset.col.count" }}</th>
           <th class="col-since">{{ t .Lang "settings.asn.col_since" }}</th>
           <th>{{ t .Lang "settings.geo.col_action" }}</th>
+          <th class="col-rate">{{ t .Lang "settings.asn.col_rate" }}</th>
         </tr>
       </thead>
       <tbody>
@@ -3591,6 +3593,7 @@ document.addEventListener("DOMContentLoaded", function(){
               <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
+          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ $.AsnDefaultRate }}{{ else }}{{ t $.Lang "settings.asn.rate_ph" }}{{ end }}" style="width:4.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
         </tr>
         {{ end }}
       </tbody>
@@ -3702,6 +3705,7 @@ document.addEventListener("DOMContentLoaded", function(){
   var presetTable = document.querySelector('.asn-preset-table');
   if (presetTable) presetTable.addEventListener('click', function(e){
     if (e.target.closest('.asn-action-cell')) return;
+    if (e.target.closest('.asn-rate-cell')) return;
     if (e.target.classList.contains('asn-preset-chk')) return;
     var row = e.target.closest('tr');
     var box = row && row.querySelector('.asn-preset-chk');
