@@ -1272,7 +1272,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// monitoring probes are untouched.
 	if g := h.cfg().Global; g.StaleBrowserEnabled() && chMode != settings.RateChallengeDeny {
 		if ua := r.Header.Get("User-Agent"); classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(),
-			g.CurrentFirefoxMajorResolved(), g.FirefoxESRMajors(), g.StaleBrowserLagN()) {
+			g.CurrentFirefoxMajorResolved(), g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
 			chMode = g.StaleBrowserResolvedAction()
 		}
 	}
