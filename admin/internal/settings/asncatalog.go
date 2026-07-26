@@ -53,7 +53,10 @@ var HostingProviders = []HostingProvider{
 	{ID: "gcore", Label: "G-Core", OrgPatterns: []string{"G-Core", "Gcore"}, AddedIn: asnCatalogInitial},
 	{ID: "kamatera", Label: "Kamatera", OrgPatterns: []string{"Kamatera"}, AddedIn: asnCatalogInitial},
 	{ID: "psychz", Label: "Psychz Networks", OrgPatterns: []string{"Psychz"}, AddedIn: asnCatalogInitial},
-	{ID: "colocrossing", Label: "ColoCrossing", OrgPatterns: []string{"ColoCrossing"}, AddedIn: asnCatalogInitial},
+	// ColoCrossing was acquired by HostPapa; the ASN databases now carry the
+	// parent's name on its networks (AS36352 etc.), so the pattern must match
+	// "HostPapa" -- "ColoCrossing" no longer appears and counted 0.
+	{ID: "colocrossing", Label: "ColoCrossing / HostPapa", OrgPatterns: []string{"HostPapa"}, AddedIn: asnCatalogInitial},
 	{ID: "quadranet", Label: "QuadraNet", OrgPatterns: []string{"QuadraNet"}, AddedIn: asnCatalogInitial},
 	{ID: "m247", Label: "M247", OrgPatterns: []string{"M247"}, AddedIn: asnCatalogInitial},
 }
