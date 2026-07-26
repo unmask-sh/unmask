@@ -2006,10 +2006,10 @@ type GlobalConfig struct {
 	// stale (currentMajor-major >= N).  Empty/<=0 falls back to
 	// DefaultStaleBrowserLag.  Larger N = only very outdated UAs are challenged.
 	StaleBrowserLag int `yaml:"stale_browser_lag,omitempty"`
-	// StaleBrowserLagFirefox: Firefox's own lag.  Chrome and Firefox happen to
-	// share a release cadence today, so one N used to span both -- but if the
-	// paces diverge, one major stops meaning the same amount of time per
-	// family.  Empty/<=0 -> follow the Chrome-side lag (StaleBrowserLagN).
+	// StaleBrowserLagFirefox: Firefox's own lag, fully independent of the
+	// Chrome-side value (one N used to span both, but if the release paces
+	// diverge, one major stops meaning the same amount of time per family).
+	// Empty/<=0 -> DefaultStaleBrowserLagFirefox.
 	StaleBrowserLagFirefox int `yaml:"stale_browser_lag_firefox,omitempty"`
 	// StaleBrowserAction is the chain a stale UA gets.  Empty ->
 	// DefaultStaleBrowserAction (captcha_only): the whole point is to demand the
@@ -2026,6 +2026,12 @@ const (
 	// 2026-07-15 scraper sat 11 behind (139 vs 150); 10 keeps a comfortable
 	// margin above the genuine 1-2-major long tail.
 	DefaultStaleBrowserLag = 10
+	// DefaultStaleBrowserLagFirefox: Firefox's own built-in lag, judged
+	// independently per family.  It happens to equal the Chromium value today
+	// because the release cadences (and the genuine-old-UA long tails) look
+	// alike -- not because the families share a constant; revisit separately
+	// if either pace changes.
+	DefaultStaleBrowserLagFirefox = 10
 	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
 	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
 	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
@@ -2182,12 +2188,13 @@ func (g GlobalConfig) StaleBrowserLagN() int {
 }
 
 // FirefoxStaleLagN returns Firefox's effective lag: its own value when set,
-// otherwise it follows the Chrome-side lag (the two cadences match today).
+// otherwise Firefox's own built-in default.  Deliberately independent of the
+// Chrome-side lag -- per-family settings must not leak into each other.
 func (g GlobalConfig) FirefoxStaleLagN() int {
 	if g.StaleBrowserLagFirefox > 0 {
 		return g.StaleBrowserLagFirefox
 	}
-	return g.StaleBrowserLagN()
+	return DefaultStaleBrowserLagFirefox
 }
 
 // StaleBrowserResolvedAction returns the effective chain for a stale UA,
