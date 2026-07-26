@@ -631,6 +631,7 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 	Asn              AsnConfig              `yaml:"asn,omitempty"`
+	NetExemptPaths   NetExemptPathsConfig   `yaml:"net_exempt_paths,omitempty"` // paths excluded from the geo/asn axis only
 	CrawlerVerify    CrawlerVerifyConfig    `yaml:"crawler_verify,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
@@ -1401,6 +1402,31 @@ type BypassPath struct {
 func (b BypassPathsConfig) ResolvePaths(site string) []BypassPath {
 	out := make([]BypassPath, 0, len(b.Paths))
 	for _, p := range b.Paths {
+		if p.Site == "" || p.Site == site {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// NetExemptPathsConfig: paths excluded from the network axis (geo country +
+// asn) ONLY.  Unlike BypassPaths -- which is a full veto-pass out of every
+// judgment -- a net-exempt path still runs ja4 / honeypot / UA filter / rate
+// limit / ban; it only stops the country/ASN block from firing.  Use it for
+// endpoints that legitimately draw datacenter or overseas bots -- RSS/Atom
+// feeds pulled by Feedly / Inoreader (AWS/GCP IPs) that a geo or asn policy
+// would otherwise sweep up.  No presets: operators list their own feed paths.
+// Reuses BypassPath rows (Path / Title / Disabled / Site); the geo/asn scope
+// is implied by the field, so no per-row axis selector is needed.
+type NetExemptPathsConfig struct {
+	Paths []BypassPath `yaml:"paths,omitempty"`
+}
+
+// ResolvePaths mirrors BypassPathsConfig.ResolvePaths: an empty Site matches
+// every host, a set Site matches only that host.  Order is preserved.
+func (n NetExemptPathsConfig) ResolvePaths(site string) []BypassPath {
+	out := make([]BypassPath, 0, len(n.Paths))
+	for _, p := range n.Paths {
 		if p.Site == "" || p.Site == site {
 			out = append(out, p)
 		}
