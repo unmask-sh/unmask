@@ -34,6 +34,7 @@ func TestApplyAsnForm(t *testing.T) {
 	// preset provider
 	form.Set("asn_provider_enabled_microsoft", "1")
 	form.Set("asn_provider_action_microsoft", "deny")
+	form.Set("asn_provider_rate_microsoft", "80") // per-preset rate override
 	// custom rows: exact ASN, org string
 	form["asn_number"] = []string{"AS16509", "Contabo"}
 	form["asn_label"] = []string{"Amazon", "cheap VPS"}
@@ -49,8 +50,9 @@ func TestApplyAsnForm(t *testing.T) {
 	if c.DefaultRatePerMin != 150 {
 		t.Errorf("asn_default_rate=150 must parse into DefaultRatePerMin, got %d", c.DefaultRatePerMin)
 	}
-	if len(c.Providers) != 1 || c.Providers[0].ID != "microsoft" || c.Providers[0].Action != "deny" || !c.Providers[0].Enabled {
-		t.Errorf("providers = %+v, want [microsoft deny enabled]", c.Providers)
+	if len(c.Providers) != 1 || c.Providers[0].ID != "microsoft" || c.Providers[0].Action != "deny" || !c.Providers[0].Enabled ||
+		c.Providers[0].RatePerMin == nil || *c.Providers[0].RatePerMin != 80 {
+		t.Errorf("providers = %+v, want [microsoft deny enabled rate 80]", c.Providers)
 	}
 	if len(c.Rules) != 2 {
 		t.Fatalf("want 2 custom rules, got %d (%+v)", len(c.Rules), c.Rules)
