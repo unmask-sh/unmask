@@ -1221,11 +1221,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// to the captcha_only default via StaleBrowserResolvedAction.
 		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
 		// Header-integrity axis: toggle + optional action (pow_only / captcha_only
-		// only -- deny is never accepted here; a blank / anything else stores unset
-		// so HeaderIntegrityResolvedAction applies its captcha_only default).
+		// / pow_then_captcha -- deny is never accepted here; a blank / anything else
+		// stores unset so HeaderIntegrityResolvedAction applies its captcha_only
+		// default).
 		cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
 		switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
-		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly:
+		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
 			cur.Global.HeaderIntegrityAction = strings.TrimSpace(r.FormValue("header_integrity_action"))
 		default:
 			cur.Global.HeaderIntegrityAction = ""

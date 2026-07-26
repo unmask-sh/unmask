@@ -2277,12 +2277,14 @@ func (g GlobalConfig) StaleBrowserResolvedAction() string {
 }
 
 // HeaderIntegrityResolvedAction: the chain a header-mismatch gets.  Clamped to
-// pow_only / captcha_only -- deny is never honored here even if somehow stored
-// (this axis structurally cannot hard-block; a stripped header is a legitimate
-// state).  Empty / anything else -> captcha_only.
+// the three challenge chains (pow_only / captcha_only / pow_then_captcha) --
+// deny is never honored here even if somehow stored (this axis structurally
+// cannot hard-block; a stripped header is a legitimate state, so a misclassified
+// real user must always be able to clear the chain).  Empty / anything else ->
+// captcha_only.
 func (g GlobalConfig) HeaderIntegrityResolvedAction() string {
 	switch g.HeaderIntegrityAction {
-	case RateChallengePoWOnly, RateChallengeCaptchaOnly:
+	case RateChallengePoWOnly, RateChallengeCaptchaOnly, RateChallengePoWThenCaptcha:
 		return g.HeaderIntegrityAction
 	default:
 		return RateChallengeCaptchaOnly
