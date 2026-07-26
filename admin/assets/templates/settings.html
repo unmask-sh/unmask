@@ -1629,15 +1629,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="ua-help-trigger" data-help-target="global-default-help" aria-label="?">?</button>
     </h2>
     <p class="desc" style="margin:.4rem 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
+    <div class="note" style="margin:0 0 1.2rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.usage_examples") }}</div>
 
     {{ $kba := .Global.KnownBrowserAction }}
     {{ $uua := .Global.UnknownUAAction }}
 
     <div class="field" style="margin:1.4rem 0 1.8rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.known_browser_h" }}</label>
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">①</span>{{ t .Lang "settings.global.known_browser_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
       <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $kba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1647,10 +1648,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
 
     <div class="field" style="margin:1.4rem 0 1.2rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.global.unknown_ua_h" }}</label>
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">②</span>{{ t .Lang "settings.global.unknown_ua_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
       <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $uua "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -1831,7 +1832,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $bcm := .ChallengeTargets.DefaultAction }}
       <select name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
         <option value="pow_only"         {{ if eq $bcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $bcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -1999,7 +2000,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_action_help") }}</div>
       <select name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
         <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="deny"             {{ if eq $sba "deny" }}selected{{ end }}>deny</option>
@@ -2299,7 +2300,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $jcm := .JA4Verdicts.DefaultAction }}
       <select name="ja4_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $jcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $jcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $jcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2463,7 +2464,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $hcm := .Honeypot.DefaultAction }}
       <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_only"         {{ if eq $hcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $hcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2608,7 +2609,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $pcm := .ProtectedPaths.DefaultAction }}
       <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $pcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $pcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
