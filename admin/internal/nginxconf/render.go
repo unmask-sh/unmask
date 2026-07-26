@@ -352,8 +352,14 @@ type renderData struct {
 	// rules group by Site and are emitted as separate path-only maps + a host
 	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
 	// no anchor stripping needed because no map ever concatenates host + uri.
-	BypassPathsGlobal       []string               // patterns from rules with Site == ""
-	BypassPathsPerHost      []BypassPathHostMaps   // one entry per unique non-empty Site
+	BypassPathsGlobal  []string             // patterns from rules with Site == ""
+	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
+	// NetExemptPaths*: geo/asn-only exemption (RSS/Atom feeds etc.).  Same
+	// global + per-host split as bypass paths, but feeds $is_net_exempt_path,
+	// which drops ONLY the geo/asn axis in $is_net_challenge (ja4/honeypot/rate
+	// still run).  No presets -- operators list their own feed paths.
+	NetExemptPathsGlobal    []string
+	NetExemptPathsPerHost   []BypassPathHostMaps
 	ChallengeAll            bool                   // true -> $is_challenge_target = 1 (= UA-agnostic)
 	ChallengeTargetPatterns []string               // OR list of UA patterns evaluated when false
 	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
@@ -906,6 +912,35 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// + a host dispatcher map.  Keeping the path patterns alone in each map
 	// means `^/api/` is honored literally with no double-anchor wart.
 	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bp)
+
+	// Net-exempt paths: same render machinery (global + per-host maps) as bypass
+	// paths, but no presets.  Feeds $is_net_exempt_path -> $is_net_challenge, so
+	// a matched feed drops only the geo/asn axis.
+	ne := []BypassPathRule{}
+	neSeen := map[string]bool{}
+	for _, r := range s.Nginx.NetExemptPaths.Paths {
+		if r.Disabled {
+			continue
+		}
+		p := trimSpaceAndQuotes(r.Path)
+		if p == "" {
+			continue
+		}
+		site := trimSpaceAndQuotes(r.Site)
+		key := site + "|" + p
+		if neSeen[key] {
+			continue
+		}
+		neSeen[key] = true
+		ne = append(ne, BypassPathRule{Pattern: p, Site: site})
+	}
+	sort.Slice(ne, func(i, j int) bool {
+		if ne[i].Site != ne[j].Site {
+			return ne[i].Site < ne[j].Site
+		}
+		return ne[i].Pattern < ne[j].Pattern
+	})
+	d.NetExemptPathsGlobal, d.NetExemptPathsPerHost = splitBypassPathsForRender(ne)
 
 	// RateLimit zones: default goes first, followed by named zones in order.
 	// If Default.Name is empty, fall back to "unmask_rate" (= matches

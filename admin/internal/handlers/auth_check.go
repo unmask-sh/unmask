@@ -379,11 +379,16 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
 			decisions := make([]axisDecision, 0, 6)
-			if d, ok := h.geoDecide(ip, cfg); ok {
-				decisions = append(decisions, d)
-			}
-			if d, ok := h.asnDecide(ip, cfg); ok {
-				decisions = append(decisions, d)
+			// Net-exempt paths (RSS/Atom feeds etc.) skip the geo/asn axis ONLY;
+			// honeypot / protected / ja4 / ua below still run.  (A full pass is
+			// bypass:path, evaluated in the veto switch before this default case.)
+			if !matchPath(uri, matchers.netExempt) {
+				if d, ok := h.geoDecide(ip, cfg); ok {
+					decisions = append(decisions, d)
+				}
+				if d, ok := h.asnDecide(ip, cfg); ok {
+					decisions = append(decisions, d)
+				}
 			}
 			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip); ok {
 				decisions = append(decisions, d)
@@ -1205,6 +1210,7 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 
 type pathMatchers struct {
 	bypass    []*regexp.Regexp
+	netExempt []*regexp.Regexp // geo/asn-only exemption (RSS/Atom feeds etc.); ja4/honeypot/ua still run
 	honeypot  []honeypotRule
 	protected []*regexp.Regexp
 	ipBypass  *nginxconf.IPBypassMatcher
@@ -1330,6 +1336,18 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		}
 		if re := compileCachedRe("(?i)" + row.Path); re != nil {
 			pm.bypass = append(pm.bypass, re)
+		}
+	}
+
+	// net-exempt paths: geo/asn-only passthrough (no presets).  Same compile
+	// convention as bypass paths; matched in the decision's default case to skip
+	// only geoDecide/asnDecide.
+	for _, row := range n.NetExemptPaths.ResolvePaths(site) {
+		if row.Disabled {
+			continue
+		}
+		if re := compileCachedRe("(?i)" + row.Path); re != nil {
+			pm.netExempt = append(pm.netExempt, re)
 		}
 	}
 

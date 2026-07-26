@@ -58,6 +58,9 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		`name="asn_provider_rate_microsoft"`,       // per-preset rate override on the preset table
 		`data-help-target="asn-defrate-help"`,      // "?" help on the default-rate field
 		`placeholder="200"`,                        // a nil-rate row shows the inherited default as its placeholder
+		`data-rule-name="ne_path"`,                 // net-exempt (geo/asn-only) path list
+		`data-help-target="ne-help"`,               // net-exempt help popover
+		`name="ne_path"`,                           // net-exempt path input (rule-list template row)
 		`</html>`,                                  // no truncation
 	} {
 		if !strings.Contains(body, want) {

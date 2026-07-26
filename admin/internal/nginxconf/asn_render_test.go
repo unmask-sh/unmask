@@ -16,8 +16,8 @@ func TestAsnRenderBlocks(t *testing.T) {
 	if !strings.Contains(off, "map $unmask_asn $unmask_asn_action") {
 		t.Error("no rules: $unmask_asn_action map must still be defined")
 	}
-	if !strings.Contains(off, "map \"$is_geo_challenge:$is_asn_challenge\" $is_net_challenge") {
-		t.Error("no rules: is_net_challenge combining map missing")
+	if !strings.Contains(off, "map \"$is_geo_challenge:$is_asn_challenge:$is_net_exempt_path\" $is_net_challenge") {
+		t.Error("no rules: is_net_challenge combining map missing (must fold in $is_net_exempt_path)")
 	}
 	if !strings.Contains(off, "$is_net_challenge:$protected_mode_eff") {
 		t.Error("composite final-challenge key must route on is_net_challenge")

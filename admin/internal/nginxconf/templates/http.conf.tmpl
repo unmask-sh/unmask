@@ -544,12 +544,57 @@ map $unmask_asn_action $is_asn_challenge {
     "skip"  0;
 }
 
-# Network-level veto = geo OR asn.  Folded into one variable so it drops into
-# the existing $final_challenge composite key at the geo position without
-# widening it (every enumerated combination keeps the same field count).
-map "$is_geo_challenge:$is_asn_challenge" $is_net_challenge {
+# -----------------------------------------------------------------------------
+# Net-exempt paths ($is_net_exempt_path) — geo/asn-only passthrough
+# -----------------------------------------------------------------------------
+# Scope: a matching request skips the country/ASN block ONLY; ja4 verdict /
+# honeypot / protected paths / UA filter / rate limit / ban all still run
+# (unlike $is_bypass_path, which vetoes EVERY judgment).  For endpoints that
+# legitimately draw datacenter or overseas bots -- RSS/Atom feeds pulled by
+# Feedly / Inoreader from AWS/GCP IPs that a geo or asn policy would otherwise
+# sweep up.  Same $request_uri-keyed convention as bypass paths: path-anchored
+# regex used verbatim, per-host rules via a $host dispatcher.
+map $request_uri $unmask_ne_global {
+    default "0";
+{{- range .NetExemptPathsGlobal }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- if .NetExemptPathsPerHost }}
+{{- range .NetExemptPathsPerHost }}
+map $request_uri $unmask_ne_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~{{ . }}" "1";
+{{- end }}
+}
+{{- end }}
+map $host $unmask_ne_per_host {
+    default "0";
+{{- range .NetExemptPathsPerHost }}
+    "{{ .Host }}" $unmask_ne_host_{{ .VarName }};
+{{- end }}
+}
+map "$unmask_ne_global$unmask_ne_per_host" $is_net_exempt_path {
+    default "0";
+    "~1" "1";
+}
+{{- else }}
+map $unmask_ne_global $is_net_exempt_path {
+    default "0";
+    "1" "1";
+}
+{{- end }}
+
+# Network-level veto = (geo OR asn) AND NOT net-exempt-path.  Folded into one
+# variable so it drops into the existing $final_challenge composite key at the
+# geo position without widening it.  A net-exempt path forces this to 0 (the
+# country/ASN block never fires for it) while the other $final_challenge fields
+# (ja4 / honeypot / protected / UA) are untouched.
+map "$is_geo_challenge:$is_asn_challenge:$is_net_exempt_path" $is_net_challenge {
     default 1;
-    "0:0"   0;
+    "~:1$"  0;
+    "0:0:0" 0;
 }
 
 {{- if .CommunityBansSubscribe }}
