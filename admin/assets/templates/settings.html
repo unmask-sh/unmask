@@ -276,6 +276,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    vertically centered against the rate input */
 .rule-row .rule-edit-unit{display:none}
 .rule-row.editing .rule-edit-unit{display:inline-flex;align-items:center}
+/* column-label header for rule lists with many inputs (asn/geo custom rules):
+   hidden until some row is in editing mode -- placeholders vanish once a value
+   is typed, so the header keeps the columns identifiable while editing */
+.rule-edit-header{display:none;gap:.6rem;padding:0 .7rem;font-size:.72rem;color:#64748b;font-weight:600}
+.rule-list:has(.rule-row.editing) .rule-edit-header{display:flex}
+.rule-edit-header .reh-toggle{width:1rem}
+.rule-edit-header .reh-title{flex:1}
+.rule-edit-header .reh-pat{flex:2}
+.rule-edit-header .reh-action{width:9rem}
+.rule-edit-header .reh-rate{width:5.5rem}
 /* JA4 verdict tab: pill for displaying the action enum (= behavior visible by color) */
 .action-pill{display:inline-block;padding:.05rem .4rem;border-radius:.25rem;font-size:.7rem;font-weight:700;font-family:ui-monospace,SFMono-Regular,monospace;text-transform:uppercase;letter-spacing:.05em}
 .action-bot{background:#fee2e2;color:#991b1b}
@@ -3334,6 +3344,7 @@ document.addEventListener("DOMContentLoaded", function(){
          exempt-path lists below): view row = memo / country + action pill;
          pencil opens in-row editing; "+ add new" appends a blank editing row. */}}
     <div class="rule-list" data-rule-name="geo_country">
+      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.geo.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.geo.col_country" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span></div>
       {{ range $i, $r := .Nginx.Geo.Rules }}
       {{ $c := index $.GeoCountryMap $r.Country }}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
@@ -3615,6 +3626,7 @@ document.addEventListener("DOMContentLoaded", function(){
          the live mmdb suggest, action, rate); "+ add new" appends a blank
          editing row. */}}
     <div class="rule-list" data-rule-name="asn_number">
+      <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.asn.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.asn.col_target" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
       {{ range $i, $r := .AsnCustomRules }}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
@@ -4330,7 +4342,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="rl-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="rl-deny-copy-preset" name="deny_copy_preset" data-deny-preset style="width:18rem">
-        <option value=""         {{ if eq $dp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""         {{ if eq $dp "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "friendly" }}</option>
         <option value="friendly" {{ if eq $dp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $dp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $dp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
@@ -4353,7 +4365,7 @@ document.addEventListener("DOMContentLoaded", function(){
     <div class="field" style="margin:0 0 .75rem">
       <label for="ban-deny-copy-preset">{{ t .Lang "settings.rate_limit.deny_page_preset_label" }}</label>
       <select id="ban-deny-copy-preset" name="ban_copy_preset" data-deny-preset style="width:18rem">
-        <option value=""         {{ if eq $bp "" }}selected{{ end }}>{{ t .Lang "settings.select.unset" }}</option>
+        <option value=""         {{ if eq $bp "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "friendly" }}</option>
         <option value="friendly" {{ if eq $bp "friendly" }}selected{{ end }}>{{ t .Lang "settings.branding.preset.friendly" }}</option>
         <option value="neutral"  {{ if eq $bp "neutral"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.neutral" }}</option>
         <option value="minimal"  {{ if eq $bp "minimal"  }}selected{{ end }}>{{ t .Lang "settings.branding.preset.minimal" }}</option>
