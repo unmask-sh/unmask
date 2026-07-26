@@ -510,6 +510,14 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			h.serveRateDeny(w, r, site)
 			return
 		}
+		// An ASN/geo rate rule whose per-rule action is "deny" is also a hard
+		// cap over the limit: resolve the client's network and short-circuit to
+		// the deny page rather than a recoverable challenge (matching the
+		// path-zone deny above).
+		if h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()) == settings.RateChallengeDeny {
+			h.serveRateDeny(w, r, site)
+			return
+		}
 	}
 	if isHTMLNavigation(r) {
 		h.ServeChallenge(w, r)
@@ -1203,6 +1211,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// Honeypot trip default (= preset/custom path-based override
 		// wiring is a follow-up).
 		if act := strings.TrimSpace(h.cfg().Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+	} else if forceReason == "rate_limit" {
+		// Native rate zones carry only "you hit a zone", not which ASN/geo rule
+		// -- re-derive the client's network from the IP and, if it matches a
+		// rate-mode rule, serve that rule's per-rule action instead of the base
+		// default (the plumbing this branch used to lack).  A path-zone deny was
+		// already short-circuited to serveRateDeny upstream, so only ASN/geo
+		// per-rule actions land here; "" (no network rule) leaves chMode alone.
+		if act := h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {
