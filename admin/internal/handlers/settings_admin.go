@@ -582,10 +582,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Global":       h.snapshotSettings().Global,
 		// Shipped current-Chrome-major baseline shown as the placeholder for the
 		// stale-browser tier's optional override field.
-		"StaleBrowserBaseline":   settings.DefaultCurrentChromeMajor,
-		"StaleBrowserFFBaseline": settings.DefaultCurrentFirefoxMajor,
-		"StaleBrowserLagDefault": settings.DefaultStaleBrowserLag,
-		"StaleLagChromeResolved": h.snapshotSettings().Global.StaleBrowserLagN(), // what the FF "follow Chrome" auto option currently means
+		"StaleBrowserBaseline":     settings.DefaultCurrentChromeMajor,
+		"StaleBrowserFFBaseline":   settings.DefaultCurrentFirefoxMajor,
+		"StaleBrowserLagDefault":   settings.DefaultStaleBrowserLag,
+		"StaleBrowserLagDefaultFF": settings.DefaultStaleBrowserLagFirefox, // judged per family; equal to Chromium's today by coincidence
 		// Automatic-baseline rows: the value the tier would use with no manual
 		// override, its origin (hub / builtin), when the last hub pull
 		// happened (operator cookie TZ), and the exempt ESR majors.
