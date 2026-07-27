@@ -123,6 +123,83 @@ func TestStaleNginxLibsUncheckedWhenNoNginx(t *testing.T) {
 	}
 }
 
+// contentFixture builds a fake /proc where one deleted .so mapping can be
+// compared against a real file: <lib> is what sits on disk now, and the
+// map_files entry is what the process still executes.  Returns the on-disk path
+// so the caller can assert on it.
+func contentFixture(t *testing.T, running, onDisk string) string {
+	t.Helper()
+	dir := t.TempDir()
+	lib := filepath.Join(dir, "libexample.so.1")
+	if err := os.WriteFile(lib, []byte(onDisk), 0o644); err != nil {
+		t.Fatalf("write lib: %v", err)
+	}
+	const addr = "7f8538c10000-7f8538c18000"
+	root := t.TempDir()
+	proc := filepath.Join(root, "4242")
+	if err := os.MkdirAll(filepath.Join(proc, "map_files"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(proc, "map_files", addr), []byte(running), 0o644); err != nil {
+		t.Fatalf("write map_files: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(proc, "cmdline"),
+		[]byte("nginx:\x00master\x00process\x00"), 0o644); err != nil {
+		t.Fatalf("write cmdline: %v", err)
+	}
+	maps := addr + " r-xp 00002000 08:02 33692932   " + lib + " (deleted)\n"
+	if err := os.WriteFile(filepath.Join(proc, "maps"), []byte(maps), 0o644); err != nil {
+		t.Fatalf("write maps: %v", err)
+	}
+	old := procRoot
+	procRoot = root
+	t.Cleanup(func() { procRoot = old })
+	return lib
+}
+
+// Replacing a file with byte-identical content (a reinstall of the same build)
+// leaves the same deleted mapping, but nothing is actually out of date.  On the
+// fleet this was 4 of 7 hosts, so reporting it would light a permanent warning
+// on healthy installs.
+func TestStaleNginxLibsIgnoresIdenticalReplacement(t *testing.T) {
+	contentFixture(t, "same-bytes", "same-bytes")
+
+	paths, checked := staleNginxLibs()
+	if !checked {
+		t.Fatal("checked=false with a readable maps file")
+	}
+	if len(paths) != 0 {
+		t.Fatalf("identical replacement must not be reported, got %v", paths)
+	}
+}
+
+// The case that matters: the file on disk really did change, so the running
+// nginx is executing code that no longer exists anywhere but its own memory.
+func TestStaleNginxLibsReportsChangedContent(t *testing.T) {
+	lib := contentFixture(t, "old-build", "new-build")
+
+	paths, checked := staleNginxLibs()
+	if !checked {
+		t.Fatal("checked=false with a readable maps file")
+	}
+	if len(paths) != 1 || paths[0] != lib {
+		t.Fatalf("want [%s], got %v", lib, paths)
+	}
+}
+
+// When the comparison cannot be made (map_files needs CAP_SYS_ADMIN, or the
+// path is gone) the finding is KEPT: an unverifiable difference must not be
+// silently dismissed, and the fix is a restart either way.  The incident
+// fixture exercises this -- its paths do not exist on the test machine.
+func TestStaleNginxLibsKeepsUnverifiableFindings(t *testing.T) {
+	fakeProc(t, "438467", "nginx: master process /usr/sbin/nginx", sgIncidentMaps)
+
+	paths, checked := staleNginxLibs()
+	if !checked || len(paths) != 1 {
+		t.Fatalf("unverifiable finding must be kept, got (%v,%v)", paths, checked)
+	}
+}
+
 func TestStaleNginxLibsListTruncates(t *testing.T) {
 	got := staleNginxLibsList([]string{
 		"/usr/lib64/liba.so.1", "/usr/lib64/libb.so.2",
