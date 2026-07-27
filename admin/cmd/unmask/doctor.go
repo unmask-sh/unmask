@@ -735,13 +735,15 @@ func checkNginxStaleLibs(addWarn func(t, m string)) {
 	if !checked || len(paths) == 0 {
 		return
 	}
-	addWarn("nginx running with replaced libraries", fmt.Sprintf(
-		"the running nginx still maps %d %s that %s replaced on disk (%s) — a package upgrade "+
-			"swapped %s after nginx started. `nginx -s reload` does NOT re-exec the master, so it keeps "+
-			"the stale mapping and every worker forked from it inherits the same broken image; those "+
-			"workers can segfault mid-response (clients see an empty reply). Run `systemctl restart nginx` "+
-			"(or `service nginx restart`) — a reload will not clear this.",
-		len(paths), plural(len(paths), "file", "files"), plural(len(paths), "was", "were"),
+	addWarn("nginx running on outdated files", fmt.Sprintf(
+		"the running nginx is still executing %d %s whose contents no longer match the file on disk, "+
+			"or that could not be compared (%s) — a package upgrade replaced %s after nginx started. "+
+			"`nginx -s reload` does NOT re-exec the master, so it keeps the stale mapping and every "+
+			"worker forked from it inherits the same image; when a replaced library is one the C library "+
+			"reloads at runtime, those workers segfault mid-response and clients see an empty reply. "+
+			"Run `systemctl restart nginx` (or `service nginx restart`) — a reload will not clear this. "+
+			"(A reinstall that wrote back identical bytes is not reported.)",
+		len(paths), plural(len(paths), "file", "files"),
 		staleNginxLibsList(paths), plural(len(paths), "it", "them")))
 }
 
