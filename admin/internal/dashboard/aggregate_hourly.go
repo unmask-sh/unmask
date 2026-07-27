@@ -30,6 +30,7 @@ var hourlyReady atomic.Bool
 // for CaptchaForceBreakdown below (= hkCaptchaForce / hkCaptchaForceIP).
 const (
 	hkFunnel       = "fnl"  // key '<vid>|<verdict>|<phase>'
+	hkForceFunnel  = "frf"  // key '<force_reason>|<phase>'  force_reason in (header,asn,geo) -- the by-axis funnel twin of hkFunnel
 	hkLoadF0       = "lf0"  // key '<vid>|<verdict>'   phase=load, flags=0
 	hkServeRL      = "srl"  // key '<vid>|<verdict>'   phase=serve, payload rl=1
 	hkCountry      = "cc"   // key '<country>'         phase=serve
@@ -306,6 +307,15 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		}
 		vv := strconv.FormatInt(vid.Int64, 10) + "|" + v
 		batch.counts[hourlyKey{hour, hkFunnel, vv + "|" + phase}]++
+		// frf: per-force_reason funnel (header/asn/geo only).  The challenge JS
+		// beacons force_reason on every phase, so this twin of hkFunnel lets the
+		// funnel show the pass-through of a header-integrity / ASN / country
+		// challenge, not just its serve count.  Parsed once; the cf (load) case
+		// below reuses frRaw.
+		frRaw := payloadForceReason(payload.String)
+		if forceReasonFunnelKindSet[frRaw] {
+			batch.counts[hourlyKey{hour, hkForceFunnel, frRaw + "|" + phase}]++
+		}
 		// vdip: distinct IP per verdict, all phases (VerdictDistribution).
 		batch.sketch(hllKey{hour, hkVerdictIP, v}).add(ip)
 		// site dimension: feeds dashboard.Sites (= the stats-page entry list).
@@ -328,7 +338,7 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			// CaptchaForceBreakdown: per-reason count + distinct IP.  Matches
 			// the raw query's CASE-fold: any value outside the known seven
 			// reasons (or no force_reason key at all) collapses to 'unknown'.
-			fr := normalizeForceReason(payloadForceReason(payload.String))
+			fr := normalizeForceReason(frRaw)
 			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
 			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
 			// FlagsDistribution: per-flags count + distinct IP.  flags is a
@@ -540,7 +550,7 @@ func payloadForceReason(payload string) string {
 // captchaForceKinds slice.
 func normalizeForceReason(fr string) string {
 	switch fr {
-	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test":
+	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "header", "asn", "geo", "stale":
 		return fr
 	}
 	return "unknown"

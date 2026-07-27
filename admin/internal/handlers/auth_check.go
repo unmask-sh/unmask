@@ -953,6 +953,84 @@ func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.Global
 	return axisDecision{sev: s, reason: "header:no_sch_ua", chMode: chModeFromSeverity(s)}, true
 }
 
+// headerDecideForServe runs the header-integrity axis against a challenge-serve
+// request: native reads the live headers, forward-auth the X-Original-* mirror
+// the snippet forwards.  Shared by ServeChallenge's force_reason attribution
+// and its chMode resolution so the two never drift.
+func headerDecideForServe(r *http.Request, g settings.GlobalConfig) (axisDecision, bool) {
+	ua := firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent"))
+	secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
+	// Prefer the forwarded scheme: behind a TLS-terminating LB the direct
+	// r.TLS / r.ProtoMajor describe the LB->daemon hop (plain http/1.1), not the
+	// visitor.  X-Original-Scheme (forward-auth snippet) or X-Forwarded-Proto
+	// (the LB) carries the visitor's real scheme.
+	xfProto := firstNonEmpty(r.Header.Get("X-Original-Scheme"), r.Header.Get("X-Forwarded-Proto"))
+	scheme := xfProto
+	if scheme == "" && r.TLS != nil {
+		scheme = "https"
+	}
+	// A forwarded request (any X-Forwarded-Proto / X-Original-Scheme present)
+	// came through an LB that masks the client's HTTP version, so treat it as a
+	// modern context -- a real Chromium over https still sends Sec-CH-UA
+	// regardless of h1/h2.  A direct hit uses the real negotiated protocol.
+	modern := xfProto != "" || r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" || r.ProtoMajor >= 2
+	return headerDecide(ua, secChUA, scheme, modern, g)
+}
+
+// headerAxisFiresForServe reports whether the header-integrity axis escalated
+// this challenge serve.  Native mode trusts the nginx-computed X-Header-Mismatch
+// signal (the map is LB-aware and unspoofable -- proxy_set_header overwrites any
+// client-supplied value); forward-auth, whose daemon sees the real request,
+// re-derives via headerDecideForServe.  Off when the axis is disabled.
+func headerAxisFiresForServe(r *http.Request, g settings.GlobalConfig) bool {
+	if !g.HeaderIntegrity {
+		return false
+	}
+	if r.Header.Get("X-Header-Mismatch") == "1" {
+		return true
+	}
+	_, ok := headerDecideForServe(r, g)
+	return ok
+}
+
+// staleBrowserFiresForServe reports whether the stale-browser tier would escalate
+// this challenge-serve request: the axis is on and the UA is pinned to an
+// outdated Chrome / Firefox major.  Mirrors the auth_check stale tier so the
+// force_reason="stale" attribution never drifts from the actual decision.
+func staleBrowserFiresForServe(r *http.Request, g settings.GlobalConfig) bool {
+	if !g.StaleBrowserEnabled() {
+		return false
+	}
+	ua := firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent"))
+	return classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
+		g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN())
+}
+
+// netChallengeReason attributes a network-axis challenge serve to "asn" or
+// "geo" when the client's ASN / country matches a *direct* (non-rate) challenge
+// rule -- ASN wins over country, mirroring the decision order.  A rate-gated
+// rule (rate>0) serves through the rate-limit path (force_reason="rate_limit"),
+// so those matches are left for that bucket.  Side-effect-free (no rate-limiter
+// Hit): it uses the pure resolvers, not asnDecide/geoDecide.
+func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) string {
+	if h.IPGeo == nil || ip == "" {
+		return ""
+	}
+	info := h.IPGeo.LookupInfo(ip)
+	if h.IPGeo.ASNLoaded() {
+		if d, _, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev != sevPass && rate == 0 {
+			return "asn"
+		}
+	}
+	if h.IPGeo.Loaded() {
+		cc := strings.ToUpper(strings.TrimSpace(info.Country))
+		if d, rate, ok := geoDecideForCountry(cc, cfg.Nginx.Geo); ok && d.sev != sevPass && rate == 0 {
+			return "geo"
+		}
+	}
+	return ""
+}
+
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
 // Severity is captcha_only (= JA4 bot is a strong signal so the chain
 // skips PoW and goes straight to CAPTCHA, matching the legacy semantics).

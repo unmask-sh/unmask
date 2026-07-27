@@ -882,6 +882,11 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 		if err != nil {
 			return nil, err
 		}
+		// header/asn/geo pseudo-rows from the frf aggregate (skipRateLimitRow=true
+		// above meant buildFunnelRowsWithUniq did not add the scan-path ones).
+		if frRows, err := forceReasonFunnelRowsAgg(ctx, d, hours); err == nil {
+			rows = append(frRows, rows...)
+		}
 		if rolled && rlTotal > 0 {
 			rows = append([]FunnelRow{rlRow}, rows...)
 		}
@@ -889,6 +894,77 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	}
 	// Not rolled yet and there are rate-limited serves: raw scan (pre-rollup only).
 	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, false)
+}
+
+// forceReasonFunnelRowsScan builds the header/asn/geo funnel pseudo-rows by
+// scanning raw events (site/host-filtered views + the pre-rollup fallback).
+// force_reason rides every phase beacon, so a plain force_reason x phase
+// group-by reconstructs each axis's serve->load->pass chain -- no IP-window
+// correlation (the rate_limit row needs that only because "rate-limited" is not
+// a per-event flag).  `since` is a raw date_created predicate; empty axes are
+// omitted.
+func forceReasonFunnelRowsScan(ctx context.Context, d *db.DB, site string, hosts []string, since string) ([]FunnelRow, error) {
+	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
+	stmt := fmt.Sprintf(`
+        SELECT %s AS fr, phase, COUNT(*) AS n
+        FROM unmask_event
+        WHERE %s%s AND %s IN (%s)
+        GROUP BY fr, phase`, reasonExpr, since, siteCond(site)+hostCond(hosts), reasonExpr, forceReasonFunnelInList())
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byRP := map[string]map[string]int{}
+	for rows.Next() {
+		var fr, phase string
+		var n int
+		if err := rows.Scan(&fr, &phase, &n); err != nil {
+			return nil, err
+		}
+		if byRP[fr] == nil {
+			byRP[fr] = map[string]int{}
+		}
+		byRP[fr][phase] += n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return forceReasonRowsFromPhaseMaps(byRP), nil
+}
+
+// forceReasonFunnelRowsAgg builds the header/asn/geo funnel rows from the hourly
+// frf aggregate (install-wide default view).  key = '<reason>|<phase>'.
+func forceReasonFunnelRowsAgg(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
+	rows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, cnt FROM unmask_aggregate_hourly
+        WHERE `+hourWindow(ctx, hours, "bucket_hour")+`
+          AND bucket_kind = '`+hkForceFunnel+`'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byRP := map[string]map[string]int{}
+	for rows.Next() {
+		var key string
+		var cnt int
+		if err := rows.Scan(&key, &cnt); err != nil {
+			return nil, err
+		}
+		i := strings.IndexByte(key, '|')
+		if i < 0 {
+			continue
+		}
+		reason, phase := key[:i], key[i+1:]
+		if byRP[reason] == nil {
+			byRP[reason] = map[string]int{}
+		}
+		byRP[reason][phase] += cnt
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return forceReasonRowsFromPhaseMaps(byRP), nil
 }
 
 // buildFunnelRows turns the per-verdict aggregation maps into ordered
@@ -988,6 +1064,12 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 	// otherwise this raw scan sweeps the whole phase=serve subset only to
 	// return an empty row.
 	if !skipRateLimitRow {
+		// header/asn/geo pseudo-rows first, then the rate_limit row prepended on
+		// top, so the cross-verdict axis rows cluster above the per-verdict rows.
+		// Like rate_limit, these overlap the verdict rows and stay out of TOTAL.
+		if frRows, err := forceReasonFunnelRowsScan(ctx, d, site, hosts, since); err == nil {
+			out = append(frRows, out...)
+		}
 		rlRow, err := rateLimitFunnelRow(ctx, d, site, hosts, since, botVerdicts)
 		if err == nil {
 			out = append([]FunnelRow{rlRow}, out...)
@@ -1466,7 +1548,7 @@ type CaptchaForceRow struct {
 }
 
 // captchaForceKinds: display order = none / each forced reason / unknown.
-var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "unknown"}
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "stale", "header", "asn", "geo", "unknown"}
 
 // AITrafficRow: one crawler-tag's traffic share over the window.
 //
@@ -1688,7 +1770,7 @@ func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts
 	stmt := fmt.Sprintf(`
         SELECT
           CASE
-            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','test') THEN %s
+            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','test','stale','header','asn','geo') THEN %s
             ELSE 'unknown'
           END AS kind,
           COUNT(*) AS n,
@@ -2074,6 +2156,7 @@ type CaptchaPassRow struct {
 	Path        string
 	Ref         string
 	Phase       string
+	ForceReason string // "$.force_reason": axis that raised the challenge (none = normal path)
 	IsBot       bool   // filled by the handler from the verdict->action map
 	CountryCode string // filled by the handler from IP-geo
 }
@@ -2114,6 +2197,72 @@ func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts 
 			return nil, err
 		}
 		out[v] = n
+	}
+	return out, rows.Err()
+}
+
+// CaptchaPassForceReasonCounts breaks the CAPTCHA passes down by the force_reason
+// that raised the challenge (header / stale / asn / geo / honeypot / banned /
+// protected / rate_limit / none / ...), so an operator can see WHICH axis's
+// CAPTCHAs are being solved -- a high count on a bot-facing axis flags a solver.
+// force_reason rides the pass beacon; passes served before the challenge.js
+// carried it fold into "none".  Same small phase=bv_* subset as the verdict
+// counts, so no extra full scan.
+func CaptchaPassForceReasonCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
+	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
+	stmt := fmt.Sprintf(`
+        SELECT COALESCE(%s, 'none'), COUNT(*)
+        FROM unmask_event
+        WHERE %s%s AND phase IN %s
+        GROUP BY %s`, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases, reasonExpr)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var v string
+		var n int
+		if err := rows.Scan(&v, &n); err != nil {
+			return nil, err
+		}
+		if v == "" {
+			v = "none"
+		}
+		out[v] += n
+	}
+	return out, rows.Err()
+}
+
+// CaptchaFailForceReasonCounts is the fail-side twin of
+// CaptchaPassForceReasonCounts: it breaks the CAPTCHA *failures* (verify_ng)
+// down by the force_reason that raised the challenge, so pass-by-axis and
+// fail-by-axis read together as each axis's CAPTCHA effectiveness (a high fail
+// count on a bot-facing axis = the wall is working; a high pass count = solver).
+func CaptchaFailForceReasonCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
+	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
+	stmt := fmt.Sprintf(`
+        SELECT COALESCE(%s, 'none'), COUNT(*)
+        FROM unmask_event
+        WHERE %s%s AND phase = 'verify_ng'
+        GROUP BY %s`, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), reasonExpr)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var v string
+		var n int
+		if err := rows.Scan(&v, &n); err != nil {
+			return nil, err
+		}
+		if v == "" {
+			v = "none"
+		}
+		out[v] += n
 	}
 	return out, rows.Err()
 }
@@ -2163,13 +2312,14 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
 func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassRow, error) {
 	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
 	refExpr := jsonExtract(d, "payload_json", "$.ref")
+	frExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	stmt := fmt.Sprintf(`
         SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(ja4, ''), COALESCE(user_agent, ''),
-               COALESCE(%s, ''), COALESCE(%s, ''), phase
+               COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, '')
         FROM unmask_event
         WHERE %s%s AND phase IN %s
         ORDER BY date_created DESC LIMIT ?`,
-		pathExpr, refExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
+		pathExpr, refExpr, frExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2178,14 +2328,14 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	var out []CaptchaPassRow
 	for rows.Next() {
 		var raw []byte
-		var dc, verdict, ja4, ua, path, ref, phase string
-		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase); err != nil {
+		var dc, verdict, ja4, ua, path, ref, phase, fr string
+		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase, &fr); err != nil {
 			return nil, err
 		}
 		out = append(out, CaptchaPassRow{
 			TS: parseDateTimeToUnix(dc), Date: dc, IP: ipFromBytes(raw),
 			Verdict: verdict, JA4: ja4, UA: truncate(ua, 80), UAFull: ua,
-			Path: path, Ref: ref, Phase: phase,
+			Path: path, Ref: ref, Phase: phase, ForceReason: fr,
 		})
 	}
 	return out, rows.Err()
@@ -2373,6 +2523,22 @@ func RateLimitSummary(ctx context.Context, d *db.DB, site string, hosts []string
 	return s, nil
 }
 
+// splitReasons turns a GROUP_CONCAT(DISTINCT force_reason) result into a slice,
+// dropping empty entries (the "none"-folded NULLs leave nothing to show).
+func splitReasons(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := parts[:0]
+	for _, p := range parts {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // VerifyNGRow: verify_ng IP ranking with method (math/behavioral) breakdown.
 type VerifyNGRow struct {
 	IP          string
@@ -2386,11 +2552,19 @@ type VerifyNGRow struct {
 	LastSeen    string
 	LastSeenTS  int64
 	CountryCode string
+	// ForceReasons: the distinct escalation axes behind this IP's failures
+	// ("none" dropped) -- an IP is usually escalated by one rule, so this reads
+	// as a single badge; mixed rules show the honest set.
+	ForceReasons []string
 }
 
 func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]VerifyNGRow, error) {
 	method := jsonExtract(d, "payload_json", "$.method")
 	score := jsonExtract(d, "payload_json", "$.score")
+	fr := jsonExtract(d, "payload_json", "$.force_reason")
+	// GROUP_CONCAT(DISTINCT ...) with "none"/NULL folded to NULL so the join
+	// keeps only the real escalation axes; portable across SQLite + MariaDB
+	// (both default the separator to ",").
 	stmt := fmt.Sprintf(`
         SELECT ip_address,
                COUNT(*) AS total,
@@ -2399,9 +2573,10 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
                AVG(%s + 0.0) AS avg_score,
                MAX(user_agent) AS ua,
                MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
-               MAX(date_created) AS last_seen
+               MAX(date_created) AS last_seen,
+               GROUP_CONCAT(DISTINCT NULLIF(COALESCE(%s, 'none'), 'none')) AS reasons
         FROM unmask_event WHERE %s%s AND phase='verify_ng'
-        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, fr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2413,19 +2588,20 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
 		var total int
 		var math, beh sql.NullInt64
 		var avg sql.NullFloat64
-		var ua, ja4, ls sql.NullString
-		if err := rows.Scan(&raw, &total, &math, &beh, &avg, &ua, &ja4, &ls); err != nil {
+		var ua, ja4, ls, reasons sql.NullString
+		if err := rows.Scan(&raw, &total, &math, &beh, &avg, &ua, &ja4, &ls, &reasons); err != nil {
 			return nil, err
 		}
 		out = append(out, VerifyNGRow{
 			IP: ipFromBytes(raw), Total: total,
 			Math: int(math.Int64), Behavioral: int(beh.Int64),
-			AvgScore:   avg.Float64,
-			UA:         truncate(ua.String, 50),
-			UAFull:     ua.String,
-			JA4:        ja4.String,
-			LastSeen:   ls.String,
-			LastSeenTS: parseDateTimeToUnix(ls.String),
+			AvgScore:     avg.Float64,
+			UA:           truncate(ua.String, 50),
+			UAFull:       ua.String,
+			JA4:          ja4.String,
+			LastSeen:     ls.String,
+			LastSeenTS:   parseDateTimeToUnix(ls.String),
+			ForceReasons: splitReasons(reasons.String),
 		})
 	}
 	return out, rows.Err()

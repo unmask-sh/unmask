@@ -28,7 +28,7 @@ func TestCaptchaForceBreakdown_AggMatchesScan(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// 9 seeded events:
+	// 13 seeded events:
 	//   - ja4_bot   ×2  (= 2 distinct IPs, exercises a non-trivial uniq)
 	//   - honeypot  ×1
 	//   - banned    ×1
@@ -36,6 +36,9 @@ func TestCaptchaForceBreakdown_AggMatchesScan(t *testing.T) {
 	//   - rate_limit×1
 	//   - test      ×1
 	//   - none      ×1
+	//   - header    ×1  (= header-integrity axis)
+	//   - asn       ×1  (= ASN filter, direct challenge)
+	//   - geo       ×1  (= country filter, direct challenge)
 	//   - unknown   ×1  (= payload with bogus force_reason → CASE ELSE fold)
 	seed := []struct {
 		ip      string
@@ -49,6 +52,10 @@ func TestCaptchaForceBreakdown_AggMatchesScan(t *testing.T) {
 		{"6.6.6.6", `{"force_reason":"rate_limit"}`},
 		{"7.7.7.7", `{"force_reason":"test"}`},
 		{"8.8.8.8", `{"force_reason":"none"}`},
+		{"10.0.0.1", `{"force_reason":"header"}`},
+		{"10.0.0.2", `{"force_reason":"asn"}`},
+		{"10.0.0.3", `{"force_reason":"geo"}`},
+		{"10.0.0.9", `{"force_reason":"stale"}`},
 		{"9.9.9.9", `{"force_reason":"bogus_value"}`},
 	}
 	// Plant each row at "30 minutes ago" so both window cutoffs include it:
@@ -122,6 +129,10 @@ func TestCaptchaForceBreakdown_AggMatchesScan(t *testing.T) {
 		"protected":  1,
 		"rate_limit": 1,
 		"test":       1,
+		"header":     1,
+		"asn":        1,
+		"geo":        1,
+		"stale":      1,
 		"unknown":    1, // bogus_value folds here
 	}
 	got := map[string]int{}
