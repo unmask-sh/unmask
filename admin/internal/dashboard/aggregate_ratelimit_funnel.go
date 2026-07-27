@@ -245,9 +245,19 @@ func mergeRateLimitCounts(phase map[string]int, stealth *int, tail FunnelRow) {
 // assembleRateLimitRow turns the per-phase counts + stealth into the funnel's
 // rate_limit row, deriving the same secondary fields rateLimitFunnelRow does.
 func assembleRateLimitRow(phase map[string]int, stealth int) FunnelRow {
-	r := FunnelRow{Verdict: "rate_limit"}
+	r := assembleFunnelPseudoRow("rate_limit", phase, stealth)
+	r.ServeRL = r.Serve // every rate_limit serve came via the rl path
+	return r
+}
+
+// assembleFunnelPseudoRow turns per-phase counts + stealth into a cross-verdict
+// funnel row (rate_limit / header / asn / geo), deriving the same secondary
+// fields the per-verdict rows get.  These rows overlap the verdict rows (a
+// header challenge is also counted under its JA4 verdict), so callers keep them
+// OUT of the TOTAL.
+func assembleFunnelPseudoRow(label string, phase map[string]int, stealth int) FunnelRow {
+	r := FunnelRow{Verdict: label}
 	r.Serve = phase["serve"]
-	r.ServeRL = r.Serve
 	r.Load = phase["load"]
 	r.Stealth = stealth
 	r.PowPass = phase["pow_pass"]
@@ -269,4 +279,45 @@ func assembleRateLimitRow(phase map[string]int, stealth int) FunnelRow {
 		r.CaptchaRate = float64(r.Captcha) / float64(r.Load)
 	}
 	return r
+}
+
+// forceReasonFunnelKinds are the force_reason values that get their own funnel
+// pseudo-row (the by-axis twin of the verdict rows), in display order.
+// rate_limit has its own dedicated row; ja4_bot overlaps the verdict rows; none
+// is the bulk of ordinary traffic -- all three are excluded here.  This slice is
+// the single source of truth: the rollup filter (forceReasonFunnelKindSet) and
+// the scan-path SQL IN() are both derived from it, so a new kind is added in one
+// place.
+var forceReasonFunnelKinds = []string{"honeypot", "banned", "protected", "stale", "header", "asn", "geo"}
+
+// forceReasonFunnelKindSet is the O(1) membership form of forceReasonFunnelKinds
+// for the per-event hourly rollup hot path.
+var forceReasonFunnelKindSet = func() map[string]bool {
+	m := make(map[string]bool, len(forceReasonFunnelKinds))
+	for _, k := range forceReasonFunnelKinds {
+		m[k] = true
+	}
+	return m
+}()
+
+// forceReasonFunnelInList renders forceReasonFunnelKinds as a SQL IN() list of
+// quoted literals.  The values are code constants (no user input), so simple
+// quoting is injection-safe.
+func forceReasonFunnelInList() string {
+	return "'" + strings.Join(forceReasonFunnelKinds, "','") + "'"
+}
+
+// forceReasonRowsFromPhaseMaps assembles the header/asn/geo funnel rows from
+// reason->phase->count maps, in forceReasonFunnelKinds order, skipping axes with
+// no events (these axes are off by default, so most installs show none).
+func forceReasonRowsFromPhaseMaps(byRP map[string]map[string]int) []FunnelRow {
+	var out []FunnelRow
+	for _, reason := range forceReasonFunnelKinds {
+		ph := byRP[reason]
+		if len(ph) == 0 {
+			continue
+		}
+		out = append(out, assembleFunnelPseudoRow(reason, ph, 0))
+	}
+	return out
 }

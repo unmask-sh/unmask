@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"crypto/tls"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -66,5 +68,94 @@ func TestHeaderDecide(t *testing.T) {
 	chainish := settings.GlobalConfig{HeaderIntegrity: true, HeaderIntegrityAction: settings.RateChallengePoWThenCaptcha}
 	if d, _ := headerDecide(chrome, "", "https", true, chainish); d.sev != sevPoWThenCaptcha || d.chMode != settings.RateChallengePoWThenCaptcha {
 		t.Errorf("pow_then_captcha action -> sevPoWThenCaptcha/chMode pow_then_captcha, got sev=%d chMode=%q", d.sev, d.chMode)
+	}
+}
+
+// TestHeaderDecideForServe covers the serve-time input extraction that feeds the
+// force_reason="header" attribution: forward-auth reads the X-Original-* mirror
+// the snippet forwards (the live headers are the proxy's), native reads the live
+// request headers directly.
+func TestHeaderDecideForServe(t *testing.T) {
+	const chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	on := settings.GlobalConfig{HeaderIntegrity: true}
+
+	// forward-auth: inputs ride the X-Original-* mirror, no live TLS/UA.
+	fa := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	fa.Header.Set("X-Original-UA", chrome)
+	fa.Header.Set("X-Original-Scheme", "https")
+	fa.Header.Set("X-Original-HTTP2", "1")
+	if _, ok := headerDecideForServe(fa, on); !ok {
+		t.Error("forward-auth mirror (Chromium, https, h2, no Sec-CH-UA) must fire the header axis")
+	}
+	// a Sec-CH-UA present over the mirror -> consistent -> silent.
+	fa.Header.Set("X-Original-Sec-CH-UA", `"Chromium";v="120"`)
+	if _, ok := headerDecideForServe(fa, on); ok {
+		t.Error("a present Sec-CH-UA (via mirror) must be silent")
+	}
+
+	// native: no mirror, the daemon reads the live request headers + TLS.
+	nat := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	nat.Header.Set("User-Agent", chrome)
+	nat.ProtoMajor = 2
+	nat.TLS = &tls.ConnectionState{}
+	if _, ok := headerDecideForServe(nat, on); !ok {
+		t.Error("native live headers (Chromium, h2, https, no Sec-CH-UA) must fire the header axis")
+	}
+	// plain HTTP (no TLS) native -> Sec-CH-UA legitimately absent -> silent.
+	plain := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	plain.Header.Set("User-Agent", chrome)
+	plain.ProtoMajor = 2
+	if _, ok := headerDecideForServe(plain, on); ok {
+		t.Error("plain HTTP (no TLS) must be silent -- Sec-CH-UA is legitimately absent")
+	}
+
+	// LB-fronted: behind a TLS-terminating LB the daemon sees http/1.1
+	// (ProtoMajor=1, no TLS), but X-Forwarded-Proto=https marks a modern secure
+	// visitor -- the axis must still fire (this is the case that was silently
+	// dead behind the GCP LB, where $server_protocol is always h1).
+	lb := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	lb.Header.Set("User-Agent", chrome)
+	lb.Header.Set("X-Forwarded-Proto", "https")
+	lb.ProtoMajor = 1
+	if _, ok := headerDecideForServe(lb, on); !ok {
+		t.Error("LB-fronted (XFP=https, h1 backend hop, no Sec-CH-UA) must fire the header axis")
+	}
+	// XFP=http (insecure visitor) -> Sec-CH-UA legitimately absent -> silent.
+	lb.Header.Set("X-Forwarded-Proto", "http")
+	if _, ok := headerDecideForServe(lb, on); ok {
+		t.Error("LB-fronted XFP=http must be silent")
+	}
+}
+
+// TestHeaderAxisFiresForServe: native trusts the nginx-computed X-Header-Mismatch
+// signal (unspoofable -- proxy_set_header overwrites any client value), the axis
+// is off entirely when disabled, and forward-auth falls back to re-derivation.
+func TestHeaderAxisFiresForServe(t *testing.T) {
+	const chrome = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	on := settings.GlobalConfig{HeaderIntegrity: true}
+	off := settings.GlobalConfig{HeaderIntegrity: false}
+
+	// native: nginx already decided -> trust the signal (no live headers needed).
+	nat := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	nat.Header.Set("X-Header-Mismatch", "1")
+	if !headerAxisFiresForServe(nat, on) {
+		t.Error("X-Header-Mismatch=1 must fire the axis (native trusts the nginx signal)")
+	}
+	// axis disabled -> never fires, even with the signal present.
+	if headerAxisFiresForServe(nat, off) {
+		t.Error("axis disabled must not fire regardless of the signal")
+	}
+	// no signal, nothing to re-derive -> false.
+	bare := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	if headerAxisFiresForServe(bare, on) {
+		t.Error("no signal and no derivable mismatch must not fire")
+	}
+	// no signal but a re-derivable forward-auth mirror -> fires via fallback.
+	fa := httptest.NewRequest("GET", "/unmask/challenge/", nil)
+	fa.Header.Set("X-Original-UA", chrome)
+	fa.Header.Set("X-Original-Scheme", "https")
+	fa.Header.Set("X-Original-HTTP2", "1")
+	if !headerAxisFiresForServe(fa, on) {
+		t.Error("forward-auth mirror must fire via the re-derivation fallback")
 	}
 }

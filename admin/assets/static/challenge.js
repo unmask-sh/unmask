@@ -45,6 +45,10 @@
         cookie_enabled: navigator.cookieEnabled,
         url: location.href,
         orig_path: (window.UNMASK && window.UNMASK.orig_path) || '',
+        // force_reason rides every phase beacon (not just 'load') so the funnel
+        // can attribute the whole serve->load->pass chain to the axis that
+        // raised it (header / asn / geo / rate_limit / ...), not only counts.
+        force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
         bt: (window.UNMASK && window.UNMASK.beacon_token) || '',
         ts: Date.now(),
         elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null

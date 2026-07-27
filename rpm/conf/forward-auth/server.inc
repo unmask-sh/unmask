@@ -68,6 +68,7 @@ location ^~ /unmask/admin/ {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Banned         "";
     proxy_set_header  X-Unmask-Site    "";
@@ -100,6 +101,7 @@ location ^~ /unmask/challenge/ {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Banned         "";
     proxy_set_header  X-Unmask-Site    "";
@@ -136,6 +138,7 @@ location ^~ /unmask/api/ {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Banned         "";
     proxy_set_header  X-Unmask-Site    "";
@@ -165,6 +168,7 @@ location ^~ /unmask/_rl/ {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Banned         "";
     proxy_set_header  X-Unmask-Site    "";
@@ -217,6 +221,7 @@ location ^~ /unmask/test/ {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Banned         "";
     proxy_set_header  X-Unmask-Site    "";
@@ -248,6 +253,7 @@ location = /_unmask/check {
     proxy_set_header X-JA4-Verdict    "";
     proxy_set_header X-JA4-Action     "";
     proxy_set_header X-Honeypot-Hit   "";
+    proxy_set_header X-Header-Mismatch "";
     proxy_set_header X-Protected-Mode "";
     proxy_set_header X-Banned         "";
     proxy_set_header X-Unmask-Site    "";
@@ -295,6 +301,7 @@ location @unmask_blocked {
     proxy_set_header  X-JA4-Verdict    "";
     proxy_set_header  X-JA4-Action     "";
     proxy_set_header  X-Honeypot-Hit   "";
+    proxy_set_header  X-Header-Mismatch "";
     proxy_set_header  X-Protected-Mode "";
     proxy_set_header  X-Unmask-Site    "";
     proxy_intercept_errors on;

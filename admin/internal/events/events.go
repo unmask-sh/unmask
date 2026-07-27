@@ -683,7 +683,7 @@ func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
 //	hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
-func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
+func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 100
 	}
@@ -697,6 +697,14 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 	if phase != "" {
 		stmt += " AND phase = ?"
 		args = append(args, phase)
+	}
+	// force_reason: the axis that raised the challenge, matched exactly against
+	// payload "force_reason" (header / stale / asn / geo / honeypot / banned /
+	// protected / rate_limit / ...).  Lets the hunt filter to "all challenges a
+	// given axis forced".
+	if forceReason != "" {
+		stmt += " AND payload_json LIKE ?"
+		args = append(args, `%"force_reason":"`+forceReason+`"%`)
 	}
 	if ja4Substr != "" {
 		stmt += " AND ja4 LIKE ?"

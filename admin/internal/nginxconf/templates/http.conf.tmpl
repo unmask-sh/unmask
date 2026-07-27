@@ -816,11 +816,36 @@ map $server_protocol $unmask_http_modern {
     default 0;
     "~^HTTP/[23]" 1;
 }
+{{- if .HeaderIntegrityLBFronted }}
+# LB-fronted: a trusted TLS-terminating LB re-originates the backend hop as
+# HTTP/1.1, so $scheme / $server_protocol here describe the LB->nginx hop, not
+# the visitor -- $unmask_http_modern would be 0 for every request and the axis
+# could never fire.  Key off the LB-forwarded scheme ($unmask_forwarded_proto,
+# X-Forwarded-Proto-preferred) and treat any LB-forwarded request as a modern
+# context: a real Chromium over https still sends Sec-CH-UA regardless of the
+# HTTP version, so its absence over https remains the spoof tell.
+map $http_x_forwarded_proto $unmask_via_lb {
+    default 0;
+    "~."    1;   # any non-empty X-Forwarded-Proto = forwarded by the LB
+}
+# modern context = real h2/h3 (direct) OR LB-forwarded (protocol masked).
+map "$unmask_http_modern$unmask_via_lb" $unmask_modern_ctx {
+    default 1;   # any "1" present -> modern
+    "00"    0;   # neither -> not a modern context
+}
+# Fire only for chromium + (effective) https + modern ctx + empty Sec-CH-UA.
+map "$unmask_ua_chromium:$unmask_forwarded_proto:$unmask_modern_ctx:$http_sec_ch_ua" $unmask_header_mismatch {
+    default 0;
+    "~^1:https:1:$" 1;   # trailing empty field = no Sec-CH-UA header
+}
+{{- else }}
+# Direct-TLS nginx: $scheme / $server_protocol reflect the visitor.
 # Fire only for chromium + https + h2/h3 + empty Sec-CH-UA.
 map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua" $unmask_header_mismatch {
     default 0;
     "~^1:https:1:$" 1;   # trailing empty field = no Sec-CH-UA header
 }
+{{- end }}
 # Escalate a would-pass ({{ if .StaleBrowserEnabled }}post-stale{{ else }}base{{ end }}), not-otherwise-exempt request that mismatches.
 # Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
 map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {

@@ -46,6 +46,33 @@ func TestHeaderIntegrityRenderOn(t *testing.T) {
 	}
 }
 
+// TestHeaderIntegrityRenderLBFronted: with a trusted LB configured, the axis
+// keys off the LB-forwarded scheme ($unmask_forwarded_proto) and a modern-context
+// map, never the raw $scheme / $server_protocol -- which behind a TLS-terminating
+// LB describe the backend hop (http/1.1) and would leave the h2/h3 precondition
+// permanently unsatisfiable, so the axis would never fire.
+func TestHeaderIntegrityRenderLBFronted(t *testing.T) {
+	on := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Global.HeaderIntegrity = true
+		s.Nginx.TrustedLBPresets = []string{"gcp"}
+	})
+	for _, want := range []string{
+		`map $http_x_forwarded_proto $unmask_via_lb {`,
+		`map "$unmask_http_modern$unmask_via_lb" $unmask_modern_ctx {`,
+		`map "$unmask_ua_chromium:$unmask_forwarded_proto:$unmask_modern_ctx:$http_sec_ch_ua" $unmask_header_mismatch {`,
+		`"~^1:https:1:$" 1;`,
+	} {
+		if !strings.Contains(on, want) {
+			t.Errorf("LB-fronted: missing %q", want)
+		}
+	}
+	// The direct-mode key (raw $scheme + $server_protocol) must NOT appear --
+	// it is exactly what breaks behind the LB.
+	if strings.Contains(on, `map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua"`) {
+		t.Error("LB-fronted must not emit the raw $scheme mismatch map")
+	}
+}
+
 // TestHeaderIntegrityChainsWithStale: with BOTH tiers on, stale emits into the
 // intermediate $fc_after_stale and the header tier consumes it, so exactly one
 // producer of $final_challenge exists and the chain is base -> stale -> header.

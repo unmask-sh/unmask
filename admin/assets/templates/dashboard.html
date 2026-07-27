@@ -68,6 +68,15 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .cp-kpi-num{font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums}
 .cp-kpi-num.cp-bot{color:#b91c1c}
 .cp-kpi-rate{font-size:.75rem;color:#64748b;font-weight:600;margin-left:.15rem}
+/* CAPTCHA passes broken down by the force_reason that raised the challenge */
+.cp-reasons{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:-.5rem 0 1rem}
+.cp-reasons-label{font-size:.78rem;color:#64748b;font-weight:600}
+.cp-reason{display:inline-flex;align-items:center;gap:.3rem;padding:.1rem .5rem;border-radius:.5rem;background:#f1f5f9;font-size:.82rem;color:#475569}
+.cp-reason b{color:#0f172a;font-variant-numeric:tabular-nums}
+/* per-row escalation-axis badge (= same violet as hunt's .fr-badge), for the
+   recent-passers list + the verify-ng ranking. */
+.cp-fr{display:inline-block;padding:.03rem .3rem;border-radius:.25rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;font-family:ui-monospace,Menlo,monospace;white-space:nowrap}
+.cp-fr+.cp-fr{margin-left:.2rem}
 .cp-h{font-size:.85rem;margin:1rem 0 .25rem;color:#0f172a;font-weight:600}
 .cp-bot-row{background:#fef2f2}
 .cp-verdict-bot{color:#b91c1c;font-weight:600}
@@ -93,6 +102,7 @@ table.cp-expanded tr.cp-row-extra{display:table-row}
 .src-badge-tip>.info-popup::after{display:none}
 /* TOTAL / rate_limit row styles */
 tr.bcd-rl{background:#fef3c7}
+tr.bcd-axis{background:#eef2ff}
 tr.bcd-total{background:#e0e7ff;font-weight:700;border-top:2px solid #6366f1}
 tr.bcd-total td{font-weight:700}
 /* dotted-underline help span (= bootstrap popover style compatible) */
@@ -187,7 +197,16 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 table.bcd-table.funnel-grouped > thead > tr > th,
 table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 .funnel-grouped tr.bcd-rl td{background:#fef3c7 !important}
+.funnel-grouped tr.bcd-axis td{background:#eef2ff !important}
 .funnel-grouped tr.bcd-total td{background:#e0e7ff !important}
+/* The force-reason pseudo-rows (rate_limit / stale / header / asn / geo) are
+   cross-verdict, not JA4 verdicts.  A "force" pill in the first cell + a violet
+   left rail marks them as one group, distinct from the per-verdict rows (which
+   carry bot / suspect tags) and the TOTAL row. */
+.funnel-grouped tr.bcd-rl td:first-child,
+.funnel-grouped tr.bcd-axis td:first-child{white-space:nowrap;border-left:3px solid #8b5cf6}
+.funnel-grouped tr.bcd-rl td:first-child::before,
+.funnel-grouped tr.bcd-axis td:first-child::before{content:"force";display:inline-block;padding:.02em .4em;margin-right:.4em;border-radius:.5em;font-size:.68em;font-weight:600;letter-spacing:.02em;background:#ddd6fe;color:#5b21b6;vertical-align:middle}
 .funnel-grouped thead tr.funnel-sg th{font-size:.7rem;color:#475569;font-weight:600;padding:.3rem .5rem;text-align:center;letter-spacing:.02em;border-bottom:1px solid #cbd5e1}
 /* group boundary = vertical line on the left of columns 2 / 9 / 12 / 14
    (= verdict | funnel x7 | anomaly x3 | rate x2 | meta x4). Keep in sync with
@@ -293,7 +312,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.verify_ng">verify_ng</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.cookie_err">cookie_err</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.js_error">JS error</span></th>
-      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pow_rate">{{ t .Lang "th.pow_rate" }}</span></th>
+      <th class="bcd-num"><span class="help-dotted" data-help-key="phase.pass_rate">{{ t .Lang "th.pass_rate" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.captcha_rate">{{ t .Lang "th.captcha_rate" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.rl" style="color:#92400e;font-weight:600">rate_limit</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="phase.uniq">{{ t .Lang "th.uniq_ip" }}</span></th>
@@ -302,10 +321,20 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     </tr></thead>
     <tbody>
       {{range .Funnel}}
-      <tr {{if eq .Verdict "TOTAL"}}class="bcd-total"{{else if eq .Verdict "rate_limit"}}class="bcd-rl"{{end}}>
+      <tr {{if eq .Verdict "TOTAL"}}class="bcd-total"{{else if eq .Verdict "rate_limit"}}class="bcd-rl"{{else if or (eq .Verdict "honeypot") (eq .Verdict "banned") (eq .Verdict "protected") (eq .Verdict "header") (eq .Verdict "stale") (eq .Verdict "asn") (eq .Verdict "geo")}}class="bcd-axis"{{end}}>
         <td>
           {{- if eq .Verdict "rate_limit" -}}
             <span class="help-dotted" data-help-key="verdict.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:700">rate_limit</span>
+          {{- else if eq .Verdict "honeypot" -}}
+            <span class="help-dotted" data-help-key="captcha_force.kind.honeypot" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{.Verdict}}</span>
+          {{- else if eq .Verdict "banned" -}}
+            <span class="help-dotted" data-help-key="captcha_force.kind.banned" style="color:#b91c1c;border-bottom-color:#b91c1c;font-weight:600">{{.Verdict}}</span>
+          {{- else if eq .Verdict "protected" -}}
+            <span class="help-dotted" data-help-key="captcha_force.kind.protected" style="color:#1d4ed8;border-bottom-color:#1d4ed8;font-weight:600">{{.Verdict}}</span>
+          {{- else if eq .Verdict "stale" -}}
+            <span class="help-dotted" data-help-key="captcha_force.kind.stale" style="color:#0f766e;border-bottom-color:#0f766e;font-weight:600">{{.Verdict}}</span>
+          {{- else if or (eq .Verdict "header") (eq .Verdict "asn") (eq .Verdict "geo") -}}
+            <span class="help-dotted" data-help-key="captcha_force.kind.{{.Verdict}}" style="color:#4338ca;border-bottom-color:#4338ca;font-weight:600">{{.Verdict}}</span>
           {{- else if eq .Verdict "TOTAL" -}}
             <span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
           {{- else if eq .Verdict "ok" -}}
@@ -338,7 +367,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num">{{comma .VerifyNG}}</td>
         <td class="bcd-num">{{comma .CookieErr}}</td>
         <td class="bcd-num">{{comma .JSError}}</td>
-        <td class="bcd-num">{{rate .PowSolved .Load}}</td>
+        <td class="bcd-num">{{rate .BVTotal .Serve}}</td>
         <td class="bcd-num">{{rate .CaptchaPassed .Captcha}}</td>
         <td class="bcd-num{{if gt .ServeRL 0}} n-warn{{end}}">{{comma .ServeRL}}</td>
         <td class="bcd-num">{{comma .LoadUniq}}</td>
@@ -362,6 +391,12 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.bot" }}</div><div class="cp-kpi-num cp-bot">{{ comma .Bot }} <span class="cp-kpi-rate">{{ rate .Bot .Total }}</span></div></div>
     <div><div class="cp-kpi-label">{{ t $.Lang "captcha_report.ok" }}</div><div class="cp-kpi-num">{{ comma .Ok }} <span class="cp-kpi-rate">{{ rate .Ok .Total }}</span></div></div>
   </div>
+  {{ if .ByReason }}
+  <div class="cp-reasons">
+    <span class="cp-reasons-label">{{ t $.Lang "captcha_report.by_reason" }}</span>
+    {{ range .ByReason }}<span class="cp-reason help-dotted" data-help-key="captcha_force.kind.{{ .Reason }}">{{ .Reason }}<b>{{ comma .Count }}</b></span>{{ end }}
+  </div>
+  {{ end }}
   {{ if .TopIPs }}
   <h6 class="cp-h">{{ t $.Lang "captcha_report.rank_heading" }} <span class="cp-count">{{ len .TopIPs }}</span></h6>
   <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
@@ -385,13 +420,14 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   <h6 class="cp-h">{{ t $.Lang "captcha_report.recent_heading" }}</h6>
   <div class="bcd-cliptable-scroll">
   <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
-    <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th></tr></thead>
+    <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th><span class="help-dotted" data-help-key="phase.force_reason">{{ t $.Lang "th.force_reason" }}</span></th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th></tr></thead>
     <tbody>
       {{ range .Recent }}
       <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
         <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{ .ForceReason }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-clip cellpop">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
       </tr>
@@ -513,6 +549,10 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           {{else if eq .Kind "protected"}}<span class="help-dotted" data-help-key="captcha_force.kind.protected" style="color:#1d4ed8;border-bottom-color:#1d4ed8">{{.Kind}}</span>
           {{else if eq .Kind "rate_limit"}}<span class="help-dotted" data-help-key="captcha_force.kind.rate_limit" style="color:#92400e;border-bottom-color:#92400e;font-weight:600">{{.Kind}}</span>
           {{else if eq .Kind "test"}}<span class="help-dotted" data-help-key="captcha_force.kind.test" style="color:#7c3aed;border-bottom-color:#7c3aed">{{.Kind}}</span>
+          {{else if eq .Kind "stale"}}<span class="help-dotted" data-help-key="captcha_force.kind.stale" style="color:#0f766e;border-bottom-color:#0f766e;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "header"}}<span class="help-dotted" data-help-key="captcha_force.kind.header" style="color:#4338ca;border-bottom-color:#4338ca;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "asn"}}<span class="help-dotted" data-help-key="captcha_force.kind.asn" style="color:#4338ca;border-bottom-color:#4338ca;font-weight:600">{{.Kind}}</span>
+          {{else if eq .Kind "geo"}}<span class="help-dotted" data-help-key="captcha_force.kind.geo" style="color:#4338ca;border-bottom-color:#4338ca;font-weight:600">{{.Kind}}</span>
           {{else}}<span class="help-dotted" data-help-key="captcha_force.kind.unknown" style="color:#94a3b8">{{.Kind}}</span>{{end}}
         </td>
         <td class="bcd-num">{{comma .Count}}</td>
@@ -533,6 +573,12 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 <!-- 7) CAPTCHA failure IP ranking -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.captcha_fail" }} <span class="cp-count">{{ len .VerifyNG }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_fail.desc") }}</span></span></h2>
+  {{ if .VerifyNGByReason }}
+  <div class="cp-reasons">
+    <span class="cp-reasons-label">{{ t .Lang "captcha_report.by_reason" }}</span>
+    {{ range .VerifyNGByReason }}<span class="cp-reason help-dotted" data-help-key="captcha_force.kind.{{ .Reason }}">{{ .Reason }}<b>{{ comma .Count }}</b></span>{{ end }}
+  </div>
+  {{ end }}
   <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
     <thead><tr>
       <th><span class="help-dotted" data-help-key="vng.ip">{{ t .Lang "th.ip" }}</span></th>
@@ -541,6 +587,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <th class="bcd-num"><span class="help-dotted" data-help-key="vng.math">{{ t .Lang "th.math" }}</span></th>
       <th class="bcd-num"><span class="help-dotted" data-help-key="vng.avg_score">{{ t .Lang "th.avg_score" }}</span></th>
       <th><span class="help-dotted" data-help-key="vng.ja4">JA4</span></th>
+      <th><span class="help-dotted" data-help-key="phase.force_reason">{{ t .Lang "th.force_reason" }}</span></th>
       <th><span class="help-dotted" data-help-key="vng.ua">{{ t .Lang "th.ua" }}</span></th>
       <th><span class="help-dotted" data-help-key="vng.last_seen">{{ t .Lang "th.last_seen" }}</span></th>
     </tr></thead>
@@ -553,11 +600,12 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num{{if gt $r.Math 0}} n-stealth{{end}}">{{comma $r.Math}}</td>
         <td class="bcd-num n-muted">{{score $r.AvgScore}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span></td>
+        <td>{{ range $r.ForceReasons }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{.}}">{{.}}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
-      <tr><td colspan="8" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
+      <tr><td colspan="9" class="muted">{{ t .Lang "common.no_data_row" }}</td></tr>
       {{end}}
     </tbody>
   </table>
@@ -876,8 +924,8 @@ document.addEventListener('DOMContentLoaded', function(){
     if (tbl.hasAttribute('data-no-zero-toggle')) { tbl.classList.add('bcd-ready'); return; }
     var rows = Array.from(tbl.querySelectorAll('tbody tr'));
     var zeroRows = rows.filter(function(tr){
-      // rate_limit / TOTAL rows are always visible (= excluded from zero-row toggle)
-      if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-total')) return false;
+      // rate_limit / force-reason (bcd-axis) / TOTAL rows are always visible (= excluded from zero-row toggle)
+      if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-axis') || tr.classList.contains('bcd-total')) return false;
       // Some templates already mark rows via class="muted-row" (= AI card etc.).
       // Treat that as "this is a zero row" without re-checking each cell.
       if (tr.classList.contains('muted-row')) return true;

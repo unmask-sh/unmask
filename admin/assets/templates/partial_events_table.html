@@ -32,6 +32,8 @@
 <style>
 .lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
 .lb-warn-badge:hover{filter:brightness(.95)}
+/* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
+.fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
    pills, instead of each carrying its own copy (overview.html drifted and lost the
    bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
@@ -81,6 +83,7 @@
         {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
+      <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
       <th>URL</th>
       <th>UA</th>
       {{ if not .HideActions }}<th style="width:7rem"></th>{{ end }}
@@ -100,6 +103,12 @@
            its verdict rather than this "ok" fallback. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
       <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      {{/* Escalation axis in its own cell (= not a phase): the phase cell was
+           getting crowded and the dashboard cards already give 昇格理由 a
+           dedicated column -- keep the two views consistent.  Same value on
+           every phase row of a visit (challenge.js propagates force_reason),
+           so the session-collapse rep row shows it too, unmodified. */}}
+      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{ if not $.HideActions }}
@@ -131,7 +140,7 @@
       {{ end }}
     </tr>
     {{ else }}
-    <tr><td colspan="{{ if .HideActions }}7{{ else }}8{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    <tr><td colspan="{{ if .HideActions }}8{{ else }}9{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
     {{ end }}
   </tbody>
 </table>

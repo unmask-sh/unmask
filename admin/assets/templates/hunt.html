@@ -401,6 +401,19 @@ function dismissHuntTip(id){
       <option value="error"               {{ if eq .Phase "error"               }}selected{{ end }}>error</option>
       <option value="check"               {{ if eq .Phase "check"               }}selected{{ end }}>check</option>
     </select>
+    <select name="force_reason" title="{{ t .Lang "hunt.filter.force_reason_title" }}">
+      <option value="">{{ t .Lang "hunt.filter.all_reason" }}</option>
+      <option value="header"     {{ if eq .ForceReason "header"     }}selected{{ end }}>header</option>
+      <option value="stale"      {{ if eq .ForceReason "stale"      }}selected{{ end }}>stale</option>
+      <option value="asn"        {{ if eq .ForceReason "asn"        }}selected{{ end }}>asn</option>
+      <option value="geo"        {{ if eq .ForceReason "geo"        }}selected{{ end }}>geo</option>
+      <option value="honeypot"   {{ if eq .ForceReason "honeypot"   }}selected{{ end }}>honeypot</option>
+      <option value="banned"     {{ if eq .ForceReason "banned"     }}selected{{ end }}>banned</option>
+      <option value="protected"  {{ if eq .ForceReason "protected"  }}selected{{ end }}>protected</option>
+      <option value="rate_limit" {{ if eq .ForceReason "rate_limit" }}selected{{ end }}>rate_limit</option>
+      <option value="ja4_bot"    {{ if eq .ForceReason "ja4_bot"    }}selected{{ end }}>ja4_bot</option>
+      <option value="none"       {{ if eq .ForceReason "none"       }}selected{{ end }}>none</option>
+    </select>
     <select name="n">
       <option value="100"  {{ if eq .PageSize 100  }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 100 }}</option>
       <option value="200"  {{ if eq .PageSize 200  }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 200 }}</option>
@@ -409,7 +422,7 @@ function dismissHuntTip(id){
     </select>
     {{- /* host filtering is consolidated into the shared host_picker in the top bar (= legacy in-body host-filter removed). */ -}}
     <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
-    {{ if or .IPFilter .JA4Filter .UAFilter .Phase .HostSelected }}
+    {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
     {{ end }}
   </form>

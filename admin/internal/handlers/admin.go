@@ -1138,37 +1138,39 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// WAL + conn pool.  A semaphore caps concurrency at 6, leaving conn pool
 	// headroom (max 8) for challenge writes.
 	var (
-		funnel          []dashboard.FunnelRow
-		funnelErr       error
-		cookieRows      []dashboard.CookieStatusRow
-		rlSummary       dashboard.RLSummary
-		rlIPs           []dashboard.RLIPRow
-		rlPaths         []dashboard.RLPathRow
-		rlPathQueries   map[string][]dashboard.RLQueryCount
-		flagsRows       []dashboard.FlagsRow
-		verdictDist     []dashboard.VerdictCount
-		hitRows         []dashboard.CaptchaForceRow
-		loopRows        []dashboard.ReloadLoopRow
-		verifyNG        []dashboard.VerifyNGRow
-		cookieFails     []dashboard.CookieFailRow
-		stealth         []dashboard.StealthRow
-		jsErrs          []dashboard.JSErrorRow
-		jsForeign       []dashboard.JSErrorRow
-		jsForeignCount  int
-		cpVerdictCounts map[string]int
-		cpTopIPs        []dashboard.CaptchaPassIPRow
-		cpRecent        []dashboard.CaptchaPassRow
-		cpReuse         []dashboard.CaptchaReuseRow
-		aiTraffic       []dashboard.AITrafficRow
-		aiTrafficAll    []AITrafficRow
-		aiTrafficDetail map[string][]AICrawlerRow
-		dailyKind       []dashboard.DailyKindBucket
-		dailyTotal      []dashboard.DailyTotal
-		dailyServeKind  []dashboard.DailyKindBucket
-		dailyServeTotal []dashboard.DailyTotal
-		countries       []dashboard.CountryRow
-		dailyCountry    []dashboard.DailyCountryBucket
-		dailyUniq       []dashboard.DailyUniq
+		funnel                  []dashboard.FunnelRow
+		funnelErr               error
+		cookieRows              []dashboard.CookieStatusRow
+		rlSummary               dashboard.RLSummary
+		rlIPs                   []dashboard.RLIPRow
+		rlPaths                 []dashboard.RLPathRow
+		rlPathQueries           map[string][]dashboard.RLQueryCount
+		flagsRows               []dashboard.FlagsRow
+		verdictDist             []dashboard.VerdictCount
+		hitRows                 []dashboard.CaptchaForceRow
+		loopRows                []dashboard.ReloadLoopRow
+		verifyNG                []dashboard.VerifyNGRow
+		cookieFails             []dashboard.CookieFailRow
+		stealth                 []dashboard.StealthRow
+		jsErrs                  []dashboard.JSErrorRow
+		jsForeign               []dashboard.JSErrorRow
+		jsForeignCount          int
+		cpVerdictCounts         map[string]int
+		cpForceReasonCounts     map[string]int
+		cpFailForceReasonCounts map[string]int
+		cpTopIPs                []dashboard.CaptchaPassIPRow
+		cpRecent                []dashboard.CaptchaPassRow
+		cpReuse                 []dashboard.CaptchaReuseRow
+		aiTraffic               []dashboard.AITrafficRow
+		aiTrafficAll            []AITrafficRow
+		aiTrafficDetail         map[string][]AICrawlerRow
+		dailyKind               []dashboard.DailyKindBucket
+		dailyTotal              []dashboard.DailyTotal
+		dailyServeKind          []dashboard.DailyKindBucket
+		dailyServeTotal         []dashboard.DailyTotal
+		countries               []dashboard.CountryRow
+		dailyCountry            []dashboard.DailyCountryBucket
+		dailyUniq               []dashboard.DailyUniq
 	)
 	qStart := time.Now()
 	var wg sync.WaitGroup
@@ -1284,6 +1286,16 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	run("CaptchaPassVerdicts", func() error {
 		var e error
 		cpVerdictCounts, e = dashboard.CaptchaPassVerdictCounts(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaPassForceReasons", func() error {
+		var e error
+		cpForceReasonCounts, e = dashboard.CaptchaPassForceReasonCounts(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaFailForceReasons", func() error {
+		var e error
+		cpFailForceReasonCounts, e = dashboard.CaptchaFailForceReasonCounts(ctx, h.DB, site, hosts, hours)
 		return e
 	})
 	run("CaptchaPassTopIPs", func() error {
@@ -1488,11 +1500,40 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		cpRecent[i].IsBot = isBotVerdict(cpRecent[i].Verdict)
 		cpRecent[i].CountryCode = lookupCC(cpRecent[i].IP)
 	}
+	// Which axis raised each solved CAPTCHA (force_reason breakdown), most-passed
+	// first -- a bot-facing axis (header / asn / geo / honeypot / banned) topping
+	// the list is where CAPTCHA-solving is concentrated.
+	type cpReasonRow struct {
+		Reason string
+		Count  int
+	}
+	cpByReason := make([]cpReasonRow, 0, len(cpForceReasonCounts))
+	for r, n := range cpForceReasonCounts {
+		cpByReason = append(cpByReason, cpReasonRow{Reason: r, Count: n})
+	}
+	sort.Slice(cpByReason, func(i, j int) bool {
+		if cpByReason[i].Count != cpByReason[j].Count {
+			return cpByReason[i].Count > cpByReason[j].Count
+		}
+		return cpByReason[i].Reason < cpByReason[j].Reason
+	})
+	// Fail-side twin (verify_ng by axis), same shape + ordering.
+	cpFailByReason := make([]cpReasonRow, 0, len(cpFailForceReasonCounts))
+	for r, n := range cpFailForceReasonCounts {
+		cpFailByReason = append(cpFailByReason, cpReasonRow{Reason: r, Count: n})
+	}
+	sort.Slice(cpFailByReason, func(i, j int) bool {
+		if cpFailByReason[i].Count != cpFailByReason[j].Count {
+			return cpFailByReason[i].Count > cpFailByReason[j].Count
+		}
+		return cpFailByReason[i].Reason < cpFailByReason[j].Reason
+	})
 	captchaReport := struct {
 		Total, Bot, Ok int
 		TopIPs         []dashboard.CaptchaPassIPRow
 		Recent         []dashboard.CaptchaPassRow
-	}{Total: cpTotal, Bot: cpBot, Ok: cpTotal - cpBot, TopIPs: cpTopIPs, Recent: cpRecent}
+		ByReason       []cpReasonRow
+	}{Total: cpTotal, Bot: cpBot, Ok: cpTotal - cpBot, TopIPs: cpTopIPs, Recent: cpRecent, ByReason: cpByReason}
 
 	// CAPTCHA cookie reuse ranking: the reuse table holds the JA4 STRING (not a
 	// verdict name), so classify each JA4 -> verdict action via matchJA4 (the same
@@ -1620,6 +1661,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"HitRows":            hitRows,
 		"LoopRows":           loopRows,
 		"VerifyNG":           verifyNG,
+		"VerifyNGByReason":   cpFailByReason,
 		"CookieFails":        cookieFails,
 		"Stealth":            stealth,
 		"JSErrors":           jsErrs,

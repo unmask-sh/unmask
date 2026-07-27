@@ -170,6 +170,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// resolves the exact serve event.
 	refFilter := refFromQuery(q.Get("ref"))
 	phaseFilter := strings.TrimSpace(q.Get("phase"))
+	forceReasonFilter := strings.TrimSpace(q.Get("force_reason"))
 	if !events.IsValidPhase(phaseFilter) {
 		phaseFilter = ""
 	}
@@ -197,7 +198,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	case "1000":
 		pageSize = 1000
 	}
-	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, forceReasonFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -435,6 +436,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"UAFilter":    uaFilter,
 		"RefFilter":   refFilter,
 		"Phase":       phaseFilter,
+		"ForceReason": forceReasonFilter,
 		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.
