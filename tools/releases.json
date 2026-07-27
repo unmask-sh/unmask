@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.11",
+  "latest": "0.1.12",
   "releases": [
+    {
+      "version": "0.1.12",
+      "date": "2026-07-28",
+      "notes": "Escalation-axis observability, and a fix that makes one of those axes actually fire behind a load balancer. Fixed: 0.1.11's header-integrity axis required HTTP/2·3 as seen by nginx itself, so behind a TLS-terminating load balancer — which re-originates the backend hop as HTTP/1.1 — it never fired at all, silently, even when enabled; with a trusted LB configured it now keys off the LB-forwarded scheme (X-Forwarded-Proto, unspoofable via proxy_set_header) and within minutes of going live was catching spoofed-Chromium scrapers that had been sailing through. Added: every dashboard surface now shows WHY a visitor was escalated — the forced-CAPTCHA card attributes the header-integrity / ASN / country / stale-browser axes; the challenge funnel gains per-axis pseudo-rows whose pass rate reads as that axis's false-positive rate (the challenge page carries the reason through every phase beacon); the CAPTCHA pass report and the failure IP ranking break down by axis, with the reason on every row; and the bot-hunt raw log gets a reason column and filter. The funnel's per-row rate becomes a pass rate over everyone served (bv_total/serve; the CAPTCHA rate stays captcha-scoped). unmask doctor — and render-nginx, which package postinstalls run — now warns when nginx is still running on libraries replaced underneath it, where a plain reload would hand live traffic to workers built from a torn image (SIGSEGV, empty replies); it points at restart instead and stays silent when nothing is stale. Overview KPI tiles adopt the stats chart's bucket colours, and the header-integrity axis can escalate to pow_then_captcha."
+    },
     {
       "version": "0.1.11",
       "date": "2026-07-27",
