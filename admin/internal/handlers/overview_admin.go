@@ -92,7 +92,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
 	launch(func() {
-		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", site, hosts, 0, 40, 0)
+		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", "", site, hosts, 0, 40, 0)
 	})
 	// AI traffic funnel: "all" reads unmask_crawler_minute (sees rescued/bypassed
 	// traffic too), "served" reads the hkAITag aggregate (phase=serve only).

@@ -1026,6 +1026,30 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Attribute a serve that no coarser signal claimed to the UA / network axes
+	// (header-integrity, stale-browser, ASN / country), so it lands in the
+	// CAPTCHA-force breakdown instead of folding into "none".  Gated on
+	// forceReason=="none" so a stronger reason (ja4_bot / honeypot / banned /
+	// protected / rate_limit) keeps its attribution; among these, header wins
+	// over stale wins over the network axis (most-specific first).  Placed
+	// AFTER the rebind gate (so a roamed _bv holder is still re-bound silently,
+	// not re-challenged) and BEFORE the __CAPTCHA_FORCE__ marker below carries
+	// force_reason into the page.
+	if forceReason == "none" {
+		g := h.cfg().Global
+		if headerAxisFiresForServe(r, g) {
+			forceReason = "header"
+		}
+		if forceReason == "none" && staleBrowserFiresForServe(r, g) {
+			forceReason = "stale"
+		}
+		if forceReason == "none" {
+			if reason := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
+				forceReason = reason
+			}
+		}
+	}
+
 	body, err := h.loadChallengeHTML()
 	if err != nil {
 		log.Printf("challenge.html load failed: %v", err)
@@ -1299,19 +1323,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// that mismatches.  Same never-soften-a-deny guard as the stale tier.  On
 	// the forward-auth path headerDecide already set the reason/chMode, so this
 	// only augments the native serve (a direct hit re-checks cheaply).
-	if g := h.cfg().Global; g.HeaderIntegrity && chMode != settings.RateChallengeDeny {
-		ua := firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent"))
-		secChUA := firstNonEmpty(r.Header.Get("X-Original-Sec-CH-UA"), r.Header.Get("Sec-CH-UA"))
-		scheme := firstNonEmpty(r.Header.Get("X-Original-Scheme"), func() string {
-			if r.TLS != nil {
-				return "https"
-			}
-			return ""
-		}())
-		modern := r.Header.Get("X-Original-HTTP2") != "" || r.Header.Get("X-Original-HTTP3") != "" || r.ProtoMajor >= 2
-		if _, ok := headerDecide(ua, secChUA, scheme, modern, g); ok {
-			chMode = g.HeaderIntegrityResolvedAction()
-		}
+	if g := h.cfg().Global; chMode != settings.RateChallengeDeny && headerAxisFiresForServe(r, g) {
+		chMode = g.HeaderIntegrityResolvedAction()
 	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm

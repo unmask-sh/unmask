@@ -324,7 +324,14 @@ type renderData struct {
 	// (zero rendered-config diff).  Fires for a Chromium UA over https on h2/h3
 	// with no Sec-CH-UA -- clamped to a challenge, keyed after every exemption.
 	HeaderIntegrityEnabled bool
-	UpstreamAddr           string
+	// HeaderIntegrityLBFronted: a trusted LB is configured, so $scheme /
+	// $server_protocol describe the LB->nginx hop (TLS-terminated, HTTP/1.1),
+	// not the visitor.  The header-integrity map then keys off the LB-forwarded
+	// scheme ($unmask_forwarded_proto) and treats any LB-forwarded request as a
+	// modern context -- without this the h2/h3 precondition is unsatisfiable
+	// behind a TLS-terminating LB and the axis never fires.
+	HeaderIntegrityLBFronted bool
+	UpstreamAddr             string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -664,6 +671,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 	}
 	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
+	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {

@@ -305,6 +305,13 @@ location @unmask_rate_challenge {
     proxy_set_header   X-Honeypot-Hit   $serve_bot_challenge;
     proxy_set_header   X-Protected-Mode $protected_mode;
     proxy_set_header   X-Banned         $unmask_banned;
+{{- if .HeaderIntegrityEnabled }}
+    # Header-integrity axis (native): the nginx tier already computed the
+    # LB-aware mismatch; hand it to ServeChallenge so the serve is attributed
+    # force_reason="header" and its screen is clamped to CAPTCHA, without the
+    # daemon re-deriving a decision it cannot see behind a TLS-terminating LB.
+    proxy_set_header   X-Header-Mismatch $unmask_header_mismatch;
+{{- end }}
     # Strip every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a visitor
     # can't smuggle a lenient site's identity through a header (= would reach
     # handlers.go siteFromRequest's fallback chain and resolve a different
