@@ -458,6 +458,7 @@ func cmdDoctor(args []string) error {
 	checkApacheConnPeer(addWarn)
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
+	checkNginxStaleLibs(addWarn)
 	checkNginxProtectScope(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
 	checkHTTPSRedirectHealthCheck(s, addOK, addWarn)
@@ -718,6 +719,30 @@ func checkNativeFailsafe(addWarn func(t, m string)) {
 	}
 	msg += " Fix the nginx config, run `unmask render-nginx`, then `nginx -t` (or reinstall unmask-plugin-nginx); the marker clears once nginx -t passes."
 	addWarn("native module disabled (fail-safe)", msg)
+}
+
+// checkNginxStaleLibs warns when the running nginx still maps libraries that a
+// package already replaced on disk -- the state in which `nginx -s reload` is
+// not merely insufficient but harmful, because it forks fresh workers from a
+// master that kept the unlinked mapping and those workers can segfault.
+//
+// Silent unless it fires (an alarm, not a status line), and silent when the
+// running nginx cannot be inspected at all: /proc/<pid>/maps belongs to root,
+// so a non-root `unmask doctor` proves nothing either way and must not claim
+// the install is clean.
+func checkNginxStaleLibs(addWarn func(t, m string)) {
+	paths, checked := staleNginxLibs()
+	if !checked || len(paths) == 0 {
+		return
+	}
+	addWarn("nginx running with replaced libraries", fmt.Sprintf(
+		"the running nginx still maps %d %s that %s replaced on disk (%s) — a package upgrade "+
+			"swapped %s after nginx started. `nginx -s reload` does NOT re-exec the master, so it keeps "+
+			"the stale mapping and every worker forked from it inherits the same broken image; those "+
+			"workers can segfault mid-response (clients see an empty reply). Run `systemctl restart nginx` "+
+			"(or `service nginx restart`) — a reload will not clear this.",
+		len(paths), plural(len(paths), "file", "files"), plural(len(paths), "was", "were"),
+		staleNginxLibsList(paths), plural(len(paths), "it", "them")))
 }
 
 // checkHTTPSRedirectApplied warns when nginx.https_redirect is enabled but the
