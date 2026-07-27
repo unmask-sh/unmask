@@ -118,5 +118,20 @@ func cmdRenderNginx(args []string) error {
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "To apply:  sudo nginx -s reload")
+	// Reload is the right advice for a config-only change -- but not while the
+	// running nginx still maps libraries a package already replaced, where a
+	// reload forks fresh workers from the stale master image and they can
+	// segfault.  This hint lands exactly where it is needed: a package upgrade
+	// runs render-nginx from its postinstall, so the operator reads this line
+	// moments before deciding how to apply.  Silent when nothing is stale or
+	// when the running nginx cannot be inspected (see staleNginxLibs).
+	if paths, checked := staleNginxLibs(); checked && len(paths) > 0 {
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintf(os.Stderr, "WARNING: the running nginx still maps %d %s replaced on disk (%s).\n",
+			len(paths), plural(len(paths), "file", "files"), staleNginxLibsList(paths))
+		fmt.Fprintln(os.Stderr, "         A reload does NOT re-exec the master, so it keeps that stale mapping and")
+		fmt.Fprintln(os.Stderr, "         its workers can segfault.  Apply with a RESTART instead:")
+		fmt.Fprintln(os.Stderr, "             sudo systemctl restart nginx")
+	}
 	return nil
 }
