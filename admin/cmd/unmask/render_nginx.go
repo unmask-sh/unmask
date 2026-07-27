@@ -127,10 +127,11 @@ func cmdRenderNginx(args []string) error {
 	// when the running nginx cannot be inspected (see staleNginxLibs).
 	if paths, checked := staleNginxLibs(); checked && len(paths) > 0 {
 		fmt.Fprintln(os.Stderr, "")
-		fmt.Fprintf(os.Stderr, "WARNING: the running nginx still maps %d %s replaced on disk (%s).\n",
-			len(paths), plural(len(paths), "file", "files"), staleNginxLibsList(paths))
-		fmt.Fprintln(os.Stderr, "         A reload does NOT re-exec the master, so it keeps that stale mapping and")
-		fmt.Fprintln(os.Stderr, "         its workers can segfault.  Apply with a RESTART instead:")
+		fmt.Fprintf(os.Stderr, "WARNING: the running nginx is executing %d %s that no longer match the file on\n",
+			len(paths), plural(len(paths), "file", "files"))
+		fmt.Fprintf(os.Stderr, "         disk (%s).  A reload does NOT re-exec the master, so it\n",
+			staleNginxLibsList(paths))
+		fmt.Fprintln(os.Stderr, "         keeps that stale mapping and its workers can segfault.  Restart instead:")
 		fmt.Fprintln(os.Stderr, "             sudo systemctl restart nginx")
 	}
 	return nil
