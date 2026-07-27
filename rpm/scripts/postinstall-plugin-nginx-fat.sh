@@ -13,6 +13,14 @@
 PLACER=/usr/share/unmask/plugin/place-module.sh
 if [ -r "$PLACER" ]; then
     sh "$PLACER"
+    # Placing the module unlinks the .so a running nginx still has mapped, so a
+    # reload is not enough here: `nginx -s reload` re-reads the config but does
+    # not re-exec the master, leaving it on the old (now deleted) module image.
+    # Say so at the moment the new module lands -- unmask-web-nginx draws the
+    # same distinction for its own step.
+    echo "unmask-plugin-nginx: module placed -- nginx NOT touched."
+    echo "  → a NEW plugin .so needs a RESTART to load (a reload keeps the old one):"
+    echo "    sudo systemctl restart nginx   (or: sudo service nginx restart)"
 else
     echo "unmask-plugin-nginx: $PLACER missing -- module not placed." >&2
 fi
