@@ -429,6 +429,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .override-toggle-row{display:flex;align-items:center;gap:.5rem;margin:.6rem 0;padding:.5rem .7rem;background:#fef3c7;border:1px solid #fcd34d;border-radius:.3rem;color:#92400e;font-size:.85rem;font-weight:500}
 .override-toggle-row input[type=checkbox]{margin:0}
 .override-toggle-row .override-hint{color:#78350f;font-weight:normal;font-size:.78rem;margin-left:auto}
+/* Delete the whole per-site record.  Sits under the override toggle rather than
+   beside Save: unchecking the toggle already means "inherit for now, keep my
+   values", and this is the separate, destructive "forget them" action. */
+.scope-delete{display:inline-block;margin:0 0 .6rem;padding:.3rem .7rem;background:#fff;border:1px solid #fca5a5;border-radius:.3rem;color:#b91c1c;font-size:.78rem;cursor:pointer}
+.scope-delete:hover{background:#fef2f2;border-color:#f87171}
 .scope-aware-form.override-off .bcd-card,
 .scope-aware-form.override-off .branding-grid,
 .scope-aware-form.override-off .field{opacity:.55}
@@ -2948,6 +2953,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <span>{{ t .Lang "settings.scope.override_label" }}</span>
     <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
   </label>
+    {{ if .ChallengeHasEntry }}
+    <button type="submit" class="scope-delete"
+            formaction="{{ .BasePath }}/admin/settings/challenge/site/delete?site={{ .Scope }}"
+            formnovalidate
+            onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
+    {{ end }}
   {{ end }}
   <div class="bcd-card">
 
@@ -4031,6 +4042,12 @@ document.addEventListener("DOMContentLoaded", function(){
     <span>{{ t .Lang "settings.scope.override_label" }}</span>
     <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
   </label>
+    {{ if .BrandingHasEntry }}
+    <button type="submit" class="scope-delete"
+            formaction="{{ .BasePath }}/admin/settings/branding/site/delete?site={{ .Scope }}"
+            formnovalidate
+            onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
+    {{ end }}
   {{ end }}
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>
