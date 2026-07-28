@@ -774,10 +774,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GeoCountryMap":   ipgeo.Countries,
 		// Challenge-page theme (= used by the theme tab; empty/invalid → "auto").
 		// Follows the scope picker: scope=<host> reads the per-site Theme
-		// (= cur.Challenge.Sites[host].Theme) so the theme card preview shows
-		// the per-site selection.
+		// (= cur.Branding.Sites[host].Theme) so the theme card preview shows
+		// the per-site selection.  Lives on the branding record because it is
+		// what the page looks like, not how the challenge behaves.
 		"ChallengeTheme": func() string {
-			t := scopeChallenge.Theme
+			t := scopeBranding.Theme
 			if !challengeThemes[t] {
 				return "auto" // out-of-the-box default
 			}
@@ -791,7 +792,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// saved overrides drive the "customize" checkbox + input values; the
 		// built-in palette pre-fills inputs the operator hasn't overridden so they
 		// edit from the theme's own look.  Both keyed by theme name.
-		"ChallengeCustomColors":    scopeChallenge.CustomColors,
+		"ChallengeCustomColors":    scopeBranding.CustomColors,
 		"ChallengeThemeBaseColors": challengeThemeBaseColors,
 		// Branding settings used by the theme tab.  The wrapper is still
 		// passed (= site pulldown enumerates .Branding.Sites) but
@@ -1387,8 +1388,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if !challengeThemes[t] {
 			t = "auto"
 		}
-		cur.Challenge.Default.Theme = t
-		cur.Challenge.Default.CustomColors = parseChallengeCustomColors(r)
+		cur.Branding.Default.Theme = t
+		cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
 	case "branding":
 		// Branding tab save: applyBrandingFormV2 updates Default + Sites
 		// from the same form payload.  See settings.Branding for the data
@@ -1411,12 +1412,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		if !challengeThemes[t] {
 			t = "auto"
 		}
-		cur.Challenge.Default.Theme = t
-		cur.Challenge.Default.CustomColors = parseChallengeCustomColors(r)
+		cur.Branding.Default.Theme = t
+		cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
 		// show_credit was previously on the challenge tab; now lives next
 		// to the theme cards so the operator sees the live preview toggle
 		// alongside it.  Plain checkbox -> bool.
-		cur.Challenge.Default.ShowCredit = r.FormValue("show_credit") == "1"
+		cur.Branding.Default.ShowCredit = r.FormValue("show_credit") == "1"
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -3459,8 +3460,6 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	if r.FormValue("public_test_pages_site_picker_present") != "" {
 		c.PublicTestPagesSitePicker = r.FormValue("public_test_pages_site_picker") == "1"
 	}
-	// show_credit: also belongs to the challenge tab; handle it here.
-	c.ShowCredit = r.FormValue("show_credit") == "1"
 	return nil
 }
 
@@ -4770,36 +4769,21 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		if err := applyBrandingForm(&bv, site, r); err != nil {
 			return err
 		}
-		bv.Disabled = false
-		cur.Branding.Sites[site] = bv
-		// The theme tab form (= scope=<host>) also carries `theme` +
-		// `show_credit`, which belong on cur.Challenge.Sites[site] -- mirror
-		// the section=appearance behavior that writes both to Default in one
-		// click.  Without this branch the operator would have to switch to
-		// the challenge tab + same scope to commit those two fields.
-		if cur.Challenge.Sites == nil {
-			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
-		}
-		cv := cur.Challenge.Sites[site]
-		// Seed cookie windows + pow difficulty from Default if the site has
-		// no existing override -- the theme tab does not expose challenge
-		// numeric knobs, so without this seed the new override would carry
-		// zero values that the challenge engine then snaps to defaults.
-		if _, ok := cur.Challenge.Sites[site]; !ok {
-			cv = cur.Challenge.Default
-			// Theme + ShowCredit are about to be overwritten from the form,
-			// but everything else (= captcha + cookie windows + difficulty
-			// + debug rate + public test pages) should mirror Default until
-			// the operator visits the challenge tab.
-		}
+		// theme + show_credit ride the same form as the logo, and now land on
+		// the same record.  They used to be written to cur.Challenge.Sites[site]
+		// instead -- and because a challenge record is inherited whole or owned
+		// whole, storing them there meant seeding a full snapshot of
+		// Challenge.Default for the site.  Choosing a theme therefore minted a
+		// challenge-behaviour override the operator never asked for, which then
+		// stopped tracking Default forever after.
 		t := strings.TrimSpace(r.FormValue("theme"))
 		if !challengeThemes[t] {
 			t = "default"
 		}
-		cv.Theme = t
-		cv.ShowCredit = r.FormValue("show_credit") == "1"
-		cv.Disabled = false
-		cur.Challenge.Sites[site] = cv
+		bv.Theme = t
+		bv.ShowCredit = r.FormValue("show_credit") == "1"
+		bv.Disabled = false
+		cur.Branding.Sites[site] = bv
 		return nil
 	})
 }
@@ -4841,25 +4825,21 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 		}
 		cv, existed := cur.Challenge.Sites[site]
 		if !existed {
-			// First save for this site: seed from Default so theme +
-			// show_credit (= owned by the theme tab) survive.  The
-			// challenge tab will overwrite the fields it owns below.
+			// First save for this site: seed from Default so the knobs this
+			// form does not expose keep the operator's configured values
+			// rather than dropping to the built-in ones.  (A record is
+			// inherited whole or owned whole -- see ChallengeConfig.Resolve.)
 			cv = cur.Challenge.Default
 		}
 		if err := applyChallengeForm(&cv, r); err != nil {
 			return err
 		}
-		// captcha provider + theme share the form field names with the
-		// captcha / theme tabs.  Reuse the existing parsers so the per-site
-		// card form behaves the same as the default form.
+		// captcha provider shares the form field names with the captcha tab.
+		// Reuse the existing parser so the per-site card form behaves the same
+		// as the default form.  The theme is NOT read here: it belongs to the
+		// branding record, and picking one must not create a challenge override.
 		if err := applyCaptchaForm(&cv.CaptchaProvider, r); err != nil {
 			return err
-		}
-		if t := strings.TrimSpace(r.FormValue("theme")); t != "" {
-			if !challengeThemes[t] {
-				t = "default"
-			}
-			cv.Theme = t
 		}
 		cv.Disabled = false
 		cur.Challenge.Sites[site] = cv

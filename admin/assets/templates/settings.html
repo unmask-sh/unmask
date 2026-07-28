@@ -4166,7 +4166,7 @@ document.addEventListener("DOMContentLoaded", function(){
         </div>
         <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .ChallengeValues.ShowCredit }}checked{{ end }}>
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingValues.ShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
       </div>
@@ -4323,7 +4323,7 @@ document.addEventListener("DOMContentLoaded", function(){
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.ChallengeValues.ShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
+                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.BrandingValues.ShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}

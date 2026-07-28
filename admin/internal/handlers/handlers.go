@@ -1074,7 +1074,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	br := h.cfg().Branding.Resolve(cfgSite)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
 		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(ch.CaptchaProvider)))
-	theme := pickChallengeTheme(r, ch.Theme)
+	theme := pickChallengeTheme(r, br.Theme)
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
 	// Per-theme color override (recolor the active theme to the site's palette).
@@ -1086,17 +1086,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	customJSON, customAutoJSON := []byte("null"), []byte("null")
 	if theme == "auto" {
 		obj := map[string]any{}
-		if bg, text := ch.CustomColorsFor("light"); bg != "" {
+		if bg, text := br.CustomColorsFor("light"); bg != "" {
 			obj["light"] = map[string]string{"bg": bg, "text": text}
 		}
-		if bg, text := ch.CustomColorsFor("dark"); bg != "" {
+		if bg, text := br.CustomColorsFor("dark"); bg != "" {
 			obj["dark"] = map[string]string{"bg": bg, "text": text}
 		}
 		if len(obj) > 0 {
 			customAutoJSON, _ = json.Marshal(obj)
 		}
 	} else {
-		bg, text := ch.CustomColorsFor(theme)
+		bg, text := br.CustomColorsFor(theme)
 		if isPreview {
 			if pb, pt := r.URL.Query().Get("_preview_custom_bg"), r.URL.Query().Get("_preview_custom_text"); settings.IsValidHexColor(pb) && settings.IsValidHexColor(pt) {
 				bg, text = pb, pt
@@ -1458,7 +1458,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// the aside body.  Operator-side previews (= /admin/test/ or ?_preview=1)
 	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
 	// reflects the toggle live without saving.
-	showCredit := ch.ShowCredit
+	showCredit := br.ShowCredit
 	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
 		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
 			showCredit = true

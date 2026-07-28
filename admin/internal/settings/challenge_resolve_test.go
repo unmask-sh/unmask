@@ -11,7 +11,7 @@ func TestChallengeResolveUndeclared(t *testing.T) {
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty:         18,
-			Theme:                 "default",
+			ChallengeHTMLPath:     "/srv/default.html",
 		},
 	}
 	got := c.Resolve("blog.example.com")
@@ -26,14 +26,14 @@ func TestChallengeResolveDeclared(t *testing.T) {
 	shop := ChallengeValues{
 		PowCookieValidSeconds: 86400 * 7,
 		PowDifficulty:         16,
-		Theme:                 "terminal",
-		ShowCredit:            true,
+		ChallengeHTMLPath:     "/srv/shop.html",
+		ObserveOnly:           true,
 	}
 	c := ChallengeConfig{
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty:         18,
-			Theme:                 "default",
+			ChallengeHTMLPath:     "/srv/default.html",
 		},
 		Sites: map[string]ChallengeValues{
 			"shop.example.com": shop,
@@ -52,7 +52,7 @@ func TestChallengeResolveEmptyEntry(t *testing.T) {
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
 			PowDifficulty:         18,
-			Theme:                 "default",
+			ChallengeHTMLPath:     "/srv/default.html",
 		},
 		Sites: map[string]ChallengeValues{
 			"empty.example.com": {},
@@ -70,13 +70,13 @@ func TestChallengeResolveEmptyEntry(t *testing.T) {
 // TestChallengeResolveAfterDelete: dropping a site returns to Default verbatim.
 func TestChallengeResolveAfterDelete(t *testing.T) {
 	c := ChallengeConfig{
-		Default: ChallengeValues{PowDifficulty: 18, Theme: "default"},
+		Default: ChallengeValues{PowDifficulty: 18, ChallengeHTMLPath: "/srv/default.html"},
 		Sites: map[string]ChallengeValues{
-			"shop.example.com": {PowDifficulty: 16, Theme: "terminal"},
+			"shop.example.com": {PowDifficulty: 16, ChallengeHTMLPath: "/srv/shop.html"},
 		},
 	}
-	if got := c.Resolve("shop.example.com"); got.Theme != "terminal" {
-		t.Fatalf("pre-delete: want Theme=terminal, got %q", got.Theme)
+	if got := c.Resolve("shop.example.com"); got.ChallengeHTMLPath != "/srv/shop.html" {
+		t.Fatalf("pre-delete: want the site's own html path, got %q", got.ChallengeHTMLPath)
 	}
 	delete(c.Sites, "shop.example.com")
 	got := c.Resolve("shop.example.com")
