@@ -52,7 +52,7 @@ func TestBrandingResolveDeclared(t *testing.T) {
 // TestBrandingResolveEmptyEntry: an empty BrandingValues entry returns the
 // zero-value record (= it does NOT fall back to Default).  This is the v2
 // contract: an entry exists or it does not; there is no field-level merge.
-func TestBrandingResolveEmptyEntry(t *testing.T) {
+func TestBrandingResolveEmptyEntryInherits(t *testing.T) {
 	b := Branding{
 		Default: BrandingValues{
 			SiteName:   "MyCo",
@@ -64,12 +64,18 @@ func TestBrandingResolveEmptyEntry(t *testing.T) {
 			"empty.example.com": {},
 		},
 	}
-	got := b.Resolve("empty.example.com")
-	if !reflect.DeepEqual(got, BrandingValues{}) {
-		t.Fatalf("empty entry: want zero value, got %+v", got)
+	if got := b.Resolve("empty.example.com"); !reflect.DeepEqual(got, b.Default) {
+		t.Fatalf("empty entry: want Default %+v, got %+v", b.Default, got)
 	}
-	if got.SiteName == b.Default.SiteName && b.Default.SiteName != "" {
-		t.Fatalf("empty entry leaked Default.SiteName=%q (would be field-level inherit)", b.Default.SiteName)
+	// Setting one field leaves the others inheriting -- a site that wants its
+	// own logo does not thereby lose the operator's copy preset.
+	b.Sites["empty.example.com"] = BrandingValues{LogoPath: "/etc/unmask/site.svg"}
+	got := b.Resolve("empty.example.com")
+	if got.LogoPath != "/etc/unmask/site.svg" {
+		t.Errorf("own logo not applied: %q", got.LogoPath)
+	}
+	if got.SiteName != "MyCo" || got.CopyPreset != BrandingPresetFriendly {
+		t.Errorf("overriding the logo dropped the inherited identity: %+v", got)
 	}
 }
 

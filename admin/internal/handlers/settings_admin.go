@@ -914,6 +914,24 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			_, ok := snap.Challenge.Sites[scope]
 			return ok
 		}(),
+		// Which fields the scoped site actually overrides, keyed by form field
+		// name.  The per-site form is pre-filled with RESOLVED values, so a
+		// number that the site pins and a number it is borrowing from Default
+		// look identical without this -- and per-field inheritance is only
+		// legible if the page says which is which.  Empty for the Default
+		// scope, where there is nothing to inherit from.
+		"ChallengeFieldOverrides": func() map[string]bool {
+			if !scopeIsSite {
+				return map[string]bool{}
+			}
+			return settings.ChallengeOverridesFor(snap.Challenge, scope)
+		}(),
+		"BrandingFieldOverrides": func() map[string]bool {
+			if !scopeIsSite {
+				return map[string]bool{}
+			}
+			return settings.BrandingOverridesFor(snap.Branding, scope)
+		}(),
 		"BrandingPresets": []string{settings.BrandingPresetFriendly, settings.BrandingPresetNeutral, settings.BrandingPresetMinimal},
 		// Notification webhook settings (= used by the notifications tab).
 		"Notifications": h.snapshotSettings().Notifications,
@@ -1417,7 +1435,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// show_credit was previously on the challenge tab; now lives next
 		// to the theme cards so the operator sees the live preview toggle
 		// alongside it.  Plain checkbox -> bool.
-		cur.Branding.Default.ShowCredit = r.FormValue("show_credit") == "1"
+		cur.Branding.Default.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
 	case "notifications":
 		applyNotificationsForm(&cur.Notifications, r)
 	case "smtp":
@@ -3450,7 +3468,7 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	// detect "came from form" and persist true/false accordingly.
 	// If the marker is missing, we do not touch the value.
 	if r.FormValue("public_test_pages_present") != "" {
-		c.PublicTestPages = r.FormValue("public_test_pages") == "1"
+		c.PublicTestPages = settings.BoolPtr(r.FormValue("public_test_pages") == "1")
 		// Optional Basic Auth password.  Only honored when PublicTestPages
 		// is on, but persist the value regardless so toggling the checkbox
 		// back on doesn't silently lose what the operator typed.
@@ -3458,7 +3476,7 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 	}
 	// public_test_pages_site_picker: same hidden-marker pattern as above.
 	if r.FormValue("public_test_pages_site_picker_present") != "" {
-		c.PublicTestPagesSitePicker = r.FormValue("public_test_pages_site_picker") == "1"
+		c.PublicTestPagesSitePicker = settings.BoolPtr(r.FormValue("public_test_pages_site_picker") == "1")
 	}
 	return nil
 }
@@ -4781,9 +4799,12 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 			t = "default"
 		}
 		bv.Theme = t
-		bv.ShowCredit = r.FormValue("show_credit") == "1"
+		bv.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
 		bv.Disabled = false
-		cur.Branding.Sites[site] = bv
+		// The form submits every field, so store only what actually differs
+		// from Default: the rest keeps tracking Default instead of freezing at
+		// whatever it happened to say the day this site was first saved.
+		cur.Branding.Sites[site] = settings.SparsifyBranding(bv, cur.Branding.Default)
 		return nil
 	})
 }
@@ -4842,7 +4863,9 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 			return err
 		}
 		cv.Disabled = false
-		cur.Challenge.Sites[site] = cv
+		// Same as the branding save: keep only the fields this site really
+		// overrides, so the others follow Default when Default changes.
+		cur.Challenge.Sites[site] = settings.SparsifyChallenge(cv, cur.Challenge.Default)
 		return nil
 	})
 }

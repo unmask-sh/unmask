@@ -434,6 +434,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    values", and this is the separate, destructive "forget them" action. */
 .scope-delete{display:inline-block;margin:0 0 .6rem;padding:.3rem .7rem;background:#fff;border:1px solid #fca5a5;border-radius:.3rem;color:#b91c1c;font-size:.78rem;cursor:pointer}
 .scope-delete:hover{background:#fef2f2;border-color:#f87171}
+/* Marks a per-site field that is following the global record rather than being
+   set here.  Quiet on purpose: it is the common state, and shouting it would
+   bury the fields the operator actually changed. */
+.inherit-chip{display:inline-block;margin-left:.4rem;padding:.05rem .35rem;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:.75rem;color:#64748b;font-size:.68rem;font-weight:normal;vertical-align:middle;cursor:help}
 .scope-aware-form.override-off .bcd-card,
 .scope-aware-form.override-off .branding-grid,
 .scope-aware-form.override-off .field{opacity:.55}
@@ -2959,6 +2963,35 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             formnovalidate
             onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
     {{ end }}
+  {{/* Inheritance markers.  The per-site form is pre-filled with RESOLVED
+       values, so a field the site pins looks exactly like one it is borrowing
+       from the global record.  The script tags every input whose name is not in
+       the override map, which keeps the markers correct as fields come and go. */}}
+  <script type="application/json" class="field-overrides">{{ toJSON .ChallengeFieldOverrides }}</script>
+  <script>
+  (function(){
+    var el = document.currentScript, form = el.closest('form');
+    var holder = form.querySelector('script.field-overrides');
+    if (!holder) return;
+    var over = {};
+    try { over = JSON.parse(holder.textContent) || {}; } catch (_) { return; }
+    form.querySelectorAll('[name]').forEach(function(input){
+      var n = input.getAttribute('name');
+      if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
+      if (over[n]) return;                       // the site sets this one
+      var field = input.closest('.field');
+      if (!field || field.querySelector('.inherit-chip')) return;
+      var label = field.querySelector('label, .field-label');
+      if (!label) return;
+      var chip = document.createElement('span');
+      chip.className = 'inherit-chip';
+      chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
+      chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
+      label.appendChild(chip);
+    });
+  })();
+  </script>
+
   {{ end }}
   <div class="bcd-card">
 
@@ -4048,6 +4081,35 @@ document.addEventListener("DOMContentLoaded", function(){
             formnovalidate
             onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
     {{ end }}
+  {{/* Inheritance markers.  The per-site form is pre-filled with RESOLVED
+       values, so a field the site pins looks exactly like one it is borrowing
+       from the global record.  The script tags every input whose name is not in
+       the override map, which keeps the markers correct as fields come and go. */}}
+  <script type="application/json" class="field-overrides">{{ toJSON .BrandingFieldOverrides }}</script>
+  <script>
+  (function(){
+    var el = document.currentScript, form = el.closest('form');
+    var holder = form.querySelector('script.field-overrides');
+    if (!holder) return;
+    var over = {};
+    try { over = JSON.parse(holder.textContent) || {}; } catch (_) { return; }
+    form.querySelectorAll('[name]').forEach(function(input){
+      var n = input.getAttribute('name');
+      if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
+      if (over[n]) return;                       // the site sets this one
+      var field = input.closest('.field');
+      if (!field || field.querySelector('.inherit-chip')) return;
+      var label = field.querySelector('label, .field-label');
+      if (!label) return;
+      var chip = document.createElement('span');
+      chip.className = 'inherit-chip';
+      chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
+      chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
+      label.appendChild(chip);
+    });
+  })();
+  </script>
+
   {{ end }}
   <h2 style="margin:.4rem 0 .5rem;font-size:1.05rem">{{ t .Lang "settings.branding.heading" }}</h2>
   <p class="theme-preview-hint">{{ safeHTML (t .Lang "settings.branding.intro") }}</p>

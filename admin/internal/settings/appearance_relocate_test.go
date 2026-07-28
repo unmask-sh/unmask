@@ -64,9 +64,9 @@ branding:
 	}
 
 	// The appearance survives the move, on the record that now owns it.
-	if s.Branding.Default.Theme != "auto" || !s.Branding.Default.ShowCredit {
+	if s.Branding.Default.Theme != "auto" || !s.Branding.Default.IsShowCredit() {
 		t.Errorf("default appearance lost: theme=%q credit=%v",
-			s.Branding.Default.Theme, s.Branding.Default.ShowCredit)
+			s.Branding.Default.Theme, s.Branding.Default.IsShowCredit())
 	}
 	if got := s.Branding.Sites["uic.io"].Theme; got != "paper" {
 		t.Errorf("uic.io theme = %q, want paper carried onto its branding record", got)
@@ -149,7 +149,7 @@ branding:
 			s.Branding.Default.Theme)
 	}
 	// A field absent from the new location still comes across.
-	if !s.Branding.Default.ShowCredit {
+	if !s.Branding.Default.IsShowCredit() {
 		t.Error("show_credit was not carried over even though branding did not set it")
 	}
 }
