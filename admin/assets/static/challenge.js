@@ -25,6 +25,12 @@
   //   - errors stay silent (don't disturb the normal challenge flow)
   // ============================================================
   function _bcDebug(phase, extra){
+    // Remember the last phase reached so an abandonment beacon can say WHERE
+    // the visitor gave up.  Recording it here rather than at each call site
+    // means a phase added later is covered without anyone remembering to.
+    // 'abandon' itself is excluded so it cannot overwrite the phase it is
+    // reporting about.
+    if (phase !== 'abandon') { try { window.__unmaskPhase = phase; } catch (_) {} }
     try {
       var pl = {
         phase: phase,
@@ -570,6 +576,10 @@
   }
 
   function passAndRedirect(){
+    // Leaving this page is now intentional: suppress the abandonment beacon,
+    // which pagehide would otherwise fire on the very navigation that means
+    // the visitor succeeded.
+    try { window.__unmaskPassed = true; } catch (_) {}
     // Success state stays painted (✓ + spinner) while the destination loads --
     // location.replace doesn't unload this page until the target renders.  The
     // sub-line says the check passed AND the site is now loading, so a slow
@@ -585,8 +595,15 @@
     //   - /unmask/(admin/)?test/force-*                         test pages of any flavor
     //                                                            (pow / pow-then-captcha / captcha / ...).
     //                                                            Reloading the same path causes a loop.
+    // The <site> segment must accept dots: site ids are host names
+    // (shop.example.jp), and the id parser at the top of this file already
+    // does.  This copy did not, so a site-scoped page fell through to the
+    // "reload the original URL" branch below and reloaded ITSELF -- solve,
+    // redirect here, serve a challenge, solve, ... which is the loop the
+    // comment above warns about, reachable from the test page's site picker
+    // for every real host name.
     if (u.pathname === '/unmask/challenge.html' ||
-        /^\/unmask\/challenge(\/[a-z0-9][a-z0-9-]*)?\/?$/.test(u.pathname) ||
+        /^\/unmask\/challenge(\/[a-z0-9][a-z0-9.-]*)?\/?$/.test(u.pathname) ||
         /^\/unmask\/(admin\/)?test\/force-[a-z][a-z0-9-]*\/?$/.test(u.pathname)) {
       // Test-only override: ?_test_redirect=PATH (same-origin only).  Must
       // start with `/` and must not be protocol-relative `//host`, so a
@@ -734,6 +751,81 @@
   }
 
   _bcDebug('load', { force_reason: forceReason, chmode: chMode });
+
+  // ============================================================
+  // Abandonment tracking.
+  //
+  // A visitor who closes the tab or hits Back mid-challenge leaves no trace:
+  // the phase chain simply stops, which looks identical to a bot that fetched
+  // the page and never ran the JS.  That ambiguity makes the one question
+  // worth asking -- are we losing real people to the wait, and at which step
+  // -- unanswerable from the counts alone.  Report the departure with the
+  // phase it happened in and how long the visitor had been waiting.
+  //
+  // pagehide rather than beforeunload: beforeunload is unreliable on mobile
+  // (a backgrounded tab may be discarded without firing it) and blocks the
+  // bfcache.  visibilitychange->hidden covers the tab-switch-then-killed case
+  // that pagehide can miss.  Whichever runs first wins; `left` makes it fire
+  // at most once.
+  //
+  // Which UI gesture it was (Back vs close vs a link) is deliberately not
+  // guessed: browsers do not expose that, and a wrong label is worse than no
+  // label.  What matters for tuning is the phase and the elapsed time.
+  (function(){
+    var left = false;
+    function abandon(via, ev){
+      // Passing navigates away on purpose -- that is a success, not a
+      // departure, and counting it would drown the signal we came for.
+      if (left || window.__unmaskPassed) return;
+      left = true;
+      // Two different clocks, and the gap between them is itself a finding.
+      //
+      // elapsed_ms (added by _bcDebug) is when this handler RAN.  The PoW
+      // yields between batches, but an event that arrives mid-batch waits for
+      // the loop to release the thread, so the handler can run measurably
+      // later than the visitor acted -- which is why a departure during the
+      // final batch surfaces just after the solve and reads as "left right
+      // after passing".
+      //
+      // event.timeStamp is when the browser CREATED the event, i.e. when the
+      // visitor actually left, and it does not shift when the handler is
+      // delayed (measured: a 600ms blocked thread put 474ms between the two).
+      // Reporting both makes "when they left" and "when we noticed" separable
+      // -- and the difference doubles as a read on how much the PoW is
+      // holding the UI.
+      // No bfcache / persisted flag here.  It is the one hint a browser gives
+      // about a Back navigation, but a challenge page is served no-store and
+      // is therefore never bfcache-eligible, so the flag can only ever read
+      // false -- a field that looks like evidence and carries none.  Whether
+      // the visitor went back or closed is answered instead by what the server
+      // sees next: a Back lands them on another page and produces a follow-up
+      // request; a close produces silence.
+      var extra = {
+        abandon_phase: window.__unmaskPhase || 'load',
+        // pagehide = left the page (navigated away or closed; not coming back)
+        // hidden   = tab backgrounded (they may well return)
+        abandon_via: via,
+        chmode: chMode
+      };
+      try {
+        if (ev && typeof ev.timeStamp === 'number' && ev.timeStamp > 0) {
+          // Relative to the page's own start, matching elapsed_ms's origin,
+          // so the two are directly comparable.
+          extra.left_at_ms = Math.round(ev.timeStamp);
+          if (typeof performance !== 'undefined' && performance.now) {
+            extra.notice_delay_ms = Math.max(0, Math.round(performance.now() - ev.timeStamp));
+          }
+        }
+      } catch (_) { /* timeStamp is optional; never lose the beacon over it */ }
+      _bcDebug('abandon', extra);
+    }
+    window.addEventListener('pagehide', function(e){
+      abandon('pagehide', e);
+    });
+    document.addEventListener('visibilitychange', function(e){
+      if (document.visibilityState === 'hidden') abandon('hidden', e);
+    });
+  })();
 
   if (chMode === 'captcha_only') {
     showCaptcha();

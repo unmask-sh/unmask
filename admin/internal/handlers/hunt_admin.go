@@ -171,8 +171,15 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	refFilter := refFromQuery(q.Get("ref"))
 	phaseFilter := strings.TrimSpace(q.Get("phase"))
 	forceReasonFilter := strings.TrimSpace(q.Get("force_reason"))
-	if !events.IsValidPhase(phaseFilter) {
-		phaseFilter = ""
+	// The filter takes a comma-separated list so the UI can offer groups
+	// ("everything that passed"), so validate it as a list and keep the
+	// canonical form -- validating it as one name silently dropped every
+	// group back to "no filter", which reads as the filter having been
+	// ignored.  An entirely unknown value is preserved rather than blanked:
+	// FetchPaged then returns nothing, which is what a filter nobody
+	// recognises should do, instead of quietly showing the whole log.
+	if canon := events.CanonicalPhaseFilter(phaseFilter); canon != "" {
+		phaseFilter = canon
 	}
 	// host filter (= global scope of the shared host_picker.  comes from
 	// the unmask_hosts cookie / ?host=).

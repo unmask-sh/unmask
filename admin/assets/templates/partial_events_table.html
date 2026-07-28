@@ -51,6 +51,27 @@
 .ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
 .ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie) */
 .ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
+/* Grey, not red: leaving is not a rejection.  The visitor closed the tab or
+   went back while the challenge was still running -- an outcome to measure,
+   not a failure to flag. */
+.ph-abandon{background:#e2e8f0;color:#475569}
+/* Did the visitor go back (another request followed) or close the tab
+   (silence)?  Browsers refuse to say; the server can tell from what arrives
+   next.  Muted styling both ways -- neither is an error. */
+.ret-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;vertical-align:baseline}
+.ret-stayed{background:#dbeafe;color:#1e40af}
+.ret-gone{background:#f1f5f9;color:#64748b}
+/* Session popover: footnotes.  The timeline lines stay nowrap (they are one
+   short sequence and wrapping them would break the scan), so the prose lives
+   below with wrapping explicitly re-enabled -- inheriting the line rule is how
+   long text ran straight out of the popover box.  max-width keeps a long note
+   from widening the popover instead of wrapping inside it; overflow-wrap
+   handles an unbroken token (a URL, a UA) that is itself wider than the box. */
+.session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
+  display:flex;flex-direction:column;gap:.3rem}
+.session-note{max-width:32rem;white-space:normal;overflow-wrap:anywhere;word-break:normal;
+  font-size:.74rem;line-height:1.5;color:#475569}
+.session-note-ref{color:#0f172a;font-weight:700;font-size:.7rem;flex:none}
 .ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
 .ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
 .ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
@@ -80,6 +101,7 @@
         {{ safeHTML (t .Lang "help.phase.bv_rebind_reject") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.verify_ng") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.cookie_err") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.abandon") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
@@ -91,7 +113,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}">
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -102,7 +124,7 @@
            the group's real verdict onto the rep row so a bot session still shows
            its verdict rather than this "ok" fallback. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if eq .Phase "abandon" }} {{ if gt .Returned 0 }}<span class="ret-badge ret-stayed" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_stayed" }}</span>{{ else }}<span class="ret-badge ret-gone" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_gone" }}</span>{{ end }}{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       {{/* Escalation axis in its own cell (= not a phase): the phase cell was
            getting crowded and the dashboard cards already give 昇格理由 a
            dedicated column -- keep the two views consistent.  Same value on
@@ -415,7 +437,19 @@ document.addEventListener('DOMContentLoaded', function(){
       phaseCell.appendChild(document.createTextNode(' '));
       phaseCell.appendChild(rlBadge);
     }
+    function tlEsc(s){
+      return String(s).replace(/[&<>"']/g, function(c){
+        return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+      });
+    }
     function timelineHtml(){
+      // Prose goes to footnotes rather than under each line.  The timeline is
+      // read as a sequence -- when did each step happen -- and a paragraph
+      // between the steps breaks that scan; numbering keeps the sequence one
+      // line per phase and still carries the full explanation for the rows
+      // that have one.  Each qualifying row gets its own number, so a session
+      // with several of them gets several notes.
+      var notes = [];
       var lines = grp.map(function(tr){
         var ms = (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
@@ -423,10 +457,29 @@ document.addEventListener('DOMContentLoaded', function(){
         // Use the same short label the inline chain shows (= bv_pow_only -> bv_pow)
         // so the timeline labels match what the user clicked on.
         var label = PHASE_SHORT[ph] || ph;
+        // A phase whose meaning depends on a sub-value spells it out here:
+        // "abandon" alone does not say where the visitor gave up, and the
+        // collapsed chain has no room for it.  data-sub is a bare phase name
+        // (server-validated), so it needs no escaping beyond this.
+        var sub = (tr.getAttribute('data-sub') || '').replace(/[^a-z0-9_]/g, '');
+        if (sub) label += '(' + sub + ')';
+        var det = tr.getAttribute('data-detail') || '';
+        var mark = '';
+        if (det) {
+          notes.push(det);
+          mark = ' <span class="session-note-ref">*' + notes.length + '</span>';
+        }
         return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
-               '</time> <span class="' + pillCls + '">' + label + '</span></div>';
+               '</time> <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
       });
-      return '<div class="session-timeline">' + lines.join('') + '</div>';
+      var out = '<div class="session-timeline">' + lines.join('') + '</div>';
+      if (notes.length) {
+        out += '<div class="session-notes">' + notes.map(function(n, i){
+          return '<div class="session-note"><span class="session-note-ref">*' + (i + 1) +
+                 '</span> ' + tlEsc(n) + '</div>';
+        }).join('') + '</div>';
+      }
+      return out;
     }
     chain.style.cursor = 'pointer';
     var timer = null;
