@@ -389,6 +389,11 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			adminIPForbidden(w, ip)
 			return
 		}
+		// Carry the resolved client address to the audit log.  Done here rather
+		// than at each of Record's ~30 call sites: this is the one place that
+		// already knows the real address behind the proxy, and a call site added
+		// later inherits it instead of quietly logging an action from nowhere.
+		r = r.WithContext(user.WithClientIP(r.Context(), ip))
 		secret := h.cfg().Secret.BVSecret
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
@@ -603,7 +608,9 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			adminHostForbidden(w, r.Host)
 			return
 		}
-		next(w, r)
+		// Login and password-reset attempts are audited before any session
+		// exists, and a failed login is precisely the row whose origin matters.
+		next(w, r.WithContext(user.WithClientIP(r.Context(), ip)))
 	}
 }
 
