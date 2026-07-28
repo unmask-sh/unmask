@@ -442,20 +442,24 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 </div>
 {{ end }}{{/* captcha_report_card -- rendered in the watchlist group below */}}
 
-{{ define "captcha_reuse_card" }}
-<div class="bcd-card">
-  <h2>{{ t .Lang "dashboard.card.captcha_reuse" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
-  {{ if .CaptchaReuse }}
-  <h6 class="cp-h">{{ t $.Lang "captcha_reuse.rank_heading" }} <span class="cp-count">{{ len .CaptchaReuse }}</span></h6>
+{{/* cookie_reuse_section: one ranking table.  Called once per cookie kind with
+     dict "Rows" <rows> "Heading" <label> "Empty" <label> "ShowJA4N" <bool> —
+     ShowJA4N adds the fingerprint-spread column, which only the PoW section
+     needs (a CAPTCHA cookie holder is already suspicious on volume alone). */}}
+{{ define "cookie_reuse_section" }}
+  <h6 class="cp-h">{{ .Heading }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
+  {{ if .Rows }}
   <div class="bcd-cliptable-scroll">
   <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
-    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.reuse" }}</th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num">{{ t .Lang "th.reuse" }}</th>{{ if .ShowJA4N }}<th class="bcd-num"><span class="help-dotted" data-help-key="help.cookie_reuse.ja4n">{{ t .Lang "th.ja4_count" }}</span></th>{{ end }}<th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
     <tbody>
-      {{ range $i, $r := .CaptchaReuse }}
+      {{ $show := .ShowJA4N }}{{ $base := .BasePath }}
+      {{ range $i, $r := .Rows }}
       <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
-        <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
+        <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $base }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
         <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">ok</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Requests }}</td>
+        {{ if $show }}<td class="bcd-num{{ if eq $r.JA4Count 1 }} cr-ja4n-single{{ end }}">{{ $r.JA4Count }}</td>{{ end }}
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
       </tr>
@@ -463,11 +467,27 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     </tbody>
   </table>
   </div>
-  {{ if gt (len .CaptchaReuse) 10 }}<button type="button" class="cp-more" data-more="{{ t $.Lang "common.show_more" }} (+{{ sub (len .CaptchaReuse) 10 }})" data-less="{{ t $.Lang "common.show_less" }}">{{ t $.Lang "common.show_more" }} (+{{ sub (len .CaptchaReuse) 10 }})</button>{{ end }}
+  {{ if gt (len .Rows) 10 }}<button type="button" class="cp-more" data-more="{{ t .Lang "common.show_more" }} (+{{ sub (len .Rows) 10 }})" data-less="{{ t .Lang "common.show_less" }}">{{ t .Lang "common.show_more" }} (+{{ sub (len .Rows) 10 }})</button>{{ end }}
   {{ else }}
-  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ t .Lang "captcha_reuse.empty" }}</p>
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ .Empty }}</p>
   {{ end }}
+{{ end }}
+
+{{ define "captcha_reuse_card" }}
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.cookie_reuse" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
+  {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .CaptchaReuse "ShowJA4N" false
+       "Heading" (t .Lang "captcha_reuse.rank_heading") "Empty" (t .Lang "captcha_reuse.empty") }}
+  {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PowReuse "ShowJA4N" true
+       "Heading" (t .Lang "pow_reuse.rank_heading") "Empty" (t .Lang "pow_reuse.empty") }}
+  <p class="muted cr-note">{{ safeHTML (t .Lang "pow_reuse.note") }}</p>
 </div>
+<style>
+/* Colocated with the only card that injects these (partial re-render replaces
+   the card body, so a stylesheet entry elsewhere would not travel with it). */
+.cr-ja4n-single { font-weight: 600; }
+.cr-note { font-size: .78rem; margin: .6rem 0 0; line-height: 1.5; }
+</style>
 {{ end }}{{/* captcha_reuse_card -- rendered in the watchlist group below */}}
 
 <!-- 3) cookie-pass status (= 4 buckets across all nginx requests by cookie presence) -->

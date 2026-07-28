@@ -94,6 +94,11 @@ const (
 	hourlyState = "hourly" // unmask_aggregate_state.name for this aggregator
 	hourlyBatch = 20000    // unmask_event rows per backfill chunk / tx
 	hourlyKeep  = 32       // days of buckets to retain (covers the 30d range)
+	// cookieIPPowKeepDays: PoW rows in unmask_cookie_ip_minute expire ahead of
+	// the shared window.  A _bv lives 3 days, so a longer window stops measuring
+	// one cookie's reuse and starts summing cookie generations; 8 days covers
+	// more than two lifetimes.  See PruneHourly for the volume side.
+	cookieIPPowKeepDays = 8
 )
 
 // hourColExpr formats a datetime column to a 'YYYY-MM-DD HH' bucket string.
@@ -209,12 +214,25 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
 		return err
 	}
-	// unmask_cookie_ip_minute is per-(minute, site, ip) and only feeds the
-	// CAPTCHA-reuse card, whose window never exceeds the stats page's 30-day
+	// unmask_cookie_ip_minute is per-(minute, site, ip, kind) and only feeds the
+	// cookie-reuse card, whose window never exceeds the stats page's 30-day
 	// range — cap it at the same 32-day window.  Per-IP cardinality makes
 	// pruning matter more here than for the per-kind cookie/crawler tables.
 	if _, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_cookie_ip_minute WHERE bucket_min < ?`, minCutoff); err != nil {
+		return err
+	}
+	// PoW rows go earlier than the shared window, for two reasons that point the
+	// same way.  Correctness: a _bv lives 3 days, so past that "how much was one
+	// cookie reused" stops being one cookie — a 30-day row sums ten generations
+	// and reads the same whether it is a scraper riding a single solve or a
+	// regular visitor coming back all month.  Cost: measured on a ~196k req/day
+	// install, PoW reuse is ~4.6x the CAPTCHA volume (15k rows/day), so the
+	// shared 32-day window would grow this table from 18 MB to ~170 MB; 8 days
+	// keeps it near 40 MB while still covering more than two cookie lifetimes.
+	if _, err := d.ExecContext(ctx,
+		`DELETE FROM unmask_cookie_ip_minute WHERE kind = 'pow' AND bucket_min < ?`,
+		time.Now().Unix()/60-cookieIPPowKeepDays*1440); err != nil {
 		return err
 	}
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
