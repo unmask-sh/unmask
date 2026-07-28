@@ -446,6 +446,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	if scope == "default" {
 		scope = ""
 	}
+	// Normalize exactly like the save handler does (lowercase, port stripped,
+	// trailing dot dropped).  The scope picker's "add a host" prompt sends
+	// whatever the operator typed, so "CodeZine.jp" or "codezine.jp:443" used
+	// to render a page whose scope string could never match the key the save
+	// wrote -- the form looked empty on return and a second save landed on a
+	// different row than the first.
+	if scope != "" {
+		if n := normalizeSite(scope); n != "" && n != defaultSite {
+			scope = n
+		}
+	}
 	snap := h.snapshotSettings()
 	scopeBranding := snap.Branding.Default
 	scopeChallenge := snap.Challenge.Default
@@ -512,6 +523,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		if host != "" {
 			scopeHostSet[host] = true
 		}
+	}
+	// The scope currently being edited.  A host typed into the picker's "add"
+	// prompt exists in none of the sources above until something about it is
+	// saved, so without this the <select> had no matching <option> and fell
+	// back to displaying "Default" -- while the banner beside it announced the
+	// new host and the form edited that host's record.  An operator reading
+	// the pulldown would believe they were editing Default, or re-pick from
+	// the list and silently land on a different site.
+	if scopeIsSite {
+		scopeHostSet[scope] = true
 	}
 	scopeHosts := make([]string, 0, len(scopeHostSet))
 	for h := range scopeHostSet {
@@ -806,7 +827,22 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 				return ""
 			}
 			base := strings.TrimRight(h.cfg().Server.BasePath, "/")
+			// Point at the SITE-scoped serve route when a per-site scope is
+			// being edited.  The plain /branding/logo route resolves the
+			// REQUEST host -- i.e. the admin's own hostname -- so a correctly
+			// saved per-site logo still rendered as a broken thumbnail (404)
+			// unless the operator happened to be browsing the admin on that
+			// exact site.  That made a successful save look like a failed one
+			// and sent operators re-saving into the wrong scope.  The
+			// site-scoped route is admin-session gated (testSiteOverride), so
+			// the settings page is authorized for it.
 			url := base + "/branding/logo"
+			if scopeIsSite && testSiteHostRE.MatchString(scope) {
+				// Wildcard / non-hostname scopes (e.g. "*.example.com") are not
+				// addressable on that route; they keep the host-resolved URL
+				// rather than pointing at a guaranteed 404.
+				url = base + "/branding/" + scope + "/logo"
+			}
 			if st, err := os.Stat(p); err == nil {
 				url += "?v=" + strconv.FormatInt(st.ModTime().Unix(), 10)
 			}
@@ -4554,6 +4590,22 @@ func brandingLogoName(scope, ext string) string {
 // The logo file accepts a single upload.  Missing file = leave existing
 // logo untouched (= operator only changed text fields).  branding_logo_clear=1
 // removes the on-disk file + clears LogoPath.
+// brandingFormHasEdits reports whether a per-site branding POST carried values
+// the operator typed or picked.  Used to tell "uncheck the override and save"
+// (= a deliberate drop, arrives empty because the page disables the fields)
+// apart from "the fields were live and are about to be discarded".
+func brandingFormHasEdits(r *http.Request) bool {
+	if r.MultipartForm != nil && len(r.MultipartForm.File["branding_logo_file"]) > 0 {
+		return true
+	}
+	for _, k := range []string{"branding_site_name", "branding_footer_text"} {
+		if strings.TrimSpace(r.FormValue(k)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
@@ -4678,6 +4730,19 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		// the override" path the operator hit when toggling the checkbox.
 		overrideOn := r.FormValue("use_site_override") == "1"
 		if !overrideOn {
+			// Refuse to report success while throwing the operator's edits
+			// away.  The page disables every field when the toggle is off, so
+			// a normal "uncheck + save" (= drop the override) arrives with
+			// nothing filled in and proceeds below.  Fields DO arrive when
+			// that script never ran -- JS disabled, a stale tab rendered
+			// before the toggle sync landed, a hand-built POST -- and the old
+			// code then silently discarded them, logo upload included, and
+			// still redirected with "saved".  A save that keeps nothing must
+			// not look like a save that worked.
+			if brandingFormHasEdits(r) {
+				return fmt.Errorf("nothing was saved: %q is off for this site. "+
+					"Tick it and save again to store these values, or clear the fields to turn the override off", "override settings for this host")
+			}
 			if cur.Branding.Sites != nil {
 				if v, ok := cur.Branding.Sites[site]; ok {
 					v.Disabled = true
