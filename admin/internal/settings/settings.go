@@ -145,29 +145,10 @@ type ChallengeValues struct {
 	// CAPTCHA provider: "builtin" (= unmask's standard behavioral) | "turnstile" |
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
 	CaptchaProvider Captcha `yaml:"captcha,omitempty"`
-	// Challenge-page theme. "default" | "cat" etc. Must match the handler-side
-	// allowlist (= challengeThemes). Invalid / empty values fall back to "auto"
-	// (= follow the visitor's OS), the out-of-the-box default.
-	Theme string `yaml:"theme,omitempty"`
-	// CustomColors: optional per-theme background + text overrides that recolor a
-	// built-in theme to the site's palette ("match my site colors").  Keyed by
-	// theme name (default / dark / terminal / paper / cat); each entry recolors
-	// that theme's body / spinner / captcha / input / button from the two colors
-	// while the theme keeps its structure (fonts, art, scanlines).  "auto" is NOT
-	// keyed here -- it composes the default entry (OS light) and the dark entry
-	// (OS dark) at render time.  Colors are validated as hex (#rgb / #rrggbb /
-	// #rrggbbaa); an invalid or half-set entry is ignored (= built-in colors).
-	CustomColors map[string]ChallengeThemeColors `yaml:"custom_colors,omitempty"`
 	// PowDifficulty: target leading-zero-bits for the SHA-256 PoW.
 	// Practical range is 8-24. Default 18 (= ~262144 iter; modern devices ~500ms,
 	// mobile ~1s). Higher = harsher to bots. At 20+ mobile waits seconds.
 	PowDifficulty int `yaml:"pow_difficulty,omitempty"`
-	// ShowCredit: whether to show the "protected by unmask" credit at the
-	// bottom-right of the challenge page. Default false (= hidden). Turning
-	// it ON shows it as pill + icon. The trade-off between the self-hosted
-	// principle (= hide the backend from visitors) and brand exposure is left
-	// to the site owner.
-	ShowCredit bool `yaml:"show_credit,omitempty"`
 	// ObserveOnly: monitor mode. When true, all challenge actions are
 	// suppressed and only event logging continues (= for the post-install
 	// observation phase).
@@ -195,21 +176,6 @@ type ChallengeValues struct {
 type ChallengeThemeColors struct {
 	Bg   string `yaml:"bg,omitempty"`
 	Text string `yaml:"text,omitempty"`
-}
-
-// CustomColorsFor returns the validated (bg, text) override for the named theme,
-// or ("", "") when there is no override or either color is invalid.  Both colors
-// must be valid hex for the pair to apply, so the page never renders with one
-// custom color and one built-in.
-func (c ChallengeValues) CustomColorsFor(theme string) (bg, text string) {
-	p, ok := c.CustomColors[theme]
-	if !ok {
-		return "", ""
-	}
-	if IsValidHexColor(p.Bg) && IsValidHexColor(p.Text) {
-		return p.Bg, p.Text
-	}
-	return "", ""
 }
 
 // IsValidHexColor reports whether s is a CSS hex color (#rgb / #rgba / #rrggbb /
@@ -292,6 +258,31 @@ type BrandingValues struct {
 	// "friendly" (= default / reassurance-leaning) | "neutral" (= status-quo
 	// compatible) | "minimal" (= short text). Empty / unknown → "friendly".
 	CopyPreset string `yaml:"copy_preset,omitempty"`
+	// Theme: challenge-page theme. "default" | "cat" etc. Must match the
+	// handler-side allowlist (= challengeThemes). Invalid / empty values fall
+	// back to "auto" (= follow the visitor's OS), the out-of-the-box default.
+	// Lives here rather than on ChallengeValues because it is what the page
+	// LOOKS like, not how it behaves: keeping it beside the logo means picking
+	// a theme no longer has to mint a challenge-behaviour override for the site.
+	Theme string `yaml:"theme,omitempty"`
+	// CustomColors: optional per-theme background + text overrides that recolor a
+	// built-in theme to the site's palette ("match my site colors").  Keyed by
+	// theme name (default / dark / terminal / paper / cat); each entry recolors
+	// that theme's body / spinner / captcha / input / button from the two colors
+	// while the theme keeps its structure (fonts, art, scanlines).  "auto" is NOT
+	// keyed here -- it composes the default entry (OS light) and the dark entry
+	// (OS dark) at render time.  Colors are validated as hex (#rgb / #rrggbb /
+	// #rrggbbaa); an invalid or half-set entry is ignored (= built-in colors).
+	// Travels with Theme: the two are read together at render time, so splitting
+	// them across records would let a site's own theme draw in another record's
+	// colors.
+	CustomColors map[string]ChallengeThemeColors `yaml:"custom_colors,omitempty"`
+	// ShowCredit: whether to show the "protected by unmask" credit at the
+	// bottom-right of the challenge page. Default false (= hidden). Turning
+	// it ON shows it as pill + icon. The trade-off between the self-hosted
+	// principle (= hide the backend from visitors) and brand exposure is left
+	// to the site owner.
+	ShowCredit bool `yaml:"show_credit,omitempty"`
 	// Deny page design (rate-limit "retry" deny + ban "blocked" deny), part of
 	// this site's appearance so it follows the same per-site Default/Sites
 	// resolution as the logo / site name.  Theme: "" / auto / light / dark;
@@ -331,6 +322,21 @@ func IsValidBrandingPreset(p string) bool {
 
 // ResolvedCopyPreset: returns CopyPreset clamped to a known value, or the
 // friendly default if unset / invalid.
+// CustomColorsFor returns the validated (bg, text) override for the named theme,
+// or ("", "") when there is no override or either color is invalid.  Both colors
+// must be valid hex for the pair to apply, so the page never renders with one
+// custom color and one built-in.
+func (b BrandingValues) CustomColorsFor(theme string) (bg, text string) {
+	p, ok := b.CustomColors[theme]
+	if !ok {
+		return "", ""
+	}
+	if IsValidHexColor(p.Bg) && IsValidHexColor(p.Text) {
+		return p.Bg, p.Text
+	}
+	return "", ""
+}
+
 func (b BrandingValues) ResolvedCopyPreset() string {
 	if IsValidBrandingPreset(b.CopyPreset) {
 		return b.CopyPreset
@@ -2968,11 +2974,6 @@ func defaults() Settings {
 				PowCookieValidSeconds:     86400 * 7,  // 7 days — automatic proof, refresh more often
 				CaptchaCookieValidSeconds: 86400 * 14, // 14 days — human-effort proof, keep longer
 				DebugRateLimitPer5Min:     20,
-				// Must be a member of the handler-side challengeThemes
-				// allowlist ("default" was not: the theme/appearance save
-				// snapped it to auto, mutating a fresh install's stored value
-				// on the very first save).
-				Theme: "auto",
 				CaptchaProvider: Captcha{
 					Provider:              "builtin",
 					BuiltinScoreThreshold: 0.5,
@@ -2988,6 +2989,11 @@ func defaults() Settings {
 				// site name / footer stay blank until the operator fills them
 				// in via the branding panel.
 				CopyPreset: BrandingPresetFriendly,
+				// Must be a member of the handler-side challengeThemes
+				// allowlist ("default" was not: the theme/appearance save
+				// snapped it to auto, mutating a fresh install's stored value
+				// on the very first save).
+				Theme: "auto",
 			},
 		},
 		RateLimit: RateLimitConfig{
@@ -3217,6 +3223,9 @@ func Load(path string) (Settings, error) {
 		if perr := probeDec.Decode(&probe); perr != nil {
 			log.Printf("unmask: config %s has unrecognized or misplaced keys (ignored, defaults used): %v", resolved, perr)
 		}
+		// Files written before the challenge page's appearance moved to the
+		// branding record still carry theme / colors / credit under challenge.
+		relocateLegacyAppearance(&s, raw)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process
@@ -3419,6 +3428,7 @@ func LoadFromYAML(body string) (Settings, error) {
 	if err := yaml.Unmarshal([]byte(body), &s); err != nil {
 		return Settings{}, err
 	}
+	relocateLegacyAppearance(&s, []byte(body))
 	return s, nil
 }
 
