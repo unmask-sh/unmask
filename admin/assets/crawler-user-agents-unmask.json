@@ -1,0 +1,29 @@
+[
+  {
+    "pattern": "ChatWork LinkPreview",
+    "tags": ["social-preview"],
+    "url": "https://go.chatwork.com/",
+    "instances": [
+      "Mozilla/5.0 (compatible; ChatWork LinkPreview/1.1; +https://go.chatwork.com/)"
+    ],
+    "addition_date": "2026/07/28"
+  },
+  {
+    "pattern": "WebexTeams",
+    "tags": ["social-preview"],
+    "url": "https://www.webex.com/",
+    "instances": [
+      "WebexTeams (Cisco Webex Teams link preview)"
+    ],
+    "addition_date": "2026/07/28"
+  },
+  {
+    "pattern": "NotionEmbedder",
+    "tags": ["social-preview"],
+    "url": "https://www.notion.so/",
+    "instances": [
+      "Mozilla/5.0 (compatible; NotionEmbedder/24; +http://www.notion.so)"
+    ],
+    "addition_date": "2026/07/28"
+  }
+]
