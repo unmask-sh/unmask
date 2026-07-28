@@ -58,8 +58,8 @@ func (l legacyAppearanceValues) graft(b *BrandingValues) {
 	if l.CustomColors != nil && b.CustomColors == nil {
 		b.CustomColors = l.CustomColors
 	}
-	if l.ShowCredit != nil && !b.ShowCredit {
-		b.ShowCredit = *l.ShowCredit
+	if l.ShowCredit != nil && b.ShowCredit == nil {
+		b.ShowCredit = l.ShowCredit
 	}
 }
 
@@ -131,11 +131,11 @@ func challengeValuesEqual(a, b ChallengeValues) bool {
 		a.CaptchaCookieValidSeconds != b.CaptchaCookieValidSeconds ||
 		a.DebugRateLimitPer5Min != b.DebugRateLimitPer5Min ||
 		a.ChallengeHTMLPath != b.ChallengeHTMLPath ||
-		a.PublicTestPages != b.PublicTestPages ||
+		!boolEq(a.PublicTestPages, b.PublicTestPages) ||
 		a.PublicTestPagesPassword != b.PublicTestPagesPassword ||
-		a.PublicTestPagesSitePicker != b.PublicTestPagesSitePicker ||
+		!boolEq(a.PublicTestPagesSitePicker, b.PublicTestPagesSitePicker) ||
 		a.PowDifficulty != b.PowDifficulty ||
-		a.ObserveOnly != b.ObserveOnly ||
+		!boolEq(a.ObserveOnly, b.ObserveOnly) ||
 		a.Disabled != b.Disabled ||
 		a.CaptchaProvider != b.CaptchaProvider {
 		return false

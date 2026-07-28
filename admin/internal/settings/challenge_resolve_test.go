@@ -27,7 +27,7 @@ func TestChallengeResolveDeclared(t *testing.T) {
 		PowCookieValidSeconds: 86400 * 7,
 		PowDifficulty:         16,
 		ChallengeHTMLPath:     "/srv/shop.html",
-		ObserveOnly:           true,
+		ObserveOnly:           BoolPtr(true),
 	}
 	c := ChallengeConfig{
 		Default: ChallengeValues{
@@ -45,9 +45,12 @@ func TestChallengeResolveDeclared(t *testing.T) {
 	}
 }
 
-// TestChallengeResolveEmptyEntry: an empty entry returns the zero value (=
-// no field-level fallback to Default).
-func TestChallengeResolveEmptyEntry(t *testing.T) {
+// TestChallengeResolveEmptyEntryInherits: an entry that sets nothing now reads
+// exactly like Default.  It used to return the zero value instead -- which is
+// how a site that had been given one setting quietly lost every other one, and
+// why the settings page had to seed each new record with a full snapshot of
+// Default to compensate.
+func TestChallengeResolveEmptyEntryInherits(t *testing.T) {
 	c := ChallengeConfig{
 		Default: ChallengeValues{
 			PowCookieValidSeconds: 86400 * 3,
@@ -58,12 +61,43 @@ func TestChallengeResolveEmptyEntry(t *testing.T) {
 			"empty.example.com": {},
 		},
 	}
-	got := c.Resolve("empty.example.com")
-	if !reflect.DeepEqual(got, ChallengeValues{}) {
-		t.Fatalf("empty entry: want zero, got %+v", got)
+	if got := c.Resolve("empty.example.com"); !reflect.DeepEqual(got, c.Default) {
+		t.Fatalf("empty entry: want Default %+v, got %+v", c.Default, got)
 	}
-	if got.PowDifficulty == c.Default.PowDifficulty {
-		t.Fatalf("empty entry leaked Default.PowDifficulty=%d (would be field-level inherit)", c.Default.PowDifficulty)
+}
+
+// TestChallengeResolveMergesPerField: what the site sets wins; what it leaves
+// alone keeps following Default, so raising a global knob reaches sites that
+// override a different one.
+func TestChallengeResolveMergesPerField(t *testing.T) {
+	c := ChallengeConfig{
+		Default: ChallengeValues{
+			PowCookieValidSeconds: 86400 * 3,
+			PowDifficulty:         18,
+			DebugRateLimitPer5Min: 20,
+			PublicTestPages:       BoolPtr(true),
+		},
+		Sites: map[string]ChallengeValues{
+			"shop.example.com": {PowDifficulty: 22},
+		},
+	}
+	got := c.Resolve("shop.example.com")
+	if got.PowDifficulty != 22 {
+		t.Errorf("the field the site set = %d, want 22", got.PowDifficulty)
+	}
+	if got.PowCookieValidSeconds != 86400*3 || got.DebugRateLimitPer5Min != 20 {
+		t.Errorf("untouched fields did not inherit: %+v", got)
+	}
+	// Raising a global knob now reaches the site.
+	c.Default.DebugRateLimitPer5Min = 50
+	if got := c.Resolve("shop.example.com"); got.DebugRateLimitPer5Min != 50 {
+		t.Errorf("a Default change did not reach an overriding site: %d", got.DebugRateLimitPer5Min)
+	}
+
+	// An explicit false must not read as "unset" and inherit true back.
+	c.Sites["shop.example.com"] = ChallengeValues{PublicTestPages: BoolPtr(false)}
+	if c.Resolve("shop.example.com").IsPublicTestPages() {
+		t.Error("an explicitly disabled flag inherited Default's true")
 	}
 }
 

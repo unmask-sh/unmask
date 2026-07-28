@@ -896,7 +896,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// In forward-auth mode AuthCheck has already returned pass, so this path
 	// is not reached.  Reached via native mode (nginx plugin sends straight
 	// to the challenge route).
-	if forceQuery == "" && h.snapshotSettings().Challenge.Resolve(site).ObserveOnly {
+	if forceQuery == "" && h.snapshotSettings().Challenge.Resolve(site).IsObserveOnly() {
 		h.serveObserveOnlyRedirect(w, r, site)
 		return
 	}
@@ -1458,7 +1458,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// the aside body.  Operator-side previews (= /admin/test/ or ?_preview=1)
 	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
 	// reflects the toggle live without saving.
-	showCredit := br.ShowCredit
+	showCredit := br.IsShowCredit()
 	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
 		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
 			showCredit = true
@@ -1787,7 +1787,7 @@ func (h *Handler) PublicTestGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cfg := h.snapshotSettings()
 		ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
-		if !ch.PublicTestPages {
+		if !ch.IsPublicTestPages() {
 			http.NotFound(w, r)
 			return
 		}
@@ -1846,7 +1846,7 @@ func (h *Handler) testSiteOverride(r *http.Request) (string, bool) {
 	}
 	cfg := h.snapshotSettings()
 	ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
-	if ch.PublicTestPages && ch.PublicTestPagesSitePicker {
+	if ch.IsPublicTestPages() && ch.IsPublicTestPagesSitePicker() {
 		return s, true
 	}
 	return "", false
@@ -1862,7 +1862,7 @@ func (h *Handler) testSitePickerHTML(r *http.Request) string {
 	cfg := h.snapshotSettings()
 	if !strings.Contains(r.URL.Path, "/admin/test") {
 		ch := cfg.Challenge.Resolve(siteFromRequest(r, cfg))
-		if !ch.PublicTestPages || !ch.PublicTestPagesSitePicker {
+		if !ch.IsPublicTestPages() || !ch.IsPublicTestPagesSitePicker() {
 			return ""
 		}
 	}

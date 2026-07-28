@@ -538,7 +538,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// phase right after install, to see "how many challenges would
 	// fire if I went strict."  The original action is saved in
 	// payload.would_be_action.
-	observeOnly := cfg.Challenge.Resolve(site).ObserveOnly && (action == "challenge" || action == "block")
+	observeOnly := cfg.Challenge.Resolve(site).IsObserveOnly() && (action == "challenge" || action == "block")
 	wouldBeAction := action
 	wouldBeReason := reason
 
