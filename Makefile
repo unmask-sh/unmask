@@ -948,6 +948,34 @@ distro-check:
 vet:
 	cd admin && go vet ./...
 
+## lint          - golangci-lint, exactly as CI runs it
+#
+# GOTOOLCHAIN pins the Go used for package loading to the version in
+# .github/workflows/ci.yml.  golangci-lint embeds its own go/types, built
+# against the Go it was released with, and cannot type-check standard-library
+# sources from a NEWER Go -- on a box whose system Go is ahead of CI's it dies
+# with "file requires newer Go version go1.NN (application built with go1.NN-1)"
+# and a stack trace, which reads like a broken linter rather than a version
+# mismatch.  Pinning here means `make lint` reproduces CI on any dev box.
+#
+# LINT_GO must track the go-version in ci.yml; LINT_VERSION the action's.
+LINT_GO      ?= 1.25.10
+LINT_VERSION ?= v2.12.2
+lint:
+	@# `go install` drops the binary in GOBIN/GOPATH/bin, which is commonly not
+	@# on PATH; look there too rather than telling the user to install what they
+	@# already have.
+	@LINT=$$(command -v golangci-lint 2>/dev/null || echo "$$(go env GOPATH)/bin/golangci-lint"); \
+	if [ ! -x "$$LINT" ]; then \
+		echo 'golangci-lint not found. Install $(LINT_VERSION):'; \
+		echo '  go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(LINT_VERSION)'; \
+		exit 1; \
+	fi; \
+	echo "=== golangci-lint (Go $(LINT_GO), as CI) ==="; \
+	cd admin && GOTOOLCHAIN=go$(LINT_GO) "$$LINT" run --timeout=5m ./...
+
+.PHONY: lint
+
 ## fmt           - gofmt -l (list of unformatted files)
 fmt:
 	cd admin && gofmt -l . | tee /dev/stderr | (! read x)
