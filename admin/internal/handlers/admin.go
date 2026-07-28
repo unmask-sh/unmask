@@ -1160,7 +1160,8 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		cpFailForceReasonCounts map[string]int
 		cpTopIPs                []dashboard.CaptchaPassIPRow
 		cpRecent                []dashboard.CaptchaPassRow
-		cpReuse                 []dashboard.CaptchaReuseRow
+		cpReuse                 []dashboard.CookieReuseRow
+		powReuse                []dashboard.CookieReuseRow
 		aiTraffic               []dashboard.AITrafficRow
 		aiTrafficAll            []AITrafficRow
 		aiTrafficDetail         map[string][]AICrawlerRow
@@ -1310,7 +1311,12 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	})
 	run("CaptchaReuse", func() error {
 		var e error
-		cpReuse, e = dashboard.CaptchaReuseTopIPs(ctx, h.DB, site, hosts, hours, 30)
+		cpReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "captcha", hosts, hours, 30)
+		return e
+	})
+	run("PowReuse", func() error {
+		var e error
+		powReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "pow", hosts, hours, 30)
 		return e
 	})
 	run("AITrafficBreakdown", func() error {
@@ -1535,15 +1541,18 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		ByReason       []cpReasonRow
 	}{Total: cpTotal, Bot: cpBot, Ok: cpTotal - cpBot, TopIPs: cpTopIPs, Recent: cpRecent, ByReason: cpByReason}
 
-	// CAPTCHA cookie reuse ranking: the reuse table holds the JA4 STRING (not a
-	// verdict name), so classify each JA4 -> verdict action via matchJA4 (the same
-	// resolver the forward-auth path uses), tagging bot/suspect rows for highlight.
+	// Cookie reuse rankings: the reuse table holds the JA4 STRING (not a verdict
+	// name), so classify each JA4 -> verdict action via matchJA4 (the same
+	// resolver the forward-auth path uses), tagging bot/suspect rows for
+	// highlight.  Both kinds get the identical treatment.
 	reuseNginxCfg := h.cfg().Nginx
-	for i := range cpReuse {
-		verdict, action := matchJA4(cpReuse[i].JA4, reuseNginxCfg)
-		cpReuse[i].Verdict = verdict
-		cpReuse[i].IsBot = action == "bot" || action == "suspect"
-		cpReuse[i].CountryCode = lookupCC(cpReuse[i].IP)
+	for _, rows := range [][]dashboard.CookieReuseRow{cpReuse, powReuse} {
+		for i := range rows {
+			verdict, action := matchJA4(rows[i].JA4, reuseNginxCfg)
+			rows[i].Verdict = verdict
+			rows[i].IsBot = action == "bot" || action == "suspect"
+			rows[i].CountryCode = lookupCC(rows[i].IP)
+		}
 	}
 
 	type kindPt struct {
@@ -1669,6 +1678,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"JSForeignCount":     jsForeignCount,
 		"CaptchaReport":      captchaReport,
 		"CaptchaReuse":       cpReuse,
+		"PowReuse":           powReuse,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"AITrafficDetail":    aiTrafficDetail,

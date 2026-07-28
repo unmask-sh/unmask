@@ -2341,23 +2341,38 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	return out, rows.Err()
 }
 
-// --- CAPTCHA cookie reuse ranking (= "使い回し CAPTCHA アクセスランキング") ----
+// --- cookie reuse ranking (= "使い回しクッキー アクセスランキング") -----------
 //
-// Ranks IPs by how many requests they made REUSING a CAPTCHA-obtained _bv cookie
-// (= the actual scrape volume of a single cookie).  Unlike the CAPTCHA-pass
-// report above -- which reads unmask_event, where the challenge fires -- a reused
-// valid cookie triggers NO challenge, so this signal exists only in the nginx
-// access-log stream the nginxlog worker aggregates into unmask_cookie_ip_minute
-// (kind="captcha" rows).  A high request count on a non-ok JA4 is a persistent
-// scraper riding one cookie.
+// Ranks IPs by how many requests they made REUSING a valid _bv cookie (= the
+// actual scrape volume of a single cookie).  Unlike the CAPTCHA-pass report
+// above -- which reads unmask_event, where the challenge fires -- a reused valid
+// cookie triggers NO challenge, so this signal exists only in the nginx
+// access-log stream the nginxlog worker aggregates into unmask_cookie_ip_minute.
+// Every other per-IP view on this dashboard reads unmask_event, which is exactly
+// why this traffic is invisible without the card.
+//
+// The two kinds read very differently:
+//
+//	captcha -- the client had to clear a CAPTCHA, so holding the cookie at all
+//	           is already a suspicion signal; volume alone is the story.
+//	pow     -- the transparent challenge every first-time visitor solves, so
+//	           ordinary humans hold these too.  Volume alone is NOT a signal:
+//	           a carrier CGNAT egress or a corporate proxy will out-request any
+//	           scraper simply by having hundreds of people behind it.  What
+//	           separates them is fingerprint spread -- a NAT shows many distinct
+//	           JA4s, one scraper riding one solve shows exactly one.  Hence
+//	           JA4Count, which is what makes the PoW section worth reading.
 
-// CaptchaReuseRow is one IP's CAPTCHA-cookie reuse volume over the window.
-type CaptchaReuseRow struct {
-	IP          string
-	JA4         string
-	Verdict     string // filled by the handler by resolving JA4 -> verdict name
-	UA          string
-	UAFull      string
+// CookieReuseRow is one IP's cookie-reuse volume over the window.
+type CookieReuseRow struct {
+	IP      string
+	JA4     string
+	Verdict string // filled by the handler by resolving JA4 -> verdict name
+	UA      string
+	UAFull  string
+	// JA4Count: distinct JA4s seen for this IP in the window.  1 alongside a
+	// high request count means a single client; many means shared egress.
+	JA4Count    int
 	Requests    int
 	LastSeen    string
 	LastSeenTS  int64
@@ -2365,41 +2380,48 @@ type CaptchaReuseRow struct {
 	CountryCode string // filled by the handler from IP-geo
 }
 
-// CaptchaReuseTopIPs ranks IPs by reused-cookie request volume from
-// unmask_cookie_ip_minute.  Like the other cookie_minute-backed reads
-// (CookieStatus / DailyPassByDay) it filters by site only: the table carries no
-// host column, so the hosts argument is accepted for signature parity but not
-// applied.  Valid on both SQLite (glebarez) and MariaDB.
-func CaptchaReuseTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaReuseRow, error) {
+// CookieReuseTopIPs ranks IPs by reused-cookie request volume from
+// unmask_cookie_ip_minute for one cookie kind ("captcha" / "pow").  Like the
+// other cookie_minute-backed reads (CookieStatus / DailyPassByDay) it filters by
+// site only: the table carries no host column, so the hosts argument is accepted
+// for signature parity but not applied.  Valid on both SQLite (glebarez) and
+// MariaDB.
+//
+// kind is bound as a parameter, never interpolated.
+func CookieReuseTopIPs(ctx context.Context, d *db.DB, site, kind string, hosts []string, hours, limit int) ([]CookieReuseRow, error) {
 	_ = hosts              // no host column on unmask_cookie_ip_minute (mirrors CookieStatus / DailyPassByDay)
 	cond := siteCond(site) // validates via siteValRE; never interpolate site raw
+	// The row keeps one ja4 per (minute, ip), so COUNT(DISTINCT ja4) over the
+	// window is a lower bound on the fingerprints behind the IP -- enough to
+	// tell "one client" from "shared egress", which is all the column claims.
 	stmt := fmt.Sprintf(`
         SELECT ip,
-               MAX(ja4)              AS ja4,
-               MAX(ua)               AS ua,
-               COALESCE(SUM(cnt), 0) AS reqs,
-               MAX(last_seen)        AS last_seen
+               MAX(ja4)                 AS ja4,
+               MAX(ua)                  AS ua,
+               COUNT(DISTINCT ja4)      AS ja4n,
+               COALESCE(SUM(cnt), 0)    AS reqs,
+               MAX(last_seen)           AS last_seen
         FROM unmask_cookie_ip_minute
-        WHERE %s%s
+        WHERE %s%s AND kind = ?
         GROUP BY ip
         ORDER BY reqs DESC, last_seen DESC LIMIT ?`, minWindow(ctx, hours, "bucket_min"), cond)
-	rows, err := d.QueryContext(ctx, stmt, limit)
+	rows, err := d.QueryContext(ctx, stmt, kind, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []CaptchaReuseRow
+	var out []CookieReuseRow
 	for rows.Next() {
 		var raw []byte
-		var reqs int
+		var ja4n, reqs int
 		var ja4, ua, ls sql.NullString
-		if err := rows.Scan(&raw, &ja4, &ua, &reqs, &ls); err != nil {
+		if err := rows.Scan(&raw, &ja4, &ua, &ja4n, &reqs, &ls); err != nil {
 			return nil, err
 		}
-		out = append(out, CaptchaReuseRow{
+		out = append(out, CookieReuseRow{
 			IP: ipFromBytes(raw), JA4: ja4.String,
 			UA: truncate(ua.String, 80), UAFull: ua.String,
-			Requests: reqs,
+			JA4Count: ja4n, Requests: reqs,
 			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}

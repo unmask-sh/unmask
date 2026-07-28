@@ -265,18 +265,23 @@ type countryHourBucket struct {
 	kinds map[string]int
 }
 
-// cookieIPKey / cookieIPBucket: per-minute, per-(site, ip) aggregation of
-// CAPTCHA-cookie reuse.  A bucket is created ONLY for a request that carried a
-// valid CAPTCHA-obtained _bv cookie (kind="captcha") -- i.e. the actual reuse /
-// scrape volume of a single cookie, which the challenge-event stream
-// (unmask_event) never observes because no challenge fires when a valid cookie
-// is presented.  Drives the "CAPTCHA cookie reuse" dashboard card via
-// unmask_cookie_ip_minute.  ip is held as its raw string here (= map key) and
-// packed to the canonical bytes form at flush time.
+// cookieIPKey / cookieIPBucket: per-minute, per-(site, ip, kind) aggregation of
+// cookie reuse.  A bucket is created ONLY for a request that carried a valid
+// _bv cookie -- i.e. the actual reuse / scrape volume of a single cookie, which
+// the challenge-event stream (unmask_event) never observes because no challenge
+// fires when a valid cookie is presented.  kind separates the two ways that
+// cookie was earned ("captcha" / "pow"); both matter, for opposite reasons:
+// holding a CAPTCHA cookie is already a suspicion signal, while a PoW cookie is
+// what every ordinary visitor holds -- so a PoW row only becomes interesting at
+// high volume on a single fingerprint (= one solve being ridden).  Drives the
+// cookie-reuse dashboard card via unmask_cookie_ip_minute.  ip is held as its
+// raw string here (= map key) and packed to the canonical bytes form at flush
+// time.
 type cookieIPKey struct {
 	minute int64
 	site   string
 	ip     string
+	kind   string
 }
 
 type cookieIPBucket struct {
@@ -531,11 +536,11 @@ func (r *Reader) onLine(line string) {
 	// captcha / challenge_served — keep the catalogue aligned so the two
 	// tables can be compared 1:1.
 	r.bumpCountryHourly(p.site, p.ip, kind)
-	// Per-IP CAPTCHA-cookie reuse ranking: only kind="captcha" lines (= a valid
-	// CAPTCHA-obtained _bv cookie was reused) are recorded; bumpCookieIP no-ops
-	// for every other kind, so this is one string compare on the common path.
-	// Uses the raw p.kind (not the challenge_served alias) so only genuine reuse
-	// is counted, mirroring bumpTrafficHLL's pass detection.
+	// Per-IP cookie-reuse ranking: only lines carrying a valid _bv cookie
+	// (kind="captcha" / "pow") are recorded; bumpCookieIP no-ops for every other
+	// kind, so this is at most two string compares on the common path.  Uses the
+	// raw p.kind (not the challenge_served alias) so only genuine reuse is
+	// counted, mirroring bumpTrafficHLL's pass detection.
 	r.bumpCookieIP(p.site, p.ip, p.ja4, p.ua, p.kind)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
@@ -723,23 +728,34 @@ func (r *Reader) BumpCountry(site, ip, kind string) {
 // mirroring parse()'s site truncation.
 const cookieIPUAMax = 255
 
-// bumpCookieIP: record one CAPTCHA-cookie-reuse request into the per-(minute,
-// site, ip) bucket.  Only kind="captcha" (= a valid CAPTCHA-obtained _bv cookie
-// was presented) is counted; every other kind is a no-op, so the hot path adds
-// just one string compare per log line.  ja4 / ua keep the latest value seen for
-// the IP within the minute bucket.
+// cookieIPKinds: the _bv kinds whose reuse is ranked per IP.  Deliberately not
+// every value $bv_kind can take: "challenge_served" is a challenge being shown
+// (which does write an unmask_event row, so hunt already sees it) and "" is no
+// cookie at all -- neither is a cookie being reused.
+func cookieIPKinds(kind string) bool { return kind == "captcha" || kind == "pow" }
+
+// bumpCookieIP: record one cookie-reuse request into the per-(minute, site, ip,
+// kind) bucket.  Only a presented valid _bv cookie counts ("captcha" / "pow");
+// every other kind is a no-op, so the hot path adds at most two string compares
+// per log line.  ja4 / ua keep the latest value seen for the IP within the
+// minute bucket.
+//
+// This runs on the log-reader goroutine, never on a request path: nginx already
+// emits ip= and kind= on every line (log_format unmask_minimal) and the DB is
+// touched once a minute by flushOnce, so widening the filter costs a map lookup
+// per matching line and nothing in nginx.
 //
 // nil-safe (= no-op when the Reader isn't running).  ip="" (= log line carried
 // no ip= field) is a no-op since there is no client to rank.
 func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
-	if r == nil || r.d == nil || kind != "captcha" || ip == "" {
+	if r == nil || r.d == nil || !cookieIPKinds(kind) || ip == "" {
 		return
 	}
 	if len(ua) > cookieIPUAMax {
 		ua = ua[:cookieIPUAMax]
 	}
 	now := time.Now().Unix()
-	key := cookieIPKey{minute: now / 60, site: site, ip: ip}
+	key := cookieIPKey{minute: now / 60, site: site, ip: ip, kind: kind}
 	r.mu.Lock()
 	b, ok := r.cookieIPBuckets[key]
 	if !ok {
@@ -755,7 +771,7 @@ func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
 
 // BumpCookieIP: exported entry point for forward-auth mode (= /api/check sees
 // the reuse request but emits no access-log line of its own, so without this the
-// CAPTCHA-reuse card stays empty in forward-auth).  nil-safe.
+// cookie-reuse card stays empty in forward-auth).  nil-safe.
 func (r *Reader) BumpCookieIP(site, ip, ja4, ua, kind string) {
 	if r == nil {
 		return
@@ -1031,7 +1047,7 @@ func (r *Reader) flushOnce(final bool) {
 		}
 		lastSeen := time.Unix(e.b.lastSeen, 0).UTC().Format("2006-01-02 15:04:05.000")
 		if _, err := tx.ExecContext(ctx, stmtCookieIP,
-			e.key.minute, e.key.site, ipb, e.b.ja4, e.b.ua, e.b.cnt, lastSeen); err != nil {
+			e.key.minute, e.key.site, ipb, e.key.kind, e.b.ja4, e.b.ua, e.b.cnt, lastSeen); err != nil {
 			log.Printf("nginxlog: flush exec(cookie-ip): %v", err)
 			return
 		}
@@ -1105,20 +1121,20 @@ func countryHourlyUpsertStmt(drv db.Driver) string {
 			cnt = cnt + VALUES(cnt)`
 }
 
-// cookieIPUpsertStmt: accumulate cnt with (bucket_min, site, ip) as the unique
-// key, into unmask_cookie_ip_minute.  ja4 / ua / last_seen take the latest write
-// (= the most recent flush for that IP-minute wins), giving the read side a
-// representative fingerprint + last-activity timestamp per IP.
+// cookieIPUpsertStmt: accumulate cnt with (bucket_min, site, ip, kind) as the
+// unique key, into unmask_cookie_ip_minute.  ja4 / ua / last_seen take the
+// latest write (= the most recent flush for that IP-minute wins), giving the
+// read side a representative fingerprint + last-activity timestamp per IP.
 func cookieIPUpsertStmt(drv db.Driver) string {
 	if drv == db.DriverSQLite {
-		return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, ja4, ua, cnt, last_seen)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(bucket_min, site, ip) DO UPDATE SET
+		return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(bucket_min, site, ip, kind) DO UPDATE SET
 				cnt = cnt + excluded.cnt,
 				ja4 = excluded.ja4, ua = excluded.ua, last_seen = excluded.last_seen`
 	}
-	return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, ja4, ua, cnt, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			cnt = cnt + VALUES(cnt),
 			ja4 = VALUES(ja4), ua = VALUES(ua), last_seen = VALUES(last_seen)`
