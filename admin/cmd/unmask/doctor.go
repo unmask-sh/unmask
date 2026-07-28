@@ -33,6 +33,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -105,6 +106,20 @@ func cmdDoctor(args []string) error {
 		if diag.Message != "" {
 			addOK(diag.Label, diag.Message)
 		}
+	}
+
+	// Load the same hub-pulled state render-nginx loads before rendering: the
+	// bypass IP ranges (Googlebot / Bingbot / AI crawlers) and the browser
+	// baselines behind the stale-browser tier.  Without this the dry-run below
+	// renders from the embedded snapshot alone, which is a different -- and
+	// smaller -- conf than the daemon and render-nginx produce.  The freshness
+	// check then compared that against the real conf and reported every node
+	// that had ever pulled ranges as stale, sending operators to re-render a
+	// conf that was already correct.  (Observed on tool1-jp / tool1-us: 146
+	// missing Google range lines out of 4,844.)
+	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
+	if err := browsermajors.LoadState(""); err != nil {
+		addWarn("browser baselines", fmt.Sprintf("%v (render check falls back to the built-in baselines)", err))
 	}
 
 	// 2. nginxconf render dry-run.  Render into a private 0700 temp dir and
@@ -985,17 +1000,7 @@ func checkRenderFreshness(freshDir, outputDir string, addWarn, addOK func(string
 		freshS := strings.ReplaceAll(stripRenderStamps(fresh), freshDir, outputDir)
 		liveS := stripRenderStamps(live)
 		if freshS != liveS {
-			stale = append(stale, name)
-			// DEBUG
-			fl := strings.Split(freshS, "\n")
-			ll := strings.Split(liveS, "\n")
-			for i := 0; i < len(fl) && i < len(ll); i++ {
-				if fl[i] != ll[i] {
-					fmt.Fprintf(os.Stderr, "DBG %s line %d:\n  live : %q\n  fresh: %q\n", name, i, ll[i], fl[i])
-					break
-				}
-			}
-			fmt.Fprintf(os.Stderr, "DBG %s lines live=%d fresh=%d\n", name, len(ll), len(fl))
+			stale = append(stale, name+" ("+firstDifference(liveS, freshS)+")")
 		}
 	}
 	switch {
@@ -1005,10 +1010,41 @@ func checkRenderFreshness(freshDir, outputDir string, addWarn, addOK func(string
 	case len(stale) > 0:
 		addWarn("nginx render freshness", fmt.Sprintf(
 			"%s in %s %s out of date with config.yml — a config change has not been applied to nginx. Run `unmask render-nginx` then reload nginx (the web UI does this automatically on save).",
-			strings.Join(stale, ", "), outputDir, plural(len(stale), "is", "are")))
+			strings.Join(stale, "; "), outputDir, plural(len(stale), "is", "are")))
 	default:
 		addOK("nginx render freshness", "rendered conf matches config.yml")
 	}
+}
+
+// firstDifference summarises how the live conf and a fresh render diverge, so
+// the warning says WHAT changed rather than only that something did.  Without
+// it an operator has no way to tell a real pending change from a check that
+// rendered under different inputs -- which is how a false "stale" reading cost
+// an afternoon of looking for a config edit nobody had made.
+func firstDifference(live, fresh string) string {
+	ll := strings.Split(live, "\n")
+	fl := strings.Split(fresh, "\n")
+	for i := 0; i < len(ll) && i < len(fl); i++ {
+		if ll[i] != fl[i] {
+			return fmt.Sprintf("first change at line %d: %s -> %s",
+				i+1, truncLine(ll[i]), truncLine(fl[i]))
+		}
+	}
+	// Identical up to the shorter one: the difference is purely length.
+	return fmt.Sprintf("%d lines live vs %d rendered", len(ll), len(fl))
+}
+
+// truncLine keeps a sample line short enough for one terminal row, and marks
+// an empty line so "-> " does not read as a truncation.
+func truncLine(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "(blank)"
+	}
+	if len(s) > 60 {
+		return s[:57] + "..."
+	}
+	return s
 }
 
 // stripRenderStamps removes the per-render generated_at / unmask_version
