@@ -2090,15 +2090,25 @@ type GlobalConfig struct {
 const (
 	// DefaultStaleBrowserLag: how many Chromium majors behind current stable
 	// counts as stale when the operator leaves StaleBrowserLag unset.  The
-	// 2026-07-15 scraper sat 11 behind (139 vs 150); 10 keeps a comfortable
-	// margin above the genuine 1-2-major long tail.
-	DefaultStaleBrowserLag = 10
+	// 2026-07-15 scraper sat 11 behind (139 vs 150), so the threshold has to
+	// stay under that -- but 10 sat right on top of the genuine long tail.
+	// Measured over a production day: visitors escalated by this tier
+	// abandoned at 51% against a 4.5% baseline, and 44% of the ones who stayed
+	// solved the CAPTCHA -- i.e. they were people, and the tier was costing
+	// about half of them.  At Chromium's ~4-week cadence 10 majors is roughly
+	// ten months; a corporate or auto-update-disabled browser lands there
+	// routinely.  15 (~14 months) still catches the incident's UA with room to
+	// spare while stepping off the population that was paying for it.
+	DefaultStaleBrowserLag = 15
 	// DefaultStaleBrowserLagFirefox: Firefox's own built-in lag, judged
 	// independently per family.  It happens to equal the Chromium value today
 	// because the release cadences (and the genuine-old-UA long tails) look
 	// alike -- not because the families share a constant; revisit separately
-	// if either pace changes.
-	DefaultStaleBrowserLagFirefox = 10
+	// if either pace changes.  Raised alongside Chromium: the measurement
+	// above is Chromium-side, but the reasoning (cadence vs real-world update
+	// lag) applies the same way, and leaving Firefox stricter than Chromium
+	// would be an accident rather than a decision.
+	DefaultStaleBrowserLagFirefox = 15
 	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
 	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
 	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
@@ -3009,6 +3019,20 @@ func defaults() Settings {
 			// browsers through with zero friction (trades depth for UX).
 			// Unknown UAs likewise PoW, via the empty UnknownUAAction.
 			KnownBrowserAction: "pow_only",
+			// Header integrity on by default.  A UA claiming Chrome / Edge /
+			// Opera that carries no Sec-CH-UA over HTTPS is contradicting
+			// itself -- a real Chromium always sends client hints there -- and
+			// the population it catches is almost purely non-human: measured
+			// over 24h on two production sites it served 7,856 and 1,120
+			// challenges while 0.3% / 2.9% of them ran the page's JS at all
+			// and exactly one visitor per site completed one.  That is a lower
+			// false-positive rate than the stale-browser tier next to it.
+			// Forging a User-Agent is a one-liner; sending the whole coherent
+			// header set a browser sends is not, and this axis charges for the
+			// difference.  It is clamped to a challenge (never a hard block),
+			// so the cost of the rare miss -- a TLS-intercepting proxy that
+			// strips the header -- is one solvable screen, not a lockout.
+			HeaderIntegrity: true,
 		},
 		Server: Server{
 			Bind:     "127.0.0.1",
