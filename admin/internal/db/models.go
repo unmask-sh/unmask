@@ -62,13 +62,16 @@ func (User) TableName() string { return "unmask_user" }
 // UserAudit: a row of unmask_user_audit.  At has a CURRENT_TIMESTAMP default on
 // both backends; leaving it the zero value lets the DB stamp it.
 type UserAudit struct {
-	ID       int64     `gorm:"primaryKey;autoIncrement"`
-	UserID   *int64    `gorm:"column:user_id"`
-	Username string    `gorm:"column:username;not null"`
-	Action   string    `gorm:"column:action;not null"`
-	Target   *string   `gorm:"column:target"`
-	Detail   *string   `gorm:"column:detail"`
-	At       time.Time `gorm:"column:at;not null;autoCreateTime:false"`
+	ID       int64   `gorm:"primaryKey;autoIncrement"`
+	UserID   *int64  `gorm:"column:user_id"`
+	Username string  `gorm:"column:username;not null"`
+	Action   string  `gorm:"column:action;not null"`
+	Target   *string `gorm:"column:target"`
+	Detail   *string `gorm:"column:detail"`
+	// IP: where the action came from.  Nil for rows written before the column
+	// existed and for callers with no HTTP request behind them (CLI, cron).
+	IP *string   `gorm:"column:ip"`
+	At time.Time `gorm:"column:at;not null;autoCreateTime:false"`
 }
 
 func (UserAudit) TableName() string { return "unmask_user_audit" }

@@ -1,0 +1,15 @@
+-- 0024 audit ip: record where an admin action came from.
+--
+-- The audit trail answered who / when / what but not from where, and nothing
+-- else on the box fills that gap: nginx's admin access log records only the
+-- load-balancer hop, so on an LB-fronted node the operator's real address was
+-- written down nowhere.  That came to a head while configuring
+-- nginx.admin_allowed_ips -- there was no way to learn which addresses
+-- legitimately reach the admin UI, and guessing an allowlist locks you out.
+-- It matters just as much after an incident, when "which of these logins was
+-- not us" is the first question.
+--
+-- Text rather than the packed bytes unmask_event uses: this table is small and
+-- read by hand far more often than by code, and `WHERE ip = '...'` on a plain
+-- string is what an operator can actually type.
+ALTER TABLE unmask_user_audit ADD COLUMN ip VARCHAR(45);
