@@ -41,6 +41,7 @@ type auditEnriched struct {
 	Username    string
 	Action      string
 	Target      string
+	IP          string // where the action came from; empty for pre-0024 rows and CLI callers
 	At          string
 	Section     string // settings_save only
 	Diff        string
@@ -77,6 +78,7 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 			Action:      e.Action,
 			At:          e.At,
 			UserIDValid: e.UserID.Valid,
+			IP:          e.IP.String,
 		}
 		if e.UserID.Valid {
 			row.UserID = e.UserID.Int64

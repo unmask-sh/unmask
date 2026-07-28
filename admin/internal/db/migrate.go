@@ -999,6 +999,11 @@ CREATE TABLE IF NOT EXISTS unmask_user_audit (
     target      VARCHAR(128),                                -- object acted on (e.g. a username or ban key)
     detail      TEXT,                                        -- free-form detail / JSON
     at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP  -- when the action happened (UTC)
+    -- NOTE: the ip column is added by migration 0024, not here.  This block
+    -- runs BEFORE the numbered migrations, and SQLite has no
+    -- "ADD COLUMN IF NOT EXISTS" -- declaring it in both places makes 0024 fail
+    -- with "duplicate column" on every fresh install.  Same split 0010/0011
+    -- used for unmask_event.scheme / .port.
 );
 CREATE INDEX IF NOT EXISTS idx_user_audit_at      ON unmask_user_audit(at);
 CREATE INDEX IF NOT EXISTS idx_user_audit_user_at ON unmask_user_audit(user_id, at);
@@ -1123,6 +1128,7 @@ CREATE TABLE IF NOT EXISTS unmask_user_audit (
     action      VARCHAR(64) NOT NULL COMMENT 'action performed (e.g. login, create_user, ban_add)',
     target      VARCHAR(128) COMMENT 'object acted on (e.g. a username or ban key)',
     detail      LONGTEXT COMMENT 'free-form detail / JSON',
+    -- ip is added by migration 0024 (see the SQLite schema for why).
     at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'when the action happened (UTC)',
     PRIMARY KEY (id),
     KEY idx_at      (at),

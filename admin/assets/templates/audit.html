@@ -134,6 +134,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
       <tr>
         <th>{{ t .Lang "audit.col.at" }}</th>
         <th>{{ t .Lang "audit.col.user" }}</th>
+        <th>{{ t .Lang "audit.col.ip" }}</th>
         <th>{{ t .Lang "audit.col.action" }}</th>
         <th>{{ t .Lang "audit.col.target" }}</th>
         <th>{{ t .Lang "audit.col.detail" }}</th>
@@ -144,6 +145,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
       <tr>
         <td class="at">{{ .At }}</td>
         <td class="username">{{ .Username }}{{ if not .UserIDValid }}<span class="muted"> (anon)</span>{{ end }}</td>
+        <td class="audit-ip">{{ if .IP }}{{ .IP }}{{ else }}<span class="muted" title="{{ t $.Lang "audit.ip_absent" }}">-</span>{{ end }}</td>
         <td class="action"><span class="action-pill act-{{ .Action }}">{{ .Action }}</span></td>
         <td class="target">{{ if .Target }}{{ .Target }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="detail">

@@ -27,7 +27,8 @@ type AuditEntry struct {
 	Action   string
 	Target   sql.NullString
 	Detail   sql.NullString
-	At       string // ISO8601-ish.  Driver-dependent (= easy to scan as string).
+	IP       sql.NullString // client IP; empty for pre-0024 rows and CLI callers
+	At       string         // ISO8601-ish.  Driver-dependent (= easy to scan as string).
 }
 
 // Record: append one audit entry.  Best-effort: the caller continues even on failure.
@@ -43,6 +44,11 @@ func (r *Repository) Record(ctx context.Context, userID int64, username, action,
 	}
 	if detailJSON != "" {
 		row.Detail = &detailJSON
+	}
+	// Filled by the admin middleware, which already resolves the real client
+	// address behind any proxy.  Absent for CLI / cron callers.
+	if ip := ClientIPFromContext(ctx); ip != "" {
+		row.IP = &ip
 	}
 	// Omit At from the insert so the DB's CURRENT_TIMESTAMP default fires --
 	// but we still set it above for safety; either way is fine.
@@ -80,7 +86,7 @@ func (r *Repository) ListAudit(ctx context.Context, limit, offset int, userIDFil
 	if offset < 0 {
 		offset = 0
 	}
-	q := `SELECT id, user_id, username, action, target, detail, at
+	q := `SELECT id, user_id, username, action, target, detail, ip, at
 	      FROM unmask_user_audit`
 	args := []any{}
 	if userIDFilter > 0 {
@@ -98,7 +104,7 @@ func (r *Repository) ListAudit(ctx context.Context, limit, offset int, userIDFil
 	for rows.Next() {
 		var e AuditEntry
 		var atRaw any
-		if err := rows.Scan(&e.ID, &e.UserID, &e.Username, &e.Action, &e.Target, &e.Detail, &atRaw); err != nil {
+		if err := rows.Scan(&e.ID, &e.UserID, &e.Username, &e.Action, &e.Target, &e.Detail, &e.IP, &atRaw); err != nil {
 			return nil, err
 		}
 		e.At = formatAt(atRaw)
@@ -129,11 +135,11 @@ func (r *Repository) CountAudit(ctx context.Context, userIDFilter int64) (int, e
 // Used by the audit restore handler to retrieve the `before` snapshot.
 func (r *Repository) GetAuditByID(ctx context.Context, id int64) (*AuditEntry, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, user_id, username, action, target, detail, at
+		`SELECT id, user_id, username, action, target, detail, ip, at
 		 FROM unmask_user_audit WHERE id = ?`, id)
 	var e AuditEntry
 	var atRaw any
-	if err := row.Scan(&e.ID, &e.UserID, &e.Username, &e.Action, &e.Target, &e.Detail, &atRaw); err != nil {
+	if err := row.Scan(&e.ID, &e.UserID, &e.Username, &e.Action, &e.Target, &e.Detail, &e.IP, &atRaw); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
