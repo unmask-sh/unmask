@@ -1,6 +1,11 @@
 package settings
 
-import "gopkg.in/yaml.v3"
+import (
+	"regexp"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
 
 // Relocation of the challenge page's appearance from ChallengeValues to
 // BrandingValues.
@@ -141,4 +146,37 @@ func challengeValuesEqual(a, b ChallengeValues) bool {
 		return false
 	}
 	return true
+}
+
+// relocatedKeyRE matches the strict-probe complaint about a key this file
+// deliberately consumes.
+var relocatedKeyRE = regexp.MustCompile(
+	`field (theme|show_credit|custom_colors) not found in type settings\.ChallengeValues`)
+
+// withoutRelocatedAppearanceKeys drops the lines of a strict-probe error that
+// name a relocated appearance key, returning "" when nothing else remains.
+//
+// The probe exists to tell an operator that a key in their file was thrown
+// away.  For these three that is untrue -- relocateLegacyAppearance reads them
+// straight from the YAML and applies them -- so reporting them would say a
+// site's theme had been dropped when it is in force, and would send the
+// operator looking for a mistake they did not make.  Everything else the probe
+// finds still gets through.
+//
+// Goes away with the rest of this file.
+func withoutRelocatedAppearanceKeys(msg string) string {
+	lines := strings.Split(msg, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, ln := range lines {
+		if relocatedKeyRE.MatchString(ln) {
+			continue
+		}
+		kept = append(kept, ln)
+	}
+	// A bare "yaml: unmarshal errors:" header with every detail line filtered
+	// out is noise, not a finding.
+	if len(kept) == 1 && strings.HasSuffix(strings.TrimSpace(kept[0]), "unmarshal errors:") {
+		return ""
+	}
+	return strings.Join(kept, "\n")
 }

@@ -3222,7 +3222,9 @@ func Load(path string) (Settings, error) {
 		probeDec.KnownFields(true)
 		var probe Settings
 		if perr := probeDec.Decode(&probe); perr != nil {
-			log.Printf("unmask: config %s has unrecognized or misplaced keys (ignored, defaults used): %v", resolved, perr)
+			if msg := withoutRelocatedAppearanceKeys(perr.Error()); msg != "" {
+				log.Printf("unmask: config %s has unrecognized or misplaced keys (ignored, defaults used): %s", resolved, msg)
+			}
 		}
 		// Files written before the challenge page's appearance moved to the
 		// branding record still carry theme / colors / credit under challenge.
