@@ -385,8 +385,21 @@ function dismissHuntTip(id){
     <input type="text" name="ua"  placeholder="{{ t .Lang "hunt.filter.ua_placeholder" }}" value="{{ .UAFilter }}" style="width:14rem">
     <input type="text" name="ref" placeholder="Ref ID" value="{{ .RefFilter }}" style="width:11rem">
     {{ if .RefFilter }}<span class="muted" style="font-size:.8rem">→ Ref ID: <code style="user-select:all">{{ .RefFilter }}</code></span>{{ end }}
+    {{/* Groups first: the question an operator brings to this log is usually
+         "show me everything that passed" or "everything still in flight", not
+         one concrete phase -- and answering it one phase at a time means
+         running the query four times and merging by eye.  The value is a
+         comma-separated list; the handler validates each name, so an unknown
+         one narrows nothing instead of widening the result. */}}
     <select name="phase">
       <option value="">{{ t .Lang "hunt.filter.all_phase" }}</option>
+      <optgroup label="{{ t .Lang "hunt.filter.phase_groups" }}">
+        <option value="bv_pow_only,bv_captcha_only,bv_pow_then_captcha,bv_rebind" {{ if eq .Phase "bv_pow_only,bv_captcha_only,bv_pow_then_captcha,bv_rebind" }}selected{{ end }}>{{ t .Lang "hunt.filter.phase_group_passed" }}</option>
+        <option value="serve,load,pow_pass,captcha" {{ if eq .Phase "serve,load,pow_pass,captcha" }}selected{{ end }}>{{ t .Lang "hunt.filter.phase_group_inflight" }}</option>
+        <option value="verify_ng,cookie_err,bv_rebind_reject,error" {{ if eq .Phase "verify_ng,cookie_err,bv_rebind_reject,error" }}selected{{ end }}>{{ t .Lang "hunt.filter.phase_group_failed" }}</option>
+        <option value="abandon" {{ if eq .Phase "abandon" }}selected{{ end }}>{{ t .Lang "hunt.filter.phase_group_left" }}</option>
+      </optgroup>
+      <optgroup label="{{ t .Lang "hunt.filter.phase_individual" }}">
       <option value="serve"               {{ if eq .Phase "serve"               }}selected{{ end }}>serve</option>
       <option value="load"                {{ if eq .Phase "load"                }}selected{{ end }}>load</option>
       <option value="pow_pass"            {{ if eq .Phase "pow_pass"            }}selected{{ end }}>pow_pass</option>
@@ -400,6 +413,7 @@ function dismissHuntTip(id){
       <option value="cookie_err"          {{ if eq .Phase "cookie_err"          }}selected{{ end }}>cookie_err</option>
       <option value="error"               {{ if eq .Phase "error"               }}selected{{ end }}>error</option>
       <option value="check"               {{ if eq .Phase "check"               }}selected{{ end }}>check</option>
+      </optgroup>
     </select>
     <select name="force_reason" title="{{ t .Lang "hunt.filter.force_reason_title" }}">
       <option value="">{{ t .Lang "hunt.filter.all_reason" }}</option>

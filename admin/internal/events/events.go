@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -49,12 +50,54 @@ var allowedPhases = map[string]bool{
 	"verify_ng":           true,
 	"error":               true,
 	"cookie_err":          true,
-	"check":               true,
-	"bv_rebind":           true,
-	"bv_rebind_reject":    true,
+	// abandon: the visitor left while the challenge was still running (tab
+	// closed, back, navigated away).  Without it a departure is invisible and
+	// reads exactly like a bot that fetched the page and never executed the
+	// JS -- the only way to tell them apart was the absence of a later phase,
+	// which cannot distinguish "gave up after 3 seconds" from "never ran".
+	// The payload carries the phase it left from and the elapsed ms, so the
+	// question the counts cannot answer -- are we losing people to the wait,
+	// and at which step -- becomes measurable.
+	"abandon":          true,
+	"check":            true,
+	"bv_rebind":        true,
+	"bv_rebind_reject": true,
 }
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }
+
+// parsePhaseList turns the hunt filter's phase value into a validated set.
+// One name behaves as before; a comma-separated list lets the UI offer groups
+// ("passed", "in flight", "rejected") without a second query parameter.
+// Anything not a known phase is dropped -- the value is user input, and a
+// silent drop keeps a typo from widening the result set instead of narrowing
+// it.  Order is preserved and duplicates collapse, so the SQL placeholder
+// count always matches.
+func parsePhaseList(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, 4)
+	for _, p := range strings.Split(v, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" || seen[p] || !allowedPhases[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+// CanonicalPhaseFilter validates a hunt phase filter value (one name, or a
+// comma-separated group) and returns it in canonical form -- known names only,
+// de-duplicated, original order.  Returns "" when nothing in the value is a
+// known phase, which callers treat as "keep what the user typed" so the query
+// returns nothing instead of everything.
+func CanonicalPhaseFilter(v string) string {
+	return strings.Join(parsePhaseList(v), ",")
+}
 
 // PackIP returns the binary representation of an IPv4 (4B) or IPv6 (16B)
 // address, or nil if `s` is not parseable.
@@ -359,6 +402,28 @@ type Row struct {
 	// (the roaming-rebind cause); notably surfaces rate_limit so a rate-limit
 	// block is greppable / countable from `unmask events`.
 	ForceReason string `json:"force_reason,omitempty"`
+	// AbandonPhase / LeftAtMs / NoticeDelayMs: departure detail, sourced from
+	// the abandon beacon.  AbandonPhase is the step the visitor was on when
+	// they left; LeftAtMs is when they actually left (the browser's own event
+	// timestamp) and NoticeDelayMs how much later the page was able to run the
+	// handler -- the PoW holds the main thread, so those two differ and only
+	// the first answers "how long did they wait".  Empty / zero off abandon rows.
+	AbandonPhase string `json:"abandon_phase,omitempty"`
+	// AbandonVia: "pagehide" (left the page -- navigated away or closed) or
+	// "hidden" (only backgrounded the tab, so they may still come back).  The
+	// distinction browsers DO let us make, unlike Back-vs-close.
+	AbandonVia    string `json:"abandon_via,omitempty"`
+	LeftAtMs      int    `json:"left_at_ms,omitempty"`
+	NoticeDelayMs int    `json:"notice_delay_ms,omitempty"`
+	// Returned: on phase=abandon rows, whether the same client sent anything
+	// else within the next 30 seconds.  Browsers refuse to tell JS whether a
+	// visitor pressed Back or closed the tab, and the one hint they do give
+	// (the bfcache persisted flag) is structurally false here because a
+	// challenge page must be served no-store.  The server can still answer the
+	// question that matters: going back lands the visitor somewhere and
+	// produces another request, while closing produces silence.  0 = nothing
+	// followed (gone), >0 = they stayed on the site.
+	Returned int `json:"returned,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -419,6 +484,40 @@ func decorateRowFromPayload(row *Row, payload string) {
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)
 	row.ForceReason = extractForceReason(payload)
+	if row.Phase == "abandon" {
+		row.AbandonPhase = extractStringField(payload, "abandon_phase", 32)
+		row.AbandonVia = extractStringField(payload, "abandon_via", 16)
+		row.LeftAtMs = extractIntField(payload, "left_at_ms")
+		row.NoticeDelayMs = extractIntField(payload, "notice_delay_ms")
+	}
+}
+
+// extractIntField pulls a bare (unquoted) numeric field out of payload_json.
+// Same hand-rolled approach as extractStringField: these run on every hunt row,
+// and a full JSON parse per row costs more than the field is worth.
+func extractIntField(payload, key string) int {
+	needle := `"` + key + `":`
+	i := strings.Index(payload, needle)
+	if i < 0 {
+		return 0
+	}
+	rest := payload[i+len(needle):]
+	j := 0
+	for j < len(rest) && (rest[j] == ' ') {
+		j++
+	}
+	start := j
+	for j < len(rest) && rest[j] >= '0' && rest[j] <= '9' {
+		j++
+	}
+	if j == start || j-start > 12 {
+		return 0
+	}
+	n, err := strconv.Atoi(rest[start:j])
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // extractForceReason pulls "force_reason" out of payload_json -- why a challenge
@@ -694,9 +793,22 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
 	         FROM unmask_event WHERE 1=1`
 	args := []any{}
-	if phase != "" {
-		stmt += " AND phase = ?"
-		args = append(args, phase)
+	// phase accepts a comma-separated list so the UI can offer meaningful
+	// groups -- "everything that passed", "everything still in flight" -- which
+	// is what an operator actually asks the log, rather than forcing one
+	// concrete phase at a time and re-running the query for each.  Unknown
+	// names are dropped instead of being passed to SQL: the value reaches here
+	// from a query string.
+	if phases := parsePhaseList(phase); len(phases) > 0 {
+		stmt += " AND phase IN (" + strings.TrimSuffix(strings.Repeat("?,", len(phases)), ",") + ")"
+		for _, p := range phases {
+			args = append(args, p)
+		}
+	} else if strings.TrimSpace(phase) != "" {
+		// Asked to filter, but nothing in the value is a real phase.  Return
+		// nothing rather than everything: a typo must not silently hand back
+		// the whole log while the form still shows a filter as applied.
+		stmt += " AND 1=0"
 	}
 	// force_reason: the axis that raised the challenge, matched exactly against
 	// payload "force_reason" (header / stale / asn / geo / honeypot / banned /
@@ -799,7 +911,52 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 		decorateRowFromPayload(&row, payload.String)
 		out = append(out, row)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	fillAbandonReturned(ctx, d, out)
+	return out, nil
+}
+
+// fillAbandonReturned answers, for each abandon row on the page, whether that
+// client sent anything else in the following 30 seconds.
+//
+// It is the only way to tell "pressed Back" from "closed the tab": browsers do
+// not expose the gesture, and the bfcache hint that hints at it is always false
+// for a no-store challenge page.  Going back navigates somewhere and shows up
+// as another request; closing shows up as nothing.
+//
+// One query per abandon row, and only for abandon rows -- a page of the hunt
+// log holds a handful at most, so this costs nothing on the common path and
+// nothing at all on pages with none.  A failing lookup leaves the field at 0
+// rather than failing the page: this is a hint beside the row, not the row.
+func fillAbandonReturned(ctx context.Context, d *db.DB, rows []Row) {
+	for i := range rows {
+		if rows[i].Phase != "abandon" || rows[i].IP == "" {
+			continue
+		}
+		ipb := PackIP(rows[i].IP)
+		if ipb == nil {
+			continue
+		}
+		// The window bound is computed here rather than in SQL: SQLite spells
+		// it datetime(x,'+30 seconds') and MariaDB DATE_ADD(x, INTERVAL 30
+		// SECOND), and a formatted literal needs neither.
+		if rows[i].TsMs == 0 {
+			continue
+		}
+		until := time.UnixMilli(rows[i].TsMs).UTC().Add(30 * time.Second).Format(eventTimeFormat)
+		var n sql.NullInt64
+		err := d.QueryRowContext(ctx, `
+            SELECT COUNT(*) FROM unmask_event
+            WHERE ip_address = ? AND id <> ?
+              AND date_created > ? AND date_created <= ?`,
+			ipb, rows[i].ID, rows[i].Date, until).Scan(&n)
+		if err != nil {
+			continue
+		}
+		rows[i].Returned = int(n.Int64)
+	}
 }
 
 // FetchByRef returns events whose payload carries the given correlation ref (the
