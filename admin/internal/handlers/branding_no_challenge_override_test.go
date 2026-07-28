@@ -63,8 +63,8 @@ func TestBrandingSiteSaveLeavesChallengeAlone(t *testing.T) {
 	if !ok {
 		t.Fatalf("no branding record was written (status %d)", rr.Code)
 	}
-	if bv.Theme != "terminal" || !bv.ShowCredit {
-		t.Errorf("branding record = theme %q credit %v, want terminal/true", bv.Theme, bv.ShowCredit)
+	if bv.Theme != "terminal" || !bv.IsShowCredit() {
+		t.Errorf("branding record = theme %q credit %v, want terminal/true", bv.Theme, bv.IsShowCredit())
 	}
 	// And nothing was written to the challenge side.  This is the whole point.
 	if _, leaked := got.Challenge.Sites["shop.example.com"]; leaked {

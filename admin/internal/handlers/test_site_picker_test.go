@@ -47,14 +47,14 @@ func TestTestSiteOverrideGate(t *testing.T) {
 
 	// Public pages ON alone is not enough -- the picker flag is a separate opt-in.
 	s := pickerSettings(h)
-	s.Challenge.Default.PublicTestPages = true
+	s.Challenge.Default.PublicTestPages = settings.BoolPtr(true)
 	h.SetSettings(s)
 	if _, ok := h.testSiteOverride(r); ok {
 		t.Fatal("override granted with public_test_pages only (picker flag off)")
 	}
 
 	// Public pages ON + picker opt-in: granted.
-	s.Challenge.Default.PublicTestPagesSitePicker = true
+	s.Challenge.Default.PublicTestPagesSitePicker = settings.BoolPtr(true)
 	h.SetSettings(s)
 	if got, ok := h.testSiteOverride(r); !ok || got != "shop.example.jp" {
 		t.Fatalf("public picker: want (shop.example.jp,true), got (%q,%v)", got, ok)
@@ -114,8 +114,8 @@ func TestTestIndexSitePickerRendering(t *testing.T) {
 
 	// Public side with the opt-in: picker renders.
 	s := pickerSettings(h)
-	s.Challenge.Default.PublicTestPages = true
-	s.Challenge.Default.PublicTestPagesSitePicker = true
+	s.Challenge.Default.PublicTestPages = settings.BoolPtr(true)
+	s.Challenge.Default.PublicTestPagesSitePicker = settings.BoolPtr(true)
 	h.SetSettings(s)
 	if body := serve("/unmask/test/"); !strings.Contains(body, `id="site-picker"`) {
 		t.Fatal("public test index misses the picker despite the opt-in")
@@ -214,7 +214,7 @@ func TestApplyChallengeFormSitePicker(t *testing.T) {
 		t.Helper()
 		r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=challenge", strings.NewReader(vals.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		c := &settings.ChallengeValues{PublicTestPagesSitePicker: true}
+		c := &settings.ChallengeValues{PublicTestPagesSitePicker: settings.BoolPtr(true)}
 		if err := applyChallengeForm(c, r); err != nil {
 			t.Fatalf("applyChallengeForm: %v", err)
 		}
@@ -223,7 +223,7 @@ func TestApplyChallengeFormSitePicker(t *testing.T) {
 
 	// Marker present + unchecked: stored true flips to false.
 	c := mkReq(url.Values{"public_test_pages_site_picker_present": {"1"}})
-	if c.PublicTestPagesSitePicker {
+	if c.IsPublicTestPagesSitePicker() {
 		t.Fatal("unchecked box (marker present) must clear the flag")
 	}
 	// Marker present + checked: set.
@@ -231,12 +231,12 @@ func TestApplyChallengeFormSitePicker(t *testing.T) {
 		"public_test_pages_site_picker_present": {"1"},
 		"public_test_pages_site_picker":         {"1"},
 	})
-	if !c.PublicTestPagesSitePicker {
+	if !c.IsPublicTestPagesSitePicker() {
 		t.Fatal("checked box must set the flag")
 	}
 	// Marker absent (a form that predates the field): leave untouched.
 	c = mkReq(url.Values{})
-	if !c.PublicTestPagesSitePicker {
+	if !c.IsPublicTestPagesSitePicker() {
 		t.Fatal("absent marker must not touch the stored value")
 	}
 }

@@ -227,6 +227,18 @@ func loadDashboardTemplate() (*template.Template, error) {
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+			// toJSON marshals a value for embedding in a <script> block or as a
+			// JS literal.  Returned as template.JS so it lands as a literal
+			// rather than being re-quoted into a JS string; that is safe here
+			// because encoding/json escapes <, > and & inside strings, so a
+			// value containing "</script>" cannot close the element.
+			"toJSON": func(v any) template.JS {
+				b, err := json.Marshal(v)
+				if err != nil {
+					return template.JS("null")
+				}
+				return template.JS(b)
+			},
 			// htmlEscapeText: EXTRA-escape a value destined for a data-* attribute
 			// that JS later reads via .dataset (which HTML-decodes) and injects
 			// with innerHTML.  Without this double-escape the decode+raw-inject

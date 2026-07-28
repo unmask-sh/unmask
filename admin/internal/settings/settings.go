@@ -100,15 +100,16 @@ type ChallengeConfig struct {
 // Otherwise Default is returned verbatim.
 func (c ChallengeConfig) Resolve(site string) ChallengeValues {
 	if v, ok := c.Sites[site]; ok && !v.Disabled {
-		return v
+		return mergeChallenge(c.Default, v)
 	}
 	return c.Default
 }
 
-// ChallengeValues: one complete challenge record.  This carries the same
-// fields the single-set Challenge struct did before multi-site v2 -- a full
-// set of knobs (PoW difficulty, cookie windows, CAPTCHA provider, ...) that
-// a site either inherits via Default or fully owns via Sites[<host>].
+// ChallengeValues: one challenge record.  Default carries the whole set of
+// knobs (PoW difficulty, cookie windows, CAPTCHA provider, ...); a site record
+// carries only the ones that site sets, and Resolve lays it over Default field
+// by field.  "Not set" is the Go zero for most fields; the bools where false is
+// a real answer are pointers so silence stays distinguishable from off.
 type ChallengeValues struct {
 	// PowCookieValidSeconds: server-side validity window for _bv issued via
 	// the PoW path (= 4-segment "pow2" cookie).  Browser-side cookie Max-Age
@@ -126,7 +127,7 @@ type ChallengeValues struct {
 	// available to logged-in users regardless of this flag. Turning public
 	// access ON exposes cookie-clear / PoW / CAPTCHA test pages to anyone,
 	// so it should be enabled only for demos or CI smoke tests.
-	PublicTestPages bool `yaml:"public_test_pages,omitempty"`
+	PublicTestPages *bool `yaml:"public_test_pages,omitempty"`
 	// PublicTestPagesPassword: optional shared password that gates the public
 	// test pages via HTTP Basic Auth.  When PublicTestPages is true and this
 	// is non-empty, /unmask/test/* requires Basic Auth (= the visitor's
@@ -141,7 +142,7 @@ type ChallengeValues struct {
 	// listed site's difficulty, so this is meant for intranet-style closed
 	// deployments; default false.  The admin-side test page (login required)
 	// always has the picker regardless of this flag.
-	PublicTestPagesSitePicker bool `yaml:"public_test_pages_site_picker,omitempty"`
+	PublicTestPagesSitePicker *bool `yaml:"public_test_pages_site_picker,omitempty"`
 	// CAPTCHA provider: "builtin" (= unmask's standard behavioral) | "turnstile" |
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
 	CaptchaProvider Captcha `yaml:"captcha,omitempty"`
@@ -163,7 +164,7 @@ type ChallengeValues struct {
 	//
 	// Toggle with `unmask apply-preset monitor` (= ObserveOnly=true).
 	// Reset back to false when switching to strict / balanced.
-	ObserveOnly bool `yaml:"observe_only,omitempty"`
+	ObserveOnly *bool `yaml:"observe_only,omitempty"`
 	// Disabled: when true on a Sites[<host>] entry, Resolve(site) returns
 	// Default instead of this record.  Used by the admin UI's override
 	// toggle so the operator can flip an override off without losing the
@@ -231,7 +232,7 @@ type Branding struct {
 // Otherwise Default is returned verbatim.
 func (b Branding) Resolve(site string) BrandingValues {
 	if v, ok := b.Sites[site]; ok && !v.Disabled {
-		return v
+		return mergeBranding(b.Default, v)
 	}
 	return b.Default
 }
@@ -282,7 +283,7 @@ type BrandingValues struct {
 	// it ON shows it as pill + icon. The trade-off between the self-hosted
 	// principle (= hide the backend from visitors) and brand exposure is left
 	// to the site owner.
-	ShowCredit bool `yaml:"show_credit,omitempty"`
+	ShowCredit *bool `yaml:"show_credit,omitempty"`
 	// Deny page design (rate-limit "retry" deny + ban "blocked" deny), part of
 	// this site's appearance so it follows the same per-site Default/Sites
 	// resolution as the logo / site name.  Theme: "" / auto / light / dark;
@@ -3490,6 +3491,10 @@ func preservedUnknownYAML(path string) []byte {
 }
 
 func Save(s Settings, path string) error {
+	// An explicit false on a Default record is the same as unset (nothing sits
+	// above Default to inherit from), and persisting it would rewrite the file
+	// on every save.
+	normalizeDefaults(&s)
 	if path == "" {
 		return fmt.Errorf("save: path is empty")
 	}
