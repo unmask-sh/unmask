@@ -230,9 +230,9 @@ func TestRelocatedKeysDoNotWarn(t *testing.T) {
 
 	mixed := "yaml: unmarshal errors:\n" +
 		"  line 35: field theme not found in type settings.ChallengeValues\n" +
-		"  line 41: field pow_dificulty not found in type settings.ChallengeValues"
+		"  line 41: field powdifficulty not found in type settings.ChallengeValues"
 	got := withoutRelocatedAppearanceKeys(mixed)
-	if !strings.Contains(got, "pow_dificulty") {
+	if !strings.Contains(got, "powdifficulty") {
 		t.Errorf("a genuine typo was swallowed with the relocated keys:\n%s", got)
 	}
 	if strings.Contains(got, "field theme") {
