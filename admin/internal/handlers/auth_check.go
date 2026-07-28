@@ -417,10 +417,21 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := uaDecide(ua, ja4Action, cfg, matchers.rangeVerifiedUA); ok {
+			// Header integrity is listed BEFORE the UA axis.  pickStrongest
+			// keeps the first decision at the winning severity, and the two
+			// default to the same action (captcha_only) -- so with both firing
+			// the later one used to be reported as the reason.  The UA axis is
+			// where the stale-browser tier lives, which meant a stale Chromium
+			// missing its client hints was attributed to "stale" here while
+			// the native path attributed the same request to "header": one
+			// visitor, two different stories depending on deploy mode.  Header
+			// integrity is the sharper signal of the two (a browser's own
+			// headers contradict its UA), so it wins the tie in both modes.
+			// A genuinely stronger UA action still wins on severity.
+			if d, ok := headerDecide(ua, secChUA, scheme, modernHTTP, cfg.Global); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := headerDecide(ua, secChUA, scheme, modernHTTP, cfg.Global); ok {
+			if d, ok := uaDecide(ua, ja4Action, cfg, matchers.rangeVerifiedUA); ok {
 				decisions = append(decisions, d)
 			}
 			winner, suppressed := pickStrongest(decisions)
@@ -603,9 +614,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		h.NginxLog.BumpCrawler(ua, action != "pass")
 		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind)
 		h.NginxLog.BumpCountry(site, ip, kind)
-		// Per-IP CAPTCHA-cookie reuse ranking.  Pass the raw bvKind (not the
-		// challenge_served alias) so only a genuine reused CAPTCHA cookie is
-		// counted; bumpCookieIP no-ops unless bvKind=="captcha".
+		// Per-IP cookie-reuse ranking.  Pass the raw bvKind (not the
+		// challenge_served alias) so only a genuinely reused cookie is counted;
+		// bumpCookieIP no-ops unless bvKind is "captcha" or "pow".
 		h.NginxLog.BumpCookieIP(site, ip, ja4, ua, bvKind)
 	}
 
