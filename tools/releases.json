@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.12",
+  "latest": "0.1.13",
   "releases": [
+    {
+      "version": "0.1.13",
+      "date": "2026-07-29",
+      "notes": "Per-site settings stop freezing: a site record now holds only what you actually set for it, and every other value keeps following the global one — previously, configuring a single knob for a site detached it from the global record for all the others, silently, so raising the global proof-of-work difficulty afterwards skipped every site you had ever touched. The challenge page's theme, colours and credit line move to the design settings where the logo already lived, so styling a site no longer creates challenge overrides nobody asked for; existing config files are read in their old shape and carried across on load. Added: a per-site delete (the override toggle only ever meant \"inherit for now, keep my values\", and nothing removed the record itself); PoW-cookie reuse in the cookie-reuse ranking, which is the only place a client riding one solved challenge is visible at all, since a request carrying a valid cookie fires no challenge and writes no event; and the source IP of every audited admin action, which nothing else on the box recorded once a load balancer was in front. Fixed: `unmask doctor` reported nginx config as out of date on any node that had pulled crawler IP ranges — it re-rendered without them and compared against the real thing, advising a re-render for a config that was already correct."
+    },
     {
       "version": "0.1.12",
       "date": "2026-07-28",
