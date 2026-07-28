@@ -1,6 +1,9 @@
 package settings
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestLegacyAppearanceMovesAndPrunes: a config written before the appearance
 // move must keep working, and the sites it pinned must come back to
@@ -208,5 +211,31 @@ branding:
 	}
 	if got := s.Branding.Sites["shop.example.com"].Theme; got != "terminal" {
 		t.Errorf("branding theme = %q, want terminal preserved", got)
+	}
+}
+
+// TestRelocatedKeysDoNotWarn: the strict probe exists to tell an operator that
+// a key in their file was thrown away.  For the relocated appearance keys that
+// would be untrue -- they are read and applied -- so reporting them would send
+// the operator hunting for a theme that is in fact in force.  Anything else the
+// probe finds must still come through.
+func TestRelocatedKeysDoNotWarn(t *testing.T) {
+	only := "yaml: unmarshal errors:\n" +
+		"  line 35: field theme not found in type settings.ChallengeValues\n" +
+		"  line 37: field show_credit not found in type settings.ChallengeValues\n" +
+		"  line 40: field custom_colors not found in type settings.ChallengeValues"
+	if got := withoutRelocatedAppearanceKeys(only); got != "" {
+		t.Errorf("a file carrying only relocated keys still warns:\n%s", got)
+	}
+
+	mixed := "yaml: unmarshal errors:\n" +
+		"  line 35: field theme not found in type settings.ChallengeValues\n" +
+		"  line 41: field pow_dificulty not found in type settings.ChallengeValues"
+	got := withoutRelocatedAppearanceKeys(mixed)
+	if !strings.Contains(got, "pow_dificulty") {
+		t.Errorf("a genuine typo was swallowed with the relocated keys:\n%s", got)
+	}
+	if strings.Contains(got, "field theme") {
+		t.Errorf("a relocated key survived the filter:\n%s", got)
 	}
 }
