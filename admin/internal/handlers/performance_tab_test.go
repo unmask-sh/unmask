@@ -70,6 +70,20 @@ func TestPerformanceTabProfiles(t *testing.T) {
 		}
 	}
 
+	// The presets are shares of the host's memory, and the UI has to say so:
+	// showing only megabytes made them read as fixed sizes, which is what made
+	// an extra "automatic" choice seem necessary.  Assert the ratio, the
+	// "on this host" framing, and the two groups that separate host-following
+	// profiles from the fixed one.
+	for _, want := range []string{"メモリの 3%", "メモリの 6%", "メモリの 12%", "この環境では"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("presets must be presented as a share of host memory; missing %q", want)
+		}
+	}
+	if !strings.Contains(body, `perf-group-h`) || !strings.Contains(body, "環境に合わせて自動調整") || !strings.Contains(body, "固定") {
+		t.Error("profiles must be grouped into host-following vs fixed")
+	}
+
 	// Custom fields + the write-batching knobs live here too.
 	for _, want := range []string{`name="db_max_conns"`, `name="sqlite_cache_mb"`, `name="events_batch_size"`, `name="events_batch_interval_ms"`} {
 		if !strings.Contains(body, want) {

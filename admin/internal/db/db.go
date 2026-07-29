@@ -235,6 +235,13 @@ type SQLiteMemPlan struct {
 	TotalCache int64 // PerConn * Conns -- the anonymous part (OOM-relevant)
 	TotalMmap  int64 // PerConn * Conns -- file-backed, reclaimable
 	Automatic  bool  // false when pinned via db.sqlite_cache_mb
+	// SharePercent is the profile's share of usable memory (the setting's real
+	// content -- the byte figures are just what that share works out to here).
+	SharePercent int
+	// Capped is true when the share hit the profile's ceiling, so the bytes
+	// below are the cap rather than the percentage.  Saying so keeps the UI
+	// honest on a large host, where every share would otherwise look wrong.
+	Capped     bool
 	MemLimit   int64 // the memory limit the budget was derived from (0 = unknown)
 	FromCgroup bool  // MemLimit came from a cgroup limit rather than total RAM
 }
@@ -244,15 +251,26 @@ func SQLiteMemPlanFor(s settings.DB) SQLiteMemPlan {
 	per := sqlitePerConnBytesFor(s)
 	conns := sqliteMaxOpenFor(s)
 	limit, fromCgroup := memLimitDetail()
+	profile := s.ResolvedPerfProfile()
+	share, capped := 0, false
+	if profile != settings.PerfProfileCustom {
+		div := budgetDivisorFor(profile)
+		share = int(100 / div)
+		if limit > 0 {
+			capped = limit/div > budgetCeilFor(profile)
+		}
+	}
 	return SQLiteMemPlan{
-		Conns:      conns,
-		CPUs:       runtime.GOMAXPROCS(0),
-		PerConn:    per,
-		TotalCache: per * int64(conns),
-		TotalMmap:  per * int64(conns),
-		Automatic:  s.ResolvedPerfProfile() != settings.PerfProfileCustom,
-		MemLimit:   limit,
-		FromCgroup: fromCgroup,
+		SharePercent: share,
+		Capped:       capped,
+		Conns:        conns,
+		CPUs:         runtime.GOMAXPROCS(0),
+		PerConn:      per,
+		TotalCache:   per * int64(conns),
+		TotalMmap:    per * int64(conns),
+		Automatic:    s.ResolvedPerfProfile() != settings.PerfProfileCustom,
+		MemLimit:     limit,
+		FromCgroup:   fromCgroup,
 	}
 }
 

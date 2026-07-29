@@ -5313,11 +5313,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
     {{ if .Retention.MemPlanShow }}
     <div style="font-size:.85rem;color:#334155;line-height:1.8;margin-bottom:1rem">
-      <div>{{ t .Lang "settings.perf.host_label" }}:
-        <strong>{{ if .Retention.MemLimitStr }}{{ .Retention.MemLimitStr }}{{ else }}?{{ end }}</strong>
-        {{ if .Retention.MemFromCgroup }}<span style="color:#94a3b8;font-size:.75rem">(cgroup)</span>{{ end }}
-        · CPU <strong>{{ .Retention.MemCPUs }}</strong>
-      </div>
       <div>{{ t .Lang "settings.perf.current_label" }}:
         <strong>{{ .Retention.MemTotalStr }}</strong>
         <span style="color:#94a3b8;font-size:.75rem">
@@ -5331,16 +5326,46 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          data-est, so the browser never re-implements the budget rule. */}}
     <div class="field">
       <div class="field-label">{{ t .Lang "settings.perf.profile_label" }}</div>
-      <div id="perf-profiles" style="display:flex;flex-wrap:wrap;gap:.5rem" data-cpus="{{ .Retention.MemCPUs }}">
-        {{ range .Retention.MemProfiles }}
-        <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
-          <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
-                 data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
-          <span class="perf-total">{{ .TotalStr }}</span>
-          {{ if .SplitStr }}<span class="perf-split">{{ printf (t $.Lang "settings.perf.split_conns") .SplitStr }}</span>{{ end }}
-          <span class="perf-note">{{ t $.Lang .NoteKey }}</span>
-        </label>
-        {{ end }}
+      <div class="perf-host">{{ t .Lang "settings.perf.host_label" }}:
+        <strong>{{ if .Retention.MemLimitStr }}{{ .Retention.MemLimitStr }}{{ else }}?{{ end }}</strong>
+        {{ if .Retention.MemFromCgroup }}<span style="color:#94a3b8">(cgroup)</span>{{ end }}
+        · CPU <strong>{{ .Retention.MemCPUs }}</strong>
+      </div>
+      <div id="perf-profiles" data-cpus="{{ .Retention.MemCPUs }}">
+        {{/* Two groups, because that is the real distinction: the first three
+             are shares of the host's memory (they move when the host does), the
+             last is a fixed size.  Showing them as one flat row of megabytes is
+             what made the presets read as fixed values. */}}
+        <div class="perf-group-h">{{ t .Lang "settings.perf.group_auto" }}
+          <span class="perf-group-sub">{{ t .Lang "settings.perf.group_auto_sub" }}</span>
+        </div>
+        <div class="perf-row">
+          {{ range .Retention.MemProfiles }}{{ if .Auto }}
+          <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
+            <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
+                   data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
+            <span class="perf-ratio">{{ printf (t $.Lang "settings.perf.ratio_of_memory") .RatioStr }}</span>
+            <span class="perf-here">{{ t $.Lang "settings.perf.on_this_host" }}
+              <span class="perf-total">{{ .TotalStr }}</span>{{ if .Capped }} <span class="perf-capped">{{ t $.Lang "settings.perf.capped" }}</span>{{ end }}
+            </span>
+            {{ if .SplitStr }}<span class="perf-split">{{ printf (t $.Lang "settings.perf.split_conns") .SplitStr }}</span>{{ end }}
+            <span class="perf-note">{{ t $.Lang .NoteKey }}</span>
+          </label>
+          {{ end }}{{ end }}
+        </div>
+        <div class="perf-group-h">{{ t .Lang "settings.perf.group_fixed" }}
+          <span class="perf-group-sub">{{ t .Lang "settings.perf.group_fixed_sub" }}</span>
+        </div>
+        <div class="perf-row">
+          {{ range .Retention.MemProfiles }}{{ if not .Auto }}
+          <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
+            <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
+                   data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
+            {{ if ne .TotalStr "—" }}<span class="perf-total">{{ .TotalStr }}</span>{{ end }}
+            <span class="perf-note">{{ t $.Lang .NoteKey }}</span>
+          </label>
+          {{ end }}{{ end }}
+        </div>
       </div>
       <div style="font-size:.8rem;color:#64748b;margin-top:.6rem">
         {{ t .Lang "settings.perf.estimate_label" }}: <strong id="perf-estimate">{{ .Retention.MemTotalStr }}</strong>
@@ -5368,7 +5393,10 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div id="perf-conns-warn" class="note" style="margin-top:.6rem;display:none;background:#fef3c7;color:#92400e;border-color:#fcd34d">
         ⚠ {{ t .Lang "settings.perf.conns_warn" }}
       </div>
-      <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">{{ safeHTML (t .Lang "settings.perf.custom_desc") }}</div>
+      <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
+        {{ printf (t .Lang "settings.perf.custom_reference") .Retention.MemStandardTotalStr }}<br>
+        {{ safeHTML (t .Lang "settings.perf.custom_desc") }}
+      </div>
     </div>
     {{ end }}
   </div>
@@ -5395,10 +5423,17 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 </form>
 
 <style>
-.perf-card{display:flex;flex-direction:column;gap:.15rem;border:1px solid #cbd5e1;border-radius:.4rem;padding:.6rem .8rem;cursor:pointer;min-width:11.5rem;background:#fff}
+.perf-row{display:flex;flex-wrap:wrap;gap:.5rem;margin-bottom:.9rem}
+.perf-group-h{font-size:.82rem;font-weight:600;color:#334155;margin:.2rem 0 .4rem}
+.perf-group-sub{font-weight:400;color:#94a3b8;font-size:.75rem;margin-left:.4rem}
+.perf-host{font-size:.78rem;color:#64748b;margin:.1rem 0 .7rem}
+.perf-ratio{font-size:.9rem;font-weight:700;color:#0f172a}
+.perf-here{font-size:.75rem;color:#64748b}
+.perf-capped{font-size:.68rem;color:#92400e;background:#fef3c7;border-radius:.2rem;padding:0 .25rem}
+.perf-card{display:flex;flex-direction:column;gap:.15rem;border:1px solid #cbd5e1;border-radius:.4rem;padding:.6rem .8rem;cursor:pointer;min-width:12.5rem;background:#fff}
 .perf-card-active{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6 inset}
 .perf-card b{font-size:.9rem}
-.perf-total{font-size:1.05rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums;line-height:1.2}
+.perf-total{font-size:.95rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums}
 .perf-split{font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums}
 .perf-note{font-size:.72rem;color:#94a3b8;line-height:1.4}
 </style>
