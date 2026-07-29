@@ -958,11 +958,14 @@ func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.Global
 		// Chromium only started sending Sec-CH-UA in 89; on anything older its
 		// absence is the norm, not a contradiction.  Without this fence the axis
 		// challenged every genuine old browser (an aging Android WebView, a
-		// pinned kiosk build) on EVERY request -- and since the missing header
-		// is a permanent property of that browser, solving the challenge changed
-		// nothing: the next request re-fired the axis, so such a visitor could
-		// never get in at all.  Seen in the wild on a handset whose WebView is
-		// years behind: CAPTCHA solved, re-challenged, gone.
+		// pinned kiosk build) for a header it never had.  A valid _bv cookie is a
+		// Phase A veto-pass, so clearing the challenge did buy the usual cookie
+		// lifetime -- this was not a permanent lockout.  What made it worse than
+		// an ordinary false positive is that the tell is a permanent property of
+		// the browser: the same visitor was asked again every time the cookie
+		// lapsed, for as long as they kept that device, and the behavioural
+		// CAPTCHA is hardest to clear on exactly the old touch handsets this
+		// caught.  Observed in the wild as challenge -> challenge -> abandon.
 		return axisDecision{}, false
 	}
 	if scheme != "https" || !modernHTTP {
