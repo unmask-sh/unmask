@@ -5320,7 +5320,10 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <div>{{ t .Lang "settings.perf.current_label" }}:
         <strong>{{ .Retention.MemTotalStr }}</strong>
-        <span style="color:#94a3b8;font-size:.75rem">({{ printf (t .Lang "settings.perf.mem_split") .Retention.MemPerConnStr .Retention.MemConns }})</span>
+        <span style="color:#94a3b8;font-size:.75rem">
+          ({{ printf (t .Lang "settings.perf.mem_split") .Retention.MemPerConnStr .Retention.MemConns }}
+          · {{ printf (t .Lang "settings.perf.mem_breakdown") .Retention.MemCacheStr .Retention.MemMmapStr }})
+        </span>
       </div>
     </div>
 
@@ -5332,8 +5335,9 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         {{ range .Retention.MemProfiles }}
         <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
           <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
-                 data-est="{{ .EstimateStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
-          <span class="perf-est">{{ .EstimateStr }}</span>
+                 data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
+          <span class="perf-total">{{ .TotalStr }}</span>
+          {{ if .SplitStr }}<span class="perf-split">{{ printf (t $.Lang "settings.perf.split_conns") .SplitStr }}</span>{{ end }}
           <span class="perf-note">{{ t $.Lang .NoteKey }}</span>
         </label>
         {{ end }}
@@ -5389,7 +5393,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .perf-card{display:flex;flex-direction:column;gap:.15rem;border:1px solid #cbd5e1;border-radius:.4rem;padding:.6rem .8rem;cursor:pointer;min-width:11.5rem;background:#fff}
 .perf-card-active{border-color:#3b82f6;box-shadow:0 0 0 1px #3b82f6 inset}
 .perf-card b{font-size:.9rem}
-.perf-est{font-size:.8rem;color:#0f172a;font-variant-numeric:tabular-nums}
+.perf-total{font-size:1.05rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums;line-height:1.2}
+.perf-split{font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums}
 .perf-note{font-size:.72rem;color:#94a3b8;line-height:1.4}
 </style>
 <script>
@@ -5419,9 +5424,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       // mmap allowance rides alongside it.
       var mb = parseInt(cacheInp && cacheInp.value, 10);
       var conns = parseInt(connsInp && connsInp.value, 10) || cpus;
+      // Headline is the TOTAL: the pinned cache budget plus an equal mmap
+      // allowance.  Same shape the server renders for the fixed profiles.
       estOut.textContent = (isNaN(mb) || mb <= 0)
         ? '—'
-        : human(mb * 1048576) + ' + mmap ' + human(mb * 1048576);
+        : human(mb * 2 * 1048576) + ' (' + human(mb * 1048576) + ' x ' + conns + ' + mmap)';
       if (warn) warn.style.display = (conns > cpus * 2) ? 'block' : 'none';
     } else if (sel) {
       estOut.textContent = sel.dataset.est || '—';
