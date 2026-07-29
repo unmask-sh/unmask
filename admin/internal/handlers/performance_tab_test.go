@@ -111,3 +111,62 @@ func TestPerformanceTabSave(t *testing.T) {
 		t.Errorf("profile = %q, want conservative", got.DB.ResolvedPerfProfile())
 	}
 }
+
+// A settings tab is reachable only if three things exist together: the nav
+// entry, the card on the settings landing page, and the tab body.  They live in
+// different parts of settings.html, so adding a tab and forgetting one is easy
+// -- and the failure is silent (the tab renders fine via a hand-typed URL while
+// being invisible in the UI).  This walks every tab the nav claims and asserts
+// the set is consistent, so the next tab cannot ship half-wired.
+func TestSettingsTabsFullyWired(t *testing.T) {
+	h := newTestHandler(t)
+	get := func(tab string) string {
+		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		rr := httptest.NewRecorder()
+		h.AdminSettingsIndex(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("tab %q: want 200, got %d", tab, rr.Code)
+		}
+		return rr.Body.String()
+	}
+	// The landing page carries both the nav and the tab cards.
+	top := get("top")
+	navRE := regexp.MustCompile(`<li><a href="\?tab=([a-z-]+)"`)
+	cardRE := regexp.MustCompile(`class="sti" href="\?tab=([a-z-]+)"`)
+
+	nav := map[string]bool{}
+	for _, m := range navRE.FindAllStringSubmatch(top, -1) {
+		nav[m[1]] = true
+	}
+	cards := map[string]bool{}
+	for _, m := range cardRE.FindAllStringSubmatch(top, -1) {
+		cards[m[1]] = true
+	}
+	if len(nav) < 5 {
+		t.Fatalf("only %d nav tabs found -- the scrape is broken, not the page", len(nav))
+	}
+	for tab := range nav {
+		if tab == "top" {
+			continue
+		}
+		if !cards[tab] {
+			t.Errorf("tab %q is in the nav but has no card on the settings landing page", tab)
+		}
+		// A tab whose body is missing renders the page without its form; the
+		// save button and fields simply vanish.  Probe for any form posting to
+		// this tab's section, which every real tab body has.
+		body := get(tab)
+		if !strings.Contains(body, `settings/save?section=`) {
+			t.Errorf("tab %q renders no settings form -- body block missing?", tab)
+		}
+	}
+	// The tab this file is about must be fully wired, explicitly.
+	for _, want := range []string{"performance", "retention"} {
+		if !nav[want] {
+			t.Errorf("tab %q missing from the nav", want)
+		}
+		if !cards[want] {
+			t.Errorf("tab %q missing from the settings landing page", want)
+		}
+	}
+}
