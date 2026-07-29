@@ -134,7 +134,14 @@
     // visitors keep path -> Accept-Language detection unchanged.
     try{
       var pq=new URLSearchParams(location.search);
-      var isPrev=pq.get('_preview')==='1'||location.pathname.indexOf('/admin/test/')!==-1;
+      // The public test page (/unmask/test/) is opened deliberately by the
+      // operator to check the design, so it gets the same preview knobs as the
+      // admin one -- otherwise language is the single thing you cannot check
+      // there.  It stays gated: /unmask/test/ only exists when the operator has
+      // turned public test pages on.
+      var isPrev=pq.get('_preview')==='1'
+        ||location.pathname.indexOf('/admin/test/')!==-1
+        ||location.pathname.indexOf('/test/')!==-1;
       var pl=pq.get('_preview_lang');
       if(isPrev&&pl&&L[pl])return pl;
     }catch(_){}
