@@ -1640,6 +1640,7 @@ func (h *Handler) TestIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
 	body := strings.Replace(testIndexBody, "<<SITE_PICKER>>", h.testSitePickerHTML(r), 1)
+	body = strings.Replace(body, "<<SITE_CFG>>", h.testSiteConfigJSON(), 1)
 	_, _ = w.Write([]byte(buildTestPage(prefix, body, "")))
 }
 
@@ -1852,6 +1853,45 @@ func (h *Handler) testSiteOverride(r *http.Request) (string, bool) {
 	return "", false
 }
 
+// testSiteConfigJSON reports what each site actually has configured, keyed by
+// site ("" = the plain per-host resolution the un-scoped links use), for the
+// test page's "site setting" buttons.
+//
+// Without it the inherit button read "default", which looks like a sixth theme
+// sitting beside light / dark rather than "whatever this site is set to" --
+// and there is no theme called "default".  The site picker switches sites
+// without reloading, so the values ship as a map and the label follows the
+// selection client-side.
+func (h *Handler) testSiteConfigJSON() string {
+	cfg := h.snapshotSettings()
+	out := map[string]map[string]string{}
+	put := func(key string, b settings.BrandingValues) {
+		out[key] = map[string]string{
+			"theme":  b.Theme,
+			"preset": b.ResolvedCopyPreset(),
+		}
+		if out[key]["theme"] == "" {
+			out[key]["theme"] = "auto" // what pickChallengeTheme falls back to
+		}
+	}
+	put("", cfg.Branding.Default)
+	for site := range cfg.Branding.Sites {
+		put(site, cfg.Branding.Resolve(site))
+	}
+	// A site may have challenge settings but no branding record; it still
+	// resolves to something, and the picker offers it.
+	for site := range cfg.Challenge.Sites {
+		if _, ok := out[site]; !ok {
+			put(site, cfg.Branding.Resolve(site))
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
 // testSitePickerHTML builds the "Site" section of the test index page: a
 // picker that re-targets the force-* links at /challenge/{site}/ so a site's
 // OWN values (branding / difficulty / CAPTCHA provider) can be exercised
@@ -1957,11 +1997,46 @@ const testIndexBody = `<h1>unmask test pages</h1>
 
 <h2>Theme</h2>
 <div id="theme-picker" class="theme-picker">
-  <button type="button" data-theme="">default</button>
+  <button type="button" data-theme="" data-inherit="theme">site setting</button>
+  <button type="button" data-theme="auto">auto</button>
+  <button type="button" data-theme="light">light</button>
   <button type="button" data-theme="dark">dark</button>
   <button type="button" data-theme="terminal">terminal</button>
   <button type="button" data-theme="cat">cat</button>
   <button type="button" data-theme="paper">paper</button>
+</div>
+
+<h2>Wording</h2>
+<p class="muted" style="margin:0 0 .5rem">Copy preset used for the challenge page text.  Preview only: this does not change what the site serves.</p>
+<div id="preset-picker" class="theme-picker">
+  <button type="button" data-preset="" data-inherit="preset">site setting</button>
+  <button type="button" data-preset="friendly">friendly</button>
+  <button type="button" data-preset="neutral">neutral</button>
+  <button type="button" data-preset="minimal">minimal</button>
+</div>
+
+<h2>Language</h2>
+<p class="muted" style="margin:0 0 .5rem">The challenge page picks the visitor&#39;s language from their browser; it is not a per-site setting.  Override it here to check any locale.  Preview only.</p>
+<div id="lang-picker" class="theme-picker">
+  <button type="button" data-lang="">visitor&#39;s browser</button>
+  <button type="button" data-lang="en">en</button>
+  <button type="button" data-lang="ja">ja</button>
+  <button type="button" data-lang="zh">zh</button>
+  <button type="button" data-lang="zht">zht</button>
+  <button type="button" data-lang="ko">ko</button>
+  <button type="button" data-lang="es">es</button>
+  <button type="button" data-lang="pt">pt</button>
+  <button type="button" data-lang="fr">fr</button>
+  <button type="button" data-lang="de">de</button>
+  <button type="button" data-lang="ru">ru</button>
+  <button type="button" data-lang="it">it</button>
+  <button type="button" data-lang="tr">tr</button>
+  <button type="button" data-lang="pl">pl</button>
+  <button type="button" data-lang="vi">vi</button>
+  <button type="button" data-lang="th">th</button>
+  <button type="button" data-lang="id">id</button>
+  <button type="button" data-lang="ar">ar</button>
+  <button type="button" data-lang="hi">hi</button>
 </div>
 
 <h2>PoW display time</h2>
@@ -2001,20 +2076,30 @@ const testIndexBody = `<h1>unmask test pages</h1>
 
 <script>
 (function(){
-  var themeButtons = document.querySelectorAll('#theme-picker button');
-  var powButtons   = document.querySelectorAll('#pow-display-picker button');
-  var siteButtons  = document.querySelectorAll('#site-picker button');
+  var themeButtons  = document.querySelectorAll('#theme-picker button');
+  var presetButtons = document.querySelectorAll('#preset-picker button');
+  var langButtons   = document.querySelectorAll('#lang-picker button');
+  var powButtons    = document.querySelectorAll('#pow-display-picker button');
+  var siteButtons   = document.querySelectorAll('#site-picker button');
+  // What each site actually has configured, so the "site setting" button can
+  // name the value it inherits instead of reading as a theme called "default".
+  // Keyed by site; "" is the per-host resolution the plain force-* links use.
+  var SITE_CFG = <<SITE_CFG>>;
   var redirectInp  = document.getElementById('test-redirect-input');
   var links        = document.querySelectorAll('a[data-test-link]');
   // Site-scoped serve base: /unmask/challenge/<site>/ resolves THAT site's
   // values server-side (authorized callers only); challenge.js then routes its
   // API calls to /unmask/api/<site>/ so render and verify stay consistent.
   var CH_BASE = '<<PREFIX>>'.replace(/\/(?:admin\/)?test$/, '') + '/challenge/';
-  var theme = '';
-  var pow   = '';
-  var site  = '';
+  var theme  = '';
+  var preset = '';
+  var lang   = '';
+  var pow    = '';
+  var site   = '';
   var redirectTo = '';
   try { theme      = localStorage.getItem('unmask:test-theme')        || ''; } catch(e) {}
+  try { preset     = localStorage.getItem('unmask:test-preset')       || ''; } catch(e) {}
+  try { lang       = localStorage.getItem('unmask:test-lang')         || ''; } catch(e) {}
   try { pow        = localStorage.getItem('unmask:test-pow-display')  || ''; } catch(e) {}
   try { site       = localStorage.getItem('unmask:test-site')         || ''; } catch(e) {}
   try { redirectTo = localStorage.getItem('unmask:test-redirect-to')  || ''; } catch(e) {}
@@ -2023,9 +2108,24 @@ const testIndexBody = `<h1>unmask test pages</h1>
   if (redirectInp && redirectTo) redirectInp.value = redirectTo;
   // Site mode rewrites the link PATH, so keep the original force-* href around.
   links.forEach(function(a){ a.dataset.origHref = a.getAttribute('href') || ''; });
+  // Show what "site setting" resolves to for the site currently selected.
+  function labelInherited(){
+    var cfg = SITE_CFG[site] || SITE_CFG[''] || {};
+    document.querySelectorAll('[data-inherit]').forEach(function(b){
+      var v = cfg[b.dataset.inherit] || '';
+      b.textContent = v ? 'site setting (' + v + ')' : 'site setting';
+    });
+  }
   function update(){
+    labelInherited();
     themeButtons.forEach(function(b){
       b.classList.toggle('active', (b.dataset.theme || '') === theme);
+    });
+    presetButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.preset || '') === preset);
+    });
+    langButtons.forEach(function(b){
+      b.classList.toggle('active', (b.dataset.lang || '') === lang);
     });
     powButtons.forEach(function(b){
       b.classList.toggle('active', (b.dataset.powDisplay || '') === pow);
@@ -2041,6 +2141,10 @@ const testIndexBody = `<h1>unmask test pages</h1>
         qs.push('_force=' + encodeURIComponent(a.dataset.force));
       }
       if (theme) qs.push('theme=' + encodeURIComponent(theme));
+      // Both are preview-only knobs; _preview=1 is what makes challenge.js
+      // honour them, and it is already implied on /admin/test/.
+      if (preset) { qs.push('_preview=1'); qs.push('_preview_preset=' + encodeURIComponent(preset)); }
+      if (lang)   { if (!preset) qs.push('_preview=1'); qs.push('_preview_lang=' + encodeURIComponent(lang)); }
       if (pow !== '') qs.push('_pow_display=' + encodeURIComponent(pow));
       if (redirectTo && redirectTo !== '/') qs.push('_test_redirect=' + encodeURIComponent(redirectTo));
       a.setAttribute('href', qs.length ? href + '?' + qs.join('&') : href);
@@ -2050,6 +2154,20 @@ const testIndexBody = `<h1>unmask test pages</h1>
     b.addEventListener('click', function(){
       theme = b.dataset.theme || '';
       try { localStorage.setItem('unmask:test-theme', theme); } catch(e){}
+      update();
+    });
+  });
+  presetButtons.forEach(function(b){
+    b.addEventListener('click', function(){
+      preset = b.dataset.preset || '';
+      try { localStorage.setItem('unmask:test-preset', preset); } catch(e){}
+      update();
+    });
+  });
+  langButtons.forEach(function(b){
+    b.addEventListener('click', function(){
+      lang = b.dataset.lang || '';
+      try { localStorage.setItem('unmask:test-lang', lang); } catch(e){}
       update();
     });
   });
