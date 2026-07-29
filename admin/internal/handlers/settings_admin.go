@@ -37,6 +37,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
@@ -82,7 +83,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.URL.Query().Get("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "performance", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -422,7 +423,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// knobs will prune.  Cheap (= a few COUNT(*) / MIN() queries) but only
 	// needed when this tab is being viewed, so gate the work on `tab`.
 	var retentionView retentionStatsView
-	if tab == "retention" {
+	if tab == "retention" || tab == "performance" {
 		// 10s, not 3s: COUNT(*)/MIN() over unmask_event is a full table scan, and
 		// on a large sqlite DB (millions of rows -- tool1-us hit 2.1M / 1.9GB) the
 		// 3s budget expired, so retentionStats returned zeros and the template
@@ -1164,7 +1165,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "community-bans", "sites", "about", "geo", "asn":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "performance", "community-bans", "sites", "about", "geo", "asn":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1229,6 +1230,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// needs a unmask restart (Server is all scalar fields, so a value compare of
 	// the whole struct catches bind / port / socket_mode / socket_group / base_path).
 	beforeServer := cur.Server
+	// The SQLite memory budget is baked into the DSN when the pool opens, so a
+	// change here is start-only exactly like the listen settings above.
+	beforeDB := cur.DB
 	switch section {
 	case "global":
 		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
@@ -1484,17 +1488,37 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// on this), without disturbing their per-feature config.  Submitted in
 		// the same form as version_check, so it's always present here.
 		cur.Nginx.AdvancedEnabled = r.FormValue("advanced_enabled") == "1"
-	case "retention":
-		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
-		// No need to restart the goroutine on change (= EventsRetentionDays is
-		// read via h.cfg(), so the published swap takes effect from the next tick).
-		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_retention_days"))); err == nil {
-			if v < 0 {
-				v = 0
-			} else if v > 3650 {
-				v = 3650
+	case "performance":
+		// Resource dials.  The DB knobs are baked into the DSN when the pool
+		// opens, so a change there is start-only (beforeDB comparison below sets
+		// the restart flag); the event-flusher knobs hot-reload.
+		if v := strings.TrimSpace(r.FormValue("perf_profile")); v != "" {
+			switch v {
+			case settings.PerfProfileConservative, settings.PerfProfileStandard,
+				settings.PerfProfileGenerous, settings.PerfProfileCustom:
+				cur.DB.PerfProfile = v
 			}
-			cur.EventsRetentionDays = v
+		}
+		// Custom-only fields.  Parsed whenever present so switching profile and
+		// editing the numbers in one save works, but they only take effect under
+		// the custom profile (see db.sqlitePerConnBytesFor).
+		if _, present := r.Form["sqlite_cache_mb"]; present {
+			v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("sqlite_cache_mb")))
+			if err != nil || v < 0 {
+				v = 0 // blank / garbage -> fall back to the derived budget
+			} else if v > 2048 {
+				v = 2048
+			}
+			cur.DB.SQLiteCacheMB = v
+		}
+		if _, present := r.Form["db_max_conns"]; present {
+			v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("db_max_conns")))
+			if err != nil || v < 0 {
+				v = 0 // blank -> derive from CPUs
+			} else if v > 32 {
+				v = 32
+			}
+			cur.DB.MaxConns = v
 		}
 		// events_batch_size: clamp to 1..1000.
 		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_batch_size"))); err == nil {
@@ -1516,6 +1540,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		// Hot-reload the flusher (= runs with the new values from the next cycle).
 		events.GlobalFlusherSetConfig(cur.EventsBatchSize, cur.EventsBatchIntervalMs)
+
+	case "retention":
+		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
+		// No need to restart the goroutine on change (= EventsRetentionDays is
+		// read via h.cfg(), so the published swap takes effect from the next tick).
+		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_retention_days"))); err == nil {
+			if v < 0 {
+				v = 0
+			} else if v > 3650 {
+				v = 3650
+			}
+			cur.EventsRetentionDays = v
+		}
+
 		// nginx_log_enabled toggle. To apply, the next render-nginx + nginx
 		// reload + admin service restart (= socket bind close/reopen) is
 		// required. We don't toggle this on the fly (= the recvLoop goroutine's
@@ -1545,7 +1583,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	// Listen-side settings are read only at serve start, so a change there needs
 	// `systemctl restart unmask`, independent of the nginx-conf reload signal.
-	unmaskRestartNeeded = cur.Server != beforeServer
+	// OR, never assign: a section handler above may already have flagged its own
+	// start-only change (the SQLite memory budget is baked into the DSN when the
+	// pool opens), and a plain assignment here would silently drop that.
+	unmaskRestartNeeded = cur.Server != beforeServer || cur.DB != beforeDB
 
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		redirBack("save: " + err.Error())
@@ -4341,6 +4382,35 @@ type retentionStatsView struct {
 	DaemonUser   string // user this daemon process runs as
 	DBFileOwner  string // sqlite only: "user:group" owner of the DB file
 	FixCmd       string // NG + sqlite: suggested chown/restart one-liner
+	// Memory plan (sqlite only): the sizing this process resolved.  Shown
+	// because the numbers are derived per box (CPU count + memory limit), so an
+	// operator cannot judge "is this too much for my VPS" without seeing what
+	// their own daemon actually chose.
+	MemPlanShow   bool
+	MemConns      int
+	MemPerConnStr string // e.g. "10.7 MB"
+	MemTotalStr   string // page cache across the pool
+	MemMmapStr    string // mmap across the pool (file-backed, reclaimable)
+	MemAutomatic  bool   // false = pinned via sqlite_cache_mb
+	MemCacheMB    int    // the stored override (0 = automatic), for the form
+	MemLimitStr   string // the memory limit the budget came from
+	MemFromCgroup bool   // that limit was a cgroup limit, not total RAM
+	MemCPUs       int    // CPUs the automatic pool sizing derives from
+	MemMaxConns   int    // stored pool override (0 = CPU-derived), for the form
+	MemProfileID  string // the active profile id
+	// MemProfiles powers the profile picker.  Every estimate is computed here,
+	// server-side, so the page never re-implements the budget rule in JS and the
+	// two cannot drift.
+	MemProfiles []memProfileView
+}
+
+// memProfileView is one choice in the performance tab's profile picker.
+type memProfileView struct {
+	ID          string
+	LabelKey    string
+	NoteKey     string
+	EstimateStr string // what this profile would use on THIS host
+	Active      bool
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -4438,6 +4508,46 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 				v.DBSize = st.Size()
 				v.DBSizeStr = humanBytes(v.DBSize)
 			}
+		}
+	}
+
+	// Memory plan: what this process resolved for the SQLite pool.  MariaDB
+	// pools its own memory server-side, so the card only shows this for sqlite.
+	if v.DBDriver != "mariadb" {
+		plan := db.SQLiteMemPlanFor(dbc)
+		v.MemPlanShow = true
+		v.MemConns = plan.Conns
+		v.MemPerConnStr = humanBytes(plan.PerConn)
+		v.MemTotalStr = humanBytes(plan.TotalCache)
+		v.MemMmapStr = humanBytes(plan.TotalMmap)
+		v.MemAutomatic = plan.Automatic
+		v.MemCacheMB = dbc.SQLiteCacheMB
+		v.MemFromCgroup = plan.FromCgroup
+		if plan.MemLimit > 0 {
+			v.MemLimitStr = humanBytes(plan.MemLimit)
+		}
+		v.MemCPUs = plan.CPUs
+		v.MemMaxConns = dbc.MaxConns
+		v.MemProfileID = dbc.ResolvedPerfProfile()
+		// Estimate each profile against THIS host so the picker shows real
+		// numbers rather than abstract percentages.
+		for _, p := range []struct{ id, label, note string }{
+			{settings.PerfProfileConservative, "settings.perf.profile_conservative", "settings.perf.profile_conservative_note"},
+			{settings.PerfProfileStandard, "settings.perf.profile_standard", "settings.perf.profile_standard_note"},
+			{settings.PerfProfileGenerous, "settings.perf.profile_generous", "settings.perf.profile_generous_note"},
+			{settings.PerfProfileCustom, "settings.perf.profile_custom", "settings.perf.profile_custom_note"},
+		} {
+			est := "—"
+			if p.id != settings.PerfProfileCustom {
+				pp := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: p.id})
+				est = humanBytes(pp.TotalCache) + " + mmap " + humanBytes(pp.TotalMmap)
+			} else if dbc.SQLiteCacheMB > 0 {
+				est = humanBytes(int64(dbc.SQLiteCacheMB)<<20) + " + mmap " + humanBytes(int64(dbc.SQLiteCacheMB)<<20)
+			}
+			v.MemProfiles = append(v.MemProfiles, memProfileView{
+				ID: p.id, LabelKey: p.label, NoteKey: p.note,
+				EstimateStr: est, Active: p.id == v.MemProfileID,
+			})
 		}
 	}
 
