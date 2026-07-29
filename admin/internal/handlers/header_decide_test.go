@@ -3,6 +3,7 @@ package handlers
 import (
 	"crypto/tls"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -37,6 +38,15 @@ func TestHeaderDecide(t *testing.T) {
 		{"h1 (not modern) -> silent", chrome, "", "https", false, on, false, sevPass, ""},
 		{"firefox -> silent (not chromium)", firefox, "", "https", true, on, false, sevPass, ""},
 		{"empty ua -> silent", "", "", "https", true, on, false, sevPass, ""},
+		// Sec-CH-UA shipped in Chromium 89: below it the header is legitimately
+		// absent, so the axis must stay silent.  It used to fire, and because the
+		// missing header is permanent, solving the challenge did not help: an
+		// aging WebView could clear the CAPTCHA and be re-challenged on its very
+		// next request, forever.
+		{"chromium 55 (pre-CH) -> silent", strings.Replace(chrome, "Chrome/120.", "Chrome/55.", 1), "", "https", true, on, false, sevPass, ""},
+		{"chromium 88 (pre-CH) -> silent", strings.Replace(chrome, "Chrome/120.", "Chrome/88.", 1), "", "https", true, on, false, sevPass, ""},
+		{"chromium 89 (first CH major) -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/89.", 1), "", "https", true, on, true, sevCaptchaOnly, "header:no_sch_ua"},
+		{"chromium 125 -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/125.", 1), "", "https", true, on, true, sevCaptchaOnly, "header:no_sch_ua"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -1,6 +1,7 @@
 package nginxconf
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -43,6 +44,52 @@ func TestHeaderIntegrityRenderOn(t *testing.T) {
 	// Without the stale tier the header escalation reads the base directly.
 	if !strings.Contains(on, `map "$final_challenge_base:$unmask_header_mismatch`) {
 		t.Error("header tier should read $final_challenge_base when stale is off")
+	}
+	// The chromium map must carry the Sec-CH-UA version floor (Chromium 89), not
+	// a bare Chrome/[0-9]: below 89 the header is legitimately absent, and since
+	// that is permanent, firing there re-challenged genuine old browsers forever.
+	// Keep in step with classify.SecCHUAMinChromeMajor + headerDecide.
+	if strings.Contains(on, `"~(?i)Chrome/[0-9]" 1;`) {
+		t.Error("chromium map still matches every Chrome major (pre-89 false positive)")
+	}
+	if !strings.Contains(on, `Chrome/(?:89|9[0-9]|[1-9][0-9][0-9]+)`) {
+		t.Error("chromium map missing the Chromium-89 Sec-CH-UA floor")
+	}
+}
+
+// TestChromiumMapVersionFloorSemantics pins the rendered regex's MEANING (not
+// just its text) against the Go axis: every major the nginx map matches must be
+// exactly the set headerDecide has an opinion on (>= 89).  The two run in
+// different engines (PCRE vs Go regexp) on the two deploy modes, so a drift here
+// means native and forward-auth disagree about the same visitor.
+func TestChromiumMapVersionFloorSemantics(t *testing.T) {
+	on := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Global.HeaderIntegrity = true
+	})
+	// Lift the pattern out of the rendered map so the test reads what shipped.
+	m := regexp.MustCompile(`"~\(\?i\)(Chrome/\(\?:[^"]+)" 1;`).FindStringSubmatch(on)
+	if m == nil {
+		t.Fatal("could not find the chromium map pattern in the rendered http.inc")
+	}
+	// Go's regexp has no (?: ... ) difference here; (?i) is applied via the flag.
+	re := regexp.MustCompile(`(?i)` + m[1])
+	for _, c := range []struct {
+		ua   string
+		want bool
+	}{
+		// An aging Android WebView: pre-89 Chromium, so no Sec-CH-UA to miss.
+		{"Mozilla/5.0 (Linux; Android 5.1.1; wv) AppleWebKit/537.36 Chrome/55.0.2883.91 Mobile Safari/537.36", false},
+		{"Mozilla/5.0 Chrome/88.0.4324.150 Safari/537.36", false},
+		{"Mozilla/5.0 Chrome/8.0.552.224 Safari/534.10", false},
+		{"Mozilla/5.0 Chrome/9.1.0.0 Safari/537.36", false},
+		{"Mozilla/5.0 Chrome/89.0.4389.90 Safari/537.36", true},
+		{"Mozilla/5.0 Chrome/99.0.4844.51 Safari/537.36", true},
+		{"Mozilla/5.0 Chrome/125.0.6422.60 Safari/537.36", true},
+		{"Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0", false},
+	} {
+		if got := re.MatchString(c.ua); got != c.want {
+			t.Errorf("nginx map match=%v, want %v for %q", got, c.want, c.ua)
+		}
 	}
 }
 

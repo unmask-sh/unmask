@@ -950,7 +950,19 @@ func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.Global
 	if !g.HeaderIntegrity {
 		return axisDecision{}, false
 	}
-	if classify.ChromeMajor(ua) == 0 { // not Chromium-family -> no opinion
+	major := classify.ChromeMajor(ua)
+	if major == 0 { // not Chromium-family -> no opinion
+		return axisDecision{}, false
+	}
+	if major < classify.SecCHUAMinChromeMajor {
+		// Chromium only started sending Sec-CH-UA in 89; on anything older its
+		// absence is the norm, not a contradiction.  Without this fence the axis
+		// challenged every genuine old browser (an aging Android WebView, a
+		// pinned kiosk build) on EVERY request -- and since the missing header
+		// is a permanent property of that browser, solving the challenge changed
+		// nothing: the next request re-fired the axis, so such a visitor could
+		// never get in at all.  Seen in the wild on a handset whose WebView is
+		// years behind: CAPTCHA solved, re-challenged, gone.
 		return axisDecision{}, false
 	}
 	if scheme != "https" || !modernHTTP {

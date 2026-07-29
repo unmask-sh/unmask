@@ -808,7 +808,15 @@ map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$i
 # challenge SCREEN is clamped to CAPTCHA daemon-side (never deny).
 map $http_user_agent $unmask_ua_chromium {
     default 0;
-    "~(?i)Chrome/[0-9]" 1;   # Chrome / Edge / Opera / Brave / Chromium all carry Chrome/<major>
+    # Chrome / Edge / Opera / Brave / Chromium all carry Chrome/<major>, but the
+    # axis only has an opinion from major 89 up: Sec-CH-UA shipped in Chromium 89
+    # (2021-03), so on anything older the header is legitimately absent and
+    # firing on it challenges genuine old browsers forever (the missing header is
+    # permanent, so passing the challenge does not stop the next one).  Matches
+    # 89, 90-99 and any 3+ digit major; the trailing (\.|$) anchors the major so
+    # "Chrome/8" never reads as 89.  Mirrors classify.SecCHUAMinChromeMajor.
+    # (Written without {n,} braces: nginx parses those specially in a map.)
+    "~(?i)Chrome/(?:89|9[0-9]|[1-9][0-9][0-9]+)(?:\.|$)" 1;
 }
 # $server_protocol is "HTTP/2.0" / "HTTP/3.0" on those transports and is always
 # defined (unlike $http2/$http3, which error when the module isn't loaded).
