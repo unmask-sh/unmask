@@ -5384,6 +5384,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div class="field-label">{{ t .Lang "settings.retention.batch_interval" }}</div>
       <input type="number" name="events_batch_interval_ms" value="{{ .EventsBatchIntervalMs }}" min="50" max="60000" style="width:8rem"> ms
     </div>
+    {{/* Dropped events belong with the knobs that cause them: the queue filled
+         faster than the flusher drained it. */}}
+    {{ if gt .EventsDropped 0 }}
+    <div class="note" style="color:#b91c1c;font-weight:600">⚠ {{ t .Lang "settings.retention.dropped_warn" }}: {{ .EventsDropped }}</div>
+    {{ end }}
   </div>
 
   <div style="margin-top:1rem"><button type="submit">{{ t .Lang "settings.save" }}</button></div>
@@ -5514,17 +5519,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     </div>
   </div>
 
-  {{/* The write-batching knobs moved to the Performance tab (they are resource
-       dials, not data-retention policy).  Leave a pointer rather than a dead
-       form: an operator who knew them here would otherwise think they vanished. */}}
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.retention.batch_h" }}</h2>
-    <div class="note">{{ safeHTML (t .Lang "settings.retention.batch_moved") }}</div>
-    <div style="margin-top:.6rem;font-size:.85rem"><a href="?tab=performance">{{ t .Lang "settings.retention.batch_moved_link" }}</a></div>
-    {{ if gt .EventsDropped 0 }}
-    <div class="note" style="color:#b91c1c;font-weight:600;margin-top:.6rem">⚠ {{ t .Lang "settings.retention.dropped_warn" }}: {{ .EventsDropped }}</div>
-    {{ end }}
-  </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
