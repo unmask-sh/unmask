@@ -4389,7 +4389,8 @@ type retentionStatsView struct {
 	MemPlanShow   bool
 	MemConns      int
 	MemPerConnStr string // e.g. "10.7 MB"
-	MemTotalStr   string // page cache across the pool
+	MemTotalStr   string // EVERYTHING across the pool (cache + mmap) -- the headline figure
+	MemCacheStr   string // the page-cache half (anonymous; the OOM-relevant part)
 	MemMmapStr    string // mmap across the pool (file-backed, reclaimable)
 	MemAutomatic  bool   // false = pinned via sqlite_cache_mb
 	MemCacheMB    int    // the stored override (0 = automatic), for the form
@@ -4406,11 +4407,15 @@ type retentionStatsView struct {
 
 // memProfileView is one choice in the performance tab's profile picker.
 type memProfileView struct {
-	ID          string
-	LabelKey    string
-	NoteKey     string
-	EstimateStr string // what this profile would use on THIS host
-	Active      bool
+	ID       string
+	LabelKey string
+	NoteKey  string
+	// TotalStr is the headline: everything this profile would use on THIS host
+	// (page cache + mmap).  Operators ask "how much will it take", so the sum
+	// leads and the split is the footnote, not the other way round.
+	TotalStr string
+	SplitStr string // "96.0 MB x 2 connections" -- per-connection x pool size
+	Active   bool
 }
 
 // retentionStats: cheap point-in-time stats for the retention tab.  Best-
@@ -4518,7 +4523,8 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		v.MemPlanShow = true
 		v.MemConns = plan.Conns
 		v.MemPerConnStr = humanBytes(plan.PerConn)
-		v.MemTotalStr = humanBytes(plan.TotalCache)
+		v.MemTotalStr = humanBytes(plan.TotalCache + plan.TotalMmap)
+		v.MemCacheStr = humanBytes(plan.TotalCache)
 		v.MemMmapStr = humanBytes(plan.TotalMmap)
 		v.MemAutomatic = plan.Automatic
 		v.MemCacheMB = dbc.SQLiteCacheMB
@@ -4537,16 +4543,19 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			{settings.PerfProfileGenerous, "settings.perf.profile_generous", "settings.perf.profile_generous_note"},
 			{settings.PerfProfileCustom, "settings.perf.profile_custom", "settings.perf.profile_custom_note"},
 		} {
-			est := "—"
+			total, split := "—", ""
 			if p.id != settings.PerfProfileCustom {
 				pp := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: p.id})
-				est = humanBytes(pp.TotalCache) + " + mmap " + humanBytes(pp.TotalMmap)
+				total = humanBytes(pp.TotalCache + pp.TotalMmap)
+				split = fmt.Sprintf("%s x %d", humanBytes(pp.PerConn), pp.Conns)
 			} else if dbc.SQLiteCacheMB > 0 {
-				est = humanBytes(int64(dbc.SQLiteCacheMB)<<20) + " + mmap " + humanBytes(int64(dbc.SQLiteCacheMB)<<20)
+				pinned := int64(dbc.SQLiteCacheMB) << 20
+				total = humanBytes(pinned * 2)
+				split = fmt.Sprintf("%s x %d", humanBytes(pinned/int64(max(v.MemConns, 1))), v.MemConns)
 			}
 			v.MemProfiles = append(v.MemProfiles, memProfileView{
 				ID: p.id, LabelKey: p.label, NoteKey: p.note,
-				EstimateStr: est, Active: p.id == v.MemProfileID,
+				TotalStr: total, SplitStr: split, Active: p.id == v.MemProfileID,
 			})
 		}
 	}
