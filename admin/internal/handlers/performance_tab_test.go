@@ -13,6 +13,11 @@ import (
 
 var perfEstRE = regexp.MustCompile(`(?s)value="(conservative|standard|generous)".{0,90}?data-est="([^"]+)"`)
 
+// Each profile card must show the TOTAL it would use and how that splits across
+// the pool -- "how much will this actually take" is the question the tab exists
+// to answer, and the connection count is the other half of the picture.
+var perfCardRE = regexp.MustCompile(`(?s)value="(conservative|standard|generous)".{0,400}?perf-total">([^<]+)<.{0,200}?perf-split">([^<]+)<`)
+
 // The performance tab exists so an operator can see what their own box resolved
 // and pick a different resource level.  Two properties make it useful, and both
 // have already been broken once during development:
@@ -44,6 +49,27 @@ func TestPerformanceTabProfiles(t *testing.T) {
 		t.Errorf("profiles collapse to the same estimate (%q / %q / %q) -- the picker cannot guide a choice",
 			est["conservative"], est["standard"], est["generous"])
 	}
+	// Totals and the pool split must be on every card.
+	cards := map[string][2]string{}
+	for _, m := range perfCardRE.FindAllStringSubmatch(body, -1) {
+		cards[m[1]] = [2]string{m[2], m[3]}
+	}
+	for _, id := range []string{"conservative", "standard", "generous"} {
+		c, ok := cards[id]
+		if !ok {
+			t.Errorf("profile %q shows no total / split", id)
+			continue
+		}
+		if c[0] == "" || c[0] == "—" {
+			t.Errorf("profile %q has no total figure", id)
+		}
+		// The split carries the connection count, which is what makes the
+		// number actionable ("96 MB x 2" vs "12 MB x 16").
+		if !strings.Contains(c[1], "x") && !strings.Contains(c[1], "×") {
+			t.Errorf("profile %q split %q does not show the per-connection x pool breakdown", id, c[1])
+		}
+	}
+
 	// Custom fields + the write-batching knobs live here too.
 	for _, want := range []string{`name="db_max_conns"`, `name="sqlite_cache_mb"`, `name="events_batch_size"`, `name="events_batch_interval_ms"`} {
 		if !strings.Contains(body, want) {
