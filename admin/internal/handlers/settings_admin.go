@@ -4399,6 +4399,9 @@ type retentionStatsView struct {
 	MemCPUs       int    // CPUs the automatic pool sizing derives from
 	MemMaxConns   int    // stored pool override (0 = CPU-derived), for the form
 	MemProfileID  string // the active profile id
+	// MemStandardTotalStr is what the standard profile would use here.  Shown
+	// beside the custom fields so a hand-picked number has a reference point.
+	MemStandardTotalStr string
 	// MemProfiles powers the profile picker.  Every estimate is computed here,
 	// server-side, so the page never re-implements the budget rule in JS and the
 	// two cannot drift.
@@ -4415,6 +4418,13 @@ type memProfileView struct {
 	// leads and the split is the footnote, not the other way round.
 	TotalStr string
 	SplitStr string // "96.0 MB x 2 connections" -- per-connection x pool size
+	// RatioStr is what the profile actually IS ("6% of memory"); TotalStr is
+	// only what that works out to on this host.  Leading with the ratio is what
+	// makes it obvious the presets follow the machine rather than being fixed
+	// sizes -- the confusion that made an extra "automatic" choice feel needed.
+	RatioStr string
+	Capped   bool // the ratio hit this profile's ceiling, so TotalStr is the cap
+	Auto     bool // follows the host (false only for custom)
 	Active   bool
 }
 
@@ -4535,6 +4545,10 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		v.MemCPUs = plan.CPUs
 		v.MemMaxConns = dbc.MaxConns
 		v.MemProfileID = dbc.ResolvedPerfProfile()
+		{
+			std := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: settings.PerfProfileStandard})
+			v.MemStandardTotalStr = humanBytes(std.TotalCache + std.TotalMmap)
+		}
 		// Estimate each profile against THIS host so the picker shows real
 		// numbers rather than abstract percentages.
 		for _, p := range []struct{ id, label, note string }{
@@ -4543,11 +4557,14 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			{settings.PerfProfileGenerous, "settings.perf.profile_generous", "settings.perf.profile_generous_note"},
 			{settings.PerfProfileCustom, "settings.perf.profile_custom", "settings.perf.profile_custom_note"},
 		} {
-			total, split := "—", ""
-			if p.id != settings.PerfProfileCustom {
+			total, split, ratio := "—", "", ""
+			capped, auto := false, p.id != settings.PerfProfileCustom
+			if auto {
 				pp := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: p.id})
 				total = humanBytes(pp.TotalCache + pp.TotalMmap)
 				split = fmt.Sprintf("%s x %d", humanBytes(pp.PerConn), pp.Conns)
+				ratio = fmt.Sprintf("%d%%", pp.SharePercent)
+				capped = pp.Capped
 			} else if dbc.SQLiteCacheMB > 0 {
 				pinned := int64(dbc.SQLiteCacheMB) << 20
 				total = humanBytes(pinned * 2)
@@ -4555,7 +4572,8 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			}
 			v.MemProfiles = append(v.MemProfiles, memProfileView{
 				ID: p.id, LabelKey: p.label, NoteKey: p.note,
-				TotalStr: total, SplitStr: split, Active: p.id == v.MemProfileID,
+				TotalStr: total, SplitStr: split, RatioStr: ratio,
+				Capped: capped, Auto: auto, Active: p.id == v.MemProfileID,
 			})
 		}
 	}
