@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.13",
+  "latest": "0.1.14",
   "releases": [
+    {
+      "version": "0.1.14",
+      "date": "2026-07-30",
+      "notes": "unmask now fits on a 1GB VPS, and the header-integrity axis stops charging genuine old browsers. Fixed: that axis read a Chromium-family User-Agent sending no Sec-CH-UA as a spoof tell, but client hints only shipped in Chromium 89 (2021-03) — so every older browser was flagged for something it could not send. A valid _bv cookie still passed them, so this was never a permanent lockout, but the tell never stops being true: the same visitor was asked again every time that cookie lapsed, and the behavioural CAPTCHA is hardest to clear on precisely the old touch handsets it caught. The axis now stays silent below Chromium 89 in both deploy modes. Changed: SQLite's cache_size and mmap_size are per-connection settings, so the previous flat 128MB + 256MB was really up to 8x each once dashboard queries ran in parallel — enough to OOM a small host. Both are now derived from the memory the process may actually use and split across the pool, with the limit looked for in the cgroup (the service's own path, not just the hierarchy root), /proc/meminfo, and finally sysinfo(2), which still answers under a hardened systemd unit that removes /proc. The pool is sized to the CPUs the process may use rather than a flat 8. Added: a Performance tab showing the detected memory limit and CPU count, what is in effect now, and what each preset would use on this host — Conservative / Standard / Generous / Custom, with the cache budget and pool size separately adjustable. Event write-batching settings moved there from Log management."
+    },
     {
       "version": "0.1.13",
       "date": "2026-07-29",
