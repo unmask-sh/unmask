@@ -24,6 +24,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	glsqlite "github.com/glebarez/sqlite"
@@ -164,21 +165,14 @@ func memLimitBytes() int64 {
 
 // memLimitDetail is memLimitBytes plus whether the value came from a cgroup
 // limit (container / systemd slice) rather than the machine's total RAM.
+//
+// Three sources, in order of specificity.  The last one exists because /proc
+// may not be there to read: unmask's own unit ships hardened, and systemd's
+// ProcSubset=pid leaves only the PID directories in /proc -- /proc/meminfo
+// disappears entirely, which silently turned the detected limit into "unknown".
 func memLimitDetail() (int64, bool) {
-	// cgroup v2: "max" means unlimited -> fall through to physical RAM.
-	if b, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
-		if s := strings.TrimSpace(string(b)); s != "max" {
-			if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
-				return v, true
-			}
-		}
-	}
-	// cgroup v1: an "unlimited" limit is a huge sentinel (PAGE_COUNTER_MAX),
-	// so ignore anything absurd rather than trusting it as a real limit.
-	if b, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
-		if v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && v > 0 && v < (1<<52) {
-			return v, true
-		}
+	if v := cgroupLimit(); v > 0 {
+		return v, true
 	}
 	if b, err := os.ReadFile("/proc/meminfo"); err == nil {
 		for _, line := range strings.Split(string(b), "\n") {
@@ -192,7 +186,63 @@ func memLimitDetail() (int64, bool) {
 			}
 		}
 	}
+	// sysinfo(2) needs no filesystem at all, so it survives a /proc that has
+	// been pared down (and an empty ProtectSystem sandbox).
+	var si syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&si); err == nil && si.Totalram > 0 {
+		unit := int64(si.Unit)
+		if unit <= 0 {
+			unit = 1 // pre-2.3.23 kernels report bytes with a zero unit
+		}
+		return int64(si.Totalram) * unit, false
+	}
 	return 0, false
+}
+
+// cgroupLimit returns the memory limit of the cgroup this process belongs to,
+// or 0 when there is none.  Both layouts are checked:
+//
+//   - "/sys/fs/cgroup/memory.max" -- inside a container, the namespace root IS
+//     this process's cgroup, so the limit sits right there;
+//   - "/sys/fs/cgroup/<own path>/memory.max" -- on a host, the root cgroup has
+//     no memory.max at all and the limit (systemd MemoryMax=) lives under the
+//     service's own path, e.g. /system.slice/unmask.service.
+//
+// Reading only the first is why a systemd MemoryMax= went unnoticed.
+func cgroupLimit() int64 {
+	paths := []string{"/sys/fs/cgroup/memory.max"}
+	// /proc/self survives ProcSubset=pid (it is a PID directory), so the own-path
+	// lookup keeps working where /proc/meminfo does not.
+	if b, err := os.ReadFile("/proc/self/cgroup"); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			rel, ok := strings.CutPrefix(strings.TrimSpace(line), "0::")
+			if !ok || rel == "" || rel == "/" {
+				continue
+			}
+			paths = append(paths, filepath.Join("/sys/fs/cgroup", rel, "memory.max"))
+		}
+	}
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		// "max" = no limit; fall through to the next source rather than
+		// reporting the machine as unbounded-but-known.
+		if v := strings.TrimSpace(string(b)); v != "max" {
+			if n, err := strconv.ParseInt(v, 10, 64); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	// cgroup v1: an "unlimited" limit is a huge sentinel (PAGE_COUNTER_MAX),
+	// so ignore anything absurd rather than trusting it as a real limit.
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
+		if v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && v > 0 && v < (1<<52) {
+			return v
+		}
+	}
+	return 0
 }
 
 // sqlitePerConnBytes is the per-connection page-cache / mmap allowance: the
