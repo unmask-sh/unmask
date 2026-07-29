@@ -371,6 +371,13 @@ func IsOldBrowser(ua string) bool {
 // treated as a stale Chrome).
 var chromeMajorRE = regexp.MustCompile(`Chrome/(\d+)\.`)
 
+// SecCHUAMinChromeMajor is the first Chromium major that sends Sec-CH-UA
+// (user-agent client hints shipped in Chromium 89, 2021-03).  Below it the
+// header's absence is normal, so the header-integrity axis must stay silent --
+// see headerDecide.  The nginx-rendered $unmask_ua_chromium map encodes the
+// same floor as a regex; keep the two in step.
+const SecCHUAMinChromeMajor = 89
+
 // ChromeMajor returns the Chromium-family major version a UA advertises, or 0
 // when the UA carries no `Chrome/<major>.` token (genuine Firefox / Safari /
 // most bots / empty).  The trailing dot anchors the major so `Chrome/139` is
