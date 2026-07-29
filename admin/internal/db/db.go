@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	glsqlite "github.com/glebarez/sqlite"
@@ -45,6 +48,214 @@ type DB struct {
 	Driver Driver
 }
 
+// SQLite memory sizing.
+//
+// cache_size and mmap_size are PER CONNECTION, and the pool opens one per CPU
+// (up to sqliteMaxConnsCeil) -- so a flat "128MB cache" is really up to
+// 8 x 128MB of page cache plus 8 x mmap once the dashboard runs a few queries
+// in parallel.  Measured on a 2.2GB / 6.9M-row event DB with the production
+// query mix (hunt page, 30-day aggregate, funnel counts) at 8 concurrent
+// workers: 128MB cache + 256MB mmap peaked at 3.7GB RSS, while 4MB + 8MB
+// peaked at 99MB and finished in the same wall-clock time (71.9s vs 71.6s).
+// Page cache barely matters once the range queries ride their index, so the
+// large values bought nothing and could OOM a small host outright -- unmask is
+// meant to run on a 1GB VPS.
+//
+// So: derive a budget from the memory this process may actually use (cgroup
+// limit under a container / systemd slice, else physical RAM) and split it
+// across the pool, instead of handing each connection an unbounded-in-
+// aggregate allowance.  The pool itself is CPU-sized (sqliteMaxOpen), which
+// also concentrates the budget: fewer CPUs means fewer, fatter connections
+// rather than eight thin ones that cannot run in parallel anyway.
+//
+// The budget below applies to EACH of the two knobs, so the pool-wide worst
+// case is roughly 2x it: page cache (anonymous, not reclaimable -- this is the
+// part that can OOM a box) plus mmap (file-backed clean pages the kernel can
+// drop under pressure).  On a 1GB VPS that is 64MB + 64MB.
+const (
+	sqliteMaxConnsCeil = 8
+	sqliteMinConns     = 2
+	// Profile divisors: the share of usable memory allowed per knob.
+	// Standard is the default; the others move the resource dial, not speed.
+	sqliteBudgetDivisor             = 16        // ~6%  (standard)
+	sqliteBudgetDivisorConservative = 32        // ~3%  (small VPS)
+	sqliteBudgetDivisorGenerous     = 8         // ~12% (large box)
+	sqliteBudgetFloor               = 16 << 20  // never go below 16MB per knob, however small the box
+	sqliteBudgetCeil                = 192 << 20 // standard profile's cap (also the fallback when memory is unknown)
+	// Per-profile caps.  Without these, every profile collapses onto the same
+	// ceiling on a large host and the picker becomes meaningless -- the three
+	// choices have to differ on big boxes as well as small ones.
+	sqliteBudgetCeilConservative = 64 << 20
+	sqliteBudgetCeilGenerous     = 512 << 20
+	// A hand-pinned custom budget may exceed the automatic ceiling (the operator
+	// asked for it), but not without bound -- this caps the damage of a typo.
+	sqliteBudgetCustomCeil = 2048 << 20
+	// Custom pools may exceed the CPU count (an operator may know their I/O
+	// profile), but not absurdly: past this the connections only thin the cache.
+	sqliteMaxConnsCustomCeil = 32
+)
+
+// budgetDivisorFor maps a profile to its share of usable memory.
+func budgetDivisorFor(profile string) int64 {
+	switch profile {
+	case settings.PerfProfileConservative:
+		return sqliteBudgetDivisorConservative
+	case settings.PerfProfileGenerous:
+		return sqliteBudgetDivisorGenerous
+	default:
+		return sqliteBudgetDivisor
+	}
+}
+
+// budgetCeilFor is the profile's upper bound.  Distinct per profile so the
+// choices stay distinguishable on a large host, where a single shared ceiling
+// would flatten all three into the same number.
+func budgetCeilFor(profile string) int64 {
+	switch profile {
+	case settings.PerfProfileConservative:
+		return sqliteBudgetCeilConservative
+	case settings.PerfProfileGenerous:
+		return sqliteBudgetCeilGenerous
+	default:
+		return sqliteBudgetCeil
+	}
+}
+
+// sqliteMaxOpen sizes the read pool to the CPUs this process may actually use.
+// WAL lets readers run in parallel, but opening 8 of them on a 1-vCPU VPS buys
+// no parallelism (the work is CPU-bound once pages are cached) and costs twice:
+// the connections sit idle AND each holds its own slice of the memory budget,
+// thinning the per-connection page cache by the same factor.  Sizing to the CPU
+// count keeps the budget concentrated where it helps -- a 1-vCPU box gets 2 fat
+// connections instead of 8 thin ones.  GOMAXPROCS (not NumCPU) so a container
+// CPU limit is respected.
+func sqliteMaxOpen() int { return sqliteMaxOpenFor(settings.DB{}) }
+
+// sqliteMaxOpenFor is sqliteMaxOpen with the operator's custom override applied.
+func sqliteMaxOpenFor(s settings.DB) int {
+	if s.ResolvedPerfProfile() == settings.PerfProfileCustom && s.MaxConns > 0 {
+		n := s.MaxConns
+		if n < 1 {
+			n = 1
+		}
+		if n > sqliteMaxConnsCustomCeil {
+			n = sqliteMaxConnsCustomCeil
+		}
+		return n
+	}
+	n := runtime.GOMAXPROCS(0)
+	if n < sqliteMinConns {
+		n = sqliteMinConns
+	}
+	if n > sqliteMaxConnsCeil {
+		n = sqliteMaxConnsCeil
+	}
+	return n
+}
+
+// memLimitBytes reports how much memory this process may actually use: the
+// cgroup limit when running under one (container / k8s / systemd MemoryMax),
+// else the machine's physical RAM.  0 when nothing can be determined, which
+// makes the caller fall back to the ceiling.
+func memLimitBytes() int64 {
+	v, _ := memLimitDetail()
+	return v
+}
+
+// memLimitDetail is memLimitBytes plus whether the value came from a cgroup
+// limit (container / systemd slice) rather than the machine's total RAM.
+func memLimitDetail() (int64, bool) {
+	// cgroup v2: "max" means unlimited -> fall through to physical RAM.
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory.max"); err == nil {
+		if s := strings.TrimSpace(string(b)); s != "max" {
+			if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
+				return v, true
+			}
+		}
+	}
+	// cgroup v1: an "unlimited" limit is a huge sentinel (PAGE_COUNTER_MAX),
+	// so ignore anything absurd rather than trusting it as a real limit.
+	if b, err := os.ReadFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); err == nil {
+		if v, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64); err == nil && v > 0 && v < (1<<52) {
+			return v, true
+		}
+	}
+	if b, err := os.ReadFile("/proc/meminfo"); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if !strings.HasPrefix(line, "MemTotal:") {
+				continue
+			}
+			if f := strings.Fields(line); len(f) >= 2 {
+				if kb, err := strconv.ParseInt(f[1], 10, 64); err == nil && kb > 0 {
+					return kb * 1024, false
+				}
+			}
+		}
+	}
+	return 0, false
+}
+
+// sqlitePerConnBytes is the per-connection page-cache / mmap allowance: the
+// budget split across the CPU-sized pool.  overrideMB (settings
+// sqlite_cache_mb, 0 = automatic) pins the pool-wide budget, for operators who
+// know their box better than this heuristic does.
+func sqlitePerConnBytes(overrideMB int) int64 {
+	return sqlitePerConnBytesFor(settings.DB{PerfProfile: settings.PerfProfileCustom, SQLiteCacheMB: overrideMB})
+}
+
+// sqlitePerConnBytesFor resolves the per-connection allowance for a config.
+func sqlitePerConnBytesFor(s settings.DB) int64 {
+	profile := s.ResolvedPerfProfile()
+	var budget int64
+	if profile == settings.PerfProfileCustom && s.SQLiteCacheMB > 0 {
+		budget = min(int64(s.SQLiteCacheMB)<<20, sqliteBudgetCustomCeil)
+	} else {
+		ceil := budgetCeilFor(profile)
+		if limit := memLimitBytes(); limit > 0 {
+			budget = limit / budgetDivisorFor(profile)
+		} else {
+			budget = ceil // unknown box: the profile ceiling is already modest
+		}
+		budget = min(max(budget, sqliteBudgetFloor), ceil)
+	}
+	per := budget / int64(sqliteMaxOpenFor(s))
+	if per < 1<<20 { // keep at least 1MB/conn so tiny boxes still cache something
+		per = 1 << 20
+	}
+	return per
+}
+
+// SQLiteMemPlan describes the sizing this process resolved, for the admin UI
+// and doctor: operators cannot reason about "is this too much memory" without
+// seeing the numbers their own box produced, and the numbers differ per box.
+type SQLiteMemPlan struct {
+	Conns      int   // pooled connections actually used (custom override or CPU-derived)
+	CPUs       int   // CPUs the automatic sizing derives from
+	PerConn    int64 // page cache AND mmap allowance, per connection, in bytes
+	TotalCache int64 // PerConn * Conns -- the anonymous part (OOM-relevant)
+	TotalMmap  int64 // PerConn * Conns -- file-backed, reclaimable
+	Automatic  bool  // false when pinned via db.sqlite_cache_mb
+	MemLimit   int64 // the memory limit the budget was derived from (0 = unknown)
+	FromCgroup bool  // MemLimit came from a cgroup limit rather than total RAM
+}
+
+// SQLiteMemPlanFor resolves the plan without opening a database.
+func SQLiteMemPlanFor(s settings.DB) SQLiteMemPlan {
+	per := sqlitePerConnBytesFor(s)
+	conns := sqliteMaxOpenFor(s)
+	limit, fromCgroup := memLimitDetail()
+	return SQLiteMemPlan{
+		Conns:      conns,
+		CPUs:       runtime.GOMAXPROCS(0),
+		PerConn:    per,
+		TotalCache: per * int64(conns),
+		TotalMmap:  per * int64(conns),
+		Automatic:  s.ResolvedPerfProfile() != settings.PerfProfileCustom,
+		MemLimit:   limit,
+		FromCgroup: fromCgroup,
+	}
+}
+
 // Open returns a configured *DB. SQLite path's parent directory is created if
 // missing (so first-run "just works").
 func Open(s settings.DB) (*DB, error) {
@@ -61,16 +272,20 @@ func Open(s settings.DB) (*DB, error) {
 			return nil, fmt.Errorf("mkdir sqlite parent: %w", err)
 		}
 		// _pragma=... = WAL + busy timeout.  Prevents challenge-write vs dashboard-read contention.
+		//
+		// cache_size / mmap_size are per connection and the pool holds up to
+		// sqliteMaxOpenConns, so both are sized from a pool-wide budget (see
+		// sqlitePerConnBytes) rather than fixed per-connection constants that
+		// multiply into gigabytes on a busy dashboard.
+		perConn := sqlitePerConnBytesFor(s)
 		dsn := s.SQLitePath +
 			"?_pragma=journal_mode(WAL)" +
 			"&_pragma=synchronous(NORMAL)" +
 			"&_pragma=busy_timeout(5000)" +
-			"&_pragma=cache_size(-131072)" + // -131072 = 128MB page cache: production event DBs run
-			// multi-GB (tool1-us ~6GB), where 20MB thrashed on every
-			// cold hunt/stats scan; 128MB is still modest next to the
-			// 256MB mmap below and pages are evicted under memory pressure
+			// negative cache_size = KiB of page cache (positive would be a page count)
+			fmt.Sprintf("&_pragma=cache_size(-%d)", perConn/1024) +
 			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
-			"&_pragma=mmap_size(268435456)" // 256MB mmap to speed up page reads
+			fmt.Sprintf("&_pragma=mmap_size(%d)", perConn)
 		dialector = glsqlite.Open(dsn)
 		driver = DriverSQLite
 
@@ -115,7 +330,7 @@ func Open(s settings.DB) (*DB, error) {
 	// WAL mode allows multiple parallel readers; writes are serial (SQLite).
 	// Parallelising reads keeps the dashboard from contending with auth_request
 	// writes and hitting the busy timeout.
-	conn.SetMaxOpenConns(8)
+	conn.SetMaxOpenConns(sqliteMaxOpenFor(s))
 	conn.SetMaxIdleConns(maxIdle)
 	conn.SetConnMaxLifetime(maxLife)
 	if err := conn.PingContext(context.Background()); err != nil {

@@ -62,6 +62,46 @@ type DB struct {
 	Driver     string  `yaml:"driver"`
 	SQLitePath string  `yaml:"sqlite_path"`
 	MariaDB    MariaDB `yaml:"mariadb"`
+	// PerfProfile picks how much of the host's memory SQLite may use.  It is a
+	// RESOURCE dial, not a speed dial: measured on a multi-GB event DB, page
+	// cache barely changes query time once the range scans ride their index, so
+	// "generous" buys headroom for unusual workloads rather than a speed-up.
+	//   "" / "standard" -> ~6% of usable memory (default)
+	//   "conservative"  -> ~3%   (small VPS)
+	//   "generous"      -> ~12%  (large box / heavy ad-hoc aggregation)
+	//   "custom"        -> SQLiteCacheMB + MaxConns below
+	PerfProfile string `yaml:"perf_profile,omitempty"`
+	// SQLiteCacheMB pins the SQLite page-cache budget in MB, shared across the
+	// connection pool (the mmap budget follows the same number, so the pool-wide
+	// worst case is about twice it -- see db.sqlitePerConnBytes).  Consulted
+	// only under the "custom" profile; 0 there falls back to the standard
+	// derivation.  It is the ceiling for the whole daemon, not per connection.
+	SQLiteCacheMB int `yaml:"sqlite_cache_mb,omitempty"`
+	// MaxConns pins the DB connection pool size.  0 (the default) derives it
+	// from the CPUs this process may use, which is almost always right: SQLite
+	// reads are CPU-bound once cached and writes are serial, so more connections
+	// than CPUs add no parallelism while thinning each one's share of the memory
+	// budget.  Consulted only under the "custom" profile.
+	MaxConns int `yaml:"max_conns,omitempty"`
+}
+
+// PerfProfile values.
+const (
+	PerfProfileStandard     = "standard"
+	PerfProfileConservative = "conservative"
+	PerfProfileGenerous     = "generous"
+	PerfProfileCustom       = "custom"
+)
+
+// ResolvedPerfProfile normalises the stored value; anything unknown (including
+// empty) reads as the standard profile.
+func (d DB) ResolvedPerfProfile() string {
+	switch d.PerfProfile {
+	case PerfProfileConservative, PerfProfileGenerous, PerfProfileCustom:
+		return d.PerfProfile
+	default:
+		return PerfProfileStandard
+	}
 }
 
 type MariaDB struct {
