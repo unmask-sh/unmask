@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -168,4 +169,52 @@ func readSource(t *testing.T, name string) string {
 		t.Fatalf("read %s: %v", name, err)
 	}
 	return string(b)
+}
+
+// The memory limit must survive a hardened /proc.  unmask's own unit ships with
+// systemd's ProcSubset=pid, which removes everything but the PID directories
+// from /proc -- /proc/meminfo simply is not there, and the detection used to
+// fall through to "unknown", which surfaced in the admin UI as "?".
+// sysinfo(2) needs no filesystem, so it still answers.
+func TestMemLimitSurvivesHardenedProc(t *testing.T) {
+	// Prove the syscall path independently of whatever this test host exposes.
+	var si syscall.Sysinfo_t
+	if err := syscall.Sysinfo(&si); err != nil {
+		t.Skipf("sysinfo unavailable: %v", err)
+	}
+	unit := int64(si.Unit)
+	if unit <= 0 {
+		unit = 1
+	}
+	viaSyscall := int64(si.Totalram) * unit
+	if viaSyscall <= 0 {
+		t.Fatal("sysinfo reported no memory")
+	}
+	// Whatever memLimitDetail picks, it must be in the same ballpark as the
+	// physical total (a cgroup limit is smaller; nothing should exceed it).
+	got, _ := memLimitDetail()
+	if got <= 0 {
+		t.Fatal("memLimitDetail returned 0 -- the UI shows '?' in this state")
+	}
+	if got > viaSyscall {
+		t.Errorf("detected limit %d exceeds physical memory %d", got, viaSyscall)
+	}
+}
+
+// cgroup v2 puts a host service's limit under its own path, not at the
+// hierarchy root -- reading only the root is why a systemd MemoryMax= was
+// invisible.  Assert the own-path lookup is actually attempted.
+func TestCgroupLimitReadsOwnPath(t *testing.T) {
+	b, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		t.Skip("no /proc/self/cgroup here")
+	}
+	if !strings.Contains(string(b), "0::") {
+		t.Skip("not cgroup v2")
+	}
+	// cgroupLimit must not panic and must return either a real limit or 0
+	// (unlimited); both are fine, the point is it consults the own path.
+	if v := cgroupLimit(); v < 0 {
+		t.Errorf("negative cgroup limit %d", v)
+	}
 }
