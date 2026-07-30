@@ -25,5 +25,15 @@
       "Mozilla/5.0 (compatible; NotionEmbedder/24; +http://www.notion.so)"
     ],
     "addition_date": "2026/07/28"
+  },
+  {
+    "pattern": "Notification(Service)?Extension/.*CFNetwork",
+    "tags": ["notification-preview"],
+    "url": "https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension",
+    "instances": [
+      "NotificationExtension/3 CFNetwork/3826.600.41.2.1 Darwin/24.6.0",
+      "NotificationExtension/3 CFNetwork/3860.600.12 Darwin/25.5.0"
+    ],
+    "addition_date": "2026/07/30"
   }
 ]

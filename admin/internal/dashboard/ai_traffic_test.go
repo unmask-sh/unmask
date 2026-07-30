@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -41,9 +42,9 @@ func TestAITrafficBreakdown_InstallWide(t *testing.T) {
 		t.Fatalf("breakdown: %v", err)
 	}
 
-	// All 11 ordered tags must appear, zero-row policy guarantees that.
-	if len(rows) != 11 {
-		t.Fatalf("expected 11 rows (one per tag), got %d", len(rows))
+	// Every ordered tag must appear, zero-row policy guarantees that.
+	if len(rows) != len(classify.CrawlerTagOrder) {
+		t.Fatalf("expected %d rows (one per tag), got %d", len(classify.CrawlerTagOrder), len(rows))
 	}
 	// At least one row with Count > 0 — the test would be pointless otherwise.
 	var hits int
@@ -55,11 +56,10 @@ func TestAITrafficBreakdown_InstallWide(t *testing.T) {
 	if hits == 0 {
 		t.Fatal("no crawler UA matched — fixture vs embedded JSON drift")
 	}
-	// Tag set boundary: every Tag we returned must be one of the 11 known
-	// values (= the Chrome UA can't have leaked an "unknown" row).
+	// Tag set boundary: every Tag we returned must be one of the ordered
+	// known values (= the Chrome UA can't have leaked an "unknown" row).
 	known := map[string]bool{}
-	for _, t := range []string{"ai-training", "ai-user", "ai-crawler", "search-engine",
-		"advertising", "seo", "monitoring", "social-preview", "feed-reader", "archiver", "academic"} {
+	for _, t := range classify.CrawlerTagOrder {
 		known[t] = true
 	}
 	for _, r := range rows {

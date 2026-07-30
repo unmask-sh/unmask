@@ -340,6 +340,14 @@ type renderData struct {
 	UpstreamServer string
 
 	SearchBotPatterns []string // flatten of enabled presets + extras
+	// NotifPreviewPatterns: UA patterns of the notification-preview group
+	// (Apple push-notification rich-preview fetchers).  Deliberately NOT in
+	// SearchBotPatterns: these clients call from residential device IPs with
+	// no vendor ranges, so their rescue is a composite -- the UA must be
+	// backed by Apple's TLS stack (NotifPreviewJA4Regex against
+	// $effective_ja4) or the request goes through the normal challenge flow.
+	NotifPreviewPatterns []string
+	NotifPreviewJA4Regex string
 	// RangeVerifiedUACount: crawler UA patterns deliberately absent from
 	// SearchBotPatterns because their vendor's IP-range presets carry the
 	// rescue (see uarange.go).  Rendered as a conf comment so an operator
@@ -654,9 +662,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// (explicit lists first, then the preset-driven auto default).
 	upstreamDisabled := toSet(s.Nginx.SearchBots.UpstreamDisabled)
 	rangeVerified := EffectiveUpstreamUAOff(s.Nginx)
-	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns := collectUpstreamPatternsByMode(
+	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns, notifPreviewPatterns := collectUpstreamPatternsByMode(
 		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled, rangeVerified)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
+	d.NotifPreviewPatterns = notifPreviewPatterns
+	d.NotifPreviewJA4Regex = classify.AppleCFNetworkJA4B
 	d.RangeVerifiedUACount = len(rangeVerified)
 
 	// Stale-browser tier: only wire it when enabled AND the generated pattern
@@ -1456,7 +1466,7 @@ func toSet(xs []string) map[string]bool {
 // per-pattern OFF wins over the group default).  Patterns in rangeVerified
 // are skipped on the white side only: their rescue is carried by the
 // vendor's IP-range presets (geo $is_bypass_ip), not by the UA string.
-func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, rangeVerified map[string]bool) (white, black []string) {
+func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, rangeVerified map[string]bool) (white, black, guarded []string) {
 	groups := classify.UpstreamRescueList()
 	// Iterate categories in sorted order: groups is a map, and Go map
 	// iteration is randomized, so ranging it directly makes the rendered
@@ -1475,6 +1485,20 @@ func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, ran
 		mode := classify.ResolveGroupMode(cat, overrides)
 		switch mode {
 		case classify.GroupModeWhite:
+			// Guarded tags never join the plain UA whitelist: their rescue
+			// requires the TLS-stack condition too (see the template's
+			// $unmask_notif_preview_ua composite), because these clients call
+			// from residential device IPs with no vendor ranges and the UA
+			// alone is the whole spoof surface.
+			if cat == classify.NotificationPreviewTag {
+				for _, e := range entries {
+					if e.Pattern == "" || disabledSet[e.Pattern] {
+						continue
+					}
+					guarded = append(guarded, e.Pattern)
+				}
+				continue
+			}
 			for _, e := range entries {
 				if e.Pattern == "" || disabledSet[e.Pattern] || whiteSeen[e.Pattern] {
 					continue
@@ -1495,7 +1519,7 @@ func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, ran
 			}
 		}
 	}
-	return white, black
+	return white, black, guarded
 }
 
 func defStr(v, fallback string) string {
