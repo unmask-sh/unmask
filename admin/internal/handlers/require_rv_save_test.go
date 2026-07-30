@@ -4,9 +4,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -39,8 +41,11 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 		t.Fatal("the ua-filter tab does not offer the policy checkbox")
 	}
 	// Off by default: this changes who gets rescued, so it is opt-in.
-	if load0, _ := settings.Load(cfgPath); load0.Nginx.SearchBots.RequireRangeVerification {
-		t.Error("the policy must default to off")
+	// Unset means ON: the safe direction, and the one the per-pattern default
+	// already resolved to, so an install that never saw this setting keeps
+	// behaving as before.
+	if load0, _ := settings.Load(cfgPath); !load0.Nginx.SearchBots.RangeVerificationRequired() {
+		t.Error("an unset policy must read as on")
 	}
 
 	save := func(form string) {
@@ -68,7 +73,7 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 
 	save(`require_range_verification=1&upstream_ua_enabled=Googlebot%5C%2F`)
 	sb := load().SearchBots
-	if !sb.RequireRangeVerification {
+	if !sb.RangeVerificationRequired() {
 		t.Error("policy did not persist")
 	}
 	if len(sb.UpstreamUAEnabled) == 0 {
@@ -88,7 +93,56 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 	// Unchecking a checkbox submits nothing at all, so the absent field has
 	// to read as false rather than leaving the stored value alone.
 	save(`upstream_ua_enabled=Googlebot%5C%2F`)
-	if load().SearchBots.RequireRangeVerification {
+	// Turning it off has to be recorded, not just left unset -- unset means on.
+	if load().SearchBots.RangeVerificationRequired() {
 		t.Error("unchecking the policy did not turn it off")
+	}
+}
+
+// The point of the switch is that the two questions stop sharing one control.
+// Out of the box a range-backed crawler is ON the rescue list (its checkbox is
+// checked -- it is a crawler we intend to let through) while the policy says
+// it is verified by address, so the effective path is IP-only.  Before this,
+// the same state showed as an UNCHECKED box, which on every other row means
+// "blocked" -- that collision is what made the list unreadable.
+func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
+	h := newTestHandler(t)
+	// Google's range presets enabled, as a real install ships them -- without
+	// the ranges wired in there is no IP path either, and the honest badge for
+	// that is "no rescue".
+	var s settings.Settings
+	s.Server.BasePath = "/unmask"
+	s.Nginx.BypassIPEnabledPresets = []string{"google-common", "google-special", "google-user-triggered"}
+	h.SetSettings(s)
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("ua-filter: %d", rr.Code)
+	}
+	body := rr.Body.String()
+
+	// The row for a range-backed pattern: checkbox checked, badge saying the
+	// UA path is closed.
+	// The attribute holds the pattern verbatim, backslash included.
+	row := regexp.MustCompile(`(?s)<label class="upstream-row" data-pattern="Googlebot\\/"[^>]*>.*?</label>`).FindString(body)
+	if row == "" {
+		t.Fatal("no Googlebot row rendered")
+	}
+	if !strings.Contains(row, "checked") {
+		t.Error("a range-backed crawler must show as ON the rescue list by default; " +
+			"an unchecked box reads as \"blocked\", which is not what happens to it")
+	}
+	if !strings.Contains(row, "rv-ip") {
+		t.Errorf("the badge must say the rescue rides the IP range, got: %.200s", row)
+	}
+	if !strings.Contains(row, `data-rv-forced="1"`) {
+		t.Error("the row must be marked as settled by the policy rather than by its own checkbox")
+	}
+
+	// And the effective config agrees: the UA string does not rescue it.
+	if !nginxconf.EffectiveUpstreamUAOff(h.cfg().Nginx)[`Googlebot\/`] {
+		t.Error("default install: a spoofed Googlebot UA would be rescued by the string")
 	}
 }

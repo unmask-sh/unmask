@@ -134,7 +134,10 @@ func TestEffectiveUpstreamUAOffExplicit(t *testing.T) {
 
 	// Explicit UA opt-in: the pattern keeps UA rescue although every preset
 	// is live (the OR state — a spoofed UA passes and the operator said ok).
+	// Requires the standing policy off: when it is on it outranks this
+	// per-pattern choice (see require_range_verification_test.go).
 	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	n.SearchBots.UpstreamUAEnabled = []string{`Googlebot\/`}
 	set := EffectiveUpstreamUAOff(n)
 	if set[`Googlebot\/`] {
@@ -169,6 +172,9 @@ func TestUpstreamRVStates(t *testing.T) {
 	allOn := allPresetIDs()
 
 	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
+	// Policy off: this case is about the per-pattern resolution, which the
+	// policy would otherwise settle for every range-backed pattern.
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	n.SearchBots.UpstreamUAEnabled = []string{`bingbot`}
 	states := UpstreamRVStates(n)
 	if got := states[`Googlebot\/`]; got != "ip" {

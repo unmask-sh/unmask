@@ -119,15 +119,28 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	loc := resolveLocation(r)
 
 	// upstream rescue summary: aggregate pattern counts for the UI banner.
-	// The count (and every checkbox below) shows the *effective* UA-string
-	// rescue: explicit disable list plus the range-backed patterns whose UA
-	// rescue is off (nginxconf.EffectiveUpstreamUAOff) — those are rescued
-	// by the vendor's IP ranges instead, which the per-pattern badge says.
+	//
+	// The per-pattern checkbox shows INTENT -- "is this crawler on the rescue
+	// list at all" -- not the effective rescue path.  Those are two questions,
+	// and answering both with one control is what made this list hard to read:
+	// a range-backed row appeared unchecked, which on any other row means
+	// "blocked", while here it meant "passes, verified by IP".  How a rescued
+	// crawler is verified is now the standing policy's business (the switch
+	// above the rows), and the per-pattern badge states the resulting path.
 	upstreamRescue := classify.UpstreamRescueList()
 	upstreamDisabledSet := toSet(cur.SearchBots.UpstreamDisabled)
-	upstreamUAOffView := nginxconf.EffectiveUpstreamUAOff(cur)
+	upstreamUAOffView := map[string]bool{}
 	for p := range upstreamDisabledSet {
 		upstreamUAOffView[p] = true
+	}
+	// With the policy off, the UA path is per-pattern again, so the checkbox
+	// goes back to showing that resolution.
+	if !cur.SearchBots.RangeVerificationRequired() {
+		for p, off := range nginxconf.EffectiveUpstreamUAOff(cur) {
+			if off {
+				upstreamUAOffView[p] = true
+			}
+		}
 	}
 	upstreamTotal := 0
 	upstreamEnabled := 0
@@ -2332,7 +2345,15 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	// publishes an egress range.  Kept separate from the per-pattern lists
 	// above so turning it off restores them untouched -- they are still in
 	// the config, just outranked while this is on (EffectiveUpstreamUAOff).
-	n.SearchBots.RequireRangeVerification = r.FormValue("require_range_verification") == "1"
+	// Store only the departure from the default.  Unset already means on, so
+	// writing an explicit `true` would add a line to every config the moment
+	// this tab is saved -- and a save that changes the file without changing
+	// anything is exactly what the no-op-save guard exists to catch.
+	if r.FormValue("require_range_verification") == "1" {
+		n.SearchBots.RequireRangeVerification = nil
+	} else {
+		n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
+	}
 
 	// upstream group mode: each category is white / black / none.
 	// Only store entries that differ from the built-in default (= keeps

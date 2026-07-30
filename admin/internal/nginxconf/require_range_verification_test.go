@@ -20,9 +20,13 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 		t.Fatalf("%s is expected to be range-backed", pat)
 	}
 
-	// Operator explicitly opted this pattern into UA-string rescue.
+	// Operator explicitly opted this pattern into UA-string rescue, with the
+	// vendor's ranges wired in (the policy only closes the UA path when there
+	// is an address list to verify against -- see EffectiveUpstreamUAOff).
 	var n settings.Nginx
+	n.BypassIPEnabledPresets = googleRangePresets
 	n.SearchBots.UpstreamUAEnabled = []string{pat}
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	if EffectiveUpstreamUAOff(n)[pat] {
 		t.Fatal("precondition: an explicit UA opt-in should keep the UA rescue on")
 	}
@@ -30,7 +34,7 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 	// The policy has to win: it is switched on precisely to stop
 	// vendor-branded UA strings passing, and a row saved months earlier must
 	// not carve a silent exception out of it.
-	n.SearchBots.RequireRangeVerification = true
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
 	if !EffectiveUpstreamUAOff(n)[pat] {
 		t.Error("policy on: a range-backed pattern must not be rescued by its UA, " +
 			"even when explicitly opted in -- a spoofed Googlebot would pass")
@@ -41,7 +45,7 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 
 	// Switching it back off must restore the explicit choice untouched: the
 	// per-pattern lists are still in the config, merely outranked.
-	n.SearchBots.RequireRangeVerification = false
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	if EffectiveUpstreamUAOff(n)[pat] {
 		t.Error("policy off: the operator's explicit UA opt-in should come back")
 	}
@@ -52,7 +56,7 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 // genuine crawler -- the exact accident this project exists to prevent.
 func TestRequireRangeVerificationLeavesRangelessPatternsAlone(t *testing.T) {
 	var n settings.Nginx
-	n.SearchBots.RequireRangeVerification = true
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
 	off := EffectiveUpstreamUAOff(n)
 
 	for _, pat := range []string{
@@ -74,15 +78,18 @@ func TestRequireRangeVerificationLeavesRangelessPatternsAlone(t *testing.T) {
 func TestRequireRangeVerificationDropsPatternFromRenderedWhitelist(t *testing.T) {
 	const pat = `Googlebot\/`
 	on := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.BypassIPEnabledPresets = googleRangePresets
 		s.Nginx.SearchBots.UpstreamUAEnabled = []string{pat}
-		s.Nginx.SearchBots.RequireRangeVerification = true
+		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
 	})
 	if containsPattern(on, pat) {
 		t.Error("policy on: the range-backed UA is still in the rendered whitelist, " +
 			"so native mode would pass a spoofed UA the tab says it blocks")
 	}
 	off := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.BypassIPEnabledPresets = googleRangePresets
 		s.Nginx.SearchBots.UpstreamUAEnabled = []string{pat}
+		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	})
 	if !containsPattern(off, pat) {
 		t.Error("policy off: the explicit UA opt-in should render into the whitelist again")
@@ -94,4 +101,37 @@ func TestRequireRangeVerificationDropsPatternFromRenderedWhitelist(t *testing.T)
 // which say nothing about whether the UA actually passes.
 func containsPattern(conf, pat string) bool {
 	return strings.Contains(conf, `"~*`+pat+`" 1;`)
+}
+
+// The policy closes the UA path only where there is an address list to verify
+// against.  With the vendor's presets not wired in (never enabled, or still
+// behind the NEW gate after an upgrade), dropping the UA too would leave the
+// crawler no rescue at all -- a genuine Googlebot challenged, which is the
+// accident this project exists to prevent.  "Verify by address instead of by
+// name" has to mean the addresses are actually loaded.
+func TestRequireRangeVerificationKeepsUARescueWhenRangesAreNotLoaded(t *testing.T) {
+	const pat = `Googlebot\/`
+
+	// Policy on, presets never enabled.
+	var n settings.Nginx
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
+	if EffectiveUpstreamUAOff(n)[pat] {
+		t.Error("no presets enabled: the UA rescue must stay, or the real crawler is challenged")
+	}
+
+	// Policy on, presets enabled but still NEW for this install (a fresh
+	// upgrade has not acknowledged them yet, so they are not rendered).
+	n.BypassIPEnabledPresets = googleRangePresets
+	n.SeenVersion = "v0.1.0"
+	if !RangePresetsActive(n, pat) { // still NEW-gated at this SeenVersion
+		if EffectiveUpstreamUAOff(n)[pat] {
+			t.Error("presets still behind the NEW gate: the UA rescue must stay until they render")
+		}
+	}
+
+	// Once they are live, the policy takes effect.
+	n.SeenVersion = "v99.0.0"
+	if !EffectiveUpstreamUAOff(n)[pat] {
+		t.Error("presets live: the policy should now close the UA path")
+	}
 }
