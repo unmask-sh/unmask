@@ -934,7 +934,15 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// XHR / fetch clients.  Pre-v0.1, "GET " on the pattern made Go's
 	// ServeMux respond 405 to anything else.
 	mux.HandleFunc(base+"/challenge/{$}", h.ServeChallengeOrJSON)
-	mux.HandleFunc(base+"/challenge/{site}/{$}", h.ServeChallengeOrJSON)
+	// Site-scoped PREVIEW (operator test surface): serves the challenge with
+	// THAT site's values.  Lives under /test/ -- not /challenge/ -- because
+	// real visitors never reach it (the production endpoint above resolves by
+	// Host), it shares the test pages' authorization story (testSiteOverride:
+	// admin session, or the public-test-pages + site-picker opt-in), and
+	// keeping site ids out of /challenge/ leaves that path exactly one shape
+	// for challenge.js's own-page detection (the 0.1.13 PoW loop came from a
+	// dotted site id under /challenge/ parsed by two drifting regexes).
+	mux.HandleFunc(base+"/test/site/{site}/{$}", h.ServeChallengeOrJSON)
 	// /static/challenge.js stays GET-only -- a real asset, not a challenge
 	// response.  A POST to a static file legitimately deserves a 405.
 	mux.HandleFunc("GET "+base+"/static/challenge.js", h.ServeChallengeJS)
@@ -959,7 +967,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// Rate-limit path (nginx rewrites the original URI into /unmask/_rl<orig URI>).
 	// Path subtree match (trailing slash, no {$}) catches any path after
 	// _rl/.  Kept as a separate namespace to avoid collisions with
-	// challenge/{site} routing.  Method-agnostic so a POST /api/foo that
+	// test/site/{site} routing.  Method-agnostic so a POST /api/foo that
 	// trips `limit_req` and rewrites to /unmask/_rl/api/foo lands here.
 	mux.HandleFunc(base+"/_rl/", h.ServeChallengeOrJSON)
 	// Ban-deny path (nginx rewrites a deny-action ban into /unmask/_ban<orig URI>

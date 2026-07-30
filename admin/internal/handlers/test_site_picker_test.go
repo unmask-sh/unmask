@@ -39,7 +39,7 @@ func TestTestSiteOverrideGate(t *testing.T) {
 	}
 
 	// {site} present but caller is neither admin nor opted-in public: refuse.
-	r = httptest.NewRequest("GET", "/unmask/challenge/shop.example.jp/", nil)
+	r = httptest.NewRequest("GET", "/unmask/test/site/shop.example.jp/", nil)
 	r.SetPathValue("site", "shop.example.jp")
 	if _, ok := h.testSiteOverride(r); ok {
 		t.Fatal("override granted to an unauthorized visitor")
@@ -70,7 +70,7 @@ func TestTestSiteOverrideGate(t *testing.T) {
 
 	// Invalid site shapes are refused even for an admin.
 	for _, bad := range []string{"UPPER.example.jp", "a b", "-lead.dash", "trail.dash-", strings.Repeat("a", 300)} {
-		rb := httptest.NewRequest("GET", "/unmask/challenge/x/", nil)
+		rb := httptest.NewRequest("GET", "/unmask/test/site/x/", nil)
 		rb.SetPathValue("site", bad)
 		rb.AddCookie(c)
 		if _, ok := h.testSiteOverride(rb); ok {
@@ -135,7 +135,7 @@ func TestServeChallengeSiteOverrideValues(t *testing.T) {
 
 	serve := func(withSession bool) string {
 		t.Helper()
-		r := httptest.NewRequest("GET", "/unmask/challenge/shop.example.jp/", nil)
+		r := httptest.NewRequest("GET", "/unmask/test/site/shop.example.jp/", nil)
 		r.Header.Set("User-Agent", uaCurrentChrome)
 		r.SetPathValue("site", "shop.example.jp")
 		if withSession {

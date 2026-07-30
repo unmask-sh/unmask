@@ -5,15 +5,19 @@
 
   // ============================================================
   // multi-site support: extract site ID from our own URL pathname.
-  //   /unmask/challenge/            → site = "default"
-  //   /unmask/challenge/test-1/     → site = "test-1"
-  //   /unmask/challenge/shop.ex.jp/ → site = "shop.ex.jp" (host-derived id,
-  //                                    used by the test-page site picker)
-  //   /unmask/challenge.html        → site = "default" (legacy)
+  //   /unmask/challenge/              → site = "default" (production serve)
+  //   /unmask/test/site/test-1/      → site = "test-1"
+  //   /unmask/test/site/shop.ex.jp/  → site = "shop.ex.jp" (host-derived id,
+  //                                     used by the test-page site picker)
+  //   /unmask/challenge.html          → site = "default" (legacy)
+  // The site-scoped preview lives under /test/ so the production
+  // /unmask/challenge/ path has exactly one shape -- site ids (which contain
+  // dots) never appear under it, which is what made the own-page detection
+  // below drift from this parser once.
   // All fetch URLs are built as API_BASE + "/" + relative path.
   // ============================================================
   var SITE = 'default';
-  var m = location.pathname.match(/^\/unmask\/challenge\/([a-z0-9][a-z0-9.-]*)\/?$/);
+  var m = location.pathname.match(/^\/unmask\/test\/site\/([a-z0-9][a-z0-9.-]*)\/?$/);
   if (m) SITE = m[1];
   var API_BASE = '/unmask/api' + (SITE === 'default' ? '' : '/' + SITE);
 
@@ -598,20 +602,22 @@
     u.searchParams.delete('_test_bot');
     u.searchParams.delete('_test_ja4');
     // the following paths have no "original page" (= test or direct access), so redirect to "/".
-    //   - /unmask/challenge.html / /unmask/challenge/<site>/    direct challenge access
-    //   - /unmask/(admin/)?test/force-*                         test pages of any flavor
-    //                                                            (pow / pow-then-captcha / captcha / ...).
-    //                                                            Reloading the same path causes a loop.
-    // The <site> segment must accept dots: site ids are host names
-    // (shop.example.jp), and the id parser at the top of this file already
-    // does.  This copy did not, so a site-scoped page fell through to the
-    // "reload the original URL" branch below and reloaded ITSELF -- solve,
-    // redirect here, serve a challenge, solve, ... which is the loop the
-    // comment above warns about, reachable from the test page's site picker
-    // for every real host name.
+    //   - /unmask/challenge.html / /unmask/challenge/   direct challenge access
+    //   - /unmask/(admin/)?test/...                     the WHOLE test subtree:
+    //                                                    force-* flavors and the
+    //                                                    site-scoped preview
+    //                                                    (/test/site/<site>/).
+    //                                                    Reloading any of them
+    //                                                    just serves another
+    //                                                    challenge = a loop.
+    // Matching the subtree wholesale (not per-page shapes) is deliberate: the
+    // 0.1.13 PoW loop happened because a per-shape copy here drifted from the
+    // site-id parser at the top of this file over whether a site segment may
+    // contain dots.  /unmask/challenge/ itself is back to exactly one shape,
+    // and anything under /test/ is by definition not an original page.
     if (u.pathname === '/unmask/challenge.html' ||
-        /^\/unmask\/challenge(\/[a-z0-9][a-z0-9.-]*)?\/?$/.test(u.pathname) ||
-        /^\/unmask\/(admin\/)?test\/force-[a-z][a-z0-9-]*\/?$/.test(u.pathname)) {
+        /^\/unmask\/challenge\/?$/.test(u.pathname) ||
+        /^\/unmask\/(admin\/)?test(\/|$)/.test(u.pathname)) {
       // Test-only override: ?_test_redirect=PATH (same-origin only).  Must
       // start with `/` and must not be protocol-relative `//host`, so a
       // hostile URL crafted with `_test_redirect=https://evil.example/` is
