@@ -88,12 +88,44 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 # geo $is_bypass_ip below instead — a spoofed UA from outside the published
 # ranges is challenged like any other client.
 {{- end }}
+{{- if .NotifPreviewPatterns }}
+map $http_user_agent $unmask_search_bot_ua {
+    default 0;
+{{- range .SearchBotPatterns }}
+    "~*{{ . }}" 1;
+{{- end }}
+}
+# Notification-preview fetchers (Apple notification service extensions pulling
+# a push notification's rich preview) run on subscribers' OWN devices --
+# residential IPs, no vendor ranges -- so the UA string is the entire spoof
+# surface.  Their rescue is therefore a composite: the UA must be backed by
+# Apple's TLS stack.  The JA4_b segment (cipher-suite hash) is matched alone
+# because JA4_a / JA4_c drift with OS releases while the cipher list has held
+# across CFNetwork builds on Darwin 24/25 over both HTTP/1.1 and HTTP/2 --
+# a spoofer must mimic the TLS stack, not just copy one header line.
+map $http_user_agent $unmask_notif_preview_ua {
+    default 0;
+{{- range .NotifPreviewPatterns }}
+    "~*{{ . }}" 1;
+{{- end }}
+}
+map $effective_ja4 $unmask_apple_tls {
+    default 0;
+    "~{{ .NotifPreviewJA4Regex }}" 1;
+}
+map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls" $is_search_bot {
+    default 0;
+    "~^1"    1;   # plain UA-list rescue
+    "~^011$" 1;   # notification-preview UA backed by the Apple TLS stack
+}
+{{- else }}
 map $http_user_agent $is_search_bot {
     default 0;
 {{- range .SearchBotPatterns }}
     "~*{{ . }}" 1;
 {{- end }}
 }
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # Bypass IP allowlist (trusted IP / CIDR exempt from challenge / rate_limit)

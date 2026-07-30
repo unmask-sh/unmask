@@ -210,7 +210,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 // AITrafficRow: per-tag aggregation for the overview's crawler funnel.
 // Total = every request of that crawler tag; Served = the subset that was
 // challenged (= did not pass straight through); Passed = Total - Served.
-// Category names follow classify.CrawlerTagOrder (11 tags) so the overview
+// Category names follow classify.CrawlerTagOrder (12 tags) so the overview
 // + stats cards share one taxonomy.
 type AITrafficRow struct {
 	Category string // one of classify.CrawlerTagOrder
