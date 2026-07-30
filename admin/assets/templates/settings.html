@@ -3062,7 +3062,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <script type="text/html" id="ch-test-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</script>
       <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
         <input type="hidden" name="public_test_pages_present" value="1">
-        <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeValues.PublicTestPages }}checked{{ end }}>
+        <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeEff.IsPublicTestPages }}checked{{ end }}>
         <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
       </label>
       {{/* Optional Basic Auth password gate for the public pages.  Hidden
@@ -3088,7 +3088,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div style="display:flex;align-items:center;gap:.4rem">
           <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
             <input type="hidden" name="public_test_pages_site_picker_present" value="1">
-            <input type="checkbox" name="public_test_pages_site_picker" value="1" {{ if .ChallengeValues.PublicTestPagesSitePicker }}checked{{ end }}>
+            <input type="checkbox" name="public_test_pages_site_picker" value="1" {{ if .ChallengeEff.IsPublicTestPagesSitePicker }}checked{{ end }}>
             <span>{{ t .Lang "settings.challenge.public_test_pages_site_picker" }}</span>
           </label>
           <button type="button" class="ua-help-trigger" data-help-target="ch-test-site-picker-help" aria-label="?">?</button>
@@ -3106,7 +3106,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <a href="{{ .BasePath }}/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
           {{ t .Lang "settings.challenge.test_link_public" }} ↗
         </a>
-        {{ if not .ChallengeValues.PublicTestPages }}
+        {{ if not .ChallengeEff.IsPublicTestPages }}
         <span style="color:#94a3b8;font-size:.72rem">({{ t .Lang "settings.challenge.test_link_public_disabled" }})</span>
         {{ end }}
       </div>
@@ -4247,7 +4247,7 @@ document.addEventListener("DOMContentLoaded", function(){
         </div>
         <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingValues.ShowCredit }}checked{{ end }}>
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingEff.IsShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
       </div>
@@ -4404,7 +4404,7 @@ document.addEventListener("DOMContentLoaded", function(){
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.BasePath }}/challenge/?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.BrandingValues.ShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
+                  src="{{ $.ChallengePreviewBase }}?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.BrandingEff.IsShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
@@ -4845,7 +4845,6 @@ document.addEventListener("DOMContentLoaded", function(){
   // card); undefined reloads every iframe (= preset / site name / footer changes
   // affect all themes).
   function refreshThemeIframes(only){
-    var bp = basePath();
     var preset = currentPreset();
     // Always include the empty value so clearing site name / footer in the
     // form actually clears them in the preview (= matches the link builder
@@ -4855,7 +4854,11 @@ document.addEventListener("DOMContentLoaded", function(){
     document.querySelectorAll('#appearance-form .theme-preview-frame iframe').forEach(function(f){
       var theme = f.getAttribute('data-theme') || 'auto';
       if (only && theme !== only) return;
-      var url = bp + '/challenge/?_test_ja4=0&theme=' + encodeURIComponent(theme) +
+      // Keep the server-rendered path: at a per-site scope it is the
+      // site-scoped /challenge/<site>/ route (= the previewed site's logo and
+      // branding), and rebuilding it from basePath() here would silently
+      // fall back to the admin host's own branding on the first live edit.
+      var url = (f.getAttribute('src') || '').split('?')[0] + '?_test_ja4=0&theme=' + encodeURIComponent(theme) +
                 '&_preview=1&_preview_preset=' + encodeURIComponent(preset) +
                 '&_preview_site_name=' + encodeURIComponent(sn) +
                 '&_preview_footer_text=' + encodeURIComponent(ft) +

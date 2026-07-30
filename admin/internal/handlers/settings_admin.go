@@ -804,6 +804,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// presets are resolved client-side (challenge.js).
 		"Branding":       snap.Branding,
 		"BrandingValues": scopeBranding,
+		// Resolved (site-over-Default) records for the checkbox fields.  A
+		// checkbox cannot show "inherit" as a third state, so it renders the
+		// EFFECTIVE value -- what the challenge page actually does.  Rendering
+		// the raw *bool lies in both directions: Go templates treat any
+		// non-nil pointer as true, so a site that pinned a flag OFF shows a
+		// ticked box (and the next save of that form flips the flag back on),
+		// while a site that inherits ON shows an empty box (and an untouched
+		// save pins it off).  Sparsify keeps the round trip lossless: posting
+		// the inherited value back collapses to nil = still inheriting.
+		"BrandingEff":  snap.Branding.Resolve(scope),
+		"ChallengeEff": snap.Challenge.Resolve(scope),
 		// Whether the scope-resolved Branding has a logo on disk.  Used to
 		// show the "current logo" thumbnail + the "remove logo" toggle.
 		// Path is not shown to the operator (= internal detail).
@@ -849,6 +860,24 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 				url += "?v=" + strconv.FormatInt(st.ModTime().Unix(), 10)
 			}
 			return url
+		}(),
+		// Base URL (trailing slash included) for the theme tab's live preview
+		// iframes.  The plain /challenge/ route resolves branding by REQUEST
+		// host -- the admin's own hostname -- so at a per-site scope the five
+		// previews showed the wrong site's identity and, visibly, no logo: a
+		// logo cannot ride a _preview_* query param the way the site name
+		// does, it is fetched by the challenge page from its branding route.
+		// The site-scoped route (/test/site/<site>/) resolves the previewed
+		// site's branding and is admin-session gated (testSiteOverride), same
+		// as the thumbnail above.  Same wildcard guard as the thumbnail:
+		// "*.example.com" is not addressable on that route, keep the plain
+		// one rather than pointing five iframes at a guaranteed 404.
+		"ChallengePreviewBase": func() string {
+			base := strings.TrimRight(h.cfg().Server.BasePath, "/")
+			if scopeIsSite && testSiteHostRE.MatchString(scope) {
+				return base + "/test/site/" + scope + "/"
+			}
+			return base + "/challenge/"
 		}(),
 		// Scope picker state for the theme + challenge tabs.  Scope is the
 		// host name when a per-site override is being edited, empty when the
