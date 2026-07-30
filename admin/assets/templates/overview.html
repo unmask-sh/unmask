@@ -77,7 +77,18 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 table.events td.ipclick{white-space:nowrap}
 table.events td.verdict-cell{max-width:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.events td.url{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#475569}
-table.events td.ua{max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
+/* Wide viewports: cap the URL column so the leftover width lands on the UA
+   column instead of being split evenly between them.  The table uses auto
+   layout, where a cell's own max-width is only a hint (the 24rem on td.ua
+   never actually bound anything) -- the column width has to come from the th.
+   Below this breakpoint the even split is the better trade: capping URL there
+   squeezes UA down to almost nothing rather than giving it room. */
+@media (min-width:1600px){table.events th.th-url{width:14rem}}
+/* No max-width here: under the table's auto layout a cell's own max-width is
+   only a hint, and the 24rem this used to carry never bound the column (widening
+   or removing it changed nothing).  The column's share comes from the th widths
+   above; these three properties are what actually cut an over-long UA. */
+table.events td.ua{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
 table.events td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569;font-family:ui-monospace,Menlo,monospace}
 table.events td.actions{text-align:right;white-space:nowrap;width:auto}
 .rl-badge{display:inline-block;background:#fde68a;color:#92400e;font-size:.65rem;font-weight:700;padding:.05rem .3rem;border-radius:.2rem;margin-left:.25rem;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.04em}

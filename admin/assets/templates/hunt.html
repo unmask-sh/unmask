@@ -60,6 +60,13 @@ table.events td.at,table.events td.ipclick{white-space:nowrap}
 table.events td.mono{white-space:nowrap;max-width:none;overflow:visible;text-overflow:clip}
 table.events td.verdict-cell{max-width:7rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.events td.url{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#475569}
+/* Wide viewports: cap the URL column so the leftover width lands on the UA
+   column instead of being split evenly between them.  The table uses auto
+   layout, where a cell's own max-width is only a hint (the 24rem on td.ua
+   never actually bound anything) -- the column width has to come from the th.
+   Below this breakpoint the even split is the better trade: capping URL there
+   squeezes UA down to almost nothing rather than giving it room. */
+@media (min-width:1600px){table.events th.th-url{width:14rem}}
 table.events td.actions{white-space:nowrap;width:auto}
 .events-scroll{overflow-x:auto;max-width:100%}    /* when the table is wider than the screen, scroll inside the wrapper (= avoid body-level horizontal scroll).  max-width:100% pins it to the parent (= .unmask-main) width. */
 .events-scroll table.events{min-width:100%}
@@ -107,7 +114,11 @@ table.rank td.actions{text-align:left;white-space:nowrap}
 .host-badge,.site-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem;max-width:4rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .host-badge{color:#475569;background:#f8fafc}
 .site-badge{color:#1e40af;background:#eff6ff;border-color:#bfdbfe}
-table.events td.ua{max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
+/* No max-width here: under the table's auto layout a cell's own max-width is
+   only a hint, and the 24rem this used to carry never bound the column (widening
+   or removing it changed nothing).  The column's share comes from the th widths
+   above; these three properties are what actually cut an over-long UA. */
+table.events td.ua{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
 table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
 .rl-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.65rem;font-weight:700;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace;background:#fef3c7;color:#92400e}
 /* pager styles via partial_pager_styles below. */
