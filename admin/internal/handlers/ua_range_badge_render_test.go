@@ -34,15 +34,16 @@ func TestSettingsUAFilterTabRendersRangeBadges(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	// Auto default: Googlebot is UA-off with every preset live -> unchecked
-	// checkbox + the green ip badge; bingbot's explicit opt-in -> the amber
-	// or badge.  A raw i18n key leaking into the page means the printf key
-	// composition broke.
+	// With the standing policy on (the default), every range-backed pattern
+	// resolves to the same thing: on the rescue list, verified by address.
+	// So the row shows a CHECKED box -- it is a crawler we intend to let
+	// through -- next to the green ip badge saying how.  It used to render
+	// unchecked, which on every other row means "blocked".
 	for _, want := range []string{
 		`class="upstream-rv rv-ip"`,
-		`class="upstream-rv rv-or"`,
 		`data-rv="1"`,
 		`data-rv-active="1"`,
+		`data-rv-forced="1"`,
 		`</html>`,
 	} {
 		if !strings.Contains(body, want) {
@@ -52,11 +53,9 @@ func TestSettingsUAFilterTabRendersRangeBadges(t *testing.T) {
 	if strings.Contains(body, "settings.ua.upstream.rv_badge.") {
 		t.Error("raw rv_badge i18n key leaked into the render (printf key missing from dict)")
 	}
-	// The Googlebot row must render unchecked (UA-off), i.e. its checkbox tag
-	// carries no "checked".
 	row := body[strings.Index(body, `value="Googlebot\/"`):]
 	row = row[:strings.Index(row, ">")+1]
-	if strings.Contains(row, "checked") {
-		t.Errorf("Googlebot checkbox must render unchecked under the auto default, got %q", row)
+	if !strings.Contains(row, "checked") {
+		t.Errorf("Googlebot must render as ON the rescue list (the policy decides the path, not this box), got %q", row)
 	}
 }

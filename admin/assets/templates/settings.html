@@ -1759,7 +1759,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          "blocked" without one, "verified by IP" with one), which is what
          makes that list hard to read. */}}
     <label class="require-rv">
-      <input type="checkbox" name="require_range_verification" value="1" {{ if .Cur.SearchBots.RequireRangeVerification }}checked{{ end }}>
+      <input type="checkbox" name="require_range_verification" value="1" {{ if .Cur.SearchBots.RangeVerificationRequired }}checked{{ end }}>
       <span>
         <strong>{{ t .Lang "settings.ua.upstream.require_rv" }}</strong>
         <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.require_rv_desc") }}</span>
@@ -1811,7 +1811,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
                (and still submits) the per-pattern state, so switching the
                policy off brings it straight back -- it is dimmed rather than
                disabled precisely so nothing is lost while the policy holds. */}}
-          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RequireRangeVerification }} data-rv-forced="1"{{ end }}{{ end }}>
+          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RangeVerificationRequired }} data-rv-forced="1"{{ end }}{{ end }}>
             <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamUAOff .Pattern) }}checked{{ end }}>
             <span><code>{{ .Pattern }}</code>{{ if $st }}<span class="upstream-rv rv-{{ $st }}">{{ t $.Lang (printf "settings.ua.upstream.rv_badge.%s" $st) }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>
