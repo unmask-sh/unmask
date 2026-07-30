@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -144,5 +145,39 @@ func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 	// And the effective config agrees: the UA string does not rescue it.
 	if !nginxconf.EffectiveUpstreamUAOff(h.cfg().Nginx)[`Googlebot\/`] {
 		t.Error("default install: a spoofed Googlebot UA would be rescued by the string")
+	}
+}
+
+// The policy's description states a condition the code enforces: it closes the
+// UA path only where the vendor's ranges are actually loaded.  An earlier
+// draft promised more than that ("bots whose vendor publishes a range" full
+// stop), which would have told the operator their Googlebot was IP-verified
+// while, with the preset off, it was still passing on the UA string.  Wording
+// and behaviour have to move together, so pin the condition in both places.
+func TestPolicyDescriptionStatesThePresetCondition(t *testing.T) {
+	// Behaviour: preset off -> the UA rescue survives despite the policy.
+	var n settings.Nginx
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
+	if nginxconf.EffectiveUpstreamUAOff(n)[`Googlebot\/`] {
+		t.Fatal("precondition: with no preset loaded the UA rescue must remain")
+	}
+
+	// Wording: both locales must name the preset requirement, not just the
+	// vendor publishing a range.
+	for _, lang := range []i18n.Lang{"ja", "en"} {
+		desc := i18n.T(lang, "settings.ua.upstream.require_rv_desc")
+		if desc == "" || strings.Contains(desc, "settings.ua.upstream") {
+			t.Fatalf("%s: description missing", lang)
+		}
+		var mentions bool
+		for _, kw := range []string{"preset", "ホワイトリスト IP"} {
+			if strings.Contains(desc, kw) {
+				mentions = true
+			}
+		}
+		if !mentions {
+			t.Errorf("%s: the description does not say the range preset has to be enabled, "+
+				"so it promises IP verification for crawlers that are still passing on their UA: %.120s", lang, desc)
+		}
 	}
 }
