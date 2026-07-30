@@ -91,3 +91,38 @@ func TestEventsTableChainShortensRebindPopoverDoesNot(t *testing.T) {
 		t.Error("the popover timeline still abbreviates -- the reason would have nowhere to appear")
 	}
 }
+
+// The session total belongs in the popover, next to the per-phase times it
+// summarises -- the inline chain is already several pills wide and is the one
+// place that must stay narrow.  It is also suppressed for a session whose
+// serve was paginated off, where the span would cover only the surviving rows
+// and "total" would be a wrong label rather than a partial one.
+func TestEventsTableSessionTotalInPopover(t *testing.T) {
+	raw, err := assets.Templates.ReadFile("templates/partial_events_table.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(raw)
+
+	if !strings.Contains(tpl, `function fmtDur(ms){`) {
+		t.Fatal("fmtDur is missing -- nothing formats the session duration")
+	}
+	if !strings.Contains(tpl, `out += '<div class="session-total">total <strong>' + fmtDur(`) {
+		t.Error("the popover timeline must append a session total")
+	}
+	if !strings.Contains(tpl, `if (hasServe && grp.length > 1) {`) {
+		t.Error("the total must be gated on the session head being present (hasServe)")
+	}
+	if !strings.Contains(tpl, ".session-total{") {
+		t.Error("the total's CSS must be colocated in this partial, not left to the host page")
+	}
+	// The chain must NOT carry it: that is what keeps the collapsed row narrow.
+	chainStart := strings.Index(tpl, "chain.className = 'session-chain'")
+	chainEnd := strings.Index(tpl, "phaseCell.appendChild(chain);")
+	if chainStart < 0 || chainEnd < chainStart {
+		t.Fatal("could not delimit the chain-building block")
+	}
+	if strings.Contains(tpl[chainStart:chainEnd], "fmtDur(") {
+		t.Error("the inline chain must not render the duration -- it is what makes the pill row too wide")
+	}
+}
