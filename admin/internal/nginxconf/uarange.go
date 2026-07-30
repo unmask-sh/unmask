@@ -167,6 +167,14 @@ func EffectiveUpstreamUAOff(n settings.Nginx) map[string]bool {
 	out := make(map[string]bool, len(UARangePresets))
 	for pat := range UARangePresets {
 		switch {
+		// Standing policy wins over every per-pattern state, including an
+		// explicit UA opt-in: the operator turned it on precisely to stop
+		// vendor-branded UAs passing on the strength of the string, and a
+		// row saved months earlier should not quietly carve an exception
+		// out of it.  Turning the policy back off restores the per-pattern
+		// states below untouched -- they are still in the config.
+		case n.SearchBots.RequireRangeVerification:
+			out[pat] = true
 		case disabled[pat]:
 			out[pat] = true
 		case uaEnabled[pat]:
