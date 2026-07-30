@@ -50,3 +50,25 @@ func TestEventsTableUAColumnGetsTheSlackOnWideViewports(t *testing.T) {
 		}
 	}
 }
+
+// The phase column holds the collapsed session chain, which carries
+// overflow:visible so it never wraps -- and therefore contributes nothing to
+// auto layout's column sizing (min-width:max-content on a table cell is
+// ignored).  Whatever the th says IS the column, so the width has to cover the
+// longest pill run the product can emit.
+//
+// Adding the rebind refusal to the chain pushed the CAPTCHA path
+// (bv_rej > serve > load > captcha > bv_pc) to a browser-measured 245px, past
+// the 192px the column used to have: the chain spilled over the URL cell next
+// to it.  This pins the width against that measurement so the next phase added
+// to a chain has to re-check it rather than silently overflow.
+func TestEventsTablePhaseColumnFitsTheLongestChain(t *testing.T) {
+	partial, err := assets.Templates.ReadFile("templates/partial_events_table.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(partial), `<th style="width:15.5rem">phase `) {
+		t.Error("the phase column is no longer 15.5rem -- measure the longest chain again before changing it " +
+			"(bv_rej>serve>load>captcha>bv_pc needs 245px; 12rem = 192px overflowed into the URL cell)")
+	}
+}
