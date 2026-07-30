@@ -1932,12 +1932,16 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	return nil
 }
 
-// formListWithNotes is formList paired with a per-row note.  The two inputs
-// arrive as parallel form fields, so the pair has to be walked together:
-// dropping blank / duplicate values from one list while filtering the other
-// independently would slide every note onto the wrong row -- and a note on the
-// wrong address is worse than no note, since the whole point is to say which
-// line is safe to delete.
+// formListWithNotes sanitizes the per-row values of a structured list field
+// (= the value-rule-list UI that replaced the newline textareas) together with
+// each row's note: trim, drop empty, dedup, and reject control chars / quotes
+// (an nginx-config-injection guard).  Order is preserved.
+//
+// Value and note arrive as parallel form fields, so the pair has to be walked
+// together: dropping blank / duplicate values from one list while filtering
+// the other independently would slide every note onto the wrong row -- and a
+// note on the wrong address is worse than no note, since the whole point is to
+// say which line is safe to delete.
 //
 // Notes are stripped of the characters that would break the YAML the config is
 // written as, matching what the bypass-IP rows do with theirs.
@@ -2934,27 +2938,6 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-// formList sanitizes the per-row values of a structured list field (= the
-// value-rule-list UI that replaced the newline textareas): trim, drop empty,
-// dedup, and reject control chars / quotes (an nginx-config-injection guard).
-// Order is preserved.
-func formList(vals []string) []string {
-	out := make([]string, 0, len(vals))
-	seen := map[string]bool{}
-	for _, v := range vals {
-		v = strings.TrimSpace(v)
-		if v == "" || seen[v] {
-			continue
-		}
-		if strings.ContainsAny(v, "\"\\\x00\r\n") {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	return out
-}
 
 func toSet(xs []string) map[string]bool {
 	m := make(map[string]bool, len(xs))
