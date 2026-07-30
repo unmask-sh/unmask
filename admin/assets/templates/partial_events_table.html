@@ -77,7 +77,6 @@
 .session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
   font-size:.75rem;color:#334155;white-space:nowrap}
 .session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
-.session-total-span{color:#94a3b8;font-size:.7rem;font-family:ui-monospace,Menlo,monospace}
 .ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
 .ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
 .ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
@@ -522,9 +521,10 @@ document.addEventListener('DOMContentLoaded', function(){
       if (hasServe && grp.length > 1) {
         var firstMs = grp[0].__origMs, lastMs = grp[grp.length - 1].__origMs;
         if (firstMs != null && lastMs != null && lastMs >= firstMs) {
+          // Just the span: the first and last timestamps are already the top
+          // and bottom lines of the timeline right above this.
           out += '<div class="session-total">total <strong>' + fmtDur(lastMs - firstMs) +
-                 '</strong> <span class="session-total-span">' + fmtTs(firstMs) +
-                 ' → ' + fmtTs(lastMs) + '</span></div>';
+                 '</strong></div>';
         }
       }
       if (notes.length) {
