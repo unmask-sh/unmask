@@ -120,12 +120,7 @@
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
       <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
-      {{/* th-url: the host page caps this column on wide viewports so the UA
-           column gets the slack (see the .th-url media query).  Uncapped, the
-           table's auto layout splits the leftover width evenly between URL and
-           UA, and a short path sits in as much space as a 200-character user
-           agent that has to be cut. */}}
-      <th class="th-url">URL</th>
+      <th>URL</th>
       <th>UA</th>
       {{/* 4rem: the only thing in this column is the BAN button, measured at
            39px, and the cell adds 16px of padding.  At the old 7rem it sat in
@@ -157,7 +152,17 @@
            so the session-collapse rep row shows it too, unmodified. */}}
       <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td class="ua{{ if .UA }} cellpop{{ end }}">{{ if .UA }}{{ .UA }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
+           is ~740px wide and every human visitor's opens with the same
+           "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like Gecko)" run, so
+           the column filled its width while telling the operator apart almost
+           nothing.  data-full-value hands the untouched string to the popover,
+           which is what cellpop reads before falling back to cell text.
+           Anything that does NOT summarise -- curl, a library, a crawler,
+           something malformed -- keeps its raw bytes on the row, because on a
+           bot-hunting surface that is the row worth reading in full. */}}
+      {{ $uaShort := uaSummary .UA }}
+      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}>{{ if .UA }}{{ if $uaShort }}{{ $uaShort }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{ if not $.HideActions }}
       <td class="actions">
         {{ if .Banned }}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -227,6 +228,13 @@ func loadDashboardTemplate() (*template.Template, error) {
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+			// uaSummary condenses a browser UA to "<platform> · <browser> <major>"
+			// for the events table; "" for anything that is not a recognisable
+			// browser, so the caller keeps the raw string (see classify.UASummary
+			// for why bots deliberately do not summarise).  Lives here rather
+			// than on events.Row so the events package stays independent of
+			// classify.
+			"uaSummary": classify.UASummary,
 			// toJSON marshals a value for embedding in a <script> block or as a
 			// JS literal.  Returned as template.JS so it lands as a literal
 			// rather than being re-quoted into a JS string; that is safe here

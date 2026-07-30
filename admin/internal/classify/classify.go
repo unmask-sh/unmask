@@ -776,3 +776,127 @@ func IsBot(ua, ja4Action string) Category {
 // (AICategory has been retired in favour of LookupTag, which preserves all
 // 11 upstream tags instead of collapsing them to 5 buckets.  The crawler-
 // minute aggregation now stores tags directly.)
+
+// ---------------------------------------------------------------------------
+// UA summary for the events table
+// ---------------------------------------------------------------------------
+
+var (
+	uaAndroidVerRE = regexp.MustCompile(`Android (\d+)`)
+	uaEdgeRE       = regexp.MustCompile(`Edg(?:e|A|iOS)?/(\d+)`)
+	uaOperaRE      = regexp.MustCompile(`OPR/(\d+)`)
+	uaSamsungRE    = regexp.MustCompile(`SamsungBrowser/(\d+)`)
+	uaCriOSRE      = regexp.MustCompile(`CriOS/(\d+)`)
+	uaFxiOSRE      = regexp.MustCompile(`FxiOS/(\d+)`)
+	uaSafariVerRE  = regexp.MustCompile(`Version/(\d+)(?:\.\d+)?.*Safari/`)
+)
+
+// UASummary condenses a browser user agent into "<platform> · <browser> <major>"
+// for the events table, where the raw string is 700+px wide and every human
+// visitor's begins with the same "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML,
+// like Gecko)" boilerplate -- so the column shows a lot and distinguishes
+// nothing.  The full value stays one click away (the cell carries it as
+// data-full-value for the popover).
+//
+// Returns "" when the UA is not a recognisable browser, and the caller then
+// shows the raw string.  That fallback is deliberate: the events table is a
+// bot-hunting surface, and a UA that does NOT summarise -- curl, a library, a
+// crawler, something malformed -- is one whose exact bytes the operator is
+// most likely to want in front of them.  Summarising those into "Other" (as a
+// dashboard for human traffic reasonably would) throws away the evidence.
+//
+// The version is kept, unlike a plain "Windows Edge" label: unmask's own
+// decisions turn on it (the stale-browser tier compares majors, the
+// header-integrity axis has a hard boundary at Chromium 89), so a row whose
+// version is invisible cannot be checked against the reason it was escalated.
+func UASummary(ua string) string {
+	if ua == "" {
+		return ""
+	}
+	platform := uaPlatform(ua)
+	browser, ver := uaBrowser(ua)
+	if platform == "" || browser == "" {
+		return ""
+	}
+	if ver != "" {
+		browser += " " + ver
+	}
+	return platform + " · " + browser
+}
+
+// uaPlatform: device first, then desktop OS.  Order matters -- an Android
+// tablet UA also says "Linux", and every iOS UA says "like Mac OS X".
+func uaPlatform(ua string) string {
+	switch {
+	case strings.Contains(ua, "iPhone"):
+		return "iPhone"
+	case strings.Contains(ua, "iPad"):
+		return "iPad"
+	case strings.Contains(ua, "Android"):
+		label := "Android"
+		if m := uaAndroidVerRE.FindStringSubmatch(ua); m != nil {
+			label += " " + m[1]
+		}
+		// "Mobile" is what separates a phone from a tablet in Chrome's own
+		// Android UA; without it the build is a tablet / TV / car head unit.
+		// An in-app WebView ("; wv") is exempt: those routinely omit Mobile
+		// on phones, so the tablet label would be wrong for a large slice of
+		// ordinary app traffic.
+		if !strings.Contains(ua, "Mobile") && !strings.Contains(ua, "; wv") {
+			label += " Tab"
+		}
+		return label
+	case strings.Contains(ua, "CrOS"):
+		return "ChromeOS"
+	case strings.Contains(ua, "Mac OS X"), strings.Contains(ua, "Macintosh"):
+		return "Mac"
+	case strings.Contains(ua, "Windows"):
+		// Deliberately no version: every current Windows reports "NT 10.0",
+		// so printing it would suggest a precision the UA does not carry.
+		return "Windows"
+	case strings.Contains(ua, "Ubuntu"):
+		return "Ubuntu"
+	case strings.Contains(ua, "Linux"), strings.Contains(ua, "X11"):
+		return "Linux"
+	}
+	return ""
+}
+
+// uaBrowser: the derived engines first.  Edge, Opera, Samsung Internet and
+// Chrome-on-iOS all carry a "Chrome/" or "Safari/" token of their own, so
+// testing for Chrome or Safari first would label every one of them wrong.
+func uaBrowser(ua string) (name, ver string) {
+	first := func(re *regexp.Regexp) string {
+		if m := re.FindStringSubmatch(ua); m != nil {
+			return m[1]
+		}
+		return ""
+	}
+	if v := first(uaEdgeRE); v != "" {
+		return "Edge", v
+	}
+	if v := first(uaOperaRE); v != "" {
+		return "Opera", v
+	}
+	if v := first(uaSamsungRE); v != "" {
+		return "Samsung", v
+	}
+	if v := first(uaCriOSRE); v != "" {
+		return "Chrome", v
+	}
+	if v := first(uaFxiOSRE); v != "" {
+		return "Firefox", v
+	}
+	if v := FirefoxMajor(ua); v > 0 {
+		return "Firefox", strconv.Itoa(v)
+	}
+	if v := ChromeMajor(ua); v > 0 {
+		return "Chrome", strconv.Itoa(v)
+	}
+	// Safari last: it is the token every WebKit UA carries, so reaching here
+	// means none of the more specific ones matched.
+	if v := first(uaSafariVerRE); v != "" {
+		return "Safari", v
+	}
+	return "", ""
+}
