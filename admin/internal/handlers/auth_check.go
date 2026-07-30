@@ -388,6 +388,16 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// bingbot, GPTBot, ...) are excluded from the UA rescue here and
 			// pass via the bypass-IP veto below instead (see uarange.go).
 			action, reason, status = "pass", "ua:search_ai", http.StatusOK
+		case notifPreviewRescue(ua, ja4, matchers):
+			// Guarded notification-preview rescue: the UA must be backed by
+			// Apple's TLS stack (JA4_b cipher hash), mirroring native's
+			// "$unmask_notif_preview_ua$unmask_apple_tls" composite.  These
+			// fetchers run on subscribers' own devices (residential IPs, no
+			// vendor ranges), so a UA-only rescue would be one copied header
+			// line away from every scraper; a JA4 that is absent (no TLS /
+			// LB that hides the client hello) or non-Apple falls through to
+			// the ordinary challenge flow.
+			action, reason, status = "pass", "ua:search_ai", http.StatusOK
 		case matchers.ipBypass.Match(ip):
 			action, reason, status = "pass", "bypass:ip", http.StatusOK
 		case matchPath(uri, matchers.bypass):
@@ -1421,6 +1431,22 @@ type pathMatchers struct {
 	// into that matcher), a spoof falls through to the gating axes.  nil when
 	// no pattern is inverted.
 	rangeVerifiedUA *regexp.Regexp
+	// notifPreviewUA: alternation over the notification-preview group's
+	// enabled patterns (classify.NotificationPreviewTag).  Rescue is guarded:
+	// a match passes only together with Apple's TLS fingerprint -- see
+	// notifPreviewRescue.  nil when the group is not white or every pattern
+	// is disabled.
+	notifPreviewUA *regexp.Regexp
+}
+
+// notifPreviewRescue mirrors native's guarded notification-preview composite:
+// UA matches the group AND the JA4 carries Apple's cipher-suite hash.  ja4 ==
+// "" (plain HTTP, or a TLS-terminating hop that hides the client hello) never
+// rescues -- the visitor just takes the normal challenge flow.
+func notifPreviewRescue(ua, ja4 string, m pathMatchers) bool {
+	return m.notifPreviewUA != nil && ja4 != "" &&
+		strings.Contains(ja4, classify.AppleCFNetworkJA4B) &&
+		m.notifPreviewUA.MatchString(ua)
 }
 
 // honeypotRule pairs a compiled honeypot pattern with its per-preset
@@ -1499,6 +1525,26 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 	// joined string, so the hot path pays a map lookup, not a compile.
 	if pats := nginxconf.SortedUpstreamUAOff(n); len(pats) > 0 {
 		pm.rangeVerifiedUA = compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
+	}
+
+	// Guarded notification-preview UA matcher (rescue = UA + Apple TLS, see
+	// notifPreviewRescue).  Built from the group's enabled patterns so the
+	// per-pattern disable and the group-mode override behave exactly like the
+	// native render (collectUpstreamPatternsByMode).
+	if classify.ResolveGroupMode(classify.NotificationPreviewTag, n.SearchBots.UpstreamGroupMode) == classify.GroupModeWhite {
+		disabled := map[string]bool{}
+		for _, p := range n.SearchBots.UpstreamDisabled {
+			disabled[p] = true
+		}
+		var pats []string
+		for _, e := range classify.UpstreamRescueList()[classify.NotificationPreviewTag] {
+			if e.Pattern != "" && !disabled[e.Pattern] {
+				pats = append(pats, e.Pattern)
+			}
+		}
+		if len(pats) > 0 {
+			pm.notifPreviewUA = compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
+		}
 	}
 
 	// bypass paths: enabled presets + per-site rows from ResolvePaths.

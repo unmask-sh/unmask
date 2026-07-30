@@ -21,6 +21,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -149,9 +150,40 @@ var CrawlerTagOrder = []string{
 	"seo",
 	"monitoring",
 	"social-preview",
+	"notification-preview",
 	"feed-reader",
 	"archiver",
 	"academic",
+}
+
+// NotificationPreviewTag marks preview fetchers that run on subscribers' OWN
+// devices (Apple's notification service extensions fetching a push
+// notification's rich preview).  Unlike the social-preview unfurlers, whose
+// requests come from vendor servers, these arrive from residential IPs with
+// no publishable ranges -- so the UA string is the entire spoof surface, and
+// the tag's rescue is guarded: it fires only together with the Apple TLS
+// fingerprint below (both deploy modes).  Because of that, the tag's entries
+// deliberately join NONE of the IsBot category buckets: search_ai would
+// rescue on UA alone in forward-auth, and the unmapped-tag "service" default
+// would challenge-target the UA there while native stayed neutral.
+const NotificationPreviewTag = "notification-preview"
+
+// AppleCFNetworkJA4B is the JA4_b segment (cipher-suite hash) of Apple's
+// CFNetwork / Network.framework TLS stack, as observed stable across
+// CFNetwork builds on Darwin 24 and 25 over both HTTP/1.1 and HTTP/2.
+// JA4_a and JA4_c drift with OS releases (extension counts / order), but the
+// cipher list has held; matching only the _b segment keeps the guard from
+// rotting on every Apple update while still costing a spoofer TLS-stack
+// mimicry instead of one header line.  Underscores anchor the segment.
+const AppleCFNetworkJA4B = "_a09f3c656075_"
+
+// MatchesTag reports whether ua matches one of tag's crawler-list patterns.
+func MatchesTag(ua, tag string) bool {
+	if ua == "" {
+		return false
+	}
+	re := getCrawlerTagREs().tagRE[tag]
+	return re != nil && re.MatchString(ua)
 }
 
 // LookupTag returns the first crawler-user-agents.json tag matched by ua,
@@ -253,6 +285,13 @@ func buildCategoryREs(jsonRaw []byte) *categoryREs {
 
 	for _, ent := range data {
 		if ent.Pattern == "" {
+			continue
+		}
+		// Guarded tags stay out of every category bucket: their rescue is
+		// UA + TLS fingerprint (see NotificationPreviewTag), so search_ai
+		// would over-rescue and the "service" fallback below would
+		// challenge-target the UA asymmetrically with native.
+		if slices.Contains(ent.Tags, NotificationPreviewTag) {
 			continue
 		}
 		// priority: search_ai > service > user_dev
@@ -523,7 +562,7 @@ func parseUpstreamRescue(jsonRaw []byte) map[string][]UpstreamRescueEntry {
 		// generic ai-crawler / search-engine / etc.  Any entry tagged with
 		// none of these is skipped (= not part of the auto-pass surface).
 		var primary string
-		for _, p := range []string{"ai-user", "ai-training", "search-engine", "advertising", "seo", "social-preview", "feed-reader", "archiver", "academic", "monitoring", "scanner", "http-library", "browser-automation", "ai-crawler"} {
+		for _, p := range []string{"ai-user", "ai-training", "search-engine", "advertising", "seo", "social-preview", NotificationPreviewTag, "feed-reader", "archiver", "academic", "monitoring", "scanner", "http-library", "browser-automation", "ai-crawler"} {
 			for _, t := range ent.Tags {
 				if t == p {
 					primary = p
