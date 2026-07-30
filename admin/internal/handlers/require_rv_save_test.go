@@ -181,3 +181,51 @@ func TestPolicyDescriptionStatesThePresetCondition(t *testing.T) {
 		}
 	}
 }
+
+// Every piece of copy around this feature has to describe the same model, or
+// the tab teaches one thing and does another.  The model is:
+//
+//	checkbox        -> is this crawler rescued at all
+//	policy switch   -> how a rescued crawler is verified
+//	badge           -> the resulting path
+//
+// The copy predates the switch and described the checkbox itself as the UA
+// axis ("UA (この checkbox)" / "the UA checkbox ... independent rescue
+// paths"), which is no longer what it controls.  Pin the stale phrasings out.
+func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
+	for _, lang := range []i18n.Lang{"ja", "en"} {
+		legend := i18n.T(lang, "settings.ua.upstream.rv_note")
+		intro := i18n.T(lang, "settings.ua.upstream.spoof_note")
+		head := i18n.T(lang, "settings.ua.upstream.require_rv")
+
+		for _, stale := range []string{
+			"UA (この checkbox)",      // legend: checkbox described as the UA axis
+			"the UA checkbox",       // ditto, en
+			"checkbox を ON にすると UA", // intro: same claim
+			"checking the box passes the bot by UA",
+			"既定で UA の自動 pass から外れ", // intro: describes the retired auto-default
+			"out of the UA auto-pass by default",
+		} {
+			for name, text := range map[string]string{"legend": legend, "intro": intro} {
+				if strings.Contains(text, stale) {
+					t.Errorf("%s/%s still says %q -- the checkbox no longer selects the UA path", lang, name, stale)
+				}
+			}
+		}
+
+		// The heading must not read as "not on the UA alone", which invites
+		// "then UA plus something else passes".  Nothing is passed by UA.
+		if strings.Contains(head, "UA だけで通さない") || strings.Contains(head, "on the UA alone") {
+			t.Errorf("%s heading reads as \"not by UA alone\": %q", lang, head)
+		}
+		// And the legend has to name what the checkbox does mean now.
+		for _, want := range map[i18n.Lang][]string{
+			"ja": {"救済対象", "どう検証するか"},
+			"en": {"rescued at all", "how a rescued bot is verified"},
+		}[lang] {
+			if !strings.Contains(legend, want) {
+				t.Errorf("%s legend does not explain the split (%q missing)", lang, want)
+			}
+		}
+	}
+}
