@@ -1792,6 +1792,14 @@ type ChallengeTargetsConfig struct {
 // yml: extra: [pat] / extra_title: [title] / extra_disabled: [false].
 // Compatible with older yml (= no title / disabled): missing values default
 // to empty string / false.
+// RangeVerificationRequired reports whether the standing policy is on:
+// crawlers whose vendor publishes an egress range are never rescued by their
+// UA string.  Unset means ON -- see the field's comment for why the default
+// sits on that side.
+func (c SearchBotsConfig) RangeVerificationRequired() bool {
+	return c.RequireRangeVerification == nil || *c.RequireRangeVerification
+}
+
 type SearchBotsConfig struct {
 	// DisabledPresets was removed with the built-in whitelist presets
 	// (Googlebot / Bingbot / ...).  Search/AI rescue now flows through the
@@ -1831,7 +1839,13 @@ type SearchBotsConfig struct {
 	//
 	// Patterns with no published range are unaffected (the UA string is
 	// their only rescue path, so refusing it would just block the crawler).
-	RequireRangeVerification bool `yaml:"require_range_verification,omitempty"`
+	//
+	// A pointer so "not in the config" is distinguishable from "turned off":
+	// unset means ON.  This is the safe direction and the one the per-pattern
+	// default already resolved to, so an install that has never seen this
+	// setting keeps behaving exactly as before; turning it off is a decision
+	// the operator makes, and one that has to be recorded to survive.
+	RequireRangeVerification *bool `yaml:"require_range_verification,omitempty"`
 	// UpstreamGroupMode: per-group override mapping that places a category
 	// into "white" (auto-pass), "black" (challenge-target), or "none"
 	// (ignore).  Only entries that differ from the built-in default are

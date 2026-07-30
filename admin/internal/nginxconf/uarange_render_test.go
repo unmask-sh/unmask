@@ -95,6 +95,9 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 	explicit := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.BypassIPEnabledPresets = allOn
 		s.Nginx.SeenVersion = "v0.1.7"
+		// The standing policy outranks a per-pattern UA opt-in, so it has to
+		// be off for this to be the OR state.
+		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 		s.Nginx.SearchBots.UpstreamUAEnabled = []string{`Googlebot\/`}
 	})
 	if !strings.Contains(explicit, `"~*Googlebot\/" 1;`) {
