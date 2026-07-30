@@ -7,46 +7,54 @@ import (
 	"github.com/unmask-sh/unmask/admin/assets"
 )
 
-// The events table lays out with `table-layout: auto`, where a cell's own
-// max-width is only a hint -- td.ua carried max-width:24rem for a long time and
-// it bound nothing (raising it, or removing it outright, left the measured
-// column width unchanged).  What actually splits the leftover width is the th
-// set: with neither URL nor UA carrying one, auto layout divides the remainder
-// evenly, so a short path sat in exactly as much space as a 200-character user
-// agent that had to be cut.
+// The UA column used to render the raw user agent, which is ~740px wide and
+// opens with the same "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like
+// Gecko)" run on every human visitor -- so it filled whatever width it was
+// given and still distinguished almost nothing, while being cut at the end
+// where the useful part lives.  It now renders classify.UASummary
+// ("Windows · Edge 126") with the untouched string handed to the popover via
+// data-full-value, which is the attribute cellpop reads before falling back to
+// the cell's text.
 //
-// Capping URL from the th fixes that -- but only above a breakpoint.  Measured
-// with a real browser at 1280px, capping URL unconditionally starves the UA
-// column down to 33px; leaving the even split there keeps it at 129px.  So the
-// cap is behind a media query, and this pins all three parts: the hook on the
-// th, the query that uses it, and the absence of the misleading max-width.
-func TestEventsTableUAColumnGetsTheSlackOnWideViewports(t *testing.T) {
-	partial, err := assets.Templates.ReadFile("templates/partial_events_table.html")
+// Both halves have to stay wired: the summary without data-full-value would
+// silently drop the real UA from the page, and data-full-value without the
+// summary is just the old behaviour.
+func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
+	raw, err := assets.Templates.ReadFile("templates/partial_events_table.html")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(partial), `<th class="th-url">URL</th>`) {
-		t.Error("the URL header lost its th-url hook -- the media query below has nothing to select")
+	tpl := string(raw)
+
+	if !strings.Contains(tpl, `{{ $uaShort := uaSummary .UA }}`) {
+		t.Error("the UA cell no longer computes a summary")
+	}
+	if !strings.Contains(tpl, `{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}`) {
+		t.Error("the summarised UA cell must carry the raw string as data-full-value, " +
+			"or the full UA is not reachable from the page at all")
+	}
+	// A UA that does not summarise (curl, a library, a crawler) must keep its
+	// raw bytes on the row: on a bot-hunting surface that is the row the
+	// operator most wants to read in full.
+	if !strings.Contains(tpl, `{{ if $uaShort }}{{ $uaShort }}{{ else }}{{ .UA }}{{ end }}`) {
+		t.Error("a non-summarisable UA must fall back to the raw string in the cell")
 	}
 
-	// Both pages that render this partial must carry the rule; overview.html
-	// has drifted from hunt.html before (the phase-pill colours), which is why
-	// the pill CSS now lives in the partial itself.
+	// The three properties that clip an over-long (raw) UA must stay, and the
+	// dead max-width must not come back: under the table's auto layout a
+	// cell's own max-width is only a hint, so the 24rem this once carried
+	// bound nothing while reading as the place the UA gets cut.
 	for _, page := range []string{"templates/hunt.html", "templates/overview.html"} {
-		raw, err := assets.Templates.ReadFile(page)
+		pageRaw, err := assets.Templates.ReadFile(page)
 		if err != nil {
 			t.Fatal(err)
 		}
-		css := string(raw)
-		if !strings.Contains(css, `@media (min-width:1600px){table.events th.th-url{width:14rem}}`) {
-			t.Errorf("%s: missing the wide-viewport URL cap -- the UA column keeps only half the leftover width", page)
-		}
+		css := string(pageRaw)
 		if strings.Contains(css, "table.events td.ua{max-width:") {
-			t.Errorf("%s: td.ua has a max-width again; under auto layout it does nothing but suggest the column is capped there", page)
+			t.Errorf("%s: td.ua has a max-width again; it does nothing here but suggest a cap that is not real", page)
 		}
-		// The three properties that DO the truncating must stay.
 		if !strings.Contains(css, "table.events td.ua{overflow:hidden;text-overflow:ellipsis;white-space:nowrap") {
-			t.Errorf("%s: td.ua lost the properties that actually clip an over-long UA", page)
+			t.Errorf("%s: td.ua lost the properties that clip a raw UA", page)
 		}
 	}
 }
@@ -75,11 +83,9 @@ func TestEventsTablePhaseColumnFitsTheLongestChain(t *testing.T) {
 
 // The actions column holds one BAN button, measured at 39px.  At 7rem it took
 // 112px, so 65px of empty column sat immediately to the right of the UA -- and
-// since that is exactly where the UA gets cut, it read as space the UA was
+// since that is exactly where the UA got cut, it read as space the UA was
 // being denied ("it is not even reaching the edge and it is already
-// ellipsised").  The UA column is the one that absorbs whatever is left, so
-// narrowing this hands the width straight to it: measured 617px -> 665px at
-// 1920px, 181px -> 205px at 1440px.
+// ellipsised").
 func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 	partial, err := assets.Templates.ReadFile("templates/partial_events_table.html")
 	if err != nil {
@@ -87,6 +93,6 @@ func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 	}
 	if !strings.Contains(string(partial), `{{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}`) {
 		t.Error("the actions column is no longer 4rem -- it holds a 39px button, and any excess shows up " +
-			"as blank space next to the truncated UA")
+			"as blank space next to the UA")
 	}
 }

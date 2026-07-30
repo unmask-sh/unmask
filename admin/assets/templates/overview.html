@@ -77,13 +77,11 @@ table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-
 table.events td.ipclick{white-space:nowrap}
 table.events td.verdict-cell{max-width:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.events td.url{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#475569}
-/* Wide viewports: cap the URL column so the leftover width lands on the UA
-   column instead of being split evenly between them.  The table uses auto
-   layout, where a cell's own max-width is only a hint (the 24rem on td.ua
-   never actually bound anything) -- the column width has to come from the th.
-   Below this breakpoint the even split is the better trade: capping URL there
-   squeezes UA down to almost nothing rather than giving it room. */
-@media (min-width:1600px){table.events th.th-url{width:14rem}}
+/* No cap on the URL column: it existed to hand leftover width to the UA
+   column back when the UA rendered as a 740px raw string.  The UA now shows as
+   a summary (classify.UASummary) and needs ~110px, so URL and UA share the
+   remainder by content again -- which is what lets a long path use the room a
+   short one leaves. */
 /* No max-width here: under the table's auto layout a cell's own max-width is
    only a hint, and the 24rem this used to carry never bound the column (widening
    or removing it changed nothing).  The column's share comes from the th widths
