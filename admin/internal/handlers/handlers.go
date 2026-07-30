@@ -1063,7 +1063,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// Resolve per-site challenge + branding once; reuse for every placeholder
 	// substitution below.  Default verbatim when the site has no Sites entry.
 	// Authorized test-page preview may resolve the challenge + branding VALUES
-	// for another site via the site-scoped route (/challenge/{site}/), while
+	// for another site via the site-scoped route (/test/site/{site}/), while
 	// events / cookies / PoW seed stay bound to the physical request host --
 	// see testSiteOverride for who is allowed.
 	cfgSite := site
@@ -1825,7 +1825,7 @@ func (h *Handler) hasAdminSession(r *http.Request) bool {
 }
 
 // testSiteOverride returns the site whose VALUES (challenge knobs / branding)
-// this request may preview via the site-scoped routes (/challenge/{site}/,
+// this request may preview via the site-scoped routes (/test/site/{site}/,
 // /api/{site}/verify).  Honored only for callers allowed to pick arbitrary
 // sites:
 //   - an admin session (the /unmask/admin/test/ picker), or
@@ -1893,7 +1893,7 @@ func (h *Handler) testSiteConfigJSON() string {
 }
 
 // testSitePickerHTML builds the "Site" section of the test index page: a
-// picker that re-targets the force-* links at /challenge/{site}/ so a site's
+// picker that re-targets the force-* links at /test/site/{site}/ so a site's
 // OWN values (branding / difficulty / CAPTCHA provider) can be exercised
 // end-to-end.  Empty unless the caller may pick sites (admin side always;
 // public side only when the operator opted in) and at least one site has its
@@ -2087,10 +2087,10 @@ const testIndexBody = `<h1>unmask test pages</h1>
   var SITE_CFG = <<SITE_CFG>>;
   var redirectInp  = document.getElementById('test-redirect-input');
   var links        = document.querySelectorAll('a[data-test-link]');
-  // Site-scoped serve base: /unmask/challenge/<site>/ resolves THAT site's
+  // Site-scoped serve base: /unmask/test/site/<site>/ resolves THAT site's
   // values server-side (authorized callers only); challenge.js then routes its
   // API calls to /unmask/api/<site>/ so render and verify stay consistent.
-  var CH_BASE = '<<PREFIX>>'.replace(/\/(?:admin\/)?test$/, '') + '/challenge/';
+  var CH_BASE = '<<PREFIX>>'.replace(/\/(?:admin\/)?test$/, '') + '/test/site/';
   var theme  = '';
   var preset = '';
   var lang   = '';
@@ -2346,7 +2346,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	host := requestHost(r) // binds the issued _bv to this vhost
 	site := siteFromRequest(r, *h.cfg())
 	// Same authorized preview override as ServeChallenge: a site-scoped page
-	// (/challenge/{site}/) routes its verify to /api/{site}/verify, which must
+	// (/test/site/{site}/) routes its verify to /api/{site}/verify, which must
 	// resolve the SAME values the page was rendered with (CAPTCHA provider /
 	// threshold), else a previewed provider could never verify.  The issued
 	// _bv stays bound to the physical host above.
