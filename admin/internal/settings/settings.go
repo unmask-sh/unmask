@@ -617,6 +617,15 @@ type Nginx struct {
 	// WHICH hostname exposes the UI.
 	AdminAllowedIPs  []string `yaml:"admin_allowed_ips"`
 	MetricsAllowFrom []string `yaml:"metrics_allow_from"`
+	// Per-entry notes, positionally paired with the lists they annotate (same
+	// shape as BypassIPsTitle above).  An address allowlist is unreadable
+	// without them: six months on, "10.8.11.1" does not say whose laptop that
+	// is, and the only way to find out is to go digging through VPN configs --
+	// which is exactly the research an operator has to redo before they dare
+	// remove a line.  Empty entries are kept so the index still lines up.
+	AdminAllowedIPsTitle   []string `yaml:"admin_allowed_ips_title,omitempty"`
+	MetricsAllowFromTitle  []string `yaml:"metrics_allow_from_title,omitempty"`
+	AdminAllowedHostsTitle []string `yaml:"admin_allowed_hosts_title,omitempty"`
 
 	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
 	// Empty = allow every Host that reaches the admin (= the default; an

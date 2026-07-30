@@ -2,17 +2,32 @@
      newline textareas).  dict args: Name (form field, repeated per row),
      Values ([]string current entries), Placeholder, Lang.  Each row is a plain
      value input + delete; the shared rule-list JS handles add/delete. */}}
+{{/* valueRuleList: a list of bare values (IPs, hostnames, site ids) plus a
+     free-text note per row.  The note field is always emitted, paired
+     positionally with the value -- an address on its own stops being
+     readable within months ("10.8.11.1" does not say whose laptop it is),
+     and that missing context is what makes an operator afraid to remove a
+     line they no longer recognise.  Callers that want notes pass Titles;
+     the field renders either way so the two inputs stay index-aligned on
+     submit.  Same shape as the bypass-IP rows. */}}
 {{ define "valueRuleList" }}
 <div class="rule-list" data-rule-name="{{ .Name }}">
-  {{ range .Values }}
+  {{/* A caller that passes no Titles leaves the key absent, and `len` on the
+       resulting zero Value panics the template -- so normalise to an empty
+       slice first rather than testing the length of something that may not
+       exist. */}}
+  {{ $titles := .Titles }}
+  {{ range $i, $v := .Values }}
   <div class="rule-row editing">
-    <input type="text" name="{{ $.Name }}" value="{{ . }}" placeholder="{{ $.Placeholder }}" class="rule-pat">
+    <input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat">
+    <input type="text" name="{{ $.Name }}_title" value="{{ if $titles }}{{ if lt $i (len $titles) }}{{ index $titles $i }}{{ end }}{{ end }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-note">
     <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
   </div>
   {{ end }}
   <template class="rule-row-template">
     <div class="rule-row editing">
       <input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat">
+      <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-note">
       <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
     </div>
   </template>
@@ -202,6 +217,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-row input.rule-title{flex:1;font-family:-apple-system,sans-serif;font-weight:600}
 .rule-row input.rule-pat{flex:2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem}
 .rule-row input.rule-verd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:#92400e}
+/* Free-text note beside a bare value (IP / host).  Narrower than the value it
+   annotates and set in the UI font, so a row still reads value-first. */
+.rule-row input.rule-note{flex:1.4;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:.85rem;color:#475569}
 .rule-row input:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
 /* row buttons (= ✏️ / 🗑 / ＋) */
 .rule-row button{flex:0 0 auto;width:1.85rem;height:1.85rem;display:inline-flex;align-items:center;justify-content:center;background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;font-size:.95rem;line-height:1;padding:0}
@@ -729,7 +747,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if not .Cur.AdminAllowedIPs }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" (len .Cur.AdminAllowedIPs) }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
     </div>
   </div>
 
@@ -739,7 +757,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if not .Cur.AdminAllowedHosts }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" (len .Cur.AdminAllowedHosts) }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Placeholder" "admin.example.com" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Placeholder" "admin.example.com" "Lang" .Lang) }}
     </div>
   </div>
   <style>
@@ -751,7 +769,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
     </div>
   </div>
 
