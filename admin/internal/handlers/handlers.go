@@ -1020,8 +1020,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// site instead of rendering the challenge.  Placed before the serve event
 	// fires so a rebind never counts as a challenge serve (it isn't one, and
 	// inflating serves/IP here would feed the over-block breaker false positives).
+	// Session token for every event this request writes.  Minted BEFORE the
+	// rebind attempt so a refusal and the challenge it falls through to share
+	// one session in the hunt log: they are the same request, and the operator
+	// reading "why did this roaming client get a PoW" needs the refusal reason
+	// and the serve on one row.  Before this, the reject row carried no token
+	// and sat alone, indistinguishable from an unrelated event.  A rebind that
+	// succeeds serves no challenge page, so its token is simply never echoed.
+	beaconToken := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
 	if forceReason == "none" && rl == "0" && test == "0" && forceQuery == "" && !isPreview {
-		if h.tryRebind(w, r, site) {
+		if h.tryRebind(w, r, site, beaconToken) {
 			return
 		}
 	}
@@ -1417,8 +1425,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// in _bcDebug payload.bt.  DebugBeacon validates it to reject blind POSTs
 	// / replays to /api/debug.  Also embedded in the serve event's payload
 	// below so the hunt UI can group serve + all subsequent beacons (load /
-	// pow / bv_*) into one session row.
-	beaconToken := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
+	// pow / bv_*) into one session row.  Minted above, before the rebind
+	// attempt, so a rebind refusal joins the same session.
 	btJSON, _ := json.Marshal(beaconToken)
 	body = bytes.ReplaceAll(body, []byte(beaconTokenPlaceholder),
 		append([]byte(`/*__BEACON_TOKEN__*/`), btJSON...))

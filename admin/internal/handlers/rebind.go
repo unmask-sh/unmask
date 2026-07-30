@@ -187,7 +187,7 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 // when it handled the response (cookie + bounce page written).  The caller
 // must skip it for every forced path (ja4_bot / honeypot / banned / protected
 // / rate-limit / test): those are deliberate challenges, not roaming.
-func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string) bool {
+func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt string) bool {
 	cfg := h.cfg()
 	if !cfg.Rebind.RebindEnabled() {
 		return false
@@ -213,7 +213,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			if jc, _ := r.Cookie("_bvj"); jc != nil && jc.Value != "" {
 				reason = "bvj_invalid"
 			}
-			h.logRebindReject(r, site, ip, ja4, reason, "", 0, 0)
+			h.logRebindReject(r, site, ip, ja4, reason, "", bt, 0, 0)
 		}
 		return false
 	}
@@ -221,7 +221,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		// No JA4 reaches this deployment (pure forward-auth without the
 		// X-Client-JA4 wiring): the fingerprint gate would degenerate to
 		// empty==empty, so refuse unless the operator opted in.
-		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, claims.ASN, 0)
+		h.logRebindReject(r, site, ip, ja4, "no_ja4", claims.Lineage, bt, claims.ASN, 0)
 		return false
 	}
 	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
@@ -236,13 +236,13 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 	ja4Relaxed := false
 	if !claims.JA4Matches(cookies.FingerprintHash(ja4)) {
 		if h.verdictIsBot(verdict) {
-			h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, claims.ASN, 0)
+			h.logRebindReject(r, site, ip, ja4, "ja4_mismatch", claims.Lineage, bt, claims.ASN, 0)
 			return false
 		}
 		ja4Relaxed = true
 	}
 	if cookies.FingerprintHash(r.Header.Get("User-Agent")) != claims.UAHash {
-		h.logRebindReject(r, site, ip, ja4, "ua_mismatch", claims.Lineage, claims.ASN, 0)
+		h.logRebindReject(r, site, ip, ja4, "ua_mismatch", claims.Lineage, bt, claims.ASN, 0)
 		return false
 	}
 	asnVeto := cfg.Rebind.ASNVetoResolved() == "auto" && h.IPGeo != nil && h.IPGeo.ASNLoaded()
@@ -257,7 +257,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			// carrier.  An unmappable side is a data gap, not a block, so it stays
 			// quiet to keep the signal high-value.
 			if curASN != 0 && claims.ASN != 0 {
-				h.logRebindReject(r, site, ip, ja4, "asn_mismatch", claims.Lineage, claims.ASN, curASN)
+				h.logRebindReject(r, site, ip, ja4, "asn_mismatch", claims.Lineage, bt, claims.ASN, curASN)
 			}
 			return false
 		}
@@ -268,7 +268,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 		// nil err + !allowed is the per-lineage cap (lifetime or hourly); a non-nil
 		// err is a DB fault, not a policy decision, so don't log it as a reject.
 		if err == nil {
-			h.logRebindReject(r, site, ip, ja4, "cap", claims.Lineage, claims.ASN, curASN)
+			h.logRebindReject(r, site, ip, ja4, "cap", claims.Lineage, bt, claims.ASN, curASN)
 		}
 		return false
 	}
@@ -303,6 +303,11 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 			"asn_veto":  asnVeto,
 			"orig_path": origPath,
 			"reason":    reason,
+			// Same session token the serve would have used.  A successful
+			// rebind serves no challenge page, so this row is a session of
+			// one -- carried anyway so every row this request writes is
+			// attributable to the same request.
+			"bt": bt,
 		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
@@ -333,7 +338,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site string)
 // (per-lineage rebind budget exhausted).  Kept off PhaseBVRebind so it never
 // inflates the "successfully re-bound" count.  Best-effort: an unpackable IP
 // skips the row (the refusal already happened at the call site).
-func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineage string, solveASN, curASN uint) {
+func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineage, bt string, solveASN, curASN uint) {
 	pkt := events.PackIP(ip)
 	if pkt == nil {
 		return
@@ -365,6 +370,11 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 			"cur_asn":   curASN,
 			"reason":    reason,
 			"orig_path": origPath,
+			// Same session token as the serve this refusal falls through to
+			// (both happen in one request), so the hunt log shows them as one
+			// chain: "bv_rebind_reject(no_bvj) -> serve -> ...".  Read on its
+			// own, a reject row cannot say whether the client then solved.
+			"bt": bt,
 		},
 	})
 }
