@@ -111,7 +111,12 @@
         {{ safeHTML (t .Lang "help.phase.rl") }}
       </span></span></th>
       <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
-      <th>URL</th>
+      {{/* th-url: the host page caps this column on wide viewports so the UA
+           column gets the slack (see the .th-url media query).  Uncapped, the
+           table's auto layout splits the leftover width evenly between URL and
+           UA, and a short path sits in as much space as a 200-character user
+           agent that has to be cut. */}}
+      <th class="th-url">URL</th>
       <th>UA</th>
       {{ if not .HideActions }}<th style="width:7rem"></th>{{ end }}
     </tr>
