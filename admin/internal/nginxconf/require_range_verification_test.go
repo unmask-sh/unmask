@@ -51,9 +51,11 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 	}
 }
 
-// The policy must not touch patterns with no published range.  For those the
-// UA string is the only rescue path, so refusing it would challenge the
-// genuine crawler -- the exact accident this project exists to prevent.
+// The policy must not touch patterns with no published range.  It switches how
+// a rescued crawler is verified, and for these there is no address list to
+// verify by -- so there is nothing for it to act on.  (Choosing not to rescue
+// such a crawler at all is a separate decision with its own control: the
+// per-pattern checkbox.)
 func TestRequireRangeVerificationLeavesRangelessPatternsAlone(t *testing.T) {
 	var n settings.Nginx
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
@@ -104,11 +106,14 @@ func containsPattern(conf, pat string) bool {
 }
 
 // The policy closes the UA path only where there is an address list to verify
-// against.  With the vendor's presets not wired in (never enabled, or still
-// behind the NEW gate after an upgrade), dropping the UA too would leave the
-// crawler no rescue at all -- a genuine Googlebot challenged, which is the
-// accident this project exists to prevent.  "Verify by address instead of by
-// name" has to mean the addresses are actually loaded.
+// against.  "Verify by address instead of by name" has to mean the addresses
+// are actually loaded: with the vendor's presets not wired in (never enabled,
+// or still behind the NEW gate after an upgrade) there is nothing to verify
+// by, so the name stands.
+//
+// Collapsing this into "no rescue" would answer a question the operator did
+// not ask here -- refusing a crawler outright is its own choice, made with
+// the per-pattern checkbox.
 func TestRequireRangeVerificationKeepsUARescueWhenRangesAreNotLoaded(t *testing.T) {
 	const pat = `Googlebot\/`
 

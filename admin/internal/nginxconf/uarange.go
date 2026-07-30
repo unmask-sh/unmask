@@ -174,12 +174,15 @@ func EffectiveUpstreamUAOff(n settings.Nginx) map[string]bool {
 		// out of it.  Turning the policy back off restores the per-pattern
 		// states below untouched -- they are still in the config.
 		//
-		// RangePresetsActive is required, not incidental: dropping the UA
-		// while the vendor's ranges are NOT wired in (preset off, or still
-		// behind the NEW gate) leaves the crawler with no rescue path at
-		// all, and a genuine Googlebot gets challenged.  The policy is
-		// "verify by address instead of by name" -- with no addresses
-		// loaded there is nothing to verify against, so the name stands.
+		// RangePresetsActive is required, not incidental.  The policy says
+		// "verify a rescued crawler by address rather than by name", so it
+		// has nothing to act on until the addresses are loaded (preset off,
+		// or still behind the NEW gate) -- the name stands until then.
+		//
+		// Not rescuing a crawler at all is a separate, legitimate choice,
+		// and it has its own control: the per-pattern checkbox
+		// (UpstreamDisabled).  Letting this policy collapse into that would
+		// silently answer a question the operator did not ask here.
 		case n.SearchBots.RangeVerificationRequired() && RangePresetsActive(n, pat):
 			out[pat] = true
 		case disabled[pat]:
