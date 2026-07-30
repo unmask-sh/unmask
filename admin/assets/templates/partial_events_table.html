@@ -127,7 +127,13 @@
            agent that has to be cut. */}}
       <th class="th-url">URL</th>
       <th>UA</th>
-      {{ if not .HideActions }}<th style="width:7rem"></th>{{ end }}
+      {{/* 4rem: the only thing in this column is the BAN button, measured at
+           39px, and the cell adds 16px of padding.  At the old 7rem it sat in
+           112px, leaving 65px of blank column immediately right of the UA --
+           which reads as room the UA was refused, since that is exactly where
+           the UA gets cut.  The freed width goes to the UA column, which is
+           the one that takes whatever is left. */}}
+      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
     </tr>
   </thead>
   <tbody>
