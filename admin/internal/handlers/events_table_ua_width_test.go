@@ -72,3 +72,21 @@ func TestEventsTablePhaseColumnFitsTheLongestChain(t *testing.T) {
 			"(bv_rej>serve>load>captcha>bv_pc needs 245px; 12rem = 192px overflowed into the URL cell)")
 	}
 }
+
+// The actions column holds one BAN button, measured at 39px.  At 7rem it took
+// 112px, so 65px of empty column sat immediately to the right of the UA -- and
+// since that is exactly where the UA gets cut, it read as space the UA was
+// being denied ("it is not even reaching the edge and it is already
+// ellipsised").  The UA column is the one that absorbs whatever is left, so
+// narrowing this hands the width straight to it: measured 617px -> 665px at
+// 1920px, 181px -> 205px at 1440px.
+func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
+	partial, err := assets.Templates.ReadFile("templates/partial_events_table.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(partial), `{{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}`) {
+		t.Error("the actions column is no longer 4rem -- it holds a 39px button, and any excess shows up " +
+			"as blank space next to the truncated UA")
+	}
+}
