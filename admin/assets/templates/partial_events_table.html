@@ -94,7 +94,16 @@
            text stays in the user's language and auto-updates when the
            catalog moves.  Previously this was a hardcoded English block
            that drifted from the canonical phase set. */}}
-      <th style="width:12rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+      {{/* 15.5rem, not 12: the collapsed chain is what sits here, and its width
+           has to come from this th.  The cell carries overflow:visible so the
+           chain never wraps, which also means it contributes nothing to auto
+           layout's column sizing -- min-width:max-content on a table cell is
+           ignored, so whatever this says IS the column.  Measured pill runs:
+           serve>load>bv_pow 137px, +check 185px, +bv_rej 191px, and with the
+           CAPTCHA path bv_rej>serve>load>captcha>bv_pc 245px -- the last of
+           which overflowed the old 192px once rebind refusals joined the
+           chain.  15.5rem (248px) covers every run native mode can produce. */}}
+      <th style="width:15.5rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
         {{ safeHTML (t .Lang "help.phase.serve") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.load") }}<br><br>
         {{ safeHTML (t .Lang "help.phase.pow_pass") }}<br><br>
