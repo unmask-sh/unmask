@@ -400,6 +400,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-rv.rv-ip{background:#dcfce7;color:#15803d;border-color:#86efac}
 .upstream-rv.rv-or{background:#fef3c7;color:#92400e;border-color:#fcd34d}
 .upstream-rv.rv-none{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+/* A row whose UA rescue is settled by the standing policy: dimmed, with the
+   checkbox left interactive so the per-pattern value is still submitted and
+   comes back the moment the policy is switched off. */
+.upstream-row[data-rv-forced] code{opacity:.55}
+.upstream-row[data-rv-forced] .upstream-desc{opacity:.55}
+.require-rv{display:flex;gap:.55rem;align-items:flex-start;margin:.4rem 0 .9rem;padding:.6rem .75rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;cursor:pointer}
+.require-rv input{margin-top:.15rem;flex:0 0 auto}
+/* Only the label's own heading is a block; the <strong> runs inside the
+   description are emphasis within a sentence and must stay inline, or every
+   one of them breaks the line. */
+.require-rv>span>strong{display:block;font-size:.85rem;color:#14532d}
+.require-rv-desc strong{font-weight:600;color:#14532d}
+.require-rv-desc{display:block;margin-top:.2rem;font-size:.78rem;line-height:1.6;color:#334155}
 .upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.6;color:#334155}
 .upstream-group .upstream-detail-btn:hover{background:#f1f5f9;border-color:#94a3b8}
 
@@ -1738,6 +1751,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       {{ t .Lang "settings.ua.upstream.overall_unit" }}
     </div>
     <p style="background:#f1f5f9;border-left:.1875rem solid #6366f1;padding:.5rem .7rem;border-radius:.25rem;font-size:.82rem;line-height:1.65;margin:.4rem 0 .9rem;color:#334155">{{ safeHTML (t .Lang "settings.ua.upstream.spoof_note") }}</p>
+    {{/* Standing policy, above the per-category rows: for the vendors that
+         publish their egress ranges, a UA is a name tag rather than an ID.
+         Stating it once here beats deriving it per row -- the per-pattern
+         checkboxes already express the same thing, but their meaning flips
+         depending on whether the row has a range behind it (unchecked =
+         "blocked" without one, "verified by IP" with one), which is what
+         makes that list hard to read. */}}
+    <label class="require-rv">
+      <input type="checkbox" name="require_range_verification" value="1" {{ if .Cur.SearchBots.RequireRangeVerification }}checked{{ end }}>
+      <span>
+        <strong>{{ t .Lang "settings.ua.upstream.require_rv" }}</strong>
+        <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.require_rv_desc") }}</span>
+      </span>
+    </label>
     {{ range $cat, $entries := .UpstreamRescue }}
     {{ $mode := index $.UpstreamGroupMode $cat }}
     {{ $act := index $.UpstreamGroupAction $cat }}
@@ -1779,7 +1806,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="upstream-modal-list">
           {{ range $entries }}
           {{ $st := "" }}{{ if index $.UpstreamRangeBacked .Pattern }}{{ $st = index $.UpstreamRVState .Pattern }}{{ end }}
-          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ end }}>
+          {{/* data-rv-forced: this row's UA rescue is settled by the standing
+               policy above, not by its own checkbox.  The checkbox still shows
+               (and still submits) the per-pattern state, so switching the
+               policy off brings it straight back -- it is dimmed rather than
+               disabled precisely so nothing is lost while the policy holds. */}}
+          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RequireRangeVerification }} data-rv-forced="1"{{ end }}{{ end }}>
             <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamUAOff .Pattern) }}checked{{ end }}>
             <span><code>{{ .Pattern }}</code>{{ if $st }}<span class="upstream-rv rv-{{ $st }}">{{ t $.Lang (printf "settings.ua.upstream.rv_badge.%s" $st) }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>

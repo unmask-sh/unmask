@@ -1815,6 +1815,23 @@ type SearchBotsConfig struct {
 	// patterns never need listing here (UA rescue is their only path).
 	// See nginxconf.EffectiveUpstreamUAOff for the resolution order.
 	UpstreamUAEnabled []string `yaml:"upstream_ua_enabled,omitempty"`
+	// RequireRangeVerification: for every crawler whose vendor publishes an
+	// official IP range, refuse the UA-string rescue outright -- only an
+	// address inside the published range passes, so a spoofed UA is
+	// challenged like any other visitor.  Overrides UpstreamUAEnabled for
+	// those patterns.
+	//
+	// The per-pattern default already resolves this way, but only while every
+	// backing preset happens to be enabled, and only for patterns the
+	// operator has not touched: one saved UA-filter tab writes explicit
+	// entries and pins whatever was on screen at the time.  This is the
+	// standing policy instead of a state the config can drift out of -- "a
+	// name tag is not an ID for vendors that publish their addresses" said
+	// once, rather than re-derived per row.
+	//
+	// Patterns with no published range are unaffected (the UA string is
+	// their only rescue path, so refusing it would just block the crawler).
+	RequireRangeVerification bool `yaml:"require_range_verification,omitempty"`
 	// UpstreamGroupMode: per-group override mapping that places a category
 	// into "white" (auto-pass), "black" (challenge-target), or "none"
 	// (ignore).  Only entries that differ from the built-in default are
