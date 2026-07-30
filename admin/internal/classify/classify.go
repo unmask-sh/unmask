@@ -783,6 +783,10 @@ func IsBot(ua, ja4Action string) Category {
 
 var (
 	uaAndroidVerRE = regexp.MustCompile(`Android (\d+)`)
+	uaIPhoneVerRE  = regexp.MustCompile(`iPhone OS (\d+)_(\d+)`)
+	uaIPadVerRE    = regexp.MustCompile(`CPU OS (\d+)_(\d+)`)
+	uaWinNTVerRE   = regexp.MustCompile(`Windows NT ([\d.]+)`)
+	uaCrOSVerRE    = regexp.MustCompile(`CrOS \S+ (\d+)`)
 	uaEdgeRE       = regexp.MustCompile(`Edg(?:e|A|iOS)?/(\d+)`)
 	uaOperaRE      = regexp.MustCompile(`OPR/(\d+)`)
 	uaSamsungRE    = regexp.MustCompile(`SamsungBrowser/(\d+)`)
@@ -829,9 +833,9 @@ func UASummary(ua string) string {
 func uaPlatform(ua string) string {
 	switch {
 	case strings.Contains(ua, "iPhone"):
-		return "iPhone"
+		return "iPhone" + uaDottedVer(uaIPhoneVerRE, ua)
 	case strings.Contains(ua, "iPad"):
-		return "iPad"
+		return "iPad" + uaDottedVer(uaIPadVerRE, ua)
 	case strings.Contains(ua, "Android"):
 		label := "Android"
 		if m := uaAndroidVerRE.FindStringSubmatch(ua); m != nil {
@@ -847,13 +851,18 @@ func uaPlatform(ua string) string {
 		}
 		return label
 	case strings.Contains(ua, "CrOS"):
+		if m := uaCrOSVerRE.FindStringSubmatch(ua); m != nil {
+			return "ChromeOS " + m[1]
+		}
 		return "ChromeOS"
 	case strings.Contains(ua, "Mac OS X"), strings.Contains(ua, "Macintosh"):
+		// No version on purpose.  Safari and Chrome both freeze this field at
+		// "10_15_7" on every macOS from Catalina onward, so the number in the
+		// UA says "10.15 or anything newer" -- printing it would name a
+		// release the visitor is almost certainly not running.
 		return "Mac"
 	case strings.Contains(ua, "Windows"):
-		// Deliberately no version: every current Windows reports "NT 10.0",
-		// so printing it would suggest a precision the UA does not carry.
-		return "Windows"
+		return "Windows" + uaWindowsVer(ua)
 	case strings.Contains(ua, "Ubuntu"):
 		return "Ubuntu"
 	case strings.Contains(ua, "Linux"), strings.Contains(ua, "X11"):
@@ -899,4 +908,40 @@ func uaBrowser(ua string) (name, ver string) {
 		return "Safari", v
 	}
 	return "", ""
+}
+
+// uaDottedVer renders an "18_7"-style OS version captured as two groups into
+// " 18.7", or "" when the UA does not carry one.
+func uaDottedVer(re *regexp.Regexp, ua string) string {
+	m := re.FindStringSubmatch(ua)
+	if m == nil {
+		return ""
+	}
+	return " " + m[1] + "." + m[2]
+}
+
+// uaWindowsVer maps the NT kernel version to the marketing name.  Windows 11
+// reports the same "NT 10.0" as Windows 10 -- Microsoft never bumped it -- so
+// that case renders "10+" rather than claiming a release the UA cannot
+// distinguish.  An unknown NT version yields no suffix instead of a guess.
+func uaWindowsVer(ua string) string {
+	m := uaWinNTVerRE.FindStringSubmatch(ua)
+	if m == nil {
+		return ""
+	}
+	switch m[1] {
+	case "10.0":
+		return " 10+"
+	case "6.3":
+		return " 8.1"
+	case "6.2":
+		return " 8"
+	case "6.1":
+		return " 7"
+	case "6.0":
+		return " Vista"
+	case "5.1", "5.2":
+		return " XP"
+	}
+	return ""
 }
