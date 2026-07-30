@@ -113,7 +113,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -253,15 +253,29 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   var PHASE_WEIGHT = {
     'check':0,
+    // A refused roaming rebind happens in the SAME request as the challenge it
+    // falls through to, so it sorts just before that serve.  Given as 0.5
+    // rather than renumbering the scale: the two rows can share a millisecond,
+    // and then the time-sort alone would order them arbitrarily.
+    'bv_rebind_reject':0.5,
     'serve':1, 'load':2, 'pow':3, 'captcha':4,
     'verify_ok':5, 'verify_ng':5,
-    'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6,
+    // A successful rebind ends the session (no challenge page is served), so
+    // it sits with the other terminal pass phases.
+    'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6, 'bv_rebind':6,
     'error':7, 'cookie_err':7
   };
+  // Short labels for the collapsed chain, where several pills share one line.
+  // The rebind phases carry a reason in parentheses on their own row
+  // ("bv_rebind_reject(no_bvj)"), which is too wide to chain -- the chain shows
+  // the short phase and the popover timeline below spells the full name and the
+  // reason out.
   var PHASE_SHORT = {
     'bv_pow_only':         'bv_pow',
     'bv_captcha_only':     'bv_cap',
-    'bv_pow_then_captcha': 'bv_pc'
+    'bv_pow_then_captcha': 'bv_pc',
+    'bv_rebind_reject':    'bv_rej',
+    'bv_rebind':           'bv_reb'
   };
   function rowKey(tr){
     var ms = Number(tr.getAttribute('data-ts-ms')||0);
@@ -454,9 +468,11 @@ document.addEventListener('DOMContentLoaded', function(){
         var ms = (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
-        // Use the same short label the inline chain shows (= bv_pow_only -> bv_pow)
-        // so the timeline labels match what the user clicked on.
-        var label = PHASE_SHORT[ph] || ph;
+        // Full phase name here, not the chain's short label: the chain trades
+        // detail for fitting several pills on one line, and this popover is
+        // where that detail is supposed to come back.  Abbreviating in both
+        // places would leave "bv_rej" with nowhere to be spelled out.
+        var label = ph;
         // A phase whose meaning depends on a sub-value spells it out here:
         // "abandon" alone does not say where the visitor gave up, and the
         // collapsed chain has no room for it.  data-sub is a bare phase name

@@ -91,7 +91,7 @@ func TestTryRebindJA4Drift(t *testing.T) {
 
 	t.Run("JA4 in set -> silent rebind", func(t *testing.T) {
 		h, rr, req := mk(ja4H2, "ok")
-		if !h.tryRebind(rr, req, "default") {
+		if !h.tryRebind(rr, req, "default", "bt-test") {
 			t.Fatal("a JA4 in the _bvj set should rebind")
 		}
 		if !bvIssued(rr) {
@@ -101,7 +101,7 @@ func TestTryRebindJA4Drift(t *testing.T) {
 
 	t.Run("h3 drift + clean verdict -> soft-pass", func(t *testing.T) {
 		h, rr, req := mk(ja4H3, "ok")
-		if !h.tryRebind(rr, req, "default") {
+		if !h.tryRebind(rr, req, "default", "bt-test") {
 			t.Fatal("a clean (non-bot) JA4 drift should soft-pass the rebind")
 		}
 		if !bvIssued(rr) {
@@ -111,7 +111,7 @@ func TestTryRebindJA4Drift(t *testing.T) {
 
 	t.Run("drift + bot verdict -> vetoed", func(t *testing.T) {
 		h, rr, req := mk(ja4Bot, "h1_18_12")
-		if h.tryRebind(rr, req, "default") {
+		if h.tryRebind(rr, req, "default", "bt-test") {
 			t.Fatal("a bot-like JA4 drift must be refused, not soft-passed")
 		}
 		if bvIssued(rr) {
