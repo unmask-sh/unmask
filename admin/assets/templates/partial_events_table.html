@@ -72,6 +72,12 @@
 .session-note{max-width:32rem;white-space:normal;overflow-wrap:anywhere;word-break:normal;
   font-size:.74rem;line-height:1.5;color:#475569}
 .session-note-ref{color:#0f172a;font-weight:700;font-size:.7rem;flex:none}
+/* Session total: separated from the per-phase lines by a rule, since it is a
+   summary of them rather than another step in the sequence. */
+.session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
+  font-size:.75rem;color:#334155;white-space:nowrap}
+.session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
+.session-total-span{color:#94a3b8;font-size:.7rem;font-family:ui-monospace,Menlo,monospace}
 .ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
 .ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
 .ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
@@ -250,6 +256,20 @@ document.addEventListener('DOMContentLoaded', function(){
     var pad = function(n, w){ n = String(n); while (n.length < (w||2)) n = '0'+n; return n; };
     return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds())
          + '.' + pad(d.getMilliseconds(), 3);
+  }
+  // Session duration, at a precision that stays readable while the number is
+  // scanned down a column: sub-second spans keep their milliseconds (the gap
+  // between a serve and its load is the interesting part there), seconds get
+  // one decimal until they reach two digits, and from ten seconds up the
+  // fraction stops carrying information about a visitor's wait.
+  function fmtDur(ms){
+    ms = Number(ms) || 0;
+    if (ms < 1000) return Math.round(ms) + 'ms';
+    var s = ms / 1000;
+    if (s < 10) return (Math.round(s * 10) / 10) + 's';
+    if (s < 60) return Math.round(s) + 's';
+    var m = Math.floor(s / 60);
+    return m + 'm' + (m < 10 ? String(Math.round(s % 60)).padStart(2, '0') + 's' : '');
   }
   var PHASE_WEIGHT = {
     'check':0,
@@ -489,6 +509,24 @@ document.addEventListener('DOMContentLoaded', function(){
                '</time> <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
       });
       var out = '<div class="session-timeline">' + lines.join('') + '</div>';
+      // Total time across the session -- first event to last.  The lines above
+      // say when each step happened; the figure worth comparing between
+      // sessions is how long the whole thing took, and reading it off the
+      // timeline meant subtracting two timestamps by eye.  A PoW that ran 8s
+      // is a visitor kept waiting; next to an abandon the same number says how
+      // long they waited before leaving.
+      //
+      // Suppressed when the head of the session is missing (the serve was
+      // paginated off): the span would then cover only what survived on this
+      // page, and labelling that "total" would be wrong.
+      if (hasServe && grp.length > 1) {
+        var firstMs = grp[0].__origMs, lastMs = grp[grp.length - 1].__origMs;
+        if (firstMs != null && lastMs != null && lastMs >= firstMs) {
+          out += '<div class="session-total">total <strong>' + fmtDur(lastMs - firstMs) +
+                 '</strong> <span class="session-total-span">' + fmtTs(firstMs) +
+                 ' → ' + fmtTs(lastMs) + '</span></div>';
+        }
+      }
       if (notes.length) {
         out += '<div class="session-notes">' + notes.map(function(n, i){
           return '<div class="session-note"><span class="session-note-ref">*' + (i + 1) +
