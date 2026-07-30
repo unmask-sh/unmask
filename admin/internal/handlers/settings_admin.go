@@ -2328,6 +2328,12 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	}
 	n.SearchBots.UpstreamUAEnabled = uaEnabled
 
+	// Standing policy: refuse the UA-string rescue for every vendor that
+	// publishes an egress range.  Kept separate from the per-pattern lists
+	// above so turning it off restores them untouched -- they are still in
+	// the config, just outranked while this is on (EffectiveUpstreamUAOff).
+	n.SearchBots.RequireRangeVerification = r.FormValue("require_range_verification") == "1"
+
 	// upstream group mode: each category is white / black / none.
 	// Only store entries that differ from the built-in default (= keeps
 	// the YAML tidy and lets future default changes propagate to silent
