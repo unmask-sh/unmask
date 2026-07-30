@@ -1899,7 +1899,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// A NON-empty list that excludes the operator's own IP / Host is rejected
 	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
 	// resolved the same way the /admin/* gate resolves them).
-	allow := formList(r.Form["admin_allowed_ips"])
+	allow, allowNotes := formListWithNotes(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"])
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
@@ -1909,24 +1909,58 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_ip", curIP))
 	}
 	n.AdminAllowedIPs = allow
+	n.AdminAllowedIPsTitle = allowNotes
 
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
 	// many vhosts).  Matched in-app, never written to nginx config, so no
 	// injection guard is needed beyond the self-lockout check.
-	hosts := formList(r.Form["admin_allowed_hosts"])
+	hosts, hostNotes := formListWithNotes(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"])
 	if len(hosts) > 0 && !hostAllowed(curHost, hosts) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
 	}
 	n.AdminAllowedHosts = hosts
+	n.AdminAllowedHostsTitle = hostNotes
 
-	mallow := formList(r.Form["metrics_allow_from"])
+	mallow, mallowNotes := formListWithNotes(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.metrics_allow_invalid", a))
 		}
 	}
 	n.MetricsAllowFrom = mallow
+	n.MetricsAllowFromTitle = mallowNotes
 	return nil
+}
+
+// formListWithNotes is formList paired with a per-row note.  The two inputs
+// arrive as parallel form fields, so the pair has to be walked together:
+// dropping blank / duplicate values from one list while filtering the other
+// independently would slide every note onto the wrong row -- and a note on the
+// wrong address is worse than no note, since the whole point is to say which
+// line is safe to delete.
+//
+// Notes are stripped of the characters that would break the YAML the config is
+// written as, matching what the bypass-IP rows do with theirs.
+func formListWithNotes(vals, notes []string) (outVals, outNotes []string) {
+	noteClean := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/")
+	seen := map[string]bool{}
+	for i, v := range vals {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		if strings.ContainsAny(v, "\"\\\x00\r\n") {
+			continue
+		}
+		seen[v] = true
+		note := ""
+		if i < len(notes) {
+			note = noteClean.Replace(strings.TrimSpace(notes[i]))
+		}
+		outVals = append(outVals, v)
+		outNotes = append(outNotes, note)
+	}
+	return outVals, outNotes
 }
 
 // Common mmdb locations. Searched in priority order by the UI.

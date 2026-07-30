@@ -1643,6 +1643,7 @@ var dict = map[Lang]map[string]string{
 		"settings.ua.move_down":                         "下に移動",
 		"settings.ua.save_row":                          "確定 (表示モードに戻す。全体の保存は下の「保存」ボタン)",
 		"settings.ua.add_new":                           "＋ 新規追加",
+		"settings.rule.note_placeholder":                "メモ (任意)",
 
 		"settings.ja4.h":                    "JA4 verdict",
 		"settings.ja4.desc":                 "JA4 fingerprint の pattern を <strong>verdict</strong> (自由な名前。log / dashboard 表示用) と <strong>action</strong> (挙動) に分類する。<br>・<strong>block</strong>: bot 判定。challenge を強制し、chain は下の「JA4 block 判定時の default 挙動」と ルール ごとの上書きで決まる<br>・<strong>observe</strong>: 偽装疑いだが確証なしの観測用。<strong>挙動は通常のまま</strong>で、log 上でこの label の人間率を後追いできる<br>・<strong>allow</strong> (default): challenge 対象外<br>verdict 名は自由に付けてよい (例: <code>chrome_fake_h1</code> / <code>my_internal_tool</code>)。dashboard 上では action が bot / suspect / ok という名前で表示される。<br>OFF にした preset / custom ルール の fingerprint は allow 扱いになる。",
@@ -3373,6 +3374,7 @@ If neither matches, the Operating mode tab decides (default: a transparent PoW f
 		"settings.ua.move_down":                         "Move down",
 		"settings.ua.save_row":                          "Confirm (= back to view mode; persist with the Save button below)",
 		"settings.ua.add_new":                           "+ Add new",
+		"settings.rule.note_placeholder":                "note (optional)",
 
 		"settings.ja4.h":                    "JA4 verdict",
 		"settings.ja4.desc":                 "Classifies JA4 fingerprint patterns into a <strong>verdict</strong> (free-form name, shown in logs / dashboards) and an <strong>action</strong> (behavior).<br>- <strong>block</strong>: treated as a bot. A challenge is forced; the chain follows the \"JA4 block default action\" below plus per-rule overrides<br>- <strong>observe</strong>: suspected spoofing without confirmation. <strong>Behavior stays normal</strong>; the label lets you track later how human this traffic turned out to be<br>- <strong>allow</strong> (default): no challenge<br>Verdict names are free-form (e.g. <code>chrome_fake_h1</code> / <code>my_internal_tool</code>). On dashboards the actions appear under the names bot / suspect / ok.<br>Fingerprints of disabled preset / custom rules are treated as allow.",
