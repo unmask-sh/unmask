@@ -767,6 +767,45 @@ func WithHuntWindow(ctx context.Context, fromTS, toTS int64) context.Context {
 	return context.WithValue(ctx, huntWindowKey{}, [2]int64{fromTS, toTS})
 }
 
+// huntFreezeKey carries the id the hunt page froze its result set at.
+type huntFreezeKey struct{}
+
+// WithHuntFreeze bounds every subsequent hunt query to rows that already
+// existed when the operator started paging.
+//
+// Without it, offset paging over a log that is still being written double-shows
+// rows: `?offset=100` means "skip the newest 100", and by the time the operator
+// clicks it, events have arrived and pushed the rows they just read down past
+// that mark, so the next page opens with rows from the previous one.  A busy
+// node writes fast enough for the whole page to be rows already seen.
+//
+// The bound is an id rather than a timestamp because ids are assigned at INSERT
+// while date_created is captured earlier, when the event enters the write
+// queue: a row flushed after the freeze can still carry a timestamp from before
+// it, and a timestamp bound would let exactly those rows shift the paging it is
+// meant to hold still.
+func WithHuntFreeze(ctx context.Context, maxID int64) context.Context {
+	return context.WithValue(ctx, huntFreezeKey{}, maxID)
+}
+
+// huntFreeze returns the frozen upper-bound id, or 0 when the view is live.
+func huntFreeze(ctx context.Context) int64 {
+	id, _ := ctx.Value(huntFreezeKey{}).(int64)
+	return id
+}
+
+// MaxEventID is the freeze point the hunt page pins its paging to: the newest
+// row that exists right now.  Filters are deliberately not applied -- the id
+// only has to separate "already stored" from "arrived while the operator was
+// reading", and an unfiltered MAX(id) is an index lookup.
+func MaxEventID(ctx context.Context, d *db.DB) (int64, error) {
+	var id sql.NullInt64
+	if err := d.QueryRowContext(ctx, `SELECT MAX(id) FROM unmask_event`).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id.Int64, nil
+}
+
 // dateCreatedWindow returns the date_created predicate for a hunt query: the ctx
 // custom window when present, else the trailing `date_created > now-sinceMin`,
 // else "" when sinceMin<=0 (the "0 = unlimited" contract FetchPaged relies on).
@@ -789,6 +828,40 @@ func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
 //	hosts : nil/empty for all hosts; non-empty narrows via IN (...) (multi-select filter).
 //
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
+// SessionBleed is how many rows FetchPagedWithBleed reads on each side of the
+// page window so a session split by the page boundary can still be shown
+// whole.  A session is 3-4 rows in practice (99.8% of fleet traffic; the
+// longest observed is 20), so 8 covers the realistic cases without meaningfully
+// widening the read -- and a session longer than this still degrades to the
+// fragment marker the UI already draws.
+const SessionBleed = 8
+
+// FetchPagedWithBleed returns the page window plus SessionBleed rows on each
+// side, and reports where the window starts within the returned slice.
+//
+// The log is ordered newest-first and paginated by ROW, while the hunt UI
+// groups rows into sessions -- so a page boundary lands in the middle of a
+// session roughly twice per page (measured: 2 of 41 sessions at offset 200),
+// and the operator sees a chain with its head or tail missing.  Reading a
+// little past both edges lets the UI complete those chains; the caller decides
+// which sessions the page owns, so the extra rows never add sessions of their
+// own (see the handler).
+func FetchPagedWithBleed(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) (rows []Row, windowStart int, err error) {
+	if limit < 1 || limit > 1000 {
+		limit = 100
+	}
+	if offset < 0 || offset > 100000 {
+		offset = 0
+	}
+	lead := SessionBleed
+	if lead > offset {
+		lead = offset // first page: nothing newer to read
+	}
+	rows, err = FetchPaged(ctx, d, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site,
+		hosts, sinceMin, limit+lead+SessionBleed, offset-lead)
+	return rows, lead, err
+}
+
 func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
 	if limit < 1 || limit > 1000 {
 		limit = 100
@@ -868,6 +941,12 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 	}
 	if wc := dateCreatedWindow(ctx, d, sinceMin); wc != "" {
 		stmt += " AND " + wc
+	}
+	// Hold the result set still while the operator pages through it (see
+	// WithHuntFreeze).  Live views leave this unset.
+	if maxID := huntFreeze(ctx); maxID > 0 {
+		stmt += " AND id <= ?"
+		args = append(args, maxID)
 	}
 	// Order by the millisecond ingest timestamp so same-second events keep
 	// their true arrival order; id is the deterministic tie-breaker for the

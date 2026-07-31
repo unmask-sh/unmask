@@ -194,6 +194,28 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Freeze the result set the moment the operator leaves page 1, and carry
+	// that id in the pager links (see events.WithHuntFreeze -- without it,
+	// arriving events push already-read rows down into the next page).  Page 1
+	// with no id stays live, so a plain reload shows the newest events and
+	// starts a fresh freeze from there.
+	freezeID := int64(0)
+	if s := q.Get("asof"); s != "" {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil && n > 0 {
+			freezeID = n
+		}
+	}
+	if freezeID == 0 {
+		if id, err := events.MaxEventID(huntCtx, h.DB); err != nil {
+			log.Printf("hunt freeze point: %v", err) // paging stays live; rows may repeat
+		} else {
+			freezeID = id
+		}
+	}
+	if freezeID > 0 {
+		huntCtx = events.WithHuntFreeze(huntCtx, freezeID)
+	}
+
 	// Rows per page.  Whitelisted so ?n= can't turn into an unbounded query;
 	// operators hunting a burst want more than the classic 100 on screen.
 	pageSize := 100
@@ -205,12 +227,13 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	case "1000":
 		pageSize = 1000
 	}
-	rows, err := events.FetchPaged(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, forceReasonFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	rows, windowStart, err := events.FetchPagedWithBleed(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, forceReasonFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
 		return
 	}
+	rows, hasMoreRows := ownedSessionRows(rows, windowStart, pageSize)
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared by every admin page.
@@ -286,7 +309,10 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		uaRank = append(uaRank, row)
 	}
 
-	hasMore := len(rows) == pageSize
+	// Row count is no longer the signal: rows now includes whatever spilled in
+	// from the neighbouring pages to finish a session, so it can exceed
+	// pageSize on a full page and fall short on the last one.
+	hasMore := hasMoreRows
 
 	// Attach country code + ban status to event rows.  The same IP appears
 	// on multiple rows, so cache per IP (= avoid duplicate lookups).
@@ -465,6 +491,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			i18n.Resolve(r), rng, ipFilter, ja4Filter, uaFilter, phaseFilter, q,
 			offset, pageSize, offset > 0, hasMore,
 			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
+			freezeID,
 		),
 		"Saved": q.Get("saved") != "",
 		"Error": readFlash(w, r, h.cfg().Server.BasePath, "err"),
@@ -802,7 +829,7 @@ func huntRangeText(lang i18n.Lang, offset, gotRows int) string {
 // buildHuntPagerSeek builds a PagerSeekData for the hunt page.  The base
 // query carries range / ip / ja4 / phase plus any host=... selections so
 // pager links keep the operator's filters intact.
-func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, uaFilter, phase string, q url.Values, offset, pageSize int, hasPrev, hasNext bool, rangeText string) PagerSeekData {
+func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, uaFilter, phase string, q url.Values, offset, pageSize int, hasPrev, hasNext bool, rangeText string, freezeID int64) PagerSeekData {
 	var sb strings.Builder
 	sb.WriteByte('?')
 	appendIfSet := func(k, v string) {
@@ -828,5 +855,79 @@ func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, uaFilter, phas
 	if pageSize != 100 {
 		appendIfSet("n", strconv.Itoa(pageSize))
 	}
-	return buildPagerSeekData(lang, sb.String(), offset, pageSize, hasPrev, hasNext, rangeText)
+	// The freeze id has to travel with the paging links: drop it and the next
+	// page is computed against a log that has grown since, which is the
+	// duplicate-rows bug it exists to prevent.
+	live := sb.String()
+	if freezeID > 0 {
+		appendIfSet("asof", strconv.FormatInt(freezeID, 10))
+	}
+	seek := buildPagerSeekData(lang, sb.String(), offset, pageSize, hasPrev, hasNext, rangeText)
+	// "First" is the exception, and deliberately so: it is the way back to the
+	// newest events.  Carrying the freeze there would leave an operator who
+	// paged away with no link that shows the log moving again -- they would
+	// have to notice the URL.  The range buttons drop it for the same reason
+	// (they rebuild the query from scratch).
+	seek.FirstURL = strings.TrimSuffix(live, "&")
+	if seek.FirstURL == "" {
+		seek.FirstURL = "?"
+	}
+	return seek
+}
+
+// ownedSessionRows trims a bled read (page window + rows on both sides, see
+// events.FetchPagedWithBleed) down to the sessions this page owns, keeping
+// every row of those sessions even where it came from outside the window.
+//
+// A page owns a session when the session's NEWEST row falls inside the window.
+// Without that rule the boundary sessions would render on both adjacent pages
+// -- complete on each, but counted twice and read as duplicates.  With it,
+// every session appears exactly once and whole: the page holding its newest
+// row reaches back for the rest, and the neighbour skips it entirely.
+//
+// Rows with no beacon token (forward-auth `check`, anything ingested before
+// the token existed) are their own session of one, so they simply have to be
+// inside the window.
+//
+// hasMore reports whether the underlying query reached past the window's far
+// edge, which is what the pager needs -- the returned row count cannot answer
+// that any more, since it now includes borrowed rows.
+func ownedSessionRows(rows []events.Row, windowStart, pageSize int) (owned []events.Row, hasMore bool) {
+	windowEnd := windowStart + pageSize
+	if windowEnd > len(rows) {
+		windowEnd = len(rows)
+	}
+	if windowStart > len(rows) {
+		windowStart = len(rows)
+	}
+	hasMore = len(rows) > windowEnd
+
+	// Rows arrive newest-first, so the first row carrying a token is that
+	// session's newest -- and the session belongs to this page only if that
+	// row is in the window.
+	ownedTok := map[string]bool{}
+	for i := 0; i < len(rows); i++ {
+		tok := rows[i].BeaconToken
+		if tok == "" {
+			continue
+		}
+		if _, seen := ownedTok[tok]; seen {
+			continue
+		}
+		ownedTok[tok] = i >= windowStart && i < windowEnd
+	}
+
+	owned = make([]events.Row, 0, windowEnd-windowStart)
+	for i, r := range rows {
+		if r.BeaconToken == "" {
+			if i >= windowStart && i < windowEnd {
+				owned = append(owned, r)
+			}
+			continue
+		}
+		if ownedTok[r.BeaconToken] {
+			owned = append(owned, r)
+		}
+	}
+	return owned, hasMore
 }
