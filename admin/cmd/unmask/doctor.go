@@ -207,10 +207,10 @@ func cmdDoctor(args []string) error {
 	// off AND the backing range presets inactive).  Auto resolution never
 	// lands here, so this is always the product of explicit choices — but a
 	// genuine crawler is challenged, which usually means an SEO accident.
-	if states := nginxconf.UpstreamRVStates(s.Nginx); len(states) > 0 {
+	if uaOff := nginxconf.EffectiveUpstreamUAOff(s.Nginx); len(uaOff) > 0 {
 		var none []string
-		for pat, st := range states {
-			if st == "none" {
+		for pat := range nginxconf.UARangePresets {
+			if uaOff[pat] && !nginxconf.RangePresetsActive(s.Nginx, pat) {
 				none = append(none, pat)
 			}
 		}

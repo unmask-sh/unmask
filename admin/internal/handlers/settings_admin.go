@@ -161,16 +161,16 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}
 	}
 	// Range-verification badges for the detail modal: which patterns have a
-	// published vendor IP range at all (backed), and which of the two
-	// independent rescue paths are live for each ("ip" / "or" / "ua" /
-	// "none", see nginxconf.UpstreamRVStates).  catHasRV drives the
-	// per-category legend line.  UpstreamUAOff feeds the checkbox state so
-	// the UI shows the *effective* UA rescue, explicit or auto.
+	// published vendor IP range at all (backed), and for those, whether the
+	// vendor's addresses are loaded right now (= the badge is green).
+	// catHasRV drives the per-category legend line.  UpstreamUAOff feeds the
+	// checkbox state so the UI shows the *effective* UA rescue, explicit or
+	// auto.
 	upstreamRangeBacked := make(map[string]bool, len(nginxconf.UARangePresets))
 	for pat := range nginxconf.UARangePresets {
 		upstreamRangeBacked[pat] = true
 	}
-	upstreamRVState := nginxconf.UpstreamRVStates(cur)
+	upstreamRVActive := nginxconf.UpstreamRangeActive(cur)
 	upstreamCatHasRV := map[string]bool{}
 	for cat, entries := range upstreamRescue {
 		for _, e := range entries {
@@ -697,7 +697,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"UpstreamGroupMode":          upstreamGroupMode,
 		"UpstreamGroupAction":        upstreamGroupAction,
 		"UpstreamRangeBacked":        upstreamRangeBacked,
-		"UpstreamRVState":            upstreamRVState,
+		"UpstreamRVActive":           upstreamRVActive,
 		"UpstreamCatHasRV":           upstreamCatHasRV,
 		"JA4Groups":                  ja4Groups,
 		"JA4Rules":                   ja4ExtraRules,

@@ -39,8 +39,8 @@ func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
 		t.Error("policy on: a range-backed pattern must not be rescued by its UA, " +
 			"even when explicitly opted in -- a spoofed Googlebot would pass")
 	}
-	if got := UpstreamRVStates(n)[pat]; got != "ip" && got != "none" {
-		t.Errorf("policy on: badge = %q, want the UA path shown as closed", got)
+	if !UpstreamRangeActive(n)[pat] {
+		t.Error("policy on with presets live: the badge reports the preset, which is still enabled")
 	}
 
 	// Switching it back off must restore the explicit choice untouched: the
@@ -138,5 +138,90 @@ func TestRequireRangeVerificationKeepsUARescueWhenRangesAreNotLoaded(t *testing.
 	n.SeenVersion = "v99.0.0"
 	if !EffectiveUpstreamUAOff(n)[pat] {
 		t.Error("presets live: the policy should now close the UA path")
+	}
+}
+
+// Turning the policy off does NOT by itself put a range-backed crawler back on
+// UA rescue.  The per-pattern resolution takes over, and its auto rule already
+// keeps the UA off while the vendor's presets are live -- passing by UA needs
+// the operator to tick that row.  The intuition runs the other way ("off means
+// the UA works again"), and the settings copy said exactly that until this
+// pinned it.
+func TestPolicyOffDoesNotByItselfRestoreUARescue(t *testing.T) {
+	const pat = `Googlebot\/`
+	var n settings.Nginx
+	n.BypassIPEnabledPresets = googleRangePresets
+	n.SeenVersion = "v99.0.0"
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
+
+	if !EffectiveUpstreamUAOff(n)[pat] {
+		t.Error("policy off with presets live: the auto rule should still keep the UA path closed")
+	}
+	if !UpstreamRangeActive(n)[pat] {
+		t.Error("policy off: the preset is enabled, so the badge stays green")
+	}
+
+	// It takes an explicit tick on the row.
+	n.SearchBots.UpstreamUAEnabled = []string{pat}
+	if EffectiveUpstreamUAOff(n)[pat] {
+		t.Error("policy off + explicit opt-in: the UA path should be open")
+	}
+	if !UpstreamRangeActive(n)[pat] {
+		t.Error("policy off + explicit opt-in: the badge tracks the preset, not this row's checkbox")
+	}
+}
+
+// The legend now states the badge as an absolute -- green means the preset is
+// enabled, grey means it is not -- and separately describes what the policy
+// switch does with a green-badged bot.  Pin both halves against the resolution so the
+// copy and the behaviour cannot drift apart.
+//
+// The previous legend tried to make the colour carry the row's UA state too,
+// which is why it read as a contradiction: the same badge had to mean "the UA
+// is not consulted" while the switch above it decided exactly that.
+func TestBadgeAndPolicyMatchTheLegend(t *testing.T) {
+	const pat = `Googlebot\/`
+	mk := func(policy, presetOn, rowPassesOnUA bool) settings.Nginx {
+		var n settings.Nginx
+		n.SeenVersion = "v99.0.0"
+		if presetOn {
+			n.BypassIPEnabledPresets = googleRangePresets
+		}
+		n.SearchBots.RequireRangeVerification = settings.BoolPtr(policy)
+		if rowPassesOnUA {
+			n.SearchBots.UpstreamUAEnabled = []string{pat}
+		} else {
+			n.SearchBots.UpstreamDisabled = []string{pat}
+		}
+		return n
+	}
+	for _, c := range []struct {
+		policy, preset, rowUA bool
+		wantUAPasses          bool
+		why                   string
+	}{
+		// Legend: "On -- ticking a bot changes nothing; the address alone decides."
+		{true, true, true, false, "policy on outranks the row's tick"},
+		{true, true, false, false, "policy on, row unticked"},
+		// Legend: "Off -- a ticked bot passes on either its UA string or its address."
+		{false, true, true, true, "policy off, row ticked: the UA passes it too"},
+		{false, true, false, false, "policy off, row unticked: address only"},
+		// Grey rows: the policy has no addresses to redirect the check to, so
+		// the row's tick is all there is.
+		{true, false, true, true, "no addresses loaded, row ticked"},
+		{true, false, false, false, "no addresses loaded, row unticked"},
+		{false, false, true, true, "no addresses loaded, row ticked"},
+		{false, false, false, false, "no addresses loaded, row unticked"},
+	} {
+		n := mk(c.policy, c.preset, c.rowUA)
+		if green := UpstreamRangeActive(n)[pat]; green != c.preset {
+			t.Errorf("policy=%v preset=%v rowUA=%v: badge green=%v, want %v -- "+
+				"the legend says the badge reports the preset and nothing else",
+				c.policy, c.preset, c.rowUA, green, c.preset)
+		}
+		if uaPasses := !EffectiveUpstreamUAOff(n)[pat]; uaPasses != c.wantUAPasses {
+			t.Errorf("policy=%v preset=%v rowUA=%v: UA passes=%v, want %v (%s)",
+				c.policy, c.preset, c.rowUA, uaPasses, c.wantUAPasses, c.why)
+		}
 	}
 }

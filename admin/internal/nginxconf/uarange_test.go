@@ -165,44 +165,52 @@ func TestEffectiveUpstreamUAOffExplicit(t *testing.T) {
 	}
 }
 
-// TestUpstreamRVStates pins the 4-state badge classification and that the
-// auto default never resolves to "none" (no-rescue is reachable only through
-// explicit choices).
-func TestUpstreamRVStates(t *testing.T) {
+// The badge reports one thing: is this bot's range preset enabled.  It must
+// not move for any other reason -- the legend states it as an absolute, and a
+// badge that also tracked the row's checkbox is what made the previous legend
+// self-contradictory.
+func TestBadgeFollowsThePresetAndNothingElse(t *testing.T) {
 	allOn := allPresetIDs()
+	const pat = `Googlebot\/`
 
-	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
-	// Policy off: this case is about the per-pattern resolution, which the
-	// policy would otherwise settle for every range-backed pattern.
-	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
-	n.SearchBots.UpstreamUAEnabled = []string{`bingbot`}
-	states := UpstreamRVStates(n)
-	if got := states[`Googlebot\/`]; got != "ip" {
-		t.Errorf("Googlebot: want ip, got %q", got)
+	on := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v99.0.0"}
+	if !UpstreamRangeActive(on)[pat] {
+		t.Error("preset enabled: the badge must be green")
 	}
-	if got := states[`bingbot`]; got != "or" {
-		t.Errorf("bingbot (UA opt-in): want or, got %q", got)
+	off := settings.Nginx{SeenVersion: "v99.0.0"}
+	if UpstreamRangeActive(off)[pat] {
+		t.Error("preset disabled: the badge must be grey")
 	}
 
-	// Presets inactive: auto lands on "ua"; explicit disable lands on "none".
-	n = settings.Nginx{SeenVersion: "v0.1.7"}
-	n.SearchBots.UpstreamDisabled = []string{`GPTBot`}
-	states = UpstreamRVStates(n)
-	if got := states[`Googlebot\/`]; got != "ua" {
-		t.Errorf("Googlebot (presets off, auto): want ua, got %q", got)
-	}
-	if got := states[`GPTBot`]; got != "none" {
-		t.Errorf("GPTBot (explicit off + presets off): want none, got %q", got)
-	}
-
-	// Auto never yields "none": with no explicit lists, every range-backed
-	// pattern keeps at least one live rescue path whatever the preset state.
-	for _, presets := range [][]string{nil, allOn, {"bing"}} {
-		n = settings.Nginx{BypassIPEnabledPresets: presets, SeenVersion: "v0.1.7"}
-		for pat, st := range UpstreamRVStates(n) {
-			if st == "none" {
-				t.Errorf("auto with presets=%v: pattern %q resolved to none", presets, pat)
+	// Neither the policy nor the row's own checkbox may move it.
+	for _, policy := range []bool{true, false} {
+		for _, rowUA := range []bool{true, false} {
+			n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v99.0.0"}
+			n.SearchBots.RequireRangeVerification = settings.BoolPtr(policy)
+			if rowUA {
+				n.SearchBots.UpstreamUAEnabled = []string{pat}
+			} else {
+				n.SearchBots.UpstreamDisabled = []string{pat}
+			}
+			if !UpstreamRangeActive(n)[pat] {
+				t.Errorf("policy=%v rowUA=%v: the preset is still enabled, so the badge must stay green",
+					policy, rowUA)
 			}
 		}
+	}
+
+	// A pattern with no published range has no badge at all.
+	if _, ok := UpstreamRangeActive(on)[`Bytespider`]; ok && RangeVerifiedPresetIDs(`Bytespider`) == nil {
+		t.Error("a pattern with no published range should not be classified at all")
+	}
+}
+
+// The NEW gate still counts as "not loaded": a preset ticked but not yet
+// rendered for this install cannot verify anything, and showing it green would
+// promise an address check that is not running.
+func TestBadgeIsGreyWhilePresetsAreStillNewGated(t *testing.T) {
+	n := settings.Nginx{BypassIPEnabledPresets: googleRangePresets, SeenVersion: "v0.1.0"}
+	if !RangePresetsActive(n, `Googlebot\/`) && UpstreamRangeActive(n)[`Googlebot\/`] {
+		t.Error("presets behind the NEW gate: the badge must be grey")
 	}
 }
