@@ -247,8 +247,8 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 // insertStmt is shared between batch and single-row inserts.
 const insertStmt = `INSERT INTO unmask_event
         (site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id, phase, flags, reload_count,
-         cookie_bv, cookie_br, payload_json, date_created)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         cookie_bv, cookie_br, payload_json, ref_id, date_created)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 // prepareInsertArgs expands an Event into a SQL bind args slice.  Shared
 // between batch and single-row paths.  Returns nil for an invalid phase
@@ -267,6 +267,12 @@ func prepareInsertArgs(e *Event) []any {
 	cookieBR := nullIfEmpty(e.CookieBR)
 
 	var payloadText sql.NullString
+	// ref_id is a plain column the writer fills, indexed so the support lookup
+	// ("a visitor is on the phone quoting the code from the block page") seeks
+	// instead of scanning.  Filled from the serialized payload with the same
+	// extractRef the read path uses, so there is one definition of what the ref
+	// is -- and reading it back costs nothing, unlike a computed column.
+	var refID sql.NullString
 	if e.Payload != nil {
 		buf, err := json.Marshal(e.Payload)
 		if err == nil {
@@ -278,6 +284,7 @@ func prepareInsertArgs(e *Event) []any {
 				s = `{"_truncated":true}`
 			}
 			payloadText = sql.NullString{String: s, Valid: true}
+			refID = nullIfEmpty(extractRef(s))
 		}
 	}
 
@@ -311,7 +318,7 @@ func prepareInsertArgs(e *Event) []any {
 	}
 	return []any{
 		site, host, scheme, port, e.IPPacked, sqlStr(ua), ja4, verdict, verdictID, e.Phase,
-		e.Flags, e.ReloadCount, cookieBV, cookieBR, payloadText,
+		e.Flags, e.ReloadCount, cookieBV, cookieBR, payloadText, refID,
 		occurred.UTC().Format(eventTimeFormat),
 	}
 }
@@ -834,12 +841,14 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 		stmt += " AND user_agent LIKE ?"
 		args = append(args, "%"+uaSubstr+"%")
 	}
-	// ref: the support correlation id, matched exactly against payload "ref".
-	// The id is 16 hex chars (the caller validates) so the LIKE pattern carries
-	// no metacharacters; it pins the serve event the visitor's report names.
+	// ref: the support correlation id, matched exactly against the indexed
+	// ref_id column (migration 0025).  This used to be a LIKE over
+	// payload_json, which read every row in the table -- 53 seconds on a
+	// 3.4M-row production database, on the path an operator takes while a
+	// blocked visitor is waiting for an answer.
 	if ref != "" {
-		stmt += " AND payload_json LIKE ?"
-		args = append(args, `%"ref":"`+ref+`"%`)
+		stmt += " AND ref_id = ?"
+		args = append(args, ref)
 	}
 	// IP is packed binary ([]byte 4 / 16 bytes), so LIKE cannot narrow it.
 	// Only exact match is supported (pass a valid IP as ipSubstr).
@@ -971,8 +980,8 @@ func FetchByRef(ctx context.Context, d *db.DB, ref string, limit int) ([]Row, er
 	}
 	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
 	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
-	         FROM unmask_event WHERE payload_json LIKE ? ORDER BY id DESC LIMIT ?`
-	rows, err := d.QueryContext(ctx, stmt, `%"ref":"`+ref+`"%`, limit)
+	         FROM unmask_event WHERE ref_id = ? ORDER BY id DESC LIMIT ?`
+	rows, err := d.QueryContext(ctx, stmt, ref, limit)
 	if err != nil {
 		return nil, err
 	}

@@ -44,6 +44,7 @@ func newTestHandler(t *testing.T) *Handler {
             cookie_bv VARCHAR(80),
             cookie_br VARCHAR(8),
             payload_json TEXT,
+            ref_id TEXT,
             scheme VARCHAR(8) NOT NULL DEFAULT '',
             port INTEGER NOT NULL DEFAULT 0,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
