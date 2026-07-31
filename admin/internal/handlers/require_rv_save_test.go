@@ -135,8 +135,8 @@ func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 		t.Error("a range-backed crawler must show as ON the rescue list by default; " +
 			"an unchecked box reads as \"blocked\", which is not what happens to it")
 	}
-	if !strings.Contains(row, "rv-ip") {
-		t.Errorf("the badge must say the rescue rides the IP range, got: %.200s", row)
+	if !strings.Contains(row, "rv-on") {
+		t.Errorf("the badge must show as verified-by-address (green), got: %.200s", row)
 	}
 	if !strings.Contains(row, `data-rv-forced="1"`) {
 		t.Error("the row must be marked as settled by the policy rather than by its own checkbox")
@@ -205,6 +205,10 @@ func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
 			"checking the box passes the bot by UA",
 			"既定で UA の自動 pass から外れ", // intro: describes the retired auto-default
 			"out of the UA auto-pass by default",
+			// Off does not re-open the UA path on its own: the per-pattern
+			// auto rule keeps it closed while the presets are live.
+			"OFF にすると UA でも通過",
+			"Turning that setting off lets the UA pass",
 		} {
 			for name, text := range map[string]string{"legend": legend, "intro": intro} {
 				if strings.Contains(text, stale) {
@@ -219,12 +223,20 @@ func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
 			t.Errorf("%s heading reads as \"not by UA alone\": %q", lang, head)
 		}
 		// And the legend has to name what the checkbox does mean now.
+		// The legend shows the two real badges and states the CONDITION behind
+		// each, rather than naming colours or restating the outcome: an
+		// operator looking at a grey badge wants to know what to change, and
+		// "not verified" does not say "enable the preset".
+		if strings.Count(legend, `class="upstream-rv rv-on"`) != 1 ||
+			strings.Count(legend, `class="upstream-rv rv-off"`) != 1 {
+			t.Errorf("%s legend must show one of each real badge, got: %.160s", lang, legend)
+		}
 		for _, want := range map[i18n.Lang][]string{
-			"ja": {"救済対象", "どう検証するか"},
-			"en": {"rescued at all", "how a rescued bot is verified"},
+			"ja": {"有効", "無効"},
+			"en": {"enabled", "disabled"},
 		}[lang] {
 			if !strings.Contains(legend, want) {
-				t.Errorf("%s legend does not explain the split (%q missing)", lang, want)
+				t.Errorf("%s legend does not name the preset condition (%q missing)", lang, want)
 			}
 		}
 	}

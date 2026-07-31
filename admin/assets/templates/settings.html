@@ -397,9 +397,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    ip = UA off + ranges live (green, the spoof-safe default), or = both paths
    pass (amber: a spoofed UA passes too), ua = UA-string only (grey), none =
    no rescue at all (red: a genuine crawler gets challenged). */
-.upstream-rv.rv-ip{background:#dcfce7;color:#15803d;border-color:#86efac}
-.upstream-rv.rv-or{background:#fef3c7;color:#92400e;border-color:#fcd34d}
-.upstream-rv.rv-none{background:#fee2e2;color:#b91c1c;border-color:#fca5a5}
+/* One badge, two readings: green = this bot's range preset is enabled, grey =
+   it is not.  Both are spelled out in the legend above the list, so the badge
+   carries no title -- and must not look like it does. */
+.upstream-rv.rv-on{background:#dcfce7;color:#15803d;border-color:#86efac}
+.upstream-rv.rv-off{background:#f1f5f9;color:#64748b;border-color:#cbd5e1}
 /* A row whose UA rescue is settled by the standing policy: dimmed, with the
    checkbox left interactive so the per-pattern value is still submitted and
    comes back the moment the policy is switched off. */
@@ -413,7 +415,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .require-rv>span>strong{display:block;font-size:.85rem;color:#14532d}
 .require-rv-desc strong{font-weight:600;color:#14532d}
 .require-rv-desc{display:block;margin-top:.2rem;font-size:.78rem;line-height:1.6;color:#334155}
-.upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.6;color:#334155}
+.upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.9;color:#334155}
+/* The legend shows the real badges inline, so the first one on a line must
+   not carry the left margin that separates a badge from a pattern name. */
+.upstream-rv-legend .upstream-rv{margin-left:0;margin-right:.15rem}
 .upstream-group .upstream-detail-btn:hover{background:#f1f5f9;border-color:#94a3b8}
 
 .upstream-modal{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center}
@@ -1805,15 +1810,17 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
         <div class="upstream-modal-list">
           {{ range $entries }}
-          {{ $st := "" }}{{ if index $.UpstreamRangeBacked .Pattern }}{{ $st = index $.UpstreamRVState .Pattern }}{{ end }}
+          {{ $backed := index $.UpstreamRangeBacked .Pattern }}{{ $rvActive := and $backed (index $.UpstreamRVActive .Pattern) }}
           {{/* data-rv-forced: this row's UA rescue is settled by the standing
                policy above, not by its own checkbox.  The checkbox still shows
                (and still submits) the per-pattern state, so switching the
                policy off brings it straight back -- it is dimmed rather than
                disabled precisely so nothing is lost while the policy holds. */}}
-          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $st }} data-rv="1"{{ if or (eq $st "ip") (eq $st "or") }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RangeVerificationRequired }} data-rv-forced="1"{{ end }}{{ end }}>
+          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $backed }} data-rv="1"{{ if $rvActive }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RangeVerificationRequired }} data-rv-forced="1"{{ end }}{{ end }}>
             <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamUAOff .Pattern) }}checked{{ end }}>
-            <span><code>{{ .Pattern }}</code>{{ if $st }}<span class="upstream-rv rv-{{ $st }}">{{ t $.Lang (printf "settings.ua.upstream.rv_badge.%s" $st) }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+            {{/* The badge reports the preset's state only, so it never repaints
+                 from this row's checkbox -- see nginxconf.UpstreamRangeActive. */}}
+            <span><code>{{ .Pattern }}</code>{{ if $backed }}<span class="upstream-rv {{ if $rvActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>
           </label>
           {{ end }}
@@ -2291,28 +2298,36 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       });
     });
   }
-  // Live rescue-path badge for range-backed rows: recompute the 4-state
-  // badge from checkbox + data-rv-active so the operator sees "no rescue"
-  // BEFORE saving, not after.
-  var RV_LABELS = {
-    ip:   '{{ t $.Lang "settings.ua.upstream.rv_badge.ip" }}',
-    or:   '{{ t $.Lang "settings.ua.upstream.rv_badge.or" }}',
-    ua:   '{{ t $.Lang "settings.ua.upstream.rv_badge.ua" }}',
-    none: '{{ t $.Lang "settings.ua.upstream.rv_badge.none" }}'
-  };
+  // The standing policy settles range-backed rows regardless of their own
+  // checkbox, so the row styling has to read it -- without this a row ticked
+  // while the policy is on still looks like it passes on its UA, which is the
+  // opposite of what saving would do.
+  function rvPolicyOn() {
+    var p = document.querySelector('input[name="require_range_verification"]');
+    return !p || p.checked;
+  }
+  // The badge is server-rendered from the preset's state alone and nothing on
+  // this screen can change that, so there is no badge to repaint here.  What
+  // does move is whether the policy is settling this row: that dims the
+  // checkbox, and the operator toggles the policy right next to it.
   function rvSync(row) {
     if (!row || row.dataset.rv !== '1') return;
-    var badge = row.querySelector('.upstream-rv');
-    var chk = row.querySelector('.upstream-pattern-chk');
-    if (!badge || !chk) return;
-    var active = row.dataset.rvActive === '1';
-    var st = active ? (chk.checked ? 'or' : 'ip') : (chk.checked ? 'ua' : 'none');
-    badge.className = 'upstream-rv rv-' + st;
-    badge.textContent = RV_LABELS[st];
+    if (rvPolicyOn()) row.setAttribute('data-rv-forced', '1');
+    else row.removeAttribute('data-rv-forced');
   }
   function rvSyncAll(modal) {
     modal.querySelectorAll('.upstream-row[data-rv="1"]').forEach(rvSync);
   }
+  // The policy lives on the card, the rows live in the per-category modals:
+  // toggling it has to repaint every badge, or a modal opened afterwards
+  // still shows the previous policy's verdict.
+  (function(){
+    var p = document.querySelector('input[name="require_range_verification"]');
+    if (!p) return;
+    p.addEventListener('change', function(){
+      document.querySelectorAll('.upstream-row[data-rv="1"]').forEach(rvSync);
+    });
+  })();
   // Initial render: just sync the count badge.  Mode comes pre-set from the
   // server-rendered radios (= no JS-side initial computation needed).
   document.querySelectorAll('.upstream-group').forEach(function(g){
