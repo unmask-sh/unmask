@@ -16,7 +16,9 @@
 #   C. explicit UA-off: search_bots.upstream_disabled beats the auto
 #      fallback — presets off AND the pattern disabled = no rescue at all
 #      (both axes off is reachable only through explicit choices).
-#   D. explicit UA opt-in: search_bots.upstream_ua_enabled keeps the UA line
+#   D. explicit UA opt-in vs the ON-by-default require_range_verification
+#      policy: the policy outranks the row, the UA stays closed.
+#   E. policy off + the same opt-in: search_bots.upstream_ua_enabled keeps the UA line
 #      although every preset is live (the OR state — either axis passes).
 #
 # Needs the docker e2e stack (it writes files inside the admin container and
@@ -104,7 +106,7 @@ esac
 #    (exactly what the hub sync writes) and restart.  7.7.7.7 now counts as a
 #    published Google address, so the UA+range pair passes by IP.
 MUTATED=1
-admin_exec "cp '$CONF' '$CONF.bak51' && printf '%s' '{\"creationTime\":\"2026-07-16T00:00:00.000000\",\"prefixes\":[{\"ipv4Prefix\":\"7.7.7.0/24\"}]}' > '$OVERRIDE'"
+admin_exec "cp '$CONF' '$CONF.bak51' && mkdir -p \"\$(dirname '$OVERRIDE')\" && printf '%s' '{\"creationTime\":\"2026-07-16T00:00:00.000000\",\"prefixes\":[{\"ipv4Prefix\":\"7.7.7.0/24\"}]}' > '$OVERRIDE'"
 if ! restart_admin; then
     log_fail "admin did not come back after the override restart (healthz $(healthz))"
     exit 1
@@ -154,9 +156,12 @@ case "$r" in
     *) log_pass "explicit UA-off + presets off → no rescue (reason=$r)" ;;
 esac
 
-# D. Explicit UA opt-in (the OR state): restore the original config (presets
-#    all on) and add the pattern to upstream_ua_enabled — the UA line stays in
-#    the rescue although every preset is live, so a non-Google IP passes by UA.
+# D. Explicit UA opt-in vs the standing policy.  require_range_verification
+#    defaults to ON, and it outranks the per-pattern opt-in: with the presets
+#    live the UA string stays closed however the row is ticked, so the same
+#    non-Google IP is still refused.  (The unit side is
+#    TestRequireRangeVerificationOutranksAnExplicitUAOptIn; this pins the
+#    same resolution through the config file and the forward-auth wire.)
 admin_exec "cp '$CONF.bak51' '$CONF' && sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_ua_enabled: [Googlebot\\\\/],' '$CONF'"
 if ! admin_exec "grep -q 'upstream_ua_enabled' '$CONF'"; then
     log_fail "failed to inject search_bots.upstream_ua_enabled into $CONF"
@@ -166,7 +171,27 @@ if ! restart_admin; then
     log_fail "admin did not come back after the opt-in restart (healthz $(healthz))"
     exit 1
 fi
+r=$(reason_for_ip "$IP_OUT_RANGE")
+case "$r" in
+    *search_ai*|*bypass:ip*)
+        log_fail "policy at its ON default: the UA opt-in must be outranked, got reason=$r"
+        ;;
+    *) log_pass "policy at its ON default → UA opt-in outranked from outside the ranges (reason=$r)" ;;
+esac
+
+# E. The OR state needs the policy switched off: same opt-in with
+#    require_range_verification: false, and the UA line is back — a non-Google
+#    IP passes by UA although every preset is live.
+admin_exec "sed -i 's,^  search_bots:\$,  search_bots:\n    require_range_verification: false,' '$CONF'"
+if ! admin_exec "grep -q 'require_range_verification' '$CONF'"; then
+    log_fail "failed to inject require_range_verification into $CONF"
+    exit 1
+fi
+if ! restart_admin; then
+    log_fail "admin did not come back after the policy-off restart (healthz $(healthz))"
+    exit 1
+fi
 assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
-    "explicit UA opt-in + presets on → rescued by UA from outside the ranges (OR state)"
+    "policy off + explicit UA opt-in → rescued by UA from outside the ranges (OR state)"
 
 exit 0
