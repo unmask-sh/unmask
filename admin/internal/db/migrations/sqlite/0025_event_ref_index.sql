@@ -1,0 +1,21 @@
+-- 0025 event ref index: make the support lookup stop reading the whole table.
+--
+-- `unmask events --ref <id>` and the hunt tab's ref filter both matched the id
+-- with `payload_json LIKE '%"ref":"..."%'`.  The ref is the short code printed
+-- on the challenge / deny page -- the one a blocked visitor quotes when they
+-- get in touch -- so this is the path an operator takes while someone is
+-- waiting on the phone, and it was the slowest query in the product: measured
+-- at 53 SECONDS against a 5.6GB / 3.4M-row production database, reading every
+-- row to find one.  With the column and its index it is a seek.
+--
+-- An ordinary column, filled by the writer (prepareInsertArgs) with the same
+-- extractRef the read path uses, so there is one definition of what the ref is.
+--
+-- Deliberately NOT backfilled: events already stored keep ref_id NULL and stop
+-- being findable by ref.  A ref is quoted by a visitor within hours of being
+-- shown, and the rows carrying the old ones age out on the retention window, so
+-- buying those few days back is not worth an UPDATE over every stored event --
+-- nor the generated column that was the way to avoid one, which moves the JSON
+-- parse into the INSERT and fails the whole batch on a payload it cannot read.
+ALTER TABLE unmask_event ADD COLUMN ref_id TEXT;  -- support correlation id, copied out of payload_json on write
+CREATE INDEX IF NOT EXISTS idx_unmask_event_ref ON unmask_event(ref_id);
