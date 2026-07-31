@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.14",
+  "latest": "0.1.15",
   "releases": [
+    {
+      "version": "0.1.15",
+      "date": "2026-08-01",
+      "notes": "Crawler names stop being passes: bots whose vendors publish egress IP ranges (Googlebot, Bingbot, GPTBot, ...) are now verified by address as standing policy, on by default - a spoofed vendor UA takes the challenge while the genuine crawler passes from the published ranges, and the per-row choices survive underneath for when the policy is switched off. Apple push-notification previews pass out of the box behind a TLS-fingerprint guard: subscribers' own devices have no vendor ranges to verify against, so the UA must be backed by Apple's cipher-suite hash instead of being one copyable header line. The hunt log reads better while it moves: sessions no longer arrive cut in half at page boundaries, following next no longer repeats rows the log's growth pushed down, user agents render as \"Windows 10 - Chrome 126\" with the raw string in the popover, a refused roaming rebind appears inside the session it interrupts, and a collapsed session shows its total duration. Looking up a support ref went from a full-table scan (53 seconds on a 3.4M-row database) to an indexed seek (9ms); events stored before the upgrade drop out of ref search and age out on the retention window. Per-site checkboxes now show the value actually in effect, a per-site logo appears in the theme previews, each network-allowlist row can carry a note, and the site-scoped challenge preview moved under /unmask/test/site/."
+    },
     {
       "version": "0.1.14",
       "date": "2026-07-30",
