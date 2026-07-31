@@ -203,31 +203,21 @@ func RangeVerifiedPresetIDs(pattern string) []string {
 	return UARangePresets[pattern]
 }
 
-// UpstreamRVStates classifies every range-backed pattern for the settings
-// UI's badge: which of the two independent rescue paths (UA string / vendor
-// IP range) are live for it right now.
+// UpstreamRangeActive reports, per range-backed pattern, whether the vendor's
+// published addresses are loaded right now — the settings UI's badge, green
+// when they are.
 //
-//	"ip"   — UA off, ranges active: genuine crawler passes by IP, spoof challenged
-//	"or"   — UA on,  ranges active: passes by either (spoofed UA passes too)
-//	"ua"   — UA on,  ranges inactive: UA-string rescue only
-//	"none" — UA off, ranges inactive: no rescue; a genuine crawler is
-//	         challenged (reachable only via explicit choices — auto never
-//	         resolves here)
-func UpstreamRVStates(n settings.Nginx) map[string]string {
-	uaOff := EffectiveUpstreamUAOff(n)
-	out := make(map[string]string, len(UARangePresets))
+// Deliberately absolute: it answers "can this bot be verified by address at
+// all", and nothing about the row's own UA checkbox.  An earlier version folded
+// both in (green only when the row also had its UA rescue off), which left the
+// badge changing colour for two unrelated reasons and a legend that could not
+// describe either without contradicting the policy switch.  What a bot with a
+// green badge does is now read off the switch and the row's checkbox, each of
+// which says one thing.
+func UpstreamRangeActive(n settings.Nginx) map[string]bool {
+	out := make(map[string]bool, len(UARangePresets))
 	for pat := range UARangePresets {
-		active := RangePresetsActive(n, pat)
-		switch {
-		case uaOff[pat] && active:
-			out[pat] = "ip"
-		case active:
-			out[pat] = "or"
-		case uaOff[pat]:
-			out[pat] = "none"
-		default:
-			out[pat] = "ua"
-		}
+		out[pat] = RangePresetsActive(n, pat)
 	}
 	return out
 }
