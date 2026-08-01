@@ -44,8 +44,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -3296,8 +3298,21 @@ func (z RateZone) ResolvedChallengeMode() string {
 	return z.ChallengeMode
 }
 
-// MatchPath: whether the zone's PathPatterns prefix-match the path.
+// MatchPath: whether any of the zone's PathPatterns matches the path.
+//
+// Patterns are REGULAR EXPRESSIONS, case-insensitive, unanchored -- the same
+// grammar and the same case rule as the other block-side path lists
+// (protected paths, honeypot), and what the native render emits with "~*".
+// They used to be literal prefixes here while native interpolated them into a
+// regex, which was one config meaning two things per deploy mode; aligning on
+// the literal reading fixed that first, and this second step drops the odd one
+// out so every path field in the product shares one grammar.  An operator who
+// wants a prefix anchors it (^/api/), exactly as on the other tabs.
+//
 // Empty PathPatterns → true (= applies to all paths / for the Default zone).
+// An unparsable pattern never matches: the settings form rejects those on
+// save, so reaching here with one means a hand-edited config, and silently
+// applying a rate limit nobody can read is worse than not applying it.
 func (z RateZone) MatchPath(path string) bool {
 	if len(z.PathPatterns) == 0 {
 		return true
@@ -3306,11 +3321,40 @@ func (z RateZone) MatchPath(path string) bool {
 		if p == "" {
 			continue
 		}
-		if len(path) >= len(p) && path[:len(p)] == p {
+		re := cachedPathRe(p)
+		if re != nil && re.MatchString(path) {
 			return true
 		}
 	}
 	return false
+}
+
+// cachedPathRe compiles a case-insensitive path pattern once per distinct
+// string.  MatchPath sits on the request path (ResolveZonesAll runs per
+// forward-auth request), so a compile per call would be a per-request cost on
+// a hot path; nil for a pattern that does not compile.
+var (
+	pathReMu    sync.Mutex
+	pathReCache = map[string]*regexp.Regexp{}
+)
+
+func cachedPathRe(pat string) *regexp.Regexp {
+	pathReMu.Lock()
+	defer pathReMu.Unlock()
+	if re, ok := pathReCache[pat]; ok {
+		return re
+	}
+	re, err := regexp.Compile("(?i)" + pat)
+	if err != nil {
+		re = nil
+	}
+	// Bounded: patterns come from the config, so the set is small and stable;
+	// the guard is for a pathological hand-edited file, not normal use.
+	if len(pathReCache) > 1024 {
+		pathReCache = map[string]*regexp.Regexp{}
+	}
+	pathReCache[pat] = re
+	return re
 }
 
 // ResolveZone returns the effective rate-limit triple for the (path, site)
