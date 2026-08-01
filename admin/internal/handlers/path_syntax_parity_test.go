@@ -148,6 +148,9 @@ func TestEveryPathHelpStatesItsSyntax(t *testing.T) {
 		{"honeypot", "Pattern syntax: regular expression"},
 		{"geo", "Pattern syntax: regular expression"},
 		{"asn", "Pattern syntax: regular expression"},
+		// The HTTPS-redirect exemption list on the network tab: also a path
+		// (or UA) regex, and the one this audit found without a syntax block.
+		{"network", "Pattern syntax: regular expression"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+c.tab, nil)
 		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
@@ -163,6 +166,34 @@ func TestEveryPathHelpStatesItsSyntax(t *testing.T) {
 		}
 		if !strings.Contains(body, "path-syntax") {
 			t.Errorf("%s tab is missing the syntax block markup", c.tab)
+		}
+	}
+}
+
+// The syntax block must say the RIGHT thing per tab: the rate-limit zones are
+// the only literal-prefix list, and a copy-paste that gave them the regex
+// wording (or gave a regex list the literal wording) would send an operator
+// straight into a pattern that silently never matches.
+func TestSyntaxBlockMatchesTheListItDescribes(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.Nginx.AdvancedEnabled = true
+	h.SetSettings(s)
+
+	body := func(tab string) string {
+		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+		rr := httptest.NewRecorder()
+		h.AdminSettingsIndex(rr, req)
+		return rr.Body.String()
+	}
+	if b := body("rate-limit"); strings.Contains(b, "Pattern syntax: regular expression") {
+		t.Error("the rate-limit zones are a literal-prefix list; the regex wording would mislead")
+	}
+	for _, tab := range []string{"bypass-paths", "protected", "honeypot", "geo", "asn", "network"} {
+		if strings.Contains(body(tab), "literal prefix (NOT a regular expression)") {
+			t.Errorf("%s takes regex; the literal wording would mislead", tab)
 		}
 	}
 }
