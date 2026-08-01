@@ -33,6 +33,7 @@ func boolValue(p *bool) bool { return p != nil && *p }
 // IsPublicTestPages / IsPublicTestPagesSitePicker / IsObserveOnly: read the
 // optional flags without every caller having to nil-check.
 func (c ChallengeValues) IsPublicTestPages() bool { return boolValue(c.PublicTestPages) }
+
 // IsPublicTestPagesSitePicker: unset means ON, unlike the other flags here.
 // The picker only ever renders when PublicTestPages is also on, and that one
 // ships OFF -- so the operator turning the pages public is looking at this
