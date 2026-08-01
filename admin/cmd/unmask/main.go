@@ -72,6 +72,18 @@ func main() {
 
 	cmd := os.Args[1]
 	args := os.Args[2:]
+
+	// Become the daemon's user before doing any work (see privdrop.go): every
+	// documented management command runs under sudo and writes into the
+	// daemon's directories, and files it leaves behind as root are files the
+	// daemon cannot use.  A failure here is fatal on purpose -- continuing
+	// with root privileges is the outcome this prevents.
+	if err := applyPrivDrop(cmd, cmd != "serve"); err != nil {
+		fmt.Fprintln(os.Stderr, "unmask:", err)
+		fmt.Fprintf(os.Stderr, "  (set %s=1 to run as root anyway -- files it creates will need chowning to the daemon user)\n", noPrivDropEnv)
+		os.Exit(1)
+	}
+
 	var err error
 	switch cmd {
 	case "serve":

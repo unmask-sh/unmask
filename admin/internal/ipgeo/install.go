@@ -269,6 +269,85 @@ func AutoFetchMissing(countryPath, asnPath string, gip *Reader) {
 	}()
 }
 
+// AutoUpdateStale refreshes the managed DB-IP Lite mmdb(s) when the copy on
+// disk is older than maxAge, and reloads gip when at least one was replaced.
+// Returns the number of files actually replaced.
+//
+// Freshness is read from the mmdb's own BuildEpoch, not the file mtime: a
+// re-download of the same snapshot would reset an mtime and hide staleness
+// forever.  DB-IP publishes monthly and several days into the month, so this
+// is meant to be CALLED daily with maxAge around a month -- a monthly timer
+// aimed at a fixed day is exactly how the mirror ended up serving a
+// three-week-old snapshot (the cron fired before the new month published and
+// did not look again).
+//
+// Only default managed paths are touched; a custom mmdb_path is the
+// operator's own file and is never overwritten.  Every download goes through
+// InstallDBIPLite, so the replacement is temp-file -> verify (structure +
+// sample lookup) -> atomic rename, and a failed or corrupt download leaves the
+// existing file in place.
+func AutoUpdateStale(countryPath, asnPath string, gip *Reader, maxAge time.Duration, now time.Time) int {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	type job struct {
+		kind InstallKind
+		path string
+	}
+	var jobs []job
+	consider := func(kind InstallKind, path, managed string) {
+		if path != managed || !fileExists(path) {
+			// Custom path (operator's own file) or nothing installed yet --
+			// the latter is AutoFetchMissing's job, not this one.
+			return
+		}
+		info, err := InspectMMDB(path)
+		if err != nil {
+			// Unreadable: replacing it is an improvement, and the verify step
+			// keeps a bad download from making things worse.
+			jobs = append(jobs, job{kind, path})
+			return
+		}
+		if info.BuildTime.IsZero() || now.Sub(info.BuildTime) > maxAge {
+			jobs = append(jobs, job{kind, path})
+		}
+	}
+	consider(InstallKindCountry, countryPath, DefaultMMDBPath)
+	consider(InstallKindASN, asnPath, DefaultASNPath)
+	if len(jobs) == 0 {
+		return 0
+	}
+	replaced := 0
+	for _, j := range jobs {
+		before, _ := InspectMMDB(j.path)
+		res, err := InstallDBIPLite(InstallOptions{Kind: j.kind, Path: j.path, Now: now})
+		if err != nil {
+			log.Printf("ipgeo: auto-update of %s failed (keeping the existing file): %v", j.kind, err)
+			continue
+		}
+		after, _ := InspectMMDB(j.path)
+		if !after.BuildTime.IsZero() && after.BuildTime.Equal(before.BuildTime) {
+			// The source is still serving the same snapshot.  Not an error --
+			// the publisher is late -- and worth one line rather than silence,
+			// because "auto-update is on but the age keeps growing" is
+			// otherwise indistinguishable from a broken timer.
+			log.Printf("ipgeo: auto-update of %s found no newer snapshot (still %s)", j.kind, after.BuildTime.Format("2006-01-02"))
+			continue
+		}
+		replaced++
+		log.Printf("ipgeo: auto-updated %s to build %s from %s (%d bytes)",
+			j.kind, after.BuildTime.Format("2006-01-02"), res.Source, res.Bytes)
+	}
+	if replaced > 0 && gip != nil {
+		// Clear-then-reload: Reload short-circuits when the paths are
+		// unchanged, which is exactly the case here.
+		gip.Reload("", "")
+		gip.Reload(countryPath, asnPath)
+		log.Printf("ipgeo: reloaded reader after auto-update")
+	}
+	return replaced
+}
+
 func fileExists(p string) bool {
 	if p == "" {
 		return false
