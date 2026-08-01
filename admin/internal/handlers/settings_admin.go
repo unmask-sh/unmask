@@ -3697,6 +3697,41 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		c.Default.Name = "unmask_rate"
 	}
 
+	// The built-in JA4 companion (default card).  Fields are always posted;
+	// the checkbox decides enforcement, so a tuned threshold survives an
+	// off/on cycle exactly like a disabled zone row keeps its values.
+	c.JA4Limit.Enabled = r.FormValue("ja4_limit_enabled") != ""
+	if v := strings.TrimSpace(r.FormValue("ja4_limit_rpm")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100000 {
+			return fmt.Errorf("ja4_limit: requests_per_min must be an integer in 1-100000 (got %q)", v)
+		}
+		c.JA4Limit.RequestsPerMin = n
+	} else if c.JA4Limit.Enabled && c.JA4Limit.RequestsPerMin == 0 {
+		// Enabling with the field left on its placeholder adopts the seed --
+		// the checkbox is the decision; 600r/m is the documented default.
+		c.JA4Limit.RequestsPerMin = 600
+	}
+	if v := strings.TrimSpace(r.FormValue("ja4_limit_burst")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 100000 {
+			return fmt.Errorf("ja4_limit: burst must be an integer in 0-100000 (got %q)", v)
+		}
+		c.JA4Limit.Burst = n
+	}
+	if v := strings.TrimSpace(r.FormValue("ja4_limit_window")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 3600 {
+			return fmt.Errorf("ja4_limit: window_sec must be an integer in 1-3600 (got %q)", v)
+		}
+		c.JA4Limit.WindowSec = n
+	}
+	if v := strings.TrimSpace(r.FormValue("ja4_limit_chmode")); v == "" || settings.IsValidRateChallengeMode(v) {
+		c.JA4Limit.ChallengeMode = v
+	} else {
+		return fmt.Errorf("ja4_limit: challenge_mode invalid (got %q)", v)
+	}
+
 	// zones[]: zone_<i>_name / zone_<i>_paths (newline-sep) / zone_<i>_rpm /
 	// Read zone_<i>_burst / zone_<i>_window / zone_<i>_chmode in order.
 	// After delete, JS keeps indices contiguous, so loop 0..N-1. Skip empty name.
@@ -3718,8 +3753,8 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			return fmt.Errorf("zone name %q is duplicated", name)
 		}
 		zoneNamesSeen[name] = true
-		if name == c.Default.Name {
-			return fmt.Errorf("zone name %q collides with the default zone", name)
+		if name == c.Default.Name || name == settings.JA4LimitZoneName {
+			return fmt.Errorf("zone name %q is reserved", name)
 		}
 		// validation: alnum + "_" only.
 		if !rateZoneNameRE.MatchString(name) {

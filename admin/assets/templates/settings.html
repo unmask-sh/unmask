@@ -3425,6 +3425,47 @@ function secToHuman(s){
       </script>
     </div>
 
+    <div class="field" style="margin-top:1.1rem;padding:.8rem .9rem;border:1px solid #e2e8f0;border-radius:.4rem;background:#f8fafc">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;margin-bottom:.15rem">
+        <input type="checkbox" id="ja4-limit-on" name="ja4_limit_enabled" value="1" {{ if .RateLimit.JA4Limit.Enabled }}checked{{ end }}>
+        {{ t .Lang "settings.rate_limit.ja4_limit_h" }}
+        <button type="button" class="ua-help-trigger" data-help-target="rl-ja4-limit-help" aria-label="?">?</button>
+      </label>
+      <script type="text/html" id="rl-ja4-limit-help">{{ safeHTML (t .Lang "settings.rate_limit.ja4_limit_help") }}</script>
+      <p class="note" style="margin:.1rem 0 .55rem">{{ t .Lang "settings.rate_limit.ja4_limit_lead" }}</p>
+      <div id="ja4-limit-fields" style="display:flex;gap:1.1rem;flex-wrap:wrap;align-items:flex-end">
+        <label style="font-size:.78rem;color:#475569">r/min<br>
+          <input type="number" name="ja4_limit_rpm" min="1" max="100000" step="1" placeholder="600"
+                 value="{{ if gt .RateLimit.JA4Limit.RequestsPerMin 0 }}{{ .RateLimit.JA4Limit.RequestsPerMin }}{{ end }}" style="width:6rem"></label>
+        <label style="font-size:.78rem;color:#475569">burst<br>
+          <input type="number" name="ja4_limit_burst" min="0" max="100000" step="1" placeholder="100"
+                 value="{{ if gt .RateLimit.JA4Limit.Burst 0 }}{{ .RateLimit.JA4Limit.Burst }}{{ end }}" style="width:6rem"></label>
+        <label style="font-size:.78rem;color:#475569">window (s)<br>
+          <input type="number" name="ja4_limit_window" min="1" max="3600" step="1" placeholder="60"
+                 value="{{ if gt .RateLimit.JA4Limit.WindowSec 0 }}{{ .RateLimit.JA4Limit.WindowSec }}{{ end }}" style="width:5rem"></label>
+        <label style="font-size:.78rem;color:#475569">mode<br>
+          <select name="ja4_limit_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+            <option value="" {{ if eq .RateLimit.JA4Limit.ChallengeMode "" }}selected{{ end }}>{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+            <option value="captcha_only"     {{ if eq .RateLimit.JA4Limit.ChallengeMode "captcha_only"     }}selected{{ end }}>captcha_only</option>
+            <option value="pow_only"         {{ if eq .RateLimit.JA4Limit.ChallengeMode "pow_only"         }}selected{{ end }}>pow_only</option>
+            <option value="pow_then_captcha" {{ if eq .RateLimit.JA4Limit.ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+            <option value="deny"             {{ if eq .RateLimit.JA4Limit.ChallengeMode "deny"             }}selected{{ end }}>deny</option>
+          </select></label>
+      </div>
+    </div>
+    <script>
+    // Grey the companion's fields while it is off -- values stay posted (a
+    // tuned threshold survives an off/on cycle); only the look signals state.
+    (function(){
+      var on = document.getElementById('ja4-limit-on');
+      var box = document.getElementById('ja4-limit-fields');
+      if (!on || !box) return;
+      function sync(){ box.style.opacity = on.checked ? '' : '.45'; }
+      on.addEventListener('change', sync);
+      sync();
+    })();
+    </script>
+
     <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.zones_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="rl-zones-help" aria-label="?">?</button>
     </h3>

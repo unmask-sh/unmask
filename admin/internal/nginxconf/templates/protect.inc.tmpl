@@ -21,6 +21,11 @@
 #            rate + captcha decision (emitted when the host nginx supports it,
 #            i.e. >= 1.17.6; select with nginx.rate_compose_mode).
 limit_req zone={{ .DefaultRateZoneName }} burst={{ .DefaultRateZoneBurst }} nodelay;
+{{- range .RatePlainZones }}
+# All-paths {{ .Label }} "{{ .ZoneName }}": counts everywhere protect.inc is
+# included, in parallel with the default (its key map carries the exemptions).
+limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
+{{- end }}
 {{- range .RatePathZones }}
 # Path-scoped zone "{{ .ZoneName }}": its key ({{ .KeyVar }}) is "" off-path, so
 # this limit only counts on the zone's PathPatterns (= no shadow location).
