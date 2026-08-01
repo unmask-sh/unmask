@@ -222,3 +222,105 @@ func TestApplyRateLimitFormZoneKey(t *testing.T) {
 		t.Error("an unknown key kind must be rejected")
 	}
 }
+
+// The default-card JA4 companion: switching the toggle on is the whole ask --
+// the per-IP default keeps counting per address while the companion counts
+// per fingerprint, so an IP-rotating client trips it with no custom zone
+// configured.  Off (the default) counts nothing.
+func TestAuthCheck_JA4CompanionLimit(t *testing.T) {
+	newH := func(enabled bool) *Handler {
+		h := &Handler{RateLimiter: ratelimit.New()}
+		h.SetSettings(settings.Settings{
+			Secret: settings.Secret{BVSecret: "test-secret"},
+			RateLimit: settings.RateLimitConfig{
+				Default:  settings.RateLimitValues{Name: "unmask_rate", RequestsPerMin: 1000, Burst: 100},
+				JA4Limit: settings.JA4LimitConfig{Enabled: enabled, RequestsPerMin: 5, Burst: 0},
+			},
+		})
+		return h
+	}
+	drive := func(h *Handler, ip string) *http.Response {
+		r := httptest.NewRequest(http.MethodGet, "/unmask/api/check", nil)
+		r.Header.Set("X-Original-URI", "/page")
+		r.Header.Set("X-Original-IP", ip)
+		r.Header.Set("X-Original-Host", "shop.example.com")
+		r.Header.Set("X-Client-JA4", "t13d1517h2_eeee_ffff")
+		r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+		w := httptest.NewRecorder()
+		h.AuthCheck(w, r)
+		return w.Result()
+	}
+
+	h := newH(true)
+	tripped := ""
+	for i := 0; i < 30 && tripped == ""; i++ {
+		res := drive(h, fmt.Sprintf("192.0.2.%d", i+1)) // fresh IP each request
+		if res.Header.Get("X-Unmask-Action") == "challenge" {
+			tripped = res.Header.Get("X-Unmask-Zone")
+		}
+	}
+	if tripped != settings.JA4LimitZoneName {
+		t.Errorf("enabled companion should trip on an IP-rotating client, got zone %q", tripped)
+	}
+
+	// Disabled: no rate zone may ever trip.  The default posture still
+	// PoW-challenges a browser UA (reason ua:browser), so the assertion is on
+	// the rate attribution (X-Unmask-Zone), not on the action.
+	h = newH(false)
+	for i := 0; i < 30; i++ {
+		if got := drive(h, fmt.Sprintf("192.0.2.%d", i+1)).Header.Get("X-Unmask-Zone"); got != "" {
+			t.Fatalf("disabled companion must count nothing, got zone %q on request %d", got, i)
+		}
+	}
+}
+
+// ja4_limit_* fields round-trip, thresholds survive an off/on cycle, and the
+// reserved zone name is refused for operator rows.
+func TestApplyRateLimitFormJA4Companion(t *testing.T) {
+	form := func(vals url.Values) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=rate-limit",
+			strings.NewReader(vals.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		_ = r.ParseForm()
+		return r
+	}
+	var c settings.RateLimitConfig
+	if err := applyRateLimitForm(&c, form(url.Values{
+		"ja4_limit_enabled": {"1"},
+		"ja4_limit_rpm":     {"600"},
+		"ja4_limit_burst":   {"100"},
+		"ja4_limit_window":  {"60"},
+		"ja4_limit_chmode":  {"pow_only"},
+	})); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if !c.JA4Limit.Active() || c.JA4Limit.RequestsPerMin != 600 || c.JA4Limit.ChallengeMode != "pow_only" {
+		t.Errorf("companion = %+v", c.JA4Limit)
+	}
+	// Off, values still posted: enforcement stops, the tuning survives.
+	if err := applyRateLimitForm(&c, form(url.Values{
+		"ja4_limit_rpm":   {"600"},
+		"ja4_limit_burst": {"100"},
+	})); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if c.JA4Limit.Active() || c.JA4Limit.RequestsPerMin != 600 {
+		t.Errorf("off-cycle lost the tuning: %+v", c.JA4Limit)
+	}
+	// Enabling with the rpm left on its placeholder adopts the documented
+	// 600r/m seed instead of erroring or rendering a 0r/m zone.
+	var fresh settings.RateLimitConfig
+	if err := applyRateLimitForm(&fresh, form(url.Values{"ja4_limit_enabled": {"1"}})); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if !fresh.JA4Limit.Active() || fresh.JA4Limit.RequestsPerMin != 600 {
+		t.Errorf("placeholder enable should adopt 600r/m, got %+v", fresh.JA4Limit)
+	}
+	// The reserved name cannot be taken by an operator zone.
+	if err := applyRateLimitForm(&c, form(url.Values{
+		"zone_0_name": {settings.JA4LimitZoneName}, "zone_0_rpm": {"10"}, "zone_0_burst": {"1"},
+		"zone_0_window": {"60"}, "zone_0_on": {"1"},
+	})); err == nil {
+		t.Error("the companion's reserved zone name must be refused")
+	}
+}

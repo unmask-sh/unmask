@@ -2815,6 +2815,14 @@ type RateLimitConfig struct {
 	// / mode + optional PathPatterns + Site filter.  Order matters for the
 	// match: the first zone whose PathPatterns and Site both match wins.
 	Zones []RateZone `yaml:"zones,omitempty"`
+	// JA4Limit: the built-in JA4 companion to the Default zone.  Runs IN
+	// PARALLEL with the per-IP default on every path: the default keeps
+	// counting per address while this counter accumulates per TLS
+	// fingerprint, which is the only axis that keeps counting a botnet as
+	// it rotates IPs.  Disabled by default -- a JA4 bucket is shared by
+	// every user of one browser build, so turning it on is an explicit
+	// operator decision, paired with a high threshold.
+	JA4Limit JA4LimitConfig `yaml:"ja4_limit,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
 	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
@@ -2936,6 +2944,32 @@ func (v RateLimitValues) ResolvedChallengeMode() string {
 	return v.ChallengeMode
 }
 
+// JA4LimitConfig: the default zone's optional JA4 companion limit.
+type JA4LimitConfig struct {
+	Enabled        bool   `yaml:"enabled,omitempty"`
+	RequestsPerMin int    `yaml:"requests_per_min,omitempty"`
+	Burst          int    `yaml:"burst,omitempty"`
+	WindowSec      int    `yaml:"window_sec,omitempty"`
+	ChallengeMode  string `yaml:"challenge_mode,omitempty"` // empty = inherit the default zone's mode
+}
+
+// IsZero lets yaml.v3 honour the field's omitempty: an untouched companion
+// (never enabled, never tuned) writes no ja4_limit key at all, so a no-op
+// save keeps the config byte-identical.
+func (j JA4LimitConfig) IsZero() bool {
+	return j == JA4LimitConfig{}
+}
+
+// JA4LimitZoneName: the reserved nginx zone name the companion renders as.
+// The zone form refuses operator zones with this name.
+const JA4LimitZoneName = "unmask_rate_ja4"
+
+// Active reports whether the companion actually enforces: enabled with a
+// usable threshold (a zero rpm would render an nginx rate of 0r/m).
+func (j JA4LimitConfig) Active() bool {
+	return j.Enabled && j.RequestsPerMin > 0
+}
+
 // Rate-limit key kinds.
 const (
 	RateLimitKeyIP       = "ip"
@@ -3011,6 +3045,22 @@ func (rl RateLimitConfig) ResolveZonesAll(path, site string) []ResolvedRateZone 
 		def.Name = "unmask_rate" // same fallback the native render applies
 	}
 	out = append(out, ResolvedRateZone{RateLimitValues: def, Key: rl.ResolvedKey()})
+	if rl.JA4Limit.Active() {
+		mode := rl.JA4Limit.ChallengeMode
+		if mode == "" {
+			mode = def.ChallengeMode // inherit the default zone's chain
+		}
+		out = append(out, ResolvedRateZone{
+			RateLimitValues: RateLimitValues{
+				Name:           JA4LimitZoneName,
+				RequestsPerMin: rl.JA4Limit.RequestsPerMin,
+				Burst:          rl.JA4Limit.Burst,
+				WindowSec:      rl.JA4Limit.WindowSec,
+				ChallengeMode:  mode,
+			},
+			Key: RateLimitKeyJA4,
+		})
+	}
 	return out
 }
 
