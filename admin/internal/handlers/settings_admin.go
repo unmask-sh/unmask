@@ -664,6 +664,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GeoExemptRows":       bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
 		"AsnExemptRows":       bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
 		"IPGeoASNLoaded":      h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		"IPGeoAutoUpdate":     ipgeoCur.AutoUpdate,
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -2283,6 +2284,10 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 // ASN DB stays a free input (= no radio); typical operator either has no
 // ASN file or already knows where it lives.
 func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
+	// Auto-update: a plain checkbox, so absence means off.  Only meaningful in
+	// the managed (dbip) mode -- the custom-path mode's file belongs to the
+	// operator and AutoUpdateStale skips it regardless of this flag.
+	g.AutoUpdate = r.FormValue("ipgeo_auto_update") != ""
 	mode := strings.TrimSpace(r.FormValue("ipgeo_mode"))
 	if mode == "" {
 		mode = "dbip"

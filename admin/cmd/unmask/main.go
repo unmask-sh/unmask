@@ -347,7 +347,6 @@ func cmdServe(args []string) error {
 	if s.IPGeo.AutoFetch && setupComplete {
 		ipgeo.AutoFetchMissing(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
 	}
-
 	// Tail of nginx-only access_log + 1-minute flush goroutine + ban manager
 	// only start when the DB is connected (setup complete).  Right after the
 	// setup wizard finishes we expect a service restart to enable everything
@@ -485,6 +484,39 @@ func cmdServe(args []string) error {
 	// Publish the initial settings snapshot.  settingsPtr is unexported, so the
 	// daemon seeds it through the exported setter rather than a struct literal.
 	h.SetSettings(s)
+
+	// Keep a managed mmdb current.  Checked DAILY against the snapshot's own
+	// build date rather than run monthly on a fixed day: DB-IP publishes
+	// several days into the month, and a monthly timer that fires before the
+	// new snapshot exists simply skips that month -- which is how the mirror
+	// came to serve a three-week-old file.  A daily check that only downloads
+	// something newer self-corrects and costs one conditional request.
+	//
+	// Same gating as AutoFetch (managed paths, setup complete): the operator's
+	// own mmdb_path is never touched, and an install with no mmdb is
+	// AutoFetch's business, not this loop's.
+	if s.IPGeo.AutoUpdate && setupComplete {
+		go func() {
+			defer safe.Recover("ipgeo-auto-update")
+			const (
+				checkEvery = 24 * time.Hour
+				staleAfter = 30 * 24 * time.Hour
+			)
+			// Settle first: startup already has the first-run fetch, migrations
+			// and the nginx render competing for the same minutes, and a month
+			// -old file is not urgent.
+			time.Sleep(10 * time.Minute)
+			for {
+				// Re-read settings each pass so a toggle in the web UI takes
+				// effect without a restart (same pattern as the other loops).
+				cur := h.SnapshotSettings()
+				if cur.IPGeo.AutoUpdate {
+					ipgeo.AutoUpdateStale(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath, gip, staleAfter, time.Time{})
+				}
+				time.Sleep(checkEvery)
+			}
+		}()
+	}
 
 	// Wire the ban file's per-source action resolver to live settings so a
 	// honeypot/manual/community_bans knob change picks up on the next 60s flush
