@@ -287,6 +287,14 @@ func AutoFetchMissing(countryPath, asnPath string, gip *Reader) {
 // sample lookup) -> atomic rename, and a failed or corrupt download leaves the
 // existing file in place.
 func AutoUpdateStale(countryPath, asnPath string, gip *Reader, maxAge time.Duration, now time.Time) int {
+	return AutoUpdateStaleKinds(countryPath, asnPath, true, true, gip, maxAge, now)
+}
+
+// AutoUpdateStaleKinds is AutoUpdateStale with the two databases switched
+// independently.  They are separate decisions for an operator: one may sit on
+// unmask's managed path while the other is a vendor file, or one may be
+// deliberately pinned while the other tracks upstream.
+func AutoUpdateStaleKinds(countryPath, asnPath string, doCountry, doASN bool, gip *Reader, maxAge time.Duration, now time.Time) int {
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
@@ -312,8 +320,12 @@ func AutoUpdateStale(countryPath, asnPath string, gip *Reader, maxAge time.Durat
 			jobs = append(jobs, job{kind, path})
 		}
 	}
-	consider(InstallKindCountry, countryPath, DefaultMMDBPath)
-	consider(InstallKindASN, asnPath, DefaultASNPath)
+	if doCountry {
+		consider(InstallKindCountry, countryPath, DefaultMMDBPath)
+	}
+	if doASN {
+		consider(InstallKindASN, asnPath, DefaultASNPath)
+	}
 	if len(jobs) == 0 {
 		return 0
 	}
