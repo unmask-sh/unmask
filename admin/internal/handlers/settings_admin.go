@@ -3832,10 +3832,17 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			if line == "" || seen[line] {
 				continue
 			}
-			// The path lands unquoted in `location ^~ <path> {`, so a space / {
-			// / } / ; would break out into an arbitrary location or directive.
+			// The pattern lands inside an nginx map key, so a quote / brace /
+			// semicolon would break out of it into an arbitrary directive.
 			if strings.ContainsAny(line, " \t{}#;\"\\\r\x00") {
 				return fmt.Errorf("zone %s: path %q contains invalid characters", name, line)
+			}
+			// Same contract as the other path lists: a pattern that does not
+			// compile is refused HERE, so nothing unparsable can reach the
+			// render (where it would fail `nginx -t` and disable the module)
+			// or MatchPath (where it would silently never match).
+			if _, err := regexp.Compile(line); err != nil {
+				return fmt.Errorf("zone %s: path %q is not a valid regular expression: %v", name, line, err)
 			}
 			seen[line] = true
 			paths = append(paths, line)

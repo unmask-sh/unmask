@@ -1058,7 +1058,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
 map $request_uri {{ .MatchVar }} {
     default 0;
 {{- range .Patterns }}
-    "~^{{ . }}" 1;
+    "~*{{ . }}" 1;
 {{- end }}
 }
 map {{ .MatchVar }} {{ .KeyVar }} {
