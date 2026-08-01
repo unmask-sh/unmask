@@ -8,6 +8,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 
@@ -238,5 +241,50 @@ func TestIPGeoAutoUpdateSwitchesSitInTheManagedModeBlock(t *testing.T) {
 			t.Errorf("%s is outside the %s block; a custom-path operator would read it as applying to their file",
 				c.field, c.blockID)
 		}
+	}
+}
+
+// "Custom path selected" and "auto-update leaves it alone" must be the same
+// condition, not two rules that happen to agree today.  The radio the operator
+// sees is derived from the path (ipgeoMode), and the updater decides from the
+// path too (ipgeo.AutoUpdateStale skips anything that is not the managed one)
+// -- but they live in different packages, so this pins them together: whatever
+// renders as "custom" is never touched, and whatever is touched renders as the
+// managed mode.
+func TestCustomIPGeoPathIsNeverAutoUpdated(t *testing.T) {
+	dir := t.TempDir()
+	// A real file at a custom location: the updater must skip it even with the
+	// flags on and the file long expired.
+	custom := filepath.Join(dir, "vendor-country.mmdb")
+	if err := os.WriteFile(custom, []byte("operator's own file"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ipgeoMode(custom, ipgeo.DefaultMMDBPath, false); got != "custom" {
+		t.Fatalf("the UI calls this path %q, expected custom", got)
+	}
+	if n := ipgeo.AutoUpdateStaleKinds(custom, "", true, true, nil, 0, time.Now()); n != 0 {
+		t.Errorf("auto-update touched %d custom file(s)", n)
+	}
+	after, err := os.ReadFile(custom)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Error("the operator's own file was rewritten")
+	}
+
+	// And the converse: the managed path is what the UI shows as the DB-IP
+	// mode, so the switch an operator sees there governs the file that is
+	// actually eligible.
+	if got := ipgeoMode(ipgeo.DefaultMMDBPath, ipgeo.DefaultMMDBPath, false); got != "dbip" {
+		t.Errorf("the managed path renders as %q, expected dbip", got)
+	}
+	if got := ipgeoMode(ipgeo.DefaultASNPath, ipgeo.DefaultASNPath, true); got != "dbip" {
+		t.Errorf("the managed ASN path renders as %q, expected dbip", got)
 	}
 }
