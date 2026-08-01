@@ -1225,7 +1225,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
       <div class="ua-section">
         <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
-        <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_hint") }}</p>
+        {{/* The syntax block belongs in the same "?" popover the other path
+             lists use, not inline: it is reference material an operator opens
+             when writing a pattern, and inline it pushed the rows down the
+             page on every visit. */}}
+        <p class="desc" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.network.redirect_exempt_custom_lead" }}<button type="button" class="ua-help-trigger" data-help-target="re-custom-help" aria-label="?">?</button></p>
+        <script type="text/html" id="re-custom-help">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_hint") }}</script>
         <div class="rule-list" data-rule-name="re_pattern">
         {{ range .RedirectExemptRules }}
         <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
