@@ -261,7 +261,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   <span style="font-size:.85rem;color:#64748b;font-weight:normal">— <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
   {{- end }}
 </h1>
-<p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }} / {{ t .Lang "dashboard.driver" }} = {{.Driver}}</p>
+<p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }}</p>
 
 <div class="bcd-controls">
   <span style="color:#64748b">{{ t .Lang "dashboard.range_label" }}</span>

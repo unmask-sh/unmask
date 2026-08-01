@@ -1050,7 +1050,6 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 		// data-ts="...">; JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
 		"RangeStartFallback": rangeStart.In(loc).Format("2006-01-02 15:04 MST"),
-		"Driver":             string(h.DB.Driver),
 		"Sites":              sites,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -1743,7 +1742,6 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"CustomTo":           customTo,
 		"DataMinDate":        dataMinDate,
 		"DataMaxDate":        dataMaxDate,
-		"Driver":             string(h.DB.Driver),
 		"FailedCards":        failedCardList,
 		"Funnel":             funnel,
 		"CookieRows":         cookieRows,
