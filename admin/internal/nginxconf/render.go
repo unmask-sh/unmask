@@ -441,6 +441,13 @@ type renderData struct {
 	// Empty for configs that never override -- their rendered output is
 	// byte-identical to before per-zone keys existed.
 	RateKeyVariants []RateKeyVariantRender
+	// RatePlainZones: no-path zones protect.inc must APPLY (limit_req) in
+	// addition to declaring.  Historically no-path custom zones were declared
+	// only -- an operator was expected to hand-place the limit_req -- while
+	// forward-auth counted them unconditionally: the same config enforcing on
+	// one wire and not the other.  Now both wires enforce.  Includes the
+	// built-in JA4 companion when enabled.
+	RatePlainZones []RatePlainZoneRender
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
 	// resolving to one of the operator-registered Geo rule countries.
@@ -559,6 +566,15 @@ func rateKeySuffix(kind string) string {
 	default:
 		return "ip"
 	}
+}
+
+// RatePlainZoneRender: an all-paths zone protect.inc applies next to the
+// default (its key map already carries every exemption, so the limit simply
+// counts everywhere protect.inc is included).
+type RatePlainZoneRender struct {
+	ZoneName string
+	Burst    int
+	Label    string // comment label: "zone" for operator rows, "JA4 companion" for the built-in
 }
 
 // RateKeyVariantRender: one $rate_limit_key_<suffix> map (per-zone key kinds).
@@ -1119,11 +1135,38 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				Patterns: patterns,
 			})
 		}
+		if len(patterns) == 0 {
+			d.RatePlainZones = append(d.RatePlainZones, RatePlainZoneRender{
+				ZoneName: rendered,
+				Burst:    burst,
+				Label:    "zone",
+			})
+		}
 		d.RateZones = append(d.RateZones, RateZoneRender{
 			Name:           rendered,
 			RequestsPerMin: rpm,
 			Burst:          burst,
 			KeyVar:         keyVar,
+		})
+	}
+	// The built-in JA4 companion: declared like any zone, applied by
+	// protect.inc, counting against the ja4 key variant (or the plain map
+	// when the install-wide key is already ja4).
+	if s.RateLimit.JA4Limit.Active() && !zoneNamesSeen[settings.JA4LimitZoneName] {
+		companionKey := "$rate_limit_key"
+		if globalKind != settings.RateLimitKeyJA4 {
+			companionKey = addKeyVariant(settings.RateLimitKeyJA4, false)
+		}
+		d.RateZones = append(d.RateZones, RateZoneRender{
+			Name:           settings.JA4LimitZoneName,
+			RequestsPerMin: s.RateLimit.JA4Limit.RequestsPerMin,
+			Burst:          s.RateLimit.JA4Limit.Burst,
+			KeyVar:         companionKey,
+		})
+		d.RatePlainZones = append(d.RatePlainZones, RatePlainZoneRender{
+			ZoneName: settings.JA4LimitZoneName,
+			Burst:    s.RateLimit.JA4Limit.Burst,
+			Label:    "JA4 companion",
 		})
 	}
 

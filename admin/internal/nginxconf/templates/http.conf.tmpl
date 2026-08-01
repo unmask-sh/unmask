@@ -1068,10 +1068,10 @@ map {{ .MatchVar }} {{ .KeyVar }} {
 {{- end }}
 
 # Zone definitions: auto-rendered from settings.rate_limit.  Users just
-# `include /var/lib/unmask/nginx/protect.inc;` and the default zone applies to
-# each location.  Path-scoped zones carry a conditional key (above); the rest
-# use $rate_limit_key.  Named zones can also be switched per-location by
-# manually writing `limit_req zone=...`.
+# `include /var/lib/unmask/nginx/protect.inc;` and every zone applies to each
+# location: path-scoped zones via their conditional key (above), no-path zones
+# and the built-in JA4 companion next to the default.  A named zone can still
+# be referenced per-location manually, but that is no longer required.
 {{- range .RateZones }}
 limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
