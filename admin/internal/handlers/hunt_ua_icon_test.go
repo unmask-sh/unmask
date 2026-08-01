@@ -114,4 +114,10 @@ func TestUAPopoverTitleCarriesTheSummary(t *testing.T) {
 	if !strings.Contains(body, "cellpop-note") {
 		t.Error("the popover has no slot for the row note")
 	}
+	// The popover is a WHITE surface (popover-pin.css: background #fff, body
+	// text #0f172a), so the note has to be a dark slate -- the first cut used
+	// #cbd5e1, a value for dark backgrounds, and it rendered nearly invisible.
+	if !strings.Contains(body, ".cellpop-note{") || !strings.Contains(body, "color:#475569}") {
+		t.Error("the row note is not readable slate on the popover's white background")
+	}
 }
