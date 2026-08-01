@@ -577,7 +577,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </ul>
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
   <ul>
-    <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
     <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
     <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
     <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
@@ -585,6 +584,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
     <li><a href="?tab=asn"          {{ if eq .Tab "asn"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.asn"          }}</a></li>
     <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
+    {{/* Last in the group on purpose: this is the fallback for requests no
+         other axis matched, so it is the least-touched screen here -- and
+         reading it first, before the axes it backstops, gives no context. */}}
+    <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
@@ -658,7 +661,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
-  <a class="sti" href="?tab=global"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
   <a class="sti" href="?tab=ja4-verdicts"><b>{{ t .Lang "settings.tab.ja4_verdicts" }}</b><span>{{ t .Lang "settings.top.desc.ja4_verdicts" }}</span></a>
   <a class="sti" href="?tab=ua-filter"><b>{{ t .Lang "settings.tab.ua_filter" }}</b><span>{{ t .Lang "settings.top.desc.ua_filter" }}</span></a>
   <a class="sti" href="?tab=rate-limit"><b>{{ t .Lang "settings.tab.rate_limit" }}</b><span>{{ t .Lang "settings.top.desc.rate_limit" }}</span></a>
@@ -666,6 +668,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <a class="sti" href="?tab=geo"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
   <a class="sti" href="?tab=asn"><b>{{ t .Lang "settings.tab.asn" }}</b><span>{{ t .Lang "settings.top.desc.asn" }}</span></a>
   <a class="sti" href="?tab=honeypot"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
+  <a class="sti" href="?tab=global"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
 </div>
 
 <div class="settings-top-grp">

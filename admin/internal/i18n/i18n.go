@@ -575,7 +575,6 @@ var dict = map[Lang]map[string]string{
 		"dashboard.range_all":       "全期間",
 		"dashboard.range_prefix":    "直近 %s (",
 		"dashboard.range_suffix":    "〜)",
-		"dashboard.driver":          "DB driver",
 
 		// KPI strip (= 30 日推移 chart 1 上部)
 		"kpi.total":   "期間 total req",
@@ -2334,7 +2333,6 @@ var dict = map[Lang]map[string]string{
 		"dashboard.range_all":       "All",
 		"dashboard.range_prefix":    "last %s (since ",
 		"dashboard.range_suffix":    ")",
-		"dashboard.driver":          "DB driver",
 
 		"kpi.total":   "total reqs",
 		"kpi.white":   "white pass",
