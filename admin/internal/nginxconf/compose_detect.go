@@ -152,7 +152,7 @@ func HasDenyRateZone(s settings.Settings) bool {
 		return true
 	}
 	for _, z := range s.RateLimit.Zones {
-		if strings.TrimSpace(z.Name) == "" {
+		if z.Disabled || strings.TrimSpace(z.Name) == "" {
 			continue // never rendered -> must not drive the warning
 		}
 		if z.ResolvedChallengeMode() == settings.RateChallengeDeny {

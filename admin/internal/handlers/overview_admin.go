@@ -169,6 +169,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 
 	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
 	// injected by addMeToData, which is shared across every admin page.
+	recentUAList := make([]string, len(recent))
+	for i := range recent {
+		recentUAList[i] = recent[i].UA
+	}
 	data := map[string]any{
 		"Lang":             i18n.Resolve(r),
 		"TZ":               resolveTZ(r),
@@ -188,9 +192,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// same recent slice under those keys.  EventsCap=10 caps the client-side
 		// visible-session count after the session-collapse pass so the card
 		// honours its "10 most recent" heading even though we pre-fetched 40 raw rows.
-		"Rows":      recent,
-		"EventsCap": 10,
-		"Range":     "",
+		// UAChallenged: see hunt_admin.go -- same key the shared events
+		// partial reads to pick the listed-crawler badge title.
+		"UAChallenged": uaChallengedByUA(recentUAList, h.snapshotSettings().Nginx.SearchBots),
+		"Rows":         recent,
+		"EventsCap":    10,
+		"Range":        "",
 		// Drop the per-row BAN action column on the overview card so the URL /
 		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
 		// (= the actual deep-dive destination) keeps the action column on.

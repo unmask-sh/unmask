@@ -11,6 +11,13 @@
 //     (= the chain JS state machine ships in v0.2).  The yml schema carries all 3 from the start.
 package nginxconf
 
+import (
+	"sort"
+	"strings"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
+)
+
 const (
 	ProtectedModeCaptcha = "captcha"
 	ProtectedModePoW     = "pow"
@@ -78,4 +85,91 @@ var ProtectedPathPresetGroups = []ProtectedPathPresetGroup{
 			{Pattern: `^/manager/html`, Mode: ProtectedModeCaptcha},
 		},
 	},
+}
+
+// EffectiveProtectedPathRules composes the protected-path rule set the render
+// actually enforces: enabled presets plus non-disabled custom rows, deduped on
+// (site, pattern) and sorted.  Extracted from the render so the settings UI
+// can reason about the same set (the rate-limit tab warns when a deny zone
+// overlaps a protected path) without keeping a second copy of the composition
+// that would drift.
+func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
+	pp := []ProtectedPathRule{}
+	// Dedup key is (site, pattern) so a path can carry different modes per
+	// host without one row silently shadowing the other.  Preset rules are
+	// always global (Site="").
+	ppSeen := map[string]bool{}
+	enabledPP := toSet(s.Nginx.ProtectedPaths.EnabledPresets)
+	for _, g := range ProtectedPathPresetGroups {
+		if !enabledPP[g.ID] {
+			continue
+		}
+		for _, r := range g.Rules {
+			pat := trimSpaceAndQuotes(r.Pattern)
+			if pat == "" {
+				continue
+			}
+			key := "|" + pat
+			if ppSeen[key] {
+				continue
+			}
+			ppSeen[key] = true
+			mode := r.Mode
+			if !IsValidProtectedMode(mode) {
+				mode = ProtectedModeCaptcha
+			}
+			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
+		}
+	}
+	// Custom rows carry a per-row Site (= empty = global, non-empty = only
+	// for that $host).
+	for _, r := range s.Nginx.ProtectedPaths.Paths {
+		if r.Disabled {
+			continue
+		}
+		p := trimSpaceAndQuotes(r.Path)
+		site := trimSpaceAndQuotes(r.Site)
+		key := site + "|" + p
+		if p == "" || ppSeen[key] {
+			continue
+		}
+		ppSeen[key] = true
+		mode := ProtectedModeCaptcha
+		if IsValidProtectedMode(r.Mode) {
+			mode = r.Mode
+		}
+		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode, Site: site})
+	}
+	sort.Slice(pp, func(i, j int) bool {
+		if pp[i].Site != pp[j].Site {
+			return pp[i].Site < pp[j].Site
+		}
+		return pp[i].Pattern < pp[j].Pattern
+	})
+	return pp
+}
+
+// ProtectedPatternLiteralPrefix reduces a protected-path pattern (an nginx
+// regex, "^/wp-admin/" style) to the literal path prefix it starts with, for
+// best-effort overlap checks against the rate-limit zones' plain prefixes.
+// The leading "^" is dropped, escaped literals ("\.") are unescaped, and the
+// walk stops at the first real metacharacter.  "" means the pattern gives no
+// usable literal head (e.g. it does not start at the path root).
+func ProtectedPatternLiteralPrefix(pattern string) string {
+	p := strings.TrimPrefix(strings.TrimSpace(pattern), "^")
+	var b strings.Builder
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if c == '\\' && i+1 < len(p) {
+			b.WriteByte(p[i+1])
+			i++
+			continue
+		}
+		switch c {
+		case '.', '*', '+', '?', '(', ')', '[', ']', '{', '}', '|', '$':
+			return b.String()
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }

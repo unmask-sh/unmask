@@ -19,6 +19,12 @@
                            the overview card so the recent-events table fits
                            inside the bcd-card and the URL / UA columns get
                            more horizontal room.  Hunt keeps it on.
+    .UAChallenged          map[ua]bool -- optional; listed-crawler UAs the
+                           current policy deliberately challenges (group
+                           black / none, upstream-disabled pattern).  Their
+                           badge title says "configured target" instead of
+                           "failed verification".  Missing / nil = every
+                           listed badge keeps the spoof-signal title.
 
   cell-popover div + popover-pin partial must be on the surrounding page; the
   partial does NOT inject either so the page keeps full layout control.
@@ -46,6 +52,42 @@
 .ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved, handing off) */
 .ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv via pow_only) */
 .ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv via captcha_only) */
+/* A row whose UA claims a listed crawler.  Marked rather than merely named:
+   the whole point is that it should catch the eye while scanning a page of
+   rows -- a crawler sitting in the CHALLENGE log did not pass verification. */
+/* Platform glyph in front of the summary.  aria-hidden: the platform name is
+   right there in the text, so a screen reader announcing "red apple" first
+   would only add noise.  The icon is decoration on top of the label, never a
+   replacement -- an emoji alone is not searchable or copyable. */
+.ua-os{margin-right:.25rem;font-size:.9em}
+/* Browser brand dot.  A colour rather than a glyph: no emoji reads as
+   "Chrome" or "Edge", so an icon set would be a legend to memorise.  The
+   name beside it stays the authority -- this only makes a page of rows
+   scannable, hence aria-hidden. */
+.ua-br{display:inline-block;width:.5rem;height:.5rem;border-radius:50%;margin-right:.3rem;vertical-align:.05rem}
+/* Drawn browser mark, in front of the BROWSER name (the platform glyph leads
+   its own half).  Only the four browsers that carry nearly all traffic get a
+   drawn mark; the rest keep the coloured dot, because a mark nobody
+   recognises costs the same space and says less. */
+.ua-bi{width:.85rem;height:.85rem;margin-right:.25rem;vertical-align:-.15rem;flex:none}
+/* Two kinds of bot row, told apart because they mean different things.
+   listed = on crawler-user-agents.json, i.e. a vendor whose big names publish
+   egress ranges -- seeing that name HERE means the request did not verify,
+   which is the spoof signal, so it gets the warning colour.  self = a client
+   that merely says it is a bot; nothing was verified and nothing failed, so
+   it stays neutral. */
+/* Summary heading shown on HOVER only (the pinned clone carries it in the
+   title bar, where the copy button cannot reach it). */
+.cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
+.ua-bot{display:inline-block;padding:0 .3rem;border-radius:.2rem;font-weight:600}
+.ua-bot-listed{background:#fef3c7;color:#92400e}
+.ua-bot-self{background:#eef2f7;color:#475569;font-weight:500}
+.ua-bot-self .ua-bi-bot{color:#64748b}
+/* The bot mark inherits the badge's own colour (currentColor in the sprite),
+   so it reads as part of the badge instead of a second, competing swatch --
+   the browser marks are brand-coloured because they identify a brand; this
+   one only says "bot", which the badge already says in colour. */
+.ua-bi-bot{color:#92400e;margin-right:.2rem}
 .ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
 .ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
 .ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
@@ -82,6 +124,98 @@
 .ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
 .ph-check-block{background:#fee2e2;color:#991b1b}        /* red reject (= check sub-decision) */
 </style>
+{{/* Browser marks, defined once and referenced per row with <use>.  Drawn
+     rather than emoji: no glyph reads as "Chrome" or "Edge", and inlining the
+     same SVG on every row would bloat a 1000-row page.  These are simplified
+     marks -- recognisable by shape and colour at 13px, not reproductions. */}}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="bi-chrome" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#f1f3f4"/>
+    <path d="M8 .5a7.5 7.5 0 0 1 6.5 3.75H8a3.75 3.75 0 0 0-3.4 2.16L1.9 1.74A7.48 7.48 0 0 1 8 .5z" fill="#ea4335"/>
+    <path d="M1.9 1.74 4.6 6.41a3.75 3.75 0 0 0 .35 4.09L1.7 15.1A7.5 7.5 0 0 1 1.9 1.74z" fill="#34a853"/>
+    <path d="M14.5 4.25A7.5 7.5 0 0 1 8 15.5c-.7 0-1.4-.1-2.05-.29l3.3-4.72A3.75 3.75 0 0 0 11.75 8c0-1.5-.9-2.8-2.2-3.37z" fill="#fbbc04"/>
+    <circle cx="8" cy="8" r="3.2" fill="#4285f4"/>
+    <circle cx="8" cy="8" r="2.1" fill="#fff"/>
+    <circle cx="8" cy="8" r="1.6" fill="#4285f4"/>
+  </symbol>
+  <symbol id="bi-edge" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#0f7c9e"/>
+    <path d="M2.6 6.2C3.6 3.2 6 1.4 8.6 1.4c2.9 0 4.9 1.9 4.9 4.2 0 .9-.5 1.5-1.3 1.5H5.9c-.5 0-.8.3-.8.8 0 1.9 1.7 3.4 4 3.4 1.3 0 2.4-.4 3.2-1-.9 2.2-3 3.6-5.5 3.6-3 0-5.3-2.1-5.3-5 0-1 .2-1.9.6-2.7z" fill="#fff" opacity=".92"/>
+  </symbol>
+  <symbol id="bi-firefox" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#ff7139"/>
+    <path d="M8 .5c1 1.6.7 3-.4 3.9-1.6 1.3-3 1.4-3.6 3.2-.5 1.5.2 3.1 1.7 3.9-1-1.6-.3-3 1-3.4 1.9-.6 3.4-.9 4.4-2.6.5 1 .5 2 .2 2.9 1.2-.8 1.8-2 1.9-3.3A7.5 7.5 0 0 0 8 .5z" fill="#ffd200"/>
+    <path d="M13.2 5.1c.6 1.6.4 3.5-.7 5-1.5 2-4.2 2.5-6 1.1 1.2 2.2 4 3 6.2 1.7 2.2-1.3 3-4.1 1.7-6.3a5 5 0 0 0-1.2-1.5z" fill="#ff4f00"/>
+  </symbol>
+  {{/* In-app browsers / app runtimes.  A window frame says "a page rendered
+       inside something else", and the platform mark in the corner says which
+       something.  Deliberately unlike a real browser's mark: these are not
+       browsers the visitor chose. */}}
+  {{/* Named in-app browsers that actually carry traffic: the Google app
+       (GSA, 2379 hits) and the Yahoo! JAPAN app (2416).  Everything else
+       named -- LINE, Facebook, KakaoTalk -- stays on the brand dot at two
+       digits of traffic or fewer, because a mark nobody meets is just noise
+       in the sprite. */}}
+  <symbol id="bi-gsa" viewBox="0 0 16 16">
+    {{/* Full-bleed like the other browser marks.  The first cut drew the G
+         inside a 13x11 card, which left the mark 3.5 units wide in a 16 unit
+         box -- unreadable at the 16px the table renders it at. */}}
+    <path d="M15.15 6.53H8V9.47H11.83A4.1 4.1 0 0 1 10.69 11.09L12.79 13.51A7.3 7.3 0 0 0 15.15 6.53Z" fill="#4285f4"/>
+    <path d="M12.69 2.41A7.3 7.3 0 0 0 1.5 4.69L4.35 6.14A4.1 4.1 0 0 1 10.64 4.86Z" fill="#ea4335"/>
+    <path d="M1.5 4.69A7.3 7.3 0 0 0 1.5 11.31L4.35 9.86A4.1 4.1 0 0 1 4.35 6.14Z" fill="#fbbc04"/>
+    <path d="M1.5 11.31A7.3 7.3 0 0 0 12.79 13.51L10.69 11.09A4.1 4.1 0 0 1 4.35 9.86Z" fill="#34a853"/>
+  </symbol>
+  <symbol id="bi-yjapp" viewBox="0 0 16 16">
+    <rect x=".5" y=".5" width="15" height="15" rx="3.6" fill="#ff0033"/>
+    <path d="M2.76 4.14L5.38 4.14L7.59 8L9.79 4.14L12.42 4.14L9.24 9.79L9.24 12.69L6.9 12.69L6.9 9.79Z" fill="#fff"/>
+  </symbol>
+  <symbol id="bi-line" viewBox="0 0 16 16">
+    <rect x=".5" y=".5" width="15" height="15" rx="3.6" fill="#06c755"/>
+    <path d="M8 2.9c3.2 0 5.8 2.1 5.8 4.7 0 .94-.34 1.82-.98 2.6-.94 1.16-3.05 2.6-3.53 2.8-.47.2-.4-.13-.38-.25l.06-.36c.02-.13.03-.33-.02-.46-.06-.14-.28-.22-.45-.25C6.13 11.4 4.2 9.6 4.2 7.6c0-2.6 2.6-4.7 3.8-4.7z" fill="#fff"/>
+  </symbol>
+  <symbol id="bi-wv" viewBox="0 0 16 16">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.8" fill="#64748b"/>
+    <rect x="2.8" y="5.6" width="10.4" height="6.6" rx=".8" fill="#fff"/>
+    <circle cx="4.2" cy="4.1" r=".55" fill="#fff"/><circle cx="5.9" cy="4.1" r=".55" fill="#fff"/>
+  </symbol>
+  <symbol id="bi-wv-apple" viewBox="0 0 16 16">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.8" fill="#64748b"/>
+    <rect x="2.8" y="5.6" width="10.4" height="6.6" rx=".8" fill="#fff"/>
+    <circle cx="4.2" cy="4.1" r=".55" fill="#fff"/><circle cx="5.9" cy="4.1" r=".55" fill="#fff"/>
+    <path d="M11.6 7.4c-.45 0-.8.27-1.07.27-.28 0-.62-.26-1-.26-.55 0-1.36.45-1.36 1.63 0 1 .72 2.16 1.18 2.16.27 0 .45-.18.81-.18.36 0 .47.18.81.18.46 0 1.08-1 1.08-1.62-.45-.18-.72-.54-.72-1 0-.36.18-.72.45-.9-.09-.18-.18-.28-.18-.28z" fill="#0f172a"/>
+  </symbol>
+  <symbol id="bi-wv-android" viewBox="0 0 16 16">
+    <rect x="1.5" y="2.5" width="13" height="11" rx="1.8" fill="#64748b"/>
+    <rect x="2.8" y="5.6" width="10.4" height="6.6" rx=".8" fill="#fff"/>
+    <circle cx="4.2" cy="4.1" r=".55" fill="#fff"/><circle cx="5.9" cy="4.1" r=".55" fill="#fff"/>
+    <path d="M7.6 11.9c0-1.3 1.05-2.35 2.35-2.35s2.35 1.05 2.35 2.35z" fill="#3ddc84"/>
+    <circle cx="9.1" cy="10.7" r=".28" fill="#fff"/><circle cx="10.8" cy="10.7" r=".28" fill="#fff"/>
+  </symbol>
+  <symbol id="bi-opera" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#ff1b2d"/>
+    <ellipse cx="8" cy="8" rx="3.1" ry="5.6" fill="#fff"/>
+  </symbol>
+  <symbol id="bi-ie" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#1ebbee"/>
+    <path d="M8.3 3.3c2.5 0 4.5 1.8 4.8 4.2H6.1c-.5 0-.8.3-.8.8 0 1.6 1.4 2.9 3.3 2.9 1 0 2-.3 2.7-.8-.8 1.8-2.6 3-4.7 3-2.6 0-4.6-1.9-4.6-4.4 0-3.1 2.5-5.7 6.3-5.7z" fill="#fff"/>
+    <path d="M11.9 3.1c1 0 1.9.4 2.3 1.1.5.9.2 2.2-.6 3.5l-.9-.6c.5-.9.7-1.7.4-2.2-.2-.4-.7-.6-1.3-.6-.9 0-2 .4-3.1 1.1l-.6-.9c1.3-.9 2.6-1.4 3.8-1.4z" fill="#fff" opacity=".85"/>
+  </symbol>
+  <symbol id="bi-bot" viewBox="0 0 16 16">
+    <rect x="2.5" y="5" width="11" height="8.5" rx="2.2" fill="currentColor"/>
+    <circle cx="6" cy="9" r="1.25" fill="#fff"/>
+    <circle cx="10" cy="9" r="1.25" fill="#fff"/>
+    <rect x="6.6" y="11.3" width="2.8" height=".9" rx=".45" fill="#fff"/>
+    <path d="M8 1.6v3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    <circle cx="8" cy="1.5" r="1.3" fill="currentColor"/>
+    <path d="M1 8.2v2.2M15 8.2v2.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  </symbol>
+  <symbol id="bi-safari" viewBox="0 0 16 16">
+    <circle cx="8" cy="8" r="7.5" fill="#1b9df0"/>
+    <circle cx="8" cy="8" r="6" fill="#fff"/>
+    <path d="M11.4 4.6 6.9 6.9 4.6 11.4l4.5-2.3z" fill="#ff5150"/>
+    <path d="M6.9 6.9 4.6 11.4l4.5-2.3z" fill="#f1f1f1"/>
+  </symbol>
+</svg>
 <table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
   <thead>
     <tr>
@@ -121,7 +255,7 @@
       </span></span></th>
       <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
       <th>URL</th>
-      <th>UA</th>
+      <th>UA <span class="info-tip" tabindex="0" aria-label="UA help">?<span class="info-popup">{{ safeHTML (t .Lang "help.col.ua") }}</span></span></th>
       {{/* 4rem: the only thing in this column is the BAN button, measured at
            39px, and the cell adds 16px of padding.  At the old 7rem it sat in
            112px, leaving 65px of blank column immediately right of the UA --
@@ -161,8 +295,8 @@
            Anything that does NOT summarise -- curl, a library, a crawler,
            something malformed -- keeps its raw bytes on the row, because on a
            bot-hunting surface that is the row worth reading in full. */}}
-      {{ $uaShort := uaSummary .UA }}
-      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}>{{ if .UA }}{{ if $uaShort }}{{ $uaShort }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{ $uaShort := uaSummary .UA }}{{ $uaBot := uaBotKind .UA }}
+      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}>{{ if .UA }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}" title="{{ if ne $uaBot "listed" }}{{ t $.Lang "hunt.ua.bot_self" }}{{ else if and $.UAChallenged (index $.UAChallenged .UA) }}{{ t $.Lang "hunt.ua.bot_challenged" }}{{ else }}{{ t $.Lang "hunt.ua.bot_listed" }}{{ end }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{ if not $.HideActions }}
       <td class="actions">
         {{ if .Banned }}
@@ -691,12 +825,40 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     return scheme + '://' + site + portStr + val;
   }
-  function popHtml(val, url){
+  // popTitle: the cell's own rendered content when it summarises the value,
+  // else "" so the shared default (the column header) applies.
+  //
+  // Returns a NODE, not a string: the summary carries a platform glyph and an
+  // <svg> browser mark, and flattening it to text drops both.  A clone of the
+  // element that is already on screen needs no parsing, so the title cannot
+  // become a markup sink fed by a UA-derived value.
+  function popTitle(el, val){
+    var txt = (el.textContent || '').trim();
+    if (!txt || txt === val) return '';
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < el.childNodes.length; i++) {
+      frag.appendChild(el.childNodes[i].cloneNode(true));
+    }
+    return frag;
+  }
+  // summaryHTML: the cell's rendered markup, reused verbatim for the hover
+  // heading so the icons survive.  Safe as an innerHTML source because it IS
+  // server-rendered output (the template escapes the UA), not a string built
+  // here from the raw value.
+  function summaryHTML(el, val){
+    var txt = (el.textContent || '').trim();
+    return (txt && txt !== val) ? el.innerHTML : '';
+  }
+  function popHtml(val, url, summary){
     // For URL cells the full address (= scheme://site[:port]path) is the more
     // useful thing to display + copy, so show it in place of the raw path.
     // Other columns keep showing the value verbatim.
     var display = url || val;
-    var body = '<code class="cellpop-val">' + esc(display) + '</code>';
+    var body = '';
+    if (summary){
+      body += '<div class="cellpop-summary">' + summary + '</div>';
+    }
+    body += '<code class="cellpop-val">' + esc(display) + '</code>';
     if (url){
       body += '<div class="cellpop-actions">' +
         '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
@@ -746,14 +908,25 @@ document.addEventListener('DOMContentLoaded', function(){
       clearTimeout(timer);
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val, url), x, y, el); }, 200);
+      // Hover gets the summary as a heading inside the popover; the pinned
+      // clone gets it in the title bar instead.  The split is deliberate:
+      // only the pinned clone has a copy button, and that button takes the
+      // body verbatim -- so the body must stay exactly the raw value there.
+      // The hover popover has no tools, so a heading costs nothing.
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url, summaryHTML(el, val)), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, val);
+      // Pin title: for a cell whose text is a SUMMARY of the value (the UA
+      // column), name the summary there.  A pinned popover can be dragged
+      // away from its row, and the raw string alone gives no clue which
+      // reading produced it.  It goes in the title bar rather than the body
+      // because the copy button takes the body's text verbatim -- putting the
+      // summary there would paste it along with the UA every time.
+      pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, popTitle(el, val));
     });
   });
 

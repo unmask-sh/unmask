@@ -548,7 +548,7 @@ type RatePathZoneRender struct {
 	KeyVar   string // $rl_<zone>_key    (= IP key when matched, else "")
 	BaseKey  string // smart key fed in on match: $rate_limit_key, or
 	// $rate_limit_key_deny for a "deny" zone (counts _bv holders)
-	Patterns []string // path patterns (anchored as ~*^<pattern> in the map)
+	Patterns []string // regex-escaped literal path prefixes (anchored as ~^<pattern>)
 }
 
 // GeoRuleRender: one entry of the $unmask_geo_action map.
@@ -826,67 +826,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HoneypotPatterns = hp
 	d.HoneypotPatternsGlobal, d.HoneypotPatternsPerHost = splitHoneypotPathsForRender(hpRules)
 
-	// Protected paths: presets (= enabled / preset carries {Pattern, Mode}) +
-	// extras (= skip ExtraDisabled[i]=true).
-	// DisabledPresets == nil means an existing yml where the protected
-	// tab was never saved.  In that case every preset is OFF
-	// (= compat-first: don't silently start protecting new paths in
-	// existing deploys).
-	pp := []ProtectedPathRule{}
-	// Dedup key is (site, pattern) so a path can carry different modes per
-	// host without one row silently shadowing the other.
-	ppSeen := map[string]bool{}
-	enabledPP := toSet(s.Nginx.ProtectedPaths.EnabledPresets)
-	for _, g := range ProtectedPathPresetGroups {
-		if !enabledPP[g.ID] {
-			continue
-		}
-		for _, r := range g.Rules {
-			pat := trimSpaceAndQuotes(r.Pattern)
-			if pat == "" {
-				continue
-			}
-			key := "|" + pat // preset rules are always global (Site="")
-			if ppSeen[key] {
-				continue
-			}
-			ppSeen[key] = true
-			mode := r.Mode
-			if !IsValidProtectedMode(mode) {
-				mode = ProtectedModeCaptcha
-			}
-			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
-		}
-	}
-	// Custom rows carry a per-row Site (= empty = global, non-empty = only
-	// for that $host).  The render side splits them below into a global map
-	// + per-host maps so a $host-specific rule fires only on that vhost.
-	for _, r := range s.Nginx.ProtectedPaths.Paths {
-		if r.Disabled {
-			continue
-		}
-		p := trimSpaceAndQuotes(r.Path)
-		site := trimSpaceAndQuotes(r.Site)
-		// Per-pattern dedup is keyed on (site, pattern) so the same path
-		// can carry different modes on different hosts without one row
-		// shadowing the other.
-		key := site + "|" + p
-		if p == "" || ppSeen[key] {
-			continue
-		}
-		ppSeen[key] = true
-		mode := ProtectedModeCaptcha
-		if IsValidProtectedMode(r.Mode) {
-			mode = r.Mode
-		}
-		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode, Site: site})
-	}
-	sort.Slice(pp, func(i, j int) bool {
-		if pp[i].Site != pp[j].Site {
-			return pp[i].Site < pp[j].Site
-		}
-		return pp[i].Pattern < pp[j].Pattern
-	})
+	pp := EffectiveProtectedPathRules(s)
 	d.ProtectedPaths = pp
 	d.ProtectedPathsGlobal, d.ProtectedPathsPerHost = splitProtectedPathsForRender(pp)
 
@@ -1040,6 +980,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// without any vhost-side override.
 	zoneNamesSeen := map[string]bool{defaultName: true}
 	for _, z := range s.RateLimit.Zones {
+		if z.Disabled {
+			continue // switched off in the UI -> not rendered at all
+		}
 		name := strings.TrimSpace(z.Name)
 		if name == "" {
 			continue
@@ -1069,10 +1012,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// next to the default zone -- so rate-limit and protection compose in
 		// the same location.  Site-scoped zones match on URI only (nginx has
 		// no Host in a map key here); Host isolation is via AdminAllowedHosts.
+		// The patterns are LITERAL path prefixes (the UI says so, and
+		// RateZone.MatchPath compares bytes).  They land inside an nginx regex
+		// here, so they have to be escaped: unescaped, "/api/v1.0/" would let
+		// the "." match any character and "/a(b" would fail `nginx -t` and take
+		// the whole module down.  Before this, native read them as
+		// case-insensitive regexes while forward-auth read them as literals --
+		// the same config enforcing two different things per deploy mode.
 		patterns := make([]string, 0, len(z.PathPatterns))
 		for _, p := range z.PathPatterns {
 			if p = strings.TrimSpace(p); p != "" {
-				patterns = append(patterns, p)
+				patterns = append(patterns, regexp.QuoteMeta(p))
 			}
 		}
 		keyVar := "$rate_limit_key"

@@ -24,6 +24,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // scoreBuckets: histogram bucket boundaries for behavioral score observations.
@@ -88,7 +90,7 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	// all of /unmask/ to the admin with no allow/deny, so without an app-layer
 	// gate any internet client could read traffic/verdict stats.  Default to
 	// loopback-only; metrics_allow_from widens it.
-	allow := h.cfg().Nginx.MetricsAllowFrom
+	allow := settings.EnabledValues(h.cfg().Nginx.MetricsAllowFrom, h.cfg().Nginx.MetricsAllowFromDisabled)
 	if len(allow) == 0 {
 		allow = []string{"127.0.0.0/8", "::1/128"}
 	}
