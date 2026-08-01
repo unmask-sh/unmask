@@ -2960,6 +2960,60 @@ func (rl RateLimitConfig) ResolvedKey() string {
 	return rl.Key
 }
 
+// ZoneKeyResolved: the counter-key kind one zone actually counts against --
+// its own Key when set (and valid), the install-wide key otherwise.
+func (rl RateLimitConfig) ZoneKeyResolved(z RateZone) string {
+	if IsValidRateLimitKey(z.Key) {
+		return z.Key
+	}
+	return rl.ResolvedKey()
+}
+
+// ResolvedRateZone: one enforcement row for a request as the forward-auth
+// counter sees it -- the zone's values plus its resolved counter-key kind.
+type ResolvedRateZone struct {
+	RateLimitValues
+	Key string
+}
+
+// ResolveZonesAll returns every enforcement row that applies to (path, site):
+// enabled custom zones in config order, then the Default -- ALL of them, not
+// first-match.  This mirrors native mode, where protect.inc stacks one
+// limit_req per zone and nginx counts the request in each; first-match
+// counting would let an all-paths JA4 zone silently switch off the per-IP
+// default in forward-auth mode only, which is exactly the pairing (IP default
+// + parallel JA4 flood zone) per-zone keys exist to make possible.
+func (rl RateLimitConfig) ResolveZonesAll(path, site string) []ResolvedRateZone {
+	out := make([]ResolvedRateZone, 0, len(rl.Zones)+1)
+	for _, z := range rl.Zones {
+		if z.Disabled {
+			continue
+		}
+		if z.Site != "" && z.Site != site {
+			continue
+		}
+		if !z.MatchPath(path) {
+			continue
+		}
+		out = append(out, ResolvedRateZone{
+			RateLimitValues: RateLimitValues{
+				Name:           z.Name,
+				RequestsPerMin: z.RequestsPerMin,
+				Burst:          z.Burst,
+				WindowSec:      z.WindowSec,
+				ChallengeMode:  z.ChallengeMode,
+			},
+			Key: rl.ZoneKeyResolved(z),
+		})
+	}
+	def := rl.Default
+	if def.Name == "" {
+		def.Name = "unmask_rate" // same fallback the native render applies
+	}
+	out = append(out, ResolvedRateZone{RateLimitValues: def, Key: rl.ResolvedKey()})
+	return out
+}
+
 // Deny-page theme values (= the allowlist).  "auto" follows the visitor's OS.
 const (
 	DenyThemeAuto  = "auto"
@@ -3009,6 +3063,14 @@ type RateZone struct {
 	// native render (the zone is not emitted at all), and the deny-overlap
 	// detection that drives the compose warning.
 	Disabled bool `yaml:"disabled,omitempty"`
+	// Key: per-zone counter-key kind ("ip" / "ja4" / "ip+ja4").  Empty =
+	// inherit the install-wide RateLimit.Key, so nothing counts against JA4
+	// unless a zone explicitly opts in.  A JA4-keyed zone shares one counter
+	// across every client with the same TLS fingerprint (= all users of one
+	// browser build), which is what catches a botnet rotating through many
+	// IPs -- and why such a zone belongs with high thresholds and a
+	// challenge-mode action rather than deny.
+	Key string `yaml:"key,omitempty"`
 }
 
 // Challenge-mode constants for rate-limit.

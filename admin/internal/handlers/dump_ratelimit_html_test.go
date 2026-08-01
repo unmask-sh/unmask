@@ -23,6 +23,7 @@ func TestDumpRateLimitHTMLForMeasurement(t *testing.T) {
 	base.RateLimit.Zones = []settings.RateZone{
 		{Name: "api_strict", PathPatterns: []string{"/api/"}, RequestsPerMin: 30, ChallengeMode: "pow_only"},
 		{Name: "admin_deny", PathPatterns: []string{"/unmask/admin/x/"}, RequestsPerMin: 5, ChallengeMode: "deny"},
+		{Name: "ja4_flood", Key: "ja4", RequestsPerMin: 600, Burst: 100},
 	}
 	h := newTestHandler(t)
 	h.SetSettings(base)

@@ -436,6 +436,11 @@ type renderData struct {
 	// only mode render.go emits -- forward-auth's static snippets keep
 	// $binary_remote_addr.
 	RateLimitKeyExpr string
+	// RateKeyVariants: extra $rate_limit_key_<suffix> (and _deny_<suffix>) maps
+	// for zones whose per-zone key kind differs from the install-wide one.
+	// Empty for configs that never override -- their rendered output is
+	// byte-identical to before per-zone keys existed.
+	RateKeyVariants []RateKeyVariantRender
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
 	// resolving to one of the operator-registered Geo rule countries.
@@ -530,6 +535,38 @@ type RateZoneRender struct {
 	RequestsPerMin int
 	Burst          int
 	KeyVar         string
+}
+
+// rateKeyExpr / rateKeySuffix: the nginx counter expression and the map-name
+// suffix for one rate-limit key kind.  Suffix has no "+" (nginx var names).
+func rateKeyExpr(kind string) string {
+	switch kind {
+	case settings.RateLimitKeyJA4:
+		return "$effective_ja4"
+	case settings.RateLimitKeyIPAndJA4:
+		return "$unmask_client_net$effective_ja4"
+	default:
+		return "$unmask_client_net"
+	}
+}
+
+func rateKeySuffix(kind string) string {
+	switch kind {
+	case settings.RateLimitKeyJA4:
+		return "ja4"
+	case settings.RateLimitKeyIPAndJA4:
+		return "ipja4"
+	default:
+		return "ip"
+	}
+}
+
+// RateKeyVariantRender: one $rate_limit_key_<suffix> map (per-zone key kinds).
+// Deny=true renders the $rate_limit_key_deny_<suffix> twin (no _bv exemption).
+type RateKeyVariantRender struct {
+	Suffix string // "ip" / "ja4" / "ipja4"
+	Expr   string // the counter expression for this kind
+	Deny   bool
 }
 
 // RatePathZoneRender: a rate-limit zone restricted to specific path patterns.
@@ -963,13 +1000,34 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// hard-blocks un-challenged traffic; it just can't preempt a challenge (that
 	// gap is surfaced as a startup / doctor warning, HasDenyRateZone && !capable).
 	d.ComposeMode = ComposeCapable(s)
-	switch s.RateLimit.ResolvedKey() {
-	case settings.RateLimitKeyJA4:
-		d.RateLimitKeyExpr = "$effective_ja4"
-	case settings.RateLimitKeyIPAndJA4:
-		d.RateLimitKeyExpr = "$unmask_client_net$effective_ja4"
-	default:
-		d.RateLimitKeyExpr = "$unmask_client_net"
+	globalKind := s.RateLimit.ResolvedKey()
+	d.RateLimitKeyExpr = rateKeyExpr(globalKind)
+	// Per-zone key kinds: a zone may count against a different key than the
+	// install-wide one (the canonical pairing: per-IP default + a parallel
+	// high-threshold JA4 flood zone).  Each non-global kind in use gets its
+	// own $rate_limit_key_<suffix> map (and a _deny twin when a deny zone
+	// needs it); zones on the global kind keep the plain maps, so a config
+	// with no overrides renders byte-identically.
+	variantSeen := map[string]bool{}
+	addKeyVariant := func(kind string, deny bool) string {
+		sfx := rateKeySuffix(kind)
+		mapName := "$rate_limit_key_" + sfx
+		if deny {
+			mapName = "$rate_limit_key_deny_" + sfx
+		}
+		vk := sfx
+		if deny {
+			vk = "deny_" + sfx
+		}
+		if !variantSeen[vk] {
+			variantSeen[vk] = true
+			d.RateKeyVariants = append(d.RateKeyVariants, RateKeyVariantRender{
+				Suffix: sfx,
+				Expr:   rateKeyExpr(kind),
+				Deny:   deny,
+			})
+		}
+		return mapName
 	}
 	// Zone naming: per-site zones get a "<site-fragment>__" prefix on the
 	// rendered nginx zone name so an identical "shop_api" zone configured for
@@ -1025,9 +1083,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				patterns = append(patterns, regexp.QuoteMeta(p))
 			}
 		}
+		zoneKind := s.RateLimit.ZoneKeyResolved(z)
 		keyVar := "$rate_limit_key"
+		if len(patterns) == 0 && zoneKind != globalKind {
+			// Path zones never feed the plain keyVar into the render (their
+			// key is the $rl_* conditional), so the variant map is registered
+			// only where it is actually referenced -- here, or in the baseKey
+			// picks below.
+			keyVar = addKeyVariant(zoneKind, false)
+		}
 		if len(patterns) > 0 {
-			keyVar = "$rl_" + rendered + "_key"
 			// A "deny" zone is a hard cap: on a URI match it feeds in
 			// $rate_limit_key_deny (counts _bv holders) rather than
 			// $rate_limit_key (which exempts them).  Trusted sources (search
@@ -1038,7 +1103,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				// cookie).  ComposeMode itself is decided once above by nginx
 				// capability, not per-zone.
 				baseKey = "$rate_limit_key_deny"
+				if zoneKind != globalKind {
+					baseKey = addKeyVariant(zoneKind, true)
+				}
+			} else if zoneKind != globalKind {
+				baseKey = addKeyVariant(zoneKind, false)
 			}
+			keyVar = "$rl_" + rendered + "_key"
 			d.RatePathZones = append(d.RatePathZones, RatePathZoneRender{
 				ZoneName: rendered,
 				Burst:    burst,
