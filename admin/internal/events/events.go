@@ -830,11 +830,17 @@ func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
 // Sits on the shared SQLite / MariaDB driver abstraction.  Caps at limit 1000 / offset 100000.
 // SessionBleed is how many rows FetchPagedWithBleed reads on each side of the
 // page window so a session split by the page boundary can still be shown
-// whole.  A session is 3-4 rows in practice (99.8% of fleet traffic; the
-// longest observed is 20), so 8 covers the realistic cases without meaningfully
-// widening the read -- and a session longer than this still degrades to the
-// fragment marker the UI already draws.
-const SessionBleed = 8
+// whole.  What matters is not how many rows a session HAS (3-4 in practice)
+// but how far they SPREAD once interleaved with concurrent traffic -- a
+// 4-row session that takes a minute to finish can span hundreds of row
+// positions on a busy install.  Measured on a 60k-row fleet sample: 2.6% of
+// sessions spread past 8 rows (the old value, which left orphan fragments on
+// page boundaries), 0.08% past 100, 0.03% past 200 (max seen 658).  200
+// covers 99.97% for a worst-case read of pageSize+400 rows -- the bleed is
+// fetched and scanned but never enriched, so the cost is a few ms of extra
+// SQLite scan.  The residual tail still degrades to the fragment marker the
+// UI draws.
+const SessionBleed = 200
 
 // FetchPagedWithBleed returns the page window plus SessionBleed rows on each
 // side, and reports where the window starts within the returned slice.
@@ -862,9 +868,18 @@ func FetchPagedWithBleed(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaS
 	return rows, lead, err
 }
 
+// maxFetchRows caps a single FetchPaged read: the largest page (1000) plus a
+// full bleed on both sides.  Out-of-range limits CLAMP to the nearest bound --
+// resetting to 100 (the old behaviour) silently shrank the n=1000 page the
+// moment the bleed pushed the request to 1016 rows.
+const maxFetchRows = 1000 + 2*SessionBleed
+
 func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
-	if limit < 1 || limit > 1000 {
+	if limit < 1 {
 		limit = 100
+	}
+	if limit > maxFetchRows {
+		limit = maxFetchRows
 	}
 	if offset < 0 || offset > 100000 {
 		offset = 0
