@@ -512,7 +512,17 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			orig = "/"
 		}
 		site := siteFromRequest(r, h.snapshotSettings())
-		if h.cfg().RateLimit.ResolveZone(orig, site).ResolvedChallengeMode() == settings.RateChallengeDeny {
+		// Any matching deny zone short-circuits: zones now stack (a URI can sit
+		// under a challenge zone AND a deny cap at once), and a hard cap must
+		// win regardless of which counter nginx tripped first.
+		rlDeny := false
+		for _, z := range h.cfg().RateLimit.ResolveZonesAll(orig, site) {
+			if z.ResolvedChallengeMode() == settings.RateChallengeDeny {
+				rlDeny = true
+				break
+			}
+		}
+		if rlDeny {
 			h.serveRateDeny(w, r, site)
 			return
 		}
