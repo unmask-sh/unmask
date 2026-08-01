@@ -24,20 +24,23 @@ func TestRateLimitModeIsASelectWithTheProseInThePopover(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	if strings.Contains(body, `type="radio" name="default_challenge_mode"`) {
-		t.Error("the radio list is still rendered; the mode should be a select now")
+	// The default card is the axis table now: three always-visible rows,
+	// each with a compact mode select (no radios anywhere).
+	if strings.Contains(body, `type="radio" name="axis_`) {
+		t.Error("axis rows must use a compact select, not radios")
 	}
-	sel := body[strings.Index(body, `name="default_challenge_mode"`):]
+	for _, field := range []string{"ip", "ja4", "ipja4"} {
+		if !strings.Contains(body, `name="axis_`+field+`_chmode"`) {
+			t.Errorf("axis row %s is missing its mode select", field)
+		}
+	}
+	// The stored (defaults-seeded) mode round-trips selected on the IP row.
+	sel := body[strings.Index(body, `name="axis_ip_chmode"`):]
 	if end := strings.Index(sel, "</select>"); end > 0 {
 		sel = sel[:end]
 	}
-	// A snapshot with no stored value must preselect what the engine actually
-	// runs -- ResolvedChallengeMode's pow_then_captcha.  The radio preselected
-	// captcha_only here, which described a mode nothing was enforcing.
-	for _, line := range strings.Split(sel, "\n") {
-		if strings.Contains(line, "selected") && !strings.Contains(line, "pow_then_captcha") {
-			t.Errorf("empty stored value preselects the wrong mode: %s", strings.TrimSpace(line))
-		}
+	if !strings.Contains(sel, "selected") {
+		t.Error("the IP row's mode select has no selected option")
 	}
 
 	if !strings.Contains(body, `id="rl-mode-help"`) {
@@ -159,13 +162,13 @@ func TestRateLimitModeSaveRoundTrip(t *testing.T) {
 		return got.RateLimit.Default.ChallengeMode
 	}
 
-	save("default_challenge_mode=deny")
+	save("axis_ip_on=1&axis_ip_chmode=deny")
 	if got := load(); got != "deny" {
 		t.Errorf("deny did not round-trip, stored %q", got)
 	}
 	// A zone's on/off checkbox: absent means off, and switching off must keep
 	// everything else about the row (that is the point of the toggle).
-	zoneForm := "default_challenge_mode=deny&zone_0_name=z&zone_0_paths=%2Fapi%2F&zone_0_rpm=5&zone_0_burst=3&zone_0_window=60&zone_0_chmode=deny"
+	zoneForm := "axis_ip_on=1&axis_ip_chmode=deny&zone_0_name=z&zone_0_paths=%2Fapi%2F&zone_0_rpm=5&zone_0_burst=3&zone_0_window=60&zone_0_chmode=deny"
 	save(zoneForm + "&zone_0_on=1")
 	zs, err := settings.Load(cfgPath)
 	if err != nil {
@@ -182,12 +185,12 @@ func TestRateLimitModeSaveRoundTrip(t *testing.T) {
 	if z := zs.RateLimit.Zones[0]; z.RequestsPerMin != 5 || z.Burst != 3 || z.ChallengeMode != "deny" {
 		t.Errorf("switching a zone off changed its settings: %+v", z)
 	}
-	save("default_challenge_mode=pow_then_captcha")
+	save("axis_ip_on=1&axis_ip_chmode=pow_then_captcha")
 	if got := load(); got != "pow_then_captcha" {
 		t.Errorf("pow_then_captcha did not round-trip, stored %q", got)
 	}
-	// Field absent (a POST from elsewhere): the stored choice stays.
-	save("default_rpm=100")
+	// Mode field left empty on an unchanged primary: the stored choice stays.
+	save("axis_ip_on=1&axis_ip_rpm=100")
 	if got := load(); got != "pow_then_captcha" {
 		t.Errorf("a save without the field changed the mode to %q", got)
 	}

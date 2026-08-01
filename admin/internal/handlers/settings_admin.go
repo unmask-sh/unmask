@@ -3654,82 +3654,126 @@ func protectedLiteralPrefixes(s settings.Settings) []string {
 }
 
 func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
-	if v := strings.TrimSpace(r.FormValue("rate_limit_key")); v != "" {
-		if !settings.IsValidRateLimitKey(v) {
-			return fmt.Errorf("rate_limit_key must be one of ip / ja4 / ip+ja4 (got %q)", v)
-		}
-		// "ip" IS the resolve default (ResolvedKey) — store the non-deviation
-		// as unset so a no-op save leaves the config untouched.
-		if v == settings.RateLimitKeyIP {
-			v = ""
-		}
-		c.Key = v
+	// The default card is an axis TABLE now: three always-visible rows (IP /
+	// JA4 / IP+JA4), each an independent parallel limit with its own enable
+	// toggle.  Storage stays in the pre-row shape: the PRIMARY row (first
+	// enabled in ip > ip+ja4 > ja4 order) writes Key + Default exactly as the
+	// old single-key form did -- an untouched install round-trips
+	// byte-identically and an older binary still reads the primary correctly
+	// -- while non-primary rows (and switched-off rows with tuned values)
+	// live in the per-axis structs.
+	type axisPost struct {
+		kind string
+		on   bool
+		rpm  int // -1 = field left empty
+		bur  int
+		win  int
+		mode string
 	}
-	if v := strings.TrimSpace(r.FormValue("default_requests_per_min")); v != "" {
+	readInt := func(field string, minV, maxV int) (int, error) {
+		v := strings.TrimSpace(r.FormValue(field))
+		if v == "" {
+			return -1, nil
+		}
 		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 100000 {
-			return fmt.Errorf("requests_per_min must be an integer in 1-100000 (got %q)", v)
+		if err != nil || n < minV || n > maxV {
+			return 0, fmt.Errorf("%s must be an integer in %d-%d (got %q)", field, minV, maxV, v)
 		}
-		c.Default.RequestsPerMin = n
+		return n, nil
 	}
-	if v := strings.TrimSpace(r.FormValue("default_burst")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 100000 {
-			return fmt.Errorf("burst must be an integer in 0-100000 (got %q)", v)
+	posts := make([]axisPost, 0, 3)
+	for _, ax := range []struct{ kind, field string }{
+		{settings.RateLimitKeyIP, "ip"},
+		{settings.RateLimitKeyJA4, "ja4"},
+		{settings.RateLimitKeyIPAndJA4, "ipja4"},
+	} {
+		p := axisPost{kind: ax.kind, on: r.FormValue("axis_"+ax.field+"_on") != ""}
+		var err error
+		if p.rpm, err = readInt("axis_"+ax.field+"_rpm", 1, 100000); err != nil {
+			return err
 		}
-		c.Default.Burst = n
+		if p.bur, err = readInt("axis_"+ax.field+"_burst", 0, 100000); err != nil {
+			return err
+		}
+		if p.win, err = readInt("axis_"+ax.field+"_window", 1, 3600); err != nil {
+			return err
+		}
+		p.mode = strings.TrimSpace(r.FormValue("axis_" + ax.field + "_chmode"))
+		if p.mode != "" && !settings.IsValidRateChallengeMode(p.mode) {
+			return fmt.Errorf("axis %s: challenge_mode invalid (got %q)", ax.field, p.mode)
+		}
+		posts = append(posts, p)
 	}
-	if v := strings.TrimSpace(r.FormValue("default_window_sec")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 3600 {
-			return fmt.Errorf("window_sec must be an integer in 1-3600 (got %q)", v)
+	primaryIdx := -1
+	for _, i := range []int{0, 2, 1} { // ip > ip+ja4 > ja4
+		if posts[i].on {
+			primaryIdx = i
+			break
 		}
-		c.Default.WindowSec = n
 	}
-	if v := strings.TrimSpace(r.FormValue("default_challenge_mode")); v != "" {
-		if !settings.IsValidRateChallengeMode(v) {
-			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha / deny (got %q)", v)
+	if primaryIdx < 0 {
+		return fmt.Errorf("%s", "rate-limit: at least one of the IP / JA4 / IP+JA4 rows must stay enabled (the default zone cannot be switched off entirely)")
+	}
+	pr := posts[primaryIdx]
+	primaryChanged := c.ResolvedKey() != pr.kind
+	if pr.kind == settings.RateLimitKeyIP {
+		// "ip" IS the resolve default -- store the non-deviation as unset so
+		// a no-op save leaves the config untouched.
+		c.Key = ""
+	} else {
+		c.Key = pr.kind
+	}
+	setDef := func(dst *int, posted, seed int) {
+		if posted >= 0 {
+			*dst = posted
+		} else if primaryChanged {
+			// Enabled fresh with the field on its placeholder: adopt the seed
+			// rather than dragging the previous axis's threshold along.
+			*dst = seed
 		}
-		c.Default.ChallengeMode = v
+	}
+	setDef(&c.Default.RequestsPerMin, pr.rpm, settings.AxisSeedRPM(pr.kind))
+	setDef(&c.Default.Burst, pr.bur, settings.AxisSeedBurst(pr.kind))
+	setDef(&c.Default.WindowSec, pr.win, settings.AxisSeedWindowSec)
+	if pr.mode != "" {
+		c.Default.ChallengeMode = pr.mode
+	} else if primaryChanged {
+		c.Default.ChallengeMode = "" // resolves to the recommended chain
 	}
 	// Default.Name is fixed (= "unmask_rate"). Not editable in the UI.
 	if c.Default.Name == "" {
 		c.Default.Name = "unmask_rate"
 	}
-
-	// The built-in JA4 companion (default card).  Fields are always posted;
-	// the checkbox decides enforcement, so a tuned threshold survives an
-	// off/on cycle exactly like a disabled zone row keeps its values.
-	c.JA4Limit.Enabled = r.FormValue("ja4_limit_enabled") != ""
-	if v := strings.TrimSpace(r.FormValue("ja4_limit_rpm")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 100000 {
-			return fmt.Errorf("ja4_limit: requests_per_min must be an integer in 1-100000 (got %q)", v)
+	for i, p := range posts {
+		st := &c.IPLimit
+		switch p.kind {
+		case settings.RateLimitKeyJA4:
+			st = &c.JA4Limit
+		case settings.RateLimitKeyIPAndJA4:
+			st = &c.IPJA4Limit
 		}
-		c.JA4Limit.RequestsPerMin = n
-	} else if c.JA4Limit.Enabled && c.JA4Limit.RequestsPerMin == 0 {
-		// Enabling with the field left on its placeholder adopts the seed --
-		// the checkbox is the decision; 600r/m is the documented default.
-		c.JA4Limit.RequestsPerMin = 600
-	}
-	if v := strings.TrimSpace(r.FormValue("ja4_limit_burst")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 || n > 100000 {
-			return fmt.Errorf("ja4_limit: burst must be an integer in 0-100000 (got %q)", v)
+		if i == primaryIdx {
+			*st = settings.AxisLimitConfig{} // the primary lives in Key+Default only
+			continue
 		}
-		c.JA4Limit.Burst = n
-	}
-	if v := strings.TrimSpace(r.FormValue("ja4_limit_window")); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 3600 {
-			return fmt.Errorf("ja4_limit: window_sec must be an integer in 1-3600 (got %q)", v)
+		if !p.on && p.rpm < 0 && p.bur < 0 && p.win < 0 && p.mode == "" {
+			*st = settings.AxisLimitConfig{} // untouched row leaves no trace
+			continue
 		}
-		c.JA4Limit.WindowSec = n
-	}
-	if v := strings.TrimSpace(r.FormValue("ja4_limit_chmode")); v == "" || settings.IsValidRateChallengeMode(v) {
-		c.JA4Limit.ChallengeMode = v
-	} else {
-		return fmt.Errorf("ja4_limit: challenge_mode invalid (got %q)", v)
+		row := settings.AxisLimitConfig{Enabled: p.on, ChallengeMode: p.mode}
+		pick := func(posted, seed int) int {
+			if posted >= 0 {
+				return posted
+			}
+			if p.on {
+				return seed // enabling on the placeholder adopts the documented seed
+			}
+			return 0
+		}
+		row.RequestsPerMin = pick(p.rpm, settings.AxisSeedRPM(p.kind))
+		row.Burst = pick(p.bur, settings.AxisSeedBurst(p.kind))
+		row.WindowSec = pick(p.win, settings.AxisSeedWindowSec)
+		*st = row
 	}
 
 	// zones[]: zone_<i>_name / zone_<i>_paths (newline-sep) / zone_<i>_rpm /
@@ -3753,7 +3797,8 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			return fmt.Errorf("zone name %q is duplicated", name)
 		}
 		zoneNamesSeen[name] = true
-		if name == c.Default.Name || name == settings.JA4LimitZoneName {
+		if name == c.Default.Name || name == settings.JA4LimitZoneName ||
+			name == settings.IPLimitZoneName || name == settings.IPJA4LimitZoneName {
 			return fmt.Errorf("zone name %q is reserved", name)
 		}
 		// validation: alnum + "_" only.

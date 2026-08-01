@@ -64,16 +64,23 @@ func TestRenderJA4CompanionLimit(t *testing.T) {
 		}
 	})
 
-	t.Run("ja4 global key -> companion uses the plain map", func(t *testing.T) {
+	t.Run("ja4 global key + ja4 struct describe ONE row (the primary)", func(t *testing.T) {
+		// key=ja4 and ja4_limit are two representations of the same axis, so
+		// they merge into a single JA4 row -- which, being the only enabled
+		// row, is the primary and renders as the classic default zone with
+		// the struct's values.  No second zone, no variant map.
 		httpInc, _ := renderBothIncs(t, func(s *settings.Settings) {
 			s.RateLimit.Key = settings.RateLimitKeyJA4
 			s.RateLimit.JA4Limit = settings.JA4LimitConfig{Enabled: true, RequestsPerMin: 600, Burst: 100}
 		})
-		if !strings.Contains(httpInc, "limit_req_zone $rate_limit_key zone=unmask_rate_ja4:10m rate=600r/m;") {
-			t.Error("with a ja4 global the companion should ride the plain map")
+		if !strings.Contains(httpInc, "limit_req_zone $rate_limit_key zone=unmask_rate:10m rate=600r/m;") {
+			t.Error("the merged JA4 row should render as the default zone with the struct's rate")
+		}
+		if strings.Contains(httpInc, "unmask_rate_ja4") {
+			t.Error("no second JA4 zone may exist when JA4 is the primary axis")
 		}
 		if strings.Contains(httpInc, "$rate_limit_key_ja4 {") {
-			t.Error("no variant map is needed when the global key is already ja4")
+			t.Error("no variant map is needed when the primary key is already ja4")
 		}
 	})
 }

@@ -3341,127 +3341,94 @@ function secToHuman(s){
     <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
 
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label for="rl-key">{{ t .Lang "settings.rate_limit.key" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="rl-key-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="rl-key-help">{{ safeHTML (t .Lang "settings.rate_limit.key_help") }}</script>
-      {{ $rlk := .RateLimit.Key }}{{ if eq $rlk "" }}{{ $rlk = "ip" }}{{ end }}
-      <select id="rl-key" name="rate_limit_key" style="width:14rem">
-        <option value="ip"     {{ if eq $rlk "ip"     }}selected{{ end }}>IP only ({{ t .Lang "settings.rate_limit.key_ip_short" }})</option>
-        <option value="ja4"    {{ if eq $rlk "ja4"    }}selected{{ end }}>JA4 only ({{ t .Lang "settings.rate_limit.key_ja4_short" }})</option>
-        <option value="ip+ja4" {{ if eq $rlk "ip+ja4" }}selected{{ end }}>IP + JA4 ({{ t .Lang "settings.rate_limit.key_ip_ja4_short" }})</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label for="rl-rpm">{{ t .Lang "settings.rate_limit.requests_per_min" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="rl-rpm-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="rl-rpm-help">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</script>
-      <input type="number" id="rl-rpm" name="default_requests_per_min" min="1" max="100000" step="1"
-             value="{{ if gt .RateLimit.Default.RequestsPerMin 0 }}{{ .RateLimit.Default.RequestsPerMin }}{{ else }}100{{ end }}"
-             style="width:8rem">
-    </div>
-
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label for="rl-burst">{{ t .Lang "settings.rate_limit.burst" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="rl-burst-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="rl-burst-help">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</script>
-      <input type="number" id="rl-burst" name="default_burst" min="0" max="100000" step="1"
-             value="{{ if gt .RateLimit.Default.Burst 0 }}{{ .RateLimit.Default.Burst }}{{ else }}50{{ end }}"
-             style="width:8rem">
-    </div>
-
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label for="rl-window">{{ t .Lang "settings.rate_limit.window_sec" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="rl-window-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="rl-window-help">{{ safeHTML (t .Lang "settings.rate_limit.window_sec_help") }}</script>
-      <input type="number" id="rl-window" name="default_window_sec" min="1" max="3600" step="1"
-             value="{{ if gt .RateLimit.Default.WindowSec 0 }}{{ .RateLimit.Default.WindowSec }}{{ else }}60{{ end }}"
-             style="width:6rem">
-    </div>
-
-    <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}
-        <button type="button" class="ua-help-trigger" data-help-target="rl-mode-help" aria-label="?">?</button>
-      </label>
-      {{/* The four modes reappear on this page (zone rows), on the Global tab,
-           the UA-filter tab, bans, ... -- by now the names are the vocabulary,
-           so the control is the same compact select those places use and the
-           per-mode prose lives in the "?" popover.  No unset option on
-           purpose: defaults() seeds pow_then_captcha and Load materialises
-           it, so a loaded install always holds a concrete value here (unlike
-           the per-site fields, where unset means "inherit").  The "" arm
-           below is the same materialisation for a snapshot that never passed
-           through Load -- it used to say captcha_only, which contradicted
-           ResolvedChallengeMode. */}}
-      {{ $cm := .RateLimit.Default.ChallengeMode }}
-      {{ if eq $cm "" }}{{ $cm = "pow_then_captcha" }}{{ end }}
-      <select name="default_challenge_mode" id="rl-default-chmode" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:16rem;margin-top:.3rem">
-        <option value="pow_only"         {{ if eq $cm "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $cm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $cm "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $cm "deny" }}selected{{ end }}>deny</option>
-      </select>
-      {{/* deny's nginx-version constraint appears inline exactly when it
-           holds for this control: deny selected AND protected paths enforced
-           (the default zone spans every path, so any protected path overlaps).
-           rlWarnSync drives it. */}}
-      <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
-      <script type="text/html" id="rl-mode-help">
-        <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
-          <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
-          <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
-          <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-          <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
-        </ul>
-      </script>
-    </div>
-
-    <div class="field" style="margin-top:1.1rem;padding:.8rem .9rem;border:1px solid #e2e8f0;border-radius:.4rem;background:#f8fafc">
-      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;margin-bottom:.15rem">
-        <input type="checkbox" id="ja4-limit-on" name="ja4_limit_enabled" value="1" {{ if .RateLimit.JA4Limit.Enabled }}checked{{ end }}>
-        {{ t .Lang "settings.rate_limit.ja4_limit_h" }}
-        <button type="button" class="ua-help-trigger" data-help-target="rl-ja4-limit-help" aria-label="?">?</button>
-      </label>
-      <script type="text/html" id="rl-ja4-limit-help">{{ safeHTML (t .Lang "settings.rate_limit.ja4_limit_help") }}</script>
-      <p class="note" style="margin:.1rem 0 .55rem">{{ t .Lang "settings.rate_limit.ja4_limit_lead" }}</p>
-      <div id="ja4-limit-fields" style="display:flex;gap:1.1rem;flex-wrap:wrap;align-items:flex-end">
-        <label style="font-size:.78rem;color:#475569">r/min<br>
-          <input type="number" name="ja4_limit_rpm" min="1" max="100000" step="1" placeholder="600"
-                 value="{{ if gt .RateLimit.JA4Limit.RequestsPerMin 0 }}{{ .RateLimit.JA4Limit.RequestsPerMin }}{{ end }}" style="width:6rem"></label>
-        <label style="font-size:.78rem;color:#475569">burst<br>
-          <input type="number" name="ja4_limit_burst" min="0" max="100000" step="1" placeholder="100"
-                 value="{{ if gt .RateLimit.JA4Limit.Burst 0 }}{{ .RateLimit.JA4Limit.Burst }}{{ end }}" style="width:6rem"></label>
-        <label style="font-size:.78rem;color:#475569">window (s)<br>
-          <input type="number" name="ja4_limit_window" min="1" max="3600" step="1" placeholder="60"
-                 value="{{ if gt .RateLimit.JA4Limit.WindowSec 0 }}{{ .RateLimit.JA4Limit.WindowSec }}{{ end }}" style="width:5rem"></label>
-        <label style="font-size:.78rem;color:#475569">mode<br>
-          <select name="ja4_limit_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-            <option value="" {{ if eq .RateLimit.JA4Limit.ChallengeMode "" }}selected{{ end }}>{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}</option>
-            <option value="captcha_only"     {{ if eq .RateLimit.JA4Limit.ChallengeMode "captcha_only"     }}selected{{ end }}>captcha_only</option>
-            <option value="pow_only"         {{ if eq .RateLimit.JA4Limit.ChallengeMode "pow_only"         }}selected{{ end }}>pow_only</option>
-            <option value="pow_then_captcha" {{ if eq .RateLimit.JA4Limit.ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-            <option value="deny"             {{ if eq .RateLimit.JA4Limit.ChallengeMode "deny"             }}selected{{ end }}>deny</option>
-          </select></label>
-      </div>
-    </div>
+    <style>
+      #axis-table{width:100%;max-width:46rem;border-collapse:collapse;font-size:.85rem}
+      #axis-table th{background:#f8fafc;color:#475569;text-align:left;padding:.4rem .5rem;font-weight:600}
+      #axis-table td{padding:.45rem .5rem;border-top:1px solid #e2e8f0;vertical-align:middle}
+      #axis-table .ax-name{font-family:ui-monospace,Menlo,monospace;font-weight:600;white-space:nowrap}
+      #axis-table input[type=number]{text-align:right;font-size:.85rem}
+      #axis-table tr.axis-off td:not(:first-child){opacity:.45}
+      #axis-table label{display:flex;align-items:center;gap:.45rem;margin:0;cursor:pointer}
+    </style>
+    <table id="axis-table">
+      <thead><tr>
+        <th>{{ t .Lang "settings.rate_limit.col_axis" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.rate_limit.axis_tip") }}</span></span></th>
+        <th style="text-align:right">{{ t .Lang "settings.rate_limit.requests_per_min" }} <button type="button" class="ua-help-trigger" data-help-target="rl-rpm-help" aria-label="?">?</button></th>
+        <th style="text-align:right">{{ t .Lang "settings.rate_limit.burst" }} <button type="button" class="ua-help-trigger" data-help-target="rl-burst-help" aria-label="?">?</button></th>
+        <th style="text-align:right">{{ t .Lang "settings.rate_limit.window_sec" }} <button type="button" class="ua-help-trigger" data-help-target="rl-window-help" aria-label="?">?</button></th>
+        <th>mode <button type="button" class="ua-help-trigger" data-help-target="rl-mode-help" aria-label="?">?</button></th>
+      </tr></thead>
+      <tbody>
+        {{ range .RateLimit.DefaultAxisRows }}
+        <tr class="axis-row{{ if not .On }} axis-off{{ end }}" data-axis="{{ .Field }}">
+          <td class="ax-name"><label><input type="checkbox" class="ax-on" name="axis_{{ .Field }}_on" value="1" {{ if .On }}checked{{ end }}> {{ .Label }}</label></td>
+          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_rpm" min="1" max="100000" step="1" placeholder="{{ axisSeedRPM .Kind }}" value="{{ if gt .RequestsPerMin 0 }}{{ .RequestsPerMin }}{{ end }}" style="width:6rem"></td>
+          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_burst" min="0" max="100000" step="1" placeholder="{{ axisSeedBurst .Kind }}" value="{{ if or (gt .Burst 0) .Primary }}{{ .Burst }}{{ end }}" style="width:6rem"></td>
+          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_window" min="1" max="3600" step="1" placeholder="60" value="{{ if gt .WindowSec 0 }}{{ .WindowSec }}{{ end }}" style="width:5rem"></td>
+          <td>
+            <select name="axis_{{ .Field }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" {{ if eq .ChallengeMode "" }}selected{{ end }}>{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+              <option value="pow_only"         {{ if eq .ChallengeMode "pow_only" }}selected{{ end }}>pow_only</option>
+              <option value="pow_then_captcha" {{ if eq .ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="captcha_only"     {{ if eq .ChallengeMode "captcha_only" }}selected{{ end }}>captcha_only</option>
+              <option value="deny"             {{ if eq .ChallengeMode "deny" }}selected{{ end }}>deny</option>
+            </select>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
+    <script type="text/html" id="rl-mode-help">
+      <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
+        <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
+        <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
+        <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
+      </ul>
+    </script>
     <script>
-    // Grey the companion's fields while it is off -- values stay posted (a
-    // tuned threshold survives an off/on cycle); only the look signals state.
+    // Axis rows: grey a switched-off row (values stay posted so tuning
+    // survives an off/on cycle) and keep the primary row's mode select free
+    // of the self-referential inherit option -- "(default 継承)" on the row
+    // every other row inherits FROM would resolve to nothing.
     (function(){
-      var on = document.getElementById('ja4-limit-on');
-      var box = document.getElementById('ja4-limit-fields');
-      if (!on || !box) return;
-      function sync(){ box.style.opacity = on.checked ? '' : '.45'; }
-      on.addEventListener('change', sync);
+      var order = ['ip', 'ipja4', 'ja4']; // primary priority (address axes first)
+      function rows(){ return document.querySelectorAll('#axis-table tr.axis-row'); }
+      function row(axis){ return document.querySelector('#axis-table tr.axis-row[data-axis="' + axis + '"]'); }
+      function primaryAxis(){
+        for (var i = 0; i < order.length; i++) {
+          var tr = row(order[i]);
+          if (tr && tr.querySelector('.ax-on').checked) return order[i];
+        }
+        return null;
+      }
+      window.rlPrimaryMode = function(){
+        var tr = row(primaryAxis() || 'ip');
+        var sel = tr && tr.querySelector('select[name$="_chmode"]');
+        return (sel && sel.value) || 'pow_then_captcha';
+      };
+      window.rlAxisDenyActive = function(){
+        var pm = window.rlPrimaryMode();
+        var deny = false;
+        rows().forEach(function(tr){
+          if (!tr.querySelector('.ax-on').checked) return;
+          var sel = tr.querySelector('select[name$="_chmode"]');
+          if (((sel && sel.value) || pm) === 'deny') deny = true;
+        });
+        return deny;
+      };
+      function sync(){
+        var prim = primaryAxis();
+        rows().forEach(function(tr){
+          var on = tr.querySelector('.ax-on').checked;
+          tr.classList.toggle('axis-off', !on);
+          var inherit = tr.querySelector('select[name$="_chmode"] option[value=""]');
+          if (inherit) inherit.disabled = (tr.dataset.axis === prim);
+        });
+        if (typeof rlWarnSync === 'function') rlWarnSync();
+      }
+      document.getElementById('axis-table').addEventListener('change', sync);
       sync();
     })();
     </script>
@@ -3674,10 +3641,13 @@ function secToHuman(s){
   // The default zone covers every path, so for it "overlap" just means any
   // protected path exists at all.
   function rlWarnSync(){
-    var defSel = document.getElementById('rl-default-chmode');
-    var defMode = defSel ? defSel.value : 'pow_then_captcha';
+    // The default limits are the axis table now: "(default 継承)" on a zone
+    // row inherits the PRIMARY axis row's mode, and the deny warning fires
+    // when any enabled axis row (each spans every path) resolves to deny.
+    var defMode = (typeof window.rlPrimaryMode === 'function') ? window.rlPrimaryMode() : 'pow_then_captcha';
+    var axisDeny = (typeof window.rlAxisDenyActive === 'function') ? window.rlAxisDenyActive() : (defMode === 'deny');
     var defWarn = document.getElementById('rl-deny-warn');
-    if (defWarn) defWarn.style.display = (defMode === 'deny' && RL_PP.length > 0) ? '' : 'none';
+    if (defWarn) defWarn.style.display = (axisDeny && RL_PP.length > 0) ? '' : 'none';
     rows().forEach(function(tr){
       var on = tr.querySelector('.z-on');
       var enabled = !on || on.checked;
@@ -3772,8 +3742,8 @@ function secToHuman(s){
   document.getElementById('zones-tbody').addEventListener('input', function(e){
     if (e.target && /_paths$/.test(e.target.name || '')) rlWarnSync();
   });
-  var defSel = document.getElementById('rl-default-chmode');
-  if (defSel) defSel.addEventListener('change', rlWarnSync);
+  var axisTable = document.getElementById('axis-table');
+  if (axisTable) axisTable.addEventListener('change', rlWarnSync);
   rlWarnSync();
 })();
 </script>
