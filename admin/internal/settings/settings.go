@@ -2815,14 +2815,20 @@ type RateLimitConfig struct {
 	// / mode + optional PathPatterns + Site filter.  Order matters for the
 	// match: the first zone whose PathPatterns and Site both match wins.
 	Zones []RateZone `yaml:"zones,omitempty"`
-	// JA4Limit: the built-in JA4 companion to the Default zone.  Runs IN
-	// PARALLEL with the per-IP default on every path: the default keeps
-	// counting per address while this counter accumulates per TLS
-	// fingerprint, which is the only axis that keeps counting a botnet as
-	// it rotates IPs.  Disabled by default -- a JA4 bucket is shared by
-	// every user of one browser build, so turning it on is an explicit
-	// operator decision, paired with a high threshold.
-	JA4Limit JA4LimitConfig `yaml:"ja4_limit,omitempty"`
+	// IPLimit / JA4Limit / IPJA4Limit: the per-axis default limits behind
+	// the settings UI's three always-visible rows (IP / JA4 / IP+JA4).  Each
+	// enabled axis runs as an independent parallel counter on every path.
+	// The PRIMARY axis (first enabled in the order ip > ip+ja4 > ja4) is
+	// stored in Key + Default -- the pre-axis-row representation -- and its
+	// struct here stays zero, so configs written before the rows existed
+	// load unchanged and older binaries keep reading the primary correctly.
+	// Only non-primary rows (and rows switched off with tuned values worth
+	// keeping) occupy these structs.  JA4 is off by default: a JA4 bucket is
+	// shared by every user of one browser build, so enabling it is an
+	// explicit operator decision, paired with a high threshold.
+	IPLimit    AxisLimitConfig `yaml:"ip_limit,omitempty"`
+	JA4Limit   AxisLimitConfig `yaml:"ja4_limit,omitempty"`
+	IPJA4Limit AxisLimitConfig `yaml:"ipja4_limit,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
 	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
@@ -2944,29 +2950,143 @@ func (v RateLimitValues) ResolvedChallengeMode() string {
 	return v.ChallengeMode
 }
 
-// JA4LimitConfig: the default zone's optional JA4 companion limit.
-type JA4LimitConfig struct {
+// AxisLimitConfig: one per-axis default limit (an IP / JA4 / IP+JA4 row of
+// the default card).  JA4LimitConfig is the name it shipped under when only
+// the JA4 companion existed.
+type AxisLimitConfig struct {
 	Enabled        bool   `yaml:"enabled,omitempty"`
 	RequestsPerMin int    `yaml:"requests_per_min,omitempty"`
 	Burst          int    `yaml:"burst,omitempty"`
 	WindowSec      int    `yaml:"window_sec,omitempty"`
-	ChallengeMode  string `yaml:"challenge_mode,omitempty"` // empty = inherit the default zone's mode
+	ChallengeMode  string `yaml:"challenge_mode,omitempty"` // empty = inherit the primary row's mode
 }
+
+// JA4LimitConfig: retained alias for the pre-axis-row name.
+type JA4LimitConfig = AxisLimitConfig
 
 // IsZero lets yaml.v3 honour the field's omitempty: an untouched companion
 // (never enabled, never tuned) writes no ja4_limit key at all, so a no-op
 // save keeps the config byte-identical.
-func (j JA4LimitConfig) IsZero() bool {
-	return j == JA4LimitConfig{}
+func (j AxisLimitConfig) IsZero() bool {
+	return j == AxisLimitConfig{}
 }
 
-// JA4LimitZoneName: the reserved nginx zone name the companion renders as.
-// The zone form refuses operator zones with this name.
-const JA4LimitZoneName = "unmask_rate_ja4"
+// JA4LimitZoneName / IPLimitZoneName / IPJA4LimitZoneName: reserved nginx
+// zone names the non-primary axis rows render as.  The zone form refuses
+// operator zones with these names.
+const (
+	JA4LimitZoneName   = "unmask_rate_ja4"
+	IPLimitZoneName    = "unmask_rate_ip"
+	IPJA4LimitZoneName = "unmask_rate_ipja4"
+)
+
+// AxisZoneName: the reserved zone name a NON-primary axis row renders as.
+// (The primary row renders as the classic default zone, normally
+// "unmask_rate".)
+func AxisZoneName(kind string) string {
+	switch kind {
+	case RateLimitKeyJA4:
+		return JA4LimitZoneName
+	case RateLimitKeyIPAndJA4:
+		return IPJA4LimitZoneName
+	default:
+		return IPLimitZoneName
+	}
+}
+
+// AxisSeed*: the placeholder thresholds an axis row adopts when enabled with
+// its fields left blank.  JA4 seeds high: one bucket covers every user of a
+// browser build, so the default must not bite crowds.
+func AxisSeedRPM(kind string) int {
+	if kind == RateLimitKeyJA4 {
+		return 600
+	}
+	return 100
+}
+
+func AxisSeedBurst(kind string) int {
+	if kind == RateLimitKeyJA4 {
+		return 100
+	}
+	return 50
+}
+
+const AxisSeedWindowSec = 60
+
+// AxisRow: one row of the default card's axis table, resolved from the
+// legacy (Key + Default) representation plus the per-axis structs.  Display
+// fields (Label / Field) ride along for the template.
+type AxisRow struct {
+	Kind    string // RateLimitKeyIP / ...JA4 / ...IPAndJA4
+	Field   string // form-field fragment: "ip" / "ja4" / "ipja4"
+	Label   string // "IP" / "JA4" / "IP+JA4"
+	Primary bool   // stored in Key+Default; its mode is what "" inherits
+
+	On             bool
+	RequestsPerMin int
+	Burst          int
+	WindowSec      int
+	ChallengeMode  string
+}
+
+// DefaultAxisRows resolves the three axis rows in display order (IP, JA4,
+// IP+JA4).  The Key axis starts as an enabled row carrying Default's values;
+// a non-zero per-axis struct then defines its row outright (normally only
+// non-primary rows have one -- see the field comment).  If everything ends up
+// off (hand-edited config), the Key axis is forced back on so the default
+// zone never vanishes.  Primary = first enabled in ip > ip+ja4 > ja4 order.
+func (rl RateLimitConfig) DefaultAxisRows() []AxisRow {
+	rows := []AxisRow{
+		{Kind: RateLimitKeyIP, Field: "ip", Label: "IP"},
+		{Kind: RateLimitKeyJA4, Field: "ja4", Label: "JA4"},
+		{Kind: RateLimitKeyIPAndJA4, Field: "ipja4", Label: "IP+JA4"},
+	}
+	idx := map[string]int{RateLimitKeyIP: 0, RateLimitKeyJA4: 1, RateLimitKeyIPAndJA4: 2}
+	primaryKind := rl.ResolvedKey()
+	r := &rows[idx[primaryKind]]
+	r.On = true
+	r.RequestsPerMin = rl.Default.RequestsPerMin
+	r.Burst = rl.Default.Burst
+	r.WindowSec = rl.Default.WindowSec
+	r.ChallengeMode = rl.Default.ChallengeMode
+	for kind, st := range map[string]AxisLimitConfig{
+		RateLimitKeyIP:       rl.IPLimit,
+		RateLimitKeyJA4:      rl.JA4Limit,
+		RateLimitKeyIPAndJA4: rl.IPJA4Limit,
+	} {
+		if st.IsZero() {
+			continue
+		}
+		r := &rows[idx[kind]]
+		r.On = st.Enabled
+		r.RequestsPerMin = st.RequestsPerMin
+		r.Burst = st.Burst
+		r.WindowSec = st.WindowSec
+		r.ChallengeMode = st.ChallengeMode
+	}
+	anyOn := false
+	for i := range rows {
+		anyOn = anyOn || rows[i].On
+	}
+	if !anyOn {
+		r := &rows[idx[primaryKind]]
+		r.On = true
+		if r.RequestsPerMin == 0 {
+			r.RequestsPerMin = rl.Default.RequestsPerMin
+		}
+	}
+	for _, kind := range []string{RateLimitKeyIP, RateLimitKeyIPAndJA4, RateLimitKeyJA4} {
+		if rows[idx[kind]].On {
+			rows[idx[kind]].Primary = true
+			break
+		}
+	}
+	return rows
+}
 
 // Active reports whether the companion actually enforces: enabled with a
 // usable threshold (a zero rpm would render an nginx rate of 0r/m).
-func (j JA4LimitConfig) Active() bool {
+func (j AxisLimitConfig) Active() bool {
 	return j.Enabled && j.RequestsPerMin > 0
 }
 
@@ -3040,26 +3160,46 @@ func (rl RateLimitConfig) ResolveZonesAll(path, site string) []ResolvedRateZone 
 			Key: rl.ZoneKeyResolved(z),
 		})
 	}
-	def := rl.Default
-	if def.Name == "" {
-		def.Name = "unmask_rate" // same fallback the native render applies
+	rows := rl.DefaultAxisRows()
+	defName := rl.Default.Name
+	if defName == "" {
+		defName = "unmask_rate" // same fallback the native render applies
 	}
-	out = append(out, ResolvedRateZone{RateLimitValues: def, Key: rl.ResolvedKey()})
-	if rl.JA4Limit.Active() {
-		mode := rl.JA4Limit.ChallengeMode
-		if mode == "" {
-			mode = def.ChallengeMode // inherit the default zone's chain
+	var primaryMode string
+	for _, row := range rows {
+		if row.Primary {
+			primaryMode = row.ChallengeMode
 		}
-		out = append(out, ResolvedRateZone{
-			RateLimitValues: RateLimitValues{
-				Name:           JA4LimitZoneName,
-				RequestsPerMin: rl.JA4Limit.RequestsPerMin,
-				Burst:          rl.JA4Limit.Burst,
-				WindowSec:      rl.JA4Limit.WindowSec,
-				ChallengeMode:  mode,
-			},
-			Key: RateLimitKeyJA4,
-		})
+	}
+	// Primary first (attribution prefers the familiar default-zone name),
+	// then the other enabled axes in display order.
+	for _, primaryPass := range []bool{true, false} {
+		for _, row := range rows {
+			if !row.On || row.Primary != primaryPass {
+				continue
+			}
+			name := AxisZoneName(row.Kind)
+			mode := row.ChallengeMode
+			if row.Primary {
+				name = defName
+			} else if mode == "" {
+				mode = primaryMode // inherit the primary row's chain
+			}
+			rpm := row.RequestsPerMin
+			if rpm <= 0 {
+				rpm = AxisSeedRPM(row.Kind) // hand-edited enable without a rate
+			}
+			out = append(out, ResolvedRateZone{
+				RateLimitValues: RateLimitValues{
+					Name:           name,
+					RequestsPerMin: rpm,
+					Burst:          row.Burst,
+					WindowSec:      row.WindowSec,
+					ChallengeMode:  mode,
+				},
+				Key: row.Kind,
+			})
+		}
 	}
 	return out
 }

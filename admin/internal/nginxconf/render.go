@@ -991,11 +991,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	if defaultName == "" {
 		defaultName = "unmask_rate"
 	}
+	// Values come from the PRIMARY axis row -- normally identical to Default
+	// (the save path keeps them in sync), but a hand-edited config where a
+	// per-axis struct overrides the Key axis resolves through the row.
 	defaultRPM := s.RateLimit.Default.RequestsPerMin
+	defaultBurst := s.RateLimit.Default.Burst
+	for _, row := range s.RateLimit.DefaultAxisRows() {
+		if row.Primary {
+			defaultRPM = row.RequestsPerMin
+			defaultBurst = row.Burst
+		}
+	}
 	if defaultRPM <= 0 {
 		defaultRPM = 100
 	}
-	defaultBurst := s.RateLimit.Default.Burst
 	if defaultBurst <= 0 {
 		defaultBurst = 50
 	}
@@ -1016,7 +1025,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// hard-blocks un-challenged traffic; it just can't preempt a challenge (that
 	// gap is surfaced as a startup / doctor warning, HasDenyRateZone && !capable).
 	d.ComposeMode = ComposeCapable(s)
+	axisRows := s.RateLimit.DefaultAxisRows()
 	globalKind := s.RateLimit.ResolvedKey()
+	for _, row := range axisRows {
+		if row.Primary {
+			// Normally identical to ResolvedKey(); diverges only on a
+			// hand-edited config whose Key axis was switched off -- the
+			// primary row is what the default zone actually counts.
+			globalKind = row.Kind
+		}
+	}
 	d.RateLimitKeyExpr = rateKeyExpr(globalKind)
 	// Per-zone key kinds: a zone may count against a different key than the
 	// install-wide one (the canonical pairing: per-IP default + a parallel
@@ -1149,24 +1167,36 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			KeyVar:         keyVar,
 		})
 	}
-	// The built-in JA4 companion: declared like any zone, applied by
-	// protect.inc, counting against the ja4 key variant (or the plain map
-	// when the install-wide key is already ja4).
-	if s.RateLimit.JA4Limit.Active() && !zoneNamesSeen[settings.JA4LimitZoneName] {
-		companionKey := "$rate_limit_key"
-		if globalKind != settings.RateLimitKeyJA4 {
-			companionKey = addKeyVariant(settings.RateLimitKeyJA4, false)
+	// Non-primary axis rows of the default card (the JA4 / IP+JA4 / IP
+	// parallel limits): declared like any zone, applied by protect.inc,
+	// counting against their kind's key-variant map.
+	for _, row := range axisRows {
+		if !row.On || row.Primary {
+			continue
+		}
+		name := settings.AxisZoneName(row.Kind)
+		if zoneNamesSeen[name] {
+			continue
+		}
+		zoneNamesSeen[name] = true
+		axisKey := "$rate_limit_key"
+		if row.Kind != globalKind {
+			axisKey = addKeyVariant(row.Kind, false)
+		}
+		rpm := row.RequestsPerMin
+		if rpm <= 0 {
+			rpm = settings.AxisSeedRPM(row.Kind)
 		}
 		d.RateZones = append(d.RateZones, RateZoneRender{
-			Name:           settings.JA4LimitZoneName,
-			RequestsPerMin: s.RateLimit.JA4Limit.RequestsPerMin,
-			Burst:          s.RateLimit.JA4Limit.Burst,
-			KeyVar:         companionKey,
+			Name:           name,
+			RequestsPerMin: rpm,
+			Burst:          row.Burst,
+			KeyVar:         axisKey,
 		})
 		d.RatePlainZones = append(d.RatePlainZones, RatePlainZoneRender{
-			ZoneName: settings.JA4LimitZoneName,
-			Burst:    s.RateLimit.JA4Limit.Burst,
-			Label:    "JA4 companion",
+			ZoneName: name,
+			Burst:    row.Burst,
+			Label:    "default-axis",
 		})
 	}
 

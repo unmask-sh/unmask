@@ -148,8 +148,20 @@ func ComposeCapable(s settings.Settings) bool {
 // collision can produce a phantom deny report.  Replicating the rendered-name
 // simulation would duplicate render.go's naming logic, so it is accepted.
 func HasDenyRateZone(s settings.Settings) bool {
-	if s.RateLimit.Default.ResolvedChallengeMode() == settings.RateChallengeDeny {
-		return true
+	for _, row := range s.RateLimit.DefaultAxisRows() {
+		if !row.On {
+			continue
+		}
+		mode := row.ChallengeMode
+		if !settings.IsValidRateChallengeMode(mode) {
+			// "" inherits: the primary resolves to the recommended chain, a
+			// non-primary row to the primary's mode -- either way the deny
+			// case is what matters here, so resolve through the primary.
+			mode = s.RateLimit.Default.ResolvedChallengeMode()
+		}
+		if mode == settings.RateChallengeDeny {
+			return true
+		}
 	}
 	for _, z := range s.RateLimit.Zones {
 		if z.Disabled || strings.TrimSpace(z.Name) == "" {

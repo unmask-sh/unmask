@@ -194,6 +194,7 @@ func TestApplyRateLimitFormZoneKey(t *testing.T) {
 	form := func(key string) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=rate-limit",
 			strings.NewReader(url.Values{
+				"axis_ip_on":    {"1"},
 				"zone_0_name":   {"ja4_flood"},
 				"zone_0_rpm":    {"600"},
 				"zone_0_burst":  {"100"},
@@ -274,8 +275,9 @@ func TestAuthCheck_JA4CompanionLimit(t *testing.T) {
 	}
 }
 
-// ja4_limit_* fields round-trip, thresholds survive an off/on cycle, and the
-// reserved zone name is refused for operator rows.
+// The JA4 axis row round-trips, thresholds survive an off/on cycle, enabling
+// on the placeholder adopts the documented seeds, and the reserved zone names
+// are refused for operator rows.
 func TestApplyRateLimitFormJA4Companion(t *testing.T) {
 	form := func(vals url.Values) *http.Request {
 		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=rate-limit",
@@ -286,41 +288,101 @@ func TestApplyRateLimitFormJA4Companion(t *testing.T) {
 	}
 	var c settings.RateLimitConfig
 	if err := applyRateLimitForm(&c, form(url.Values{
-		"ja4_limit_enabled": {"1"},
-		"ja4_limit_rpm":     {"600"},
-		"ja4_limit_burst":   {"100"},
-		"ja4_limit_window":  {"60"},
-		"ja4_limit_chmode":  {"pow_only"},
+		"axis_ip_on":      {"1"},
+		"axis_ja4_on":     {"1"},
+		"axis_ja4_rpm":    {"600"},
+		"axis_ja4_burst":  {"100"},
+		"axis_ja4_window": {"60"},
+		"axis_ja4_chmode": {"pow_only"},
 	})); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	if !c.JA4Limit.Active() || c.JA4Limit.RequestsPerMin != 600 || c.JA4Limit.ChallengeMode != "pow_only" {
-		t.Errorf("companion = %+v", c.JA4Limit)
+		t.Errorf("JA4 row = %+v", c.JA4Limit)
 	}
-	// Off, values still posted: enforcement stops, the tuning survives.
+	if c.Key != "" {
+		t.Errorf("IP stays the primary; key should remain unset, got %q", c.Key)
+	}
+	// Row unticked, values still posted: enforcement stops, tuning survives.
 	if err := applyRateLimitForm(&c, form(url.Values{
-		"ja4_limit_rpm":   {"600"},
-		"ja4_limit_burst": {"100"},
+		"axis_ip_on":     {"1"},
+		"axis_ja4_rpm":   {"600"},
+		"axis_ja4_burst": {"100"},
 	})); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	if c.JA4Limit.Active() || c.JA4Limit.RequestsPerMin != 600 {
 		t.Errorf("off-cycle lost the tuning: %+v", c.JA4Limit)
 	}
-	// Enabling with the rpm left on its placeholder adopts the documented
-	// 600r/m seed instead of erroring or rendering a 0r/m zone.
+	// Enabling with every field on its placeholder adopts the seeds.
 	var fresh settings.RateLimitConfig
-	if err := applyRateLimitForm(&fresh, form(url.Values{"ja4_limit_enabled": {"1"}})); err != nil {
+	if err := applyRateLimitForm(&fresh, form(url.Values{
+		"axis_ip_on":  {"1"},
+		"axis_ja4_on": {"1"},
+	})); err != nil {
 		t.Fatalf("save: %v", err)
 	}
-	if !fresh.JA4Limit.Active() || fresh.JA4Limit.RequestsPerMin != 600 {
-		t.Errorf("placeholder enable should adopt 600r/m, got %+v", fresh.JA4Limit)
+	if !fresh.JA4Limit.Active() || fresh.JA4Limit.RequestsPerMin != 600 || fresh.JA4Limit.Burst != 100 {
+		t.Errorf("placeholder enable should adopt the 600/100 seeds, got %+v", fresh.JA4Limit)
 	}
-	// The reserved name cannot be taken by an operator zone.
-	if err := applyRateLimitForm(&c, form(url.Values{
-		"zone_0_name": {settings.JA4LimitZoneName}, "zone_0_rpm": {"10"}, "zone_0_burst": {"1"},
-		"zone_0_window": {"60"}, "zone_0_on": {"1"},
-	})); err == nil {
-		t.Error("the companion's reserved zone name must be refused")
+	// Every row off is a config error: the default zone cannot vanish.
+	if err := applyRateLimitForm(&fresh, form(url.Values{"axis_ja4_rpm": {"600"}})); err == nil {
+		t.Error("all axis rows off must be rejected")
+	}
+	// The reserved names cannot be taken by an operator zone.
+	for _, name := range []string{settings.JA4LimitZoneName, settings.IPLimitZoneName, settings.IPJA4LimitZoneName} {
+		if err := applyRateLimitForm(&fresh, form(url.Values{
+			"axis_ip_on":    {"1"},
+			"zone_0_name":   {name},
+			"zone_0_rpm":    {"10"},
+			"zone_0_burst":  {"1"},
+			"zone_0_window": {"60"},
+			"zone_0_on":     {"1"},
+		})); err == nil {
+			t.Errorf("reserved zone name %q must be refused", name)
+		}
+	}
+}
+
+// Primary migration: disabling the IP row while JA4 stays on makes JA4 the
+// primary -- Key + Default take its values (so an older binary still reads
+// the enforced limit) and the JA4 struct clears, while the IP row's tuning
+// parks in ip_limit for the day it is switched back on.
+func TestApplyRateLimitFormPrimaryFlip(t *testing.T) {
+	var c settings.RateLimitConfig
+	c.Default = settings.RateLimitValues{Name: "unmask_rate", RequestsPerMin: 100, Burst: 50, WindowSec: 60, ChallengeMode: "pow_then_captcha"}
+	r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=rate-limit",
+		strings.NewReader(url.Values{
+			"axis_ip_rpm":     {"100"},
+			"axis_ip_burst":   {"50"},
+			"axis_ja4_on":     {"1"},
+			"axis_ja4_rpm":    {"600"},
+			"axis_ja4_burst":  {"100"},
+			"axis_ja4_chmode": {"pow_only"},
+		}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	_ = r.ParseForm()
+	if err := applyRateLimitForm(&c, r); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	if c.Key != settings.RateLimitKeyJA4 {
+		t.Errorf("JA4 should have become the primary, key = %q", c.Key)
+	}
+	if c.Default.RequestsPerMin != 600 || c.Default.ChallengeMode != "pow_only" {
+		t.Errorf("Default should carry the JA4 row's values, got %+v", c.Default)
+	}
+	if !c.JA4Limit.IsZero() {
+		t.Errorf("the primary's struct must clear, got %+v", c.JA4Limit)
+	}
+	if c.IPLimit.IsZero() || c.IPLimit.Enabled || c.IPLimit.RequestsPerMin != 100 {
+		t.Errorf("the IP row's tuning should park disabled in ip_limit, got %+v", c.IPLimit)
+	}
+	// Round-trip: the rows read back exactly as saved.
+	rows := c.DefaultAxisRows()
+	if !rows[1].On || !rows[1].Primary || rows[1].RequestsPerMin != 600 {
+		t.Errorf("JA4 row wrong after flip: %+v", rows[1])
+	}
+	if rows[0].On || rows[0].RequestsPerMin != 100 {
+		t.Errorf("IP row wrong after flip: %+v", rows[0])
 	}
 }

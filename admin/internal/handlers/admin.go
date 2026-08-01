@@ -246,6 +246,10 @@ func loadDashboardTemplate() (*template.Template, error) {
 				p, _ := classify.UASummaryParts(sum)
 				return p
 			},
+			// axisSeed*: placeholder thresholds for the default card's axis
+			// rows (adopted verbatim when a row is enabled with blank fields).
+			"axisSeedRPM":   settings.AxisSeedRPM,
+			"axisSeedBurst": settings.AxisSeedBurst,
 			"uaSummaryBrowser": func(sum string) string {
 				_, b := classify.UASummaryParts(sum)
 				return b
