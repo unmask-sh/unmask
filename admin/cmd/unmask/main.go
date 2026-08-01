@@ -495,7 +495,7 @@ func cmdServe(args []string) error {
 	// Same gating as AutoFetch (managed paths, setup complete): the operator's
 	// own mmdb_path is never touched, and an install with no mmdb is
 	// AutoFetch's business, not this loop's.
-	if s.IPGeo.AutoUpdate && setupComplete {
+	if (s.IPGeo.AutoUpdate || s.IPGeo.AutoUpdateASN) && setupComplete {
 		go func() {
 			defer safe.Recover("ipgeo-auto-update")
 			const (
@@ -510,8 +510,9 @@ func cmdServe(args []string) error {
 				// Re-read settings each pass so a toggle in the web UI takes
 				// effect without a restart (same pattern as the other loops).
 				cur := h.SnapshotSettings()
-				if cur.IPGeo.AutoUpdate {
-					ipgeo.AutoUpdateStale(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath, gip, staleAfter, time.Time{})
+				if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
+					ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
+						cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{})
 				}
 				time.Sleep(checkEvery)
 			}

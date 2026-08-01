@@ -665,6 +665,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnExemptRows":       bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
 		"IPGeoASNLoaded":      h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		"IPGeoAutoUpdate":     ipgeoCur.AutoUpdate,
+		"IPGeoAutoUpdateASN":  ipgeoCur.AutoUpdateASN,
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -2288,6 +2289,7 @@ func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
 	// the managed (dbip) mode -- the custom-path mode's file belongs to the
 	// operator and AutoUpdateStale skips it regardless of this flag.
 	g.AutoUpdate = r.FormValue("ipgeo_auto_update") != ""
+	g.AutoUpdateASN = r.FormValue("ipgeo_auto_update_asn") != ""
 	mode := strings.TrimSpace(r.FormValue("ipgeo_mode"))
 	if mode == "" {
 		mode = "dbip"

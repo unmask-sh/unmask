@@ -81,3 +81,27 @@ func TestStalenessIsJudgedByBuildDateNotMtime(t *testing.T) {
 		t.Error("the file exists on disk but InspectMMDB says otherwise")
 	}
 }
+
+// The two databases are switched independently: turning one off must not stop
+// the other, which is the whole point of having two flags.
+func TestAutoUpdateKindsAreIndependent(t *testing.T) {
+	dir := t.TempDir()
+	// Managed paths are absolute constants, so this asserts the gating without
+	// touching them: with both kinds off nothing is even considered, and the
+	// call is a no-op regardless of what is on disk.
+	country := filepath.Join(dir, "c.mmdb")
+	asn := filepath.Join(dir, "a.mmdb")
+	for _, p := range []string{country, asn} {
+		if err := os.WriteFile(p, []byte("x"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := AutoUpdateStaleKinds(country, asn, false, false, nil, time.Hour, time.Now()); n != 0 {
+		t.Errorf("both flags off must do nothing, replaced %d", n)
+	}
+	// Custom paths (which these are) are skipped whatever the flags say, so a
+	// non-zero result here would mean the managed-path guard was bypassed.
+	if n := AutoUpdateStaleKinds(country, asn, true, true, nil, time.Hour, time.Now()); n != 0 {
+		t.Errorf("custom paths must be skipped even with both flags on, replaced %d", n)
+	}
+}

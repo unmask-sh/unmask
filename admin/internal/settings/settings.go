@@ -531,6 +531,12 @@ type IPGeo struct {
 	// install that has no mmdb (that is AutoFetch's decision).  Air-gapped
 	// hosts turn it off alongside AutoFetch.
 	AutoUpdate bool `yaml:"auto_update"`
+	// AutoUpdateASN: the same switch for the ASN database, kept separate
+	// because the two are separate decisions in practice -- an install can
+	// have the country DB on unmask's managed path while the ASN one is a
+	// vendor file the operator maintains, or want one refreshed and the other
+	// pinned for a comparison.  Defaults to true alongside AutoUpdate.
+	AutoUpdateASN bool `yaml:"auto_update_asn"`
 }
 
 // NginxLog: data source for the cookie-passage dashboard.
@@ -3511,9 +3517,10 @@ func defaults() Settings {
 			// ASN DB is optional but defaults to the DB-IP managed path so
 			// the network tab's ASN radio pre-selects "DB-IP".  Users who
 			// pick "none" get this cleared on save.
-			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
-			AutoFetch:   true,
-			AutoUpdate:  true,
+			MMDBASNPath:   "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
+			AutoFetch:     true,
+			AutoUpdate:    true,
+			AutoUpdateASN: true,
 		},
 		CommunityBans: CommunityBans{
 			SubmitEnabled: false,

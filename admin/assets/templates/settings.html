@@ -865,14 +865,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ end }}
         </div>
         <div id="ipgeo-install-status" style="display:none;margin-top:.3rem;font-size:.72rem"></div>
-        {{/* Auto-update rides the managed path only: the custom-path mode below
-             is the operator's own file and is never rewritten. */}}
-        <label style="display:flex;align-items:center;gap:.45rem;margin-top:.6rem;font-size:.82rem;cursor:pointer">
-          <input type="checkbox" name="ipgeo_auto_update" value="1" {{ if .IPGeoAutoUpdate }}checked{{ end }}>
-          {{ t .Lang "settings.network.ipgeo_auto_update" }}
-          <button type="button" class="ua-help-trigger" data-help-target="ipgeo-auto-update-help" aria-label="?">?</button>
-        </label>
-        <script type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
       </div>
     </div>
 
@@ -905,6 +897,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ end }}
       </div>
     </div>
+    {{/* Inside the section it governs, but OUTSIDE the mode bodies: a
+         custom-path mode hides its body, and a switch that disappears while
+         still driving a file is worse than no switch.  It simply has no
+         effect while this database is on a custom path -- the help says so. */}}
+    <label class="ipgeo-auto-update">
+      <input type="checkbox" name="ipgeo_auto_update" value="1" {{ if .IPGeoAutoUpdate }}checked{{ end }}>
+      <span>{{ t .Lang "settings.network.ipgeo_auto_update" }}</span>
+      <button type="button" class="ua-help-trigger" data-help-target="ipgeo-auto-update-help" aria-label="?">?</button>
+    </label>
     </div>{{/* /ipgeo-section country */}}
 
     <div class="ipgeo-section">
@@ -983,9 +984,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <p class="muted" style="font-size:.72rem;margin:.2rem 0">{{ t .Lang "settings.network.ipgeo_asn_mode_none_body" }}</p>
       </div>
     </div>
+    {{/* Inside the section it governs, but OUTSIDE the mode bodies: a
+         custom-path mode hides its body, and a switch that disappears while
+         still driving a file is worse than no switch.  It simply has no
+         effect while this database is on a custom path -- the help says so. */}}
+    <label class="ipgeo-auto-update">
+      <input type="checkbox" name="ipgeo_auto_update_asn" value="1" {{ if .IPGeoAutoUpdateASN }}checked{{ end }}>
+      <span>{{ t .Lang "settings.network.ipgeo_auto_update" }}</span>
+      <button type="button" class="ua-help-trigger" data-help-target="ipgeo-auto-update-help" aria-label="?">?</button>
+    </label>
     </div>{{/* /ipgeo-section asn */}}
+    <script type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
+
   </div>
   <style>
+  .ipgeo-auto-update{display:flex;align-items:center;gap:.45rem;margin:.9rem 0 .2rem;padding:.55rem .7rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem;font-size:.82rem;cursor:pointer}
   .ipgeo-hint{font-size:.7rem;color:#475569;margin:.4rem 0 .15rem 1.2rem;font-weight:600}
   .ipgeo-hint .muted{color:#94a3b8;font-weight:400;margin-left:.4em}
   .ipgeo-found{list-style:none;margin:.1rem 0 0 1.2rem;padding:.3rem .4rem;font-size:.72rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.25rem}
