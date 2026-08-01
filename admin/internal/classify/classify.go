@@ -136,6 +136,17 @@ var (
 type crawlerTagREs struct {
 	tagOrder []string                  // lookup priority (= AI tags first)
 	tagRE    map[string]*regexp.Regexp // tag → compiled regex
+	// litGate / ungatedRE: a cheap pre-filter for LookupTag.  Matching the
+	// joined per-tag alternations costs ~1ms for a UA that is not a crawler at
+	// all -- nearly every row the hunt log renders -- so a UA is first checked
+	// against the literal each pattern must contain.
+	//
+	// A handful of patterns start with a character class or group and offer no
+	// mandatory literal ("[wW]get", "(sistrix|SISTRIX) [cC]rawler", ...).
+	// Those are compiled into ungatedRE and always matched, so the filter
+	// never turns "unknown" into "not a crawler".
+	litGate   []string
+	ungatedRE *regexp.Regexp
 }
 
 // CrawlerTagOrder is the public lookup priority — AI-flavoured tags come
@@ -194,12 +205,28 @@ func LookupTag(ua string) string {
 		return ""
 	}
 	res := getCrawlerTagREs()
+	if !crawlerGatePasses(res, ua) {
+		return ""
+	}
 	for _, tag := range res.tagOrder {
 		if re := res.tagRE[tag]; re != nil && re.MatchString(ua) {
 			return tag
 		}
 	}
 	return ""
+}
+
+// crawlerGatePasses reports whether ua can possibly be a crawler, cheaply.
+// False means no pattern can match; true means the per-tag regexes have to
+// run to find out which.
+func crawlerGatePasses(res *crawlerTagREs, ua string) bool {
+	low := strings.ToLower(ua)
+	for _, lit := range res.litGate {
+		if strings.Contains(low, lit) {
+			return true
+		}
+	}
+	return res.ungatedRE != nil && res.ungatedRE.MatchString(ua)
 }
 
 func getCrawlerTagREs() *crawlerTagREs {
@@ -243,10 +270,89 @@ func buildCrawlerTagREs(jsonRaw []byte) *crawlerTagREs {
 		tagOrder: append([]string{}, CrawlerTagOrder...),
 		tagRE:    map[string]*regexp.Regexp{},
 	}
+	seen := map[string]bool{}
+	ungated := []string{}
 	for _, tag := range out.tagOrder {
 		out.tagRE[tag] = joinAlt(perTag[tag])
+		for _, pat := range perTag[tag] {
+			lit := longestLiteralRun(pat)
+			if lit == "" {
+				ungated = append(ungated, pat)
+				continue
+			}
+			if !seen[lit] {
+				seen[lit] = true
+				out.litGate = append(out.litGate, lit)
+			}
+		}
+	}
+	if len(ungated) > 0 {
+		out.ungatedRE = joinAlt(ungated)
 	}
 	return out
+}
+
+// longestLiteralRun extracts a literal run that any matching UA must contain:
+// the FIRST run of literal characters, taken before the pattern's first
+// alternation.  Every UA that matches the pattern contains it, which is the
+// property the pre-filter needs.
+//
+// Taking the longest run instead would be unsound: in "Ahrefs(Bot|SiteAudit)"
+// the longest run is "SiteAudit", which "AhrefsBot/6.1" does not contain --
+// the gate would drop a real crawler.  The verification test caught exactly
+// that.  Runs shorter than 2 characters are rejected as too weak to filter on.
+func longestLiteralRun(pattern string) string {
+	best, cur := "", strings.Builder{}
+	stop := false
+	flush := func() {
+		if stop {
+			return
+		}
+		if cur.Len() > len(best) {
+			best = cur.String()
+		}
+		cur.Reset()
+	}
+	for i := 0; i < len(pattern); i++ {
+		c := pattern[i]
+		switch {
+		case c == '\\' && i+1 < len(pattern):
+			// An escaped literal ends the run: the escaped char may be a
+			// separator we do not want to fold into the token.
+			i++
+			flush()
+		case (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '!' || c == '-' || c == '_' || c == ' ':
+			// Letters, digits, and the punctuation that appears literally in
+			// these patterns.  "Y!J" and "um-LN" are whole crawler names whose
+			// only literal run needs the "!" / "-" to reach usable length.
+			cur.WriteByte(c)
+		default:
+			// Any operator or punctuation: the run stops here.  A quantifier
+			// could make the preceding character optional, so drop the last
+			// byte before accepting the run.
+			if (c == '?' || c == '*') && cur.Len() > 0 {
+				t := cur.String()
+				cur.Reset()
+				cur.WriteString(t[:len(t)-1])
+			}
+			flush()
+			// Past an alternation or group, later runs are only required on
+			// SOME branch -- stop collecting so the result stays mandatory.
+			if c == '(' || c == '|' || c == '[' {
+				stop = true
+			}
+		}
+	}
+	flush()
+	// Two characters is the floor: four upstream patterns ("Y!J", "um-LN",
+	// "PR-CY\.RU", "^BW\/") have no longer literal run, and rejecting them
+	// would switch the gate off for the whole list.  A 2-char token filters
+	// less, but it filters soundly, which is the property that matters.
+	if len(best) < 2 {
+		return ""
+	}
+	return strings.ToLower(best)
 }
 
 func getCategoryREs() *categoryREs {
@@ -789,10 +895,61 @@ var (
 	uaCrOSVerRE    = regexp.MustCompile(`CrOS \S+ (\d+)`)
 	uaEdgeRE       = regexp.MustCompile(`Edg(?:e|A|iOS)?/(\d+)`)
 	uaOperaRE      = regexp.MustCompile(`OPR/(\d+)`)
-	uaSamsungRE    = regexp.MustCompile(`SamsungBrowser/(\d+)`)
-	uaCriOSRE      = regexp.MustCompile(`CriOS/(\d+)`)
-	uaFxiOSRE      = regexp.MustCompile(`FxiOS/(\d+)`)
-	uaSafariVerRE  = regexp.MustCompile(`Version/(\d+)(?:\.\d+)?.*Safari/`)
+	// Pre-Chromium Opera: "Opera/9.80 ... Version/12.16" (the real release is
+	// in Version/, Opera/ is frozen at 9.x) and the Presto engine token.
+	// 745 hits on live traffic, none of which resolved to a browser before --
+	// and a 2013-era Opera in 2026 is itself worth seeing.
+	uaOperaOldRE  = regexp.MustCompile(`Opera[/ ](\d+)`)
+	uaOperaVerRE  = regexp.MustCompile(`Opera.*Version/(\d+)`)
+	uaOperaMiniRE = regexp.MustCompile(`Opera Mini`)
+	uaSamsungRE   = regexp.MustCompile(`SamsungBrowser/(\d+)`)
+	uaCriOSRE     = regexp.MustCompile(`CriOS/(\d+)`)
+	uaFxiOSRE     = regexp.MustCompile(`FxiOS/(\d+)`)
+	uaSafariVerRE = regexp.MustCompile(`Version/(\d+)(?:\.\d+)?.*Safari/`)
+	// In-app browsers.  These are ordinary humans arriving through an app's
+	// embedded WebView, and several carry no Safari/Chrome token at all -- so
+	// they fell through every branch above and the row lost its summary
+	// entirely, showing the raw UA where every other human row showed
+	// "platform · browser".  Named apps rather than a generic "WebView"
+	// because which app sent the traffic is the useful part.
+	uaDalvikRE   = regexp.MustCompile(`Dalvik/(\d+)`)
+	uaOkHTTPRE   = regexp.MustCompile(`okhttp/(\d+)`)
+	uaLineRE     = regexp.MustCompile(`Line/(\d+)`)
+	uaYJAppRE    = regexp.MustCompile(`YJApp-(?:IOS|ANDROID)`)
+	uaGSARE      = regexp.MustCompile(`GSA/(\d+)`)
+	uaFacebookRE = regexp.MustCompile(`FBA[VN]`)
+	uaInstaRE    = regexp.MustCompile(`Instagram (\d+)`)
+	uaWeChatRE   = regexp.MustCompile(`MicroMessenger/(\d+)`)
+	uaKakaoRE    = regexp.MustCompile(`KAKAOTALK`)
+	uaSmartNewRE = regexp.MustCompile(`SmartNews/(\d+)`)
+	// Trident is IE's engine.  A "Trident/3.1" does not exist (real ones are
+	// 4.0-7.0), so this token shows up mainly on forged UAs -- naming it beats
+	// leaving the row unsummarised, and the version is worth showing because
+	// an impossible one is itself the signal.
+	uaTridentRE = regexp.MustCompile(`Trident/(\d+\.\d+)`)
+	uaMSIERE    = regexp.MustCompile(`MSIE (\d+)`)
+	// Both separators appear in the wild: "10_15_7" (Safari / Chrome) and
+	// "10.13" (Firefox).  Matching only "_" truncated the Firefox form to its
+	// major number -- "Mac OS X 10.13" was reported as "Mac 10".
+	uaMacVerRE = regexp.MustCompile(`Mac OS X (\d+(?:[._]\d+)*)`)
+	// A desktop-Linux UA carries no OS version at all -- "X11" is a bare
+	// token with no number behind it, and there is no kernel or distro
+	// release in the string.  The architecture is the one real fact it does
+	// carry, and it earns its place: 32-bit (i686) desktops effectively do
+	// not exist any more, so seeing one is itself a signal.
+	uaWin9xRE     = regexp.MustCompile(`Windows (95|98|ME|CE|XP|2000|Me)\b`)
+	uaLinuxArchRE = regexp.MustCompile(`Linux (x86_64|i[3-6]86|aarch64|armv\d+l|ppc64le|riscv64)`)
+	// uaSelfBotRE: a UA naming itself a bot.  crawler-user-agents.json is a
+	// curated list and cannot keep up with every crawler that shows up -- live
+	// traffic is led by Amzn-SearchBot and AzureAI-SearchBot, neither of which
+	// is on it -- but these clients all self-identify with a token ending in
+	// bot / crawler / spider / scanner / checker.  Taking them at their word
+	// costs nothing: the name is what the operator needs, and a client lying
+	// ABOUT being a bot is not a threat model.
+	// Anchored on the keyword and scanned outward by botTokenAt rather than
+	// matched with a lazy alternation: the regex form took 3ms per UA, which
+	// a 1000-row hunt page pays in full.
+	uaBotWords = []string{"bot", "crawler", "spider", "scanner", "checker", "inspect"}
 )
 
 // UASummary condenses a browser user agent into "<platform> · <browser> <major>"
@@ -813,19 +970,321 @@ var (
 // decisions turn on it (the stale-browser tier compares majors, the
 // header-integrity axis has a hard boundary at Chromium 89), so a row whose
 // version is invisible cannot be checked against the reason it was escalated.
+// uaSummaryCache memoises UASummary.  The function is pure, and the hunt log
+// renders up to 1000 rows in one page where the same UA repeats constantly (a
+// bot hammering with one string is the normal case).  Without this, the
+// crawler lookup below -- a walk over the joined per-tag regexes built from
+// crawler-user-agents.json -- ran per row and cost 1.7s for a full page.
+//
+// Bounded and cleared wholesale when it fills: the key is attacker-controlled,
+// so it must not grow without limit, and an LRU's bookkeeping would cost more
+// than the occasional rebuild it saves.
+var (
+	uaSummaryMu    sync.Mutex
+	uaSummaryMemo  = map[string]string{}
+	uaSummaryLimit = 4096
+)
+
 func UASummary(ua string) string {
 	if ua == "" {
 		return ""
 	}
+	uaSummaryMu.Lock()
+	if v, ok := uaSummaryMemo[ua]; ok {
+		uaSummaryMu.Unlock()
+		return v
+	}
+	uaSummaryMu.Unlock()
+	v := uaSummaryUncached(ua)
+	uaSummaryMu.Lock()
+	if len(uaSummaryMemo) >= uaSummaryLimit {
+		uaSummaryMemo = make(map[string]string, uaSummaryLimit)
+	}
+	uaSummaryMemo[ua] = v
+	uaSummaryMu.Unlock()
+	return v
+}
+
+func uaSummaryUncached(ua string) string {
+	// A known crawler's NAME is the whole story -- "Googlebot" says more than
+	// any platform/browser reading of the same string, and several crawlers
+	// (Googlebot, Bingbot) ship a full Chrome-shaped UA that would otherwise
+	// summarise as an ordinary desktop browser and hide what they are.  This
+	// is also what makes a spoof visible: an unverified request claiming
+	// Googlebot lands in the hunt log wearing the name it claimed.
+	// Self-identified bots first.  Both this and the curated list run before
+	// the browser read -- several bots ship a full Chrome-shaped UA
+	// ("...compatible; Amzn-SearchBot/0.1) Chrome/119...") that would
+	// otherwise summarise as an ordinary desktop browser and bury what it is.
+	//
+	// Order matters for cost, not correctness: a UA carrying a bot token
+	// passes LookupCrawler's literal gate and pays a full walk over the
+	// per-tag alternations (~3ms) before answering.  The scan here settles the
+	// same UA in ~2us, and for a bot that IS on the curated list the name it
+	// declares is the same name the list would return.
+	if b := SelfDeclaredBot(ua); b != "" {
+		return b
+	}
+	if c, _ := LookupCrawler(ua); c != "" && c != "other" {
+		return c
+	}
 	platform := uaPlatform(ua)
 	browser, ver := uaBrowser(ua)
-	if platform == "" || browser == "" {
+	if platform == "" {
+		// No platform, but the client still named itself ("okhttp/5.3.0"):
+		// show that rather than falling back to the raw string, which for
+		// these is the same text with more noise around it.
+		if browser != "" {
+			if ver != "" {
+				return browser + " " + ver
+			}
+			return browser
+		}
 		return ""
+	}
+	if browser == "" {
+		// The UA names a platform but carries no browser token: a truncated
+		// or hand-built string ("Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+		// AppleWebKit/537.36"), which is itself worth seeing.  Showing the
+		// platform alone beats falling back to the raw string -- the row stays
+		// the same shape as its neighbours, and the missing half is the
+		// signal.  The full string is one click away in the popover.
+		return platform
 	}
 	if ver != "" {
 		browser += " " + ver
 	}
 	return platform + " · " + browser
+}
+
+// SelfDeclaredBot returns the bot name a UA gives for itself, or "" when it
+// does not name one.  Used for clients that are not on the curated crawler
+// list; see uaSelfBotRE.
+func SelfDeclaredBot(ua string) string {
+	// Cheap gate before the regex.  The pattern is lazy and alternating, so
+	// running it on every UA cost ~4.5ms on a string that has no bot token at
+	// all -- and every ordinary browser UA is such a string.  A UA that names
+	// itself must contain one of these words, so a plain substring scan
+	// decides it first.
+	low := strings.ToLower(ua)
+	if !strings.Contains(low, "bot") && !strings.Contains(low, "crawler") &&
+		!strings.Contains(low, "spider") && !strings.Contains(low, "scanner") &&
+		!strings.Contains(low, "checker") && !strings.Contains(low, "inspect") {
+		return ""
+	}
+	// Find the earliest keyword, then walk backwards over the name characters
+	// that precede it -- "compatible; Amzn-SearchBot/0.1)" yields
+	// "Amzn-SearchBot".  A plain scan, so the cost is the length of the UA.
+	best := -1
+	bestEnd := 0
+	for _, w := range uaBotWords {
+		if i := strings.Index(low, w); i >= 0 && (best < 0 || i < best) {
+			best, bestEnd = i, i+len(w)
+		}
+	}
+	if best < 0 {
+		return ""
+	}
+	start := best
+	for start > 0 {
+		c := ua[start-1]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '.' || c == '_' || c == '-' {
+			start--
+			continue
+		}
+		break
+	}
+	// Trailing name characters after the keyword ("Googlebot2" style).
+	end := bestEnd
+	for end < len(ua) {
+		c := ua[end]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+			c == '_' || c == '-' {
+			end++
+			continue
+		}
+		break
+	}
+	name := strings.Trim(ua[start:end], "-._")
+	if len(name) < 3 {
+		return ""
+	}
+	return name
+}
+
+// UAPlatformIcon returns an emoji for the platform a UA summary starts with,
+// or "" when there is nothing recognisable to draw.
+//
+// It reads the SUMMARY rather than the raw UA so the icon can never disagree
+// with the text beside it -- one classification, two renderings.  The icon is
+// added to the label, never substituted for it: an emoji alone would not be
+// searchable, copyable or readable to a screen reader, and several of these
+// platforms have no glyph anyone recognises.
+func UAPlatformIcon(summary string) string {
+	switch {
+	case summary == "":
+		return ""
+	case strings.HasPrefix(summary, "iPhone"), strings.HasPrefix(summary, "iPad"),
+		strings.HasPrefix(summary, "Mac"):
+		return "\U0001F34E" // apple
+	case strings.HasPrefix(summary, "Windows"):
+		return "\U0001FA9F" // window
+	case strings.HasPrefix(summary, "Android"):
+		return "\U0001F916" // robot
+	case strings.HasPrefix(summary, "ChromeOS"):
+		return "\U0001F310" // globe
+	case strings.HasPrefix(summary, "Ubuntu"), strings.HasPrefix(summary, "Linux"):
+		return "\U0001F427" // penguin
+	}
+	return ""
+}
+
+// UABrowserColor returns a brand colour for the browser named at the end of a
+// UA summary, or "" when there is none to show.
+//
+// Deliberately a colour and not an emoji, unlike the platform.  🍎 / 🪟 / 🐧 /
+// 🤖 are symbols people already read as Apple / Windows / Linux / Android; no
+// such glyph exists for Chrome, Edge or IE, so assigning one would invent a
+// legend the operator has to learn -- and any compass-for-Safari style guess
+// collides with the next browser that has an equal claim to it.  A brand
+// colour needs no lookup to be useful: it makes rows scannable in bulk while
+// the name beside it stays the authority.
+// UASummaryParts splits a summary into its platform half and browser half so
+// the UI can put a marker in front of EACH.  Returns ("", summary) when there
+// is no browser half (a crawler name, an app with no platform).
+func UASummaryParts(summary string) (platform, browser string) {
+	i := strings.LastIndex(summary, " · ")
+	if i < 0 {
+		return "", summary
+	}
+	return summary[:i], summary[i+len(" · "):]
+}
+
+// uaBrowserName strips a trailing version from a browser half.  Only when the
+// tail is actually a number: several app names carry spaces of their own
+// ("Yahoo! JAPAN アプリ"), and cutting at the last space would eat the name.
+func uaBrowserName(browser string) string {
+	// A version tail is digits, optionally dotted ("3.1" is Trident's).  An
+	// app name can carry spaces of its own ("Yahoo! JAPAN アプリ"), so only a
+	// numeric tail is treated as a version.
+	if j := strings.LastIndexByte(browser, ' '); j > 0 && isVersionTail(browser[j+1:]) {
+		return browser[:j]
+	}
+	return browser
+}
+
+func isVersionTail(s string) bool {
+	if s == "" {
+		return false
+	}
+	digit := false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] >= '0' && s[i] <= '9':
+			digit = true
+		case s[i] == '.':
+		default:
+			return false
+		}
+	}
+	return digit
+}
+
+// UABrowserIcon returns the id of the sprite symbol drawn for a browser, or ""
+// when there is no drawn icon for it.  Only the browsers that actually carry
+// the traffic get one -- Chrome, Edge, Firefox and Safari are nearly all of
+// it -- because a drawn mark is only worth its space while it is recognised
+// on sight; everything else keeps the brand-coloured dot.
+func UABrowserIcon(summary string) string {
+	_, b := UASummaryParts(summary)
+	switch uaBrowserName(b) {
+	case "Chrome":
+		return "chrome"
+	case "Edge":
+		return "edge"
+	case "Firefox":
+		return "firefox"
+	case "Safari":
+		return "safari"
+	case "IE", "Trident":
+		// Drawn like the others rather than left to the grey dot: a browser
+		// that stopped shipping in 2022 is mostly a forged UA, so the row
+		// deserves to be as identifiable at a glance as a real one.
+		return "ie"
+	case "Opera", "Opera Mini":
+		return "opera"
+	case "Google アプリ":
+		return "gsa"
+	case "Yahoo! JAPAN アプリ":
+		return "yjapp"
+	case "LINE":
+		return "line"
+	case "アプリ内ブラウザ", "アプリ (Dalvik)":
+		// The platform half decides which glyph: an app WebView is a
+		// different thing to look at on an iPhone than on a Mac, and Android
+		// app traffic (Dalvik) is not a WebView at all.  Live traffic carries
+		// all three (iOS 257, macOS 90, Android 159).
+		p, _ := UASummaryParts(summary)
+		switch {
+		case strings.HasPrefix(p, "iPhone"), strings.HasPrefix(p, "iPad"),
+			strings.HasPrefix(p, "Mac"):
+			return "wv-apple"
+		case strings.HasPrefix(p, "Android"):
+			return "wv-android"
+		}
+		return "wv"
+	}
+	return ""
+}
+
+func UABrowserColor(summary string) string {
+	_, b := UASummaryParts(summary)
+	if b == summary {
+		return "" // no browser half at all
+	}
+	b = uaBrowserName(b)
+	switch b {
+	case "Chrome":
+		return "#4285f4"
+	case "Firefox":
+		return "#ff7139"
+	case "Safari":
+		return "#1b9df0"
+	case "Edge":
+		return "#0f7c9e"
+	case "Opera":
+		return "#e4353d"
+	case "Samsung":
+		return "#1428a0"
+	case "IE", "Trident":
+		// No brand nostalgia: a browser that has not shipped since 2022 is
+		// mostly a forged UA, and grey is the right amount of attention.
+		return "#94a3b8"
+	case "アプリ (Dalvik)":
+		return "#3ddc84"
+	case "アプリ内ブラウザ":
+		return "#94a3b8"
+	case "okhttp":
+		return "#5d8f3f"
+	case "LINE":
+		return "#06c755"
+	case "Yahoo! JAPAN アプリ":
+		return "#ff0033"
+	case "Google アプリ":
+		return "#4285f4"
+	case "SmartNews":
+		return "#ea4b3b"
+	case "Instagram":
+		return "#c13584"
+	case "Facebook":
+		return "#1877f2"
+	case "WeChat":
+		return "#07c160"
+	case "KakaoTalk":
+		return "#fee500"
+	}
+	return ""
 }
 
 // uaPlatform: device first, then desktop OS.  Order matters -- an Android
@@ -846,7 +1305,12 @@ func uaPlatform(ua string) string {
 		// An in-app WebView ("; wv") is exempt: those routinely omit Mobile
 		// on phones, so the tablet label would be wrong for a large slice of
 		// ordinary app traffic.
-		if !strings.Contains(ua, "Mobile") && !strings.Contains(ua, "; wv") {
+		// Dalvik is exempt for the same reason as an in-app WebView: the
+		// runtime UA never carries "Mobile", so every app request from a
+		// phone was being labelled a tablet (live traffic shows Pixel 8a /
+		// 9a arriving as "Android 17 Tab").
+		if !strings.Contains(ua, "Mobile") && !strings.Contains(ua, "; wv") &&
+			!strings.Contains(ua, "Dalvik/") {
 			label += " Tab"
 		}
 		return label
@@ -856,17 +1320,55 @@ func uaPlatform(ua string) string {
 		}
 		return "ChromeOS"
 	case strings.Contains(ua, "Mac OS X"), strings.Contains(ua, "Macintosh"):
-		// No version on purpose.  Safari and Chrome both freeze this field at
-		// "10_15_7" on every macOS from Catalina onward, so the number in the
-		// UA says "10.15 or anything newer" -- printing it would name a
-		// release the visitor is almost certainly not running.
+		// Safari and Chrome freeze this field at "10_15_7" on every macOS from
+		// Catalina onward -- live traffic pairs it with Safari 26, i.e. macOS
+		// 26 -- so that ONE value means "10.15 or anything newer".
+		//
+		// Shown with a "+" rather than dropped.  This column reports what the
+		// client said; deciding a value is too unreliable to display is not
+		// its job, and the Windows branch already settled the identical
+		// question the other way ("Windows NT 10.0" is equally 10-or-11 and
+		// renders as "Windows 10+").  The marker is what keeps it honest: the
+		// number is the client's, the "+" is ours.
+		if m := uaMacVerRE.FindStringSubmatch(ua); m != nil {
+			v := strings.ReplaceAll(m[1], "_", ".")
+			raw := strings.ReplaceAll(m[1], ".", "_")
+			if i := strings.LastIndexByte(v, '.'); i > 0 && strings.Count(v, ".") > 1 {
+				v = v[:i] // 12.0.0 -> 12.0
+			}
+			if raw == "10_15_7" {
+				return "Mac 10.15+"
+			}
+			return "Mac " + v
+		}
 		return "Mac"
 	case strings.Contains(ua, "Windows"):
-		return "Windows" + uaWindowsVer(ua)
+		if v := uaWindowsVer(ua); v != "" {
+			return "Windows" + v
+		}
+		// Pre-NT names carry the release in the token itself ("Windows 98",
+		// "Windows CE").  They are ancient enough that a real one is unlikely,
+		// which is exactly why they should be rendered rather than dropped --
+		// live traffic carries 174 "Windows 98" hits.
+		if m := uaWin9xRE.FindStringSubmatch(ua); m != nil {
+			return "Windows " + m[1]
+		}
+		return "Windows"
 	case strings.Contains(ua, "Ubuntu"):
-		return "Ubuntu"
+		return "Ubuntu" + uaLinuxArch(ua)
 	case strings.Contains(ua, "Linux"), strings.Contains(ua, "X11"):
-		return "Linux"
+		return "Linux" + uaLinuxArch(ua)
+	}
+	return ""
+}
+
+// uaLinuxArch renders the architecture a Linux UA carries as " x86_64" etc.,
+// or "" when it names none.  This is the only hardware/OS fact a desktop-Linux
+// UA actually holds -- there is no kernel or distro version in the string, and
+// "X11" carries no number of its own.
+func uaLinuxArch(ua string) string {
+	if m := uaLinuxArchRE.FindStringSubmatch(ua); m != nil {
+		return " " + m[1]
 	}
 	return ""
 }
@@ -887,8 +1389,49 @@ func uaBrowser(ua string) (name, ver string) {
 	if v := first(uaOperaRE); v != "" {
 		return "Opera", v
 	}
+	if uaOperaMiniRE.MatchString(ua) {
+		return "Opera Mini", ""
+	}
+	// Presto-era Opera.  Version/ carries the real release when present
+	// ("Opera/9.80 ... Version/12.16" is Opera 12); otherwise the Opera/
+	// number is all there is.
+	if v := first(uaOperaVerRE); v != "" {
+		return "Opera", v
+	}
+	if v := first(uaOperaOldRE); v != "" {
+		return "Opera", v
+	}
 	if v := first(uaSamsungRE); v != "" {
 		return "Samsung", v
+	}
+	// Named in-app browsers, ahead of Chrome and Safari.  An Android WebView
+	// carries the host app's token *and* a Chrome one, so checking Chrome first
+	// labelled the same app differently per platform -- LINE on iOS read "LINE"
+	// while LINE on Android read "Chrome" (jp: 1915 vs 650 requests).  The app
+	// is the identifying half; the engine version stays visible in the popover.
+	if v := first(uaLineRE); v != "" {
+		return "LINE", v
+	}
+	if v := first(uaGSARE); v != "" {
+		return "Google アプリ", v
+	}
+	if uaYJAppRE.MatchString(ua) {
+		return "Yahoo! JAPAN アプリ", ""
+	}
+	if v := first(uaSmartNewRE); v != "" {
+		return "SmartNews", v
+	}
+	if v := first(uaInstaRE); v != "" {
+		return "Instagram", v
+	}
+	if uaFacebookRE.MatchString(ua) {
+		return "Facebook", ""
+	}
+	if v := first(uaWeChatRE); v != "" {
+		return "WeChat", v
+	}
+	if uaKakaoRE.MatchString(ua) {
+		return "KakaoTalk", ""
 	}
 	if v := first(uaCriOSRE); v != "" {
 		return "Chrome", v
@@ -902,10 +1445,43 @@ func uaBrowser(ua string) (name, ver string) {
 	if v := ChromeMajor(ua); v > 0 {
 		return "Chrome", strconv.Itoa(v)
 	}
-	// Safari last: it is the token every WebKit UA carries, so reaching here
-	// means none of the more specific ones matched.
+	// Safari last among real browsers: it is the token every WebKit UA
+	// carries, so reaching here means none of the more specific ones matched.
 	if v := first(uaSafariVerRE); v != "" {
 		return "Safari", v
+	}
+	// Not browsers at all: runtimes that make plain HTTP requests.  These carry
+	// no Chrome or Safari token, so their position here is not load-bearing.
+	if uaDalvikRE.MatchString(ua) {
+		// Android's own runtime UA: an app making a plain HTTP request
+		// (HttpURLConnection with no UA set), not a browser.  "アプリ" is the
+		// honest word -- no page is being rendered.  The Dalvik version is
+		// dropped: it is the runtime's, has been 2.1.0 for a decade, and
+		// would read as an app version it is not.
+		return "アプリ (Dalvik)", ""
+	}
+	if v := first(uaOkHTTPRE); v != "" {
+		return "okhttp", v
+	}
+	// A bare WebView: AppleWebKit with no Safari/ and no Version/ after it,
+	// which is what WKWebView sends when the host app sets no UA of its own.
+	// Safari always appends "Version/x Safari/y", so the absence of both is
+	// the tell rather than a guess.
+	//
+	// Reached only after every named browser and app above, so Chrome,
+	// Firefox and LINE keep their own answers -- a Mac Firefox UA also lacks
+	// "Safari/" and would be caught here otherwise.  Covers iOS (the
+	// "Mobile/" shape, 1779 hits) and macOS (90 hits) alike.
+	if strings.Contains(ua, "AppleWebKit") && !strings.Contains(ua, "Safari/") &&
+		!strings.Contains(ua, "Version/") {
+		return "アプリ内ブラウザ", ""
+	}
+	// Internet Explorer / anything claiming its engine.
+	if v := first(uaMSIERE); v != "" {
+		return "IE", v
+	}
+	if v := first(uaTridentRE); v != "" {
+		return "Trident", v
 	}
 	return "", ""
 }
@@ -940,8 +1516,18 @@ func uaWindowsVer(ua string) string {
 		return " 7"
 	case "6.0":
 		return " Vista"
-	case "5.1", "5.2":
+	case "5.2":
+		return " XP x64"
+	case "5.1", "5.01":
 		return " XP"
+	case "5.0":
+		return " 2000"
+	case "4.0":
+		return " NT 4.0"
 	}
-	return ""
+	// An NT number with no release name -- "Windows NT 11.0" appears in live
+	// traffic and no such version exists.  Report it as given: this column
+	// says what the client said, and a value that cannot be real is worth
+	// seeing, not hiding.
+	return " NT " + m[1]
 }

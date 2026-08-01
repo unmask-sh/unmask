@@ -20,8 +20,11 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 const (
@@ -62,6 +65,21 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
 	}
+	// Per-IP request cap.  For this endpoint the REQUEST is the cost -- every
+	// accepted one sends mail and mints a reset token -- so unlike the login
+	// lockout there is no failure to count: the cap is on requests, before the
+	// user lookup even runs.
+	ip := adminClientIP(r, *h.cfg())
+	now := time.Now()
+	t := h.throttle()
+	if d := t.lockedFor(forgotKey(ip), now); d > 0 {
+		tooManyLoginAttempts(w, d)
+		return
+	}
+	if d := t.note(forgotKey(ip), now, t.forgotLimit, t.forgotWindow, t.forgotWindow); d > 0 {
+		tooManyLoginAttempts(w, d)
+		return
+	}
 	identifier := strings.TrimSpace(r.FormValue("identifier"))
 	if identifier == "" {
 		http.Redirect(w, r, base+"/admin/forgot-password?sent=1", http.StatusFound)
@@ -100,7 +118,7 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 
 	// 3) Send mail.  The URL prefix uses the client-visible Host (= built
 	//    from the target site and the admin base_path).
-	resetURL := buildResetURL(r, base, tok, h.snapshotSettings().Nginx.AdminAllowedHosts)
+	resetURL := buildResetURL(r, base, tok, settings.EnabledValues(h.snapshotSettings().Nginx.AdminAllowedHosts, h.snapshotSettings().Nginx.AdminAllowedHostsDisabled))
 	subject := "[unmask] password reset link"
 	body := "A password reset was requested for unmask.\n\n" +
 		"Use the following link to set a new password (valid for 1 hour):\n" +

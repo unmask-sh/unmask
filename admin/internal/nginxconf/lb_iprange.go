@@ -161,7 +161,7 @@ func effectiveLBs(enabledIDs []string, extras []settings.TrustedLBExtra) []LBIPR
 		out = append(out, p)
 	}
 	for _, e := range extras {
-		if e.ID == "" || len(e.CIDRs) == 0 {
+		if e.ID == "" || len(e.CIDRs) == 0 || e.Disabled {
 			continue
 		}
 		hdr := e.Header

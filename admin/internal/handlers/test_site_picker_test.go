@@ -45,15 +45,23 @@ func TestTestSiteOverrideGate(t *testing.T) {
 		t.Fatal("override granted to an unauthorized visitor")
 	}
 
-	// Public pages ON alone is not enough -- the picker flag is a separate opt-in.
+	// Publishing the pages is enough on its own: the picker defaults ON, and
+	// its checkbox is on screen at that moment (the operator can untick it).
 	s := pickerSettings(h)
 	s.Challenge.Default.PublicTestPages = settings.BoolPtr(true)
 	h.SetSettings(s)
-	if _, ok := h.testSiteOverride(r); ok {
-		t.Fatal("override granted with public_test_pages only (picker flag off)")
+	if _, ok := h.testSiteOverride(r); !ok {
+		t.Fatal("publishing the pages should bring the site picker with it")
 	}
 
-	// Public pages ON + picker opt-in: granted.
+	// Unticking the picker takes the override away again -- the gate is still
+	// two flags, the second one just starts on.
+	s.Challenge.Default.PublicTestPagesSitePicker = settings.BoolPtr(false)
+	h.SetSettings(s)
+	if _, ok := h.testSiteOverride(r); ok {
+		t.Fatal("an explicit picker=off still granted the override")
+	}
+
 	s.Challenge.Default.PublicTestPagesSitePicker = settings.BoolPtr(true)
 	h.SetSettings(s)
 	if got, ok := h.testSiteOverride(r); !ok || got != "shop.example.jp" {

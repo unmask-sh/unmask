@@ -219,7 +219,17 @@ window.popoverPin = window.popoverPin || (function(){
     if (title){
       var t = document.createElement('span');
       t.className = 'popover-title';
-      t.textContent = title;
+      // A Node title is adopted as-is.  Callers whose title carries rendered
+      // markup (the hunt log's UA summary, which includes its platform glyph
+      // and an <svg> browser mark) pass a clone of the element they already
+      // rendered, so nothing is parsed from a string -- textContent would
+      // silently drop the icons, and innerHTML would turn this into a sink
+      // fed by a UA-derived value.
+      if (typeof title === 'object' && title.nodeType) {
+        t.appendChild(title);
+      } else {
+        t.textContent = title;
+      }
       tools.appendChild(t);
     }
     // copy-to-clipboard
@@ -424,9 +434,14 @@ window.popoverPin = window.popoverPin || (function(){
         clone.remove();
         pins.delete(trigger);
       };
-      var titleArg = (typeof customTitle === 'string' && customTitle)
-                       ? capTitle(customTitle)
-                       : titleFromTrigger(trigger);
+      var titleArg;
+      if (customTitle && typeof customTitle === 'object' && customTitle.nodeType) {
+        titleArg = customTitle; // pre-rendered node: used verbatim
+      } else if (typeof customTitle === 'string' && customTitle) {
+        titleArg = capTitle(customTitle);
+      } else {
+        titleArg = titleFromTrigger(trigger);
+      }
       var tools = buildTools(clone, clone._popoverUnpin, titleArg);
       clone.appendChild(tools);
       document.body.appendChild(clone);

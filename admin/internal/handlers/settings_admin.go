@@ -533,7 +533,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// stay visible in the scope picker even when no traffic has hit them
 	// yet -- otherwise a brand new vhost the operator just declared would
 	// not show up as a candidate until the first request lands.
-	for _, host := range h.cfg().Sites.Defined {
+	for _, host := range h.cfg().Sites.ActiveDefined() {
 		if host != "" {
 			scopeHostSet[host] = true
 		}
@@ -655,9 +655,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.
 		"RateDefaultChMode": h.snapshotSettings().RateLimit.Default.ResolvedChallengeMode(),
-		"GeoExemptRows":     bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
-		"AsnExemptRows":     bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
-		"IPGeoASNLoaded":    h.IPGeo != nil && h.IPGeo.ASNLoaded(),
+		// Literal prefixes of the protected paths that are actually enforced,
+		// for the rate-limit tab's live warning: a zone whose effective mode
+		// is deny and whose paths overlap one of these needs nginx 1.17.6+
+		// (the dry_run composition).  Same composition as the render, reduced
+		// to comparable heads.
+		"RLProtectedPrefixes": protectedLiteralPrefixes(h.snapshotSettings()),
+		"GeoExemptRows":       bypassPathRows(cur.Geo.ExemptPaths), // country-axis exempt paths (RSS etc.)
+		"AsnExemptRows":       bypassPathRows(cur.Asn.ExemptPaths), // ASN-axis exempt paths (RSS etc.)
+		"IPGeoASNLoaded":      h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -738,7 +744,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// AdminIPsAllowAll: the IP allowlist contains a /0 entry, making it a
 		// no-op (= same as empty).  The network tab shows a warning state line
 		// so "restricted-looking but actually wide open" is visible at a glance.
-		"AdminIPsAllowAll":      adminIPsAllowAll(cur.AdminAllowedIPs),
+		"AdminIPsAllowAll": adminIPsAllowAll(settings.EnabledValues(cur.AdminAllowedIPs, cur.AdminAllowedIPsDisabled)),
+		// Active row counts for the three list state lines -- rows switched
+		// off must not count toward "restricted to N entries" (all-off = the
+		// list is effectively open, and the state line has to say so).
+		"AdminIPsActive":        len(settings.EnabledValues(cur.AdminAllowedIPs, cur.AdminAllowedIPsDisabled)),
+		"AdminHostsActive":      len(settings.EnabledValues(cur.AdminAllowedHosts, cur.AdminAllowedHostsDisabled)),
 		"ProtectedPresetGroups": protectedPresetGroups,
 		"AdminCaptchaGate":      adminCaptchaGate,
 		"ProtectedPaths":        cur.ProtectedPaths,
@@ -1033,7 +1044,7 @@ func (h *Handler) observedSitesFilteredForPicker(r *http.Request, sc settings.Si
 		return observed
 	}
 	defined := map[string]bool{}
-	for _, s := range sc.Defined {
+	for _, s := range sc.ActiveDefined() {
 		s = strings.TrimSpace(s)
 		if s != "" {
 			defined[s] = true
@@ -1912,29 +1923,35 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// A NON-empty list that excludes the operator's own IP / Host is rejected
 	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
 	// resolved the same way the /admin/* gate resolves them).
-	allow, allowNotes := formListWithNotes(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"])
+	allow, allowNotes, allowDis := formListWithNotesEnabled(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"], r.Form["admin_allowed_ips_enabled"])
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
 		}
 	}
-	if len(allow) > 0 && !ipAllowed(curIP, allow) {
+	// The gate only enforces enabled rows, so the lockout check must judge the
+	// same subset: disabling the one row that admits the operator is exactly
+	// as much a lockout as deleting it -- unless the list goes effectively
+	// empty, which (like an empty list) means "no restriction".
+	if act := settings.EnabledValues(allow, allowDis); len(act) > 0 && !ipAllowed(curIP, act) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_ip", curIP))
 	}
 	n.AdminAllowedIPs = allow
 	n.AdminAllowedIPsTitle = allowNotes
+	n.AdminAllowedIPsDisabled = allowDis
 
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
 	// many vhosts).  Matched in-app, never written to nginx config, so no
 	// injection guard is needed beyond the self-lockout check.
-	hosts, hostNotes := formListWithNotes(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"])
-	if len(hosts) > 0 && !hostAllowed(curHost, hosts) {
+	hosts, hostNotes, hostDis := formListWithNotesEnabled(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"], r.Form["admin_allowed_hosts_enabled"])
+	if act := settings.EnabledValues(hosts, hostDis); len(act) > 0 && !hostAllowed(curHost, act) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
 	}
 	n.AdminAllowedHosts = hosts
 	n.AdminAllowedHostsTitle = hostNotes
+	n.AdminAllowedHostsDisabled = hostDis
 
-	mallow, mallowNotes := formListWithNotes(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"])
+	mallow, mallowNotes, mallowDis := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.metrics_allow_invalid", a))
@@ -1942,25 +1959,25 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	}
 	n.MetricsAllowFrom = mallow
 	n.MetricsAllowFromTitle = mallowNotes
+	n.MetricsAllowFromDisabled = mallowDis
 	return nil
 }
 
-// formListWithNotes sanitizes the per-row values of a structured list field
-// (= the value-rule-list UI that replaced the newline textareas) together with
-// each row's note: trim, drop empty, dedup, and reject control chars / quotes
-// (an nginx-config-injection guard).  Order is preserved.
-//
-// Value and note arrive as parallel form fields, so the pair has to be walked
-// together: dropping blank / duplicate values from one list while filtering
-// the other independently would slide every note onto the wrong row -- and a
-// note on the wrong address is worse than no note, since the whole point is to
-// say which line is safe to delete.
-//
-// Notes are stripped of the characters that would break the YAML the config is
-// written as, matching what the bypass-IP rows do with theirs.
-func formListWithNotes(vals, notes []string) (outVals, outNotes []string) {
+// formListWithNotesEnabled sanitizes the per-row values of a structured list
+// field (= the value-rule-list UI) together with each row's note and enabled
+// flag ("<name>_enabled" hidden inputs, "0" = off): trim, drop empty, dedup,
+// reject control chars / quotes (an nginx-config-injection guard), order
+// preserved.  The three slices ride the same index, so a dropped value must
+// drop its note and flag too -- filtering them independently would slide
+// every toggle onto the wrong row, and a toggle (or note) on the wrong
+// address is worse than none.  Notes are stripped of the characters that
+// would break the YAML the config is written as.  disabled comes back nil
+// when every surviving row is enabled, keeping untouched configs in their
+// old yml shape.
+func formListWithNotesEnabled(vals, notes, enabled []string) (outVals, outNotes []string, outDisabled []bool) {
 	noteClean := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/")
 	seen := map[string]bool{}
+	anyOff := false
 	for i, v := range vals {
 		v = strings.TrimSpace(v)
 		if v == "" || seen[v] {
@@ -1974,10 +1991,16 @@ func formListWithNotes(vals, notes []string) (outVals, outNotes []string) {
 		if i < len(notes) {
 			note = noteClean.Replace(strings.TrimSpace(notes[i]))
 		}
+		off := i < len(enabled) && enabled[i] == "0"
 		outVals = append(outVals, v)
 		outNotes = append(outNotes, note)
+		outDisabled = append(outDisabled, off)
+		anyOff = anyOff || off
 	}
-	return outVals, outNotes
+	if !anyOff {
+		outDisabled = nil
+	}
+	return outVals, outNotes, outDisabled
 }
 
 // Common mmdb locations. Searched in priority order by the UI.
@@ -2111,9 +2134,11 @@ type LBPresetView struct {
 // LBExtraView: display struct for custom (= user-added) LBs. CIDRs are joined
 // as CSV and shown in a single input.
 type LBExtraView struct {
-	ID     string
-	CIDRs  string
-	Header string
+	ID       string
+	Label    string
+	CIDRs    string
+	Header   string
+	Disabled bool
 }
 
 // buildLBPresetView: merge built-in presets (= nginxconf.LBIPRanges) with
@@ -2146,9 +2171,11 @@ func buildLBExtraView(n settings.Nginx) []LBExtraView {
 	out := make([]LBExtraView, 0, len(n.TrustedLBExtra))
 	for _, e := range n.TrustedLBExtra {
 		out = append(out, LBExtraView{
-			ID:     e.ID,
-			CIDRs:  strings.Join(e.CIDRs, ", "),
-			Header: nginxconf.HeaderFromNginxVar(e.Header),
+			ID:       e.ID,
+			Label:    e.Label,
+			CIDRs:    strings.Join(e.CIDRs, ", "),
+			Header:   nginxconf.HeaderFromNginxVar(e.Header),
+			Disabled: e.Disabled,
 		})
 	}
 	return out
@@ -2177,6 +2204,8 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 	ids := r.Form["lb_extra_id"]
 	cidrs := r.Form["lb_extra_cidrs"]
 	hdrs := r.Form["lb_extra_header"]
+	labels := r.Form["lb_extra_label"]
+	ens := r.Form["lb_extra_enabled"]
 	maxLen := len(ids)
 	for _, l := range []int{len(cidrs), len(hdrs)} {
 		if l > maxLen {
@@ -2185,7 +2214,8 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 	}
 	extras := make([]settings.TrustedLBExtra, 0, maxLen)
 	for i := 0; i < maxLen; i++ {
-		var id, c, h string
+		var id, c, h, label string
+		off := false
 		if i < len(ids) {
 			id = strings.TrimSpace(ids[i])
 		}
@@ -2194,6 +2224,12 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 		}
 		if i < len(hdrs) {
 			h = strings.TrimSpace(hdrs[i])
+		}
+		if i < len(labels) {
+			label = strings.TrimSpace(labels[i])
+		}
+		if i < len(ens) {
+			off = ens[i] == "0"
 		}
 		if id == "" || c == "" {
 			continue
@@ -2223,9 +2259,11 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 			continue
 		}
 		extras = append(extras, settings.TrustedLBExtra{
-			ID:     id,
-			CIDRs:  cidrList,
-			Header: nginxconf.NginxVarFromHeader(h),
+			ID:       id,
+			Label:    label,
+			CIDRs:    cidrList,
+			Header:   nginxconf.NginxVarFromHeader(h),
+			Disabled: off,
 		})
 	}
 	n.TrustedLBExtra = extras
@@ -3598,6 +3636,23 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 // applyRateLimitForm: receive the rate-limit tab form. Only the default zone
 // is editable here (= named zones are edited directly in yaml; UI for them
 // is planned for v0.2).
+// protectedLiteralPrefixes: the enforced protected-path set reduced to
+// comparable literal path heads (deduped, empty heads dropped).  Feeds the
+// rate-limit tab's deny-overlap warning.
+func protectedLiteralPrefixes(s settings.Settings) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, r := range nginxconf.EffectiveProtectedPathRules(s) {
+		p := nginxconf.ProtectedPatternLiteralPrefix(r.Pattern)
+		if p == "" || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
 func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 	if v := strings.TrimSpace(r.FormValue("rate_limit_key")); v != "" {
 		if !settings.IsValidRateLimitKey(v) {
@@ -3633,7 +3688,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 	}
 	if v := strings.TrimSpace(r.FormValue("default_challenge_mode")); v != "" {
 		if !settings.IsValidRateChallengeMode(v) {
-			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha (got %q)", v)
+			return fmt.Errorf("challenge_mode must be one of captcha_only / pow_only / pow_then_captcha / deny (got %q)", v)
 		}
 		c.Default.ChallengeMode = v
 	}
@@ -3708,6 +3763,10 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		// that was written through the picker / datalist, and the site list
 		// supplied to .Sites already comes from the canonical observed pool.
 		site := strings.TrimSpace(r.FormValue(prefix + "site"))
+		// The checkbox submits when ON, so its absence is what marks a
+		// disabled row -- carried by an explicit "_on" field rather than
+		// inverting the visible control, so the stored flag and the UI agree
+		// on which way is which.
 		zones = append(zones, settings.RateZone{
 			Name:           name,
 			RequestsPerMin: rpm,
@@ -3716,6 +3775,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			PathPatterns:   paths,
 			ChallengeMode:  chmode,
 			Site:           site,
+			Disabled:       strings.TrimSpace(r.FormValue(prefix+"on")) == "",
 		})
 	}
 	c.Zones = zones
@@ -4472,6 +4532,10 @@ type retentionStatsView struct {
 	MemCPUs       int    // CPUs the automatic pool sizing derives from
 	MemMaxConns   int    // stored pool override (0 = CPU-derived), for the form
 	MemProfileID  string // the active profile id
+	// MemAutoCacheStr is the cache budget the blank ("auto") custom field
+	// resolves to on THIS host, so the placeholder can name the number the
+	// operator is choosing to keep.
+	MemAutoCacheStr string
 	// MemStandardTotalStr is what the standard profile would use here.  Shown
 	// beside the custom fields so a hand-picked number has a reference point.
 	MemStandardTotalStr string
@@ -4621,6 +4685,10 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		{
 			std := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: settings.PerfProfileStandard})
 			v.MemStandardTotalStr = humanBytes(std.TotalCache + std.TotalMmap)
+			// What "leave it blank" actually means here, in the same unit the
+			// field takes (the pool-wide cache budget).
+			auto := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: settings.PerfProfileCustom})
+			v.MemAutoCacheStr = humanBytes(auto.TotalCache)
 		}
 		// Estimate each profile against THIS host so the picker shows real
 		// numbers rather than abstract percentages.
@@ -4630,7 +4698,9 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			{settings.PerfProfileGenerous, "settings.perf.profile_generous", "settings.perf.profile_generous_note"},
 			{settings.PerfProfileCustom, "settings.perf.profile_custom", "settings.perf.profile_custom_note"},
 		} {
-			total, split, ratio := "—", "", ""
+			// Every branch below assigns total, including custom-with-blank
+			// (= auto), so there is no "unknown" case left to seed.
+			var total, split, ratio string
 			capped, auto := false, p.id != settings.PerfProfileCustom
 			if auto {
 				pp := db.SQLiteMemPlanFor(settings.DB{Driver: dbc.Driver, SQLitePath: dbc.SQLitePath, PerfProfile: p.id})
@@ -4642,6 +4712,18 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 				pinned := int64(dbc.SQLiteCacheMB) << 20
 				total = humanBytes(pinned * 2)
 				split = fmt.Sprintf("%s x %d", humanBytes(pinned/int64(max(v.MemConns, 1))), v.MemConns)
+			} else {
+				// Custom with the cache field left blank means "auto" (the
+				// placeholder says so), and sqlitePerConnBytesFor resolves it
+				// exactly like the automatic profiles do.  So the figure is
+				// knowable -- showing "—" here claimed the opposite, on the
+				// very state a fresh custom selection starts in.
+				pp := db.SQLiteMemPlanFor(settings.DB{
+					Driver: dbc.Driver, SQLitePath: dbc.SQLitePath,
+					PerfProfile: settings.PerfProfileCustom,
+				})
+				total = humanBytes(pp.TotalCache + pp.TotalMmap)
+				split = fmt.Sprintf("%s x %d", humanBytes(pp.PerConn), pp.Conns)
 			}
 			v.MemProfiles = append(v.MemProfiles, memProfileView{
 				ID: p.id, LabelKey: p.label, NoteKey: p.note,
@@ -4935,7 +5017,22 @@ func applyBrandingFormV2(cur *settings.Branding, r *http.Request) error {
 // Mirrors applyBrandingFormV2: the Default record is edited via the same
 // form fields, per-site entries via dedicated card endpoints.
 func applyChallengeFormV2(cur *settings.ChallengeConfig, r *http.Request) error {
-	return applyChallengeForm(&cur.Default, r)
+	if err := applyChallengeForm(&cur.Default, r); err != nil {
+		return err
+	}
+	// Collapse Default back to "unset" where the submitted value is what unset
+	// already means.  Sparsify does this for a SITE record (against Default);
+	// Default has no parent, so it is compared against the shipped resolution
+	// instead.  Without this, opening the tab and saving without touching
+	// anything writes public_test_pages_site_picker: true into config.yml --
+	// the same "an untouched save pins a value" problem the checkboxes were
+	// just fixed for, only one level up.
+	// Unset resolves to ON (IsPublicTestPagesSitePicker), so an explicit true
+	// on Default carries no information.
+	if p := cur.Default.PublicTestPagesSitePicker; p != nil && *p {
+		cur.Default.PublicTestPagesSitePicker = nil
+	}
+	return nil
 }
 
 // AdminBrandingSiteSave: POST {base}/admin/settings/branding/site/save

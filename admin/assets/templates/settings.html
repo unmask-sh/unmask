@@ -11,28 +11,58 @@
      the field renders either way so the two inputs stay index-aligned on
      submit.  Same shape as the bypass-IP rows. */}}
 {{ define "valueRuleList" }}
+{{/* Shared view/edit row list for plain value+note settings (admin allowed
+     IPs / Hosts, metrics allowlist, defined sites).  Rows render CONFIRMED
+     (view mode): the value is text until the operator explicitly hits edit,
+     so a stray keystroke before saving an unrelated field on the same tab
+     cannot silently rewrite an allowlist.  Same interaction contract as the
+     bypass-IP rows; the generic rule-list JS drives everything.
+     Order is organisational only for every caller (any-match lists) -- the
+     note below the list says so. */}}
 <div class="rule-list" data-rule-name="{{ .Name }}">
-  {{/* A caller that passes no Titles leaves the key absent, and `len` on the
-       resulting zero Value panics the template -- so normalise to an empty
-       slice first rather than testing the length of something that may not
-       exist. */}}
   {{ $titles := .Titles }}
+  {{ $dis := .Disabled }}
   {{ range $i, $v := .Values }}
-  <div class="rule-row editing">
+  {{ $t := "" }}{{ if $titles }}{{ if lt $i (len $titles) }}{{ $t = index $titles $i }}{{ end }}{{ end }}
+  {{ $d := false }}{{ if $dis }}{{ if lt $i (len $dis) }}{{ $d = index $dis $i }}{{ end }}{{ end }}
+  <div class="rule-row{{ if $d }} disabled-row{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
+    <input type="checkbox" class="rule-toggle" {{ if not $d }}checked{{ end }}>
+    <input type="hidden" name="{{ $.Name }}_enabled" value="{{ if $d }}0{{ else }}1{{ end }}">
+    <span class="rule-view">
+      <div class="ttl{{ if not $t }} empty{{ end }}">{{ if $t }}{{ $t }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+      <div class="pat">{{ $v }}</div>
+    </span>
+    <input type="text" name="{{ $.Name }}_title" value="{{ $t }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-title">
     <input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat">
-    <input type="text" name="{{ $.Name }}_title" value="{{ if $titles }}{{ if lt $i (len $titles) }}{{ index $titles $i }}{{ end }}{{ end }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-note">
+    <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+    <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+    <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+    <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
     <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+    <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
   </div>
   {{ end }}
   <template class="rule-row-template">
-    <div class="rule-row editing">
+    <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+      <input type="checkbox" class="rule-toggle" checked>
+      <input type="hidden" name="{{ .Name }}_enabled" value="1">
+      <span class="rule-view">
+        <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+        <div class="pat empty"></div>
+      </span>
+      <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-title">
       <input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat">
-      <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-note">
+      <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+      <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+      <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+      <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
       <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+      <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
     </div>
   </template>
 </div>
 <button type="button" class="rule-add-bottom" data-target-list="{{ .Name }}">{{ t .Lang "settings.ua.add_new" }}</button>
+<p class="note rule-order-note">{{ t .Lang "settings.rule.order_note" }}</p>
 {{ end }}
 <!DOCTYPE html>
 <html lang="{{ .Lang }}">
@@ -762,32 +792,33 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.admin_ips" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_ips_desc") }}</span></span></h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.network.admin_ips_lead") }}</p>
-    <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if not .Cur.AdminAllowedIPs }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" (len .Cur.AdminAllowedIPs) }}{{ end }}</p>
+    <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if eq .AdminIPsActive 0 }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" .AdminIPsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
     </div>
   </div>
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.admin_hosts" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_hosts_desc") }}</span></span></h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.network.admin_hosts_lead") }}</p>
-    <p class="desc admin-acl-state">{{ if not .Cur.AdminAllowedHosts }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" (len .Cur.AdminAllowedHosts) }}{{ end }}</p>
+    <p class="desc admin-acl-state">{{ if eq .AdminHostsActive 0 }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" .AdminHostsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Placeholder" "admin.example.com" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Placeholder" "admin.example.com" "Lang" .Lang) }}
     </div>
   </div>
   <style>
   .admin-acl-state{font-size:.78rem;color:#475569;margin:.1rem 0 .5rem}
   .admin-acl-state.admin-acl-warn{color:#b45309}
+  .rule-order-note{font-size:.72rem;color:#94a3b8;margin:.35rem 0 0}
   </style>
 
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
     </div>
   </div>
 
@@ -1116,23 +1147,48 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.lb_extra_hint") }}</p>
       <div class="rule-list" data-rule-name="lb_extra">
         {{ range .LBExtras }}
-        <div class="rule-row editing">
+        <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .ID }}" data-orig-title="{{ .Label }}">
+          <input type="checkbox" class="rule-toggle" {{ if not .Disabled }}checked{{ end }}>
+          <input type="hidden" name="lb_extra_enabled" value="{{ if .Disabled }}0{{ else }}1{{ end }}">
+          <span class="rule-view">
+            <div class="ttl{{ if not .Label }} empty{{ end }}">{{ if .Label }}{{ .Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
+            <div class="pat"><code>{{ .ID }}</code> · {{ .CIDRs }}{{ if .Header }} · {{ .Header }}{{ end }}</div>
+          </span>
+          <input type="text" name="lb_extra_label" value="{{ .Label }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="{{ t $.Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat">
           <input type="text" name="lb_extra_cidrs" value="{{ .CIDRs }}" placeholder="{{ t $.Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
           <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="{{ t $.Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
+          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
+          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
+          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
+          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
           <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
         </div>
         {{ end }}
         <template class="rule-row-template">
-          <div class="rule-row editing">
-            <input type="text" name="lb_extra_id" placeholder="{{ t $.Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat">
-            <input type="text" name="lb_extra_cidrs" placeholder="{{ t $.Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
-            <input type="text" name="lb_extra_header" placeholder="{{ t $.Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
-            <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
+          <div class="rule-row editing" data-orig-pat="" data-orig-title="">
+            <input type="checkbox" class="rule-toggle" checked>
+            <input type="hidden" name="lb_extra_enabled" value="1">
+            <span class="rule-view">
+              <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
+              <div class="pat empty"></div>
+            </span>
+            <input type="text" name="lb_extra_label" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+            <input type="text" name="lb_extra_id" placeholder="{{ t .Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat">
+            <input type="text" name="lb_extra_cidrs" placeholder="{{ t .Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
+            <input type="text" name="lb_extra_header" placeholder="{{ t .Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
+            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
           </div>
         </template>
       </div>
       <button type="button" class="rule-add-bottom" data-target-list="lb_extra">{{ t .Lang "settings.ua.add_new" }}</button>
+      <p class="note rule-order-note">{{ t .Lang "settings.rule.order_note" }}</p>
     </div>
   </div>
 
@@ -1725,7 +1781,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
       <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_only") }}</p>
@@ -1926,7 +1982,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
       <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "captcha_only") }}</p>
@@ -2469,7 +2525,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
       <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
@@ -2635,7 +2691,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
       <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_then_captcha") }}</p>
@@ -2782,7 +2838,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
         <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</li>
+        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
       <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
@@ -3072,7 +3128,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              value="{{ if gt .ChallengeValues.PowCookieValidSeconds 0 }}{{ .ChallengeValues.PowCookieValidSeconds }}{{ else }}604800{{ end }}"
              {{/* default: 604800 (= 7 days). PoW is automatic / lightweight proof; refresh more often than CAPTCHA. */}}
              style="width:8rem"
-             oninput="document.getElementById('ch-pow-cookie-hint').textContent=secToHuman(this.value)">
+             class="sec-human" data-hint="ch-pow-cookie-hint">
       <span class="ch-hint" id="ch-pow-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
     </div>
 
@@ -3086,7 +3142,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              value="{{ if gt .ChallengeValues.CaptchaCookieValidSeconds 0 }}{{ .ChallengeValues.CaptchaCookieValidSeconds }}{{ else }}1209600{{ end }}"
              {{/* default: 1209600 (= 14 days). CAPTCHA is human-effort proof; longer than PoW reduces re-CAPTCHA friction. */}}
              style="width:8rem"
-             oninput="document.getElementById('ch-captcha-cookie-hint').textContent=secToHuman(this.value)">
+             class="sec-human" data-hint="ch-captcha-cookie-hint">
       <span class="ch-hint" id="ch-captcha-cookie-hint" style="margin-left:.6rem;color:#64748b;font-size:.85rem"></span>
     </div>
 
@@ -3119,6 +3175,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          Kept the i18n strings under settings.challenge.show_credit_* so the
          help text stays the canonical source. */}}
 
+    <hr style="border:none;border-top:1px solid #e2e8f0;margin:1.4rem 0">
     <div class="field">
       <div class="field-label field-label-row">
         <span>{{ t .Lang "settings.challenge.public_test_pages" }}</span>
@@ -3160,20 +3217,24 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </div>
         <script type="text/html" id="ch-test-site-picker-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_site_picker_help") }}</script>
       </div>
-      {{/* Quick links to the actual test pages.  Admin side is always
-           available to logged-in users; public side returns 404 until
-           the checkbox above is enabled. */}}
-      <div style="margin-top:.55rem;font-size:.8rem;display:flex;gap:.65rem;flex-wrap:wrap">
-        <a href="{{ .BasePath }}/admin/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
-          {{ t .Lang "settings.challenge.test_link_admin" }} ↗
-        </a>
-        <span style="color:#94a3b8">·</span>
+      {{/* Quick links.  This section configures the PUBLIC pages, so the
+           public link leads; the admin one follows as the "and there is
+           always this one" note rather than as a peer.  The admin page is
+           kept because it is the only way in while the public pages are off
+           (the common state -- they ship disabled), so dropping it would
+           leave the section with a link that 404s and no way to reach a
+           working test page. */}}
+      <div style="margin-top:.55rem;font-size:.8rem;display:flex;gap:.65rem;flex-wrap:wrap;align-items:baseline">
         <a href="{{ .BasePath }}/test/" target="_blank" rel="noopener" style="color:#1e40af;text-decoration:none">
           {{ t .Lang "settings.challenge.test_link_public" }} ↗
         </a>
         {{ if not .ChallengeEff.IsPublicTestPages }}
         <span style="color:#94a3b8;font-size:.72rem">({{ t .Lang "settings.challenge.test_link_public_disabled" }})</span>
         {{ end }}
+        <span style="color:#cbd5e1">·</span>
+        <a href="{{ .BasePath }}/admin/test/" target="_blank" rel="noopener" style="color:#64748b;text-decoration:none;font-size:.76rem">
+          {{ t .Lang "settings.challenge.test_link_admin" }} ↗
+        </a>
       </div>
     </div>
     {{ if $scopeDefault }}
@@ -3250,10 +3311,26 @@ function secToHuman(s){
   var ceil = Math.ceil(s / 86400);
   return "= " + parts.join(" ") + "  (= effective " + ceil + " d)";
 }
-document.addEventListener("DOMContentLoaded", function(){
-  var el = document.getElementById("ch-cookie-sec");
-  if (el) document.getElementById("ch-cookie-hint").textContent = secToHuman(el.value);
-});
+// Every seconds input that declares a hint target gets the same treatment on
+// load AND on input.  It used to be one hardcoded id pair -- and that id had
+// stopped existing when the single cookie field was split into the PoW and
+// CAPTCHA ones, so the init was dead code and both hints stayed blank until
+// the operator typed in them.  Driving both paths off the same declaration is
+// what keeps a future field from silently missing one of them.
+(function(){
+  function paint(el){
+    var hint = document.getElementById(el.dataset.hint);
+    if (hint) hint.textContent = secToHuman(el.value);
+  }
+  function init(){
+    document.querySelectorAll("input.sec-human[data-hint]").forEach(function(el){
+      paint(el);
+      el.addEventListener("input", function(){ paint(el); });
+    });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
+})();
 </script>
 {{ end }}
 
@@ -3312,26 +3389,93 @@ document.addEventListener("DOMContentLoaded", function(){
     </div>
 
     <div class="field">
-      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}</label>
+      <label class="field-label">{{ t .Lang "settings.rate_limit.challenge_mode" }}
+        <button type="button" class="ua-help-trigger" data-help-target="rl-mode-help" aria-label="?">?</button>
+      </label>
+      {{/* The four modes reappear on this page (zone rows), on the Global tab,
+           the UA-filter tab, bans, ... -- by now the names are the vocabulary,
+           so the control is the same compact select those places use and the
+           per-mode prose lives in the "?" popover.  No unset option on
+           purpose: defaults() seeds pow_then_captcha and Load materialises
+           it, so a loaded install always holds a concrete value here (unlike
+           the per-site fields, where unset means "inherit").  The "" arm
+           below is the same materialisation for a snapshot that never passed
+           through Load -- it used to say captcha_only, which contradicted
+           ResolvedChallengeMode. */}}
       {{ $cm := .RateLimit.Default.ChallengeMode }}
-      {{ if eq $cm "" }}{{ $cm = "captcha_only" }}{{ end }}
-      <div style="display:flex;flex-direction:column;gap:.3rem;margin-top:.3rem">
-        <label><input type="radio" name="default_challenge_mode" value="captcha_only" {{ if eq $cm "captcha_only" }}checked{{ end }}>
-          <strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</label>
-        <label><input type="radio" name="default_challenge_mode" value="pow_only" {{ if eq $cm "pow_only" }}checked{{ end }}>
-          <strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</label>
-        <label><input type="radio" name="default_challenge_mode" value="pow_then_captcha" {{ if eq $cm "pow_then_captcha" }}checked{{ end }}>
-          <strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</label>
-        <label><input type="radio" name="default_challenge_mode" value="deny" {{ if eq $cm "deny" }}checked{{ end }}>
-          <strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}</label>
-      </div>
+      {{ if eq $cm "" }}{{ $cm = "pow_then_captcha" }}{{ end }}
+      <select name="default_challenge_mode" id="rl-default-chmode" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:16rem;margin-top:.3rem">
+        <option value="pow_only"         {{ if eq $cm "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value="pow_then_captcha" {{ if eq $cm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="captcha_only"     {{ if eq $cm "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="deny"             {{ if eq $cm "deny" }}selected{{ end }}>deny</option>
+      </select>
+      {{/* deny's nginx-version constraint appears inline exactly when it
+           holds for this control: deny selected AND protected paths enforced
+           (the default zone spans every path, so any protected path overlaps).
+           rlWarnSync drives it. */}}
+      <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
+      <script type="text/html" id="rl-mode-help">
+        <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
+          <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
+          <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
+          <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
+          <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
+        </ul>
+      </script>
     </div>
 
-    <h3 style="font-size:1rem;margin:1.5rem 0 .4rem">{{ t .Lang "settings.rate_limit.zones_h" }}</h3>
-    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.zones_help") }}</div>
+    <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.zones_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="rl-zones-help" aria-label="?">?</button>
+    </h3>
+    {{/* All reference prose for the table lives in this popover: how zones
+         resolve (top-down, first match) and the deny x protected-paths
+         constraint.  The constraint additionally states that affected rows
+         warn automatically -- so a table with no warning reads as "this
+         does not apply here", which is the actual answer an operator scans
+         for.  The moment it applies, rlWarnSync lights the row's own
+         full-width warning. */}}
+    <script type="text/html" id="rl-zones-help">
+      <p style="margin:.2rem 0 .5rem">{{ safeHTML (t .Lang "settings.rate_limit.zones_help") }}</p>
+      <p style="margin:.5rem 0 .2rem;padding-top:.5rem;border-top:1px solid #e2e8f0">{{ safeHTML (t .Lang "settings.rate_limit.zones_deny_note") }}</p>
+    </script>
+    <style>
+      #zones-table td{padding:.3rem .5rem}
+      #zones-table .z-mono{font-family:ui-monospace,Menlo,monospace;font-size:.8rem}
+      /* Spinners cost ~14px of a column whose header is already the floor;
+         in a table of typed thresholds they are dead weight.  With them gone
+         the number inputs sit at the width where the HEADER text becomes the
+         column's floor -- narrowing further changes nothing.  Real thresholds
+         (5 / 30 / 1000) fit; the 6-digit ceiling scrolls while being typed,
+         and view mode renders the value as text either way. */
+      #zones-table input[type=number]{appearance:textfield;-moz-appearance:textfield}
+      #zones-table input[type=number]::-webkit-outer-spin-button,
+      #zones-table input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+      #zones-table .zv-paths div{font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#334155;line-height:1.5;word-break:break-all}
+      #zones-table .zv-muted{color:#94a3b8}
+      #zones-table .z-num{text-align:right}
+      .zone-row:not(.editing) .z-in{display:none}
+      .zone-row.editing .z-view{display:none}
+      .zone-row.editing .z-ops-view{display:none}
+      .zone-row:not(.editing) .z-ops-edit{display:none}
+      .zone-row.editing{background:#f0f9ff}
+      .zone-row .z-ops{display:flex;gap:.25rem;justify-content:center;flex-wrap:wrap}
+      .zone-row .z-ops button{width:1.7rem;height:1.7rem;display:inline-flex;align-items:center;justify-content:center;background:#fff;color:#475569;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;font-size:.85rem;line-height:1;padding:0}
+      .zone-row .z-ops button:hover{background:#f1f5f9;border-color:#94a3b8;color:#0f172a}
+      .zone-row .z-ops .z-del:hover{color:#dc2626;border-color:#dc2626}
+      .zone-row .z-ops .z-ok:hover{color:#15803d;border-color:#15803d}
+      #zones-table .z-on{margin:0}
+      .zone-row.zone-off .z-view{opacity:.45}
+      .zone-row.zone-off .zv-name{text-decoration:line-through}
+      .zone-warn-row{display:none}
+      .zone-row.deny-overlap + .zone-warn-row{display:table-row}
+      .zone-warn-row td{padding:0 .5rem .45rem}
+      .zone-warn-row .z-warn{padding:.45rem .6rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;font-size:.78rem;line-height:1.55;color:#334155}
+    </style>
     <table id="zones-table" style="width:100%;border-collapse:collapse;font-size:.85rem">
       <thead style="background:#f8fafc;color:#475569">
         <tr>
+          <th style="width:1.6rem"></th>
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_name" }}</th>
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_paths" }}</th>
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_site" }}</th>
@@ -3342,26 +3486,47 @@ document.addEventListener("DOMContentLoaded", function(){
           <th></th>
         </tr>
       </thead>
-      <tbody id="zones-tbody">
+      {{/* Rows are view-first, like the rule lists elsewhere: values render
+           as text with a per-row edit toggle, so a table an operator only
+           reads cannot be nudged by a stray keystroke.  Order is meaning
+           here (top-down, first match wins), hence the up/down buttons --
+           the resequencer renames zone_<i>_* fields after every move so the
+           form parser's 0..N-1 loop keeps working. */}}
+      <tbody id="zones-tbody"
+             data-inherit-label="{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}"
+             data-site-all="{{ t .Lang "settings.rate_limit.site_all" }}">
         {{ range $i, $z := .RateLimit.Zones }}
-        <tr class="zone-row" style="border-top:1px solid #e2e8f0;vertical-align:top">
-          <td style="padding:.3rem .5rem"><input name="zone_{{ $i }}_name" value="{{ $z.Name }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
-          <td style="padding:.3rem .5rem"><textarea name="zone_{{ $i }}_paths" rows="2" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical" placeholder="/api/&#10;/v1/">{{ range $z.PathPatterns }}{{ . }}&#10;{{ end }}</textarea></td>
-          <td style="padding:.3rem .5rem"><input type="text" name="zone_{{ $i }}_site" list="rl-zone-site-candidates" value="{{ $z.Site }}" placeholder="{{ t $.Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
-          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:5rem;text-align:right;font-size:.8rem"></td>
-          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:5rem;text-align:right;font-size:.8rem"></td>
-          <td style="padding:.3rem .5rem"><input type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:4.5rem;text-align:right;font-size:.8rem"></td>
-          <td style="padding:.3rem .5rem">
-            <select name="zone_{{ $i }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-              <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }}>(inherit default)</option>
+        <tr class="zone-row{{ if $z.Disabled }} zone-off{{ end }}" style="border-top:1px solid #e2e8f0;vertical-align:top">
+          <td><input type="checkbox" class="z-on" name="zone_{{ $i }}_on" value="1" {{ if not $z.Disabled }}checked{{ end }} aria-label="{{ t $.Lang "settings.rate_limit.zone_enabled" }}" title="{{ t $.Lang "settings.rate_limit.zone_enabled" }}"></td>
+          <td><span class="z-view z-mono zv-name">{{ $z.Name }}</span><input class="z-in" name="zone_{{ $i }}_name" value="{{ $z.Name }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td><div class="z-view zv-paths">{{ range $z.PathPatterns }}<div>{{ . }}</div>{{ end }}</div><textarea class="z-in" name="zone_{{ $i }}_paths" rows="2" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical" placeholder="{{ t $.Lang "settings.rate_limit.zone_paths_placeholder" }}">{{ range $z.PathPatterns }}{{ . }}&#10;{{ end }}</textarea></td>
+          <td><span class="z-view z-mono zv-site{{ if eq $z.Site "" }} zv-muted{{ end }}">{{ if $z.Site }}{{ $z.Site }}{{ else }}{{ t $.Lang "settings.rate_limit.site_all" }}{{ end }}</span><input class="z-in" type="text" name="zone_{{ $i }}_site" list="rl-zone-site-candidates" value="{{ $z.Site }}" placeholder="{{ t $.Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-rpm">{{ $z.RequestsPerMin }}</span><input class="z-in" type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-burst">{{ $z.Burst }}</span><input class="z-in" type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-window">{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}</span><input class="z-in" type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
+          <td><span class="z-view z-mono zv-mode{{ if eq $z.ChallengeMode "" }} zv-muted{{ end }}">{{ if $z.ChallengeMode }}{{ $z.ChallengeMode }}{{ else }}{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}{{ end }}</span>
+            <select class="z-in" name="zone_{{ $i }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }}>{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}</option>
               <option value="captcha_only"     {{ if eq $z.ChallengeMode "captcha_only"     }}selected{{ end }}>captcha_only</option>
               <option value="pow_only"         {{ if eq $z.ChallengeMode "pow_only"         }}selected{{ end }}>pow_only</option>
               <option value="pow_then_captcha" {{ if eq $z.ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
               <option value="deny"             {{ if eq $z.ChallengeMode "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td style="padding:.3rem .5rem;text-align:center"><button type="button" onclick="rlRemoveZone(this)" title="{{ t $.Lang "settings.rate_limit.remove_zone" }}" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .4rem;cursor:pointer;color:#991b1b">×</button></td>
+          <td>
+            <span class="z-ops z-ops-view">
+              <button type="button" class="z-edit" aria-label="{{ t $.Lang "settings.rate_limit.zone_edit" }}">✏️</button>
+              <button type="button" class="z-up" aria-label="{{ t $.Lang "settings.rate_limit.zone_up" }}">↑</button>
+              <button type="button" class="z-down" aria-label="{{ t $.Lang "settings.rate_limit.zone_down" }}">↓</button>
+              <button type="button" class="z-del" aria-label="{{ t $.Lang "settings.rate_limit.remove_zone" }}">×</button>
+            </span>
+            <span class="z-ops z-ops-edit">
+              <button type="button" class="z-ok" aria-label="{{ t $.Lang "settings.rate_limit.zone_confirm" }}">✔</button>
+              <button type="button" class="z-del" aria-label="{{ t $.Lang "settings.rate_limit.remove_zone" }}">×</button>
+            </span>
+          </td>
         </tr>
+        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t $.Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
         {{ end }}
       </tbody>
     </table>
@@ -3372,55 +3537,179 @@ document.addEventListener("DOMContentLoaded", function(){
     <datalist id="rl-zone-site-candidates">
       {{ range .Sites }}<option value="{{ . }}">{{ end }}
     </datalist>
+    {{/* Blank row cloned by rlAddZone; keeps the i18n strings and structure
+         in ONE place instead of a second copy inside a JS string literal.
+         Field names carry the zone_X_ placeholder that the resequencer
+         rewrites to the row's real index. */}}
+    <template id="rl-zone-row-tpl">
+        <tr class="zone-row editing" style="border-top:1px solid #e2e8f0;vertical-align:top">
+          <td><input type="checkbox" class="z-on" name="zone_X_on" value="1" checked aria-label="{{ t .Lang "settings.rate_limit.zone_enabled" }}" title="{{ t .Lang "settings.rate_limit.zone_enabled" }}"></td>
+          <td><span class="z-view z-mono zv-name"></span><input class="z-in" name="zone_X_name" placeholder="api_strict" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td><div class="z-view zv-paths"></div><textarea class="z-in" name="zone_X_paths" rows="2" placeholder="{{ t .Lang "settings.rate_limit.zone_paths_placeholder" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical"></textarea></td>
+          <td><span class="z-view z-mono zv-site zv-muted"></span><input class="z-in" type="text" name="zone_X_site" list="rl-zone-site-candidates" placeholder="{{ t .Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-rpm"></span><input class="z-in" type="number" name="zone_X_rpm" min="1" max="100000" value="30" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-burst"></span><input class="z-in" type="number" name="zone_X_burst" min="0" max="100000" value="10" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
+          <td class="z-num"><span class="z-view z-mono zv-window"></span><input class="z-in" type="number" name="zone_X_window" min="1" max="3600" value="60" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
+          <td><span class="z-view z-mono zv-mode zv-muted"></span>
+            <select class="z-in" name="zone_X_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" selected>{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+              <option value="captcha_only">captcha_only</option>
+              <option value="pow_only">pow_only</option>
+              <option value="pow_then_captcha">pow_then_captcha</option>
+              <option value="deny">deny</option>
+            </select>
+          </td>
+          <td>
+            <span class="z-ops z-ops-view">
+              <button type="button" class="z-edit" aria-label="{{ t .Lang "settings.rate_limit.zone_edit" }}">✏️</button>
+              <button type="button" class="z-up" aria-label="{{ t .Lang "settings.rate_limit.zone_up" }}">↑</button>
+              <button type="button" class="z-down" aria-label="{{ t .Lang "settings.rate_limit.zone_down" }}">↓</button>
+              <button type="button" class="z-del" aria-label="{{ t .Lang "settings.rate_limit.remove_zone" }}">×</button>
+            </span>
+            <span class="z-ops z-ops-edit">
+              <button type="button" class="z-ok" aria-label="{{ t .Lang "settings.rate_limit.zone_confirm" }}">✔</button>
+              <button type="button" class="z-del" aria-label="{{ t .Lang "settings.rate_limit.remove_zone" }}">×</button>
+            </span>
+          </td>
+        </tr>
+        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
+    </template>
     <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
-
-  {{/* The deny page's appearance (theme + wording tone) is configured under the
-       page-design section, not here -- this tab is the rate-limit logic (zones /
-       thresholds / mode).  Cross-link to it. */}}
-  <p class="note" style="margin:.9rem 0 .2rem;color:#64748b;font-size:.82rem;line-height:1.5">
-    {{ safeHTML (t .Lang "settings.rate_limit.deny_design_link") }}
-  </p>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 <script>
-// dynamic add / remove of rate-limit zones[] + re-sequence indices after removal.
+// Zone rows: view/edit toggling, add/remove, reorder, and the deny-overlap
+// warning.  Order is semantics (top-down, first match wins), so every
+// structural change ends in rlReseq so zone_<i>_* stays 0..N-1 for the parser.
 (function(){
-  window.rlAddZone = function() {
-    var tbody = document.getElementById('zones-tbody');
-    var i = tbody.querySelectorAll('tr.zone-row').length;
-    var tr = document.createElement('tr');
-    tr.className = 'zone-row';
-    tr.style.borderTop = '1px solid #e2e8f0';
-    tr.style.verticalAlign = 'top';
-    tr.innerHTML =
-      '<td style="padding:.3rem .5rem"><input name="zone_' + i + '_name" placeholder="api_strict" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>' +
-      '<td style="padding:.3rem .5rem"><textarea name="zone_' + i + '_paths" rows="2" placeholder="/api/" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical"></textarea></td>' +
-      '<td style="padding:.3rem .5rem"><input type="text" name="zone_' + i + '_site" list="rl-zone-site-candidates" placeholder="{{ t .Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>' +
-      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_rpm" min="1" max="100000" value="30" style="width:5rem;text-align:right;font-size:.8rem"></td>' +
-      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_burst" min="0" max="100000" value="10" style="width:5rem;text-align:right;font-size:.8rem"></td>' +
-      '<td style="padding:.3rem .5rem"><input type="number" name="zone_' + i + '_window" min="1" max="3600" value="60" style="width:4.5rem;text-align:right;font-size:.8rem"></td>' +
-      '<td style="padding:.3rem .5rem"><select name="zone_' + i + '_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">' +
-      '<option value="">(inherit default)</option>' +
-      '<option value="captcha_only">captcha_only</option>' +
-      '<option value="pow_only">pow_only</option>' +
-      '<option value="pow_then_captcha">pow_then_captcha</option>' +
-      '<option value="deny">deny</option>' +
-      '</select></td>' +
-      '<td style="padding:.3rem .5rem;text-align:center"><button type="button" onclick="rlRemoveZone(this)" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .4rem;cursor:pointer;color:#991b1b">×</button></td>';
-    tbody.appendChild(tr);
-  };
-  window.rlRemoveZone = function(btn) {
-    var tr = btn.closest('tr');
-    if (tr) tr.remove();
-    // re-sequence indices after removal (= so the form parser can loop 0..N-1).
-    document.querySelectorAll('#zones-tbody tr.zone-row').forEach(function(tr, i) {
-      tr.querySelectorAll('[name]').forEach(function(el) {
-        el.name = el.name.replace(/^zone_\d+_/, 'zone_' + i + '_');
+  // Literal heads of the protected paths actually enforced right now; the
+  // warning below is a live cross-check against them.
+  var RL_PP = {{ toJSON .RLProtectedPrefixes }} || [];
+  function rows(){ return document.querySelectorAll('#zones-tbody tr.zone-row'); }
+  function rlReseq(){
+    rows().forEach(function(tr, i){
+      tr.querySelectorAll('[name]').forEach(function(el){
+        el.name = el.name.replace(/^zone_(\d+|X)_/, 'zone_' + i + '_');
       });
     });
+  }
+  function overlaps(paths){
+    for (var i = 0; i < paths.length; i++) {
+      var p = paths[i];
+      if (!p) continue;
+      for (var j = 0; j < RL_PP.length; j++) {
+        var q = RL_PP[j];
+        if (p.indexOf(q) === 0 || q.indexOf(p) === 0) return true;
+      }
+    }
+    return false;
+  }
+  function zonePaths(tr){
+    var ta = tr.querySelector('[name$="_paths"]');
+    return (ta ? ta.value : '').split('\n').map(function(s){ return s.trim(); }).filter(Boolean);
+  }
+  // The deny x protected-paths constraint, applied where it holds: the row
+  // whose effective mode is deny AND whose paths overlap a protected path.
+  // The default zone covers every path, so for it "overlap" just means any
+  // protected path exists at all.
+  function rlWarnSync(){
+    var defSel = document.getElementById('rl-default-chmode');
+    var defMode = defSel ? defSel.value : 'pow_then_captcha';
+    var defWarn = document.getElementById('rl-deny-warn');
+    if (defWarn) defWarn.style.display = (defMode === 'deny' && RL_PP.length > 0) ? '' : 'none';
+    rows().forEach(function(tr){
+      var on = tr.querySelector('.z-on');
+      var enabled = !on || on.checked;
+      tr.classList.toggle('zone-off', !enabled);
+      var sel = tr.querySelector('[name$="_chmode"]');
+      var mode = (sel && sel.value) || defMode;
+      // A switched-off zone enforces nothing, so it cannot hit the
+      // deny x protected-paths constraint either.
+      tr.classList.toggle('deny-overlap', enabled && mode === 'deny' && overlaps(zonePaths(tr)));
+    });
+  }
+  function fill(tr){
+    var v = function(sfx){ var el = tr.querySelector('[name$="_' + sfx + '"]'); return el ? el.value : ''; };
+    var tb = document.getElementById('zones-tbody');
+    tr.querySelector('.zv-name').textContent = v('name');
+    var pl = tr.querySelector('.zv-paths');
+    pl.textContent = '';
+    zonePaths(tr).forEach(function(p){ var d = document.createElement('div'); d.textContent = p; pl.appendChild(d); });
+    var site = v('site');
+    var sv = tr.querySelector('.zv-site');
+    sv.textContent = site || tb.dataset.siteAll;
+    sv.classList.toggle('zv-muted', !site);
+    tr.querySelector('.zv-rpm').textContent = v('rpm');
+    tr.querySelector('.zv-burst').textContent = v('burst');
+    tr.querySelector('.zv-window').textContent = v('window');
+    var mode = v('chmode');
+    var mv = tr.querySelector('.zv-mode');
+    mv.textContent = mode || tb.dataset.inheritLabel;
+    mv.classList.toggle('zv-muted', !mode);
+  }
+  window.rlAddZone = function(){
+    var tpl = document.getElementById('rl-zone-row-tpl');
+    var frag = tpl.content.cloneNode(true);
+    var tr = frag.querySelector('tr.zone-row');
+    document.getElementById('zones-tbody').appendChild(frag);
+    rlReseq();
+    rlWarnSync();
+    var name = tr.querySelector('[name$="_name"]');
+    if (name) name.focus();
   };
+  window.rlRemoveZone = function(btn){
+    var tr = btn.closest('tr');
+    if (tr) {
+      var warn = tr.nextElementSibling;
+      if (warn && warn.classList.contains('zone-warn-row')) warn.remove();
+      tr.remove();
+    }
+    rlReseq();
+    rlWarnSync();
+  };
+  function zoneEdit(tr){ tr.classList.add('editing'); }
+  function zoneOk(tr){ fill(tr); tr.classList.remove('editing'); rlWarnSync(); }
+  function unit(tr){
+    var warn = tr.nextElementSibling;
+    return (warn && warn.classList.contains('zone-warn-row')) ? [tr, warn] : [tr];
+  }
+  function zoneMove(tr, dir){
+    // A zone travels with its warning row: the pair is the unit the table is
+    // made of, and reordering must never split it.
+    var me = unit(tr);
+    var sibRow = dir < 0 ? tr.previousElementSibling : me[me.length - 1].nextElementSibling;
+    while (sibRow && !sibRow.classList.contains('zone-row')) {
+      sibRow = dir < 0 ? sibRow.previousElementSibling : sibRow.nextElementSibling;
+    }
+    if (!sibRow) return;
+    var other = unit(sibRow);
+    var parent = tr.parentNode;
+    var anchor = dir < 0 ? other[0] : other[other.length - 1].nextElementSibling;
+    me.forEach(function(row){ parent.insertBefore(row, anchor); });
+    rlReseq();
+  }
+  // One delegated listener instead of per-button inline handlers: rows added
+  // by cloning the <template> behave exactly like server-rendered ones.
+  document.getElementById('zones-tbody').addEventListener('click', function(e){
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    var tr = btn.closest('tr.zone-row');
+    if (!tr) return;
+    if (btn.classList.contains('z-edit')) zoneEdit(tr);
+    else if (btn.classList.contains('z-ok')) zoneOk(tr);
+    else if (btn.classList.contains('z-up')) zoneMove(tr, -1);
+    else if (btn.classList.contains('z-down')) zoneMove(tr, 1);
+    else if (btn.classList.contains('z-del')) window.rlRemoveZone(btn);
+  });
+  document.getElementById('zones-tbody').addEventListener('change', rlWarnSync);
+  document.getElementById('zones-tbody').addEventListener('input', function(e){
+    if (e.target && /_paths$/.test(e.target.name || '')) rlWarnSync();
+  });
+  var defSel = document.getElementById('rl-default-chmode');
+  if (defSel) defSel.addEventListener('change', rlWarnSync);
+  rlWarnSync();
 })();
 </script>
 
@@ -5394,10 +5683,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          data-est, so the browser never re-implements the budget rule. */}}
     <div class="field">
       <div class="field-label">{{ t .Lang "settings.perf.profile_label" }}</div>
+      {{/* The memory figure needs its own label: next to "CPU 4" a bare
+           "11.42 GB" was the only value on the line without one, so nothing
+           said which resource it measured. */}}
       <div class="perf-host">{{ t .Lang "settings.perf.host_label" }}:
-        <strong>{{ if .Retention.MemLimitStr }}{{ .Retention.MemLimitStr }}{{ else }}?{{ end }}</strong>
+        {{ t .Lang "settings.perf.host_mem" }} <strong>{{ if .Retention.MemLimitStr }}{{ .Retention.MemLimitStr }}{{ else }}?{{ end }}</strong>
         {{ if .Retention.MemFromCgroup }}<span style="color:#94a3b8">(cgroup)</span>{{ end }}
-        · CPU <strong>{{ .Retention.MemCPUs }}</strong>
+        · {{ t .Lang "settings.perf.host_cpu" }} <strong>{{ .Retention.MemCPUs }}</strong>
       </div>
       <div id="perf-profiles" data-cpus="{{ .Retention.MemCPUs }}">
         {{/* Two groups, because that is the real distinction: the first three
@@ -5411,7 +5703,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
           {{ range .Retention.MemProfiles }}{{ if .Auto }}
           <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
             <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
-                   data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
+                   data-est="{{ .TotalStr }}" data-label="{{ t $.Lang .LabelKey }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
             <span class="perf-ratio">{{ printf (t $.Lang "settings.perf.ratio_of_memory") .RatioStr }}</span>
             <span class="perf-here">{{ t $.Lang "settings.perf.on_this_host" }}
               <span class="perf-total">{{ .TotalStr }}</span>{{ if .Capped }} <span class="perf-capped">{{ t $.Lang "settings.perf.capped" }}</span>{{ end }}
@@ -5428,16 +5720,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
           {{ range .Retention.MemProfiles }}{{ if not .Auto }}
           <label class="perf-card{{ if .Active }} perf-card-active{{ end }}">
             <span><input type="radio" name="perf_profile" value="{{ .ID }}"{{ if .Active }} checked{{ end }}
-                   data-est="{{ .TotalStr }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
+                   data-est="{{ .TotalStr }}" data-label="{{ t $.Lang .LabelKey }}" style="margin-right:.4rem"><b>{{ t $.Lang .LabelKey }}</b></span>
             {{ if ne .TotalStr "—" }}<span class="perf-total">{{ .TotalStr }}</span>{{ end }}
             <span class="perf-note">{{ t $.Lang .NoteKey }}</span>
           </label>
           {{ end }}{{ end }}
         </div>
-      </div>
-      <div style="font-size:.8rem;color:#64748b;margin-top:.6rem">
-        {{ t .Lang "settings.perf.estimate_label" }}: <strong id="perf-estimate">{{ .Retention.MemTotalStr }}</strong>
-        · <strong>{{ t .Lang "settings.perf.restart" }}</strong>
       </div>
     </div>
 
@@ -5449,7 +5737,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
           <div style="font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.cache_label" }}</div>
           <input type="number" id="perf-cache" name="sqlite_cache_mb" min="0" max="2048" style="width:8rem"
                  value="{{ if .Retention.MemCacheMB }}{{ .Retention.MemCacheMB }}{{ end }}"
-                 placeholder="{{ t .Lang "settings.perf.auto_placeholder" }}"> MB
+                 placeholder="{{ printf (t .Lang "settings.perf.auto_placeholder") .Retention.MemAutoCacheStr }}"> MB
         </div>
         <div>
           <div style="font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.conns_label" }}</div>
@@ -5465,6 +5753,20 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         {{ printf (t .Lang "settings.perf.custom_reference") .Retention.MemStandardTotalStr }}<br>
         {{ safeHTML (t .Lang "settings.perf.custom_desc") }}
       </div>
+    </div>
+    {{/* The estimate sits below EVERY control that moves it -- the profile
+         cards and the custom fields both do.  Directly under the cards it read
+         as belonging to the cards alone, so a number that changed while typing
+         in the custom boxes further down had no visible cause. */}}
+    <div class="perf-estimate-out">
+      {{/* Naming the active profile here is what makes the number readable
+           from the bottom of the card: the selection that produced it is a
+           screen away, and with "custom" the figure also moves while the
+           operator types.  data-label on each radio carries the localized
+           name so the script never rebuilds it. */}}
+      <span class="perf-estimate-profile" id="perf-estimate-profile">{{ range .Retention.MemProfiles }}{{ if .Active }}{{ t $.Lang .LabelKey }}{{ end }}{{ end }}</span>
+      {{ t .Lang "settings.perf.estimate_label" }}: <strong id="perf-estimate">{{ .Retention.MemTotalStr }}</strong>
+      · <strong>{{ t .Lang "settings.perf.restart" }}</strong>
     </div>
     {{ end }}
   </div>
@@ -5495,6 +5797,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .perf-group-h{font-size:.82rem;font-weight:600;color:#334155;margin:.2rem 0 .4rem}
 .perf-group-sub{font-weight:400;color:#94a3b8;font-size:.75rem;margin-left:.4rem}
 .perf-host{font-size:.78rem;color:#64748b;margin:.1rem 0 .7rem}
+/* The card's conclusion: what the choices above add up to.  Set off by a rule
+   rather than a box, so it reads as a summary of the section and not as one
+   more setting. */
+.perf-estimate-out{font-size:.82rem;color:#475569;margin-top:.9rem;padding-top:.7rem;border-top:1px solid #e2e8f0}
+.perf-estimate-profile{display:inline-block;margin-right:.45rem;padding:.05rem .45rem;border-radius:.25rem;background:#eff6ff;color:#1e40af;font-weight:600;font-size:.78rem}
+.perf-estimate-out #perf-estimate{color:#0f172a}
 .perf-ratio{font-size:.9rem;font-weight:700;color:#0f172a}
 .perf-here{font-size:.75rem;color:#64748b}
 .perf-capped{font-size:.68rem;color:#92400e;background:#fef3c7;border-radius:.2rem;padding:0 .25rem}
@@ -5511,6 +5819,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   if (!wrap) return;
   var custom   = document.getElementById('perf-custom');
   var estOut   = document.getElementById('perf-estimate');
+  var profOut  = document.getElementById('perf-estimate-profile');
   var cacheInp = document.getElementById('perf-cache');
   var connsInp = document.getElementById('perf-conns');
   var warn     = document.getElementById('perf-conns-warn');
@@ -5534,14 +5843,22 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       var conns = parseInt(connsInp && connsInp.value, 10) || cpus;
       // Headline is the TOTAL: the pinned cache budget plus an equal mmap
       // allowance.  Same shape the server renders for the fixed profiles.
+      // Blank cache field = auto (the placeholder says so, and the server
+      // resolves it like the automatic profiles).  Fall back to the figure
+      // the server computed for exactly that state instead of "—", which
+      // read as "not knowable" on the state a fresh custom pick starts in.
       estOut.textContent = (isNaN(mb) || mb <= 0)
-        ? '—'
-        : human(mb * 2 * 1048576) + ' (' + human(mb * 1048576) + ' x ' + conns + ' + mmap)';
+        ? (sel.dataset.est || '—')
+        // The field is a POOL-WIDE budget, so the per-connection slice is
+        // budget/conns.  This used to print the whole budget next to "x N",
+        // claiming N times the memory the server actually configures.
+        : human(mb * 2 * 1048576) + ' (' + human(mb / conns * 1048576) + ' x ' + conns + ' + mmap)';
       if (warn) warn.style.display = (conns > cpus * 2) ? 'block' : 'none';
     } else if (sel) {
       estOut.textContent = sel.dataset.est || '—';
       if (warn) warn.style.display = 'none';
     }
+    if (profOut && sel) profOut.textContent = sel.dataset.label || '';
   }
   wrap.addEventListener('change', update);
   if (cacheInp) cacheInp.addEventListener('input', update);
@@ -5710,7 +6027,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
   <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
-  {{ template "valueRuleList" (dict "Name" "site_defined" "Values" .SitesConfig.Defined "Placeholder" "shop.example.com" "Lang" .Lang) }}
+  {{ template "valueRuleList" (dict "Name" "site_defined" "Values" .SitesConfig.Defined "Titles" .SitesConfig.DefinedTitle "Disabled" .SitesConfig.DefinedDisabled "Placeholder" "shop.example.com" "Lang" .Lang) }}
 </div>
 
 <div class="bcd-card">
@@ -6048,6 +6365,44 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('.rule-list').forEach(function(list){
     list.addEventListener('click', function(e){
+  // syncPatValue: put the edited value back into the view cell without
+  // disturbing whatever else lives there.  A row that shows a code + a
+  // human-readable name (geo) keeps the name in step by looking it up in the
+  // datalist the input already uses, so there is no second copy of the table.
+  function syncPatValue(patView, patInput) {
+    const val = patInput.value.trim();
+    // A row whose input is backed by a datalist can show the human-readable
+    // label beside the code, the same way the server renders it.  Looking it
+    // up in the list the input already uses means there is no second copy of
+    // the table to keep in step.
+    let label = '';
+    const listID = patInput.getAttribute('list');
+    if (listID) {
+      const opt = document.querySelector('#' + listID + ' option[value="' + val.replace(/"/g, '\\"') + '"]');
+      if (opt) {
+        // Datalist labels read "JP — Japan (日本)"; the code is shown already.
+        label = (opt.textContent || '').replace(/^\s*[^—]*—\s*/, '').trim();
+      }
+    }
+    let code = patView.querySelector('.cc-code');
+    if (!code) {
+      // A row added in this session has no server-rendered structure yet: no
+      // code span and no pills.  Render the same "CODE Name" text so it does
+      // not read differently from the rows above it until the next reload.
+      patView.textContent = label ? val + ' ' + label : val;
+      return;
+    }
+    code.textContent = val;
+    // The label sits between the code span and the first pill.
+    const firstPill = patView.querySelector('.action-pill');
+    let n = code.nextSibling;
+    while (n && n !== firstPill) {
+      const next = n.nextSibling;
+      patView.removeChild(n);
+      n = next;
+    }
+    patView.insertBefore(document.createTextNode(label ? ' ' + label + ' ' : ' '), firstPill);
+  }
       const btn = e.target.closest('.rule-edit, .rule-save, .rule-add, .rule-del, .rule-up, .rule-down');
       if (!btn) {
         // click on a non-button area -> treat as a whole-row click and toggle the checkbox
@@ -6089,7 +6444,11 @@ document.addEventListener('DOMContentLoaded', function(){
             patView.classList.add('empty');
           } else {
             patView.classList.remove('empty');
-            patView.textContent = patInput.value;
+            // Rewrite only the value, never the whole cell.  The geo / ASN
+            // rows put the action and rate pills in here too, so assigning
+            // textContent wiped them until the next page load -- and on the
+            // geo tab it also dropped the country name, leaving a bare code.
+            syncPatValue(patView, patInput);
           }
         }
         row.classList.remove('editing');

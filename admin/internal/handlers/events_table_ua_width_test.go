@@ -33,11 +33,31 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 		t.Error("the summarised UA cell must carry the raw string as data-full-value, " +
 			"or the full UA is not reachable from the page at all")
 	}
-	// A UA that does not summarise (curl, a library, a crawler) must keep its
+	// A UA that does not summarise (curl, an unknown library) must keep its
 	// raw bytes on the row: on a bot-hunting surface that is the row the
-	// operator most wants to read in full.
-	if !strings.Contains(tpl, `{{ if $uaShort }}{{ $uaShort }}{{ else }}{{ .UA }}{{ end }}`) {
+	// operator most wants to read in full.  Listed crawlers are the exception
+	// -- they summarise to their name and render marked, see
+	// TestHuntMarksCrawlerRows.
+	if !strings.Contains(tpl, `{{ $br }}{{ else }}{{ .UA }}{{ end }}`) {
 		t.Error("a non-summarisable UA must fall back to the raw string in the cell")
+	}
+	// Each half of the summary carries its own marker, in front of its own
+	// text: the platform glyph before the platform, the browser mark before
+	// the browser.  Markers decorate, never replace.
+	if !strings.Contains(tpl, `{{ with uaPlatformIcon $uaShort }}<span class="ua-os"`) {
+		t.Error("the summary lost its platform icon")
+	}
+	if !strings.Contains(tpl, `{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi"`) {
+		t.Error("the summary lost its drawn browser mark")
+	}
+	if !strings.Contains(tpl, `{{ if $plat }}{{ $plat }} · {{ end }}`) {
+		t.Error("the platform half is no longer rendered before the browser half")
+	}
+	// Bot rows are marked, and the two kinds are told apart by class:
+	// listed (a known vendor, so its name here means it did not verify) vs
+	// self-declared (nothing to verify against).
+	if !strings.Contains(tpl, `{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"`) {
+		t.Error("a bot row must render marked, with its kind in the class")
 	}
 
 	// The three properties that clip an over-long (raw) UA must stay, and the
