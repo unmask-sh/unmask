@@ -478,20 +478,30 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// final block).  Otherwise count, and on threshold exceedance,
 	// promote to challenge + emit the zone / challenge_mode in response
 	// headers so nginx can transfer them into the error_page query.
-	zone := cfg.RateLimit.ResolveZone(uri, site)
+	// Every zone that applies to this request counts in parallel -- custom
+	// zones in config order plus the default -- exactly as native mode stacks
+	// one limit_req per zone.  (This used to be first-match-only, which
+	// diverged from native whenever two zones overlapped: an all-paths JA4
+	// zone would have silently replaced the per-IP default here while native
+	// enforced both.)
+	rlZones := cfg.RateLimit.ResolveZonesAll(uri, site)
+	// zone / chMode: the row a trip is attributed to.  Until something trips
+	// they describe the first (= most specific) row, so payloads and headers
+	// keep their pre-multi-zone meaning.
+	zone := rlZones[len(rlZones)-1].RateLimitValues
+	if len(rlZones) > 1 {
+		zone = rlZones[0].RateLimitValues
+	}
 	chMode := zone.ResolvedChallengeMode()
 	rlHit := false
 	rlCount := 0
 	rlAllowance := 0
-	// A valid _bv (already passed a challenge) exempts the client from
-	// CHALLENGE-mode rate-limits -- re-challenging someone who just proved
-	// human is pointless.  A "deny" zone is different: it is a HARD CAP, so a
-	// human who passed CAPTCHA must NOT buy a pass past it by flooding.  Only
-	// trusted sources (bypass IP / verified search bot / signed agent) stay
-	// exempt from a deny zone.
-	bvExemptFromCount := strings.HasPrefix(reason, "bv-") && chMode != settings.RateChallengeDeny
+	// Trusted sources are exempt from every zone kind.  The _bv exemption is
+	// per-zone below: a valid _bv (already passed a challenge) skips
+	// CHALLENGE-mode zones -- re-challenging someone who just proved human is
+	// pointless -- but a "deny" zone is a HARD CAP and counts _bv holders,
+	// who must not buy a pass past it by flooding.
 	shouldCount := h.RateLimiter != nil &&
-		!bvExemptFromCount &&
 		reason != "bypass:ip" &&
 		reason != "bypass:path" &&
 		reason != "ua:search_ai" && // never rate-limit rescued crawlers (= ranking accidents on large crawls; mirrors native's empty $rate_limit_key for is_search_bot)
@@ -501,28 +511,47 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		!strings.HasPrefix(reason, "privacy_pass:") && // attested PAT clients aren't rate-limited
 		action != "block"
 	if shouldCount {
-		// Compose the rate-limit counter key from the configured Key kind.
-		// Mirrors the nginx side's $rate_limit_key map so a request is
-		// counted the same way regardless of native vs forward-auth mode.
-		var keyBase string
-		switch cfg.RateLimit.ResolvedKey() {
-		case settings.RateLimitKeyJA4:
-			keyBase = ja4
-		case settings.RateLimitKeyIPAndJA4:
-			keyBase = ip + "|" + ja4
-		default:
-			keyBase = ip
-		}
-		key := keyBase + "|" + zone.Name
-		res := h.RateLimiter.Hit(key, ratelimit.Spec{
-			RequestsPerMin: zone.RequestsPerMin,
-			Burst:          zone.Burst,
-			WindowSec:      zone.ResolvedWindowSec(),
-		})
-		rlCount = res.Count
-		rlAllowance = res.Allowance
-		if res.Hit {
+		bvPass := strings.HasPrefix(reason, "bv-")
+		denyTripped := false
+		for _, z := range rlZones {
+			zMode := z.ResolvedChallengeMode()
+			if bvPass && zMode != settings.RateChallengeDeny {
+				continue
+			}
+			// Counter key: the zone's resolved key kind -- mirrors the
+			// per-zone $rate_limit_key* variant native renders, so a request
+			// is counted the same way regardless of deploy mode.
+			var keyBase string
+			switch z.Key {
+			case settings.RateLimitKeyJA4:
+				keyBase = ja4
+			case settings.RateLimitKeyIPAndJA4:
+				keyBase = ip + "|" + ja4
+			default:
+				keyBase = ip
+			}
+			res := h.RateLimiter.Hit(keyBase+"|"+z.Name, ratelimit.Spec{
+				RequestsPerMin: z.RequestsPerMin,
+				Burst:          z.Burst,
+				WindowSec:      z.ResolvedWindowSec(),
+			})
+			if !res.Hit {
+				continue
+			}
+			// First trip wins the attribution (zones are ordered most-specific
+			// first), except that a deny trip always takes over: a hard cap
+			// must not be reported -- or enforced -- as a recoverable
+			// challenge just because a challenge zone tripped first.
+			if !rlHit || (zMode == settings.RateChallengeDeny && !denyTripped) {
+				zone = z.RateLimitValues
+				chMode = zMode
+				rlCount = res.Count
+				rlAllowance = res.Allowance
+			}
 			rlHit = true
+			denyTripped = denyTripped || zMode == settings.RateChallengeDeny
+		}
+		if rlHit {
 			// challenge mode = "deny" -> skip the challenge and 403 immediately.
 			// Use case for API / known-bot paths where "human check unnecessary."
 			if chMode == settings.RateChallengeDeny {

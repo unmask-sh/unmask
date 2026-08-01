@@ -103,8 +103,8 @@ func TestZoneRowsRenderViewFirstWithReorderAndWarning(t *testing.T) {
 	if i := strings.Index(after, "</tr>"); i > 0 {
 		after = after[i:]
 	}
-	if !strings.Contains(after[:400], `class="zone-warn-row"`) || !strings.Contains(after[:400], `colspan="9"`) {
-		t.Error("the zone's warning row (full-width, colspan=9) is not paired after the zone row")
+	if !strings.Contains(after[:400], `class="zone-warn-row"`) || !strings.Contains(after[:400], `colspan="10"`) {
+		t.Error("the zone's warning row (full-width, colspan=10) is not paired after the zone row")
 	}
 	// The warning machinery's data: the unmask preset's literal prefix.
 	if !strings.Contains(body, `"/unmask/admin/"`) {

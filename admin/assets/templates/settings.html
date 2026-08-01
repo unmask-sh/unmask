@@ -3479,6 +3479,7 @@ function secToHuman(s){
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_name" }}</th>
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_paths" }}</th>
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_site" }}</th>
+          <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_key" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.rate_limit.zone_key_tip") }}</span></span></th>
           <th style="text-align:right;padding:.4rem .5rem">r/min</th>
           <th style="text-align:right;padding:.4rem .5rem">burst</th>
           <th style="text-align:right;padding:.4rem .5rem">window</th>
@@ -3494,6 +3495,7 @@ function secToHuman(s){
            form parser's 0..N-1 loop keeps working. */}}
       <tbody id="zones-tbody"
              data-inherit-label="{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}"
+             data-key-inherit="{{ t .Lang "settings.rate_limit.zone_key_inherit" }}"
              data-site-all="{{ t .Lang "settings.rate_limit.site_all" }}">
         {{ range $i, $z := .RateLimit.Zones }}
         <tr class="zone-row{{ if $z.Disabled }} zone-off{{ end }}" style="border-top:1px solid #e2e8f0;vertical-align:top">
@@ -3501,6 +3503,14 @@ function secToHuman(s){
           <td><span class="z-view z-mono zv-name">{{ $z.Name }}</span><input class="z-in" name="zone_{{ $i }}_name" value="{{ $z.Name }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
           <td><div class="z-view zv-paths">{{ range $z.PathPatterns }}<div>{{ . }}</div>{{ end }}</div><textarea class="z-in" name="zone_{{ $i }}_paths" rows="2" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical" placeholder="{{ t $.Lang "settings.rate_limit.zone_paths_placeholder" }}">{{ range $z.PathPatterns }}{{ . }}&#10;{{ end }}</textarea></td>
           <td><span class="z-view z-mono zv-site{{ if eq $z.Site "" }} zv-muted{{ end }}">{{ if $z.Site }}{{ $z.Site }}{{ else }}{{ t $.Lang "settings.rate_limit.site_all" }}{{ end }}</span><input class="z-in" type="text" name="zone_{{ $i }}_site" list="rl-zone-site-candidates" value="{{ $z.Site }}" placeholder="{{ t $.Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td><span class="z-view z-mono zv-key{{ if eq $z.Key "" }} zv-muted{{ end }}">{{ if $z.Key }}{{ $z.Key }}{{ else }}{{ t $.Lang "settings.rate_limit.zone_key_inherit" }}{{ end }}</span>
+            <select class="z-in" name="zone_{{ $i }}_key" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" {{ if eq $z.Key "" }}selected{{ end }}>{{ t $.Lang "settings.rate_limit.zone_key_inherit" }}</option>
+              <option value="ip"     {{ if eq $z.Key "ip"     }}selected{{ end }}>ip</option>
+              <option value="ja4"    {{ if eq $z.Key "ja4"    }}selected{{ end }}>ja4</option>
+              <option value="ip+ja4" {{ if eq $z.Key "ip+ja4" }}selected{{ end }}>ip+ja4</option>
+            </select>
+          </td>
           <td class="z-num"><span class="z-view z-mono zv-rpm">{{ $z.RequestsPerMin }}</span><input class="z-in" type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-burst">{{ $z.Burst }}</span><input class="z-in" type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-window">{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}</span><input class="z-in" type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
@@ -3526,7 +3536,7 @@ function secToHuman(s){
             </span>
           </td>
         </tr>
-        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t $.Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
+        <tr class="zone-warn-row"><td colspan="10"><div class="z-warn">{{ safeHTML (t $.Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
         {{ end }}
       </tbody>
     </table>
@@ -3547,6 +3557,14 @@ function secToHuman(s){
           <td><span class="z-view z-mono zv-name"></span><input class="z-in" name="zone_X_name" placeholder="api_strict" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
           <td><div class="z-view zv-paths"></div><textarea class="z-in" name="zone_X_paths" rows="2" placeholder="{{ t .Lang "settings.rate_limit.zone_paths_placeholder" }}" style="width:100%;font-family:ui-monospace,Menlo,monospace;font-size:.8rem;resize:vertical"></textarea></td>
           <td><span class="z-view z-mono zv-site zv-muted"></span><input class="z-in" type="text" name="zone_X_site" list="rl-zone-site-candidates" placeholder="{{ t .Lang "settings.rate_limit.site_all" }}" style="width:9rem;font-family:ui-monospace,Menlo,monospace;font-size:.8rem"></td>
+          <td><span class="z-view z-mono zv-key zv-muted"></span>
+            <select class="z-in" name="zone_X_key" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+              <option value="" selected>{{ t .Lang "settings.rate_limit.zone_key_inherit" }}</option>
+              <option value="ip">ip</option>
+              <option value="ja4">ja4</option>
+              <option value="ip+ja4">ip+ja4</option>
+            </select>
+          </td>
           <td class="z-num"><span class="z-view z-mono zv-rpm"></span><input class="z-in" type="number" name="zone_X_rpm" min="1" max="100000" value="30" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-burst"></span><input class="z-in" type="number" name="zone_X_burst" min="0" max="100000" value="10" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-window"></span><input class="z-in" type="number" name="zone_X_window" min="1" max="3600" value="60" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
@@ -3572,7 +3590,7 @@ function secToHuman(s){
             </span>
           </td>
         </tr>
-        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
+        <tr class="zone-warn-row"><td colspan="10"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
     </template>
     <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
@@ -3648,6 +3666,12 @@ function secToHuman(s){
     var mv = tr.querySelector('.zv-mode');
     mv.textContent = mode || tb.dataset.inheritLabel;
     mv.classList.toggle('zv-muted', !mode);
+    var key = v('key');
+    var kv = tr.querySelector('.zv-key');
+    if (kv) {
+      kv.textContent = key || tb.dataset.keyInherit;
+      kv.classList.toggle('zv-muted', !key);
+    }
   }
   window.rlAddZone = function(){
     var tpl = document.getElementById('rl-zone-row-tpl');

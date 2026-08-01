@@ -3763,6 +3763,13 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		// that was written through the picker / datalist, and the site list
 		// supplied to .Sites already comes from the canonical observed pool.
 		site := strings.TrimSpace(r.FormValue(prefix + "site"))
+		// key: per-zone counter-key kind.  Empty = inherit the install-wide
+		// key ("ip" is NOT normalised away here: at zone level it means "pin
+		// to IP even if the global key changes", which is a real choice).
+		zkey := strings.TrimSpace(r.FormValue(prefix + "key"))
+		if zkey != "" && !settings.IsValidRateLimitKey(zkey) {
+			return fmt.Errorf("zone %s: key must be empty (inherit) or one of ip / ja4 / ip+ja4 (got %q)", name, zkey)
+		}
 		// The checkbox submits when ON, so its absence is what marks a
 		// disabled row -- carried by an explicit "_on" field rather than
 		// inverting the visible control, so the stored flag and the UI agree
@@ -3775,6 +3782,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			PathPatterns:   paths,
 			ChallengeMode:  chmode,
 			Site:           site,
+			Key:            zkey,
 			Disabled:       strings.TrimSpace(r.FormValue(prefix+"on")) == "",
 		})
 	}

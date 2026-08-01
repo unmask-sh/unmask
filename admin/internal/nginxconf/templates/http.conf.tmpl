@@ -1023,6 +1023,32 @@ map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
     "~^.:.:1$"   "";
 }
 
+{{- if .RateKeyVariants }}
+
+# Per-zone key-kind variants: zones may count against a different key than the
+# install-wide one (e.g. a per-IP default plus a parallel JA4 flood zone).
+# Same exemption structure as the two maps above; only the counted expression
+# differs.  Rendered only for kinds a zone actually uses.
+{{- range .RateKeyVariants }}
+{{- if .Deny }}
+map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
+    default      {{ .Expr }};
+    "~^1:"       "";
+    "~^.:1:"     "";
+    "~^.:.:1$"   "";
+}
+{{- else }}
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
+    default       {{ .Expr }};
+    "~^1:"        "";
+    "~^.:1:"      "";
+    "~^.:.:1:"    "";
+    "~^.:.:.:1$"  "";
+}
+{{- end }}
+{{- end }}
+{{- end }}
+
 # Path-scoped zone keys: a zone with PathPatterns is applied everywhere
 # protect.inc is included, but its key is "" (= nginx skips the limit) unless
 # the request URI matches.  This composes the rate-limit with the challenge /
