@@ -3341,7 +3341,7 @@ function secToHuman(s){
     <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
 
-    {{ $primaryLabel := "IP" }}{{ range .RateLimit.DefaultAxisRows }}{{ if .Primary }}{{ $primaryLabel = .Label }}{{ end }}{{ end }}
+    {{ $primaryLabel := "IP" }}{{ $primaryMode := "pow_then_captcha" }}{{ range .RateLimit.DefaultAxisRows }}{{ if .Primary }}{{ $primaryLabel = .Label }}{{ if .ChallengeMode }}{{ $primaryMode = .ChallengeMode }}{{ end }}{{ end }}{{ end }}
     {{ $inheritLabel := tf .Lang "settings.rate_limit.inherit_follows" $primaryLabel }}
     <style>
       #axis-table{width:100%;max-width:46rem;border-collapse:collapse;font-size:.85rem}
@@ -3368,12 +3368,15 @@ function secToHuman(s){
           <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_burst" min="0" max="100000" step="1" placeholder="{{ axisSeedBurst .Kind }}" value="{{ if or (gt .Burst 0) .Primary }}{{ .Burst }}{{ end }}" style="width:6rem"></td>
           <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_window" min="1" max="3600" step="1" placeholder="60" value="{{ if gt .WindowSec 0 }}{{ .WindowSec }}{{ end }}" style="width:5rem"></td>
           <td>
+            {{/* Always a concrete mode: with only three rows, "follow row X"
+                 indirection costs more than it saves (an empty stored value
+                 preselects what enforcement resolves it to). */}}
+            {{ $m := .ChallengeMode }}{{ if eq $m "" }}{{ $m = $primaryMode }}{{ end }}
             <select name="axis_{{ .Field }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-              <option value="" {{ if eq .ChallengeMode "" }}selected{{ end }} class="opt-inherit">{{ $inheritLabel }}</option>
-              <option value="pow_only"         {{ if eq .ChallengeMode "pow_only" }}selected{{ end }}>pow_only</option>
-              <option value="pow_then_captcha" {{ if eq .ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-              <option value="captcha_only"     {{ if eq .ChallengeMode "captcha_only" }}selected{{ end }}>captcha_only</option>
-              <option value="deny"             {{ if eq .ChallengeMode "deny" }}selected{{ end }}>deny</option>
+              <option value="pow_only"         {{ if eq $m "pow_only" }}selected{{ end }}>pow_only</option>
+              <option value="pow_then_captcha" {{ if eq $m "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+              <option value="captcha_only"     {{ if eq $m "captcha_only" }}selected{{ end }}>captcha_only</option>
+              <option value="deny"             {{ if eq $m "deny" }}selected{{ end }}>deny</option>
             </select>
           </td>
         </tr>
@@ -3431,11 +3434,6 @@ function secToHuman(s){
         rows().forEach(function(tr){
           var on = tr.querySelector('.ax-on').checked;
           tr.classList.toggle('axis-off', !on);
-          var inherit = tr.querySelector('select[name$="_chmode"] option[value=""]');
-          if (inherit) {
-            inherit.disabled = (tr.dataset.axis === prim);
-            inherit.textContent = label;
-          }
         });
         // Keep the zones table's inherit wording in step: the option labels,
         // the view text of rows currently showing the inherited mode, and the
