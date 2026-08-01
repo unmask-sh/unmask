@@ -398,6 +398,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 /* ua-filter tab top heading + help trigger */
 .ua-tab-title{font-size:1.4rem;font-weight:700;color:#0f172a;margin:0 0 1.5rem;display:flex;align-items:center;gap:.7rem}
+/* Pattern-syntax block: the first thing a path help popover says, so it
+   reads as a label on the field rather than prose inside it.  Every path
+   list carries one -- some take regex, the rate-limit zones take literal
+   prefixes, and the difference is invisible until something silently fails
+   to match. */
+.path-syntax{margin:0 0 .55rem;padding:.5rem .65rem;background:#f8fafc;border-left:.1875rem solid #94a3b8;border-radius:.25rem;font-size:.78rem;line-height:1.7;color:#334155}
+.path-syntax code{background:#e2e8f0;padding:.05em .3em;border-radius:.2rem}
 .ua-help-trigger{width:1.6rem;height:1.6rem;border-radius:50%;border:1px solid #cbd5e1;background:#f8fafc;color:#475569;font-size:.95rem;font-weight:700;cursor:help;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
 .ua-help-trigger:hover{background:#e2e8f0;color:#0f172a;border-color:#94a3b8}
 
