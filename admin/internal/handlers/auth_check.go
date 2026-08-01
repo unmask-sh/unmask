@@ -1600,7 +1600,10 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			if r.Site != "" && r.Site != site {
 				continue
 			}
-			if re := compileCachedRe("(?i)" + r.Pattern); re != nil {
+			// Case-SENSITIVE, matching the native render's "~" map (the
+			// block lists below use "~*" on both wires -- see the pass-list
+			// note on compileExemptRows).
+			if re := compileCachedRe(r.Pattern); re != nil {
 				pm.bypass = append(pm.bypass, re)
 			}
 		}
@@ -1609,7 +1612,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		if row.Disabled {
 			continue
 		}
-		if re := compileCachedRe("(?i)" + row.Path); re != nil {
+		if re := compileCachedRe(row.Path); re != nil {
 			pm.bypass = append(pm.bypass, re)
 		}
 	}
@@ -1617,12 +1620,20 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 	// Per-axis exempt paths (no presets).  Same compile convention as bypass
 	// paths; each list is matched in the decision's default case to skip ONLY
 	// its own axis (geoDecide or asnDecide).
+	// Pass lists (bypass / geo-exempt / asn-exempt) compile case-SENSITIVE,
+	// the same as the native render's "~" maps -- forward-auth used to fold in
+	// "(?i)" and quietly passed /STATIC/ where native challenged it, and for a
+	// list whose entries SKIP enforcement the narrower reading is the safe
+	// one.  Block lists (protected paths / honeypot) stay case-insensitive on
+	// both wires, where wider is the safe direction.  An operator who wants
+	// either one relaxed writes "(?i)" into the pattern: both PCRE (nginx) and
+	// RE2 (Go) honour it.
 	compileExemptRows := func(rows []settings.BypassPath) (out []*regexp.Regexp) {
 		for _, row := range rows {
 			if row.Disabled {
 				continue
 			}
-			if re := compileCachedRe("(?i)" + row.Path); re != nil {
+			if re := compileCachedRe(row.Path); re != nil {
 				out = append(out, re)
 			}
 		}
