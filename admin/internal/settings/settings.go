@@ -516,6 +516,21 @@ type IPGeo struct {
 	// daemon was installed (binary / docker / any distro). Default true; set
 	// false on air-gapped hosts to suppress the (non-fatal) fetch attempts.
 	AutoFetch bool `yaml:"auto_fetch"`
+	// AutoUpdate: keep a managed (= default-path) mmdb current instead of
+	// letting it rot after the first fetch.  The daemon checks daily and
+	// replaces the file when the snapshot on disk is older than a month --
+	// daily rather than monthly on purpose: DB-IP publishes several days into
+	// the month, and a fixed-day schedule that fires too early simply misses
+	// that month (observed on the mirror, which served a three-week-old
+	// snapshot for exactly this reason).  Each replacement is temp-file ->
+	// verify -> atomic rename, so a failed download leaves the working file
+	// alone, and the in-process reader is reloaded without a restart.
+	//
+	// Defaults to true, but only ever acts on a file unmask itself manages:
+	// a custom mmdb_path is never touched, and nothing is downloaded for an
+	// install that has no mmdb (that is AutoFetch's decision).  Air-gapped
+	// hosts turn it off alongside AutoFetch.
+	AutoUpdate bool `yaml:"auto_update"`
 }
 
 // NginxLog: data source for the cookie-passage dashboard.
@@ -3498,6 +3513,7 @@ func defaults() Settings {
 			// pick "none" get this cleared on save.
 			MMDBASNPath: "/var/lib/unmask/ipgeo/dbip-asn.mmdb",
 			AutoFetch:   true,
+			AutoUpdate:  true,
 		},
 		CommunityBans: CommunityBans{
 			SubmitEnabled: false,
