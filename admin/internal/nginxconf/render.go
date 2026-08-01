@@ -1104,17 +1104,15 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// next to the default zone -- so rate-limit and protection compose in
 		// the same location.  Site-scoped zones match on URI only (nginx has
 		// no Host in a map key here); Host isolation is via AdminAllowedHosts.
-		// The patterns are LITERAL path prefixes (the UI says so, and
-		// RateZone.MatchPath compares bytes).  They land inside an nginx regex
-		// here, so they have to be escaped: unescaped, "/api/v1.0/" would let
-		// the "." match any character and "/a(b" would fail `nginx -t` and take
-		// the whole module down.  Before this, native read them as
-		// case-insensitive regexes while forward-auth read them as literals --
-		// the same config enforcing two different things per deploy mode.
+		// Patterns are case-insensitive regexes, emitted with "~*" exactly like
+		// the protected-path and honeypot maps -- one grammar for every path
+		// field in the product.  RateZone.MatchPath compiles the same string
+		// with "(?i)", and the settings form rejects one that does not compile,
+		// so a pattern that reaches here cannot fail `nginx -t`.
 		patterns := make([]string, 0, len(z.PathPatterns))
 		for _, p := range z.PathPatterns {
 			if p = strings.TrimSpace(p); p != "" {
-				patterns = append(patterns, regexp.QuoteMeta(p))
+				patterns = append(patterns, p)
 			}
 		}
 		zoneKind := s.RateLimit.ZoneKeyResolved(z)

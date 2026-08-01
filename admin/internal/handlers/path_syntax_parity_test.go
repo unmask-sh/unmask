@@ -142,7 +142,7 @@ func TestEveryPathHelpStatesItsSyntax(t *testing.T) {
 	h.SetSettings(s)
 
 	for _, c := range []struct{ tab, want string }{
-		{"rate-limit", "literal prefix (NOT a regular expression)"},
+		{"rate-limit", "Pattern syntax: regular expression"},
 		{"bypass-paths", "Pattern syntax: regular expression"},
 		{"protected", "Pattern syntax: regular expression"},
 		{"honeypot", "Pattern syntax: regular expression"},
@@ -170,11 +170,10 @@ func TestEveryPathHelpStatesItsSyntax(t *testing.T) {
 	}
 }
 
-// The syntax block must say the RIGHT thing per tab: the rate-limit zones are
-// the only literal-prefix list, and a copy-paste that gave them the regex
-// wording (or gave a regex list the literal wording) would send an operator
-// straight into a pattern that silently never matches.
-func TestSyntaxBlockMatchesTheListItDescribes(t *testing.T) {
+// One grammar, stated everywhere.  Kept as its own test (rather than folded
+// into the coverage one above) because it is the assertion that would catch a
+// future field quietly reintroducing a second matcher.
+func TestNoPathHelpAdvertisesTheRetiredLiteralMatcher(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
 	s.Server.BasePath = "/unmask"
@@ -188,12 +187,18 @@ func TestSyntaxBlockMatchesTheListItDescribes(t *testing.T) {
 		h.AdminSettingsIndex(rr, req)
 		return rr.Body.String()
 	}
-	if b := body("rate-limit"); strings.Contains(b, "Pattern syntax: regular expression") {
-		t.Error("the rate-limit zones are a literal-prefix list; the regex wording would mislead")
-	}
-	for _, tab := range []string{"bypass-paths", "protected", "honeypot", "geo", "asn", "network"} {
-		if strings.Contains(body(tab), "literal prefix (NOT a regular expression)") {
-			t.Errorf("%s takes regex; the literal wording would mislead", tab)
+	// Every path field takes the same grammar now (the rate-limit zones were
+	// the last literal-prefix holdout), so the literal wording must not
+	// survive anywhere -- it would describe a matcher the product no longer
+	// has, and send an operator into an unanchored pattern believing it is
+	// pinned to the start of the URL.
+	for _, tab := range []string{"rate-limit", "bypass-paths", "protected", "honeypot", "geo", "asn", "network"} {
+		b := body(tab)
+		if strings.Contains(b, "literal prefix (NOT a regular expression)") {
+			t.Errorf("%s advertises a literal-prefix matcher that no longer exists", tab)
+		}
+		if !strings.Contains(b, "Pattern syntax: regular expression") {
+			t.Errorf("%s does not state its pattern syntax", tab)
 		}
 	}
 }
