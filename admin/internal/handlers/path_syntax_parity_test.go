@@ -202,3 +202,41 @@ func TestNoPathHelpAdvertisesTheRetiredLiteralMatcher(t *testing.T) {
 		}
 	}
 }
+
+// The auto-update switches live inside the DB-IP (managed) mode block of the
+// section they govern.  Placement is the whole message here: at section level
+// the switch reads as a promise to update whatever that section points at,
+// including a file the operator brought on a custom path -- which unmask never
+// rewrites.  Inside the managed block it is visible exactly when it can act.
+func TestIPGeoAutoUpdateSwitchesSitInTheManagedModeBlock(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.IPGeo.AutoUpdate = true
+	s.IPGeo.AutoUpdateASN = true
+	h.SetSettings(s)
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil)
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	body := rr.Body.String()
+
+	for _, c := range []struct{ blockID, field string }{
+		{"ipgeo-mode-dbip", "ipgeo_auto_update"},
+		{"ipgeo-asn-mode-dbip", "ipgeo_auto_update_asn"},
+	} {
+		start := strings.Index(body, `id="`+c.blockID+`"`)
+		if start < 0 {
+			t.Fatalf("%s block missing", c.blockID)
+		}
+		scope := body[start:]
+		// The block ends where the next mode row starts.
+		if end := strings.Index(scope, `<div class="field ipgeo-mode-row">`); end > 0 {
+			scope = scope[:end]
+		}
+		if !strings.Contains(scope, `name="`+c.field+`"`) {
+			t.Errorf("%s is outside the %s block; a custom-path operator would read it as applying to their file",
+				c.field, c.blockID)
+		}
+	}
+}
