@@ -514,7 +514,11 @@ func IsOldBrowser(ua string) bool {
 // whole family.  Firefox and Safari (WebKit) use unrelated version schemes
 // and carry no Chrome token, so ChromeMajor returns 0 for them (= never
 // treated as a stale Chrome).
-var chromeMajorRE = regexp.MustCompile(`Chrome/(\d+)\.`)
+// No trailing dot: a genuine build reports Chrome/131.0.0.0, but simplified
+// and forged UAs state a bare major ("Chrome/131") -- and this column shows
+// the claim as reported, so the bare form must parse too.  (HeadlessChrome
+// matches either way; the dot never excluded it.)
+var chromeMajorRE = regexp.MustCompile(`Chrome/(\d+)`)
 
 // SecCHUAMinChromeMajor is the first Chromium major that sends Sec-CH-UA
 // (user-agent client hints shipped in Chromium 89, 2021-03).  Below it the
@@ -547,7 +551,8 @@ func ChromeMajor(ua string) int {
 // cadence as Chromium, so one lag knob covers both families.  iOS Firefox
 // (FxiOS/) is WebKit with its own version scheme and carries no Firefox
 // token — FirefoxMajor returns 0 for it, like for Safari itself.
-var firefoxMajorRE = regexp.MustCompile(`Firefox/(\d+)\.`)
+// Same reasoning as chromeMajorRE: accept a bare "Firefox/128".
+var firefoxMajorRE = regexp.MustCompile(`Firefox/(\d+)`)
 
 // FirefoxMajor returns the Firefox major version a UA advertises, or 0 when
 // the UA carries no `Firefox/<major>.` token.  The trailing dot anchors the
@@ -1012,21 +1017,22 @@ func uaSummaryUncached(ua string) string {
 	// summarise as an ordinary desktop browser and hide what they are.  This
 	// is also what makes a spoof visible: an unverified request claiming
 	// Googlebot lands in the hunt log wearing the name it claimed.
-	// Self-identified bots first.  Both this and the curated list run before
-	// the browser read -- several bots ship a full Chrome-shaped UA
-	// ("...compatible; Amzn-SearchBot/0.1) Chrome/119...") that would
-	// otherwise summarise as an ordinary desktop browser and bury what it is.
 	//
-	// Order matters for cost, not correctness: a UA carrying a bot token
-	// passes LookupCrawler's literal gate and pays a full walk over the
-	// per-tag alternations (~3ms) before answering.  The scan here settles the
-	// same UA in ~2us, and for a bot that IS on the curated list the name it
-	// declares is the same name the list would return.
-	if b := SelfDeclaredBot(ua); b != "" {
-		return b
-	}
+	// The curated list runs BEFORE the self-declared scan.  It used to be the
+	// other way around for cost (the scan settles in ~2us, the list walk in
+	// ~3ms) on the assumption that a listed bot's declared name equals its
+	// list name -- which Google-Extended broke: its UA carries no bot-shaped
+	// product token at all, only "+http://www.google.com/bot.html", so the
+	// scan extracted a literal "bot" out of the URL while the list knew the
+	// real name.  The memo above absorbs the walk once per UA kind, so the
+	// cost argument no longer buys anything.  uaBotKind resolves the badge
+	// KIND through the same list-first order, so name and colour stay from
+	// one source.
 	if c, _ := LookupCrawler(ua); c != "" && c != "other" {
 		return c
+	}
+	if b := SelfDeclaredBot(ua); b != "" {
+		return b
 	}
 	platform := uaPlatform(ua)
 	browser, ver := uaBrowser(ua)

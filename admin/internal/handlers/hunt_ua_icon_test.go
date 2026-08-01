@@ -81,7 +81,7 @@ func TestUAPopoverTitleCarriesTheSummary(t *testing.T) {
 	// Hover carries the summary as a heading INSIDE the popover, because the
 	// hover popover has no tools -- only the pinned clone has the copy
 	// button, and that one keeps its body verbatim.
-	if !strings.Contains(body, "pin.showHover(popHtml(val, url, summaryHTML(el, val))") {
+	if !strings.Contains(body, "pin.showHover(popHtml(val, url, summaryHTML(el, val), note)") {
 		t.Error("hover no longer shows the summary; it would only appear after pinning")
 	}
 	// Hover reuses the cell's rendered markup so the icons survive; flattening
@@ -97,8 +97,21 @@ func TestUAPopoverTitleCarriesTheSummary(t *testing.T) {
 	if !strings.Contains(body, "cellpop-summary") {
 		t.Error("the hover summary heading is missing")
 	}
-	// The pinned call must NOT pass a summary into the body.
-	if !strings.Contains(body, "pin.handleClick(popHtml(val, url), e.pageX") {
+	// The pinned call must NOT pass a summary into the body (it has the title
+	// bar for that).  The row note is a separate argument and does ride the
+	// body -- deliberately, since two stacked tooltips read worse than a copy
+	// that includes one sentence.
+	if !strings.Contains(body, "pin.handleClick(popHtml(val, url, '', el.getAttribute('data-note')") {
 		t.Error("the pinned popover body no longer receives the raw value alone; copy would include the summary")
+	}
+	// The bot-claim reading lives in the popover, never as a native title=
+	// on the badge: the cell already opens a popover on hover, and both at
+	// once put two boxes in the same corner.
+	if strings.Contains(body, `class="ua-bot ua-bot-listed" title=`) ||
+		strings.Contains(body, `class="ua-bot ua-bot-self" title=`) {
+		t.Error("the bot badge still carries a native title tooltip")
+	}
+	if !strings.Contains(body, "cellpop-note") {
+		t.Error("the popover has no slot for the row note")
 	}
 }
