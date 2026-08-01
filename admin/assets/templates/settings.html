@@ -3341,6 +3341,8 @@ function secToHuman(s){
     <h3 style="font-size:1rem;margin:1rem 0 .4rem">{{ t .Lang "settings.rate_limit.default_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.default_help") }}</div>
 
+    {{ $primaryLabel := "IP" }}{{ range .RateLimit.DefaultAxisRows }}{{ if .Primary }}{{ $primaryLabel = .Label }}{{ end }}{{ end }}
+    {{ $inheritLabel := tf .Lang "settings.rate_limit.inherit_follows" $primaryLabel }}
     <style>
       #axis-table{width:100%;max-width:46rem;border-collapse:collapse;font-size:.85rem}
       #axis-table th{background:#f8fafc;color:#475569;text-align:left;padding:.4rem .5rem;font-weight:600}
@@ -3367,7 +3369,7 @@ function secToHuman(s){
           <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_window" min="1" max="3600" step="1" placeholder="60" value="{{ if gt .WindowSec 0 }}{{ .WindowSec }}{{ end }}" style="width:5rem"></td>
           <td>
             <select name="axis_{{ .Field }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-              <option value="" {{ if eq .ChallengeMode "" }}selected{{ end }}>{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+              <option value="" {{ if eq .ChallengeMode "" }}selected{{ end }} class="opt-inherit">{{ $inheritLabel }}</option>
               <option value="pow_only"         {{ if eq .ChallengeMode "pow_only" }}selected{{ end }}>pow_only</option>
               <option value="pow_then_captcha" {{ if eq .ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
               <option value="captcha_only"     {{ if eq .ChallengeMode "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -3379,6 +3381,9 @@ function secToHuman(s){
       </tbody>
     </table>
     <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
+    <script type="text/html" id="rl-rpm-help">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</script>
+    <script type="text/html" id="rl-burst-help">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</script>
+    <script type="text/html" id="rl-window-help">{{ safeHTML (t .Lang "settings.rate_limit.window_sec_help") }}</script>
     <script type="text/html" id="rl-mode-help">
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
@@ -3418,14 +3423,31 @@ function secToHuman(s){
         });
         return deny;
       };
+      var labels = {ip: 'IP', ja4: 'JA4', ipja4: 'IP+JA4'};
+      var inheritFmt = {{ toJSON (t .Lang "settings.rate_limit.inherit_follows") }};
       function sync(){
         var prim = primaryAxis();
+        var label = inheritFmt.replace('%s', labels[prim] || 'IP');
         rows().forEach(function(tr){
           var on = tr.querySelector('.ax-on').checked;
           tr.classList.toggle('axis-off', !on);
           var inherit = tr.querySelector('select[name$="_chmode"] option[value=""]');
-          if (inherit) inherit.disabled = (tr.dataset.axis === prim);
+          if (inherit) {
+            inherit.disabled = (tr.dataset.axis === prim);
+            inherit.textContent = label;
+          }
         });
+        // Keep the zones table's inherit wording in step: the option labels,
+        // the view text of rows currently showing the inherited mode, and the
+        // dataset the row-confirm fill() reads.
+        var ztb = document.getElementById('zones-tbody');
+        if (ztb) {
+          ztb.dataset.inheritLabel = label;
+          ztb.querySelectorAll('option.opt-inherit').forEach(function(o){ o.textContent = label; });
+          ztb.querySelectorAll('.zv-mode.zv-muted').forEach(function(sp){ sp.textContent = label; });
+        }
+        var ztpl = document.getElementById('rl-zone-row-tpl');
+        if (ztpl) ztpl.content.querySelectorAll('option.opt-inherit').forEach(function(o){ o.textContent = label; });
         if (typeof rlWarnSync === 'function') rlWarnSync();
       }
       document.getElementById('axis-table').addEventListener('change', sync);
@@ -3502,7 +3524,7 @@ function secToHuman(s){
            the resequencer renames zone_<i>_* fields after every move so the
            form parser's 0..N-1 loop keeps working. */}}
       <tbody id="zones-tbody"
-             data-inherit-label="{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}"
+             data-inherit-label="{{ $inheritLabel }}"
              data-key-inherit="{{ t .Lang "settings.rate_limit.zone_key_inherit" }}"
              data-site-all="{{ t .Lang "settings.rate_limit.site_all" }}">
         {{ range $i, $z := .RateLimit.Zones }}
@@ -3522,9 +3544,9 @@ function secToHuman(s){
           <td class="z-num"><span class="z-view z-mono zv-rpm">{{ $z.RequestsPerMin }}</span><input class="z-in" type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-burst">{{ $z.Burst }}</span><input class="z-in" type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-window">{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}</span><input class="z-in" type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
-          <td><span class="z-view z-mono zv-mode{{ if eq $z.ChallengeMode "" }} zv-muted{{ end }}">{{ if $z.ChallengeMode }}{{ $z.ChallengeMode }}{{ else }}{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}{{ end }}</span>
+          <td><span class="z-view z-mono zv-mode{{ if eq $z.ChallengeMode "" }} zv-muted{{ end }}">{{ if $z.ChallengeMode }}{{ $z.ChallengeMode }}{{ else }}{{ $inheritLabel }}{{ end }}</span>
             <select class="z-in" name="zone_{{ $i }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-              <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }}>{{ t $.Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+              <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }} class="opt-inherit">{{ $inheritLabel }}</option>
               <option value="captcha_only"     {{ if eq $z.ChallengeMode "captcha_only"     }}selected{{ end }}>captcha_only</option>
               <option value="pow_only"         {{ if eq $z.ChallengeMode "pow_only"         }}selected{{ end }}>pow_only</option>
               <option value="pow_then_captcha" {{ if eq $z.ChallengeMode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -3578,7 +3600,7 @@ function secToHuman(s){
           <td class="z-num"><span class="z-view z-mono zv-window"></span><input class="z-in" type="number" name="zone_X_window" min="1" max="3600" value="60" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
           <td><span class="z-view z-mono zv-mode zv-muted"></span>
             <select class="z-in" name="zone_X_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
-              <option value="" selected>{{ t .Lang "settings.rate_limit.zone_inherit_mode" }}</option>
+              <option value="" selected class="opt-inherit">{{ $inheritLabel }}</option>
               <option value="captcha_only">captcha_only</option>
               <option value="pow_only">pow_only</option>
               <option value="pow_then_captcha">pow_then_captcha</option>
