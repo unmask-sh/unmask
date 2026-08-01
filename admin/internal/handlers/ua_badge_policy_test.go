@@ -8,6 +8,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -106,10 +107,25 @@ func TestHuntBadgeTitleFollowsCrawlerPolicy(t *testing.T) {
 
 	rows = rowsOnly(huntBodyEN(t, h))
 	if !strings.Contains(rows, "Configured as a challenge target") {
-		t.Error("black group: the badge must say the crawler is a configured target")
+		t.Error("black group: the note must say the crawler is a configured target")
 	}
 	if strings.Contains(rows, "did not pass verification") {
-		t.Error("black group: the spoof-signal title is a false accusation here")
+		t.Error("black group: the spoof-signal note is a false accusation here")
+	}
+
+	// ...unless the vendor's ranges are live.  Then the bypass-IP veto runs
+	// BEFORE the challenge-target decision, so a genuine crawler never
+	// reaches this log however the UA policy is set -- and the row is back to
+	// being a spoof signal, named after the check it actually failed.
+	s = h.snapshotSettings()
+	s.Nginx.BypassIPEnabledPresets = nginxconf.UARangePresets[`Googlebot\/`]
+	h.SetSettings(s)
+	rows = rowsOnly(huntBodyEN(t, h))
+	if !strings.Contains(rows, "Likely spoofed") {
+		t.Error("with the vendor ranges live, a listed row means the address check failed")
+	}
+	if strings.Contains(rows, "Configured as a challenge target") {
+		t.Error("the range reading must outrank the configured-target one")
 	}
 }
 

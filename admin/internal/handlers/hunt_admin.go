@@ -494,21 +494,19 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.
 		"Filtering": ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "",
-		// UAChallenged: listed-crawler UAs the current policy deliberately
-		// challenges (group black / none, pattern upstream-disabled).  The
-		// partial swaps the badge title for those rows -- "failed
-		// verification" would be a false spoof accusation there.
-		"UAChallenged": uaChallengedByUA(rowUAList, cur.SearchBots),
-		"Rows":         enriched,
-		"IPRank":       ipRank,
-		"JA4Rank":      ja4Rank,
-		"UARank":       uaRank,
-		"Offset":       offset,
-		"PageSize":     pageSize,
-		"NextOffset":   offset + pageSize,
-		"PrevOffset":   maxInt(offset-pageSize, 0),
-		"HasMore":      hasMore,
-		"HasPrev":      offset > 0,
+		// UABotNote: per listed-crawler UA, which reading its badge note
+		// carries (address check failed / configured target / generic).
+		"UABotNote":  uaBotNoteByUA(rowUAList, cur),
+		"Rows":       enriched,
+		"IPRank":     ipRank,
+		"JA4Rank":    ja4Rank,
+		"UARank":     uaRank,
+		"Offset":     offset,
+		"PageSize":   pageSize,
+		"NextOffset": offset + pageSize,
+		"PrevOffset": maxInt(offset-pageSize, 0),
+		"HasMore":    hasMore,
+		"HasPrev":    offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.

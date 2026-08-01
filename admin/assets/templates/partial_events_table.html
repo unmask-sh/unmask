@@ -19,12 +19,12 @@
                            the overview card so the recent-events table fits
                            inside the bcd-card and the URL / UA columns get
                            more horizontal room.  Hunt keeps it on.
-    .UAChallenged          map[ua]bool -- optional; listed-crawler UAs the
-                           current policy deliberately challenges (group
-                           black / none, upstream-disabled pattern).  Their
-                           badge title says "configured target" instead of
-                           "failed verification".  Missing / nil = every
-                           listed badge keeps the spoof-signal title.
+    .UABotNote             map[ua]string -- optional; per listed-crawler UA,
+                           which reading its badge note carries: "range" (the
+                           vendor's ranges are live, so a row here failed the
+                           address check), "challenged" (policy target --
+                           genuine ones appear too), "listed" (generic).
+                           Missing / nil = the generic reading everywhere.
 
   cell-popover div + popover-pin partial must be on the surrounding page; the
   partial does NOT inject either so the page keeps full layout control.
@@ -78,6 +78,7 @@
    it stays neutral. */
 /* Summary heading shown on HOVER only (the pinned clone carries it in the
    title bar, where the copy button cannot reach it). */
+.cellpop-note{margin-top:.4rem;padding-top:.35rem;border-top:1px solid rgba(148,163,184,.35);font-size:.76rem;line-height:1.5;color:#cbd5e1}
 .cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
 .ua-bot{display:inline-block;padding:0 .3rem;border-radius:.2rem;font-weight:600}
 .ua-bot-listed{background:#fef3c7;color:#92400e}
@@ -296,7 +297,19 @@
            something malformed -- keeps its raw bytes on the row, because on a
            bot-hunting surface that is the row worth reading in full. */}}
       {{ $uaShort := uaSummary .UA }}{{ $uaBot := uaBotKind .UA }}
-      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}>{{ if .UA }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}" title="{{ if ne $uaBot "listed" }}{{ t $.Lang "hunt.ua.bot_self" }}{{ else if and $.UAChallenged (index $.UAChallenged .UA) }}{{ t $.Lang "hunt.ua.bot_challenged" }}{{ else }}{{ t $.Lang "hunt.ua.bot_listed" }}{{ end }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* botNote: the row's reading of a bot claim, carried on the CELL and shown
+           inside the popover.  Not a title= attribute: the cell already opens a
+           popover on hover, and a native tooltip on top of it made two boxes
+           fight for the same corner. */}}
+      {{ $botNote := "" }}
+      {{ if eq $uaBot "self" }}{{ $botNote = t $.Lang "hunt.ua.bot_self" }}
+      {{ else if eq $uaBot "listed" }}
+        {{ $kind := "" }}{{ if $.UABotNote }}{{ $kind = index $.UABotNote .UA }}{{ end }}
+        {{ if eq $kind "range" }}{{ $botNote = t $.Lang "hunt.ua.bot_range_failed" }}
+        {{ else if eq $kind "challenged" }}{{ $botNote = t $.Lang "hunt.ua.bot_challenged" }}
+        {{ else }}{{ $botNote = t $.Lang "hunt.ua.bot_listed" }}{{ end }}
+      {{ end }}
+      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ if .UA }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{ if not $.HideActions }}
       <td class="actions">
         {{ if .Banned }}
@@ -851,7 +864,7 @@ document.addEventListener('DOMContentLoaded', function(){
     var txt = (el.textContent || '').trim();
     return (txt && txt !== val) ? el.innerHTML : '';
   }
-  function popHtml(val, url, summary){
+  function popHtml(val, url, summary, note){
     // For URL cells the full address (= scheme://site[:port]path) is the more
     // useful thing to display + copy, so show it in place of the raw path.
     // Other columns keep showing the value verbatim.
@@ -861,6 +874,14 @@ document.addEventListener('DOMContentLoaded', function(){
       body += '<div class="cellpop-summary">' + summary + '</div>';
     }
     body += '<code class="cellpop-val">' + esc(display) + '</code>';
+    // Row note (bot-claim reading).  Below the value so the popover still
+    // opens on the string the operator came for; the copy button takes the
+    // body verbatim, and pasting a sentence with the UA was judged the
+    // lesser evil against two tooltips stacked on one corner (a mouse
+    // selection copies the string alone when that matters).
+    if (note){
+      body += '<div class="cellpop-note">' + esc(note) + '</div>';
+    }
     if (url){
       body += '<div class="cellpop-actions">' +
         '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
@@ -915,7 +936,8 @@ document.addEventListener('DOMContentLoaded', function(){
       // only the pinned clone has a copy button, and that button takes the
       // body verbatim -- so the body must stay exactly the raw value there.
       // The hover popover has no tools, so a heading costs nothing.
-      timer = setTimeout(function(){ pin.showHover(popHtml(val, url, summaryHTML(el, val)), x, y, el); }, 200);
+      var note = el.getAttribute('data-note') || '';
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url, summaryHTML(el, val), note), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -928,7 +950,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // reading produced it.  It goes in the title bar rather than the body
       // because the copy button takes the body's text verbatim -- putting the
       // summary there would paste it along with the UA every time.
-      pin.handleClick(popHtml(val, url), e.pageX, e.pageY, el, popTitle(el, val));
+      pin.handleClick(popHtml(val, url, '', el.getAttribute('data-note') || ''), e.pageX, e.pageY, el, popTitle(el, val));
     });
   });
 
