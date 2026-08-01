@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.15",
+  "latest": "0.1.16",
   "releases": [
+    {
+      "version": "0.1.16",
+      "date": "2026-08-01",
+      "notes": "The default rate limit becomes three parallel axes - per-IP, per-JA4, per-IP+JA4 - each an always-visible row: a bot fleet rotating addresses never accumulates in a per-IP bucket but tends to share a TLS fingerprint, and the new JA4 row (off by default, crowd-sized thresholds) keeps counting while the addresses churn. Named zones can count against their own key, and rate-limit enforcement is now identical across deploy modes - path patterns match literally on both wires, no-path zones actually apply in native mode, and overlapping zones all count in parallel with deny outranking a challenge. The admin login and password reset throttle per address in the application, replacing a rate-limit preset that never fired. Settings value lists (admin allowlist, hostnames, metrics, sites, trusted LBs) render as confirmed rows with per-row off switches, notes and reordering, and a switched-off row is absent from every consumer while the self-lockout guard judges what is actually enabled. The hunt log tells apps, browsers and bot kinds apart with small marks, names in-app browsers over their engine token, distinguishes listed crawlers from self-declared bots with policy-aware wording, counts visible sessions in the pager, and pages correctly at every size - the boundary margin now covers real session spread, the 1000-row page no longer collapses to 100, and the fragment hint names all three reasons rows can be elsewhere, including another fleet node behind a load balancer."
+    },
     {
       "version": "0.1.15",
       "date": "2026-08-01",
