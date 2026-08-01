@@ -865,6 +865,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ end }}
         </div>
         <div id="ipgeo-install-status" style="display:none;margin-top:.3rem;font-size:.72rem"></div>
+        {{/* Auto-update rides the managed path only: the custom-path mode below
+             is the operator's own file and is never rewritten. */}}
+        <label style="display:flex;align-items:center;gap:.45rem;margin-top:.6rem;font-size:.82rem;cursor:pointer">
+          <input type="checkbox" name="ipgeo_auto_update" value="1" {{ if .IPGeoAutoUpdate }}checked{{ end }}>
+          {{ t .Lang "settings.network.ipgeo_auto_update" }}
+          <button type="button" class="ua-help-trigger" data-help-target="ipgeo-auto-update-help" aria-label="?">?</button>
+        </label>
+        <script type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
       </div>
     </div>
 
