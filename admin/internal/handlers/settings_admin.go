@@ -3756,7 +3756,10 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			*st = settings.AxisLimitConfig{} // the primary lives in Key+Default only
 			continue
 		}
-		if !p.on && p.rpm < 0 && p.bur < 0 && p.win < 0 && p.mode == "" {
+		// The mode select always posts a concrete value (no inherit option on
+		// axis rows), so it carries no touched/untouched signal -- an
+		// untouched row is one with no numeric input and the toggle off.
+		if !p.on && p.rpm < 0 && p.bur < 0 && p.win < 0 {
 			*st = settings.AxisLimitConfig{} // untouched row leaves no trace
 			continue
 		}
