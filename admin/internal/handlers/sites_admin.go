@@ -79,9 +79,16 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 	}
 	seen := map[string]bool{}
 	defined := []string{}
-	// site_defined is now a value-rule-list (one host per row) rather than a
-	// newline textarea, so read the repeated field.
-	for _, line := range r.Form["site_defined"] {
+	titles := []string{}
+	disabled := []bool{}
+	anyOff := false
+	anyTitle := false
+	// site_defined is a value-rule-list: one host per row, with parallel
+	// _title / _enabled fields riding the same index.
+	vals := r.Form["site_defined"]
+	notes := r.Form["site_defined_title"]
+	ens := r.Form["site_defined_enabled"]
+	for i, line := range vals {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
@@ -91,8 +98,27 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 		}
 		seen[s] = true
 		defined = append(defined, s)
+		title := ""
+		if i < len(notes) {
+			title = strings.TrimSpace(notes[i])
+		}
+		titles = append(titles, title)
+		anyTitle = anyTitle || title != ""
+		off := i < len(ens) && ens[i] == "0"
+		disabled = append(disabled, off)
+		anyOff = anyOff || off
 	}
 	c.Defined = defined
+	// Store the parallel slices only when they carry information, so a config
+	// that never used notes / toggles keeps its old shape.
+	c.DefinedTitle = nil
+	if anyTitle {
+		c.DefinedTitle = titles
+	}
+	c.DefinedDisabled = nil
+	if anyOff {
+		c.DefinedDisabled = disabled
+	}
 }
 
 // AdminSitePromote: POST {base}/admin/api/sites/promote — one-click promotion
@@ -128,12 +154,31 @@ func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 		if s.Sites.Mode == "" {
 			s.Sites.Mode = settings.SiteModeDefined
 		}
-		for _, d := range s.Sites.Defined {
-			if d == site {
-				return // already defined — idempotent
+		for i, d := range s.Sites.Defined {
+			if d != site {
+				continue
 			}
+			// Already on the list: promoting a site whose row was switched
+			// off means "define it again", so clear the flag instead of
+			// appending a duplicate row.
+			if i < len(s.Sites.DefinedDisabled) {
+				s.Sites.DefinedDisabled[i] = false
+			}
+			return
 		}
 		s.Sites.Defined = append(s.Sites.Defined, site)
+		if len(s.Sites.DefinedDisabled) > 0 {
+			// Keep the parallel slices aligned once they exist.
+			for len(s.Sites.DefinedDisabled) < len(s.Sites.Defined)-1 {
+				s.Sites.DefinedDisabled = append(s.Sites.DefinedDisabled, false)
+			}
+			s.Sites.DefinedDisabled = append(s.Sites.DefinedDisabled, false)
+		}
+		if len(s.Sites.DefinedTitle) > 0 {
+			for len(s.Sites.DefinedTitle) < len(s.Sites.Defined) {
+				s.Sites.DefinedTitle = append(s.Sites.DefinedTitle, "")
+			}
+		}
 	}); err != nil {
 		redir("save: " + err.Error())
 		return

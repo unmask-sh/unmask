@@ -453,6 +453,26 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		customTo = nowT.In(loc).Format("2006-01-02")
 	}
 
+	// visibleSessions: what the session-collapse JS will leave on screen --
+	// one line per beacon token plus every token-less row.  Feeds the pager
+	// caption so "100 rows" and "20 visible lines" stop contradicting.
+	visibleSessions := 0
+	seenTok := map[string]bool{}
+	for i := range enriched {
+		tok := enriched[i].BeaconToken
+		if tok == "" {
+			visibleSessions++
+			continue
+		}
+		if !seenTok[tok] {
+			seenTok[tok] = true
+			visibleSessions++
+		}
+	}
+	rowUAList := make([]string, len(enriched))
+	for i := range enriched {
+		rowUAList[i] = enriched[i].UA
+	}
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
@@ -473,24 +493,29 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.
-		"Filtering":  ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "",
-		"Rows":       enriched,
-		"IPRank":     ipRank,
-		"JA4Rank":    ja4Rank,
-		"UARank":     uaRank,
-		"Offset":     offset,
-		"PageSize":   pageSize,
-		"NextOffset": offset + pageSize,
-		"PrevOffset": maxInt(offset-pageSize, 0),
-		"HasMore":    hasMore,
-		"HasPrev":    offset > 0,
+		"Filtering": ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "",
+		// UAChallenged: listed-crawler UAs the current policy deliberately
+		// challenges (group black / none, pattern upstream-disabled).  The
+		// partial swaps the badge title for those rows -- "failed
+		// verification" would be a false spoof accusation there.
+		"UAChallenged": uaChallengedByUA(rowUAList, cur.SearchBots),
+		"Rows":         enriched,
+		"IPRank":       ipRank,
+		"JA4Rank":      ja4Rank,
+		"UARank":       uaRank,
+		"Offset":       offset,
+		"PageSize":     pageSize,
+		"NextOffset":   offset + pageSize,
+		"PrevOffset":   maxInt(offset-pageSize, 0),
+		"HasMore":      hasMore,
+		"HasPrev":      offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
 		"PagerSeek": buildHuntPagerSeek(
 			i18n.Resolve(r), rng, ipFilter, ja4Filter, uaFilter, phaseFilter, q,
 			offset, pageSize, offset > 0, hasMore,
-			huntRangeText(i18n.Resolve(r), offset, len(enriched)),
+			huntRangeText(i18n.Resolve(r), offset, len(enriched), visibleSessions),
 			freezeID,
 		),
 		"Saved": q.Get("saved") != "",
@@ -816,12 +841,18 @@ func nowUnix() int64 {
 	return time.Now().Unix()
 }
 
-// huntRangeText builds the "N-M 件目を表示中" caption shown next to the seek
-// pager.  No total -- the event table is too large for COUNT(*).  Empty
-// when the page has no rows so the caption stays out of the way.
-func huntRangeText(lang i18n.Lang, offset, gotRows int) string {
+// huntRangeText builds the "N-M 件目 (S セッション) を表示中" caption shown
+// next to the seek pager.  The session count is what the operator actually
+// SEES: the client-side collapse folds a session's rows into one visible row,
+// so a 100-row page can render as ~20 lines -- captioning only "100 件" reads
+// as a bug ("where are my 100 rows?").  sessions <= 0 falls back to the plain
+// row-range caption (overview and older callers).
+func huntRangeText(lang i18n.Lang, offset, gotRows, sessions int) string {
 	if gotRows <= 0 {
 		return ""
+	}
+	if sessions > 0 {
+		return i18n.Tf(lang, "pager.range_caption_sessions", offset+1, offset+gotRows, sessions)
 	}
 	return i18n.Tf(lang, "pager.range_caption", offset+1, offset+gotRows)
 }

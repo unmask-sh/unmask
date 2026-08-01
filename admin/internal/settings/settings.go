@@ -177,11 +177,16 @@ type ChallengeValues struct {
 	PublicTestPagesPassword string `yaml:"public_test_pages_password,omitempty"`
 	// PublicTestPagesSitePicker: also show the site picker on the PUBLIC test
 	// pages, so visitors can exercise the challenge of a site that has its own
-	// settings (branding / PoW difficulty / CAPTCHA provider).  Reveals the
-	// list of sites with custom settings and lets a visitor solve under any
-	// listed site's difficulty, so this is meant for intranet-style closed
-	// deployments; default false.  The admin-side test page (login required)
-	// always has the picker regardless of this flag.
+	// settings (branding / PoW difficulty / CAPTCHA provider).  The admin-side
+	// test page (login required) always has the picker regardless of this flag.
+	//
+	// Unset means ON -- see IsPublicTestPagesSitePicker.  It reveals the list
+	// of sites that carry custom settings, which is real disclosure, but it
+	// cannot happen without PublicTestPages being switched on first: that flag
+	// ships OFF, and the moment an operator turns it on this checkbox and the
+	// Basic Auth field are in the same block on screen, already showing their
+	// state.  The decision therefore still gets made deliberately, and the
+	// default can favour a public test page that actually works.
 	PublicTestPagesSitePicker *bool `yaml:"public_test_pages_site_picker,omitempty"`
 	// CAPTCHA provider: "builtin" (= unmask's standard behavioral) | "turnstile" |
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
@@ -626,6 +631,13 @@ type Nginx struct {
 	AdminAllowedIPsTitle   []string `yaml:"admin_allowed_ips_title,omitempty"`
 	MetricsAllowFromTitle  []string `yaml:"metrics_allow_from_title,omitempty"`
 	AdminAllowedHostsTitle []string `yaml:"admin_allowed_hosts_title,omitempty"`
+	// *Disabled: parallel per-row OFF flags for the three lists above (=
+	// same convention as the rule-list ExtraDisabled slices).  A disabled row
+	// keeps its value in the yml for one-click re-enable but is skipped by
+	// every consumer (gates, allow-all detection, the lockout guard).
+	AdminAllowedIPsDisabled   []bool `yaml:"admin_allowed_ips_disabled,omitempty"`
+	MetricsAllowFromDisabled  []bool `yaml:"metrics_allow_from_disabled,omitempty"`
+	AdminAllowedHostsDisabled []bool `yaml:"admin_allowed_hosts_disabled,omitempty"`
 
 	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
 	// Empty = allow every Host that reaches the admin (= the default; an
@@ -1907,6 +1919,9 @@ type TrustedLBExtra struct {
 	Label  string   `yaml:"label,omitempty"`
 	CIDRs  []string `yaml:"cidrs"`
 	Header string   `yaml:"header,omitempty"`
+	// Disabled: row kept in the yml but excluded from the trusted set (=
+	// render, forward-auth gate and the settings preview all skip it).
+	Disabled bool `yaml:"disabled,omitempty"`
 }
 
 type JA4VerdictExtraRule struct {
@@ -2405,6 +2420,43 @@ type SiteAcceptanceConfig struct {
 	Mode string `yaml:"mode,omitempty"`
 	// Defined: the known sites.  Consulted only in "defined" mode.
 	Defined []string `yaml:"defined,omitempty"`
+	// DefinedTitle / DefinedDisabled: parallel note + per-row OFF flag (=
+	// rule-list convention).  A disabled row reverts the site to ghost
+	// handling -- kept in the yml so re-enabling is one click, without the
+	// re-normalization a delete + retype would risk.
+	DefinedTitle    []string `yaml:"defined_title,omitempty"`
+	DefinedDisabled []bool   `yaml:"defined_disabled,omitempty"`
+}
+
+// ActiveDefined returns the Defined entries whose row is not disabled -- the
+// set every consumer (ghost detection, pickers, acceptance) must use.
+func (c SiteAcceptanceConfig) ActiveDefined() []string {
+	return EnabledValues(c.Defined, c.DefinedDisabled)
+}
+
+// EnabledValues filters vals by a parallel disabled-flag slice (rule-list
+// convention: flags may be shorter than vals; a missing flag means enabled).
+// Returns vals itself when nothing is disabled, so hot-path callers only
+// allocate when a row is actually switched off.
+func EnabledValues(vals []string, disabled []bool) []string {
+	any := false
+	for i := range vals {
+		if i < len(disabled) && disabled[i] {
+			any = true
+			break
+		}
+	}
+	if !any {
+		return vals
+	}
+	out := make([]string, 0, len(vals))
+	for i, v := range vals {
+		if i < len(disabled) && disabled[i] {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // ResolvedMode returns the effective mode, defaulting to SiteModeAuto.
@@ -2421,7 +2473,10 @@ func (c SiteAcceptanceConfig) IsGhost(site string) bool {
 	if c.ResolvedMode() != SiteModeDefined || site == "" {
 		return false
 	}
-	for _, d := range c.Defined {
+	for i, d := range c.Defined {
+		if i < len(c.DefinedDisabled) && c.DefinedDisabled[i] {
+			continue // a disabled definition no longer vouches for the site
+		}
 		if d == site {
 			return false
 		}
@@ -2783,27 +2838,18 @@ type RateLimitConfig struct {
 // backfill helper; existing rows are never touched, so an operator's
 // edits survive.
 func builtInRateLimitPresets() []RateZone {
-	return []RateZone{
-		{
-			Name:           "unmask_admin_login",
-			RequestsPerMin: 5,
-			// Burst sized so the *first* 5 attempts in a minute clear
-			// the limit (= an operator mistype is allowed, not punished
-			// with a CAPTCHA on the next keystroke), while the 6th
-			// attempt fires the zone.  Burst 0 collapses to the render
-			// default (= 50) which is too lenient, so we set this
-			// explicitly.
-			Burst:     5,
-			WindowSec: 60,
-			// Both the login and the forgot-password POST are auth-credential
-			// endpoints, so they share one per-IP zone: a flood of either —
-			// login brute-force, or forgot-password email-spam / reset-token
-			// clobbering (AUTH-5) — trips the same 5/min gate.  The admin login
-			// zone only covered /admin/login, leaving forgot-password unguarded.
-			PathPatterns:  []string{"/unmask/admin/login", "/unmask/admin/forgot-password"},
-			ChallengeMode: RateChallengeCaptchaOnly,
-		},
-	}
+	// Empty on purpose.  The one preset that ever shipped here --
+	// unmask_admin_login, 5r/m captcha_only over /unmask/admin/login +
+	// /unmask/admin/forgot-password (AUTH-5) -- turned out to be decorative:
+	// the /unmask/admin/ protected path hands everyone who can reach those
+	// endpoints a _bv cookie, and challenge-mode zones deliberately exempt
+	// _bv holders from counting, so the zone never fired for exactly the
+	// traffic it was meant to throttle.  The guard now lives where it works:
+	// the handlers' own per-IP loginThrottle (login-failure lockout +
+	// forgot-password request cap), which no cookie exempts.  Installs that
+	// already carried the zone keep it -- backfill never rewrites operator-
+	// visible rows -- it just is not seeded anymore.
+	return []RateZone{}
 }
 
 // BackfillRateLimitPresets adds the built-in preset zones to an existing
@@ -2864,6 +2910,9 @@ type RateLimitValues struct {
 func (c RateLimitConfig) ResolveZones(site string) []RateZone {
 	out := make([]RateZone, 0, len(c.Zones))
 	for _, z := range c.Zones {
+		if z.Disabled {
+			continue
+		}
 		if z.Site == "" || z.Site == site {
 			out = append(out, z)
 		}
@@ -2952,6 +3001,14 @@ type RateZone struct {
 	// a host string (= normalised via siteFromRequest) limits the zone to
 	// requests landing on that vhost.
 	Site string `yaml:"site,omitempty"`
+	// Disabled: keep the row (thresholds, paths, mode) but stop enforcing it.
+	// The same "switch it off without losing what you tuned" affordance the
+	// other rule lists carry -- an operator testing whether a zone is causing
+	// a report should not have to delete it and retype it afterwards.  Every
+	// evaluation path skips a disabled zone: the forward-auth resolver, the
+	// native render (the zone is not emitted at all), and the deny-overlap
+	// detection that drives the compose warning.
+	Disabled bool `yaml:"disabled,omitempty"`
 }
 
 // Challenge-mode constants for rate-limit.
@@ -3015,6 +3072,9 @@ func (z RateZone) MatchPath(path string) bool {
 // effect was reachable through zones with less mental overhead.
 func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 	for _, z := range c.Zones {
+		if z.Disabled {
+			continue
+		}
 		if z.Site != "" && z.Site != site {
 			continue
 		}

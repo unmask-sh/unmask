@@ -214,7 +214,7 @@ func (h *Handler) setupHasAdmin() bool {
 func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
 	// Same IP allowlist every other admin route enforces.
 	ip := adminClientIP(r, h.snapshotSettings())
-	if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
+	if !ipAllowed(ip, settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled)) {
 		return nil
 	}
 	c, err := r.Cookie(sessionCookieName)

@@ -21,8 +21,8 @@
 // double-submit property is unchanged.
 //
 // Login submit is intentionally exempt: there is no session yet, so
-// nothing to bind a token against, and the per-IP rate-limit zone
-// (= unmask_admin_login) bounds credential stuffing.
+// nothing to bind a token against, and the handlers' own per-IP
+// loginThrottle bounds credential stuffing.
 package handlers
 
 import (

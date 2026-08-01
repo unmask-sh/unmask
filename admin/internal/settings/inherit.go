@@ -33,8 +33,15 @@ func boolValue(p *bool) bool { return p != nil && *p }
 // IsPublicTestPages / IsPublicTestPagesSitePicker / IsObserveOnly: read the
 // optional flags without every caller having to nil-check.
 func (c ChallengeValues) IsPublicTestPages() bool { return boolValue(c.PublicTestPages) }
+// IsPublicTestPagesSitePicker: unset means ON, unlike the other flags here.
+// The picker only ever renders when PublicTestPages is also on, and that one
+// ships OFF -- so the operator turning the pages public is looking at this
+// checkbox (already ticked) and the Basic Auth field in the same block.  With
+// the decision point covered, the default favours a public test page that can
+// actually exercise a per-site challenge instead of one that silently only
+// tests the default site.
 func (c ChallengeValues) IsPublicTestPagesSitePicker() bool {
-	return boolValue(c.PublicTestPagesSitePicker)
+	return c.PublicTestPagesSitePicker == nil || *c.PublicTestPagesSitePicker
 }
 func (c ChallengeValues) IsObserveOnly() bool { return boolValue(c.ObserveOnly) }
 

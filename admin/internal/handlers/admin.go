@@ -235,6 +235,40 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// than on events.Row so the events package stays independent of
 			// classify.
 			"uaSummary": classify.UASummary,
+			// uaCrawler: is this UA a listed crawler?  The hunt log marks
+			// those rows -- a crawler in the CHALLENGE log is one that did
+			// not pass verification, which is what an operator hunting
+			// spoofs is scanning for.
+			"uaPlatformIcon": classify.UAPlatformIcon,
+			"uaBrowserColor": classify.UABrowserColor,
+			"uaBrowserIcon":  classify.UABrowserIcon,
+			"uaSummaryPlat": func(sum string) string {
+				p, _ := classify.UASummaryParts(sum)
+				return p
+			},
+			"uaSummaryBrowser": func(sum string) string {
+				_, b := classify.UASummaryParts(sum)
+				return b
+			},
+			// uaBotKind: "" (not a bot) | "listed" | "self".
+			//
+			// The two are worth telling apart.  A LISTED crawler is one whose
+			// vendor is known and, for the big ones, publishes egress ranges
+			// -- so a listed name sitting in the challenge log means the
+			// request failed that verification, which is the spoof signal.  A
+			// SELF-declared bot is simply a client that says it is one: there
+			// is no list, no ranges and nothing it could have failed, so
+			// marking it the same way would claim a verification that never
+			// existed.
+			"uaBotKind": func(ua string) string {
+				if c, _ := classify.LookupCrawler(ua); c != "" && c != "other" {
+					return "listed"
+				}
+				if classify.SelfDeclaredBot(ua) != "" {
+					return "self"
+				}
+				return ""
+			},
 			// toJSON marshals a value for embedding in a <script> block or as a
 			// JS literal.  Returned as template.JS so it lands as a literal
 			// rather than being re-quoted into a JS string; that is safe here
@@ -392,8 +426,8 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// handler layer so deployments that don't include the rendered nginx conf
 		// still get the restriction).
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.cfg().Nginx.AdminAllowedIPs)
+		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, allowIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
@@ -606,13 +640,13 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			return
 		}
 		ip := adminClientIP(r, h.snapshotSettings())
-		if !ipAllowed(ip, h.cfg().Nginx.AdminAllowedIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, h.cfg().Nginx.AdminAllowedIPs)
+		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, allowIPs)
 			adminIPForbidden(w, ip)
 			return
 		}
-		if !hostAllowed(r.Host, h.cfg().Nginx.AdminAllowedHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, h.cfg().Nginx.AdminAllowedHosts)
+		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(r.Host, allowHosts) {
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, allowHosts)
 			adminHostForbidden(w, r.Host)
 			return
 		}
@@ -817,7 +851,7 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		definedMode := h.cfg().Sites.ResolvedMode() == settings.SiteModeDefined
 		var opts []string
 		if definedMode {
-			opts = append(opts, h.cfg().Sites.Defined...)
+			opts = append(opts, h.cfg().Sites.ActiveDefined()...)
 		} else {
 			opts, _ = events.DistinctSites(r.Context(), h.DB)
 		}
@@ -867,10 +901,30 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")
 
+	// Per-IP lockout: the app's own brute-force guard (see loginThrottle --
+	// the rate-limit zone that used to stand here never fired for clients
+	// holding a _bv cookie, which is everyone the protected path lets
+	// through).  Checked before touching the user store so a locked address
+	// cannot keep burning argon2 time either.
+	ip := adminClientIP(r, *h.cfg())
+	now := time.Now()
+	if d := h.throttle().lockedFor(loginKey(ip), now); d > 0 {
+		tooManyLoginAttempts(w, d)
+		return
+	}
+
 	rejectInvalid := func() {
 		// audit best-effort
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), 0, username, "login_failed", "", "")
+		}
+		t := h.throttle()
+		if d := t.note(loginKey(ip), now, t.failLimit, t.failWindow, t.lockFor); d > 0 {
+			if h.UserRepo != nil {
+				h.UserRepo.Record(r.Context(), 0, username, "login_locked", "", ip)
+			}
+			tooManyLoginAttempts(w, d)
+			return
 		}
 		dst := base + "/admin/login?err=invalid&return=" + url.QueryEscape(ret)
 		http.Redirect(w, r, dst, http.StatusFound)
@@ -900,6 +954,7 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 			log.Printf("password rehash on login (user %d): %v", u.ID, err)
 		}
 	}
+	h.throttle().clear(loginKey(ip)) // a successful login is a clean slate
 	h.UserRepo.TouchLastLogin(r.Context(), u.ID)
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
