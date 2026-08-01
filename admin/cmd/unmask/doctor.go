@@ -468,6 +468,7 @@ func cmdDoctor(args []string) error {
 	// + error rate on the configured admin bind).  When admin is not running,
 	// produces a single WARN and skips.  When running, fires 30 sequential
 	// curls and reports p50 / p95 / max latency.
+	checkDataOwnership(s, addOK, addWarn)
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIPReminder(s, addWarn)
 	checkApacheConnPeer(addWarn)
@@ -488,6 +489,41 @@ func cmdDoctor(args []string) error {
 // proxy's job) is bound to something routable.  A loopback / unix bind keeps
 // it private; a wildcard (0.0.0.0 / ::) or routable IP exposes the cleartext
 // admin port directly.
+// checkDataOwnership reports files under the daemon's directories that its
+// service user cannot write.  These are the residue of management commands run
+// as root before the privilege drop existed (or with UNMASK_NO_PRIVDROP set),
+// and they fail in ways that do not look like a permission problem: a
+// root-owned mmdb makes every country lookup return nothing while the file
+// itself is present and current, and a root-owned render output makes a
+// settings save appear to succeed while nginx keeps serving the old config.
+//
+// doctor is the right place for it precisely because doctor was the tool that
+// missed it: reading a file as root says nothing about whether the daemon can.
+func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
+	uid, gid, name, err := daemonIdentity()
+	if err != nil {
+		return // no data dir yet: nothing to own
+	}
+	dirs := []string{dataDirForOwner}
+	if d := filepath.Dir(s.DB.SQLitePath); d != "" && d != dataDirForOwner {
+		dirs = append(dirs, d)
+	}
+	bad := ownershipProblems(dirs, uid, gid)
+	if len(bad) == 0 {
+		addOK("data ownership", fmt.Sprintf("every file under %s is usable by the daemon user (%s)", dataDirForOwner, name))
+		return
+	}
+	show := bad
+	const maxShow = 5
+	suffix := ""
+	if len(show) > maxShow {
+		show, suffix = show[:maxShow], fmt.Sprintf(" (+%d more)", len(bad)-maxShow)
+	}
+	addWarn("data ownership", fmt.Sprintf(
+		"%d file(s) under the daemon's directories are not writable by its user (%s): %s%s — left by a command run as root; fix with `chown -R %s %s` (the CLI now drops to that user by itself)",
+		len(bad), name, strings.Join(show, ", "), suffix, name, dataDirForOwner))
+}
+
 func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 	rawBind := strings.TrimSpace(s.Server.Bind)
 	isUnix := strings.HasPrefix(rawBind, "unix:") || strings.HasPrefix(rawBind, "/")
