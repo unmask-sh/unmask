@@ -138,7 +138,10 @@ func TestFirefoxMajor(t *testing.T) {
 		// iOS Firefox is WebKit (FxiOS token, no Firefox/ token) -> 0.
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/141.0 Mobile/15E148 Safari/605.1.15", 0},
 		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36", 0},
-		{"Firefox/141", 0}, // no trailing dot -> not the token shape
+		// A bare major is how simplified/forged UAs state themselves; the
+		// claim parses so the summary can show it and the stale axis can
+		// judge it.
+		{"Firefox/141", 141},
 		{"", 0},
 	}
 	for _, c := range cases {

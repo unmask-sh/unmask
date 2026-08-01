@@ -156,6 +156,13 @@ func TestUASummaryNamesTheAppOverTheEngine(t *testing.T) {
 		// Chrome token present alongside an app token: the app wins.
 		{"Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 Instagram 300.0.0",
 			"Android 13 · Instagram 300"},
+		// A bare major with no minor ("Chrome/131", not "131.0.0.0") is how
+		// simplified and forged UAs state themselves; the claim renders
+		// as-is instead of falling through to no browser at all.
+		{"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36",
+			"Windows 10+ · Chrome 131"},
+		{"Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128",
+			"Linux x86_64 · Firefox 128"},
 		// Same app, both platforms, same answer (jp: 650 Android + 1915 iOS).
 		{"Mozilla/5.0 (Linux; Android 13; SM-S908N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36 Line/13.5.0",
 			"Android 13 · LINE 13"},
@@ -164,6 +171,27 @@ func TestUASummaryNamesTheAppOverTheEngine(t *testing.T) {
 	} {
 		if got := UASummary(c.ua); got != c.want {
 			t.Errorf("UASummary(%.60q)\n  = %q\n want %q", c.ua, got, c.want)
+		}
+	}
+}
+
+// A listed crawler's name comes from the curated list even when the UA has no
+// bot-shaped product token of its own: Google-Extended's UA only says "bot"
+// inside its info URL, and the self-declared scan used to run first and
+// extract exactly that -- an amber listed badge captioned "bot".  The list is
+// authoritative for names; the scan only covers bots the list does not know.
+func TestUASummaryPrefersTheListName(t *testing.T) {
+	for _, c := range []struct{ ua, want string }{
+		{"Mozilla/5.0 (compatible; Google-Extended/1.0; +http://www.google.com/bot.html)",
+			"Google-Extended"},
+		{"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.3; +https://openai.com/gptbot)",
+			"GPTBot"},
+		// Not on the list: the self-declared scan still names it.
+		{"Mozilla/5.0 (compatible; TotallyNewBot/9.9; +http://example.com/info)",
+			"TotallyNewBot"},
+	} {
+		if got := UASummary(c.ua); got != c.want {
+			t.Errorf("UASummary(%.60q) = %q, want %q", c.ua, got, c.want)
 		}
 	}
 }
