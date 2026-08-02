@@ -612,6 +612,10 @@ type Nginx struct {
 	BypassIPsTitle     []string `yaml:"bypass_ips_title,omitempty"`
 	BypassIPsDisabled  []bool   `yaml:"bypass_ips_disabled,omitempty"`
 	BypassIPsUpdatedAt []int64  `yaml:"bypass_ips_updated_at,omitempty"`
+	// BypassIPsChangedAt: parallel to BypassIPsUpdatedAt -- unix sec of the last
+	// edit, 0 while untouched.  The UpdatedAt slice holds the ADD time despite
+	// its name (the save path only fills it when absent).
+	BypassIPsChangedAt []int64 `yaml:"bypass_ips_changed_at,omitempty"`
 	// IDs of official IP-range preset groups (= Googlebot / Bingbot / OAI etc.)
 	// to enable.  Empty → no preset enabled (= no automatic crawler rescue).
 	// Group definitions live in nginxconf/iprange.go.
@@ -1102,6 +1106,12 @@ type GeoRule struct {
 	Action    string `yaml:"action,omitempty"`     // see GeoConfig docstring; empty = inherit DefaultRuleAction
 	Enabled   bool   `yaml:"enabled"`              // false -> rule kept in yaml but skipped at evaluation
 	UpdatedAt int64  `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed" timestamps
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64 `yaml:"changed_at,omitempty"`
 	// RatePerMin: throttle this country instead of acting on every request --
 	// the by-country sibling of AsnRule.RatePerMin.  nil = inherit
 	// GeoConfig.DefaultRatePerMin; explicit *0 = no throttle (the action fires
@@ -1332,6 +1342,12 @@ type AsnRule struct {
 	RatePerMin *int  `yaml:"rate_per_min,omitempty"`
 	Enabled    bool  `yaml:"enabled"`              // false -> kept in yaml but skipped at evaluation
 	UpdatedAt  int64 `yaml:"updated_at,omitempty"` // unix sec, for UI "last changed"
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64 `yaml:"changed_at,omitempty"`
 }
 
 // ResolvedDefaultAction: empty -> "skip" (no ASN intervention for the long
@@ -1597,6 +1613,12 @@ type BypassPath struct {
 	Title     string `yaml:"title,omitempty"`
 	Disabled  bool   `yaml:"disabled,omitempty"`
 	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64  `yaml:"changed_at,omitempty"`
 	Site      string `yaml:"site,omitempty"`
 }
 
@@ -1650,6 +1672,12 @@ type HTTPSRedirectExemptRule struct {
 	Title     string `yaml:"title,omitempty"`
 	Disabled  bool   `yaml:"disabled,omitempty"`
 	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64 `yaml:"changed_at,omitempty"`
 }
 
 // ProtectedPathsConfig: protected-paths feature. Forces CAPTCHA / PoW / strict
@@ -1692,6 +1720,12 @@ type ProtectedPath struct {
 	Action    string `yaml:"action,omitempty"`
 	Disabled  bool   `yaml:"disabled,omitempty"`
 	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64  `yaml:"changed_at,omitempty"`
 	Site      string `yaml:"site,omitempty"`
 }
 
@@ -1772,6 +1806,12 @@ type HoneypotURL struct {
 	Action    string `yaml:"action,omitempty"`
 	Disabled  bool   `yaml:"disabled,omitempty"`
 	UpdatedAt int64  `yaml:"updated_at,omitempty"`
+	// ChangedAt: unix sec of the last edit, 0 while the row is untouched since
+	// it was added.  UpdatedAt above is misnamed for historical reasons -- the
+	// save path only fills it when it is absent, so it holds the ADD time and
+	// never moves.  The yaml keys are left alone so no existing row loses its
+	// date; read the comments, not the names.
+	ChangedAt int64  `yaml:"changed_at,omitempty"`
 	Site      string `yaml:"site,omitempty"`
 }
 
@@ -1808,6 +1848,11 @@ type ChallengeTargetsConfig struct {
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64  `yaml:"extra_updated_at,omitempty"`
+	// ExtraChangedAt: parallel to ExtraUpdatedAt -- unix sec of the last edit,
+	// 0 while untouched.  ExtraUpdatedAt holds the ADD time despite its name
+	// (the save path only fills it when absent); the keys stay as they are so
+	// no existing row loses its date.
+	ExtraChangedAt []int64 `yaml:"extra_changed_at,omitempty"`
 	// DefaultAction: chain to run when a black-list UA also triggers a JA4
 	// bot signal (= "pow_only" / "pow_then_captcha" / "captcha_only" /
 	// "deny").  Empty = fall back to rate_limit.default.challenge_mode so
@@ -1850,6 +1895,11 @@ type SearchBotsConfig struct {
 	ExtraTitle     []string `yaml:"extra_title,omitempty"`
 	ExtraDisabled  []bool   `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt []int64  `yaml:"extra_updated_at,omitempty"` // unix sec. analogous to preset's AddedIn
+	// ExtraChangedAt: parallel to ExtraUpdatedAt -- unix sec of the last edit,
+	// 0 while untouched.  ExtraUpdatedAt holds the ADD time despite its name
+	// (the save path only fills it when absent); the keys stay as they are so
+	// no existing row loses its date.
+	ExtraChangedAt []int64 `yaml:"extra_changed_at,omitempty"`
 	// UpstreamDisabled: per-pattern disable list applied to the upstream
 	// crawler-user-agents.json auto-rescue.  Patterns listed here will not
 	// be auto-passed via the search_ai branch, even if they match a
@@ -1916,6 +1966,11 @@ type JA4VerdictsConfig struct {
 	ExtraTitle      []string              `yaml:"extra_title,omitempty"`
 	ExtraDisabled   []bool                `yaml:"extra_disabled,omitempty"`
 	ExtraUpdatedAt  []int64               `yaml:"extra_updated_at,omitempty"`
+	// ExtraChangedAt: parallel to ExtraUpdatedAt -- unix sec of the last edit,
+	// 0 while untouched.  ExtraUpdatedAt holds the ADD time despite its name
+	// (the save path only fills it when absent); the keys stay as they are so
+	// no existing row loses its date.
+	ExtraChangedAt []int64 `yaml:"extra_changed_at,omitempty"`
 	// DefaultAction: chain to run when a request hits a JA4 verdict that
 	// resolves to action="bot".  Empty = inherit from
 	// ChallengeTargets.DefaultAction → RateLimit.Default.ChallengeMode.
