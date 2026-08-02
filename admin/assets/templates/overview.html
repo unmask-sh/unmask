@@ -239,10 +239,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </div>
 
 <div class="kpi-grid">
+  {{/* "Events" is an internal word and the count is a sum of unlike things --
+       one challenged visitor leaves a serve, a load and a pass -- so the tile
+       said neither what it counted nor what to do with it.  It is the size of
+       the hunt log, so it says so and goes there. */}}
   <div class="kpi">
-    <div class="label">{{ t .Lang "overview.kpi.events" }}</div>
+    <div class="label">{{ t .Lang "overview.kpi.events" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.events_help") }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPIEvents }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }}</div>
+    <div class="sub"><a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "overview.kpi.events_sub" }}</a></div>
   </div>
   <div class="kpi k-serve">
     <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
