@@ -199,8 +199,14 @@ func TestBenignIsWithheldUntilItCoversTheWholeWindow(t *testing.T) {
 	if got < 8 || got > 13 {
 		t.Errorf("non-human = %.1f%%, want ~10%% (blocked only): a partial benign count is being folded into the headline", got)
 	}
-	// The operator has to be able to tell "not ready" from "there are none".
+	// The operator has to be able to tell "not ready" from "there are none",
+	// and the countdown has to move: 40 minutes in, 23 hours remain.  Rounding
+	// up would pin it at 24 for the whole first hour and read as no progress.
 	if !strings.Contains(body, "still filling in") {
 		t.Error("the popover does not explain why the benign half is missing")
+	}
+	if !strings.Contains(body, "about 23 more hours") {
+		t.Errorf("the countdown does not reflect the 40 minutes already collected; popover says: %s",
+			regexp.MustCompile(`still filling in.{0,60}`).FindString(body))
 	}
 }
