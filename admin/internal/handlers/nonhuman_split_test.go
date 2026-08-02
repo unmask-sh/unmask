@@ -43,13 +43,26 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// 10,000 requests: 2,000 from crawlers we passed, 3,100 challenged of which
-	// 100 were then cleared -> 3,000 blocked.  Non-human = 5,000 = 50%.
+	// 10,000 requests, 2,000 of them from crawlers we passed on purpose.
 	put("total", 10000)
 	put("crawler_pass", 2000)
-	put("challenge_served", 3100)
-	put("pow", 80)
-	put("captcha", 20)
+	// 3,100 challenges served, 100 of them cleared -> 3,000 blocked.  The
+	// blocked half comes from the event log, not from this table: its 'pow' /
+	// 'captcha' count every request from a client already carrying a pass
+	// cookie, which on a site with regulars outnumbers the challenges and
+	// drove the figure to zero.
+	ev := func(phase string, n int) {
+		t.Helper()
+		for i := 0; i < n; i++ {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
+				VALUES (?, '', x'7f000001', ?, datetime('now'))`, site, phase); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	ev("serve", 3100)
+	ev("bv_pow_only", 80)
+	ev("bv_captcha_only", 20)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
@@ -102,10 +115,14 @@ func TestBlockedRequestsNeverGoNegative(t *testing.T) {
 		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
 		t.Fatal(err)
 	}
-	for kind, n := range map[string]int{"total": 100, "challenge_served": 5, "pow": 40} {
-		if _, err := h.DB.Exec(
-			`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
-			 VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, kind, n); err != nil {
+	if _, err := h.DB.Exec(
+		`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+		 VALUES (strftime('%s','now')/60, ?, 'total', 100)`, site); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
+			VALUES (?, '', x'7f000001', 'bv_pow_only', datetime('now'))`, site); err != nil {
 			t.Fatal(err)
 		}
 	}
