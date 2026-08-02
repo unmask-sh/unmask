@@ -842,7 +842,7 @@ func (r *Reader) flushOnce(final bool) {
 			}
 			ready = append(ready, entry{k, bucket{
 				total: b.total, kinds: copyKinds,
-				ipAll: b.ipAll, ipChal: b.ipChal, ipPass: b.ipPass,
+				ipAll: b.ipAll, ipChal: b.ipChal, ipPass: b.ipPass, ipBot: b.ipBot,
 			}})
 			delete(r.buckets, k)
 		}
@@ -905,7 +905,7 @@ func (r *Reader) flushOnce(final bool) {
 			if !ok {
 				bb := bucket{
 					total: e.b.total, kinds: map[string]int{},
-					ipAll: e.b.ipAll, ipChal: e.b.ipChal, ipPass: e.b.ipPass,
+					ipAll: e.b.ipAll, ipChal: e.b.ipChal, ipPass: e.b.ipPass, ipBot: e.b.ipBot,
 				}
 				for k, v := range e.b.kinds {
 					bb.kinds[k] = v
@@ -919,6 +919,7 @@ func (r *Reader) flushOnce(final bool) {
 				b.ipAll.Merge(&e.b.ipAll)
 				b.ipChal.Merge(&e.b.ipChal)
 				b.ipPass.Merge(&e.b.ipPass)
+				b.ipBot.Merge(&e.b.ipBot)
 			}
 		}
 		for _, e := range crawlerReady {
