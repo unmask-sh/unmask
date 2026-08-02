@@ -31,6 +31,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"regexp"
 	"runtime/debug"
@@ -191,8 +192,15 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		r.Header.Get("X-Real-IP"),
 		clientIP(r),
 	)
-	ua := firstNonEmpty(
-		r.Header.Get("X-Original-UA"),
+	// The proxy's X-Original-UA is authoritative even when it is EMPTY: an
+	// empty value means the visitor sent no User-Agent, which is a signal in
+	// its own right and one of the strongest bot tells there is.  Falling
+	// through to this request's own User-Agent would replace that fact with
+	// the fetcher's identity -- under Apache/mod_lua the subrequest is made by
+	// luasocket, so every UA-less visitor was recorded as "LuaSocket 3.0.0"
+	// and classified as that instead of as UA-less.  (nginx's auth_request
+	// inherits the client's headers, so there the substitution was invisible.)
+	ua := headerOrFallback(r, "X-Original-UA",
 		r.Header.Get("X-Original-User-Agent"),
 		r.Header.Get("User-Agent"),
 	)
@@ -1211,6 +1219,20 @@ func isSearchBotUA(ua, ja4Action string, n settings.Nginx, rangeVerifiedUA *rege
 }
 
 // --- helpers ---
+
+// headerOrFallback returns the named header when the proxy SET it -- including
+// when it set it empty -- and otherwise the first non-empty fallback.
+//
+// Header.Get cannot tell "absent" from "present but empty", and the difference
+// matters for the X-Original-* protocol: a proxy speaking it has already told
+// us what the visitor sent, so an empty value is an answer, not a gap.  Only a
+// caller that never set the header at all should fall through.
+func headerOrFallback(r *http.Request, name string, fallbacks ...string) string {
+	if _, ok := r.Header[textproto.CanonicalMIMEHeaderKey(name)]; ok {
+		return strings.TrimSpace(r.Header.Get(name))
+	}
+	return firstNonEmpty(fallbacks...)
+}
 
 func firstNonEmpty(vs ...string) string {
 	for _, v := range vs {
