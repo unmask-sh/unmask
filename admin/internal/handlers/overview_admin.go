@@ -61,6 +61,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// biggest win (they were previously run back-to-back).
 	var (
 		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
+		kpiLoaded                                        int
 		uTotal, uBlocked                                 int
 		uKnown                                           bool
 		recentRaw                                        []events.Row
@@ -81,6 +82,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// transparent (mostly real browsers); the CAPTCHA paths mean a human solved
 	// one.  The old "verify" phase does not exist in native mode.
 	launch(func() { kpiPoWPass = countEvents(ctx, h, 1440, "bv_pow_only", site, hosts) })
+	// Challenge pages that actually ran their JS.  This is the denominator for
+	// the abandon rate below, and it has to be `load` rather than `serve`: a
+	// scraper that never executes JS is served a page and emits no load, so
+	// counting serves would fold every bot into a number meant to describe
+	// real visitors.
+	launch(func() { kpiLoaded = countEvents(ctx, h, 1440, "load", site, hosts) })
 	launch(func() {
 		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
@@ -114,6 +121,22 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
+	}
+	// Abandon rate: of the visitors whose browser LOADED the challenge, how
+	// many never finished it.  This is the one number that says whether the
+	// challenge is too heavy for real people -- it excludes bots by
+	// construction (they do not run the JS, so they never reach `load`), which
+	// is what separates it from the blocked count above.  Measured at 6.55%
+	// across the fleet when the proof-of-work still ran on the UI thread.
+	// Negative would mean passes from sessions whose load fell before this
+	// window; clamp rather than show a nonsense figure.
+	abandon := kpiLoaded - kpiPoWPass - kpiCaptchaPass
+	if abandon < 0 {
+		abandon = 0
+	}
+	abandonPct := 0.0
+	if kpiLoaded > 0 {
+		abandonPct = float64(abandon) / float64(kpiLoaded) * 100
 	}
 	// If the shared 5s deadline expired during the COUNT(*) queries above, the
 	// kpi* values are partial zeros rather than real measurements.  Flag it so
@@ -181,6 +204,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIPoWPass":       kpiPoWPass,
 		"KPICaptchaPass":   kpiCaptchaPass,
 		"KPIBlocked":       kpiBlocked,
+		"KPILoaded":        kpiLoaded,
+		"KPIAbandon":       abandon,
+		"KPIAbandonPct":    abandonPct,
 		"KPIKnown":         kpiKnown,
 		"KPIUniqueTotal":   uTotal,
 		"KPIUniqueBlocked": uBlocked,

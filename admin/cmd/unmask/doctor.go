@@ -16,6 +16,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"flag"
@@ -33,6 +34,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
@@ -469,6 +471,7 @@ func cmdDoctor(args []string) error {
 	// produces a single WARN and skips.  When running, fires 30 sequential
 	// curls and reports p50 / p95 / max latency.
 	checkDataOwnership(s, addOK, addWarn)
+	checkChallengeAssets(addOK, addWarn)
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIPReminder(s, addWarn)
 	checkApacheConnPeer(addWarn)
@@ -499,6 +502,76 @@ func cmdDoctor(args []string) error {
 //
 // doctor is the right place for it precisely because doctor was the tool that
 // missed it: reading a file as root says nothing about whether the daemon can.
+// Package-deployed challenge assets: the paths the RPM / deb install to, and
+// the ones the runtime prefers over its embedded copies.  Vars so the doctor
+// test can point them at fixtures.
+var (
+	challengeAssetHTMLPath = "/usr/share/unmask/challenge/challenge.html"
+	challengeAssetJSPath   = "/usr/share/unmask/challenge/challenge.js"
+)
+
+// checkChallengeAssets compares the package-deployed challenge assets against
+// the ones embedded in this binary.  A deployed copy WINS at serve time, so
+// when it is older than the binary the operator ships new code and old
+// behaviour: the daemon reports the new version, the tests pass, and visitors
+// keep running the previous challenge.
+//
+// The runtime already refuses assets that predate the seed-bound PoW, but that
+// guard tests for one specific marker -- it catches an asset from two releases
+// ago and waves through yesterday's.  That is exactly what happened on
+// 2026-08-02: the fleet ran a new binary while every node served the previous
+// day's challenge.js, so the proof-of-work fix reached nobody until the
+// overlay was replaced by hand.  Bytes are the only reliable test, so compare
+// bytes.
+//
+// A difference is reported as a warning, not an error: an operator may have
+// deliberately customised the file.  The message names the supported way to do
+// that (challenge_html_path), so a deliberate override is distinguishable from
+// a forgotten one.
+func checkChallengeAssets(addOK, addWarn func(t, m string)) {
+	type pair struct {
+		name     string
+		deployed string
+		embedded string
+	}
+	var stale, missing, current []string
+	for _, p := range []pair{
+		{"challenge.html", challengeAssetHTMLPath, "static/challenge.html"},
+		{"challenge.js", challengeAssetJSPath, "static/challenge.js"},
+	} {
+		onDisk, err := os.ReadFile(p.deployed)
+		if err != nil {
+			// Not deployed at all is the normal case for a binary install: the
+			// embedded copy is served and cannot go stale.
+			missing = append(missing, p.name)
+			continue
+		}
+		want, err := assets.Static.ReadFile(p.embedded)
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(onDisk, want) {
+			current = append(current, p.name)
+			continue
+		}
+		stale = append(stale, fmt.Sprintf("%s (%s)", p.name, p.deployed))
+	}
+	if len(stale) == 0 {
+		switch {
+		case len(current) > 0:
+			addOK("challenge assets", fmt.Sprintf("deployed %s match this binary", strings.Join(current, " + ")))
+		case len(missing) > 0:
+			addOK("challenge assets", "none deployed on disk; serving the copies embedded in this binary")
+		}
+		return
+	}
+	addWarn("challenge assets", fmt.Sprintf(
+		"%s differ from the copies embedded in this binary — the deployed file WINS at serve time, so visitors are running that version, not this one. "+
+			"After upgrading, redeploy the package assets (or delete them to fall back to the embedded copies). "+
+			"If the difference is a deliberate customisation, use challenge.challenge_html_path instead so an upgrade cannot silently keep an old file in play.",
+		strings.Join(stale, ", ")))
+}
+
 func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
 	uid, gid, name, err := daemonIdentity()
 	if err != nil {
