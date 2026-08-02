@@ -3908,3 +3908,31 @@ func truncate(s string, n int) string {
 func Pinger(d *db.DB) error {
 	return d.PingContext(context.Background())
 }
+
+// --- observe-mode counters -------------------------------------------------
+
+// ObserveOnlyWouldBlock counts the requests unmask judged as challenge or block
+// during the window but let through because observe mode is on.
+//
+// Why this exists: the landing page's headline is "bot access unmask blocked",
+// derived from challenges fired minus challenges passed.  In observe mode no
+// challenge is ever fired, so that arithmetic yields zero -- and the card said
+// "all quiet, no attacks", on an install whose traffic was mostly scanners.
+// The judgement is still recorded (payload.would_be_action), so the honest
+// number is available; it is simply a different question, asked here.
+func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (int, error) {
+	act := jsonExtract(d, "payload_json", "$.would_be_action")
+	obs := jsonExtract(d, "payload_json", "$.observe_only")
+	cond := siteCond(site)
+	stmt := fmt.Sprintf(`
+        SELECT COUNT(*) FROM unmask_event
+        WHERE %s%s%s
+          AND %s = 1
+          AND %s IN ('challenge','block')`,
+		tsWindow(ctx, hours, "date_created"), cond, hostCond(hosts), obs, act)
+	var n int
+	if err := d.QueryRowContext(ctx, stmt).Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}

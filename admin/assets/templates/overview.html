@@ -28,6 +28,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* Hero box: showcases the "blocks" headline prominently. */
 .hero{background:linear-gradient(135deg,#dc2626 0%,#7f1d1d 100%);color:#fff;border-radius:.5rem;padding:1.6rem 2rem;margin-bottom:1.2rem;display:flex;align-items:center;gap:1.6rem;flex-wrap:wrap}
 .hero .icon{font-size:3.5rem;line-height:1}
+/* Observe mode: the red gradient reads as "actively defending", which is the
+   opposite of what this state means -- judging, deliberately not acting.  Slate
+   keeps the card prominent without claiming a defence that is switched off. */
+.hero-observe{background:linear-gradient(135deg,#475569 0%,#1e293b 100%)}
 .hero .body{flex:1;min-width:14rem}
 .hero .label{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;font-weight:600}
 .hero .value{font-size:4rem;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:.05rem 0;text-shadow:0 .15rem .5rem rgba(0,0,0,.2)}
@@ -162,14 +166,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <div role="alert" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;line-height:1.5">⚠ {{ t .Lang "overview.kpi.timeout_banner" }}</div>
 {{ end }}
 
-<div class="hero">
-  <div class="icon">{{ if not .KPIKnown }}⚠️{{ else if gt .KPIBlocked 0 }}🛡️{{ else }}😴{{ end }}</div>
+{{/* Observe mode fires no challenge, so the blocked arithmetic is
+     structurally zero.  Showing that as "all quiet" told installs under
+     continuous scanning that nothing was happening, so the headline answers a
+     different question there -- what unmask WOULD have stopped -- and says so. */}}
+<div class="hero{{ if .ObserveOnly }} hero-observe{{ end }}">
+  <div class="icon">{{ if not .KPIKnown }}⚠️{{ else if .ObserveOnly }}👁️{{ else if gt .KPIBlocked 0 }}🛡️{{ else }}😴{{ end }}</div>
   <div class="body">
-    <div class="label">{{ t .Lang "overview.hero.label" }}</div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIBlocked }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span>{{ else }}—{{ end }}</div>
+    <div class="label">{{ if .ObserveOnly }}{{ t .Lang "overview.hero.label_observe" }}{{ else }}{{ t .Lang "overview.hero.label" }}{{ end }}</div>
+    <div class="value">{{ if not .KPIKnown }}—{{ else if .ObserveOnly }}{{ comma .KPIWouldBlock }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span>{{ else }}{{ comma .KPIBlocked }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span>{{ end }}</div>
     <div class="desc">
       {{ if not .KPIKnown }}
         {{ t .Lang "overview.hero.timeout" }}
+      {{ else if .ObserveOnly }}
+        {{ safeHTML (t .Lang "overview.hero.observe_desc") }}
       {{ else if gt .KPIBlocked 0 }}
         {{/* Requests, not clients: one scraper hitting a thousand URLs is a
              thousand here.  When the access-log sketches are available we can
