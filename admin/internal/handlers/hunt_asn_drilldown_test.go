@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -86,5 +87,38 @@ func TestHuntASNDrillDownShowsNothingWithoutMMDB(t *testing.T) {
 	}
 	if strings.Contains(rr.Body.String(), `data-ip="127.0.0.1"`) {
 		t.Error("without an ASN database the drill-down returns the whole log as if it were one network")
+	}
+}
+
+// The network ranking leads with the organisation, not the AS number: almost
+// nobody reads "AS55286", everybody reads "B2 Net Solutions".  The number is
+// still on the row for whoever wants it, and it is what shows when the database
+// cannot name the network -- which is then all there is to show.
+func TestNetworkRankingLeadsWithTheOrganisation(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/hunt.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+	card := tpl[strings.Index(tpl, `rank-card rank-card-asn`):]
+	card = card[:strings.Index(card, "</table>")]
+
+	key := regexp.MustCompile(`(?s)<td class="key".*?</td>`).FindString(card)
+	if key == "" {
+		t.Fatal("could not find the network cell")
+	}
+	if !strings.Contains(key, `{{ if .Org }}{{ .Org }}`) {
+		t.Error("the network cell no longer leads with the organisation name")
+	}
+	if !strings.Contains(key, `{{ else if .ASN }}<strong>AS{{ .ASN }}</strong>`) {
+		t.Error("a network the database cannot name has nothing to fall back to")
+	}
+	if !strings.Contains(key, `title="AS{{ .ASN }}"`) {
+		t.Error("the AS number is no longer recoverable from the row")
+	}
+	// The active-filter chip is read away from the ranking, so it has to name
+	// the network too -- a bare number there says nothing about what was filtered.
+	if !strings.Contains(tpl, `{{ if .ASNFilterOrg }}{{ .ASNFilterOrg }}`) {
+		t.Error("the active network filter shows only a number")
 	}
 }

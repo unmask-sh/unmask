@@ -177,6 +177,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// ranking itself does, on a page the operator asked for explicitly.
 	asnFilter := 0
 	asnIPs, asnIPTotal := 0, 0
+	asnOrg := ""
 	if v := strings.TrimSpace(q.Get("asn")); v != "" {
 		if n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimPrefix(v, "AS"), "as")); err == nil && n > 0 {
 			asnFilter = n
@@ -239,11 +240,11 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		pageSize = 1000
 	}
 	if asnFilter > 0 && h.IPGeo != nil && h.IPGeo.ASNLoaded() {
-		ips, total, err := events.IPsInASN(huntCtx, h.DB, sinceMin, uint(asnFilter), h.IPGeo.LookupASN)
+		ips, total, org, err := events.IPsInASN(huntCtx, h.DB, sinceMin, uint(asnFilter), h.IPGeo.LookupASN)
 		if err != nil {
 			log.Printf("hunt asn drill-down: %v", err)
 		}
-		asnIPs, asnIPTotal = len(ips), total
+		asnIPs, asnIPTotal, asnOrg = len(ips), total, org
 		huntCtx = events.WithIPSet(huntCtx, ips)
 	} else if asnFilter > 0 {
 		// Asked for a network on an install that cannot resolve one.  Show
@@ -547,6 +548,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// useful when narrowed to one host). The raw-log table still shows.
 		"ASNFilter":     asnFilter,
 		"ASNFilterIPs":  asnIPs,
+		"ASNFilterOrg":  asnOrg,
 		"ASNFilterMore": asnIPTotal > asnIPs,
 		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
 		// UABotNote: per listed-crawler UA, which reading its badge note
