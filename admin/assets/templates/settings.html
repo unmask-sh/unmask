@@ -227,6 +227,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-view .pat{color:#64748b;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;line-height:1.5;word-break:break-all}
 .rule-view .pat.empty{color:#cbd5e1;font-style:italic}
 .rule-view .rule-meta{font-size:.7rem;color:#94a3b8;margin-top:.1rem;font-family:ui-monospace,Menlo,monospace}
+/* The row carries two dates and neither is self-describing, so each is
+   labelled.  "Added" is the one the save path has always kept (it only fills
+   the field when absent); "changed" is stamped when an edit is confirmed. */
+.rule-view .rule-meta .meta-k{opacity:.75}
+.rule-view .rule-meta time+.meta-k{margin-left:.5em}
 /* mode toggle:
  *   while view    : checkbox + view + up/down + edit + delete + add
  *   while editing : title input + pattern input + confirm + delete + add
@@ -1541,11 +1546,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bypass_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="bypass_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="bypass_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="bypass_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .IP }} empty{{ end }}" data-empty="{{ t $.Lang "settings.network.empty_ip" }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="bypass_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="bypass_ip" value="{{ .IP }}" placeholder="{{ t $.Lang "settings.network.bypass_placeholder" }}" class="rule-pat">
@@ -1717,11 +1722,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="bp_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.bypass_paths.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
@@ -1964,11 +1969,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="white_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="white_extra_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="white_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="white_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern" }}" class="rule-pat">
@@ -2094,11 +2099,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="black_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="black_extra_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="black_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="black_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat">
@@ -2641,7 +2646,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <span class="rule-view">
             <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
             <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}</div>
-            {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+            {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ if gt $r.ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ $r.ChangedAt }}">{{ $r.ChangedAt }}</time>{{ end }}</div>{{ end }}
           </span>
           <input type="text" name="ja4_extra_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <input type="text" name="ja4_extra_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat">
@@ -2796,11 +2801,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="honeypot_url_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}"><input type="hidden" name="honeypot_url_changed_at" value="{{ $r.ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.honeypot.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
-          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ if gt $r.ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ $r.ChangedAt }}">{{ $r.ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
@@ -2943,12 +2948,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}"><input type="hidden" name="protected_changed_at" value="{{ $r.ChangedAt }}">
         <input type="hidden" name="protected_mode" value="{{ $r.Mode }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.protected.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }} <span class="action-pill action-{{ $r.Mode }}" data-pill="mode">{{ $r.Mode }}</span>{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
-          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ if gt $r.ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ $r.ChangedAt }}">{{ $r.ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
@@ -3899,11 +3904,11 @@ function secToHuman(s){
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}"><input type="hidden" name="geo_changed_at" value="{{ $r.ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat"><span class="cc-code">{{ $r.Country }}</span>{{ if $c.NameEN }} {{ $c.NameEN }} ({{ $c.NameJP }}){{ end }} <span class="action-pill action-suspect geo-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $rs }} inherit{{ end }}">{{ if $rs }}{{ if eq $rs "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $rs }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
-          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ if gt $r.ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ $r.ChangedAt }}">{{ $r.ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
         <input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat">
@@ -3975,11 +3980,11 @@ function secToHuman(s){
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="gx_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="gx_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.bypass_paths.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
@@ -4182,11 +4187,11 @@ function secToHuman(s){
       <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="asn_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
+        <input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}"><input type="hidden" name="asn_changed_at" value="{{ $r.ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Label }} empty{{ end }}">{{ if $r.Label }}{{ $r.Label }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect asn-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
-          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
+          {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ if gt $r.ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ $r.ChangedAt }}">{{ $r.ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
         <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
@@ -4256,11 +4261,11 @@ function secToHuman(s){
       <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="ax_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
-        <input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}">
+        <input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}"><input type="hidden" name="ax_changed_at" value="{{ .ChangedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
           <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.bypass_paths.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}</div>
-          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
+          {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ if gt .ChangedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.changed" }}</span> <time class="js-datetime" data-ts="{{ .ChangedAt }}">{{ .ChangedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
@@ -6509,6 +6514,20 @@ document.addEventListener('DOMContentLoaded', function(){
   // the row's own inputs.  A row added in this session has no pills at all, and
   // a confirmed row's action or site may have just been edited, so each pill is
   // created, updated or removed rather than assumed to exist.
+  // rowSignature: the row's editable values as one string, used to tell a real
+  // edit from a pencil opened and closed again.  Reads whatever named controls
+  // the row has, so it needs no per-tab knowledge -- and skips the timestamps
+  // themselves, which would otherwise make every row look edited.
+  function rowSignature(row) {
+    const parts = [];
+    row.querySelectorAll('input[name], select[name], textarea[name]').forEach(function(el){
+      const n = el.getAttribute('name') || '';
+      if (n.endsWith('_updated_at') || n.endsWith('_changed_at')) return;
+      parts.push(n + '=' + (el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value));
+    });
+    return parts.join('\u0001');
+  }
+
   function syncRowPills(patView) {
     const row = patView.closest('.rule-row');
     if (!row) return;
@@ -6645,6 +6664,15 @@ document.addEventListener('DOMContentLoaded', function(){
             syncPatValue(patView, patInput);
           }
         }
+        // Stamp the edit time, but only when something actually differs from
+        // what the row held when the pencil was pressed.  The row knows which
+        // one was edited, so no server-side diffing is needed.
+        const changed = row.querySelector('input[type=hidden][name$="_changed_at"]');
+        if (changed && row.dataset.snapshot !== undefined &&
+            row.dataset.snapshot !== rowSignature(row)) {
+          changed.value = String(Math.floor(Date.now() / 1000));
+        }
+        delete row.dataset.snapshot;
         row.classList.remove('editing');
         return;
       }
@@ -6665,6 +6693,10 @@ document.addEventListener('DOMContentLoaded', function(){
       }
 
       if (btn.classList.contains('rule-edit')) {
+        // Snapshot what the row holds now, so confirming can tell an actual
+        // edit from a pencil opened and closed again.  Stamping on every
+        // confirm would make "changed" mean "looked at".
+        row.dataset.snapshot = rowSignature(row);
         row.classList.add('editing');
         const ttl = row.querySelector('input.rule-title');
         if (ttl) {
@@ -6684,6 +6716,12 @@ document.addEventListener('DOMContentLoaded', function(){
         if (cb) cb.checked = true;
         const hidden = clone.querySelector('input[type=hidden][name$="_enabled"]');
         if (hidden) hidden.value = '1';
+        // A new row is new: clearing these lets the server stamp today's date.
+        // Left alone, the clone inherited the dates of the row it was copied
+        // from and the server kept them (it only fills an absent value), so a
+        // rule added today showed the date of one added months ago.
+        clone.querySelectorAll('input[type=hidden][name$="_updated_at"], input[type=hidden][name$="_changed_at"]')
+          .forEach(function(i){ i.value = ''; });
         // also reset the view to placeholder state (= hidden by CSS while editing, but just in case).
         const ttl = clone.querySelector('.rule-view .ttl');
         const pat = clone.querySelector('.rule-view .pat');
