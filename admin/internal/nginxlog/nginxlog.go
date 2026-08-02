@@ -307,14 +307,6 @@ type bucket struct {
 	ipAll  hll.Sketch
 	ipChal hll.Sketch
 	ipPass hll.Sketch
-	// ipBot: clients a challenge was NOT fired for, whose UA is a crawler on
-	// the curated list -- i.e. non-human traffic this install deliberately
-	// lets through (verified search / AI crawlers, monitoring).  Kept apart
-	// from ipChal on purpose: "bot we passed" and "client that failed a
-	// challenge" are both non-human, and an operator wants the split, not the
-	// sum.  Decided per line here rather than by set algebra on read, because
-	// HLL cannot express intersection.
-	ipBot hll.Sketch
 }
 
 // Start: if socketPath is empty, return a disabled stub
@@ -535,6 +527,15 @@ func (r *Reader) onLine(line string) {
 		kind = "challenge_served"
 	}
 	r.Bump(p.site, kind)
+	// A listed crawler we did not challenge: the pass was the configuration's
+	// decision, so this is the benign half of the overview's non-human split.
+	// Counted per site here rather than derived from unmask_crawler_minute,
+	// which has no site column and so cannot answer a site-scoped view.
+	if !p.fc && r.classifyCrawler != nil && p.ua != "" {
+		if tag := r.classifyCrawler(p.ua); tag != "" {
+			r.bumpKind(p.site, "crawler_pass")
+		}
+	}
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
 	// alias, so ipPass only counts a genuine pow/captcha cookie.
@@ -590,13 +591,31 @@ func (r *Reader) Bump(site, kind string) {
 	r.mu.Unlock()
 }
 
+// bumpKind increments one counter WITHOUT touching the bucket's total.  Bump
+// owns "total" -- one call per access-log line -- so a second counter for the
+// same line has to stay out of it or every crawler request would be counted
+// twice in the request volume.
+func (r *Reader) bumpKind(site, kind string) {
+	if r == nil || r.d == nil || kind == "" {
+		return
+	}
+	key := bucketKey{minute: time.Now().Unix() / 60, site: site}
+	r.mu.Lock()
+	b, ok := r.buckets[key]
+	if !ok {
+		b = &bucket{kinds: map[string]int{}}
+		r.buckets[key] = b
+	}
+	b.kinds[kind]++
+	r.mu.Unlock()
+}
+
 // bumpTrafficHLL: fold one request's client IP into the per-minute HLL
 // sketches.  ip="" (= the log line carried no ip= field) is a no-op.
 //
 //	ipAll  <- every request
 //	ipChal <- fc == 1 (= a challenge fired)
 //	ipPass <- bv_kind is pow / captcha (= the client holds a pass cookie)
-//	ipBot  <- fc == 0 AND the UA is a listed crawler (= deliberately passed)
 //
 // nil-safe (= no-op when the Reader isn't running).
 func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind, ua string) {
@@ -617,16 +636,6 @@ func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind, ua string) {
 	}
 	if bvKind == "pow" || bvKind == "captcha" {
 		b.ipPass.Add(ipb)
-	}
-	// A listed crawler that was not challenged: the pass was the config's
-	// decision, so it belongs on the benign side of the non-human split.  One
-	// that WAS challenged falls through to ipChal like any other client --
-	// which is right: if an operator challenges the AI-crawler group, GPTBot
-	// is not being let through and should not be counted as if it were.
-	if !fc && r.classifyCrawler != nil && ua != "" {
-		if tag := r.classifyCrawler(ua); tag != "" {
-			b.ipBot.Add(ipb)
-		}
 	}
 	r.mu.Unlock()
 }
@@ -842,7 +851,7 @@ func (r *Reader) flushOnce(final bool) {
 			}
 			ready = append(ready, entry{k, bucket{
 				total: b.total, kinds: copyKinds,
-				ipAll: b.ipAll, ipChal: b.ipChal, ipPass: b.ipPass, ipBot: b.ipBot,
+				ipAll: b.ipAll, ipChal: b.ipChal, ipPass: b.ipPass,
 			}})
 			delete(r.buckets, k)
 		}
@@ -905,7 +914,7 @@ func (r *Reader) flushOnce(final bool) {
 			if !ok {
 				bb := bucket{
 					total: e.b.total, kinds: map[string]int{},
-					ipAll: e.b.ipAll, ipChal: e.b.ipChal, ipPass: e.b.ipPass, ipBot: e.b.ipBot,
+					ipAll: e.b.ipAll, ipChal: e.b.ipChal, ipPass: e.b.ipPass,
 				}
 				for k, v := range e.b.kinds {
 					bb.kinds[k] = v
@@ -919,7 +928,6 @@ func (r *Reader) flushOnce(final bool) {
 				b.ipAll.Merge(&e.b.ipAll)
 				b.ipChal.Merge(&e.b.ipChal)
 				b.ipPass.Merge(&e.b.ipPass)
-				b.ipBot.Merge(&e.b.ipBot)
 			}
 		}
 		for _, e := range crawlerReady {
@@ -1005,7 +1013,7 @@ func (r *Reader) flushOnce(final bool) {
 		for _, sk := range []struct {
 			kind string
 			s    hll.Sketch
-		}{{"ip", e.b.ipAll}, {"ipc", e.b.ipChal}, {"ipp", e.b.ipPass}, {"ipb", e.b.ipBot}} {
+		}{{"ip", e.b.ipAll}, {"ipc", e.b.ipChal}, {"ipp", e.b.ipPass}} {
 			if sk.s.Empty() {
 				continue
 			}
