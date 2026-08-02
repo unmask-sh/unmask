@@ -33,6 +33,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .hero .value{font-size:4rem;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:.05rem 0;text-shadow:0 .15rem .5rem rgba(0,0,0,.2)}
 .hero .desc{font-size:.92rem;opacity:.92;line-height:1.5}
 .hero .sub{font-size:.78rem;opacity:.7;margin-top:.4rem}
+.hero .hero-clients{display:block;font-size:.82rem;opacity:.85;margin-top:.25rem}
 /* 7 tiles in one row on a normal desktop.  At the previous 13rem minimum the
    row needed 95.5rem (1528px) and wrapped as soon as the abandon tile was
    added; 10rem needs 74.5rem (1192px), which the usual 1280-1920px viewport
@@ -167,7 +168,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{ if not .KPIKnown }}
         {{ t .Lang "overview.hero.timeout" }}
       {{ else if gt .KPIBlocked 0 }}
+        {{/* Requests, not clients: one scraper hitting a thousand URLs is a
+             thousand here.  When the access-log sketches are available we can
+             also say how many distinct addresses that came from, which is the
+             number people actually picture when they read "bots blocked". */}}
         {{ safeHTML (t .Lang "overview.hero.desc") }}
+        {{ if and .KPIKnown (gt .KPIUniqueBlocked 0) }}<span class="hero-clients">{{ tf .Lang "overview.hero.clients" (comma .KPIUniqueBlocked) }}</span>{{ end }}
       {{ else }}
         {{ t .Lang "overview.hero.zero" }}
       {{ end }}
