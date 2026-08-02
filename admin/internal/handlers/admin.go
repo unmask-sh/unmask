@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -228,6 +229,15 @@ func loadDashboardTemplate() (*template.Template, error) {
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+			// pctOf: share of a total, for the composition bar's segment widths.
+			// Returns a plain number so the template can put it straight into a
+			// width; a zero total is 0 rather than a divide by zero.
+			"pctOf": func(n, total int) string {
+				if total <= 0 || n <= 0 {
+					return "0"
+				}
+				return strconv.FormatFloat(float64(n)/float64(total)*100, 'f', 4, 64)
+			},
 			// uaSummary condenses a browser UA to "<platform> · <browser> <major>"
 			// for the events table; "" for anything that is not a recognisable
 			// browser, so the caller keeps the raw string (see classify.UASummary
