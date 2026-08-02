@@ -20,7 +20,7 @@
 */}}
 {{ define "ai_traffic_card" }}
 <div class="bcd-card ai-traffic-card" data-ai-card>
-  <h2>{{ t .Lang "ai_traffic.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
+  <h2>{{ t .Lang "ai_traffic.title" }}<span class="ai-window">{{ t .Lang "ai_traffic.window" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
   <div class="ai-tabs" role="tablist">
     <button class="ai-tab active" data-tab="all" role="tab">{{ t .Lang "ai_traffic.tab.all" }}</button>
     <button class="ai-tab" data-tab="served" role="tab">{{ t .Lang "ai_traffic.tab.served" }}</button>
@@ -90,6 +90,12 @@
 */}}
 {{ define "ai_traffic_card_assets" }}
 <style>
+/* The card carries no other date context, and its three sources are not
+   equally precise: the "all" table is minute-granular, while the drill-down
+   popover and the "served" tab read hourly rollups whose lower bound snaps
+   down to the containing hour (deliberately -- see aiTrafficDrilldown --
+   so a drill-down never reads lower than the row it opened from). */
+.ai-traffic-card h2 .ai-window{font-size:.72rem;font-weight:500;color:#94a3b8;margin-left:.5rem;letter-spacing:0}
 .ai-traffic-card .ai-tabs{display:flex;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
 .ai-traffic-card .ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .ai-traffic-card .ai-tab:hover{color:#0f172a}
