@@ -307,6 +307,14 @@ type bucket struct {
 	ipAll  hll.Sketch
 	ipChal hll.Sketch
 	ipPass hll.Sketch
+	// ipBot: clients a challenge was NOT fired for, whose UA is a crawler on
+	// the curated list -- i.e. non-human traffic this install deliberately
+	// lets through (verified search / AI crawlers, monitoring).  Kept apart
+	// from ipChal on purpose: "bot we passed" and "client that failed a
+	// challenge" are both non-human, and an operator wants the split, not the
+	// sum.  Decided per line here rather than by set algebra on read, because
+	// HLL cannot express intersection.
+	ipBot hll.Sketch
 }
 
 // Start: if socketPath is empty, return a disabled stub
@@ -530,7 +538,7 @@ func (r *Reader) onLine(line string) {
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
 	// alias, so ipPass only counts a genuine pow/captcha cookie.
-	r.bumpTrafficHLL(p.site, p.ip, p.fc, p.kind)
+	r.bumpTrafficHLL(p.site, p.ip, p.fc, p.kind, p.ua)
 	// Country-hourly aggregation for the 30-day chart's country breakdown.
 	// The kind passed here matches the unmask_cookie_minute kind: "" / pow /
 	// captcha / challenge_served — keep the catalogue aligned so the two
@@ -588,9 +596,10 @@ func (r *Reader) Bump(site, kind string) {
 //	ipAll  <- every request
 //	ipChal <- fc == 1 (= a challenge fired)
 //	ipPass <- bv_kind is pow / captcha (= the client holds a pass cookie)
+//	ipBot  <- fc == 0 AND the UA is a listed crawler (= deliberately passed)
 //
 // nil-safe (= no-op when the Reader isn't running).
-func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind string) {
+func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind, ua string) {
 	if r == nil || r.d == nil || ip == "" {
 		return
 	}
@@ -608,6 +617,16 @@ func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind string) {
 	}
 	if bvKind == "pow" || bvKind == "captcha" {
 		b.ipPass.Add(ipb)
+	}
+	// A listed crawler that was not challenged: the pass was the config's
+	// decision, so it belongs on the benign side of the non-human split.  One
+	// that WAS challenged falls through to ipChal like any other client --
+	// which is right: if an operator challenges the AI-crawler group, GPTBot
+	// is not being let through and should not be counted as if it were.
+	if !fc && r.classifyCrawler != nil && ua != "" {
+		if tag := r.classifyCrawler(ua); tag != "" {
+			b.ipBot.Add(ipb)
+		}
 	}
 	r.mu.Unlock()
 }
@@ -708,11 +727,14 @@ func (r *Reader) BumpCrawler(ua string, served bool) {
 // no access-log line, so without these the unique-IP (DailyUniqueIPs) and
 // per-country (DailyPassByCountry) 30-day charts stay flat-zero in forward-auth.
 // nil-safe.
-func (r *Reader) BumpTrafficHLL(site, ip string, fc bool, bvKind string) {
+func (r *Reader) BumpTrafficHLL(site, ip string, fc bool, bvKind, ua string) {
 	if r == nil {
 		return
 	}
-	r.bumpTrafficHLL(site, ip, fc, bvKind)
+	// ua feeds the benign-bot sketch; forward-auth has it on the request, so
+	// the split is populated identically on both wires.  Callers with no UA
+	// pass "" and simply contribute nothing to that sketch.
+	r.bumpTrafficHLL(site, ip, fc, bvKind, ua)
 }
 
 func (r *Reader) BumpCountry(site, ip, kind string) {
@@ -982,7 +1004,7 @@ func (r *Reader) flushOnce(final bool) {
 		for _, sk := range []struct {
 			kind string
 			s    hll.Sketch
-		}{{"ip", e.b.ipAll}, {"ipc", e.b.ipChal}, {"ipp", e.b.ipPass}} {
+		}{{"ip", e.b.ipAll}, {"ipc", e.b.ipChal}, {"ipp", e.b.ipPass}, {"ipb", e.b.ipBot}} {
 			if sk.s.Empty() {
 				continue
 			}

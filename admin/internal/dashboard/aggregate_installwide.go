@@ -323,15 +323,16 @@ func rollupInstallWideCountryRange(ctx context.Context, d *db.DB, fromHour, toHo
 	return tx.Commit()
 }
 
-// installWideBlockedState is the cursor for the install-wide 'ipc'/'ipp'
+// installWideBlockedState is the cursor for the install-wide 'ipc'/'ipp'/'ipb'
 // distinct-IP sketches (hkTrafficBlockedAll) feeding the overview's non-human-%
 // card.  Own cursor so it backfills the retained window on first run without
 // disturbing installWideState (which DailyUniqueIPs / DailyPassByDay read).
 const installWideBlockedState = "iw_blocked"
 
-// RollupInstallWideBlocked unions every site's per-minute 'ipc' (challenged) and
-// 'ipp' (passed) sketches into one install-wide sketch per (hour, kind) in
-// unmask_aggregate_hll(bucket_kind=hkTrafficBlockedAll, bucket_key='ipc'|'ipp'),
+// RollupInstallWideBlocked unions every site's per-minute 'ipc' (challenged),
+// 'ipp' (passed) and 'ipb' (listed crawler passed without a challenge) sketches
+// into one install-wide sketch per (hour, kind) in
+// unmask_aggregate_hll(bucket_kind=hkTrafficBlockedAll, bucket_key='ipc'|'ipp'|'ipb'),
 // so the overview's non-human-% default view merges ~48 hourly sketches instead
 // of the ~8k per-site rows.  ('ip'/total reuses hkTrafficIPAll.)  Same settle /
 // batch / idempotency contract as the other rollups, on its own cursor.
@@ -366,7 +367,7 @@ func RollupInstallWideBlocked(ctx context.Context, d *db.DB) error {
 func rollupInstallWideBlockedRange(ctx context.Context, d *db.DB, fromHour, toHour int64) error {
 	rows, err := d.QueryContext(ctx,
 		`SELECT bucket_min, kind, sketch FROM unmask_traffic_hll
-		 WHERE kind IN ('ipc','ipp') AND bucket_min >= ? AND bucket_min < ?`,
+		 WHERE kind IN ('ipc','ipp','ipb') AND bucket_min >= ? AND bucket_min < ?`,
 		fromHour*60, (toHour+1)*60)
 	if err != nil {
 		return err
@@ -505,23 +506,28 @@ func mergeInstallWideHLL(ctx context.Context, d *db.DB, kind, bucketKind, bucket
 //	total   = distinct client IPs over all traffic         (hkTrafficIPAll '')
 //	blocked = distinct IPs challenged but never passed      (hkTrafficBlockedAll)
 //	        = est(ipc ∪ ipp) − est(ipp)
+//	benign  = distinct listed crawlers passed on purpose    (hkTrafficBlockedAll)
 //
 // ok=false when there is no traffic-sketch data at all (access-log feed off /
 // just deployed) so the caller renders "—".  minutes is a trailing window.
-func TrafficUniqueAgg(ctx context.Context, d *db.DB, minutes int) (total, blocked int, ok bool, err error) {
+func TrafficUniqueAgg(ctx context.Context, d *db.DB, minutes int) (total, blocked, benign int, ok bool, err error) {
 	untilMin := time.Now().Unix() / 60
 	cutoffMin := untilMin - int64(minutes)
 	ip, err := mergeInstallWideHLL(ctx, d, "ip", hkTrafficIPAll, "", installWideState, cutoffMin, untilMin)
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, 0, false, err
 	}
 	ipc, err := mergeInstallWideHLL(ctx, d, "ipc", hkTrafficBlockedAll, "ipc", installWideBlockedState, cutoffMin, untilMin)
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, 0, false, err
 	}
 	ipp, err := mergeInstallWideHLL(ctx, d, "ipp", hkTrafficBlockedAll, "ipp", installWideBlockedState, cutoffMin, untilMin)
 	if err != nil {
-		return 0, 0, false, err
+		return 0, 0, 0, false, err
+	}
+	ipb, err := mergeInstallWideHLL(ctx, d, "ipb", hkTrafficBlockedAll, "ipb", installWideBlockedState, cutoffMin, untilMin)
+	if err != nil {
+		return 0, 0, 0, false, err
 	}
 	total = ip.estimate()
 	// HLL has no subtraction, so est(ipc \ ipp) = est(ipc ∪ ipp) − est(ipp).
@@ -532,7 +538,11 @@ func TrafficUniqueAgg(ctx context.Context, d *db.DB, minutes int) (total, blocke
 	if blocked < 0 {
 		blocked = 0
 	}
+	// Benign: listed crawlers this install passed without challenging.  A
+	// direct estimate, not a subtraction, so it carries only the sketch's own
+	// error rather than the difference of two.
+	benign = ipb.estimate()
 	// ip ⊇ ipc ⊇ (challenged), so total>0 iff there was any traffic sketch at all
 	// — mirrors trafficUnique's "no ip sketch -> —".
-	return total, blocked, total > 0, nil
+	return total, blocked, benign, total > 0, nil
 }
