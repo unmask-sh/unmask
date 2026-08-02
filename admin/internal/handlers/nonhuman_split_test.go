@@ -340,3 +340,38 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 		}
 	}
 }
+
+// "Total events" named an internal record type and counted a sum of unlike
+// things -- one challenged visitor leaves a serve, a load and a pass -- so the
+// tile said neither what it counted nor what to do with the number.
+func TestRecordedEventsTileExplainsItself(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/overview.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+	if !strings.Contains(tpl, `{{ t .Lang "overview.kpi.events" }}<span class="info-tip"`) {
+		t.Error("the events tile has no explanation attached")
+	}
+	if !strings.Contains(tpl, `"overview.kpi.events_sub"`) || !strings.Contains(tpl, `/admin/hunt/`) {
+		t.Error("the events tile does not lead anywhere; the number is the size of the hunt log")
+	}
+	for _, tc := range []struct {
+		lang i18n.Lang
+		want []string
+	}{
+		// The three things the number is not, and the one thing it is.
+		{i18n.LangJA, []string{"リクエスト数でも訪問者数でもありません", "serve", "ハント"}},
+		{i18n.LangEN, []string{"Not requests, and not visitors", "serve", "hunt"}},
+	} {
+		help := i18n.T(tc.lang, "overview.kpi.events_help")
+		if help == "" || help == "overview.kpi.events_help" {
+			t.Fatalf("%s: no explanation", tc.lang)
+		}
+		for _, w := range tc.want {
+			if !strings.Contains(help, w) {
+				t.Errorf("%s explanation does not mention %q", tc.lang, w)
+			}
+		}
+	}
+}
