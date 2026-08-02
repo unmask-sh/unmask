@@ -86,7 +86,7 @@ table.events{table-layout:fixed;width:100%}
    max-content width to its unwrapped length -- which stretched the IP card
    sharing that track and crushed the 1fr UA card to 31px.  Cap the card so
    the note wraps inside it instead of sizing the grid. */
-.rank-card-asn{max-width:26rem}
+.rank-card-asn{max-width:24rem}
 .rank-card-asn .rank-note{margin:.5rem 0 0;font-size:.72rem;line-height:1.5}
 /* Organisation names run long ("Hosting Solutions International Ltd"), and
    td.key is nowrap for the IP/JA4 tables that need it.  Clip here instead,
@@ -315,7 +315,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
         {{/* The number is what the ASN rule is keyed on, so it stays reachable --
              in the popover, next to the name in full, rather than spending
              column width on every row. */}}
-        <td class="key{{ if .ASN }} cellpop{{ end }}"{{ if .ASN }} data-full-value="AS{{ .ASN }}{{ with .Org }}  {{ . }}{{ end }}"{{ end }}>
+        <td class="key{{ if and .ASN .Org }} cellpop{{ end }}"{{ if and .ASN .Org }} data-full-value="AS{{ .ASN }}"{{ end }}>
           {{ if .Org }}{{ .Org }}{{ else if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
         </td>
         <td class="num">{{ .IPs }}</td>

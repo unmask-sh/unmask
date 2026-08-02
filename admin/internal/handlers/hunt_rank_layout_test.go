@@ -15,7 +15,7 @@ import (
 //
 // Measured in a browser against a live install's own page: four across from
 // 1425px up (1536 -- a 1920 screen at 125% scaling, the common Windows case --
-// leaves the UA card 293px), a balanced 2x2 at or below 1424, and no card
+// leaves the UA card 325px), a balanced 2x2 at or below 1424, and no card
 // overflowing its column at any width tested.  Before, the UA card was 31px.
 func TestRankGridHasAColumnForEveryCard(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/hunt.html")
