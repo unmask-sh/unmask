@@ -86,3 +86,52 @@ func TestCommittedRowsShowTheirChainAction(t *testing.T) {
 		}
 	}
 }
+
+// Confirming a row updates the row summary in place, and the summary carries
+// pills the row can still change: the match mode, the chain action, the site.
+// The sync wrote the pattern with textContent, which wiped all of them, so a
+// confirmed row read as a bare path until the page was reloaded -- and a row
+// added in this session never showed them at all.
+func TestConfirmingARowKeepsItsPills(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	sync := tpl[strings.Index(tpl, "function syncPatValue("):]
+	sync = sync[:strings.Index(sync, "\n  function ")+len("\n  function ")]
+	if strings.Contains(sync, "patView.textContent =") {
+		t.Error("the summary is still rewritten wholesale; the mode / action / site pills are wiped on confirm")
+	}
+	if !strings.Contains(sync, "syncRowPills(") {
+		t.Error("the summary sync no longer rebuilds the pills from the row's inputs")
+	}
+
+	if !strings.Contains(tpl, "function syncRowPills(") {
+		t.Fatal("syncRowPills is gone")
+	}
+	pills := tpl[strings.Index(tpl, "function syncRowPills("):]
+	pills = pills[:strings.Index(pills, "\n  }\n")]
+	// Each pill has to be created, updated or removed -- a row added in this
+	// session starts with none, and clearing a value has to drop its pill.
+	for _, src := range []string{`input[name$="_mode"]`, `select.extra-action-sel`, `input.rule-action[name$="_site"]`} {
+		if !strings.Contains(pills, src) {
+			t.Errorf("the pill sync does not read %s, so that value disappears from a confirmed row", src)
+		}
+	}
+	if !strings.Contains(pills, `act.value === 'inherit' ? '' : act.value`) {
+		t.Error("an action set back to inherit would leave a stale pill behind")
+	}
+
+	// The server-rendered pills need the same marker the sync looks them up by,
+	// or confirming a row appends a second copy beside the first.
+	if n := strings.Count(tpl, `data-pill="site"`); n < 3 {
+		t.Errorf("only %d site pills carry the marker; the others get duplicated on confirm", n)
+	}
+	for _, kind := range []string{"mode", "action"} {
+		if !strings.Contains(tpl, `data-pill="`+kind+`"`) {
+			t.Errorf("the %s pill has no marker for the sync to find", kind)
+		}
+	}
+}
