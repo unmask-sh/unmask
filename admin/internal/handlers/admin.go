@@ -649,9 +649,10 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 			adminIPForbidden(w, ip)
 			return
 		}
-		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(r.Host, allowHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", r.Host, r.URL.Path, allowHosts)
-			adminHostForbidden(w, r.Host)
+		host := adminClientHost(r, h.snapshotSettings())
+		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(host, allowHosts) {
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", host, r.URL.Path, allowHosts)
+			adminHostForbidden(w, host)
 			return
 		}
 		// Login and password-reset attempts are audited before any session
