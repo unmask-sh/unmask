@@ -135,3 +135,47 @@ func TestConfirmingARowKeepsItsPills(t *testing.T) {
 		}
 	}
 }
+
+// A row whose pattern is still blank is incomplete, not empty: its mode,
+// action and site are set and the operator can see them everywhere except in
+// the one place that summarises the row.  Both the server render and the
+// confirm handler kept the pills inside the "has a pattern" branch, so filling
+// in everything but the path made those values disappear, which reads as the
+// settings having been lost rather than as one field still being blank.
+func TestARowWithNoPatternStillShowsItsValues(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	// Server side: the placeholder and the pills are siblings, not alternatives.
+	for _, marker := range []string{
+		`settings.protected.empty_pattern" }}{{ end }} <span class="action-pill`,
+		`settings.honeypot.empty_pattern" }}{{ end }}{{ with $r.Action }}`,
+		`settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }}`,
+	} {
+		if !strings.Contains(tpl, marker) {
+			t.Errorf("a row with no pattern hides its own values: %s", marker)
+		}
+	}
+
+	// Client side: the blank branch has to restore the placeholder and sync the
+	// pills, not just flag the cell and leave whatever text was there.
+	i := strings.Index(tpl, `if (patInput.value.trim() === '') {`)
+	if i < 0 {
+		t.Fatal("could not find the confirm handler's blank-pattern branch")
+	}
+	branch := tpl[i : i+strings.Index(tpl[i:], "} else {")]
+	if !strings.Contains(branch, "syncRowPills(") {
+		t.Error("confirming a row with a blank pattern drops its pills")
+	}
+	if !strings.Contains(branch, "data-empty") {
+		t.Error("the blank branch leaves the previous pattern on screen instead of the placeholder")
+	}
+	// The placeholder has to come from the row itself: each tab words it
+	// differently, and the handler is shared.
+	if n := strings.Count(tpl, `data-empty="`); n < 6 {
+		t.Errorf("only %d row summaries carry their placeholder text; the shared handler cannot restore the rest", n)
+	}
+}
