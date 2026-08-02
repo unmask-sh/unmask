@@ -341,37 +341,43 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	}
 }
 
-// "Total events" named an internal record type and counted a sum of unlike
-// things -- one challenged visitor leaves a serve, a load and a pass -- so the
-// tile said neither what it counted nor what to do with the number.
-func TestRecordedEventsTileExplainsItself(t *testing.T) {
+// The KPI row holds counters an operator can act on.  A "total events" tile
+// used to sit at its head: the sum of serve + load + passes + abandons +
+// rebinds + errors, in an internal unit, whose main parts are the tiles beside
+// it and whose only unique reading -- how many rows the hunt log holds -- is
+// the first thing the hunt page shows.  Explaining it did not make it useful,
+// so it went.
+func TestNoTotalEventsTile(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/overview.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "overview.kpi.events") {
+		t.Error("the total-events tile is back; its parts are already tiles of their own")
+	}
+	// And the query behind it should be gone too, not merely unrendered.
+	h, err := os.ReadFile("overview_admin.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(h), "kpiEvents") {
+		t.Error("the landing page still counts every event row for a tile that no longer exists")
+	}
+}
+
+// Each share of the bar is labelled with its percentage: the bar shows the
+// shape, the percentage names it, and the count is the detail behind it.  A
+// share too small to round to 0.1% reads as "<0.1%" rather than "0.0%", which
+// beside a five-figure count looks like a broken number.
+func TestCompositionLegendShowsShares(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/overview.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	tpl := string(b)
-	if !strings.Contains(tpl, `{{ t .Lang "overview.kpi.events" }}<span class="info-tip"`) {
-		t.Error("the events tile has no explanation attached")
-	}
-	if !strings.Contains(tpl, `"overview.kpi.events_sub"`) || !strings.Contains(tpl, `/admin/hunt/`) {
-		t.Error("the events tile does not lead anywhere; the number is the size of the hunt log")
-	}
-	for _, tc := range []struct {
-		lang i18n.Lang
-		want []string
-	}{
-		// The three things the number is not, and the one thing it is.
-		{i18n.LangJA, []string{"リクエスト数でも訪問者数でもありません", "serve", "ハント"}},
-		{i18n.LangEN, []string{"Not requests, and not visitors", "serve", "hunt"}},
-	} {
-		help := i18n.T(tc.lang, "overview.kpi.events_help")
-		if help == "" || help == "overview.kpi.events_help" {
-			t.Fatalf("%s: no explanation", tc.lang)
-		}
-		for _, w := range tc.want {
-			if !strings.Contains(help, w) {
-				t.Errorf("%s explanation does not mention %q", tc.lang, w)
-			}
+	for _, f := range []string{"pctLabel .KPIReqBenign $t", "pctLabel .KPIReqBlocked $t", "pctLabel .KPIReqHuman $t"} {
+		if !strings.Contains(tpl, f) {
+			t.Errorf("the legend entry %q has no share", f)
 		}
 	}
 }

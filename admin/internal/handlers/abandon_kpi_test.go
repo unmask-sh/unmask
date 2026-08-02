@@ -94,7 +94,10 @@ func TestKPIGridFitsOneRowOnDesktop(t *testing.T) {
 	minRem, _ := strconv.ParseFloat(m[1], 64)
 	gapRem, _ := strconv.ParseFloat(m[2], 64)
 	tiles := strings.Count(tpl[strings.Index(tpl, `<div class="kpi-grid">`):], `<div class="kpi`) - 1 // minus the grid itself
-	if tiles < 6 {
+	// The row is the challenge funnel plus bans.  The composition figure has a
+	// card of its own above it, and the total-events tile was removed: its
+	// parts are the tiles here and its unit meant nothing to a reader.
+	if tiles < 5 {
 		t.Fatalf("counted %d tiles; the grid markup moved and this test is measuring the wrong thing", tiles)
 	}
 	needPx := (float64(tiles)*minRem + float64(tiles-1)*gapRem) * 16

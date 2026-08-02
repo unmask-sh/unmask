@@ -60,6 +60,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-legend{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.78rem;color:#475569}
 .comp-legend span{display:inline-flex;align-items:center;gap:.35rem}
 .comp-legend i{width:.6rem;height:.6rem;border-radius:.15rem;display:inline-block}
+/* The share is the point of the bar; the count is the detail behind it. */
+.comp-share{margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem}
 .kpi{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.85rem .9rem;display:flex;flex-direction:column;gap:.15rem}
 .kpi .label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
@@ -231,23 +233,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <span class="comp-seg comp-human"  style="width:{{ pctOf .KPIReqHuman $t }}%"></span>
   </div>
   <div class="comp-legend">
-    <span><i class="comp-benign"></i>{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIReqBenign) }}</span>
-    <span><i class="comp-bad"></i>{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIReqBlocked) }}</span>
-    <span><i class="comp-human"></i>{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}</span>
+    <span><i class="comp-benign"></i>{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIReqBenign) }}<b class="comp-share">{{ pctLabel .KPIReqBenign $t }}</b></span>
+    <span><i class="comp-bad"></i>{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIReqBlocked) }}<b class="comp-share">{{ pctLabel .KPIReqBlocked $t }}</b></span>
+    <span><i class="comp-human"></i>{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}<b class="comp-share">{{ pctLabel .KPIReqHuman $t }}</b></span>
   </div>
   {{ end }}
 </div>
 
 <div class="kpi-grid">
-  {{/* "Events" is an internal word and the count is a sum of unlike things --
-       one challenged visitor leaves a serve, a load and a pass -- so the tile
-       said neither what it counted nor what to do with it.  It is the size of
-       the hunt log, so it says so and goes there. */}}
-  <div class="kpi">
-    <div class="label">{{ t .Lang "overview.kpi.events" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.events_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIEvents }}{{ else }}—{{ end }}</div>
-    <div class="sub"><a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "overview.kpi.events_sub" }}</a></div>
-  </div>
   <div class="kpi k-serve">
     <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPIServes }}{{ else }}—{{ end }}</div>
