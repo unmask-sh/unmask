@@ -42,7 +42,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .range-bar a.active{background:#0f172a;color:#fff;border-color:#0f172a}
 /* card width follows content.  IP card grows for IPv4 (= 15 char) or IPv6 as needed.
    JA4 card grows just enough for 36 mono chars.  UA card takes the remaining space. */
-.rank-grid{display:grid;grid-template-columns:auto auto 1fr;gap:.75rem;margin-bottom:1.25rem}
+.rank-grid{display:grid;grid-template-columns:auto auto auto 1fr;gap:.75rem;margin-bottom:1.25rem}
+/* Below the 4-across tier the cards pair up 2x2 rather than leaving one
+   card alone on a second row, which is what a 3-column rule does with four
+   cards. */
+@media(max-width:85rem){.rank-grid{grid-template-columns:auto 1fr}}
 @media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
@@ -78,6 +82,18 @@ table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;max-
 /* hunt raw log: table-layout:fixed forces it into the viewport and kills the inner events-scroll. */
 table.events{table-layout:fixed;width:100%}
 .events-scroll{overflow-x:hidden}
+/* The ASN card carries a prose note, and prose sets an auto track's
+   max-content width to its unwrapped length -- which stretched the IP card
+   sharing that track and crushed the 1fr UA card to 31px.  Cap the card so
+   the note wraps inside it instead of sizing the grid. */
+.rank-card-asn{max-width:26rem}
+.rank-card-asn .rank-note{margin:.5rem 0 0;font-size:.72rem;line-height:1.5}
+/* Organisation names run long ("Hosting Solutions International Ltd"), and
+   td.key is nowrap for the IP/JA4 tables that need it.  Clip here instead,
+   so a long name ellipsises rather than pushing the card past its cap. */
+.rank-card-asn table.rank{width:100%}
+.rank-card-asn table.rank td.key{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+.rank-card-asn table.rank th{white-space:nowrap}
 /* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
  * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
@@ -272,6 +288,40 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     </table>
   </div>
 
+  {{/* ASN ranking.  Ordered by distinct IPs, not requests: a botnet renting a
+       few thousand addresses inside one hosting AS leaves every address near
+       the bottom of the IP ranking, and the network is the only handle wide
+       enough to act on.  Omitted entirely when the ASN mmdb is not loaded --
+       an empty card would read as "no networks", not "cannot tell". */}}
+  {{ if .ASNRank }}
+  <div class="rank-card rank-card-asn">
+    <h3>{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</h3>
+    <table class="rank">
+      <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
+      <tbody>
+      {{ range .ASNRank }}
+      <tr>
+        <td class="key">
+          {{ if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
+          {{ if .Org }}<span class="muted"> {{ .Org }}</span>{{ end }}
+        </td>
+        <td class="num">{{ .IPs }}</td>
+        <td class="num">{{ .Count }}</td>
+        <td class="actions">
+          {{ if .Rule }}
+            <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
+          {{ else if .ASN }}
+            <a class="rank-act" href="{{ $.BasePath }}/admin/settings/?tab=asn&amp;add_asn={{ .ASN }}">{{ t $.Lang "hunt.btn.asn_rule" }}</a>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rank.asn_note") }}</p>
+  </div>
+  {{ end }}
+
   <!-- JA4 ranking -->
   <div class="rank-card">
     <h3>{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</h3>
@@ -359,39 +409,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     </table>
   </div>
 
-  {{/* ASN ranking.  Ordered by distinct IPs, not requests: a botnet renting a
-       few thousand addresses inside one hosting AS leaves every address near
-       the bottom of the IP ranking, and the network is the only handle wide
-       enough to act on.  Omitted entirely when the ASN mmdb is not loaded --
-       an empty card would read as "no networks", not "cannot tell". */}}
-  {{ if .ASNRank }}
-  <div class="rank-card rank-card-asn">
-    <h3>{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</h3>
-    <table class="rank">
-      <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
-      <tbody>
-      {{ range .ASNRank }}
-      <tr>
-        <td class="key">
-          {{ if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
-          {{ if .Org }}<span class="muted"> {{ .Org }}</span>{{ end }}
-        </td>
-        <td class="num">{{ .IPs }}</td>
-        <td class="num">{{ .Count }}</td>
-        <td class="actions">
-          {{ if .Rule }}
-            <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
-          {{ else if .ASN }}
-            <a class="rank-act" href="{{ $.BasePath }}/admin/settings/?tab=asn&amp;add_asn={{ .ASN }}">{{ t $.Lang "hunt.btn.asn_rule" }}</a>
-          {{ end }}
-        </td>
-      </tr>
-      {{ end }}
-      </tbody>
-    </table>
-    <p class="rank-note muted">{{ t .Lang "hunt.rank.asn_note" }}</p>
-  </div>
-  {{ end }}
 </div>
 {{ end }}{{/* if not .Filtering (= hide rankings while a filter search is active) */}}
 {{ end }}{{/* if not .Offset (= hide live tail + rank cards on paginated views) */}}
