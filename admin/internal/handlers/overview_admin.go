@@ -127,7 +127,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// being scanned continuously.  The judgement is still recorded, so when the
 	// mode is on the headline switches to what unmask WOULD have stopped, and
 	// says which question it is answering.
-	observeOnly := h.cfg().Challenge.Resolve(site).IsObserveOnly()
+	// Passthrough suppresses the challenge too, so it lands the card in the same
+	// structural zero.  Both states must stop the card claiming quiet.
+	observeOnly := h.cfg().Challenge.Resolve(site).IsObserveOnly() || h.cfg().Global.Passthrough
 	kpiWouldBlock := 0
 	if observeOnly {
 		if n, err := dashboard.ObserveOnlyWouldBlock(ctx, h.DB, site, hosts, 24); err == nil {

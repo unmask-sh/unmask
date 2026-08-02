@@ -615,6 +615,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":          cur,
 		"Global":       h.snapshotSettings().Global,
+		// Monitor mode is stored on the challenge record but presented on the
+		// operating-mode tab, so the template needs it alongside Global.
+		"ObserveOnly": h.snapshotSettings().Challenge.Default.IsObserveOnly(),
 		// Shipped current-Chrome-major baseline shown as the placeholder for the
 		// stale-browser tier's optional override field.
 		"StaleBrowserBaseline":     settings.DefaultCurrentChromeMajor,
@@ -1291,6 +1294,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	switch section {
 	case "global":
 		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
+		// Monitor mode lives on the challenge record (it is resolved per site by
+		// both deploy paths), but the operator meets it here, beside the other
+		// switch that suppresses the challenge.
+		cur.Challenge.Default.ObserveOnly = settings.BoolPtr(r.FormValue("global_observe_only") == "1")
 		validBucket := func(v string) string {
 			v = strings.TrimSpace(v)
 			if v == "pass" || settings.IsValidRateChallengeMode(v) {

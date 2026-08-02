@@ -1762,6 +1762,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ if eq .Tab "global" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=global">
   <div class="bcd-card">
+    {{/* Monitor mode sits ABOVE passthrough: it is what an operator wants when
+         introducing unmask to a live site, and the one they will reach for
+         first.  Both suppress the challenge, but only this one leaves the
+         measurement intact -- passthrough issues a pass cookie, so returning
+         visitors stop being judged and "what would go live change?" decays
+         toward zero the longer it runs. */}}
+    <h2>{{ t .Lang "settings.global.observe_h" }}</h2>
+    <div class="field" style="padding:.75rem .9rem;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.3rem;margin-bottom:1.2rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#334155;margin:0">
+        <input type="checkbox" name="global_observe_only" value="1" {{ if .ObserveOnly }}checked{{ end }}>
+        {{ t .Lang "settings.global.observe_label" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;color:#475569;line-height:1.65">{{ safeHTML (t .Lang "settings.global.observe_help") }}</div>
+    </div>
+
     <h2>{{ t .Lang "settings.global.passthrough_h" }}</h2>
     <div class="field" style="padding:.75rem .9rem;background:#fff7ed;border:1px solid #fdba74;border-radius:.3rem">
       <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#9a3412;margin:0">
