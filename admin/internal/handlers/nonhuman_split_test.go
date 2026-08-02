@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -73,21 +74,20 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	tile := regexp.MustCompile(`(?s)<div class="kpi">\s*<div class="label">Non-human traffic.*?<div class="value">(.*?)</div>.*?<div class="sub">(.*?)</div>`).
-		FindStringSubmatch(body)
-	if tile == nil {
-		t.Fatal("the non-human tile is missing from the overview")
-	}
-	value, sub := tile[1], stripTags(tile[2])
+	value, sub := compositionCard(t, body)
 
 	// Exact counters, so these are exact -- no estimate to allow for.
-	for _, want := range []string{"2,000 benign bots", "3,000 malicious bots", "5,000 human", "10,000 requests"} {
+	for _, want := range []string{"2,000 benign bots", "3,000 malicious bots", "5,000 human"} {
 		if !strings.Contains(sub, want) {
-			t.Errorf("the tile does not read %q: %q", want, sub)
+			t.Errorf("the card does not read %q: %q", want, sub)
 		}
 	}
+	// The denominator sits in the card header beside the percentage.
+	if !strings.Contains(body, "10,000 requests") {
+		t.Error("the card does not say what the percentage is a share of")
+	}
 	if strings.Contains(sub, "client") {
-		t.Errorf("the tile still describes its denominator as clients: %q", sub)
+		t.Errorf("the card still describes its denominator as clients: %q", sub)
 	}
 	pct := regexp.MustCompile(`([0-9.]+)%`).FindStringSubmatch(value)
 	if pct == nil {
@@ -130,12 +130,7 @@ func TestBlockedRequestsNeverGoNegative(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, req)
-	tile := regexp.MustCompile(`(?s)<div class="kpi">\s*<div class="label">Non-human traffic.*?<div class="value">(.*?)</div>.*?<div class="sub">(.*?)</div>`).
-		FindStringSubmatch(rr.Body.String())
-	if tile == nil {
-		t.Fatal("the non-human tile is missing from the overview")
-	}
-	value, sub := tile[1], stripTags(tile[2])
+	value, sub := compositionCard(t, rr.Body.String())
 	if strings.Contains(sub, "-") {
 		t.Errorf("more passes than serves in the window produced a negative count: %q", sub)
 	}
@@ -221,12 +216,7 @@ func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, req)
-	tile := regexp.MustCompile(`(?s)<div class="label">Non-human traffic.*?<div class="sub">(.*?)</div>`).
-		FindStringSubmatch(rr.Body.String())
-	if tile == nil {
-		t.Fatal("the non-human tile is missing")
-	}
-	sub := stripTags(tile[1])
+	_, sub := compositionCard(t, rr.Body.String())
 	if !strings.Contains(sub, "2,800 benign bots") {
 		t.Errorf("the default view is reading the young per-site counter (40) instead of the table with history (2,800): %q", sub)
 	}
@@ -284,6 +274,69 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 	for _, gone := range []string{"僅かに含む", "gave up", "includes the few real visitors"} {
 		if strings.Contains(body, gone) {
 			t.Errorf("a caveat about abandoners survives (%q) although they are subtracted", gone)
+		}
+	}
+}
+
+// compositionCard: the percentage and the legend line from the traffic
+// composition card.  It lives above the KPI row rather than in it -- the row
+// holds operational counters and this is the diagnostic figure -- so the tests
+// read it from one place instead of each knowing the markup.
+func compositionCard(t *testing.T, body string) (pct, legend string) {
+	t.Helper()
+	i := strings.Index(body, `class="bcd-card comp-card"`)
+	if i < 0 {
+		t.Fatal("the traffic composition card is missing from the overview")
+	}
+	card := body[i:]
+	if j := strings.Index(card, "</div>\n</div>"); j > 0 {
+		card = card[:j]
+	}
+	m := regexp.MustCompile(`(?s)<div class="comp-pct">(.*?)</div>`).FindStringSubmatch(card)
+	if m == nil {
+		t.Fatal("the composition card has no percentage")
+	}
+	l := regexp.MustCompile(`(?s)<div class="comp-legend">(.*?)</div>\s*</div>`).FindStringSubmatch(card)
+	if l == nil {
+		// No legend when there is no data; the caller's assertions say so.
+		return stripTags(m[1]), ""
+	}
+	return stripTags(m[1]), strings.Join(strings.Fields(stripTags(l[1])), " ")
+}
+
+// The composition figure sits in its own full-width card rather than in the KPI
+// row.  The row holds operational counters -- events, challenges, passes, bans
+// -- and this is the diagnostic one: the single number that says what a site is
+// dealing with independent of its size.  It also carries four figures, which a
+// 13rem tile could only render at 0.7rem across two wrapped lines.
+func TestCompositionHasItsOwnCard(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/overview.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	card := strings.Index(tpl, `class="bcd-card comp-card"`)
+	grid := strings.Index(tpl, `<div class="kpi-grid">`)
+	if card < 0 {
+		t.Fatal("the composition card is gone")
+	}
+	if card > grid {
+		t.Error("the composition card sits below the KPI row; it is the headline figure, not a footnote")
+	}
+	// It must not also be a tile: two copies of one number invite the reader to
+	// look for a difference between them.
+	row := tpl[grid:]
+	row = row[:strings.Index(row, "\n</div>")]
+	if strings.Contains(row, "nonhuman_benign") {
+		t.Error("the KPI row still carries the composition; it is in two places at once")
+	}
+
+	// The bar's segments are shares of one total, so they have to be driven by
+	// the same total the percentage is.
+	for _, f := range []string{"pctOf .KPIReqBenign $t", "pctOf .KPIReqBlocked $t", "pctOf .KPIReqHuman $t"} {
+		if !strings.Contains(tpl, f) {
+			t.Errorf("the bar segment %q is not sized against the shared total", f)
 		}
 	}
 }
