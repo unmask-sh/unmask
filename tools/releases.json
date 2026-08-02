@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.16",
+  "latest": "0.1.17",
   "releases": [
+    {
+      "version": "0.1.17",
+      "date": "2026-08-03",
+      "notes": "The dashboard now says what a site's traffic is made of, counted in requests: bots passed on purpose, bots stopped, and the rest. The old figure counted distinct clients and reckoned only from clients that failed a challenge, so every crawler let through on purpose was missing from a number named after exactly that - and the unit ranked the same traffic in the opposite order from the load it causes, because a crawler sweeps a site from a handful of addresses while a distributed bot spreads a few requests over thousands. Visitors who loaded a challenge and walked away are subtracted rather than disclosed in a footnote. Every custom rule records when it was added and when it was last edited, including the value lists (defined sites, admin and metrics allowlists) - a rule outlives the reason it was written and the audit log is pruned on a retention window, so for anything older there was nothing left that could say when it arrived. The proof of work runs in a Web Worker: the fallback yields with setTimeout and browsers clamp a background tab's timers to one second, so a visitor who switched tabs waited about a minute instead of under one. Hunt can drill from a network into the requests behind it, its rank cards fold away to hand their width to the ones still open, and long values clip with the whole string one click away. The managed geo databases keep themselves current on a monthly switch, country and ASN independently, swapping in a download only after it verifies as readable. Running the CLI as root drops to the daemon's user - a command run under sudo left files the daemon could not read, and the failure was silent and delayed. Every path field states whether it takes a regular expression, and they all do now, uniformly. Fixed: a visitor sending no User-Agent was recorded and classified as unmask's own fetcher in forward-auth mode (60% of all events on the install where it surfaced); observe mode reported itself as \"no attacks\"; the Apache hook fired on internal redirects and sub-requests; a confirmed settings row still offered controls and changed when one was touched; and redirect exemptions restamped their own date on every save."
+    },
     {
       "version": "0.1.16",
       "date": "2026-08-01",
