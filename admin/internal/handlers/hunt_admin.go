@@ -193,6 +193,14 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	if canon := events.CanonicalPhaseFilter(phaseFilter); canon != "" {
 		phaseFilter = canon
 	}
+	// Which rank cards the operator has folded away.  Resolved server-side, not
+	// in JS, so the row does not render at full width and then jump -- the same
+	// reason the host / site pickers read their cookies here.
+	rankFolded := resolveRankFolded(r)
+	// Whether the UA card shows the raw string instead of the summary.  Folding
+	// a card can hand the UA column enough width to read one, and an operator
+	// chasing a spoofed UA wants the whole thing, not "Windows 10+ · Chrome 142".
+	rankUAFull := cookieIsSet(r, "unmask_rank_ua_full")
 	// host filter (= global scope of the shared host_picker.  comes from
 	// the unmask_hosts cookie / ?host=).
 	hostFilters := resolveHostFilter(r)
@@ -546,6 +554,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.
+		"RankFolded":    rankFolded,
+		"RankUAFull":    rankUAFull,
 		"ASNFilter":     asnFilter,
 		"ASNFilterIPs":  asnIPs,
 		"ASNFilterOrg":  asnOrg,
@@ -1056,4 +1066,47 @@ func ownedSessionRows(rows []events.Row, windowStart, pageSize int) (owned []eve
 		}
 	}
 	return owned, hasMore
+}
+
+// rankCardKeys: the folding keys, and the only values accepted from the cookie.
+// Anything else is dropped rather than passed to the template -- the value is
+// operator-supplied and ends up in a class name.
+var rankCardKeys = []string{"ip", "asn", "ja4", "ua"}
+
+// resolveRankFolded reads unmask_rank_fold (comma-separated card keys) into a
+// lookup the template can ask by name.
+//
+// The four rank cards share one row, and the widest data decides how much is
+// left for the others -- a JA4 column of 36-character hashes or a network with
+// long organisation names can leave the UA card too narrow to read.  Folding a
+// card the operator does not need at that moment hands its width back to the
+// ones they do, and the choice persists because it is a standing preference,
+// not a per-visit one.
+func resolveRankFolded(r *http.Request) map[string]bool {
+	out := map[string]bool{}
+	c, err := r.Cookie("unmask_rank_fold")
+	if err != nil {
+		return out
+	}
+	valid := map[string]bool{}
+	for _, k := range rankCardKeys {
+		valid[k] = true
+	}
+	for _, part := range strings.Split(decodeCookieValue(c.Value), ",") {
+		if k := strings.TrimSpace(part); valid[k] {
+			out[k] = true
+		}
+	}
+	// Every card folded leaves an empty row that looks broken and offers no way
+	// back except the cookie.  Keep the last one open.
+	if len(out) >= len(rankCardKeys) {
+		return map[string]bool{}
+	}
+	return out
+}
+
+// cookieIsSet: a flag cookie the UI writes as "1" and deletes to clear.
+func cookieIsSet(r *http.Request, name string) bool {
+	c, err := r.Cookie(name)
+	return err == nil && decodeCookieValue(c.Value) == "1"
 }
