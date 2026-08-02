@@ -64,6 +64,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		kpiLoaded                                        int
 		uTotal, uBlocked, uBenign                        int
 		uKnown                                           bool
+		benignStart                                      int64
+		benignHave                                       bool
 		recentRaw                                        []events.Row
 		recentErr                                        error
 		aiRows                                           []AITrafficRow
@@ -96,6 +98,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// passed IPs (blocked), from the unmask_traffic_hll sketches.  "—" when the
 	// access-log feed is off (no sketch data).
 	launch(func() { uTotal, uBlocked, uBenign, uKnown = trafficUnique(ctx, h, 1440, site) })
+	// How far back the benign sketch actually reaches.  It starts accruing at
+	// the upgrade and cannot be backfilled, so for the first day it covers a
+	// fraction of the window the tile is labelled with -- see BenignStartMin.
+	launch(func() { benignStart, benignHave = dashboard.BenignStartMin(ctx, h.DB) })
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
 	launch(func() {
@@ -165,9 +171,29 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// "non-human traffic".  An address could in principle land in both (a
 	// crawler that was passed on one request and challenged on another), so
 	// the sum can double-count slightly; the cap keeps the ratio sane.
-	uNonHuman := uBenign + uBlocked
-	if uNonHuman > uTotal {
-		uNonHuman = uTotal
+	// The benign half only counts once its sketch spans the whole window.
+	// Mixing a 40-minute count with a 24-hour one in a tile labelled 24h reads
+	// as a wrong number, not a young one, so during the fill-in the tile says
+	// "collecting" and the percentage stays on the blocked-only basis it had
+	// before benign existed.
+	windowStartMin := time.Now().Unix()/60 - 1440
+	benignPending := !benignHave || benignStart > windowStartMin
+	benignReadyIn := 0
+	if benignPending && benignHave {
+		// Whole hours until the sketch reaches back a full window; 1 while a
+		// partial hour remains, so it never reads "0h" and stays pending.
+		mins := 1440 - (time.Now().Unix()/60 - benignStart)
+		benignReadyIn = int((mins + 59) / 60)
+		if benignReadyIn < 1 {
+			benignReadyIn = 1
+		}
+	}
+	uNonHuman := uBlocked
+	if !benignPending {
+		uNonHuman = uBenign + uBlocked
+		if uNonHuman > uTotal {
+			uNonHuman = uTotal
+		}
 	}
 	if uKnown && uTotal > 0 {
 		nonHumanPct = float64(uNonHuman) / float64(uTotal) * 100
@@ -237,6 +263,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIKnown":          kpiKnown,
 		"KPIUniqueTotal":    uTotal,
 		"KPIUniqueBenign":   uBenign,
+		"KPIBenignPending":  benignPending,
+		"KPIBenignReadyIn":  benignReadyIn,
 		"KPIUniqueNonHuman": uNonHuman,
 		"KPIUniqueBlocked":  uBlocked,
 		"KPINonHumanPct":    nonHumanPct,
