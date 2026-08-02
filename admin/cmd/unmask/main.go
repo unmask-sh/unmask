@@ -1530,13 +1530,13 @@ server:
 
 global:
   # Stale-browser tier: escalate a UA pinned to an outdated Chrome (Chromium-
-  # family) major to a CAPTCHA — a distributed-scraper tell.  ON for fresh
-  # installs (config-init runs only when no config exists); an EXISTING install
-  # upgrading keeps its file untouched and the tier stays off (defaults() is
-  # false) until the operator reviews it on the UA-filter tab.  Uses a built-in
-  # current-stable baseline, so no other setting is required; set
-  # current_chrome_major to override.  Turn this off to disable.
-  stale_browser_challenge: true
+  # family) major to a CAPTCHA — a distributed-scraper tell.  OFF by default,
+  # because the same UA also belongs to real visitors who simply have not
+  # updated, and they would meet a CAPTCHA on a site that has never seen a bot.
+  # Review it on the UA-filter tab and turn it on there once you can see what it
+  # would catch on your own traffic.  Uses a built-in current-stable baseline,
+  # so no other setting is required; set current_chrome_major to override.
+  stale_browser_challenge: false
 
 # Authentication is the internal user DB.  Create the first admin through the
 # setup wizard (= open /unmask/admin/ after install; the one-time token printed
