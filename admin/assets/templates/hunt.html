@@ -46,7 +46,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* Below the 4-across tier the cards pair up 2x2 rather than leaving one
    card alone on a second row, which is what a 3-column rule does with four
    cards. */
-@media(max-width:85rem){.rank-grid{grid-template-columns:auto 1fr}}
+@media(max-width:96rem){.rank-grid{grid-template-columns:auto 1fr}}
 @media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
@@ -94,6 +94,12 @@ table.events{table-layout:fixed;width:100%}
 .rank-card-asn table.rank{width:100%}
 .rank-card-asn table.rank td.key{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
 .rank-card-asn table.rank th{white-space:nowrap}
+/* A JA4 banned from this page is named hunt_<ja4>, which is 40 characters of
+   machine-generated text in a content-sized column: one such row widened the
+   JA4 card to 623px and left the UA card 31px.  Clip it -- the JA4 it was
+   generated from is on the same row, so nothing is lost by not spelling it. */
+.rank-registered{display:inline-block;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.asn-filter-chip{display:inline-block;padding:.15rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.78rem;font-family:ui-monospace,Menlo,monospace;background:#f8fafc}
 /* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
  * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
@@ -306,7 +312,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
           {{ if .Org }}<span class="muted"> {{ .Org }}</span>{{ end }}
         </td>
         <td class="num">{{ .IPs }}</td>
-        <td class="num">{{ .Count }}</td>
+        <td class="num">{{ if .ASN }}<a class="req-search" href="?range={{ $.Range }}&asn={{ .ASN }}" aria-label="{{ t $.Lang "hunt.filter.asn_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if .Rule }}
             <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
@@ -495,8 +501,13 @@ function dismissHuntTip(id){
       <option value="1000" {{ if eq .PageSize 1000 }}selected{{ end }}>{{ printf (t .Lang "hunt.filter.rows_fmt") 1000 }}</option>
     </select>
     {{- /* host filtering is consolidated into the shared host_picker in the top bar (= legacy in-body host-filter removed). */ -}}
+    {{/* The network filter has no text input -- it is only ever arrived at from
+         the ranking -- so carry it through the form rather than dropping it the
+         moment the operator changes the range or the row count. */}}
+    {{ if .ASNFilter }}<input type="hidden" name="asn" value="{{ .ASNFilter }}">
+    <span class="asn-filter-chip">AS{{ .ASNFilter }}{{ if .ASNFilterIPs }} <span class="muted">({{ tf .Lang "hunt.filter.asn_ips" .ASNFilterIPs }}{{ if .ASNFilterMore }}, {{ tf .Lang "hunt.filter.asn_capped" 5000 }}{{ end }})</span>{{ end }}</span>{{ end }}
     <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
-    {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected }}
+    {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected .ASNFilter }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
     {{ end }}
   </form>
