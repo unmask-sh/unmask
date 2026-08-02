@@ -122,6 +122,20 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
 	}
+	// Observe mode fires no challenge, so the arithmetic above is structurally
+	// zero -- and the card then reported "no attacks" on installs that were
+	// being scanned continuously.  The judgement is still recorded, so when the
+	// mode is on the headline switches to what unmask WOULD have stopped, and
+	// says which question it is answering.
+	observeOnly := h.cfg().Challenge.Resolve(site).IsObserveOnly()
+	kpiWouldBlock := 0
+	if observeOnly {
+		if n, err := dashboard.ObserveOnlyWouldBlock(ctx, h.DB, site, hosts, 24); err == nil {
+			kpiWouldBlock = n
+		} else {
+			log.Printf("overview observe-mode count: %v", err)
+		}
+	}
 	// Abandon rate: of the visitors whose browser LOADED the challenge, how
 	// many never finished it.  This is the one number that says whether the
 	// challenge is too heavy for real people -- it excludes bots by
@@ -215,6 +229,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIPoWPass":        kpiPoWPass,
 		"KPICaptchaPass":    kpiCaptchaPass,
 		"KPIBlocked":        kpiBlocked,
+		"ObserveOnly":       observeOnly,
+		"KPIWouldBlock":     kpiWouldBlock,
 		"KPILoaded":         kpiLoaded,
 		"KPIAbandon":        abandon,
 		"KPIAbandonPct":     abandonPct,
