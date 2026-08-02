@@ -1279,7 +1279,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
           <input type="checkbox" class="rule-toggle" {{ if not .Disabled }}checked{{ end }}>
           <input type="hidden" name="re_enabled" value="{{ if .Disabled }}0{{ else }}1{{ end }}">
-          <input type="hidden" name="re_created_at" value="0">
+          {{/* Round-trip the dates.  These were pinned at "0", so every save of
+               this tab restamped the row as added today and its edit date could
+               never be stored at all. */}}
+          <input type="hidden" name="re_created_at" value="{{ .CreatedAt }}">
+          <input type="hidden" name="re_updated_at" value="{{ .UpdatedAt }}">
           <span class="rule-view">
             <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
             <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.network.redirect_exempt_empty_pattern" }}">{{ if .Pattern }}<span class="action-pill action-suspect">{{ if eq .Type "ua" }}UA{{ else }}path{{ end }}</span> {{ .Pattern }}{{ else }}{{ t $.Lang "settings.network.redirect_exempt_empty_pattern" }}{{ end }}</div>
@@ -1299,7 +1303,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="rule-row editing" data-orig-pat="" data-orig-title="">
             <input type="checkbox" class="rule-toggle" checked>
             <input type="hidden" name="re_enabled" value="1">
-            <input type="hidden" name="re_created_at" value="0">
+            <input type="hidden" name="re_created_at" value="">
+            <input type="hidden" name="re_updated_at" value="">
             <span class="rule-view">
               <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
               <div class="pat empty">{{ t .Lang "settings.network.redirect_exempt_empty_pattern" }}</div>
@@ -1575,7 +1580,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="bypass_enabled" value="1">
-          <input type="hidden" name="bypass_created_at" value="0">
+          <input type="hidden" name="bypass_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.network.empty_ip" }}</div>
@@ -1752,7 +1757,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="bp_enabled" value="1">
-          <input type="hidden" name="bp_created_at" value="0">
+          <input type="hidden" name="bp_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
@@ -1999,7 +2004,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="white_extra_enabled" value="1">
-          <input type="hidden" name="white_extra_created_at" value="0">
+          <input type="hidden" name="white_extra_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
@@ -2128,7 +2133,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="black_extra_enabled" value="1">
-          <input type="hidden" name="black_extra_created_at" value="0">
+          <input type="hidden" name="black_extra_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
@@ -2838,7 +2843,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="honeypot_url_enabled" value="1">
-          <input type="hidden" name="honeypot_url_created_at" value="0">
+          <input type="hidden" name="honeypot_url_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
@@ -2986,7 +2991,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="protected_enabled" value="1">
-          <input type="hidden" name="protected_created_at" value="0">
+          <input type="hidden" name="protected_created_at" value="">
           <input type="hidden" name="protected_mode" value="captcha">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
@@ -3942,7 +3947,7 @@ function secToHuman(s){
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="geo_enabled" value="1">
-          <input type="hidden" name="geo_created_at" value="0">
+          <input type="hidden" name="geo_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.geo.add_ph" }}</div>
@@ -4010,7 +4015,7 @@ function secToHuman(s){
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="gx_enabled" value="1">
-          <input type="hidden" name="gx_created_at" value="0">
+          <input type="hidden" name="gx_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
@@ -4225,7 +4230,7 @@ function secToHuman(s){
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="asn_enabled" value="1">
-          <input type="hidden" name="asn_created_at" value="0">
+          <input type="hidden" name="asn_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.asn.add_ph" }}</div>
@@ -4291,7 +4296,7 @@ function secToHuman(s){
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="ax_enabled" value="1">
-          <input type="hidden" name="ax_created_at" value="0">
+          <input type="hidden" name="ax_created_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
@@ -6725,6 +6730,10 @@ document.addEventListener('DOMContentLoaded', function(){
         if (cb) cb.checked = true;
         const hidden = clone.querySelector('input[type=hidden][name$="_enabled"]');
         if (hidden) hidden.value = '1';
+        // The clone copies data-* too, so a + pressed while another row is being
+        // edited handed the new row that row's snapshot -- and confirming it
+        // then stamped an edit date on a row that had just been created.
+        delete clone.dataset.snapshot;
         // A new row is new: clearing these lets the server stamp today's date.
         // Left alone, the clone inherited the dates of the row it was copied
         // from and the server kept them (it only fills an absent value), so a

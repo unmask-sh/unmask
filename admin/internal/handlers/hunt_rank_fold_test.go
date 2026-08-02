@@ -108,3 +108,39 @@ func TestUACardCanShowTheRawString(t *testing.T) {
 		t.Error("the raw UA is hidden by a card-scoped rule only; it will show inside the popover too")
 	}
 }
+
+// The cookie names cards, not the ones the page renders: the network card is
+// omitted without an ASN database.  A cookie written where one existed folds
+// every card that is left, and the row renders empty with no control to click.
+// The browser guard cannot help -- it only stops the state being created.
+func TestFoldingNeverEmptiesTheRow(t *testing.T) {
+	all := []string{"ip", "ja4", "ua", "asn"}
+	noASN := []string{"ip", "ja4", "ua"}
+	for _, tc := range []struct {
+		name     string
+		folded   map[string]bool
+		rendered []string
+		wantOpen bool
+	}{
+		{"one folded", map[string]bool{"ip": true}, all, true},
+		{"all four folded", map[string]bool{"ip": true, "ja4": true, "ua": true, "asn": true}, all, false},
+		{"every rendered card folded, ASN absent",
+			map[string]bool{"ip": true, "ja4": true, "ua": true}, noASN, false},
+		{"ASN folded but absent -- the rest still show",
+			map[string]bool{"asn": true}, noASN, true},
+	} {
+		got := dropFoldIfAllFolded(tc.folded, tc.rendered)
+		open := false
+		for _, k := range tc.rendered {
+			if !got[k] {
+				open = true
+			}
+		}
+		if !open {
+			t.Errorf("%s: the row renders with no card open and no way back", tc.name)
+		}
+		if tc.wantOpen && len(got) != len(tc.folded) {
+			t.Errorf("%s: folds were dropped when one card was still open", tc.name)
+		}
+	}
+}

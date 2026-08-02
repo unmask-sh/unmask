@@ -534,6 +534,12 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	for i := range enriched {
 		rowUAList[i] = enriched[i].UA
 	}
+	// The network card only renders when the ASN database can name networks.
+	renderedCards := []string{"ip", "ja4", "ua"}
+	if len(asnRank) > 0 {
+		renderedCards = append(renderedCards, "asn")
+	}
+	rankFolded = dropFoldIfAllFolded(rankFolded, renderedCards)
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
@@ -1097,12 +1103,23 @@ func resolveRankFolded(r *http.Request) map[string]bool {
 			out[k] = true
 		}
 	}
-	// Every card folded leaves an empty row that looks broken and offers no way
-	// back except the cookie.  Keep the last one open.
-	if len(out) >= len(rankCardKeys) {
-		return map[string]bool{}
-	}
 	return out
+}
+
+// dropFoldIfAllFolded: keep at least one card open.
+//
+// The cookie names cards, not the ones this page actually renders -- the
+// network card is omitted without an ASN database -- so a cookie written on an
+// install that had one folds every card that is left, and the row renders empty
+// with no control to click and no way back except clearing the cookie.  The
+// browser guard cannot help: it only stops the state being created here.
+func dropFoldIfAllFolded(folded map[string]bool, rendered []string) map[string]bool {
+	for _, k := range rendered {
+		if !folded[k] {
+			return folded
+		}
+	}
+	return map[string]bool{}
 }
 
 // cookieIsSet: a flag cookie the UI writes as "1" and deletes to clear.

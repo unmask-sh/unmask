@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -95,5 +96,61 @@ func TestEditStampingAndCloning(t *testing.T) {
 	clone = clone[:strings.Index(clone, "row.after(clone)")]
 	if !strings.Contains(clone, `_created_at"], input[type=hidden][name$="_updated_at"]`) {
 		t.Error("a cloned row keeps the dates of the row it was copied from")
+	}
+}
+
+// Every row that posts an add date must post an edit date beside it, or that
+// list can never record one -- and a hidden field pinned to a constant is
+// worse than missing: the redirect-exempt rows carried value="0", so every
+// save of that tab restamped them as added today.
+func TestEveryRowRoundTripsBothDates(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	names := func(suffix string) map[string]bool {
+		out := map[string]bool{}
+		for _, m := range regexp.MustCompile(`name="([a-z_]+)`+suffix+`"`).FindAllStringSubmatch(tpl, -1) {
+			out[m[1]] = true
+		}
+		return out
+	}
+	created, updated := names("_created_at"), names("_updated_at")
+	for n := range created {
+		if !updated[n] {
+			t.Errorf("%s posts an add date but no edit date; that list can never record one", n)
+		}
+	}
+	for n := range updated {
+		if !created[n] {
+			t.Errorf("%s posts an edit date but no add date", n)
+		}
+	}
+
+	// A hidden date pinned to a literal never carries the row's own value.
+	for _, m := range regexp.MustCompile(`name="[a-z_]+_(?:created|updated)_at" value="([^"]*)"`).FindAllStringSubmatch(tpl, -1) {
+		v := m[1]
+		if v == "" || strings.HasPrefix(v, "{{") {
+			continue
+		}
+		t.Errorf("a date field is pinned to %q instead of the row's value; saving would overwrite it", v)
+	}
+}
+
+// The + button clones the row it was pressed on, data-* attributes included.
+// Pressing it while another row is being edited handed the new row that row's
+// snapshot, and confirming it then stamped an edit date on a row that had just
+// been created.
+func TestCloningDoesNotInheritTheEditSnapshot(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/settings.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clone := string(b)[strings.Index(string(b), "clone the existing row"):]
+	clone = clone[:strings.Index(clone, "row.after(clone)")]
+	if !strings.Contains(clone, "delete clone.dataset.snapshot") {
+		t.Error("a row cloned from one being edited inherits its snapshot and is stamped as edited")
 	}
 }
