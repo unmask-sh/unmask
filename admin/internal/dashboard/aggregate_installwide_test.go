@@ -400,7 +400,7 @@ func TestTrafficUniqueAgg_MatchesLiveScan(t *testing.T) {
 
 	check := func(label string) {
 		t.Helper()
-		total, blocked, ok, err := TrafficUniqueAgg(ctx, d, 60*24*30)
+		total, blocked, _, ok, err := TrafficUniqueAgg(ctx, d, 60*24*30)
 		if err != nil {
 			t.Fatalf("%s: %v", label, err)
 		}
