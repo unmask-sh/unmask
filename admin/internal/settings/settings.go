@@ -194,8 +194,14 @@ type ChallengeValues struct {
 	// "hcaptcha" | "recaptcha" (= reCAPTCHA v3). Default is "builtin".
 	CaptchaProvider Captcha `yaml:"captcha,omitempty"`
 	// PowDifficulty: target leading-zero-bits for the SHA-256 PoW.
-	// Practical range is 8-24. Default 18 (= ~262144 iter; modern devices ~500ms,
-	// mobile ~1s). Higher = harsher to bots. At 20+ mobile waits seconds.
+	// Practical range is 8-24.  Default 18 = 2^18 (~262k) expected hashes,
+	// which measures at ~0.4s average in a Web Worker on a desktop core.
+	// Fleet data (21k real sessions, load -> pow-pass wall clock, so it
+	// includes page load and the beacon): 88.8% inside 2s, desktop mean 2.45s,
+	// mobile 2.06s.  Higher is harsher on bots -- and on the unlucky tail:
+	// solve time is geometrically distributed, so a few percent of visitors
+	// wait 3-4x the mean whatever the setting, and raising it stretches that
+	// tail proportionally.
 	PowDifficulty int `yaml:"pow_difficulty,omitempty"`
 	// ObserveOnly: monitor mode. When true, all challenge actions are
 	// suppressed and only event logging continues (= for the post-install
