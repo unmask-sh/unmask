@@ -42,14 +42,62 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .range-bar a.active{background:#0f172a;color:#fff;border-color:#0f172a}
 /* card width follows content.  IP card grows for IPv4 (= 15 char) or IPv6 as needed.
    JA4 card grows just enough for 36 mono chars.  UA card takes the remaining space. */
-.rank-grid{display:grid;grid-template-columns:auto auto auto 1fr;gap:.75rem;margin-bottom:1.25rem}
-/* Below the 4-across tier the cards pair up 2x2 rather than leaving one
-   card alone on a second row, which is what a 3-column rule does with four
-   cards. */
-@media(max-width:89rem){.rank-grid{grid-template-columns:auto 1fr}}
-@media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
+/* Flex rather than grid: any card can be folded away, and a grid track sized
+   for the card that used to live in it leaves dead space beside the folded
+   strip -- fold the UA card, which held the 1fr, and the row's whole right
+   half went blank.  Flex lets the folded card shrink its own footprint and
+   hands what it gave up to whatever is still open.  Wrapping replaces the
+   two hand-tuned breakpoints this used to carry: the row breaks exactly
+   when the cards no longer fit, at whatever width that turns out to be. */
+.rank-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.75rem;margin-bottom:1.25rem}
+.rank-card{flex:0 0 auto}
+/* The two cards whose content is worth extra width.  ASN stops at its cap so
+   the default row keeps the balance it was measured for; folding a sibling
+   raises the cap (below) so the reclaimed width can reach it. */
+.rank-card-asn{flex:0 1 auto}
+.rank-card-ua{flex:1 1 14rem}
+/* A folded card gives up its share of the row.  Spelled out for the two cards
+   that carry a flex-grow of their own -- same specificity as those rules, so
+   without naming them the fold would lose and the strip would stay full width. */
+.rank-card.folded,.rank-card-ua.folded,.rank-card-asn.folded{flex:0 0 2.6rem}
+/* Folding a sibling frees width the network card can use for its names, and
+   when the card that normally absorbs the slack (UA) is the folded one, it
+   takes over that job. */
+.rank-grid:has(.rank-card.folded) .rank-card-asn{max-width:36rem}
+.rank-grid:has(.rank-card-ua.folded) .rank-card-asn{flex-grow:1}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
+/* Folding.  The four cards share one row and the widest data decides what is
+   left for the others, so an operator who does not need a card right now can
+   hand its width to the ones they do.  The state is a standing preference, so
+   it rides a cookie and is resolved server-side -- folding in JS after paint
+   would render the row at full width and then jump. */
+.rank-card h3{display:flex}
+.rank-fold{display:flex;align-items:center;gap:.35rem;width:100%;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.rank-fold:hover{color:#0f172a}
+.rank-fold-caret{font-size:.7rem;color:#94a3b8;transition:transform .12s}
+.rank-fold-short{display:none}
+.rank-card.folded{max-width:none;width:2.6rem;min-width:2.6rem;padding:.6rem .35rem;overflow:hidden}
+.rank-card.folded h3{margin:0;height:100%}
+.rank-card.folded .rank-fold{flex-direction:column;gap:.5rem;align-items:center}
+.rank-card.folded .rank-fold-caret{transform:rotate(-90deg)}
+.rank-card.folded .rank-fold-full{display:none}
+.rank-card.folded .rank-fold-short{display:block;writing-mode:vertical-rl;letter-spacing:.08em;font-size:.8rem;white-space:nowrap}
+.rank-card.folded table,.rank-card.folded .rank-note{display:none}
+/* UA card: summary <-> raw.  Both are rendered and CSS picks one, so the
+   switch costs no round trip and the popover keeps working either way.  The
+   base rule is unscoped on purpose: the cell popover clones this markup into a
+   body-level element, outside the card, and the raw copy has to stay hidden
+   there so the popover heading reads as the summary. */
+.ua-raw{display:none}
+.ua-mode{margin-left:auto;padding:.05rem .35rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f8fafc;font-size:.65rem;color:#64748b;cursor:pointer;white-space:nowrap}
+.ua-mode:hover{background:#e2e8f0;color:#0f172a}
+.rank-card-ua .ua-mode-off{display:none}
+.rank-card-ua.ua-full .ua-sum{display:none}
+.rank-card-ua.ua-full .ua-raw{display:inline}
+.rank-card-ua.ua-full .ua-mode-on{display:none}
+.rank-card-ua.ua-full .ua-mode-off{display:inline}
+.rank-card.folded .ua-mode{display:none}
 table.rank,table.events{width:100%;border-collapse:collapse;font-size:.8rem}
 /* rank table: width follows content.  IP / JA4 / UA have known max lengths so nowrap
    shows them fully.  action column is nowrap too so buttons don't overflow.  UA is the only
@@ -254,8 +302,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 {{ if not .Filtering }}
 <div class="rank-grid">
   <!-- IP ranking -->
-  <div class="rank-card">
-    <h3>{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</h3>
+  <div class="rank-card{{ if index $.RankFolded "ip" }} folded{{ end }}" data-rank-card="ip">
+    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</span><span class="rank-fold-short">IP</span></button></h3>
     <table class="rank">
       <thead><tr><th>IP</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -300,8 +348,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
        enough to act on.  Omitted entirely when the ASN mmdb is not loaded --
        an empty card would read as "no networks", not "cannot tell". */}}
   {{ if .ASNRank }}
-  <div class="rank-card rank-card-asn">
-    <h3>{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</h3>
+  <div class="rank-card rank-card-asn{{ if index $.RankFolded "asn" }} folded{{ end }}" data-rank-card="asn">
+    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</span><span class="rank-fold-short">ASN</span></button></h3>
     <table class="rank">
       <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -336,8 +384,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   {{ end }}
 
   <!-- JA4 ranking -->
-  <div class="rank-card">
-    <h3>{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</h3>
+  <div class="rank-card{{ if index $.RankFolded "ja4" }} folded{{ end }}" data-rank-card="ja4">
+    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</span><span class="rank-fold-short">JA4</span></button></h3>
     <table class="rank">
       <thead><tr><th>JA4</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -383,8 +431,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   </div>
 
   <!-- UA ranking -->
-  <div class="rank-card rank-card-ua">
-    <h3>{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</h3>
+  <div class="rank-card rank-card-ua{{ if index $.RankFolded "ua" }} folded{{ end }}{{ if $.RankUAFull }} ua-full{{ end }}" data-rank-card="ua">
+    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</span><span class="rank-fold-short">UA</span></button><button type="button" class="ua-mode" data-ua-mode aria-label="{{ t $.Lang "hunt.rank.ua_mode" }}"><span class="ua-mode-on">{{ t $.Lang "hunt.rank.ua_mode_full" }}</span><span class="ua-mode-off">{{ t $.Lang "hunt.rank.ua_mode_short" }}</span></button></h3>
     <table class="rank">
       <thead><tr><th>UA</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -394,7 +442,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
              boilerplate whose only distinguishing parts are the platform and the
              browser version.  Full value in the popover. */}}
         {{ $uaShort := uaSummary .Key }}{{ $uaBot := uaBotKind .Key }}
-        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if and .Key $uaShort }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .Key }}{{ end }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if and .Key $uaShort }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}<span class="ua-sum">{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .Key }}{{ end }}</span><span class="ua-raw">{{ .Key }}</span>{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ua={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ua_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if .Key }}
@@ -605,6 +653,48 @@ function dismissHuntTip(id){
 </style>
 
 <script>
+// Rank-card folding + the UA card's summary/raw switch.  Both are display
+// preferences, so both are applied server-side from a cookie on the next
+// render and toggled here without a round trip -- the operator is adjusting
+// the layout to read something, and a reload would take the thing away.
+(function(){
+  function readCookie(name){
+    var m = document.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
+    return m ? decodeURIComponent(m[1]) : '';
+  }
+  function writeCookie(name, value){
+    // 180 days: a fold is a standing preference, not a per-visit one.
+    document.cookie = name + '=' + encodeURIComponent(value) +
+      '; path=/; max-age=' + (60*60*24*180) + '; SameSite=Lax';
+  }
+  var grid = document.querySelector('.rank-grid');
+  if (!grid) return;
+  grid.addEventListener('click', function(ev){
+    var modeBtn = ev.target.closest('[data-ua-mode]');
+    if (modeBtn){
+      var uaCard = modeBtn.closest('[data-rank-card]');
+      var full = uaCard.classList.toggle('ua-full');
+      if (full) writeCookie('unmask_rank_ua_full', '1');
+      else document.cookie = 'unmask_rank_ua_full=; path=/; max-age=0; SameSite=Lax';
+      return;
+    }
+    var btn = ev.target.closest('.rank-fold');
+    if (!btn) return;
+    var card = btn.closest('[data-rank-card]');
+    var key = card.getAttribute('data-rank-card');
+    var open = document.querySelectorAll('.rank-card:not(.folded)').length;
+    // Folding the last open card leaves an empty row with no way back except
+    // the cookie, so the last one does not fold.
+    if (open <= 1 && !card.classList.contains('folded')) return;
+    var folded = card.classList.toggle('folded');
+    var list = readCookie('unmask_rank_fold').split(',').filter(Boolean);
+    var at = list.indexOf(key);
+    if (folded && at === -1) list.push(key);
+    if (!folded && at !== -1) list.splice(at, 1);
+    writeCookie('unmask_rank_fold', list.join(','));
+  });
+})();
+
 // popoverPin / installInfoTipPinning live in /static/popover-pin.js
 // (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution).
 
