@@ -295,10 +295,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			mt = nginxconf.RedirectExemptMatchPath
 		}
 		redirectExemptRules = append(redirectExemptRules, map[string]any{
-			"Type":     mt,
-			"Pattern":  rl.Pattern,
-			"Title":    rl.Title,
-			"Disabled": rl.Disabled,
+			"Type":      mt,
+			"Pattern":   rl.Pattern,
+			"Title":     rl.Title,
+			"Disabled":  rl.Disabled,
+			"CreatedAt": rl.CreatedAt,
+			"UpdatedAt": rl.UpdatedAt,
 		})
 	}
 
