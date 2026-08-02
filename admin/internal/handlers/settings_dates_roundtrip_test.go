@@ -98,3 +98,60 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 		}
 	}
 }
+
+// The value-rule lists -- defined sites, admin allowed IPs and hosts, the
+// metrics allowlist -- go through their own shared partial and their own save
+// helper, and were left without dates when the rule lists got them.  An
+// allowlist entry is exactly the kind of row that outlives the reason it was
+// added, so it needs the dates most.
+func TestValueListsCarryDatesToo(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := settings.Save(s, cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	h.ConfigPath = cfgPath
+	h.SetSettings(s)
+
+	form := url.Values{}
+	form["site_mode"] = []string{"defined"}
+	form["site_defined"] = []string{"shop.example.com", "blog.example.com"}
+	form["site_defined_title"] = []string{"EC", "blog"}
+	form["site_defined_enabled"] = []string{"1", "1"}
+	form["site_defined_created_at"] = []string{"1740000000", ""}
+	form["site_defined_updated_at"] = []string{"1753000000", ""}
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/unmask/admin/settings/save?section=sites", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.AdminSettingsSave(rr, req)
+	if loc := rr.Header().Get("Location"); strings.Contains(loc, "err") {
+		t.Fatalf("save redirected with an error: %s", loc)
+	}
+	saved, err := settings.Load(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := saved.Sites
+	if len(c.Defined) != 2 {
+		t.Fatalf("saved %d sites, want 2", len(c.Defined))
+	}
+	if len(c.DefinedCreatedAt) != 2 {
+		t.Fatalf("defined sites carry %d add dates, want 2", len(c.DefinedCreatedAt))
+	}
+	if c.DefinedCreatedAt[0] != 1740000000 {
+		t.Errorf("add date %d, want 1740000000: it must survive a save unchanged", c.DefinedCreatedAt[0])
+	}
+	if c.DefinedCreatedAt[1] <= 0 {
+		t.Error("a row saved without an add date did not get one")
+	}
+	if len(c.DefinedUpdatedAt) != 2 || c.DefinedUpdatedAt[0] != 1753000000 {
+		t.Errorf("edit date %v, want the posted 1753000000 to round-trip", c.DefinedUpdatedAt)
+	}
+	if len(c.DefinedUpdatedAt) == 2 && c.DefinedUpdatedAt[1] != 0 {
+		t.Errorf("a row saved for the first time reads as edited: %d", c.DefinedUpdatedAt[1])
+	}
+}

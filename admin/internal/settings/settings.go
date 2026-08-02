@@ -668,6 +668,16 @@ type Nginx struct {
 	AdminAllowedIPsDisabled   []bool `yaml:"admin_allowed_ips_disabled,omitempty"`
 	MetricsAllowFromDisabled  []bool `yaml:"metrics_allow_from_disabled,omitempty"`
 	AdminAllowedHostsDisabled []bool `yaml:"admin_allowed_hosts_disabled,omitempty"`
+	// *CreatedAt / *UpdatedAt: parallel add + last-edit times for the three
+	// lists above, same convention as the rule-list slices.  An allowlist entry
+	// outlives the reason it was added, and the audit log is pruned (90 days by
+	// default), so the row is the only place that can still say when it arrived.
+	AdminAllowedIPsCreatedAt   []int64 `yaml:"admin_allowed_ips_created_at,omitempty"`
+	MetricsAllowFromCreatedAt  []int64 `yaml:"metrics_allow_from_created_at,omitempty"`
+	AdminAllowedHostsCreatedAt []int64 `yaml:"admin_allowed_hosts_created_at,omitempty"`
+	AdminAllowedIPsUpdatedAt   []int64 `yaml:"admin_allowed_ips_updated_at,omitempty"`
+	MetricsAllowFromUpdatedAt  []int64 `yaml:"metrics_allow_from_updated_at,omitempty"`
+	AdminAllowedHostsUpdatedAt []int64 `yaml:"admin_allowed_hosts_updated_at,omitempty"`
 
 	// AdminAllowedHosts: Host header allowlist for /admin/* (= the admin UI).
 	// Empty = allow every Host that reaches the admin (= the default; an
@@ -2483,6 +2493,9 @@ type SiteAcceptanceConfig struct {
 	// re-normalization a delete + retype would risk.
 	DefinedTitle    []string `yaml:"defined_title,omitempty"`
 	DefinedDisabled []bool   `yaml:"defined_disabled,omitempty"`
+	// DefinedCreatedAt / DefinedUpdatedAt: parallel add + last-edit times.
+	DefinedCreatedAt []int64 `yaml:"defined_created_at,omitempty"`
+	DefinedUpdatedAt []int64 `yaml:"defined_updated_at,omitempty"`
 }
 
 // ActiveDefined returns the Defined entries whose row is not disabled -- the

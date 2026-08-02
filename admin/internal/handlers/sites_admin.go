@@ -14,7 +14,9 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -88,6 +90,11 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 	vals := r.Form["site_defined"]
 	notes := r.Form["site_defined_title"]
 	ens := r.Form["site_defined_enabled"]
+	crs := r.Form["site_defined_created_at"]
+	ups := r.Form["site_defined_updated_at"]
+	now := time.Now().Unix()
+	var createdAt, updatedAt []int64
+	anyUpdated := false
 	for i, line := range vals {
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -107,6 +114,25 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 		off := i < len(ens) && ens[i] == "0"
 		disabled = append(disabled, off)
 		anyOff = anyOff || off
+		var cr, up int64
+		if i < len(crs) {
+			cr, _ = strconv.ParseInt(strings.TrimSpace(crs[i]), 10, 64)
+		}
+		if i < len(ups) {
+			up, _ = strconv.ParseInt(strings.TrimSpace(ups[i]), 10, 64)
+		}
+		if cr <= 0 {
+			cr = now
+		}
+		up = clampUpdatedAt(up, cr, now)
+		createdAt = append(createdAt, cr)
+		updatedAt = append(updatedAt, up)
+		anyUpdated = anyUpdated || up > 0
+	}
+	c.DefinedCreatedAt = createdAt
+	c.DefinedUpdatedAt = nil
+	if anyUpdated {
+		c.DefinedUpdatedAt = updatedAt
 	}
 	c.Defined = defined
 	// Store the parallel slices only when they carry information, so a config

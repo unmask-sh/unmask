@@ -1948,7 +1948,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// A NON-empty list that excludes the operator's own IP / Host is rejected
 	// here to prevent a save-time self-lockout (curIP/curHost are this request's,
 	// resolved the same way the /admin/* gate resolves them).
-	allow, allowNotes, allowDis := formListWithNotesEnabled(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"], r.Form["admin_allowed_ips_enabled"])
+	allow, allowNotes, allowDis, allowCr, allowUp := formListWithNotesEnabled(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"], r.Form["admin_allowed_ips_enabled"], r.Form["admin_allowed_ips_created_at"], r.Form["admin_allowed_ips_updated_at"])
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
@@ -1963,20 +1963,24 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	}
 	n.AdminAllowedIPs = allow
 	n.AdminAllowedIPsTitle = allowNotes
+	n.AdminAllowedIPsCreatedAt = allowCr
+	n.AdminAllowedIPsUpdatedAt = allowUp
 	n.AdminAllowedIPsDisabled = allowDis
 
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
 	// many vhosts).  Matched in-app, never written to nginx config, so no
 	// injection guard is needed beyond the self-lockout check.
-	hosts, hostNotes, hostDis := formListWithNotesEnabled(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"], r.Form["admin_allowed_hosts_enabled"])
+	hosts, hostNotes, hostDis, hostsCr, hostsUp := formListWithNotesEnabled(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"], r.Form["admin_allowed_hosts_enabled"], r.Form["admin_allowed_hosts_created_at"], r.Form["admin_allowed_hosts_updated_at"])
 	if act := settings.EnabledValues(hosts, hostDis); len(act) > 0 && !hostAllowed(curHost, act) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
 	}
 	n.AdminAllowedHosts = hosts
 	n.AdminAllowedHostsTitle = hostNotes
+	n.AdminAllowedHostsCreatedAt = hostsCr
+	n.AdminAllowedHostsUpdatedAt = hostsUp
 	n.AdminAllowedHostsDisabled = hostDis
 
-	mallow, mallowNotes, mallowDis := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"])
+	mallow, mallowNotes, mallowDis, mallowCr, mallowUp := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"], r.Form["metrics_allow_from_created_at"], r.Form["metrics_allow_from_updated_at"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.metrics_allow_invalid", a))
@@ -1984,6 +1988,8 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	}
 	n.MetricsAllowFrom = mallow
 	n.MetricsAllowFromTitle = mallowNotes
+	n.MetricsAllowFromCreatedAt = mallowCr
+	n.MetricsAllowFromUpdatedAt = mallowUp
 	n.MetricsAllowFromDisabled = mallowDis
 	return nil
 }
@@ -1999,10 +2005,14 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 // would break the YAML the config is written as.  disabled comes back nil
 // when every surviving row is enabled, keeping untouched configs in their
 // old yml shape.
-func formListWithNotesEnabled(vals, notes, enabled []string) (outVals, outNotes []string, outDisabled []bool) {
+func formListWithNotesEnabled(vals, notes, enabled, created, updated []string) (
+	outVals, outNotes []string, outDisabled []bool, outCreated, outUpdated []int64,
+) {
 	noteClean := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/")
 	seen := map[string]bool{}
 	anyOff := false
+	anyDate := false
+	now := time.Now().Unix()
 	for i, v := range vals {
 		v = strings.TrimSpace(v)
 		if v == "" || seen[v] {
@@ -2017,15 +2027,32 @@ func formListWithNotesEnabled(vals, notes, enabled []string) (outVals, outNotes 
 			note = noteClean.Replace(strings.TrimSpace(notes[i]))
 		}
 		off := i < len(enabled) && enabled[i] == "0"
+		var cr, up int64
+		if i < len(created) {
+			cr, _ = strconv.ParseInt(strings.TrimSpace(created[i]), 10, 64)
+		}
+		if i < len(updated) {
+			up, _ = strconv.ParseInt(strings.TrimSpace(updated[i]), 10, 64)
+		}
+		if cr <= 0 {
+			cr = now
+		}
+		up = clampUpdatedAt(up, cr, now)
 		outVals = append(outVals, v)
 		outNotes = append(outNotes, note)
 		outDisabled = append(outDisabled, off)
+		outCreated = append(outCreated, cr)
+		outUpdated = append(outUpdated, up)
 		anyOff = anyOff || off
+		anyDate = anyDate || up > 0
+	}
+	if !anyDate {
+		outUpdated = nil
 	}
 	if !anyOff {
 		outDisabled = nil
 	}
-	return outVals, outNotes, outDisabled
+	return outVals, outNotes, outDisabled, outCreated, outUpdated
 }
 
 // Common mmdb locations. Searched in priority order by the UI.
