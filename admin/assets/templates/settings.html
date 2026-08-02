@@ -1720,7 +1720,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -2640,7 +2640,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="hidden" name="ja4_extra_updated_at" value="{{ $r.UpdatedAt }}">
           <span class="rule-view">
             <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-            <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+            <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
             {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
           </span>
           <input type="text" name="ja4_extra_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -2799,7 +2799,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ with $r.Action }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -2947,7 +2947,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="protected_mode" value="{{ $r.Mode }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ with $r.Action }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}" data-pill="mode">{{ $r.Mode }}</span>{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -3978,7 +3978,7 @@ function secToHuman(s){
         <input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -4259,7 +4259,7 @@ function secToHuman(s){
         <input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}">{{ if .Pattern }}{{ .Pattern }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}</div>
           {{ if gt .UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -6505,6 +6505,41 @@ document.addEventListener('DOMContentLoaded', function(){
   // disturbing whatever else lives there.  A row that shows a code + a
   // human-readable name (geo) keeps the name in step by looking it up in the
   // datalist the input already uses, so there is no second copy of the table.
+  // syncRowPills: rebuild the pills a row can still change while editing, from
+  // the row's own inputs.  A row added in this session has no pills at all, and
+  // a confirmed row's action or site may have just been edited, so each pill is
+  // created, updated or removed rather than assumed to exist.
+  function syncRowPills(patView) {
+    const row = patView.closest('.rule-row');
+    if (!row) return;
+    const upsert = function(kind, text, cls) {
+      let pill = patView.querySelector('[data-pill="' + kind + '"]');
+      if (!text) {
+        if (pill) {
+          // Drop the separating space with it.
+          const prev = pill.previousSibling;
+          if (prev && prev.nodeType === 3 && !prev.textContent.trim()) patView.removeChild(prev);
+          patView.removeChild(pill);
+        }
+        return;
+      }
+      if (!pill) {
+        pill = document.createElement('span');
+        pill.setAttribute('data-pill', kind);
+        patView.appendChild(document.createTextNode(' '));
+        patView.appendChild(pill);
+      }
+      pill.className = 'action-pill ' + cls;
+      pill.textContent = text;
+    };
+    const mode = row.querySelector('input[name$="_mode"]');
+    if (mode) upsert('mode', mode.value, 'action-' + (mode.value || 'ok'));
+    const act = row.querySelector('select.extra-action-sel');
+    if (act) upsert('action', act.value === 'inherit' ? '' : act.value, 'action-bot');
+    const site = row.querySelector('input.rule-action[name$="_site"]');
+    if (site) upsert('site', site.value.trim() ? 'site=' + site.value.trim() : '', 'action-suspect');
+  }
+
   function syncPatValue(patView, patInput) {
     const val = patInput.value.trim();
     // A row whose input is backed by a datalist can show the human-readable
@@ -6522,13 +6557,22 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     let code = patView.querySelector('.cc-code');
     if (!code) {
-      // A row added in this session has no server-rendered structure yet: no
-      // code span and no pills.  Render the same "CODE Name" text so it does
-      // not read differently from the rows above it until the next reload.
-      patView.textContent = label ? val + ' ' + label : val;
+      // No code span: the path-style rows (protected / honeypot / bypass / JA4).
+      // Replace only the text before the first pill -- assigning textContent
+      // wiped the mode, action and site pills off every confirmed row, so a row
+      // read as bare until the page was reloaded.
+      const firstPill = patView.querySelector('.action-pill');
+      while (patView.firstChild && patView.firstChild !== firstPill) {
+        patView.removeChild(patView.firstChild);
+      }
+      const text = label ? val + ' ' + label : val;
+      patView.insertBefore(document.createTextNode(firstPill ? text + ' ' : text),
+                           firstPill || null);
+      syncRowPills(patView);
       return;
     }
     code.textContent = val;
+    syncRowPills(patView);
     // The label sits between the code span and the first pill.
     const firstPill = patView.querySelector('.action-pill');
     let n = code.nextSibling;
