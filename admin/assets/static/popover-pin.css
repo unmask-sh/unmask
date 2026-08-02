@@ -232,7 +232,7 @@
 /* base style for info-tip (= `?` ball + hover popup).  Drop next to a heading on any page as
  * <span class="info-tip">?<span class="info-popup">description...</span></span> — hover shows
  * the popup; click pins it (= adds drag / collapse / close). */
-.info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
+.info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;margin-left:.4em;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none;vertical-align:middle}
 .info-tip:hover,.info-tip:focus{background:#0f172a}
 .info-tip.pinned{background:#3b82f6;cursor:default}
 /* hover popup (= light theme; matches the [data-popover] card look).
