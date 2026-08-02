@@ -103,7 +103,7 @@ func TestNetworkRankingLeadsWithTheOrganisation(t *testing.T) {
 	card := tpl[strings.Index(tpl, `rank-card rank-card-asn`):]
 	card = card[:strings.Index(card, "</table>")]
 
-	key := regexp.MustCompile(`(?s)<td class="key".*?</td>`).FindString(card)
+	key := regexp.MustCompile(`(?s)<td class="key\{\{ if \.ASN.*?</td>`).FindString(card)
 	if key == "" {
 		t.Fatal("could not find the network cell")
 	}
@@ -113,8 +113,13 @@ func TestNetworkRankingLeadsWithTheOrganisation(t *testing.T) {
 	if !strings.Contains(key, `{{ else if .ASN }}<strong>AS{{ .ASN }}</strong>`) {
 		t.Error("a network the database cannot name has nothing to fall back to")
 	}
-	if !strings.Contains(key, `title="AS{{ .ASN }}"`) {
-		t.Error("the AS number is no longer recoverable from the row")
+	// The number is what the ASN rule is keyed on, so it has to stay reachable
+	// -- in the popover, with the name spelled out in full.
+	if !strings.Contains(key, `data-full-value="AS{{ .ASN }}{{ with .Org }}  {{ . }}{{ end }}"`) {
+		t.Error("the AS number and the full name are no longer available from the row")
+	}
+	if !strings.Contains(key, "cellpop") {
+		t.Error("the network cell does not open a popover")
 	}
 	// The active-filter chip is read away from the ranking, so it has to name
 	// the network too -- a bare number there says nothing about what was filtered.

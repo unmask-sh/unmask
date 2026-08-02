@@ -363,6 +363,16 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// firstN returns the first n elements of slice s (= caps a table to
 			// a few rows without trimming the underlying data). Non-slice / n<0
 			// returns s unchanged; n past the end is clamped.
+			// clip: shorten a value for display, leaving the full string to the
+			// cellpop popover (data-full-value).  Rune-based, so a multi-byte
+			// value is never cut mid-character.
+			"clip": func(n int, s string) string {
+				r := []rune(s)
+				if n < 1 || len(r) <= n {
+					return s
+				}
+				return string(r[:n]) + "\u2026"
+			},
 			"firstN": func(n int, s any) any {
 				v := reflect.ValueOf(s)
 				if v.Kind() != reflect.Slice || n < 0 {

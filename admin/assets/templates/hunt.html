@@ -46,7 +46,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* Below the 4-across tier the cards pair up 2x2 rather than leaving one
    card alone on a second row, which is what a 3-column rule does with four
    cards. */
-@media(max-width:90rem){.rank-grid{grid-template-columns:auto 1fr}}
+@media(max-width:89rem){.rank-grid{grid-template-columns:auto 1fr}}
 @media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
@@ -86,7 +86,7 @@ table.events{table-layout:fixed;width:100%}
    max-content width to its unwrapped length -- which stretched the IP card
    sharing that track and crushed the 1fr UA card to 31px.  Cap the card so
    the note wraps inside it instead of sizing the grid. */
-.rank-card-asn{max-width:23rem}
+.rank-card-asn{max-width:26rem}
 .rank-card-asn .rank-note{margin:.5rem 0 0;font-size:.72rem;line-height:1.5}
 /* Organisation names run long ("Hosting Solutions International Ltd"), and
    td.key is nowrap for the IP/JA4 tables that need it.  Clip here instead,
@@ -312,7 +312,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
              where it is still there to be read but is not spending column width
              on every row.  Networks the database cannot name fall back to the
              number, which is all there is to show. */}}
-        <td class="key"{{ if and .ASN .Org }} title="AS{{ .ASN }}"{{ end }}>
+        {{/* The number is what the ASN rule is keyed on, so it stays reachable --
+             in the popover, next to the name in full, rather than spending
+             column width on every row. */}}
+        <td class="key{{ if .ASN }} cellpop{{ end }}"{{ if .ASN }} data-full-value="AS{{ .ASN }}{{ with .Org }}  {{ . }}{{ end }}"{{ end }}>
           {{ if .Org }}{{ .Org }}{{ else if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
         </td>
         <td class="num">{{ .IPs }}</td>
@@ -347,7 +350,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
              IP (= the most-frequent IP observed with this JA4 in window)
              so the community share submission carries an (ip, ja4) pair
              with ban_source=ja4_ranking. */}}
-        <td class="key">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if .Key }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}{{ clip 25 .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ja4={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ja4_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
@@ -387,7 +390,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       <tbody>
       {{ range .UARank }}
       <tr>
-        <td class="key{{ if .Key }} cellpop{{ end }}">{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        {{/* Same reading as the log below: the raw string is 100+ characters of
+             boilerplate whose only distinguishing parts are the platform and the
+             browser version.  Full value in the popover. */}}
+        {{ $uaShort := uaSummary .Key }}{{ $uaBot := uaBotKind .Key }}
+        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if and .Key $uaShort }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .Key }}{{ end }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ua={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ua_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if .Key }}
