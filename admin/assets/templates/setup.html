@@ -106,7 +106,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
 
     {{ if eq .Step "db" }}
     <h2>{{ t .Lang "setup.db.h" }}</h2>
-    <p class="lead">{{ safeHTML (t .Lang "setup.db.lead") }}</p>
+    <p class="lead">{{ if .ExistingDB }}{{ safeHTML (t .Lang "setup.db.lead_existing") }}{{ else }}{{ safeHTML (t .Lang "setup.db.lead") }}{{ end }}</p>
     <form method="post" action="{{ .BasePath }}/admin/setup/db">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       {{ if .ExistingDB }}
