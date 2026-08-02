@@ -358,6 +358,40 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       </tbody>
     </table>
   </div>
+
+  {{/* ASN ranking.  Ordered by distinct IPs, not requests: a botnet renting a
+       few thousand addresses inside one hosting AS leaves every address near
+       the bottom of the IP ranking, and the network is the only handle wide
+       enough to act on.  Omitted entirely when the ASN mmdb is not loaded --
+       an empty card would read as "no networks", not "cannot tell". */}}
+  {{ if .ASNRank }}
+  <div class="rank-card rank-card-asn">
+    <h3>{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</h3>
+    <table class="rank">
+      <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
+      <tbody>
+      {{ range .ASNRank }}
+      <tr>
+        <td class="key">
+          {{ if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
+          {{ if .Org }}<span class="muted"> {{ .Org }}</span>{{ end }}
+        </td>
+        <td class="num">{{ .IPs }}</td>
+        <td class="num">{{ .Count }}</td>
+        <td class="actions">
+          {{ if .Rule }}
+            <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
+          {{ else if .ASN }}
+            <a class="rank-act" href="{{ $.BasePath }}/admin/settings/?tab=asn&amp;add_asn={{ .ASN }}">{{ t $.Lang "hunt.btn.asn_rule" }}</a>
+          {{ end }}
+        </td>
+      </tr>
+      {{ end }}
+      </tbody>
+    </table>
+    <p class="rank-note muted">{{ t .Lang "hunt.rank.asn_note" }}</p>
+  </div>
+  {{ end }}
 </div>
 {{ end }}{{/* if not .Filtering (= hide rankings while a filter search is active) */}}
 {{ end }}{{/* if not .Offset (= hide live tail + rank cards on paginated views) */}}
