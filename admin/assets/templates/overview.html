@@ -51,6 +51,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .kpi .nh-split{display:block}
 .kpi .nh-benign{color:#16a34a;font-weight:600}
 .kpi .nh-bad{color:#dc2626;font-weight:600}
+.kpi .nh-pending{color:#94a3b8;font-style:italic}
 .kpi.warn .value{color:#dc2626}
 /* Kind-coloured tiles: the dot in the label reuses the EXACT legend colour of
    the stats "all requests" stacked chart (KIND_COLOR: pow #0ea5e9 / captcha
@@ -202,9 +203,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
        the larger half.  The split matters more than the total, so it is on
        the tile rather than buried in the popover. */}}
   <div class="kpi">
-    <div class="label">{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></div>
+    <div class="label">{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}{{ if .KPIBenignPending }}{{ safeHTML (tf .Lang "overview.kpi.nonhuman_help_pending" .KPIBenignReadyIn) }}{{ end }}</span></span></div>
     <div class="value">{{ if .KPINonHumanKnown }}{{ printf "%.1f" .KPINonHumanPct }}%{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if .KPINonHumanKnown }}<span class="nh-split"><span class="nh-benign">{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIUniqueBenign) }}</span> / <span class="nh-bad">{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIUniqueBlocked) }}</span></span>{{ tf .Lang "overview.kpi.nonhuman_of" (comma .KPIUniqueTotal) }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+    <div class="sub">{{ if .KPINonHumanKnown }}<span class="nh-split">{{ if .KPIBenignPending }}<span class="nh-pending">{{ t .Lang "overview.kpi.nonhuman_benign_pending" }}</span>{{ else }}<span class="nh-benign">{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIUniqueBenign) }}</span>{{ end }} / <span class="nh-bad">{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIUniqueBlocked) }}</span></span>{{ tf .Lang "overview.kpi.nonhuman_of" (comma .KPIUniqueTotal) }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
   </div>
   <div class="kpi">
     <div class="label">{{ t .Lang "overview.kpi.events" }}</div>

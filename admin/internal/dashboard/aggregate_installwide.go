@@ -3,6 +3,7 @@ package dashboard
 import (
 	"context"
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -545,4 +546,35 @@ func TrafficUniqueAgg(ctx context.Context, d *db.DB, minutes int) (total, blocke
 	// ip ⊇ ipc ⊇ (challenged), so total>0 iff there was any traffic sketch at all
 	// — mirrors trafficUnique's "no ip sketch -> —".
 	return total, blocked, benign, total > 0, nil
+}
+
+// BenignStartMin: the oldest minute bucket carrying a benign-crawler ('ipb')
+// sketch, as a unix minute.  ok=false when none exists yet.
+//
+// The benign half of the overview's non-human split only starts accruing when
+// the release that introduced it begins reading the access log -- there is no
+// way to backfill it, because nothing before then recorded which passed
+// clients were listed crawlers.  Until it spans the whole window the count is
+// a fraction of a period the tile labels 24h, which reads as a wrong number
+// rather than a young one: on the first fleet install it showed 67 benign
+// against 2,031 malicious while covering 40 minutes against 24 hours.  The
+// caller uses this to say "collecting" instead.
+//
+// Reads the per-minute table for both the site and install-wide paths: it is
+// the source both derive from, and idx_unmask_traffic_hll_kind_bucket makes
+// the MIN a single index seek.
+func BenignStartMin(ctx context.Context, d *db.DB) (int64, bool) {
+	if d == nil {
+		return 0, false
+	}
+	var min sql.NullInt64
+	if err := d.QueryRowContext(ctx,
+		`SELECT MIN(bucket_min) FROM unmask_traffic_hll WHERE kind = 'ipb'`).Scan(&min); err != nil {
+		log.Printf("BenignStartMin: %v", err)
+		return 0, false
+	}
+	if !min.Valid {
+		return 0, false
+	}
+	return min.Int64, true
 }

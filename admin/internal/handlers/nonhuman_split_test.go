@@ -37,7 +37,9 @@ func TestNonHumanTrafficCountsPassedCrawlersAsWellAsBlocked(t *testing.T) {
 		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
 		t.Fatal(err)
 	}
-	sk := func(kind string, from, to int) {
+	// minAgo places the bucket in the past: benign only counts once its sketch
+	// spans the whole window, so a steady-state fixture has to reach back one.
+	sk := func(kind string, from, to, minAgo int) {
 		t.Helper()
 		var sketch hll.Sketch
 		for i := from; i < to; i++ {
@@ -45,15 +47,18 @@ func TestNonHumanTrafficCountsPassedCrawlersAsWellAsBlocked(t *testing.T) {
 		}
 		if _, err := h.DB.Exec(
 			`INSERT INTO unmask_traffic_hll (site, bucket_min, kind, sketch) VALUES (?, ?, ?, ?)`,
-			site, time.Now().Unix()/60, kind, sketch.Bytes()); err != nil {
+			site, time.Now().Unix()/60-int64(minAgo), kind, sketch.Bytes()); err != nil {
 			t.Fatal(err)
 		}
 	}
 	// 1000 clients in all.  200 of them are listed crawlers we passed on
 	// purpose; a separate 100 were challenged and never came back.
-	sk("ip", 0, 1000)
-	sk("ipb", 0, 200)
-	sk("ipc", 500, 600)
+	sk("ip", 0, 1000, 0)
+	sk("ipc", 500, 600, 0)
+	// Benign history reaching back past the window start (so it is mature) with
+	// current data inside it -- the steady state after the first day.
+	sk("ipb", 0, 100, 1441)
+	sk("ipb", 100, 200, 5)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"}) // assertions read the EN copy
@@ -122,4 +127,80 @@ func TestNonHumanPopoverExplainsBenignIsADeliberatePass(t *testing.T) {
 
 func stripTags(s string) string {
 	return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(s, "")
+}
+
+// The benign sketch starts at the upgrade and cannot be backfilled, so for the
+// first day it covers a slice of the window the tile is labelled with.  On the
+// first fleet install that produced "benign 67 / malicious 2,031" -- 40 minutes
+// of one against 24 hours of the other, presented as if both were 24h.  A
+// number that reads as wrong is worse than one that admits it is not ready, so
+// during the fill-in the tile says so and the percentage stays on the
+// blocked-only basis it had before benign existed.
+func TestBenignIsWithheldUntilItCoversTheWholeWindow(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_traffic_hll (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(8) NOT NULL, sketch BLOB NOT NULL,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	sk := func(kind string, from, to, minAgo int) {
+		t.Helper()
+		var sketch hll.Sketch
+		for i := from; i < to; i++ {
+			sketch.Add([]byte(fmt.Sprintf("10.0.%d.%d", i/256, i%256)))
+		}
+		if _, err := h.DB.Exec(
+			`INSERT INTO unmask_traffic_hll (site, bucket_min, kind, sketch) VALUES (?, ?, ?, ?)`,
+			site, time.Now().Unix()/60-int64(minAgo), kind, sketch.Bytes()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A day of traffic, but the benign sketch only started 40 minutes ago --
+	// the shape of a fleet node on upgrade day.
+	sk("ip", 0, 1000, 1439)
+	sk("ipc", 500, 600, 1439)
+	sk("ipb", 0, 60, 40)
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("overview: %d", rr.Code)
+	}
+	body := rr.Body.String()
+
+	tile := regexp.MustCompile(`(?s)<div class="kpi">\s*<div class="label">Non-human traffic.*?<div class="value">(.*?)</div>.*?<div class="sub">(.*?)</div>`).
+		FindStringSubmatch(body)
+	if tile == nil {
+		t.Fatal("the non-human tile is missing from the overview")
+	}
+	value, sub := tile[1], stripTags(tile[2])
+
+	if !strings.Contains(sub, "collecting") {
+		t.Errorf("the tile presents a partial benign count as a 24h figure: %q", sub)
+	}
+	if regexp.MustCompile(`\b60\b`).MatchString(sub) {
+		t.Errorf("the 40-minute benign count is on a tile labelled 24h: %q", sub)
+	}
+	// ~10% blocked of 1000, and the partial benign must not have moved it.
+	pct := regexp.MustCompile(`([0-9.]+)%`).FindStringSubmatch(value)
+	if pct == nil {
+		t.Fatalf("the tile has no percentage: %q", value)
+	}
+	var got float64
+	fmt.Sscanf(pct[1], "%f", &got)
+	if got < 8 || got > 13 {
+		t.Errorf("non-human = %.1f%%, want ~10%% (blocked only): a partial benign count is being folded into the headline", got)
+	}
+	// The operator has to be able to tell "not ready" from "there are none".
+	if !strings.Contains(body, "still filling in") {
+		t.Error("the popover does not explain why the benign half is missing")
+	}
 }
