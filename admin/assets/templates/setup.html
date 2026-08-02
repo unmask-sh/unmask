@@ -47,6 +47,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
 .mariadb-fields{display:none}
 .mariadb-fields.show{display:block}
 .sqlite-fields.hide{display:none}
+.driver-row.existing-row{grid-template-columns:1fr;margin-bottom:.9rem}
+.driver-card.existing{text-align:left;border-color:#a7f3d0;background:#f0fdf4}
+.driver-card.existing:hover{border-color:#34d399;background:#ecfdf5}
+.driver-card.existing.selected{border-color:#10b981;background:#d1fae5;box-shadow:0 0 0 .1875rem rgba(16,185,129,.12)}
+.existing-detail{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:.55rem;font-size:.78rem;color:#475569}
+.existing-detail .badge{background:#065f46;color:#fff;border-radius:.2rem;padding:.1rem .4rem;font-weight:600;white-space:nowrap}
+.existing-detail code{font-family:ui-monospace,monospace;background:#fff;border:.0625rem solid #d1fae5;border-radius:.2rem;padding:.1rem .35rem;overflow-wrap:anywhere}
+.existing-detail .rows{color:#047857;font-weight:600;white-space:nowrap}
+p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
 .actions{display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1.2rem;border-top:.0625rem solid #e2e8f0}
 .row-2{display:grid;grid-template-columns:2fr 1fr;gap:.6rem}
 /* mode picker: 3 cards stacked on narrow, side-by-side on wide */
@@ -100,26 +109,41 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
     <p class="lead">{{ safeHTML (t .Lang "setup.db.lead") }}</p>
     <form method="post" action="{{ .BasePath }}/admin/setup/db">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      {{ if .ExistingDB }}
+      <div class="driver-row existing-row">
+        <label class="driver-card existing {{ if eq .DriverChoice "existing" }}selected{{ end }}" data-driver="existing">
+          <input type="radio" name="driver" value="existing" {{ if eq .DriverChoice "existing" }}checked{{ end }}>
+          <strong>{{ t .Lang "setup.db.existing" }}</strong>
+          <div class="desc">{{ t .Lang "setup.db.existing_desc" }}</div>
+          <div class="existing-detail">
+            <span class="badge">{{ .ExistingDB.Driver }}</span>
+            <code>{{ .ExistingDB.Location }}</code>
+            <span class="rows">{{ t .Lang "setup.db.existing_rows" }}: {{ .ExistingDB.Events }}</span>
+          </div>
+        </label>
+      </div>
+      <p class="lead or-else">{{ t .Lang "setup.db.or_else" }}</p>
+      {{ end }}
       <div class="driver-row">
-        <label class="driver-card {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}selected{{ end }}" data-driver="sqlite">
-          <input type="radio" name="driver" value="sqlite" {{ if or (eq .DB.Driver "") (eq .DB.Driver "sqlite") }}checked{{ end }}>
+        <label class="driver-card {{ if eq .DriverChoice "sqlite" }}selected{{ end }}" data-driver="sqlite">
+          <input type="radio" name="driver" value="sqlite" {{ if eq .DriverChoice "sqlite" }}checked{{ end }}>
           <strong>SQLite</strong>
           <div class="desc">{{ t .Lang "setup.db.sqlite_desc" }}</div>
         </label>
-        <label class="driver-card {{ if eq .DB.Driver "mariadb" }}selected{{ end }}" data-driver="mariadb">
-          <input type="radio" name="driver" value="mariadb" {{ if eq .DB.Driver "mariadb" }}checked{{ end }}>
+        <label class="driver-card {{ if eq .DriverChoice "mariadb" }}selected{{ end }}" data-driver="mariadb">
+          <input type="radio" name="driver" value="mariadb" {{ if eq .DriverChoice "mariadb" }}checked{{ end }}>
           <strong>MariaDB / MySQL</strong>
           <div class="desc">{{ t .Lang "setup.db.mariadb_desc" }}</div>
         </label>
       </div>
-      <div class="sqlite-fields {{ if eq .DB.Driver "mariadb" }}hide{{ end }}">
+      <div class="sqlite-fields {{ if ne .DriverChoice "sqlite" }}hide{{ end }}">
         <div class="field">
           <label>{{ t .Lang "setup.db.sqlite_path" }}</label>
           <input type="text" name="sqlite_path" value="{{ if .DB.SQLitePath }}{{ .DB.SQLitePath }}{{ else }}/var/lib/unmask/unmask.sqlite{{ end }}" placeholder="/var/lib/unmask/unmask.sqlite">
           <div class="hint">{{ t .Lang "setup.db.sqlite_path_hint" }}</div>
         </div>
       </div>
-      <div class="mariadb-fields {{ if eq .DB.Driver "mariadb" }}show{{ end }}">
+      <div class="mariadb-fields {{ if eq .DriverChoice "mariadb" }}show{{ end }}">
         <div class="row-2">
           <div class="field">
             <label>{{ t .Lang "setup.db.host" }}</label>
