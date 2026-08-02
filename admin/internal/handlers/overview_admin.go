@@ -180,10 +180,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	benignPending := !benignHave || benignStart > windowStartMin
 	benignReadyIn := 0
 	if benignPending && benignHave {
-		// Whole hours until the sketch reaches back a full window; 1 while a
-		// partial hour remains, so it never reads "0h" and stays pending.
+		// Hours until the sketch reaches back a full window, to the nearest
+		// hour: rounding up instead pins the figure at 24 for the whole first
+		// hour, which reads as no progress.  Floored at 1 so a nearly-ready
+		// sketch never announces "0 hours" while still being withheld.
 		mins := 1440 - (time.Now().Unix()/60 - benignStart)
-		benignReadyIn = int((mins + 59) / 60)
+		benignReadyIn = int((mins + 30) / 60)
 		if benignReadyIn < 1 {
 			benignReadyIn = 1
 		}
