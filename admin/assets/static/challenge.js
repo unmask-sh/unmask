@@ -955,6 +955,20 @@
     return bits;
   }
   // ---- PoW solve loop ----
+  //
+  // Runs in a Web Worker when one can be created, and only falls back to the
+  // UI thread when it cannot.  The fallback has to yield with setTimeout so
+  // the page stays responsive, and THAT is what produced the long tail in
+  // production: browsers clamp a background tab's setTimeout to 1s, so a
+  // visitor who switched tabs paid ~1s per 5000-iteration batch -- about 52
+  // seconds for the default difficulty instead of under one.  Measured on the
+  // fleet before this change, the solve-time histogram had a distinct cluster
+  // at 41-70s that matched that arithmetic exactly (42 sessions), plus 28 past
+  // 70s; device speed alone produces a smooth tail, not a bump.
+  //
+  // A worker needs no yielding at all -- it cannot block the UI thread -- so
+  // the clamp never applies and the loop runs flat out whether or not the tab
+  // is visible.
   var nonce=0, target=0;
   // Expected work to find powDiff leading-zero bits is 2^powDiff, so a fixed
   // 10M cap locks out legitimate visitors once the operator raises difficulty
@@ -974,19 +988,62 @@
   var powFill=document.getElementById('powProgressFill');
   var powExpectedAvg=Math.pow(2, Math.max(1, powDiff - 1));
   if(powBar){ powBar.style.opacity='1'; }
-  while(nonce<MAX_ITER){
-    var batchEnd=Math.min(nonce+BATCH, MAX_ITER);
-    for(;nonce<batchEnd;nonce++){
-      var h=sha256(seed+':'+nonce);
-      if(leadingZeroBits(h)>=powDiff){ target=nonce; nonce=MAX_ITER; break; }
+  function powProgress(n){
+    if(!powFill) return;
+    powFill.style.width=Math.min(95, Math.round((n/powExpectedAvg)*60))+'%';
+  }
+
+  // The worker source is built from the same functions this file already
+  // defines, so there is exactly one SHA-256 implementation to keep correct.
+  function solveInWorker(){
+    return new Promise(function(resolve, reject){
+      var src='var SHA256_K=new Uint32Array(['+Array.prototype.join.call(SHA256_K,',')+']);'+
+        'var SHA256_W=new Uint32Array(64);'+
+        sha256.toString()+leadingZeroBits.toString()+
+        'onmessage=function(e){'+
+        'var seed=e.data.seed,diff=e.data.diff,max=e.data.max,batch=e.data.batch;'+
+        'for(var n=0;n<max;n++){'+
+        'if(leadingZeroBits(sha256(seed+":"+n))>=diff){postMessage({found:n});return;}'+
+        'if(n%batch===0&&n>0)postMessage({progress:n});'+
+        '}postMessage({found:0});};';
+      var url, w;
+      try {
+        url=URL.createObjectURL(new Blob([src],{type:'application/javascript'}));
+        w=new Worker(url);
+      } catch(e) {
+        if(url) URL.revokeObjectURL(url);
+        reject(e);
+        return;
+      }
+      var done=function(){ try{w.terminate();}catch(_){ } URL.revokeObjectURL(url); };
+      w.onmessage=function(ev){
+        if(ev.data.progress!==undefined){ powProgress(ev.data.progress); return; }
+        done();
+        resolve(ev.data.found);
+      };
+      w.onerror=function(err){ done(); reject(err); };
+      w.postMessage({seed:seed, diff:powDiff, max:MAX_ITER, batch:BATCH});
+    });
+  }
+
+  try {
+    target = await solveInWorker();
+  } catch(e) {
+    // No worker (very old browser, or a page CSP that forbids blob: workers).
+    // Same loop as before, yielding so the tab stays usable -- and paying the
+    // background-tab clamp if the visitor looks away.
+    target = 0;
+    nonce = 0;
+    while(nonce<MAX_ITER){
+      var batchEnd=Math.min(nonce+BATCH, MAX_ITER);
+      for(;nonce<batchEnd;nonce++){
+        var h=sha256(seed+':'+nonce);
+        if(leadingZeroBits(h)>=powDiff){ target=nonce; nonce=MAX_ITER; break; }
+      }
+      if(target>0)break;
+      powProgress(nonce);
+      await new Promise(function(r){setTimeout(r,0);});
     }
-    if(target>0)break;
-    if(powFill){
-      var pct=Math.min(95, Math.round((nonce/powExpectedAvg)*60));
-      powFill.style.width=pct+'%';
-    }
-    // yield to UI thread between batches
-    await new Promise(function(r){setTimeout(r,0);});
   }
   if(powFill){ powFill.style.width='100%'; }
 
