@@ -2655,6 +2655,40 @@ func requestHost(r *http.Request) string {
 	return strings.ToLower(h)
 }
 
+// adminClientHost resolves the Host the VISITOR asked for, which is not always
+// the Host header that arrives.  A reverse proxy that rewrites it -- Apache's
+// ProxyPass does by default, sending the backend's own address -- leaves the
+// admin Host allowlist comparing "127.0.0.1:9477" against the operator's
+// domains and refusing everyone, including the operator.  mod_proxy states the
+// original in X-Forwarded-Host, so prefer that.
+//
+// Trusted-peer gated exactly like adminClientIP: the header is otherwise
+// attacker-controlled, and admin_allowed_hosts is an access control.
+//
+// The LAST value wins, not the first.  mod_proxy APPENDS to a client-supplied
+// X-Forwarded-Host rather than replacing it, so a visitor who sends
+// "X-Forwarded-Host: admin.internal" makes the daemon see
+// "admin.internal, shop.example.com".  Reading left-to-right -- the convention
+// for X-Forwarded-For, where the original client IS the leftmost -- would let
+// any visitor name any host and walk through the allowlist.  Verified against
+// Apache 2.4.62 rather than assumed.
+func adminClientHost(r *http.Request, cfg settings.Settings) string {
+	if !peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) && !peerIsUnixSocket(r.RemoteAddr) {
+		return r.Host
+	}
+	fwd := r.Header.Get("X-Forwarded-Host")
+	if fwd == "" {
+		return r.Host
+	}
+	if i := strings.LastIndexByte(fwd, ','); i >= 0 {
+		fwd = fwd[i+1:]
+	}
+	if fwd = strings.TrimSpace(fwd); fwd == "" {
+		return r.Host
+	}
+	return fwd
+}
+
 // adminClientIP resolves the client IP for the ADMIN allowlist check.  Unlike
 // clientIP it trusts X-Real-IP / X-Forwarded-For ONLY when the connection peer
 // is a configured trusted proxy -- otherwise anyone who can reach the admin
