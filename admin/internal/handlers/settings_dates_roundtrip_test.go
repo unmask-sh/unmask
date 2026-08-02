@@ -34,8 +34,8 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 	form["protected_mode"] = []string{"strict", "captcha"}
 	form["protected_site"] = []string{"a.example", ""}
 	form["protected_action"] = []string{"deny", "inherit"}
-	form["protected_updated_at"] = []string{"1740000000", "1740000000"}
-	form["protected_changed_at"] = []string{"0", "1753000000"}
+	form["protected_created_at"] = []string{"1740000000", "1740000000"}
+	form["protected_updated_at"] = []string{"0", "1753000000"}
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/unmask/admin/settings/save?section=protected", strings.NewReader(form.Encode()))
@@ -59,9 +59,9 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 	}
 	want := []settings.ProtectedPath{
 		{Path: "^/wp-admin", Title: "WP", Mode: "strict", Action: "deny", Site: "a.example",
-			UpdatedAt: 1740000000, ChangedAt: 0},
+			CreatedAt: 1740000000, UpdatedAt: 0},
 		{Path: "^/login", Title: "login", Mode: "captcha",
-			UpdatedAt: 1740000000, ChangedAt: 1753000000},
+			CreatedAt: 1740000000, UpdatedAt: 1753000000},
 	}
 	for i, w := range want {
 		g := got[i]
@@ -69,18 +69,18 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 			g.Action != w.Action || g.Site != w.Site {
 			t.Errorf("rule %d: %+v, want %+v", i, g, w)
 		}
-		if g.UpdatedAt != w.UpdatedAt {
-			t.Errorf("rule %d: add date %d, want %d (it must not move on save)", i, g.UpdatedAt, w.UpdatedAt)
+		if g.CreatedAt != w.CreatedAt {
+			t.Errorf("rule %d: add date %d, want %d (it must not move on save)", i, g.CreatedAt, w.CreatedAt)
 		}
-		if g.ChangedAt != w.ChangedAt {
-			t.Errorf("rule %d: edit date %d, want %d", i, g.ChangedAt, w.ChangedAt)
+		if g.UpdatedAt != w.UpdatedAt {
+			t.Errorf("rule %d: edit date %d, want %d", i, g.UpdatedAt, w.UpdatedAt)
 		}
 	}
 
 	// A row with no add date gets one; the edit date stays absent, because
 	// being saved for the first time is not an edit.
+	form["protected_created_at"] = []string{"", ""}
 	form["protected_updated_at"] = []string{"", ""}
-	form["protected_changed_at"] = []string{"", ""}
 	req = httptest.NewRequest(http.MethodPost,
 		"/unmask/admin/settings/save?section=protected", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -90,11 +90,11 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i, g := range saved2.Nginx.ProtectedPaths.Paths {
-		if g.UpdatedAt <= 0 {
+		if g.CreatedAt <= 0 {
 			t.Errorf("rule %d: a row with no add date did not get one", i)
 		}
-		if g.ChangedAt != 0 {
-			t.Errorf("rule %d: edit date %d, want 0 -- first save is not an edit", i, g.ChangedAt)
+		if g.UpdatedAt != 0 {
+			t.Errorf("rule %d: edit date %d, want 0 -- first save is not an edit", i, g.UpdatedAt)
 		}
 	}
 }

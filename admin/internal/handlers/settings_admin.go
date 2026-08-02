@@ -204,8 +204,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		cur.JA4Verdicts.Extra,
 		cur.JA4Verdicts.ExtraTitle,
 		cur.JA4Verdicts.ExtraDisabled,
+		cur.JA4Verdicts.ExtraCreatedAt,
 		cur.JA4Verdicts.ExtraUpdatedAt,
-		cur.JA4Verdicts.ExtraChangedAt,
 	)
 
 	// challenge target groups: same shape
@@ -701,7 +701,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}(),
 		"LBPresets":                  buildLBPresetView(cur),
 		"LBExtras":                   buildLBExtraView(cur),
-		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraUpdatedAt, cur.SearchBots.ExtraChangedAt),
+		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt),
 		"UpstreamRescue":             upstreamRescue,
 		"UpstreamUAOff":              upstreamUAOffView,
 		"UpstreamRescueTotal":        upstreamTotal,
@@ -718,7 +718,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"JA4ExtraAction":             padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
 		"ChallengeAll":               cur.ChallengeTargets.All,
 		"ChallengeGroups":            tgtGroups,
-		"ChallengeRules":             pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraUpdatedAt, cur.ChallengeTargets.ExtraChangedAt),
+		"ChallengeRules":             pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt),
 		"ChallengeTargets":           cur.ChallengeTargets,
 		"ChallengePresetAction":      cur.ChallengeTargets.PresetAction,
 		"HoneypotGroups":             honeypotGroups,
@@ -726,7 +726,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
 		"Honeypot":                   cur.Honeypot,
 		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
-		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsUpdatedAt, cur.BypassIPsChangedAt),
+		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsCreatedAt, cur.BypassIPsUpdatedAt),
 		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
 		"CrawlerVerify":              cur.CrawlerVerify,
 		"CrawlerVerifyForgedAction":  cur.CrawlerVerify.ResolvedForgedAction(),
@@ -1082,8 +1082,8 @@ type extraRule struct {
 	Pattern   string
 	Title     string
 	Enabled   bool
-	UpdatedAt int64 // unix sec of the ADD (see settings: the name is historical)
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64 // unix sec of the ADD (see settings: the name is historical)
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // bypassRule: row-UI struct for the network-tab bypass_ips.
@@ -1111,12 +1111,12 @@ type bypassRule struct {
 	IP        string
 	Title     string
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // pairBypassRules: zip 4 parallel slices into the row-UI struct slice.
-func pairBypassRules(ips, titles []string, disabled []bool, updatedAt, changedAt []int64) []bypassRule {
+func pairBypassRules(ips, titles []string, disabled []bool, createdAt, updatedAt []int64) []bypassRule {
 	out := make([]bypassRule, len(ips))
 	for i, ip := range ips {
 		var t string
@@ -1128,14 +1128,14 @@ func pairBypassRules(ips, titles []string, disabled []bool, updatedAt, changedAt
 			isDisabled = disabled[i]
 		}
 		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
+		if i < len(createdAt) {
+			ts = createdAt[i]
 		}
 		var cs int64
-		if i < len(changedAt) {
-			cs = changedAt[i]
+		if i < len(updatedAt) {
+			cs = updatedAt[i]
 		}
-		out[i] = bypassRule{IP: ip, Title: t, Enabled: !isDisabled, UpdatedAt: ts, ChangedAt: cs}
+		out[i] = bypassRule{IP: ip, Title: t, Enabled: !isDisabled, CreatedAt: ts, UpdatedAt: cs}
 	}
 	return out
 }
@@ -1148,13 +1148,13 @@ type ja4ExtraRule struct {
 	Action    string // "bot" | "suspect" | "ok"
 	Title     string
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // pairJA4Rules: zip the 4 parallel slices of JA4Verdicts into the row-UI struct slice.
 func pairJA4Rules(
-	extras []settings.JA4VerdictExtraRule, titles []string, disabled []bool, updatedAt, changedAt []int64,
+	extras []settings.JA4VerdictExtraRule, titles []string, disabled []bool, createdAt, updatedAt []int64,
 ) []ja4ExtraRule {
 	out := make([]ja4ExtraRule, len(extras))
 	for i, e := range extras {
@@ -1167,29 +1167,29 @@ func pairJA4Rules(
 			isDisabled = disabled[i]
 		}
 		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
+		if i < len(createdAt) {
+			ts = createdAt[i]
 		}
 		action := e.Action
 		if !nginxconf.IsValidJA4Action(action) {
 			action = nginxconf.JA4ActionOK
 		}
 		var cs int64
-		if i < len(changedAt) {
-			cs = changedAt[i]
+		if i < len(updatedAt) {
+			cs = updatedAt[i]
 		}
 		out[i] = ja4ExtraRule{
 			ID:      e.ID,
 			Pattern: e.Pattern, Verdict: e.Verdict, Action: action,
-			Title: t, Enabled: !isDisabled, UpdatedAt: ts, ChangedAt: cs,
+			Title: t, Enabled: !isDisabled, CreatedAt: ts, UpdatedAt: cs,
 		}
 	}
 	return out
 }
 
-// pairRules: zip parallel slices (= patterns + titles + disabled + updatedAt)
+// pairRules: zip parallel slices (= patterns + titles + disabled + createdAt)
 // into the template-bound struct slice. The shorter side is padded with defaults.
-func pairRules(patterns, titles []string, disabled []bool, updatedAt, changedAt []int64) []extraRule {
+func pairRules(patterns, titles []string, disabled []bool, createdAt, updatedAt []int64) []extraRule {
 	out := make([]extraRule, len(patterns))
 	for i, p := range patterns {
 		var t string
@@ -1201,14 +1201,14 @@ func pairRules(patterns, titles []string, disabled []bool, updatedAt, changedAt 
 			isDisabled = disabled[i]
 		}
 		var ts int64
-		if i < len(updatedAt) {
-			ts = updatedAt[i]
+		if i < len(createdAt) {
+			ts = createdAt[i]
 		}
 		var cs int64
-		if i < len(changedAt) {
-			cs = changedAt[i]
+		if i < len(updatedAt) {
+			cs = updatedAt[i]
 		}
-		out[i] = extraRule{Pattern: p, Title: t, Enabled: !isDisabled, UpdatedAt: ts, ChangedAt: cs}
+		out[i] = extraRule{Pattern: p, Title: t, Enabled: !isDisabled, CreatedAt: ts, UpdatedAt: cs}
 	}
 	return out
 }
@@ -2373,8 +2373,8 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	// The built-in whitelist presets were removed; only the operator's own
 	// extra rules persist here.  Upstream auto-rescue (below) is the managed
 	// search/AI bypass path.
-	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraUpdatedAt, n.SearchBots.ExtraChangedAt = pairExtras(
-		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_updated_at"], r.Form["white_extra_changed_at"])
+	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt = pairExtras(
+		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_created_at"], r.Form["white_extra_updated_at"])
 
 	// upstream auto-rescue per-pattern disable list (= modal popup form).
 	// Dedup + strip empty so the YAML stays tidy.
@@ -2521,8 +2521,8 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	} else {
 		n.ChallengeTargets.PresetAction = presetActOverrides
 	}
-	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraUpdatedAt, n.ChallengeTargets.ExtraChangedAt = pairExtras(
-		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_updated_at"], r.Form["black_extra_changed_at"])
+	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraCreatedAt, n.ChallengeTargets.ExtraUpdatedAt = pairExtras(
+		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_created_at"], r.Form["black_extra_updated_at"])
 }
 
 // crawlerVerifyRow is one rDNS-verifiable crawler for the settings card: its
@@ -2550,10 +2550,10 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	ips := r.Form["bypass_ip"]
 	titles := r.Form["bypass_title"]
 	enabled := r.Form["bypass_enabled"]
-	upds := r.Form["bypass_updated_at"]
-	updsCh := r.Form["bypass_changed_at"]
+	createdAtArr := r.Form["bypass_created_at"]
+	updatedAtArr := r.Form["bypass_updated_at"]
 	maxLen := len(ips)
-	for _, l := range []int{len(titles), len(enabled), len(upds)} {
+	for _, l := range []int{len(titles), len(enabled), len(createdAtArr)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -2578,11 +2578,11 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(enabled) {
 			isEnabled = enabled[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if ip == "" {
 			continue
@@ -2597,13 +2597,13 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		outTitle = append(outTitle, t)
 		outDisabled = append(outDisabled, !isEnabled)
 		outUpdated = append(outUpdated, ts)
-		outChanged = append(outChanged, clampChangedAt(cs, ts, now))
+		outChanged = append(outChanged, clampUpdatedAt(cs, ts, now))
 	}
 	n.BypassIPs = outIP
 	n.BypassIPsTitle = outTitle
 	n.BypassIPsDisabled = outDisabled
-	n.BypassIPsUpdatedAt = outUpdated
-	n.BypassIPsChangedAt = outChanged
+	n.BypassIPsCreatedAt = outUpdated
+	n.BypassIPsUpdatedAt = outChanged
 
 	// Collect enabled preset groups.  The template sends checkbox values for
 	// enabled groups as `bypass_preset_enabled[]=ID` (= same pattern as
@@ -2723,12 +2723,12 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 	pats := r.Form["honeypot_url_path"]
 	titles := r.Form["honeypot_url_title"]
 	enabled := r.Form["honeypot_url_enabled"]
-	upds := r.Form["honeypot_url_updated_at"]
-	updsCh := r.Form["honeypot_url_changed_at"]
+	createdAtArr := r.Form["honeypot_url_created_at"]
+	updatedAtArr := r.Form["honeypot_url_updated_at"]
 	sites := r.Form["honeypot_url_site"]
 	actions := r.Form["honeypot_url_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabled), len(upds), len(sites), len(actions)} {
+	for _, l := range []int{len(titles), len(enabled), len(createdAtArr), len(sites), len(actions)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -2749,11 +2749,11 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if i < len(enabled) {
 			isEnabled = enabled[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
@@ -2778,8 +2778,8 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 			Title:     t,
 			Action:    action,
 			Disabled:  !isEnabled,
-			UpdatedAt: ts,
-			ChangedAt: clampChangedAt(cs, ts, now),
+			CreatedAt: ts,
+			UpdatedAt: clampUpdatedAt(cs, ts, now),
 			Site:      site,
 		})
 	}
@@ -2822,15 +2822,15 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 }
 
 // pairExtras: zip the 4 parallel arrays from the row UI into
-// (cleaned_patterns, titles, disabled, updatedAt).
+// (cleaned_patterns, titles, disabled, createdAt).
 //   - drop rows where pattern is empty
 //   - drop rows where pattern contains control chars / quotes
 //   - drop rows where pattern fails to compile as regex
 //   - title is trimmed; control chars are replaced with spaces
 //   - enabled = "1" → enabled; otherwise disabled
-//   - updatedAt is unix sec. "0" / empty / invalid is filled with now
+//   - createdAt is unix sec. "0" / empty / invalid is filled with now
 //     (= new row or when JS overwrites with 0 on "dirty" detection)
-func pairExtras(patterns, titles, enabled, updatedAt, changedAt []string) ([]string, []string, []bool, []int64, []int64) {
+func pairExtras(patterns, titles, enabled, createdAt, updatedAt []string) ([]string, []string, []bool, []int64, []int64) {
 	maxLen := len(patterns)
 	if len(titles) > maxLen {
 		maxLen = len(titles)
@@ -2838,8 +2838,8 @@ func pairExtras(patterns, titles, enabled, updatedAt, changedAt []string) ([]str
 	if len(enabled) > maxLen {
 		maxLen = len(enabled)
 	}
-	if len(updatedAt) > maxLen {
-		maxLen = len(updatedAt)
+	if len(createdAt) > maxLen {
+		maxLen = len(createdAt)
 	}
 	outP := make([]string, 0, maxLen)
 	outT := make([]string, 0, maxLen)
@@ -2861,11 +2861,11 @@ func pairExtras(patterns, titles, enabled, updatedAt, changedAt []string) ([]str
 		if i < len(enabled) {
 			isEnabled = enabled[i] == "1"
 		}
-		if i < len(updatedAt) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64)
+		if i < len(createdAt) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAt[i]), 10, 64)
 		}
-		if i < len(changedAt) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(changedAt[i]), 10, 64)
+		if i < len(updatedAt) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64)
 		}
 		if p == "" {
 			continue
@@ -2883,16 +2883,16 @@ func pairExtras(patterns, titles, enabled, updatedAt, changedAt []string) ([]str
 		outT = append(outT, t)
 		outD = append(outD, !isEnabled)
 		outU = append(outU, ts)
-		outC = append(outC, clampChangedAt(cs, ts, now))
+		outC = append(outC, clampUpdatedAt(cs, ts, now))
 	}
 	return outP, outT, outD, outU, outC
 }
 
-// clampChangedAt keeps an edit timestamp inside [added, now].  The value is
+// clampUpdatedAt keeps an edit timestamp inside [added, now].  The value is
 // stamped by the row UI when the operator confirms an edit, so it arrives from
 // the form: a bad one should read as "not edited" rather than as a date before
 // the row existed or one in the future.
-func clampChangedAt(changed, added, now int64) int64 {
+func clampUpdatedAt(changed, added, now int64) int64 {
 	if changed <= 0 || changed < added || changed > now {
 		return 0
 	}
@@ -2919,11 +2919,11 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	acts := r.Form["ja4_extra_action"]
 	titles := r.Form["ja4_extra_title"]
 	enabledArr := r.Form["ja4_extra_enabled"]
-	upds := r.Form["ja4_extra_updated_at"]
-	updsChanged := r.Form["ja4_extra_changed_at"]
+	createdAtArr := r.Form["ja4_extra_created_at"]
+	updsUpdated := r.Form["ja4_extra_updated_at"]
 	ids := r.Form["ja4_extra_id"] // hidden input for ID-based linking; existing entries keep their ID.
 	maxLen := len(pats)
-	for _, l := range []int{len(verds), len(acts), len(titles), len(enabledArr), len(upds), len(ids)} {
+	for _, l := range []int{len(verds), len(acts), len(titles), len(enabledArr), len(createdAtArr), len(ids)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -2954,11 +2954,11 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(enabledArr) {
 			isEnabled = enabledArr[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsChanged) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsChanged[i]), 10, 64)
+		if i < len(updsUpdated) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updsUpdated[i]), 10, 64)
 		}
 		// Drop empty rows (pattern or verdict alone is invalid input)
 		if p == "" && v == "" {
@@ -2995,13 +2995,13 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		outTitles = append(outTitles, t)
 		outDisabled = append(outDisabled, !isEnabled)
 		outUpdated = append(outUpdated, ts)
-		outChanged = append(outChanged, clampChangedAt(cs, ts, now))
+		outChanged = append(outChanged, clampUpdatedAt(cs, ts, now))
 	}
 	n.JA4Verdicts.Extra = extras
 	n.JA4Verdicts.ExtraTitle = outTitles
 	n.JA4Verdicts.ExtraDisabled = outDisabled
-	n.JA4Verdicts.ExtraUpdatedAt = outUpdated
-	n.JA4Verdicts.ExtraChangedAt = outChanged
+	n.JA4Verdicts.ExtraCreatedAt = outUpdated
+	n.JA4Verdicts.ExtraUpdatedAt = outChanged
 
 	// JA4 default action (= challenge chain when ja4 hits action=bot).
 	// Blank/invalid resets to unset (= the picker's "(unset)" option) so a
@@ -3089,13 +3089,13 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	pats := r.Form["protected_path"]
 	titles := r.Form["protected_title"]
 	enabledArr := r.Form["protected_enabled"]
-	upds := r.Form["protected_updated_at"]
-	updsCh := r.Form["protected_changed_at"]
+	createdAtArr := r.Form["protected_created_at"]
+	updatedAtArr := r.Form["protected_updated_at"]
 	modes := r.Form["protected_mode"]
 	sites := r.Form["protected_site"]
 	actions := r.Form["protected_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabledArr), len(upds), len(modes), len(sites), len(actions)} {
+	for _, l := range []int{len(titles), len(enabledArr), len(createdAtArr), len(modes), len(sites), len(actions)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -3116,11 +3116,11 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(enabledArr) {
 			isEnabled = enabledArr[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if i < len(modes) {
 			mode = strings.TrimSpace(modes[i])
@@ -3152,8 +3152,8 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			Mode:      mode,
 			Action:    action,
 			Disabled:  !isEnabled,
-			UpdatedAt: ts,
-			ChangedAt: clampChangedAt(cs, ts, now),
+			CreatedAt: ts,
+			UpdatedAt: clampUpdatedAt(cs, ts, now),
 			Site:      site,
 		})
 	}
@@ -3215,8 +3215,8 @@ type protectedExtraRule struct {
 	Action    string
 	Site      string
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // padToLen pads (or truncates) `s` to exactly `n` entries, filling missing
@@ -3253,8 +3253,8 @@ func protectedPathRows(rows []settings.ProtectedPath) []protectedExtraRule {
 			Action:    r.Action,
 			Site:      r.Site,
 			Enabled:   !r.Disabled,
+			CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
-			ChangedAt: r.ChangedAt,
 		}
 	}
 	return out
@@ -3270,8 +3270,8 @@ func bypassPathRows(rows []settings.BypassPath) []bypassPathRule {
 			Title:     r.Title,
 			Site:      r.Site,
 			Enabled:   !r.Disabled,
+			CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
-			ChangedAt: r.ChangedAt,
 		}
 	}
 	return out
@@ -3286,8 +3286,8 @@ type honeypotURLRow struct {
 	Action    string
 	Site      string
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // honeypotURLRows: turn the persisted HoneypotURL slice into the row-UI
@@ -3301,8 +3301,8 @@ func honeypotURLRows(rows []settings.HoneypotURL) []honeypotURLRow {
 			Action:    r.Action,
 			Site:      r.Site,
 			Enabled:   !r.Disabled,
+			CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
-			ChangedAt: r.ChangedAt,
 		}
 	}
 	return out
@@ -3351,11 +3351,11 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	pats := r.Form["bp_path"]
 	titles := r.Form["bp_title"]
 	rowEnabled := r.Form["bp_enabled"]
-	upds := r.Form["bp_updated_at"]
-	updsCh := r.Form["bp_changed_at"]
+	createdAtArr := r.Form["bp_created_at"]
+	updatedAtArr := r.Form["bp_updated_at"]
 	sites := r.Form["bp_site"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
+	for _, l := range []int{len(titles), len(rowEnabled), len(createdAtArr), len(sites)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -3376,11 +3376,11 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(rowEnabled) {
 			isEnabled = rowEnabled[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
@@ -3398,8 +3398,8 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			Path:      p,
 			Title:     t,
 			Disabled:  !isEnabled,
-			UpdatedAt: ts,
-			ChangedAt: clampChangedAt(cs, ts, now),
+			CreatedAt: ts,
+			UpdatedAt: clampUpdatedAt(cs, ts, now),
 			Site:      site,
 		})
 	}
@@ -3416,11 +3416,11 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 	pats := r.Form[prefix+"_path"]
 	titles := r.Form[prefix+"_title"]
 	rowEnabled := r.Form[prefix+"_enabled"]
-	upds := r.Form[prefix+"_updated_at"]
-	updsCh := r.Form[prefix+"_changed_at"]
+	createdAtArr := r.Form[prefix+"_created_at"]
+	updatedAtArr := r.Form[prefix+"_updated_at"]
 	sites := r.Form[prefix+"_site"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(rowEnabled), len(upds), len(sites)} {
+	for _, l := range []int{len(titles), len(rowEnabled), len(createdAtArr), len(sites)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -3441,11 +3441,11 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 		if i < len(rowEnabled) {
 			isEnabled = rowEnabled[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
@@ -3463,8 +3463,8 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 			Path:      p,
 			Title:     t,
 			Disabled:  !isEnabled,
-			UpdatedAt: ts,
-			ChangedAt: clampChangedAt(cs, ts, now),
+			CreatedAt: ts,
+			UpdatedAt: clampUpdatedAt(cs, ts, now),
 			Site:      site,
 		})
 	}
@@ -3498,10 +3498,10 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 	pats := r.Form["re_pattern"]
 	titles := r.Form["re_title"]
 	rowEnabled := r.Form["re_enabled"]
-	upds := r.Form["re_updated_at"]
-	updsCh := r.Form["re_changed_at"]
+	createdAtArr := r.Form["re_created_at"]
+	updatedAtArr := r.Form["re_updated_at"]
 	maxLen := len(pats)
-	for _, l := range []int{len(types), len(titles), len(rowEnabled), len(upds)} {
+	for _, l := range []int{len(types), len(titles), len(rowEnabled), len(createdAtArr)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -3527,11 +3527,11 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 		if i < len(rowEnabled) {
 			isEnabled = rowEnabled[i] == "1"
 		}
-		if i < len(upds) {
-			ts, _ = strconv.ParseInt(strings.TrimSpace(upds[i]), 10, 64)
+		if i < len(createdAtArr) {
+			ts, _ = strconv.ParseInt(strings.TrimSpace(createdAtArr[i]), 10, 64)
 		}
-		if i < len(updsCh) {
-			cs, _ = strconv.ParseInt(strings.TrimSpace(updsCh[i]), 10, 64)
+		if i < len(updatedAtArr) {
+			cs, _ = strconv.ParseInt(strings.TrimSpace(updatedAtArr[i]), 10, 64)
 		}
 		if p == "" {
 			continue
@@ -3547,8 +3547,8 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 			Pattern:   p,
 			Title:     t,
 			Disabled:  !isEnabled,
-			UpdatedAt: ts,
-			ChangedAt: clampChangedAt(cs, ts, now),
+			CreatedAt: ts,
+			UpdatedAt: clampUpdatedAt(cs, ts, now),
 		})
 	}
 	n.HTTPSRedirectExempt.Rules = rows
@@ -3563,8 +3563,8 @@ type bypassPathRule struct {
 	Title     string
 	Site      string
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // applyCaptchaForm: receive the captcha tab form. Reads the provider radio +
@@ -4082,8 +4082,8 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 	actions := r.Form["geo_action"]
 	rates := r.Form["geo_rate"]
 	enabledArr := r.Form["geo_enabled"]
-	updatedAt := r.Form["geo_updated_at"]
-	updatedAtCh := r.Form["geo_changed_at"]
+	createdAt := r.Form["geo_created_at"]
+	createdAtCh := r.Form["geo_updated_at"]
 
 	rules := make([]settings.GeoRule, 0, len(countries))
 	seen := map[string]bool{}
@@ -4119,13 +4119,13 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 		enOn := enVal == "1"
 
 		var ts, cs int64
-		if i < len(updatedAt) {
-			if n, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
+		if i < len(createdAt) {
+			if n, err := strconv.ParseInt(strings.TrimSpace(createdAt[i]), 10, 64); err == nil {
 				ts = n
 			}
 		}
-		if i < len(updatedAtCh) {
-			if n, err := strconv.ParseInt(strings.TrimSpace(updatedAtCh[i]), 10, 64); err == nil {
+		if i < len(createdAtCh) {
+			if n, err := strconv.ParseInt(strings.TrimSpace(createdAtCh[i]), 10, 64); err == nil {
 				cs = n
 			}
 		}
@@ -4159,8 +4159,8 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			Action:     action,
 			RatePerMin: rate,
 			Enabled:    enOn,
-			UpdatedAt:  ts,
-			ChangedAt:  clampChangedAt(cs, ts, now),
+			CreatedAt:  ts,
+			UpdatedAt:  clampUpdatedAt(cs, ts, now),
 		})
 	}
 	c.Rules = rules
@@ -4236,8 +4236,8 @@ type asnCustomRow struct {
 	Action    string
 	RateStr   string // rate input value: "" = inherit default, "0" = no throttle, "N" = throttle
 	Enabled   bool
-	UpdatedAt int64
-	ChangedAt int64 // unix sec of the last edit, 0 while untouched
+	CreatedAt int64
+	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
 }
 
 // rateStr renders a nullable rate override for a form input: nil (inherit) -> "",
@@ -4252,7 +4252,7 @@ func rateStr(r *int) string {
 func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
 	out := make([]asnCustomRow, 0, len(cfg.Rules))
 	for _, r := range cfg.Rules {
-		row := asnCustomRow{Label: r.Label, Action: r.Action, RateStr: rateStr(r.RatePerMin), Enabled: r.Enabled, UpdatedAt: r.UpdatedAt, ChangedAt: r.ChangedAt}
+		row := asnCustomRow{Label: r.Label, Action: r.Action, RateStr: rateStr(r.RatePerMin), Enabled: r.Enabled, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt}
 		if r.ASN != 0 {
 			row.Value = "AS" + strconv.FormatUint(uint64(r.ASN), 10)
 		} else {
@@ -4343,8 +4343,8 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 	actions := r.Form["asn_action"]
 	rates := r.Form["asn_rate"] // per-minute cap; "" / "0" -> action every request
 	enabledArr := r.Form["asn_enabled"]
-	updatedAt := r.Form["asn_updated_at"]
-	updatedAtCh := r.Form["asn_changed_at"]
+	createdAt := r.Form["asn_created_at"]
+	createdAtCh := r.Form["asn_updated_at"]
 
 	rules := make([]settings.AsnRule, 0, len(nums))
 	seenNum := map[uint]bool{}
@@ -4375,13 +4375,13 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		}
 		enOn := enVal == "1"
 		var ts, cs int64
-		if i < len(updatedAt) {
-			if v, err := strconv.ParseInt(strings.TrimSpace(updatedAt[i]), 10, 64); err == nil {
+		if i < len(createdAt) {
+			if v, err := strconv.ParseInt(strings.TrimSpace(createdAt[i]), 10, 64); err == nil {
 				ts = v
 			}
 		}
-		if i < len(updatedAtCh) {
-			if v, err := strconv.ParseInt(strings.TrimSpace(updatedAtCh[i]), 10, 64); err == nil {
+		if i < len(createdAtCh) {
+			if v, err := strconv.ParseInt(strings.TrimSpace(createdAtCh[i]), 10, 64); err == nil {
 				cs = v
 			}
 		}
@@ -4403,7 +4403,7 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 			}
 		}
 
-		rule := settings.AsnRule{Label: label, Action: action, RatePerMin: rate, Enabled: enOn, UpdatedAt: ts, ChangedAt: clampChangedAt(cs, ts, now)}
+		rule := settings.AsnRule{Label: label, Action: action, RatePerMin: rate, Enabled: enOn, CreatedAt: ts, UpdatedAt: clampUpdatedAt(cs, ts, now)}
 		// "AS16509" / "16509" -> exact AS number; anything else -> org substring.
 		numStr := strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
 		if n, err := strconv.ParseUint(numStr, 10, 32); err == nil && n != 0 {
