@@ -3944,7 +3944,8 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 //	blocked = requests answered with a challenge that nobody then cleared
 //	          ('challenge_served' − 'pow' − 'captcha')
 //	benign  = requests from listed crawlers we passed on purpose
-//	          ('crawler_pass')
+//	          ('crawler_pass'; the install-wide view reads the same requests
+//	          from unmask_crawler_minute, which has far more history)
 //
 // Requests, not clients, because that is the unit of the question: a crawler
 // making twenty requests from one address is twenty requests of load, and the
@@ -3977,6 +3978,21 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (t
         WHERE bucket_min >= ?`+cond, args...).Scan(&total, &served, &passed, &benign)
 	if err != nil {
 		return 0, 0, 0, false, err
+	}
+	if site == "" {
+		// The install-wide view reads the benign half from unmask_crawler_minute
+		// instead.  Both are written by the same classifier on the same
+		// condition in the same pass -- crawler_pass is per site, and
+		// SUM(total - served) here is the same requests summed install-wide --
+		// but the crawler table predates the counter by a long way, so on the
+		// default view this answers for the whole window from the first render
+		// after an upgrade rather than filling in over the following day.
+		var wide int
+		if err := d.QueryRowContext(ctx, `
+            SELECT COALESCE(SUM(total) - SUM(served), 0) FROM unmask_crawler_minute
+            WHERE bucket_min >= ?`, cutoff).Scan(&wide); err == nil && wide > benign {
+			benign = wide
+		}
 	}
 	blocked = served - passed
 	if blocked < 0 {
