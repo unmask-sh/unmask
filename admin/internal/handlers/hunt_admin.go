@@ -171,6 +171,17 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	refFilter := refFromQuery(q.Get("ref"))
 	phaseFilter := strings.TrimSpace(q.Get("phase"))
 	forceReasonFilter := strings.TrimSpace(q.Get("force_reason"))
+	// asn: drill down from the network ranking into the requests behind a row.
+	// The event carries no ASN column, so this resolves the window's addresses
+	// and filters on the ones that belong to the network -- the same scan the
+	// ranking itself does, on a page the operator asked for explicitly.
+	asnFilter := 0
+	asnIPs, asnIPTotal := 0, 0
+	if v := strings.TrimSpace(q.Get("asn")); v != "" {
+		if n, err := strconv.Atoi(strings.TrimPrefix(strings.TrimPrefix(v, "AS"), "as")); err == nil && n > 0 {
+			asnFilter = n
+		}
+	}
 	// The filter takes a comma-separated list so the UI can offer groups
 	// ("everything that passed"), so validate it as a list and keep the
 	// canonical form -- validating it as one name silently dropped every
@@ -226,6 +237,19 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		pageSize = 500
 	case "1000":
 		pageSize = 1000
+	}
+	if asnFilter > 0 && h.IPGeo != nil && h.IPGeo.ASNLoaded() {
+		ips, total, err := events.IPsInASN(huntCtx, h.DB, sinceMin, uint(asnFilter), h.IPGeo.LookupASN)
+		if err != nil {
+			log.Printf("hunt asn drill-down: %v", err)
+		}
+		asnIPs, asnIPTotal = len(ips), total
+		huntCtx = events.WithIPSet(huntCtx, ips)
+	} else if asnFilter > 0 {
+		// Asked for a network on an install that cannot resolve one.  Show
+		// nothing rather than the unfiltered log, which would read as the
+		// network accounting for every request on the page.
+		huntCtx = events.WithIPSet(huntCtx, nil)
 	}
 	rows, windowStart, err := events.FetchPagedWithBleed(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, forceReasonFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
 	if err != nil {
@@ -521,7 +545,10 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.
-		"Filtering": ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "",
+		"ASNFilter":     asnFilter,
+		"ASNFilterIPs":  asnIPs,
+		"ASNFilterMore": asnIPTotal > asnIPs,
+		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
 		// UABotNote: per listed-crawler UA, which reading its badge note
 		// carries (address check failed / configured target / generic).
 		"UABotNote":  uaBotNoteByUA(rowUAList, cur),

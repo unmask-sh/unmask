@@ -13,8 +13,9 @@ import (
 // prose note set that track's max-content width to the note's unwrapped length:
 // the IP card stretched to 1129px and the 1fr UA card was crushed to 31px.
 //
-// Measured in a browser after the fix: one row at 1366px and above, a balanced
-// 2x2 below that, and the IP card back to 227px.
+// Measured in a browser against a live install's own page: four across at
+// 1600px and up, a balanced 2x2 below, and no card overflowing its column at
+// any width tested (1280-1920).  Before, the UA card was 31px wide.
 func TestRankGridHasAColumnForEveryCard(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/hunt.html")
 	if err != nil {
@@ -51,5 +52,12 @@ func TestRankGridHasAColumnForEveryCard(t *testing.T) {
 	}
 	if strings.LastIndex(tpl, `rank-card-ua`) < strings.LastIndex(tpl, `rank-card-asn`) {
 		t.Error("the UA card is no longer the last card, so it is not in the fr column")
+	}
+
+	// A JA4 banned from this page is named hunt_<ja4>: 40 characters of
+	// machine-generated text in a content-sized column.  One such row widened
+	// the JA4 card to 623px and left the UA card 31px.
+	if !regexp.MustCompile(`\.rank-registered\{[^}]*text-overflow:ellipsis`).MatchString(tpl) {
+		t.Error("the rank cards' verdict is not clipped; one auto-generated name sizes the whole column")
 	}
 }

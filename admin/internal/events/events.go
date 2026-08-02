@@ -947,6 +947,26 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 			args = append(args, pkt)
 		}
 	}
+	// An ASN drill-down arrives as the set of addresses that resolved to the
+	// network (see WithIPSet).  The event row carries no ASN column -- the
+	// network is derived from the mmdb at display time -- so naming the
+	// addresses is the only way to express "requests from this network".
+	// An empty set means the network had no addresses in the window, which
+	// must return nothing rather than everything.
+	if set, ok := ipSetFrom(ctx); ok {
+		packed := make([]any, 0, len(set))
+		for _, ip := range set {
+			if p := PackIP(ip); p != nil {
+				packed = append(packed, p)
+			}
+		}
+		if len(packed) == 0 {
+			stmt += " AND 1=0"
+		} else {
+			stmt += " AND ip_address IN (" + strings.TrimSuffix(strings.Repeat("?,", len(packed)), ",") + ")"
+			args = append(args, packed...)
+		}
+	}
 	if site != "" {
 		stmt += " AND site = ?"
 		args = append(args, site)
@@ -1528,3 +1548,69 @@ func nullIfEmpty(s string) sql.NullString {
 
 // sqlStr is like nullIfEmpty but for UA where empty string is also allowed.
 func sqlStr(s string) sql.NullString { return nullIfEmpty(s) }
+
+type ipSetKey struct{}
+
+// WithIPSet narrows a fetch to an explicit set of addresses.
+//
+// The hunt page's other rankings filter on a column the event actually carries
+// (ip / ja4 / user_agent).  A network does not exist on the row -- it is
+// resolved from the mmdb when the page renders -- so the only way to ask the
+// log for "requests from this network" is to work out which addresses those
+// are and name them.  IPsInASN produces that set.
+func WithIPSet(ctx context.Context, ips []string) context.Context {
+	return context.WithValue(ctx, ipSetKey{}, ips)
+}
+
+func ipSetFrom(ctx context.Context) ([]string, bool) {
+	v, ok := ctx.Value(ipSetKey{}).([]string)
+	return v, ok
+}
+
+// MaxASNDrillIPs caps how many addresses an ASN drill-down will name.  A
+// hosting AS can contribute tens of thousands in a wide window, and every one
+// becomes a bound parameter.  IPsInASN reports the true count alongside the
+// capped set so the caller can say the view is partial rather than present a
+// truncated answer as the whole one.
+const MaxASNDrillIPs = 5000
+
+// IPsInASN: the distinct addresses seen in the window that resolve to asn,
+// most-active first, plus how many there were in total.
+//
+// Same scan as RankByASN -- every distinct address in the window, resolved
+// through the mmdb -- so it carries the same cost and the same index pin.
+func IPsInASN(ctx context.Context, d *db.DB, sinceMin int, asn uint, resolve func(ip string) (uint, string)) (ips []string, total int, err error) {
+	if d == nil || resolve == nil {
+		return nil, 0, nil
+	}
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	const cols = `SELECT ip_address, COUNT(*) AS c FROM unmask_event`
+	rows, err := d.QueryContext(ctx, cols+eventDateHint(d, win)+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		rows, err = d.QueryContext(ctx, cols+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ipBytes []byte
+		var c int
+		if err := rows.Scan(&ipBytes, &c); err != nil {
+			return nil, 0, err
+		}
+		ip := unpackIP(ipBytes)
+		if ip == "" {
+			continue
+		}
+		got, _ := resolve(ip)
+		if got != asn {
+			continue
+		}
+		total++
+		if len(ips) < MaxASNDrillIPs {
+			ips = append(ips, ip)
+		}
+	}
+	return ips, total, rows.Err()
+}
