@@ -3,7 +3,9 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -71,5 +73,34 @@ func TestAbandonRateExcludesClientsThatNeverRanTheJS(t *testing.T) {
 	val := regexp.MustCompile(`(?s)<div class="value">([0-9.]+)<span[^>]*>%`).FindStringSubmatch(body)
 	if val == nil || val[1] != "25.0" {
 		t.Errorf("abandon rate = %v, want 25.0 (1 unfinished of 4 loads)", val)
+	}
+}
+
+// The KPI row has to stay one row at ordinary desktop widths.  Adding the
+// abandon tile pushed the grid past its old 13rem minimum -- 7 tiles needed
+// 95.5rem (1528px) and wrapped at 1600px and below.  Measured in a real
+// browser afterwards: one row down to 1280px, wrapping only at 1152.
+func TestKPIGridFitsOneRowOnDesktop(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/overview.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	m := regexp.MustCompile(`\.kpi-grid\{[^}]*minmax\(([0-9.]+)rem[^}]*gap:([0-9.]+)rem`).FindStringSubmatch(tpl)
+	if m == nil {
+		t.Fatal("could not read the kpi-grid track sizing")
+	}
+	minRem, _ := strconv.ParseFloat(m[1], 64)
+	gapRem, _ := strconv.ParseFloat(m[2], 64)
+	tiles := strings.Count(tpl[strings.Index(tpl, `<div class="kpi-grid">`):], `<div class="kpi`) - 1 // minus the grid itself
+	if tiles < 6 {
+		t.Fatalf("counted %d tiles; the grid markup moved and this test is measuring the wrong thing", tiles)
+	}
+	needPx := (float64(tiles)*minRem + float64(tiles-1)*gapRem) * 16
+	const target = 1280.0 // the narrowest desktop width we keep on one row
+	if needPx > target {
+		t.Errorf("%d tiles need %.0fpx but must fit %0.fpx: lower the minmax, tighten the gap, or drop a tile",
+			tiles, needPx, target)
 	}
 }
