@@ -166,3 +166,51 @@ func TestNonHumanPopoverExplainsBenignAndItsUnit(t *testing.T) {
 func stripTags(s string) string {
 	return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(s, "")
 }
+
+// crawler_pass starts at the upgrade, but unmask_crawler_minute has been
+// recording the same requests all along -- same classifier, same condition,
+// same pass, differing only in that one is per site and the other install-wide.
+// The default view reads the longer-lived table so the benign half answers for
+// the whole window immediately instead of filling in over the following day.
+func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	for _, ddl := range []string{
+		`CREATE TABLE unmask_cookie_minute (bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		 kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (bucket_min, site, kind))`,
+		`CREATE TABLE unmask_crawler_minute (bucket_min INTEGER NOT NULL, category VARCHAR(16) NOT NULL,
+		 total INTEGER NOT NULL DEFAULT 0, served INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (bucket_min, category))`,
+	} {
+		if _, err := h.DB.Exec(ddl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for kind, n := range map[string]int{"total": 10000, "challenge_served": 1000, "crawler_pass": 40} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, 'a.example', ?, ?)`, kind, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The same traffic as the counter has seen so far, plus the day before it
+	// existed: 3,000 crawler requests, 200 of them challenged.
+	if _, err := h.DB.Exec(`INSERT INTO unmask_crawler_minute (bucket_min, category, total, served)
+		VALUES (strftime('%s','now')/60, 'search-engine', 3000, 200)`); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	tile := regexp.MustCompile(`(?s)<div class="label">Non-human traffic.*?<div class="sub">(.*?)</div>`).
+		FindStringSubmatch(rr.Body.String())
+	if tile == nil {
+		t.Fatal("the non-human tile is missing")
+	}
+	sub := stripTags(tile[1])
+	if !strings.Contains(sub, "2,800 benign") {
+		t.Errorf("the default view is reading the young per-site counter (40) instead of the table with history (2,800): %q", sub)
+	}
+}
