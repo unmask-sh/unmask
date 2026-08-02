@@ -46,7 +46,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* Below the 4-across tier the cards pair up 2x2 rather than leaving one
    card alone on a second row, which is what a 3-column rule does with four
    cards. */
-@media(max-width:96rem){.rank-grid{grid-template-columns:auto 1fr}}
+@media(max-width:90rem){.rank-grid{grid-template-columns:auto 1fr}}
 @media(max-width:60rem){.rank-grid{grid-template-columns:1fr}}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
@@ -86,7 +86,7 @@ table.events{table-layout:fixed;width:100%}
    max-content width to its unwrapped length -- which stretched the IP card
    sharing that track and crushed the 1fr UA card to 31px.  Cap the card so
    the note wraps inside it instead of sizing the grid. */
-.rank-card-asn{max-width:26rem}
+.rank-card-asn{max-width:23rem}
 .rank-card-asn .rank-note{margin:.5rem 0 0;font-size:.72rem;line-height:1.5}
 /* Organisation names run long ("Hosting Solutions International Ltd"), and
    td.key is nowrap for the IP/JA4 tables that need it.  Clip here instead,
@@ -98,7 +98,7 @@ table.events{table-layout:fixed;width:100%}
    machine-generated text in a content-sized column: one such row widened the
    JA4 card to 623px and left the UA card 31px.  Clip it -- the JA4 it was
    generated from is on the same row, so nothing is lost by not spelling it. */
-.rank-registered{display:inline-block;max-width:9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.rank-registered{display:inline-block;max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .asn-filter-chip{display:inline-block;padding:.15rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.78rem;font-family:ui-monospace,Menlo,monospace;background:#f8fafc}
 /* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
@@ -307,9 +307,13 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       <tbody>
       {{ range .ASNRank }}
       <tr>
-        <td class="key">
-          {{ if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
-          {{ if .Org }}<span class="muted"> {{ .Org }}</span>{{ end }}
+        {{/* The organisation is what an operator recognises; almost nobody reads
+             an AS number.  Lead with the name and keep the number on the cell,
+             where it is still there to be read but is not spending column width
+             on every row.  Networks the database cannot name fall back to the
+             number, which is all there is to show. */}}
+        <td class="key"{{ if and .ASN .Org }} title="AS{{ .ASN }}"{{ end }}>
+          {{ if .Org }}{{ .Org }}{{ else if .ASN }}<strong>AS{{ .ASN }}</strong>{{ else }}<span class="muted">{{ t $.Lang "hunt.rank.asn_unknown" }}</span>{{ end }}
         </td>
         <td class="num">{{ .IPs }}</td>
         <td class="num">{{ if .ASN }}<a class="req-search" href="?range={{ $.Range }}&asn={{ .ASN }}" aria-label="{{ t $.Lang "hunt.filter.asn_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
@@ -505,7 +509,7 @@ function dismissHuntTip(id){
          the ranking -- so carry it through the form rather than dropping it the
          moment the operator changes the range or the row count. */}}
     {{ if .ASNFilter }}<input type="hidden" name="asn" value="{{ .ASNFilter }}">
-    <span class="asn-filter-chip">AS{{ .ASNFilter }}{{ if .ASNFilterIPs }} <span class="muted">({{ tf .Lang "hunt.filter.asn_ips" .ASNFilterIPs }}{{ if .ASNFilterMore }}, {{ tf .Lang "hunt.filter.asn_capped" 5000 }}{{ end }})</span>{{ end }}</span>{{ end }}
+    <span class="asn-filter-chip">{{ if .ASNFilterOrg }}{{ .ASNFilterOrg }} <span class="muted">(AS{{ .ASNFilter }})</span>{{ else }}AS{{ .ASNFilter }}{{ end }}{{ if .ASNFilterIPs }} <span class="muted">({{ tf .Lang "hunt.filter.asn_ips" .ASNFilterIPs }}{{ if .ASNFilterMore }}, {{ tf .Lang "hunt.filter.asn_capped" 5000 }}{{ end }})</span>{{ end }}</span>{{ end }}
     <button type="submit">{{ t .Lang "hunt.filter.apply" }}</button>
     {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected .ASNFilter }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>

@@ -13,9 +13,10 @@ import (
 // prose note set that track's max-content width to the note's unwrapped length:
 // the IP card stretched to 1129px and the 1fr UA card was crushed to 31px.
 //
-// Measured in a browser against a live install's own page: four across at
-// 1600px and up, a balanced 2x2 below, and no card overflowing its column at
-// any width tested (1280-1920).  Before, the UA card was 31px wide.
+// Measured in a browser against a live install's own page: four across from
+// 1441px up (1536 -- a 1920 screen at 125% scaling, the common Windows case --
+// leaves the UA card 284px), a balanced 2x2 at or below 1440, and no card
+// overflowing its column at any width tested.  Before, the UA card was 31px.
 func TestRankGridHasAColumnForEveryCard(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/hunt.html")
 	if err != nil {
