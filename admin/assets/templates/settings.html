@@ -240,6 +240,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-row:not(.editing) .rule-title,
 .rule-row:not(.editing) .rule-pat,
 .rule-row:not(.editing) .rule-verd,
+/* The chain-action select is an input like the rest: a confirmed row shows its
+   value as a pill in .pat and only offers the control while editing.  Left
+   visible, a committed row still presented an editable "inherit the default"
+   dropdown, which reads as if the row were not committed at all. */
+.rule-row:not(.editing) .extra-action-sel,
 .rule-row:not(.editing) .rule-save{display:none}
 .rule-row .rule-save:hover{color:#15803d;border-color:#15803d}
 /* edit mode inputs */
@@ -2635,7 +2640,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="hidden" name="ja4_extra_updated_at" value="{{ $r.UpdatedAt }}">
           <span class="rule-view">
             <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-            <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+            <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
             {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
           </span>
           <input type="text" name="ja4_extra_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -2794,7 +2799,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ with $r.Action }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -2942,7 +2947,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="protected_mode" value="{{ $r.Mode }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}">{{ if $r.Pattern }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ with $r.Action }} <span class="action-pill action-bot">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect">site={{ $r.Site }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }}</div>
           {{ if gt $r.UpdatedAt 0 }}<div class="rule-meta"><time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time></div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -6541,8 +6546,10 @@ document.addEventListener('DOMContentLoaded', function(){
         const row = e.target.closest('.rule-row');
         if (!row) return;
         if (row.classList.contains('editing')) return;
-        // clicks on input / checkbox / label keep their default behavior
-        if (e.target.closest('input, label, .rule-meta')) return;
+        // clicks on input / select / checkbox / label keep their default
+        // behavior.  Without select here, opening the action dropdown on a row
+        // bubbled up and toggled the row's enabled checkbox instead.
+        if (e.target.closest('input, select, textarea, label, .rule-meta')) return;
         const cb = row.querySelector('input.rule-toggle');
         if (cb) {
           cb.checked = !cb.checked;
