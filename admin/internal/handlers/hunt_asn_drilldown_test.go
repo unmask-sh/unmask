@@ -103,7 +103,7 @@ func TestNetworkRankingLeadsWithTheOrganisation(t *testing.T) {
 	card := tpl[strings.Index(tpl, `rank-card rank-card-asn`):]
 	card = card[:strings.Index(card, "</table>")]
 
-	key := regexp.MustCompile(`(?s)<td class="key\{\{ if \.ASN.*?</td>`).FindString(card)
+	key := regexp.MustCompile(`(?s)<td class="key\{\{ if and \.ASN.*?</td>`).FindString(card)
 	if key == "" {
 		t.Fatal("could not find the network cell")
 	}
@@ -115,8 +115,11 @@ func TestNetworkRankingLeadsWithTheOrganisation(t *testing.T) {
 	}
 	// The number is what the ASN rule is keyed on, so it has to stay reachable
 	// -- in the popover, with the name spelled out in full.
-	if !strings.Contains(key, `data-full-value="AS{{ .ASN }}{{ with .Org }}  {{ . }}{{ end }}"`) {
-		t.Error("the AS number and the full name are no longer available from the row")
+	// The popover heading is the cell's own content -- the name, unclipped --
+	// so the value only has to carry the number.  Spelling the name out again
+	// there printed it twice.
+	if !strings.Contains(key, `data-full-value="AS{{ .ASN }}"`) {
+		t.Error("the AS number is no longer available from the row")
 	}
 	if !strings.Contains(key, "cellpop") {
 		t.Error("the network cell does not open a popover")
