@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -373,6 +374,65 @@ func (h *Handler) reconfigureNoOp(s *wizardState) bool {
 // token only fires when the file exists AND the cookie isn't verified
 // yet.  When the file is absent (= dev/docker), skip token and go
 // straight to the db step.
+// existingDBInfo describes a database that already carries this install's
+// schema, so the wizard can offer to keep using it by name instead of
+// presenting the driver choice as though nothing existed yet.
+type existingDBInfo struct {
+	Driver   string // display label: "SQLite" / "MariaDB / MySQL"
+	Location string // file path, or user@host:port/database
+	Events   int64  // rows already recorded, so the operator can recognise it
+}
+
+// detectExistingDB reports the configured database when it is reachable AND
+// already migrated.  Package installs are always in this state by the time
+// anyone opens the wizard: the postinstall writes config.yml, the daemon
+// starts, migrates, and begins recording traffic.  Offering only "SQLite or
+// MariaDB" at that point reads as "pick one and build it from scratch" over a
+// database that is already in use, which is the one thing the operator most
+// needs not to believe.
+//
+// SQLite is stat'ed before opening on purpose: db.Open CREATES the file, and a
+// probe must not bring into existence the very thing it claims to have found.
+func detectExistingDB(cfg settings.DB) *existingDBInfo {
+	info := &existingDBInfo{}
+	switch cfg.Driver {
+	case "sqlite", "":
+		path := cfg.SQLitePath
+		if path == "" {
+			return nil
+		}
+		if st, err := os.Stat(path); err != nil || st.Size() == 0 {
+			return nil
+		}
+		info.Driver, info.Location = "SQLite", path
+	case "mariadb", "mysql":
+		m := cfg.MariaDB
+		if m.Database == "" {
+			return nil
+		}
+		info.Driver = "MariaDB / MySQL"
+		info.Location = fmt.Sprintf("%s@%s:%d/%s", m.User, m.Host, m.Port, m.Database)
+	default:
+		return nil
+	}
+
+	conn, err := db.Open(cfg)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	// One query answers both questions: a missing table errors out (= not
+	// migrated, so there is nothing to keep), and the count is the evidence
+	// shown to the operator.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&info.Events); err != nil {
+		return nil
+	}
+	return info
+}
+
 func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
@@ -441,6 +501,21 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	if v := q.Get("mariadb_user"); v != "" {
 		cur.MariaDB.User = v
 	}
+	// Which driver card renders as selected.  Decided here, not in the
+	// template, so the precedence reads as one rule instead of nested
+	// conditionals across four elements: an explicit choice the operator just
+	// made wins, then the database already in use, then the driver on disk.
+	existing := detectExistingDB(h.snapshotSettings().DB)
+	driverChoice := "sqlite"
+	switch {
+	case q.Get("driver") != "":
+		driverChoice = q.Get("driver")
+	case existing != nil:
+		driverChoice = "existing"
+	case cur.Driver == "mariadb":
+		driverChoice = "mariadb"
+	}
+
 	// Build the language picker payload once: ordered list of {code, name}.
 	// Order follows i18n.SupportedLangs so the picker's reading order is
 	// deterministic across requests.
@@ -460,6 +535,13 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":       q.Get("err"),
 		"DB":          cur,
 		"LangOptions": langOpts,
+		// Non-nil when the configured database is already migrated, which
+		// turns the driver choice from "build one" into "keep this or replace
+		// it".  Read from the on-disk config, not from `cur`: `cur` may carry
+		// values the operator is in the middle of typing for a DIFFERENT
+		// database, and the card has to describe the one already in use.
+		"ExistingDB":   existing,
+		"DriverChoice": driverChoice,
 		// Reconfigure: a superadmin re-running setup on a configured install.
 		// Drives the "you're reconfiguring" banner, the skip-user option, and
 		// the "switching DB doesn't move data / keeps the old DB" warning.
@@ -593,6 +675,28 @@ func (h *Handler) AdminSetupSaveDB(w http.ResponseWriter, r *http.Request) {
 	}
 
 	driver := strings.TrimSpace(r.FormValue("driver"))
+	// "existing" = keep the database this install is already using.  Detection
+	// is re-run here rather than trusted from the form: the rendered page is
+	// not the authority on what is on disk, and a posted "existing" against a
+	// database that has since gone away must fail rather than commit a config
+	// pointing at nothing.
+	if driver == "existing" {
+		curDB := h.snapshotSettings().DB
+		if detectExistingDB(curDB) == nil {
+			redirErr(i18n.T(lang, "setup.err.existing_gone"))
+			return
+		}
+		s := h.getWizardState(r)
+		if s == nil {
+			redirErr("setup session expired; reload and re-enter the token")
+			return
+		}
+		s.DB = curDB
+		s.DBSet = true
+		touchWizardState(s)
+		http.Redirect(w, r, base+"/admin/setup/", http.StatusFound)
+		return
+	}
 	if driver != "sqlite" && driver != "mariadb" {
 		redirErr(i18n.T(lang, "setup.err.driver_invalid"))
 		return
