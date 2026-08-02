@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
 // The rank grid has to have a column for every card it holds.  It was written
@@ -102,5 +104,34 @@ func TestRankCardsClipTheirLongValues(t *testing.T) {
 	// not something the log can be searched by.
 	if !strings.Contains(ua, `&ua={{ urlquery .Key }}`) {
 		t.Error("the UA drill-down now searches for the summary instead of the UA")
+	}
+}
+
+// The IP card's "already banned" marker repeats on every banned row, so its
+// length is column width spent thirty times over -- and the hunt card had the
+// English string hardcoded, so a Japanese operator read "already BANned" in a
+// column already translated around it.
+func TestBannedMarkerIsTranslatedAndShort(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/hunt.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), ">already BANned<") {
+		t.Error("the banned marker is a hardcoded English string; the JA UI shows it untranslated")
+	}
+	if !strings.Contains(string(b), `{{ t $.Lang "hunt.already_banned" }}`) {
+		t.Error("the banned marker no longer goes through i18n")
+	}
+	for _, lang := range []i18n.Lang{i18n.LangJA, i18n.LangEN} {
+		v := i18n.T(lang, "hunt.already_banned")
+		if v == "" {
+			t.Fatalf("%s: no banned marker", lang)
+		}
+		// It sits in a narrow column beside an IP and a count; anything longer
+		// starts deciding how wide that column is.
+		if len([]rune(v)) > 8 {
+			t.Errorf("%s banned marker is %q (%d chars): too long for the column it repeats in",
+				lang, v, len([]rune(v)))
+		}
 	}
 }

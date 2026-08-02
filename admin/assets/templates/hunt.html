@@ -270,7 +270,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
             </span>
           {{ else if .Banned }}
             <span class="rank-registered">
-              <span class="action-pill action-bot">already BANned</span>
+              <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
             </span>
           {{ else }}
             <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .Key }}" data-ja4="">
