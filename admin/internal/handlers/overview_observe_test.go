@@ -15,6 +15,12 @@ import (
 
 // observeHandler builds a handler on a migrated DB with n observed judgements
 // already recorded, so the landing page has something to count.
+//
+// The payload matches what AuthCheck actually writes in observe mode: the event
+// is recorded BEFORE the monitor-mode override, so "action" holds the verdict
+// unmask would have enforced and observe_only marks that it did not. Sampled
+// from a live install rather than assumed -- an earlier version of this fixture
+// wrote "action":"pass", which no monitor-mode install ever produces.
 func observeHandler(t *testing.T, observe bool, judged int) *Handler {
 	t.Helper()
 	conn, err := db.Open(settings.DB{
@@ -32,7 +38,7 @@ func observeHandler(t *testing.T, observe bool, judged int) *Handler {
 			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
 			 phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
 			VALUES ('','','',0,x'7f000001','','','',0,'check',0,0,'','',
-			 '{"action":"pass","observe_only":1,"would_be_action":"challenge","would_be_reason":"ua:target:http-library"}',
+			 '{"action":"challenge","observe_only":1,"would_be_action":"challenge","would_be_reason":"ua:target:http-library"}',
 			 datetime('now'))`); err != nil {
 			t.Fatal(err)
 		}
