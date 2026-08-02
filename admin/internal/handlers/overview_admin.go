@@ -60,25 +60,24 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// a cold cache pays the slowest one, not their sum -- the landing page's
 	// biggest win (they were previously run back-to-back).
 	var (
-		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
-		kpiLoaded, kpiAbandon                            int
-		rTotal, rBenign                                  int
-		rKnown                                           bool
-		uBlocked                                         int
-		uKnown                                           bool
-		recentRaw                                        []events.Row
-		recentErr                                        error
-		aiRows                                           []AITrafficRow
-		aiDetail                                         map[string][]AICrawlerRow
-		aiServed                                         []dashboard.AITrafficRow
-		overBlock                                        OverBlockHealth
+		kpiServes, kpiPoWPass, kpiCaptchaPass int
+		kpiLoaded, kpiAbandon                 int
+		rTotal, rBenign                       int
+		rKnown                                bool
+		uBlocked                              int
+		uKnown                                bool
+		recentRaw                             []events.Row
+		recentErr                             error
+		aiRows                                []AITrafficRow
+		aiDetail                              map[string][]AICrawlerRow
+		aiServed                              []dashboard.AITrafficRow
+		overBlock                             OverBlockHealth
 	)
 	var wg sync.WaitGroup
 	launch := func(f func()) {
 		wg.Add(1)
 		go func() { defer wg.Done(); f() }()
 	}
-	launch(func() { kpiEvents = countEvents(ctx, h, 1440, "", site, hosts) })
 	launch(func() { kpiServes = countEvents(ctx, h, 1440, "serve", site, hosts) })
 	// Passed counts split by how the visitor cleared the challenge.  PoW-only is
 	// transparent (mostly real browsers); the CAPTCHA paths mean a human solved
@@ -261,7 +260,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
-		"KPIEvents":      kpiEvents,
 		"KPIServes":      kpiServes,
 		"KPIPoWPass":     kpiPoWPass,
 		"KPICaptchaPass": kpiCaptchaPass,
