@@ -35,6 +35,22 @@ local function should_skip(uri)
 end
 
 function handle_request(r)
+    -- Apache runs the access checker again on every internally redirected or
+    -- sub-request: ErrorDocument, DirectoryIndex, mod_negotiation.  Those are
+    -- not visits.  One client GET that 404s reaches this hook twice -- once for
+    -- the URI the visitor asked for and once for the error document's own URI
+    -- -- so on a bot-probed host the majority of recorded events were Apache's
+    -- own plumbing, each costing a second round-trip to the daemon.  nginx's
+    -- auth_request fires only on the main request, which is why this stayed
+    -- invisible until unmask ran behind Apache.
+    --
+    -- Compared against false, not negated: on a mod_lua that does not expose
+    -- the field this reads nil, and `not nil` would skip every request and
+    -- silently disable unmask.  Unknown means "judge it", as before.
+    if r.is_initial_req == false then
+        return apache2.DECLINED
+    end
+
     if should_skip(r.uri) then
         return apache2.DECLINED
     end
