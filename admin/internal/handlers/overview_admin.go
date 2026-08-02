@@ -61,7 +61,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// biggest win (they were previously run back-to-back).
 	var (
 		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
-		kpiLoaded                                        int
+		kpiLoaded, kpiAbandon                            int
 		rTotal, rBenign                                  int
 		rKnown                                           bool
 		uBlocked                                         int
@@ -90,6 +90,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// counting serves would fold every bot into a number meant to describe
 	// real visitors.
 	launch(func() { kpiLoaded = countEvents(ctx, h, 1440, "load", site, hosts) })
+	// Visitors who loaded the challenge and left.  Subtracted from the blocked
+	// figure below: someone who walked away was not stopped by unmask, and
+	// leaving them in meant every headline carried a footnote about it.
+	launch(func() { kpiAbandon = countEvents(ctx, h, 1440, "abandon", site, hosts) })
 	launch(func() {
 		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
@@ -125,11 +129,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	if recentErr != nil {
 		log.Printf("overview recent: %v", recentErr)
 	}
-	// "Blocked" estimate for the hero: challenges fired that produced no pass
-	// (neither PoW nor CAPTCHA) — the visitor hit the wall and never cleared.
-	// Not exact (a real user who navigated away counts too, and a serve in the
-	// last seconds hasn't had time to pass), but a well-founded figure.
-	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass
+	// "Blocked" for the hero: challenges fired that produced no pass, minus the
+	// visitors who loaded the challenge and left.  Someone who walked away was
+	// not stopped -- and the abandons are recorded, so they can be taken out
+	// rather than disclosed in a footnote on every figure that uses this.  What
+	// remains is still an estimate at the edges (a serve in the last seconds
+	// has not had time to pass, and an abandon that never sent its beacon
+	// cannot be told from a bot that fetched the page and left).
+	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass - kpiAbandon
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
 	}
@@ -189,7 +196,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		pow := countEvents(ctx, h, 1440, "bv_pow_only", site, nil)
 		cap := countEventsPhases(ctx, h, 1440,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, nil)
-		tileBlocked = serves - pow - cap
+		gone := countEvents(ctx, h, 1440, "abandon", site, nil)
+		tileBlocked = serves - pow - cap - gone
 		if tileBlocked < 0 {
 			tileBlocked = 0
 		}
@@ -251,22 +259,27 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		recentUAList[i] = recent[i].UA
 	}
 	data := map[string]any{
-		"Lang":             i18n.Resolve(r),
-		"TZ":               resolveTZ(r),
-		"KPIEvents":        kpiEvents,
-		"KPIServes":        kpiServes,
-		"KPIPoWPass":       kpiPoWPass,
-		"KPICaptchaPass":   kpiCaptchaPass,
-		"KPIBlocked":       kpiBlocked,
-		"ObserveOnly":      observeOnly,
-		"KPIWouldBlock":    kpiWouldBlock,
-		"KPILoaded":        kpiLoaded,
-		"KPIAbandon":       abandon,
-		"KPIAbandonPct":    abandonPct,
-		"KPIKnown":         kpiKnown,
-		"KPIReqTotal":      rTotal,
-		"KPIReqBenign":     rBenign,
-		"KPIReqNonHuman":   rNonHuman,
+		"Lang":           i18n.Resolve(r),
+		"TZ":             resolveTZ(r),
+		"KPIEvents":      kpiEvents,
+		"KPIServes":      kpiServes,
+		"KPIPoWPass":     kpiPoWPass,
+		"KPICaptchaPass": kpiCaptchaPass,
+		"KPIBlocked":     kpiBlocked,
+		"ObserveOnly":    observeOnly,
+		"KPIWouldBlock":  kpiWouldBlock,
+		"KPILoaded":      kpiLoaded,
+		"KPIAbandon":     abandon,
+		"KPIAbandonPct":  abandonPct,
+		"KPIKnown":       kpiKnown,
+		"KPIReqTotal":    rTotal,
+		"KPIReqBenign":   rBenign,
+		"KPIReqNonHuman": rNonHuman,
+		// What is left: requests unmask did not identify as non-human.  Mostly
+		// real visitors, plus any bot that was never challenged and is not a
+		// listed crawler -- the popover says so rather than the label claiming
+		// more than the number can carry.
+		"KPIReqHuman":      rTotal - rNonHuman,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
