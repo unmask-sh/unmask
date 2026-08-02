@@ -1575,13 +1575,14 @@ func ipSetFrom(ctx context.Context) ([]string, bool) {
 const MaxASNDrillIPs = 5000
 
 // IPsInASN: the distinct addresses seen in the window that resolve to asn,
-// most-active first, plus how many there were in total.
+// most-active first, plus how many there were in total and the network's name
+// (the operator recognises "Leaseweb", not 55286).
 //
 // Same scan as RankByASN -- every distinct address in the window, resolved
 // through the mmdb -- so it carries the same cost and the same index pin.
-func IPsInASN(ctx context.Context, d *db.DB, sinceMin int, asn uint, resolve func(ip string) (uint, string)) (ips []string, total int, err error) {
+func IPsInASN(ctx context.Context, d *db.DB, sinceMin int, asn uint, resolve func(ip string) (uint, string)) (ips []string, total int, org string, err error) {
 	if d == nil || resolve == nil {
-		return nil, 0, nil
+		return nil, 0, "", nil
 	}
 	win := dateCreatedWindow(ctx, d, sinceMin)
 	const cols = `SELECT ip_address, COUNT(*) AS c FROM unmask_event`
@@ -1590,27 +1591,30 @@ func IPsInASN(ctx context.Context, d *db.DB, sinceMin int, asn uint, resolve fun
 		rows, err = d.QueryContext(ctx, cols+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
 	}
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, "", err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var ipBytes []byte
 		var c int
 		if err := rows.Scan(&ipBytes, &c); err != nil {
-			return nil, 0, err
+			return nil, 0, "", err
 		}
 		ip := unpackIP(ipBytes)
 		if ip == "" {
 			continue
 		}
-		got, _ := resolve(ip)
+		got, name := resolve(ip)
 		if got != asn {
 			continue
+		}
+		if org == "" {
+			org = name
 		}
 		total++
 		if len(ips) < MaxASNDrillIPs {
 			ips = append(ips, ip)
 		}
 	}
-	return ips, total, rows.Err()
+	return ips, total, org, rows.Err()
 }
