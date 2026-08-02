@@ -9,7 +9,7 @@ import (
 // The row's edit timestamp arrives from the form -- the UI stamps it when the
 // operator confirms an edit -- so a value that could not be true is dropped
 // rather than displayed.  "Not edited" is the honest reading of a bad one.
-func TestClampChangedAt(t *testing.T) {
+func TestClampUpdatedAt(t *testing.T) {
 	const added, now = 1000, 2000
 	for _, tc := range []struct {
 		name    string
@@ -24,8 +24,8 @@ func TestClampChangedAt(t *testing.T) {
 		{"exactly now", 2000, 2000},
 		{"exactly when added", 1000, 1000},
 	} {
-		if got := clampChangedAt(tc.changed, added, now); got != tc.want {
-			t.Errorf("%s: clampChangedAt(%d, %d, %d) = %d, want %d",
+		if got := clampUpdatedAt(tc.changed, added, now); got != tc.want {
+			t.Errorf("%s: clampUpdatedAt(%d, %d, %d) = %d, want %d",
 				tc.name, tc.changed, added, now, got, tc.want)
 		}
 	}
@@ -45,15 +45,15 @@ func TestRuleRowsShowBothDates(t *testing.T) {
 	if n := strings.Count(tpl, `settings.rule.added`); n < 8 {
 		t.Errorf("only %d row summaries label their add date", n)
 	}
-	if n := strings.Count(tpl, `settings.rule.changed`); n < 8 {
+	if n := strings.Count(tpl, `settings.rule.updated`); n < 8 {
 		t.Errorf("only %d row summaries show an edit date", n)
 	}
 	// The edit date is absent until there is one -- a row that has never been
 	// touched must not read as edited at the moment it was added.
-	if !strings.Contains(tpl, `{{ if gt $r.ChangedAt 0 }}`) && !strings.Contains(tpl, `{{ if gt .ChangedAt 0 }}`) {
+	if !strings.Contains(tpl, `{{ if gt $r.UpdatedAt 0 }}`) && !strings.Contains(tpl, `{{ if gt .UpdatedAt 0 }}`) {
 		t.Error("an untouched row would show an edit date")
 	}
-	if n := strings.Count(tpl, `_changed_at" value=`); n < 8 {
+	if n := strings.Count(tpl, `_updated_at" value=`); n < 8 {
 		t.Errorf("only %d rows round-trip their edit date; the rest lose it on save", n)
 	}
 }
@@ -76,16 +76,24 @@ func TestEditStampingAndCloning(t *testing.T) {
 	sig := tpl[strings.Index(tpl, "function rowSignature(row)"):]
 	sig = sig[:strings.Index(sig, "\n  }")]
 	// The signature must skip the timestamps, or every row looks edited.
-	if !strings.Contains(sig, `_updated_at`) || !strings.Contains(sig, `_changed_at`) {
+	if !strings.Contains(sig, `_created_at`) || !strings.Contains(sig, `_updated_at`) {
 		t.Error("the signature includes the timestamps themselves, so every confirm looks like an edit")
 	}
 	if !strings.Contains(tpl, `row.dataset.snapshot !== rowSignature(row)`) {
 		t.Error("the confirm handler stamps unconditionally; the date would mean 'opened', not 'changed'")
 	}
+	// The stamp goes in the edit field.  A rename once pointed it at the add
+	// date instead, which moved the row's creation date on every edit and left
+	// the edit date empty.
+	stamp := tpl[strings.Index(tpl, "Stamp the edit time"):]
+	stamp = stamp[:strings.Index(stamp, "\n        }")]
+	if !strings.Contains(stamp, `name$="_updated_at"`) || strings.Contains(stamp, `name$="_created_at"`) {
+		t.Error("the edit stamp is written to the wrong field")
+	}
 
 	clone := tpl[strings.Index(tpl, "clone the existing row"):]
 	clone = clone[:strings.Index(clone, "row.after(clone)")]
-	if !strings.Contains(clone, `_updated_at"], input[type=hidden][name$="_changed_at"]`) {
+	if !strings.Contains(clone, `_created_at"], input[type=hidden][name$="_updated_at"]`) {
 		t.Error("a cloned row keeps the dates of the row it was copied from")
 	}
 }
