@@ -177,7 +177,24 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// The blocked half is the hero's own figure -- challenges served minus the
 	// ones cleared -- so the two agree instead of offering the operator two
 	// counts of the same thing.
-	rNonHuman := rBenign + kpiBlocked
+	//
+	// Except under a host filter.  The hero's counts are host-scoped and the
+	// request totals cannot be (unmask_cookie_minute has no host dimension), so
+	// using them together would divide a filtered numerator by an unfiltered
+	// denominator and understate the ratio.  Recount without the host filter in
+	// that case -- three more reads, only on a page the operator has narrowed.
+	tileBlocked := kpiBlocked
+	if len(hosts) > 0 {
+		serves := countEvents(ctx, h, 1440, "serve", site, nil)
+		pow := countEvents(ctx, h, 1440, "bv_pow_only", site, nil)
+		cap := countEventsPhases(ctx, h, 1440,
+			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, nil)
+		tileBlocked = serves - pow - cap
+		if tileBlocked < 0 {
+			tileBlocked = 0
+		}
+	}
+	rNonHuman := rBenign + tileBlocked
 	if rNonHuman > rTotal {
 		rNonHuman = rTotal
 	}
@@ -250,7 +267,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIReqTotal":      rTotal,
 		"KPIReqBenign":     rBenign,
 		"KPIReqNonHuman":   rNonHuman,
-		"KPIReqBlocked":    kpiBlocked,
+		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
 		"KPINonHumanPct":   nonHumanPct,
