@@ -62,7 +62,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	var (
 		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
 		kpiLoaded                                        int
-		uTotal, uBlocked                                 int
+		uTotal, uBlocked, uBenign                        int
 		uKnown                                           bool
 		recentRaw                                        []events.Row
 		recentErr                                        error
@@ -95,7 +95,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Non-human %: distinct client IPs (total) vs distinct challenged-but-never-
 	// passed IPs (blocked), from the unmask_traffic_hll sketches.  "—" when the
 	// access-log feed is off (no sketch data).
-	launch(func() { uTotal, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
+	launch(func() { uTotal, uBlocked, uBenign, uKnown = trafficUnique(ctx, h, 1440, site) })
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
 	launch(func() {
@@ -144,8 +144,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// blocked" hero -- a DB-busy landing must not masquerade as a calm one.
 	kpiKnown := ctx.Err() == nil
 	nonHumanPct := 0.0
+	// Non-human = bots we deliberately passed PLUS clients that failed the
+	// challenge.  The old figure counted only the second half, so every
+	// verified crawler -- unambiguously non-human, and often the largest
+	// non-human cohort on a public site -- was missing from a number called
+	// "non-human traffic".  An address could in principle land in both (a
+	// crawler that was passed on one request and challenged on another), so
+	// the sum can double-count slightly; the cap keeps the ratio sane.
+	uNonHuman := uBenign + uBlocked
+	if uNonHuman > uTotal {
+		uNonHuman = uTotal
+	}
 	if uKnown && uTotal > 0 {
-		nonHumanPct = float64(uBlocked) / float64(uTotal) * 100
+		nonHumanPct = float64(uNonHuman) / float64(uTotal) * 100
 	}
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
@@ -197,23 +208,25 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		recentUAList[i] = recent[i].UA
 	}
 	data := map[string]any{
-		"Lang":             i18n.Resolve(r),
-		"TZ":               resolveTZ(r),
-		"KPIEvents":        kpiEvents,
-		"KPIServes":        kpiServes,
-		"KPIPoWPass":       kpiPoWPass,
-		"KPICaptchaPass":   kpiCaptchaPass,
-		"KPIBlocked":       kpiBlocked,
-		"KPILoaded":        kpiLoaded,
-		"KPIAbandon":       abandon,
-		"KPIAbandonPct":    abandonPct,
-		"KPIKnown":         kpiKnown,
-		"KPIUniqueTotal":   uTotal,
-		"KPIUniqueBlocked": uBlocked,
-		"KPINonHumanPct":   nonHumanPct,
-		"KPINonHumanKnown": uKnown && uTotal > 0,
-		"KPICurrentBans":   currentBans,
-		"Recent":           recent,
+		"Lang":              i18n.Resolve(r),
+		"TZ":                resolveTZ(r),
+		"KPIEvents":         kpiEvents,
+		"KPIServes":         kpiServes,
+		"KPIPoWPass":        kpiPoWPass,
+		"KPICaptchaPass":    kpiCaptchaPass,
+		"KPIBlocked":        kpiBlocked,
+		"KPILoaded":         kpiLoaded,
+		"KPIAbandon":        abandon,
+		"KPIAbandonPct":     abandonPct,
+		"KPIKnown":          kpiKnown,
+		"KPIUniqueTotal":    uTotal,
+		"KPIUniqueBenign":   uBenign,
+		"KPIUniqueNonHuman": uNonHuman,
+		"KPIUniqueBlocked":  uBlocked,
+		"KPINonHumanPct":    nonHumanPct,
+		"KPINonHumanKnown":  uKnown && uTotal > 0,
+		"KPICurrentBans":    currentBans,
+		"Recent":            recent,
 		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the
 		// same recent slice under those keys.  EventsCap=10 caps the client-side
 		// visible-session count after the session-collapse pass so the card
@@ -528,17 +541,17 @@ func countEventsPhases(ctx context.Context, h *Handler, minutes int, phases []st
 //	          feed is off, or the feature was just deployed) → caller shows "—"
 //
 // Best-effort: on a query error returns known=false.
-func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (total, blocked int, known bool) {
+func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (total, blocked, benign int, known bool) {
 	// Default (all-sites) view: read the install-wide rollups instead of scanning
 	// every site's per-minute sketches (the ~8-12k-sketch fan-out).  A site-scoped
 	// view has no fan-out, so it reads the per-minute table directly below.
 	if site == "" {
-		t, b, ok, err := dashboard.TrafficUniqueAgg(ctx, h.DB, minutes)
+		t, b, bn, ok, err := dashboard.TrafficUniqueAgg(ctx, h.DB, minutes)
 		if err != nil {
 			log.Printf("trafficUnique agg: %v", err)
-			return 0, 0, false
+			return 0, 0, 0, false
 		}
-		return t, b, ok
+		return t, b, bn, ok
 	}
 	cutoff := time.Now().Unix()/60 - int64(minutes)
 	stmt := `SELECT kind, sketch FROM unmask_traffic_hll WHERE bucket_min >= ?`
@@ -550,7 +563,7 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 	rows, err := h.DB.QueryContext(ctx, stmt, args...)
 	if err != nil {
 		log.Printf("trafficUnique: %v", err)
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	defer rows.Close()
 	merged := map[string]*hll.Sketch{} // kind -> window-merged sketch
@@ -559,7 +572,7 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 		var blob []byte
 		if err := rows.Scan(&kind, &blob); err != nil {
 			log.Printf("trafficUnique scan: %v", err)
-			return 0, 0, false
+			return 0, 0, 0, false
 		}
 		s := merged[kind]
 		if s == nil {
@@ -570,13 +583,19 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("trafficUnique rows: %v", err)
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	ipAll := merged["ip"]
 	if ipAll == nil {
-		return 0, 0, false // no sketch data
+		return 0, 0, 0, false // no sketch data
 	}
 	total = ipAll.Estimate()
+	// Benign: listed crawlers passed without a challenge (see nginxlog's
+	// ipBot).  A direct estimate rather than a subtraction, so its error is
+	// the sketch's own.
+	if ipBot := merged["ipb"]; ipBot != nil {
+		benign = ipBot.Estimate()
+	}
 	if ipChal := merged["ipc"]; ipChal != nil {
 		// blocked = challenged minus those that ever passed.  HLL has no
 		// subtraction, so est(ipc \ ipp) = est(ipc ∪ ipp) − est(ipp).
@@ -592,7 +611,7 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 			blocked = 0
 		}
 	}
-	return total, blocked, true
+	return total, blocked, benign, true
 }
 
 // parseHostFilter: normalize the URL "host" query values as a multi-select.
