@@ -251,6 +251,47 @@ func (r *Reader) LookupInfo(ip string) Info {
 	return r.cacheSet(ip, info)
 }
 
+// LookupASN resolves ONLY the network, for callers that walk a lot of addresses
+// once each -- the hunt ASN ranking resolves every distinct IP in its window
+// (111k over 24h on a production install).
+//
+// LookupInfo is the wrong tool at that scale, in two ways that compound: it
+// also queries the country DB and decodes its name maps, which this caller
+// throws away, and it writes every answer into the shared cache.  That cache
+// pays off for the per-IP popover, where the same few addresses are asked for
+// repeatedly; here every entry is single-use, so it buys nothing while adding
+// two mutex round-trips per address and growing an unbounded map by the size of
+// the window on every page load.  Measured across a 24h window, going through
+// LookupInfo cost about a second of the page.
+//
+// The test override table is still honored, so a seeded ASN behaves the same
+// through either entry point.
+func (r *Reader) LookupASN(ip string) (uint, string) {
+	if r == nil {
+		return 0, ""
+	}
+	if r.overrides != nil {
+		if info, ok := r.overrides[ip]; ok {
+			return info.ASN, info.ASNOrg
+		}
+	}
+	if r.asnDB == nil {
+		return 0, ""
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return 0, ""
+	}
+	var rec struct {
+		ASN uint   `maxminddb:"autonomous_system_number"`
+		Org string `maxminddb:"autonomous_system_organization"`
+	}
+	if err := r.asnDB.Lookup(parsed, &rec); err != nil {
+		return 0, ""
+	}
+	return rec.ASN, rec.Org
+}
+
 // LookupBytes is for packed bytes (= unmask_event.ip_address).  Used by the per-country chart aggregation.
 func (r *Reader) LookupBytes(b []byte) string {
 	switch len(b) {

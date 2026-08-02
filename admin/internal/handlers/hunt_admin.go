@@ -309,6 +309,34 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		uaRank = append(uaRank, row)
 	}
 
+	// ASN ranking: which NETWORKS the window came from, ordered by how many
+	// distinct addresses each contributed.  This is the view the IP ranking
+	// cannot give -- a botnet renting a few thousand addresses inside one
+	// hosting AS puts every single one of them near the bottom of a
+	// by-request ranking, while the network it rents from is the one thing
+	// all of them share and the only handle wide enough to act on.
+	type asnRankRow struct {
+		ASN   uint
+		Org   string
+		IPs   int
+		Count int
+		Rule  string // action of the ASN rule already covering it, "" if none
+	}
+	var asnRank []asnRankRow
+	if h.IPGeo != nil && h.IPGeo.ASNLoaded() {
+		// LookupASN, not LookupInfo: this walks every distinct IP in the window
+		// once, where LookupInfo's country lookup is wasted work and its cache
+		// is pure overhead (see ipgeo.LookupASN).
+		asnRaw, _ := events.RankByASN(huntCtx, h.DB, sinceMin, 20, h.IPGeo.LookupASN)
+		asnRank = make([]asnRankRow, 0, len(asnRaw))
+		for _, r0 := range asnRaw {
+			asnRank = append(asnRank, asnRankRow{
+				ASN: r0.ASN, Org: r0.Org, IPs: r0.IPs, Count: r0.Count,
+				Rule: lookupASNRuleAction(r0.ASN, r0.Org, cur.Asn),
+			})
+		}
+	}
+
 	// Row count is no longer the signal: rows now includes whatever spilled in
 	// from the neighbouring pages to finish a session, so it can exceed
 	// pageSize on a full page and fall short on the last one.
@@ -501,6 +529,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"IPRank":     ipRank,
 		"JA4Rank":    ja4Rank,
 		"UARank":     uaRank,
+		"ASNRank":    asnRank,
 		"Offset":     offset,
 		"PageSize":   pageSize,
 		"NextOffset": offset + pageSize,
@@ -540,6 +569,45 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 // rangeToMinutes mirrors the range parsing in AdminHunt so the action
 // handler can resolve the same sample window the ranking aggregated over.
 // Unknown / empty -> 60 minutes (= the "1h" default).
+// lookupASNRuleAction reports the action of the ASN-tab rule already covering a
+// network, or "" when none does.  It answers the only question the ranking has
+// to answer before the operator acts: "have I already dealt with this one?"
+//
+// Both rule shapes are checked the way the ASN axis itself resolves them -- an
+// exact AS number, and an organization-name substring (which is also how the
+// built-in hosting-provider presets match, so an enabled "Amazon" preset shows
+// up here for every Amazon AS).  Rate-mode rules are reported too: throttled is
+// not untouched, and showing such a row as unhandled would invite a second,
+// conflicting rule.
+func lookupASNRuleAction(asn uint, org string, cfg settings.AsnConfig) string {
+	if asn != 0 {
+		for _, r := range cfg.EnabledASNRules() {
+			if r.ASN == asn {
+				return r.Action
+			}
+		}
+	}
+	if org != "" {
+		lower := strings.ToLower(org)
+		for _, p := range cfg.EnabledOrgPatterns() {
+			if pat := strings.ToLower(strings.TrimSpace(p.Pattern)); pat != "" && strings.Contains(lower, pat) {
+				return p.Action
+			}
+		}
+	}
+	// Rate-mode rules live in a separate list (they render as a throttle zone,
+	// not an immediate action), so they need their own pass.
+	for _, r := range cfg.RateRules() {
+		if r.ASN != 0 && r.ASN == asn {
+			return r.Action
+		}
+		if r.Org != "" && org != "" && strings.Contains(strings.ToLower(org), strings.ToLower(r.Org)) {
+			return r.Action
+		}
+	}
+	return ""
+}
+
 func rangeToMinutes(rng string) int {
 	switch strings.TrimSpace(rng) {
 	case "6h":

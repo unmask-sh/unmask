@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -1278,6 +1279,101 @@ func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, er
 		out = append(out, RankRow{Key: k, Count: c})
 	}
 	return out, rows.Err()
+}
+
+// ASNRankRow: one network in the hunt ASN ranking.
+type ASNRankRow struct {
+	ASN   uint   // Autonomous System Number (0 = the mmdb had no answer)
+	Org   string // ASN organization, as the mmdb spells it
+	IPs   int    // distinct client IPs seen from this network in the window
+	Count int    // events from this network in the window
+}
+
+// RankByASN aggregates the window by client network.  Top `limit` rows, ordered
+// by distinct IPs (not events): a botnet spread thin across a network is exactly
+// what the IP ranking cannot show, since every one of its addresses sits near
+// the bottom with a handful of requests each.  Ordering by distinct IPs puts
+// that shape first, which is the reason this ranking exists.
+//
+// The ASN is not stored on the event -- it is resolved from the IP against the
+// mmdb, so the caller injects `resolve` (the handler owns the reader; this
+// package must not depend on it).  A nil resolver, or one that answers 0,
+// folds into a single "unknown" row rather than vanishing, so the ranking's
+// totals stay honest when the mmdb is missing.
+//
+// Cost: this reads EVERY distinct IP in the window (no LIMIT can be pushed into
+// SQL -- the ranking key is computed after the query), so the date-index hint is
+// load-bearing.  Measured on a 6.6M-row production DB over 24h / 111k distinct
+// IPs: 0.36s with the hint, 48s without it, because the unhinted planner walks
+// the whole (ip_address, date_created) index instead of seeking the window.
+func RankByASN(ctx context.Context, d *db.DB, sinceMin, limit int, resolve func(ip string) (uint, string)) ([]ASNRankRow, error) {
+	if limit < 1 || limit > 200 {
+		limit = 30
+	}
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	const cols = `SELECT ip_address, COUNT(*) AS c FROM unmask_event`
+	rows, err := d.QueryContext(ctx, cols+eventDateHint(d, win)+` WHERE `+win+` GROUP BY ip_address`)
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		// Same degradation as RankByIP: INDEXED BY makes a missing index a hard
+		// error, and a slow ranking beats an empty one.
+		rows, err = d.QueryContext(ctx, cols+` WHERE `+win+` GROUP BY ip_address`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type agg struct {
+		org   string
+		ips   int
+		count int
+	}
+	byASN := map[uint]*agg{}
+	for rows.Next() {
+		var ipBytes []byte
+		var c int
+		if err := rows.Scan(&ipBytes, &c); err != nil {
+			return nil, err
+		}
+		var asn uint
+		var org string
+		if ip := unpackIP(ipBytes); ip != "" && resolve != nil {
+			asn, org = resolve(ip)
+		}
+		a := byASN[asn]
+		if a == nil {
+			a = &agg{}
+			byASN[asn] = a
+		}
+		// Keep the first non-empty spelling: an mmdb can carry blank org rows
+		// for some prefixes of a network that is named on others.
+		if a.org == "" {
+			a.org = org
+		}
+		a.ips++
+		a.count += c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]ASNRankRow, 0, len(byASN))
+	for asn, a := range byASN {
+		out = append(out, ASNRankRow{ASN: asn, Org: a.org, IPs: a.ips, Count: a.count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].IPs != out[j].IPs {
+			return out[i].IPs > out[j].IPs
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].ASN < out[j].ASN // stable order for equal rows
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 // distinctColSQL builds the "distinct non-empty values of an indexed column"

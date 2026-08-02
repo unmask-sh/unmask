@@ -4384,7 +4384,32 @@ function secToHuman(s){
   // AS pinpoint), and (b) re-stamps rate placeholders on freshly added rows.
   var asnList = document.querySelector('.rule-list[data-rule-name="asn_number"]');
   var sugBox = document.getElementById('asn-suggest');
-  if (!asnList || !sugBox) return;
+  if (!asnList) return;
+
+  // ?add_asn=<n> — arriving from the hunt page's ASN ranking, which sends the
+  // operator here with a network already in mind.  Open a fresh rule row and
+  // put the AS number in it, so the trip from "this network is the problem" to
+  // "a rule exists for it" is one click plus picking an action.  Nothing is
+  // saved automatically: an ASN rule is wide enough that it has to stay an
+  // explicit, reviewable decision.
+  (function(){
+    var m = /[?&]add_asn=(\d+)/.exec(location.search);
+    if (!m) return;
+    var addBtn = document.querySelector('.rule-add-bottom[data-target-list="asn_number"]');
+    if (!addBtn) return;
+    addBtn.click();
+    var rows = asnList.querySelectorAll('.rule-row');
+    var row = rows[rows.length - 1];
+    if (!row) return;
+    var input = row.querySelector('input[name="asn_number"]');
+    if (!input) return;
+    input.value = 'AS' + m[1];
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    row.scrollIntoView({block: 'center'});
+    input.focus();
+  })();
+
+  if (!sugBox) return;
   var SUGGEST_URL = {{ .BasePath }} + '/admin/settings/asn/suggest';
   var SUG_NONE = '{{ t .Lang "settings.asn.suggest_none" }}';
   var sugTimer = null, sugItems = [], sugActive = -1, sugSeq = 0, curNum = null;
