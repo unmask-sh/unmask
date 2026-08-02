@@ -81,7 +81,7 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 	value, sub := tile[1], stripTags(tile[2])
 
 	// Exact counters, so these are exact -- no estimate to allow for.
-	for _, want := range []string{"2,000 benign", "3,000 malicious", "10,000 requests"} {
+	for _, want := range []string{"2,000 benign bots", "3,000 malicious bots", "5,000 human", "10,000 requests"} {
 		if !strings.Contains(sub, want) {
 			t.Errorf("the tile does not read %q: %q", want, sub)
 		}
@@ -142,7 +142,7 @@ func TestBlockedRequestsNeverGoNegative(t *testing.T) {
 	if strings.Contains(value, "-") {
 		t.Errorf("the percentage went negative: %q", value)
 	}
-	if !strings.Contains(sub, "0 malicious") {
+	if !strings.Contains(sub, "0 malicious bots") {
 		t.Errorf("want the blocked half floored at zero, got %q", sub)
 	}
 }
@@ -158,8 +158,8 @@ func TestNonHumanPopoverExplainsBenignAndItsUnit(t *testing.T) {
 		lang i18n.Lang
 		want []string
 	}{
-		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot"}},
-		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot"}},
+		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot", "非人間と判定しなかった"}},
+		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot", "not identified as non-human"}},
 	} {
 		help := i18n.T(tc.lang, "overview.kpi.nonhuman_help")
 		if help == "" || help == "overview.kpi.nonhuman_help" {
@@ -227,7 +227,63 @@ func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
 		t.Fatal("the non-human tile is missing")
 	}
 	sub := stripTags(tile[1])
-	if !strings.Contains(sub, "2,800 benign") {
+	if !strings.Contains(sub, "2,800 benign bots") {
 		t.Errorf("the default view is reading the young per-site counter (40) instead of the table with history (2,800): %q", sub)
+	}
+}
+
+// A visitor who loaded the challenge and walked away was not stopped by
+// unmask, and the abandons are recorded -- so they come out of the blocked
+// figure rather than being disclosed in a footnote on every number that uses
+// it.  Measured on the fleet before this: 283 of ~9,900 on one node (2.9%),
+// 175 of ~246,000 on another.
+func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+		VALUES (strftime('%s','now')/60, ?, 'total', 10000)`, site); err != nil {
+		t.Fatal(err)
+	}
+	ev := func(phase string, n int) {
+		t.Helper()
+		for i := 0; i < n; i++ {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
+				VALUES (?, '', x'7f000001', ?, datetime('now'))`, site, phase); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// 1,000 challenges, 100 cleared, 50 people gave up -> 850 blocked, not 900.
+	ev("serve", 1000)
+	ev("bv_pow_only", 100)
+	ev("abandon", 50)
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, "850 malicious bots") {
+		m := regexp.MustCompile(`[0-9,]+ malicious bots`).FindString(body)
+		t.Errorf("blocked reads %q, want 850: the visitors who walked away are still counted as stopped", m)
+	}
+	// The hero uses the same figure, so the two must not diverge again.
+	if !strings.Contains(body, ">850<") {
+		t.Error("the hero and the tile disagree on the blocked count")
+	}
+	// And with the abandons taken out, no figure needs to disclose them.
+	for _, gone := range []string{"僅かに含む", "gave up", "includes the few real visitors"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("a caveat about abandoners survives (%q) although they are subtracted", gone)
+		}
 	}
 }
