@@ -238,6 +238,19 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				return strconv.FormatFloat(float64(n)/float64(total)*100, 'f', 4, 64)
 			},
+			// pctLabel: the same share, rounded for reading.  A share that is
+			// present but rounds to 0.0 shows as "<0.1%" -- a legend entry
+			// reading 0.0% beside a non-zero count looks like a broken figure.
+			"pctLabel": func(n, total int) string {
+				if total <= 0 || n <= 0 {
+					return "0%"
+				}
+				p := float64(n) / float64(total) * 100
+				if p < 0.05 {
+					return "<0.1%"
+				}
+				return strconv.FormatFloat(p, 'f', 1, 64) + "%"
+			},
 			// uaSummary condenses a browser UA to "<platform> · <browser> <major>"
 			// for the events table; "" for anything that is not a recognisable
 			// browser, so the caller keeps the raw string (see classify.UASummary
