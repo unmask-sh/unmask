@@ -62,7 +62,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	var (
 		kpiEvents, kpiServes, kpiPoWPass, kpiCaptchaPass int
 		kpiLoaded                                        int
-		rTotal, rBlocked, rBenign                        int
+		rTotal, rBenign                                  int
 		rKnown                                           bool
 		uBlocked                                         int
 		uKnown                                           bool
@@ -98,7 +98,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// access-log feed is off (no counters at all).
 	launch(func() {
 		var err error
-		rTotal, rBlocked, rBenign, rKnown, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
+		rTotal, rBenign, rKnown, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
 		if err != nil {
 			log.Printf("trafficRequests: %v", err)
 		}
@@ -174,7 +174,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Non-human = requests from bots we deliberately passed PLUS requests we
 	// answered with a challenge nobody cleared.  Each request is counted once
 	// on one side or the other, so the sum cannot exceed the total.
-	rNonHuman := rBenign + rBlocked
+	// The blocked half is the hero's own figure -- challenges served minus the
+	// ones cleared -- so the two agree instead of offering the operator two
+	// counts of the same thing.
+	rNonHuman := rBenign + kpiBlocked
 	if rNonHuman > rTotal {
 		rNonHuman = rTotal
 	}
@@ -247,7 +250,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIReqTotal":      rTotal,
 		"KPIReqBenign":     rBenign,
 		"KPIReqNonHuman":   rNonHuman,
-		"KPIReqBlocked":    rBlocked,
+		"KPIReqBlocked":    kpiBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
 		"KPINonHumanPct":   nonHumanPct,

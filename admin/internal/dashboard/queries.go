@@ -3941,8 +3941,12 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 // than in distinct clients, over the last <minutes> and optionally one site.
 //
 //	total   = every request                       (unmask_cookie_minute 'total')
-//	blocked = requests answered with a challenge that nobody then cleared
-//	          ('challenge_served' − 'pow' − 'captcha')
+//	blocked = caller-supplied (the hero's own figure: challenges served minus
+//	          the ones cleared, from unmask_event).  It cannot be computed here:
+//	          this table's 'pow' / 'captcha' count every request from a client
+//	          already holding a pass cookie, not the act of clearing one, so
+//	          subtracting them from 'challenge_served' produced zero on a site
+//	          whose regulars carry cookies.
 //	benign  = requests from listed crawlers we passed on purpose
 //	          ('crawler_pass'; the install-wide view reads the same requests
 //	          from unmask_crawler_minute, which has far more history)
@@ -3954,12 +3958,11 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 // numbers in two units next to each other, and made a fleet of one-shot
 // addresses look larger than a search engine that outweighed it in traffic.
 //
-// Exact counters rather than HLL, so there is no estimate to caveat and the
-// blocked figure is a subtraction of counts rather than of two sketches.
+// Exact counters rather than HLL, so there is no estimate to caveat.
 // ok=false when there is no counter data at all (= access-log feed off).
-func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (total, blocked, benign int, ok bool, err error) {
+func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (total, benign int, ok bool, err error) {
 	if d == nil {
-		return 0, 0, 0, false, nil
+		return 0, 0, false, nil
 	}
 	cutoff := time.Now().Unix()/60 - int64(minutes)
 	args := []any{cutoff}
@@ -3968,16 +3971,13 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (t
 		cond = " AND site = ?"
 		args = append(args, site)
 	}
-	var served, passed int
 	err = d.QueryRowContext(ctx, `
-        SELECT COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'crawler_pass'     THEN cnt ELSE 0 END), 0)
+        SELECT COALESCE(SUM(CASE WHEN kind = 'total'        THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'crawler_pass' THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
-        WHERE bucket_min >= ?`+cond, args...).Scan(&total, &served, &passed, &benign)
+        WHERE bucket_min >= ?`+cond, args...).Scan(&total, &benign)
 	if err != nil {
-		return 0, 0, 0, false, err
+		return 0, 0, false, err
 	}
 	if site == "" {
 		// The install-wide view reads the benign half from unmask_crawler_minute
@@ -3994,11 +3994,5 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (t
 			benign = wide
 		}
 	}
-	blocked = served - passed
-	if blocked < 0 {
-		// A visitor can clear a challenge in a later minute than the one that
-		// served it, so at a window edge the passes can outrun the serves.
-		blocked = 0
-	}
-	return total, blocked, benign, total > 0, nil
+	return total, benign, total > 0, nil
 }
