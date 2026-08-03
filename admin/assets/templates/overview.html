@@ -232,13 +232,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <span class="comp-seg comp-benign" style="width:{{ pctOf .KPIReqBenign $t }}%"></span>
     <span class="comp-seg comp-bad"    style="width:{{ pctOf .KPIReqBlocked $t }}%"></span>
     <span class="comp-seg comp-bypass" style="width:{{ pctOf .KPIReqBypassed $t }}%"></span>
-    <span class="comp-seg comp-human"  style="width:{{ pctOf .KPIReqHuman $t }}%"></span>
+    {{ if .KPIReqHumanKnown }}<span class="comp-seg comp-human"  style="width:{{ pctOf .KPIReqHuman $t }}%"></span>{{ end }}
   </div>
   <div class="comp-legend">
     <span><i class="comp-benign"></i>{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIReqBenign) }}<b class="comp-share">{{ pctLabel .KPIReqBenign $t }}</b></span>
     <span><i class="comp-bad"></i>{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIReqBlocked) }}<b class="comp-share">{{ pctLabel .KPIReqBlocked $t }}</b></span>
     {{ if .KPIReqBypassed }}<span><i class="comp-bypass"></i>{{ tf .Lang "overview.kpi.nonhuman_bypass" (comma .KPIReqBypassed) }}<b class="comp-share">{{ pctLabel .KPIReqBypassed $t }}</b></span>{{ end }}
-    <span><i class="comp-human"></i>{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}<b class="comp-share">{{ pctLabel .KPIReqHuman $t }}</b></span>
+    <span><i class="comp-human"></i>{{ if .KPIReqHumanKnown }}{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}<b class="comp-share">{{ pctLabel .KPIReqHuman $t }}</b>{{ else }}{{ tf .Lang "overview.kpi.nonhuman_human" "—" }}<b class="comp-share" title="{{ t .Lang "overview.kpi.nonhuman_human_unknown" }}">?</b>{{ end }}</span>
   </div>
   {{ end }}
 </div>

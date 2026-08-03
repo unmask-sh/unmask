@@ -265,8 +265,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// crawler_pass and bypass_pass was found.  Floored so the card degrades to
 	// "0% human" rather than rendering a negative share, and the counters that
 	// caused it stay visible for the operator to notice.
+	// A negative remainder means the segments oversubscribe the total, so the
+	// human share is not a small number -- it is unknown.  Reporting 0 would be
+	// a silent zero: indistinguishable from a site with no visitors, and this
+	// card is exactly where that lie is hardest to catch.
 	rHuman := rTotal - rNonHuman - rBypassed
-	if rHuman < 0 {
+	rHumanKnown := rHuman >= 0
+	if !rHumanKnown {
 		rHuman = 0
 	}
 	data := map[string]any{
@@ -293,6 +298,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// much smaller one: the bypassed traffic that used to swell it is now
 		// counted apart.
 		"KPIReqHuman":      rHuman,
+		"KPIReqHumanKnown": rHumanKnown,
 		"KPIReqBypassed":   rBypassed,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
