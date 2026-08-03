@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.17",
+  "latest": "0.1.18",
   "releases": [
+    {
+      "version": "0.1.18",
+      "date": "2026-08-04",
+      "notes": "Every rule field that takes a pattern now says how it is read - regex, contains, or exact - with a chip in the field that switches it and a placeholder that follows. Pasting the value you want to block is the obvious thing to do with a regular-expression field and it silently did not work: a User-Agent pasted verbatim compiles, passes every check, and matches that same string with its parentheses removed, which is nothing. This applies to every pattern list - UA allow and block, JA4 verdicts, honeypot, protected, bypass, geo and ASN exemptions, rate-limit paths - and an unmarked pattern is still a regex meaning exactly what it meant. A UA block-list rule can pin its own action, so a rule that needs a CAPTCHA no longer has to drag every other rule with it. Hunt now says why a challenge fired for the axis that fires most of them: a challenge raised by the operator's own UA rule was recorded as \"none\", because nginx fires it off a map variable and forwards no header saying so. The serve event also records which chain it offered and every row carries the explanation, so a CAPTCHA the page escalated into reads as the divergence it is. Acting on a hunt row no longer leaves the page - the UA and network buttons open a dialog like BAN beside them, and the UA dialog proposes the identifying token, counts what the pattern would match, and refuses one that does not match the UA it was built from. Requests a bypass rule let through are counted apart from people, so a package repository or an API served behind a bypass path stops landing in the human share. Fixed: every visitor was held for 1.5 seconds before the challenge let them through and the wait was entirely artificial - a display floor whose placeholder had drifted from the constant the server substitutes into it, plus 800ms padding the post-solve redirect (proof-of-work p50 1508ms to 389ms, abandonment 7.53% to 2.76% on the same node); browsers without TextEncoder could not solve the proof of work at all and looped on the challenge forever; the dashboard could report zero human visitors for a site that had them, and a remainder that cannot be computed now reads an em dash with the reason rather than a silent zero; and a visitor who merely changed IP was re-challenged instead of being silently re-bound."
+    },
     {
       "version": "0.1.17",
       "date": "2026-08-03",
