@@ -50,6 +50,14 @@ var templatesFS embed.FS
 //
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /var/lib/unmask/nginx).
 // version is for display (= written in the header of the generated file).
+
+// tmplFuncs: what the config template may call.  "rx" resolves an operator
+// pattern to the expression the map should match on -- a literal pattern means
+// itself and is escaped here, at the one point where it becomes a regex.  The
+// admin's own matcher resolves it through the same helper, so the two wires
+// cannot read a pattern differently.
+var tmplFuncs = template.FuncMap{"rx": settings.PatternRegex}
+
 func Render(s settings.Settings, outDir, version string) error {
 	if outDir == "" {
 		outDir = s.Nginx.OutputDir
@@ -196,7 +204,7 @@ func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) 
 	if err != nil {
 		return fmt.Errorf("read template %s: %w", tmplPath, err)
 	}
-	t, err := template.New(outName).Parse(string(body))
+	t, err := template.New(outName).Funcs(tmplFuncs).Parse(string(body))
 	if err != nil {
 		return fmt.Errorf("parse template %s: %w", tmplPath, err)
 	}
@@ -243,7 +251,7 @@ func renderToString(tmplPath string, data any) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read template %s: %w", tmplPath, err)
 	}
-	t, err := template.New(tmplPath).Parse(string(body))
+	t, err := template.New(tmplPath).Funcs(tmplFuncs).Parse(string(body))
 	if err != nil {
 		return "", fmt.Errorf("parse template %s: %w", tmplPath, err)
 	}

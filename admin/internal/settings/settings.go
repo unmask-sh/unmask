@@ -1840,6 +1840,15 @@ type ChallengeTargetsConfig struct {
 	// ExtraUpdatedAt: parallel to ExtraCreatedAt -- unix sec of the last edit,
 	// 0 while untouched.
 	ExtraUpdatedAt []int64 `yaml:"extra_updated_at,omitempty"`
+	// ExtraAction: parallel to Extra -- the chain this row alone runs, empty
+	// to inherit DefaultAction.  Presets have carried a per-row override
+	// (PresetAction) all along; the operator's own rows had only the
+	// list-wide default, so pinning one pattern to a different chain meant
+	// moving every other pattern with it.  What forced this: a residential
+	// browser farm that solves PoW at scale (96% of one node's passes) needs
+	// captcha_only, while the rest of the black list is better served by
+	// pow_then_captcha.
+	ExtraAction []string `yaml:"extra_action,omitempty"`
 	// DefaultAction: chain to run when a black-list UA also triggers a JA4
 	// bot signal (= "pow_only" / "pow_then_captcha" / "captcha_only" /
 	// "deny").  Empty = fall back to rate_limit.default.challenge_mode so

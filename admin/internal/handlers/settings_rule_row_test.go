@@ -120,8 +120,17 @@ func TestConfirmingARowKeepsItsPills(t *testing.T) {
 			t.Errorf("the pill sync does not read %s, so that value disappears from a confirmed row", src)
 		}
 	}
-	if !strings.Contains(pills, `act.value === 'inherit' ? '' : act.value`) {
+	// Setting an action back to inherit must not leave the old value behind.
+	// Both spellings of "inherit" count: most lists use an empty option value,
+	// the upstream-rescue one uses the literal string.
+	if !strings.Contains(pills, `act.value !== 'inherit'`) {
 		t.Error("an action set back to inherit would leave a stale pill behind")
+	}
+	// A list may instead choose to KEEP a pill for inherit, naming the chain
+	// the row will actually run -- but only where the option opts in, so the
+	// lists that drop the pill keep doing so.
+	if !strings.Contains(pills, "data-inherit-pill") {
+		t.Error("the inherit-pill opt-in is gone; an inherit row shows no action at all")
 	}
 
 	// The server-rendered pills need the same marker the sync looks them up by,

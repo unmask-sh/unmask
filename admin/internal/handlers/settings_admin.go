@@ -701,45 +701,48 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBASNPath, loc)
 			return info
 		}(),
-		"LBPresets":                  buildLBPresetView(cur),
-		"LBExtras":                   buildLBExtraView(cur),
-		"SearchBotsRules":            pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt),
-		"UpstreamRescue":             upstreamRescue,
-		"UpstreamUAOff":              upstreamUAOffView,
-		"UpstreamRescueTotal":        upstreamTotal,
-		"UpstreamRescueEnabled":      upstreamEnabled,
-		"UpstreamGroupMode":          upstreamGroupMode,
-		"UpstreamGroupAction":        upstreamGroupAction,
-		"UpstreamRangeBacked":        upstreamRangeBacked,
-		"UpstreamRVActive":           upstreamRVActive,
-		"UpstreamCatHasRV":           upstreamCatHasRV,
-		"JA4Groups":                  ja4Groups,
-		"JA4Rules":                   ja4ExtraRules,
-		"JA4Verdicts":                cur.JA4Verdicts,
-		"JA4PresetAction":            cur.JA4Verdicts.PresetAction,
-		"JA4ExtraAction":             padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
-		"ChallengeAll":               cur.ChallengeTargets.All,
-		"ChallengeGroups":            tgtGroups,
-		"ChallengeRules":             pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt),
-		"ChallengeTargets":           cur.ChallengeTargets,
-		"ChallengePresetAction":      cur.ChallengeTargets.PresetAction,
-		"HoneypotGroups":             honeypotGroups,
-		"HoneypotRules":              honeypotURLRows(cur.Honeypot.URLs),
-		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
-		"Honeypot":                   cur.Honeypot,
-		"HoneypotPresetAction":       cur.Honeypot.PresetAction,
-		"BypassIPsRules":             pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsCreatedAt, cur.BypassIPsUpdatedAt),
-		"StatsExcludeRules":          pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
-		"CrawlerVerify":              cur.CrawlerVerify,
-		"CrawlerVerifyForgedAction":  cur.CrawlerVerify.ResolvedForgedAction(),
-		"CrawlerVerifyCrawlers":      crawlerVerifyCrawlerRows(cur.CrawlerVerify),
-		"BypassPresetGroups":         bypassPresetGroups,
-		"IPRangeSync":                h.IPRangeSyncStatus(),
-		"ProtectedRules":             protectedPathRows(cur.ProtectedPaths.Paths),
-		"BypassPathGroups":           bypassPathGroups,
-		"PrivateNetworkCIDRs":        nginxconf.PrivateNetworkCIDRs,
-		"RedirectExemptGroups":       redirectExemptGroups,
-		"RedirectExemptRules":        redirectExemptRules,
+		"LBPresets":             buildLBPresetView(cur),
+		"LBExtras":              buildLBExtraView(cur),
+		"SearchBotsRules":       pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt, nil),
+		"UpstreamRescue":        upstreamRescue,
+		"UpstreamUAOff":         upstreamUAOffView,
+		"UpstreamRescueTotal":   upstreamTotal,
+		"UpstreamRescueEnabled": upstreamEnabled,
+		"UpstreamGroupMode":     upstreamGroupMode,
+		"UpstreamGroupAction":   upstreamGroupAction,
+		"UpstreamRangeBacked":   upstreamRangeBacked,
+		"UpstreamRVActive":      upstreamRVActive,
+		"UpstreamCatHasRV":      upstreamCatHasRV,
+		"JA4Groups":             ja4Groups,
+		"JA4Rules":              ja4ExtraRules,
+		"JA4Verdicts":           cur.JA4Verdicts,
+		"JA4PresetAction":       cur.JA4Verdicts.PresetAction,
+		"JA4ExtraAction":        padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
+		"ChallengeAll":          cur.ChallengeTargets.All,
+		"ChallengeGroups":       tgtGroups,
+		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt, cur.ChallengeTargets.ExtraAction),
+		// What "inherit" resolves to, so a row that pins nothing still says
+		// which chain it will run rather than just "inherit".
+		"ChallengeDefaultActionLabel": h.resolvedUABlacklistAction(),
+		"ChallengeTargets":            cur.ChallengeTargets,
+		"ChallengePresetAction":       cur.ChallengeTargets.PresetAction,
+		"HoneypotGroups":              honeypotGroups,
+		"HoneypotRules":               honeypotURLRows(cur.Honeypot.URLs),
+		"HoneypotDefaultBanDuration":  cur.Honeypot.BanDurationSec,
+		"Honeypot":                    cur.Honeypot,
+		"HoneypotPresetAction":        cur.Honeypot.PresetAction,
+		"BypassIPsRules":              pairBypassRules(cur.BypassIPs, cur.BypassIPsTitle, cur.BypassIPsDisabled, cur.BypassIPsCreatedAt, cur.BypassIPsUpdatedAt),
+		"StatsExcludeRules":           pairStatsExcludeRules(cur.StatsExcludeIPs, cur.StatsExcludeIPsTitle),
+		"CrawlerVerify":               cur.CrawlerVerify,
+		"CrawlerVerifyForgedAction":   cur.CrawlerVerify.ResolvedForgedAction(),
+		"CrawlerVerifyCrawlers":       crawlerVerifyCrawlerRows(cur.CrawlerVerify),
+		"BypassPresetGroups":          bypassPresetGroups,
+		"IPRangeSync":                 h.IPRangeSyncStatus(),
+		"ProtectedRules":              protectedPathRows(cur.ProtectedPaths.Paths),
+		"BypassPathGroups":            bypassPathGroups,
+		"PrivateNetworkCIDRs":         nginxconf.PrivateNetworkCIDRs,
+		"RedirectExemptGroups":        redirectExemptGroups,
+		"RedirectExemptRules":         redirectExemptRules,
 		// AdvancedEnabled: master reveal-gate for the Web Bot Auth + Privacy Pass
 		// tabs.  Off => their nav links + top-page shortcuts are hidden and the
 		// features are inert (see settings.Nginx.WebBotAuthActive/PrivacyPassActive).
@@ -1086,6 +1089,9 @@ type extraRule struct {
 	Enabled   bool
 	CreatedAt int64 // unix sec of the ADD (see settings: the name is historical)
 	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
+	// Action: the chain this row alone runs, "" to inherit the list default.
+	// Only the black list offers it; the allowlist leaves it empty.
+	Action string
 }
 
 // bypassRule: row-UI struct for the network-tab bypass_ips.
@@ -1191,7 +1197,8 @@ func pairJA4Rules(
 
 // pairRules: zip parallel slices (= patterns + titles + disabled + createdAt)
 // into the template-bound struct slice. The shorter side is padded with defaults.
-func pairRules(patterns, titles []string, disabled []bool, createdAt, updatedAt []int64) []extraRule {
+// actions is optional: pass nil for lists whose rows carry no chain.
+func pairRules(patterns, titles []string, disabled []bool, createdAt, updatedAt []int64, actions []string) []extraRule {
 	out := make([]extraRule, len(patterns))
 	for i, p := range patterns {
 		var t string
@@ -1210,7 +1217,11 @@ func pairRules(patterns, titles []string, disabled []bool, createdAt, updatedAt 
 		if i < len(updatedAt) {
 			cs = updatedAt[i]
 		}
-		out[i] = extraRule{Pattern: p, Title: t, Enabled: !isDisabled, CreatedAt: ts, UpdatedAt: cs}
+		var act string
+		if i < len(actions) {
+			act = actions[i]
+		}
+		out[i] = extraRule{Pattern: p, Title: t, Enabled: !isDisabled, CreatedAt: ts, UpdatedAt: cs, Action: act}
 	}
 	return out
 }
@@ -2402,8 +2413,8 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	// The built-in whitelist presets were removed; only the operator's own
 	// extra rules persist here.  Upstream auto-rescue (below) is the managed
 	// search/AI bypass path.
-	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt = pairExtras(
-		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_created_at"], r.Form["white_extra_updated_at"])
+	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt, _ = pairExtras(
+		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_created_at"], r.Form["white_extra_updated_at"], nil)
 
 	// upstream auto-rescue per-pattern disable list (= modal popup form).
 	// Dedup + strip empty so the YAML stays tidy.
@@ -2550,8 +2561,8 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	} else {
 		n.ChallengeTargets.PresetAction = presetActOverrides
 	}
-	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraCreatedAt, n.ChallengeTargets.ExtraUpdatedAt = pairExtras(
-		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_created_at"], r.Form["black_extra_updated_at"])
+	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraCreatedAt, n.ChallengeTargets.ExtraUpdatedAt, n.ChallengeTargets.ExtraAction = pairExtras(
+		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_created_at"], r.Form["black_extra_updated_at"], r.Form["black_extra_action"])
 }
 
 // crawlerVerifyRow is one rDNS-verifiable crawler for the settings card: its
@@ -2859,7 +2870,10 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 //   - enabled = "1" → enabled; otherwise disabled
 //   - createdAt is unix sec. "0" / empty / invalid is filled with now
 //     (= new row or when JS overwrites with 0 on "dirty" detection)
-func pairExtras(patterns, titles, enabled, createdAt, updatedAt []string) ([]string, []string, []bool, []int64, []int64) {
+//
+// actions is nil for the lists whose rows carry no chain of their own (the
+// allowlist: a rescued UA is not challenged, so there is nothing to pick).
+func pairExtras(patterns, titles, enabled, createdAt, updatedAt, actions []string) ([]string, []string, []bool, []int64, []int64, []string) {
 	maxLen := len(patterns)
 	if len(titles) > maxLen {
 		maxLen = len(titles)
@@ -2875,6 +2889,7 @@ func pairExtras(patterns, titles, enabled, createdAt, updatedAt []string) ([]str
 	outD := make([]bool, 0, maxLen)
 	outU := make([]int64, 0, maxLen)
 	outC := make([]int64, 0, maxLen)
+	outA := make([]string, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
 		var p, t string
@@ -2899,22 +2914,53 @@ func pairExtras(patterns, titles, enabled, createdAt, updatedAt []string) ([]str
 		if p == "" {
 			continue
 		}
-		if strings.ContainsAny(p, "\"\\\x00\r\n") {
-			continue
-		}
-		if _, err := regexp.Compile(p); err != nil {
-			continue
+		// A literal pattern is escaped at render time, so the regex rules
+		// below do not apply to it -- only the characters that would break
+		// the config file itself.
+		if settings.IsLiteralPattern(p) {
+			if strings.ContainsAny(p, "\x00\r\n") {
+				continue
+			}
+		} else {
+			if strings.ContainsAny(p, "\"\\\x00\r\n") {
+				continue
+			}
+			if _, err := regexp.Compile(p); err != nil {
+				continue
+			}
 		}
 		if ts <= 0 {
 			ts = now
+		}
+		// An unknown chain reads as "inherit" rather than being kept: the row
+		// would otherwise claim an action nothing implements.
+		act := ""
+		if i < len(actions) {
+			act = strings.TrimSpace(actions[i])
+			if !settings.IsValidRateChallengeMode(act) {
+				act = ""
+			}
 		}
 		outP = append(outP, p)
 		outT = append(outT, t)
 		outD = append(outD, !isEnabled)
 		outU = append(outU, ts)
 		outC = append(outC, clampUpdatedAt(cs, ts, now))
+		outA = append(outA, act)
 	}
-	return outP, outT, outD, outU, outC
+	// All-empty is the common case (nobody pinned a chain); drop it so the
+	// YAML does not carry a column of "".
+	allEmpty := true
+	for _, a := range outA {
+		if a != "" {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		outA = nil
+	}
+	return outP, outT, outD, outU, outC, outA
 }
 
 // clampUpdatedAt keeps an edit timestamp inside [added, now].  The value is
