@@ -1037,9 +1037,6 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		_, uaTargetCat, uaRowAction = lookupUAListed(ua, h.cfg().Nginx)
 	}
 	uaTargetHit := uaTargetCat == "challenge" || h.cfg().Nginx.ChallengeTargets.All
-	if uaTargetHit && forceReason == "none" {
-		forceReason = "ua_target"
-	}
 
 	// isPreview: the operator's theme-tab iframe (?_preview=1) or an
 	// auth-gated /admin/test/ page.  Must serve the real challenge markup, not
@@ -1090,6 +1087,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			if reason := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
 				forceReason = reason
 			}
+		}
+		// The operator's own UA rule, last: nginx fires this challenge off
+		// $is_challenge_target and forwards no header, so without it the rule
+		// shows up as "none".  Lowest priority of the page-side axes, and
+		// deliberately here rather than earlier -- the rebind gate above reads
+		// "no forced reason", so naming the axis sooner re-challenged a visitor
+		// who had merely changed IP.
+		if forceReason == "none" && uaTargetHit {
+			forceReason = "ua_target"
 		}
 	}
 

@@ -67,3 +67,29 @@ func TestHuntOffersTheUATargetReason(t *testing.T) {
 		t.Error("the hunt force-reason filter has no ua_target option, so the rows cannot be found")
 	}
 }
+
+// Naming the axis must not decide whether the roaming rebind runs.  The rebind
+// gate reads "no forced reason", so filling force_reason in before it turned a
+// silent re-bind for a visitor who had merely changed IP into a fresh
+// challenge -- e2e 21 and 42 caught it as expected=200 actual=403.
+func TestUATargetAttributionRunsAfterTheRebindGate(t *testing.T) {
+	b, err := os.ReadFile("handlers.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	gate := strings.Index(src, "// Silent roaming rebind")
+	attrib := strings.Index(src, `forceReason = "ua_target"`)
+	if gate < 0 || attrib < 0 {
+		t.Fatal("cannot locate the rebind gate or the ua_target attribution")
+	}
+	if attrib < gate {
+		t.Error("ua_target is attributed before the rebind gate, so a roamed visitor is re-challenged instead of re-bound")
+	}
+	// And it stays the lowest-priority page-side axis.
+	for _, higher := range []string{`forceReason = "header"`, `forceReason = "stale"`} {
+		if i := strings.Index(src, higher); i > attrib {
+			t.Errorf("%s is attributed after ua_target, so the more specific axis loses", higher)
+		}
+	}
+}
