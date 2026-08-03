@@ -42,7 +42,10 @@ func TestHuntASNRankingRenders(t *testing.T) {
 	for _, want := range []string{
 		`class="rank-card rank-card-asn"`, // the card itself
 		"AS398781",                        // the resolved network
-		"add_asn=398781",                  // one-click into the ASN tab, prefilled
+		// Registers from the ranking rather than navigating to the ASN tab:
+		// leaving the page drops the range, the filters and the fold state.
+		`class="js-asn-form"`,
+		`name="asn" value="398781"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("hunt page is missing %q", want)

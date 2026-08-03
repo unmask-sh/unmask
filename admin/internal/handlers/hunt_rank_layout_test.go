@@ -3,6 +3,7 @@ package handlers
 import (
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -75,12 +76,15 @@ func TestRankCardsClipTheirLongValues(t *testing.T) {
 		return tpl[i : i+strings.Index(tpl[i:], "</table>")]
 	}
 
+	// The JA4 used to be clipped to 25 characters here, to stop its 36 from
+	// sizing the column.  The column is bounded by CSS now (--key-max, plus a
+	// card that holds its width instead of shrinking), so the value renders in
+	// full and the browser clips it only when the row really is too narrow --
+	// see TestIdentifierCardsAbbreviateUntilThereIsRoom.  What has to stay either way
+	// is the popover: it is where the whole fingerprint is copied from.
 	ja4 := card(`<!-- JA4 ranking -->`)
-	if !strings.Contains(ja4, `{{ clip 25 .Key }}`) {
-		t.Error("the JA4 is no longer clipped, so its full 36 characters size the column again")
-	}
 	if !strings.Contains(ja4, `data-full-value="{{ .Key }}"`) {
-		t.Error("the clipped JA4 has no popover carrying the full value")
+		t.Error("the JA4 cell has no popover carrying the full value")
 	}
 
 	ua := card(`rank-card rank-card-ua`)
@@ -123,5 +127,62 @@ func TestBannedMarkerIsTranslatedAndShort(t *testing.T) {
 			t.Errorf("%s banned marker is %q (%d chars): too long for the column it repeats in",
 				lang, v, len([]rune(v)))
 		}
+	}
+}
+
+// The IP and JA4 values are what a row IS, and both were being cut where the
+// row had space for them: JA4 by a server-side clip at 25 of its 36
+// characters, IP by nothing at all -- the card could not shrink, so a 39-char
+// IPv6 address pushed a neighbour onto a second line instead.
+//
+// Measured in a browser at 1536px with an IPv6 client and full-length JA4s:
+// with all four cards open the identifiers read abbreviated, the same way the
+// raw log below shows them; folding any sibling widens these two (306 -> 512px)
+// and the whole value appears in place.  The row stays one line across every
+// fold combination.
+func TestIdentifierCardsAbbreviateUntilThereIsRoom(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/hunt.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(b)
+
+	// The JA4 cell renders the fingerprint, not a prefix of it.
+	if regexp.MustCompile(`clip 25 \.Key`).MatchString(tpl) {
+		t.Error("the JA4 cell still clips to 25 characters, so widening the card reveals nothing")
+	}
+	// Two ceilings per card: the narrow one it shares the row with, and the
+	// wide one it gets when a sibling is folded away.  Both in rem, never ch:
+	// ch is the width of "0", which the fonts ui-monospace resolves to do not
+	// all set to the glyph advance -- 38ch measured 243px for a value that
+	// rendered at 246 and clipped it.
+	for _, card := range []string{"ip", "ja4"} {
+		narrow := regexp.MustCompile(`\.rank-card-` + card + `\{--key-max:([0-9.]+)(rem|ch)\}`).FindStringSubmatch(tpl)
+		if narrow == nil {
+			t.Errorf("the %s card sets no width ceiling for its key column: one outlier row sizes the card", card)
+			continue
+		}
+		if narrow[2] == "ch" {
+			t.Errorf("the %s card's ceiling is in ch, which under-measures the value it exists to fit", card)
+		}
+		wide := regexp.MustCompile(`:has\(\.folded\) \.rank-card-` + card + `:not\(\.folded\)\{--key-max:([0-9.]+)rem\}`).FindStringSubmatch(tpl)
+		if wide == nil {
+			t.Errorf("the %s card does not widen its column when a sibling is folded, so folding reveals nothing", card)
+			continue
+		}
+		nw, _ := strconv.ParseFloat(narrow[1], 64)
+		wd, _ := strconv.ParseFloat(wide[1], 64)
+		if wd <= nw {
+			t.Errorf("the %s card's folded ceiling (%srem) is not wider than its default (%srem)", card, wide[1], narrow[1])
+		}
+	}
+	// They hold their width while the UA card -- 150 characters that ellipsise
+	// by design -- absorbs the loss.
+	if !regexp.MustCompile(`\.rank-card-ip:not\(\.folded\),\.rank-card-ja4:not\(\.folded\)\{flex-shrink:0\}`).MatchString(tpl) {
+		t.Error("the identifier cards shrink with the rest, so they clip to buy room for a UA that clips anyway")
+	}
+	// And they take a share of what a folded sibling gives back.
+	if !regexp.MustCompile(`:has\(\.folded\)[^{]*\.rank-card-ja4:not\(\.folded\)\{flex-grow:1`).MatchString(tpl) {
+		t.Error("folding a card does not widen the JA4 card: the freed width goes only to ASN and UA")
 	}
 }

@@ -337,7 +337,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	for _, r0 := range uaRankRaw {
 		row := uaRankRow{Key: r0.Key, Count: r0.Count}
 		if r0.Key != "" {
-			row.Listed, row.Category = lookupUAListed(r0.Key, cur)
+			row.Listed, row.Category, _ = lookupUAListed(r0.Key, cur)
 		}
 		uaRank = append(uaRank, row)
 	}
@@ -591,7 +591,11 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			freezeID,
 		),
 		"Saved": q.Get("saved") != "",
-		"Error": readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		// SavedReload: the saved thing was a rule in the nginx config, which
+		// unmask regenerates but does not load -- the banner says so, the same
+		// way the settings tab does after a save.
+		"SavedReload": q.Get("reload") == "1",
+		"Error":       readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		// Static-assets tip: rendered as a dismissible banner above the
 		// range bar when paths matching the static-assets preset show up
 		// ≥ 20 times in the current page.
@@ -603,6 +607,13 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// confirmation dialog.  true only when submit_enabled=true AND the
 		// terms have been accepted.  false -> the dialog is a plain confirm.
 		"CommunityBansActive": h.snapshotSettings().CommunityBans.SubmitActive(),
+		// Defaults the two rule dialogs quote back.  A UA rule carries no
+		// action of its own -- the whole black list runs one -- so the UA
+		// dialog states which one will apply instead of offering a choice the
+		// config cannot store.  The ASN dialog does offer one, and labels its
+		// "inherit" option with what inheriting resolves to.
+		"UAResolvedAction":     h.resolvedUABlacklistAction(),
+		"ASNDefaultRuleAction": h.snapshotSettings().Nginx.Asn.ResolvedDefaultRuleAction(),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -676,15 +687,22 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	base := h.cfg().Server.BasePath
-	redir := func(msg string) {
+	redirFlag := func(msg, extra string) {
 		dst := base + "/admin/hunt/?range=" + url.QueryEscape(r.FormValue("range"))
 		if msg == "" {
-			dst += "&saved=1"
+			dst += "&saved=1" + extra
 		} else {
 			setFlash(w, r, base, "err", msg)
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
+	redir := func(msg string) { redirFlag(msg, "") }
+	// redirRendered: for the ops that write a rule into the nginx config.  A
+	// BAN lands in the ban file, which the module re-reads by mtime, so it is
+	// live the moment it is saved -- these are not.  Rendering happens here;
+	// the reload is the operator's (unmask never touches nginx), so the banner
+	// has to say that the rule is on disk and not yet in the running server.
+	redirRendered := func() { redirFlag("", "&reload=1") }
 
 	pay := SessionFromContext(r)
 	if pay == nil {
@@ -791,11 +809,38 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 			redir("pattern is required")
 			return
 		}
-		if err := h.appendUABlacklist(r, pat, title, meUsername, pay.UserID); err != nil {
+		// The UA the pattern was built from, so the server can check the one
+		// thing a regex check cannot: that the pattern still matches it.
+		if src := r.FormValue("ua"); src != "" {
+			if re, err := regexp.Compile(settings.PatternRegex(pat)); err == nil && !re.MatchString(src) {
+				redir("ua_blacklist: the pattern does not match the UA it came from")
+				return
+			}
+		}
+		if err := h.appendUABlacklist(r, pat, title, strings.TrimSpace(r.FormValue("action")), meUsername, pay.UserID); err != nil {
 			redir("ua_blacklist: " + err.Error())
 			return
 		}
-		redir("")
+		redirRendered()
+		return
+
+	// op=asn_rule: add an exact-ASN rule from the hunt ranking, so acting on a
+	// network does not mean leaving the page the evidence is on.  The settings
+	// tab remains the place to edit one (rate, org rules, ordering); this
+	// writes the one shape the ranking can express -- a numbered AS with an
+	// action.
+	case "asn_rule":
+		asn, err := strconv.ParseUint(strings.TrimPrefix(strings.TrimSpace(r.FormValue("asn")), "AS"), 10, 32)
+		if err != nil || asn == 0 {
+			redir("asn is required")
+			return
+		}
+		if err := h.appendASNRule(r, uint(asn), strings.TrimSpace(r.FormValue("label")),
+			strings.TrimSpace(r.FormValue("action")), meUsername, pay.UserID); err != nil {
+			redir("asn_rule: " + err.Error())
+			return
+		}
+		redirRendered()
 		return
 
 	case "ja4_bot":
@@ -863,7 +908,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 				}
 			}(sampleIP, ja4, rawReason, comment)
 		}
-		redir("")
+		redirRendered()
 		return
 
 	default:
@@ -871,9 +916,107 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// resolvedUABlacklistAction: the chain a black-listed UA actually walks into.
+// ChallengeTargets.DefaultAction when set, otherwise the operating mode's own
+// default -- the same fallback the serve path takes.  The dialog shows this
+// rather than a picker because the config has one action for the whole black
+// list, not one per pattern.
+func (h *Handler) resolvedUABlacklistAction() string {
+	cur := h.snapshotSettings()
+	if act := strings.TrimSpace(cur.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		return act
+	}
+	if act := strings.TrimSpace(cur.RateLimit.Default.ChallengeMode); act != "" {
+		return act
+	}
+	return "pow_then_captcha"
+}
+
+// validUAPattern: the rule the settings-tab form applies to a UA pattern
+// (pairExtras), in one place so the hunt path cannot drift from it.  Reject
+// quote / backslash / control characters, which would break out of the
+// quoted map entry, and anything that is not a regex, which nginx refuses to
+// load at all.
+func validUAPattern(pattern string) error {
+	if strings.TrimSpace(pattern) == "" {
+		return fmt.Errorf("pattern is empty")
+	}
+	// A literal pattern is escaped when it is rendered, so it may contain
+	// anything a UA can -- the rules below are about what an operator may
+	// hand-write as a regex, not about what a value may hold.
+	if settings.IsLiteralPattern(pattern) {
+		if strings.ContainsAny(pattern, "\x00\r\n") {
+			return fmt.Errorf("pattern may not contain control characters")
+		}
+		return nil
+	}
+	if strings.ContainsAny(pattern, "\"\\\x00\r\n") {
+		return fmt.Errorf(`pattern may not contain " \ or control characters`)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("not a valid regular expression: %w", err)
+	}
+	return nil
+}
+
+// appendASNRule: add an exact-ASN rule to Nginx.Asn.Rules.  Mirrors
+// appendUABlacklist -- load, append, save, render -- and takes the same shape
+// the settings tab writes so a rule added here is indistinguishable from one
+// added there.  Rate is left unset (= inherit); the ranking has no opinion on
+// throttling, and the settings tab is where that gets tuned.
+func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, username string, userID int64) error {
+	if action != "" && !settings.IsValidGeoAction(action) {
+		return fmt.Errorf("unknown action %q", action)
+	}
+	cur, err := settings.Load(h.ConfigPath)
+	if err != nil {
+		return err
+	}
+	for i := range cur.Nginx.Asn.Rules {
+		if cur.Nginx.Asn.Rules[i].ASN == asn {
+			return fmt.Errorf("AS%d already has a rule", asn)
+		}
+	}
+	label = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(strings.TrimSpace(label))
+	if len(label) > 200 {
+		label = label[:200]
+	}
+	cur.Nginx.Asn.Rules = append(cur.Nginx.Asn.Rules, settings.AsnRule{
+		ASN: asn, Label: label, Action: action, Enabled: true, CreatedAt: nowUnix(),
+	})
+	cur.Nginx.SeenVersion = "v" + h.Version
+	if err := settings.Save(cur, h.ConfigPath); err != nil {
+		return err
+	}
+	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+		return err
+	}
+	settingsMu.Lock()
+	h.settingsPtr.Store(&cur)
+	settingsMu.Unlock()
+	if h.UserRepo != nil {
+		h.UserRepo.Record(r.Context(), userID, username, "hunt_asn_rule",
+			fmt.Sprintf("AS%d", asn), fmt.Sprintf(`{"label":%q,"action":%q}`, label, action))
+	}
+	return nil
+}
+
 // appendUABlacklist: append a new entry to ChallengeTargets.Extra.  Load
 // the existing settings.yml -> append -> save -> render.
-func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, username string, userID int64) error {
+func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, action, username string, userID int64) error {
+	// Same validation as the settings-tab form: this path renders straight
+	// into an nginx map, so it must not be the weaker way in.  It matters
+	// most here, because the patterns arrive from the UA ranking and the
+	// bots worth listing announce themselves as "Name/1.0 (+https://...)" --
+	// the "(+" is an invalid repeat, so a raw UA from the ranking compiles
+	// nowhere and nginx would refuse the config at the operator's NEXT
+	// reload, which may be an urgent one for an unrelated reason.
+	if err := validUAPattern(pattern); err != nil {
+		return err
+	}
+	if action != "" && !settings.IsValidRateChallengeMode(action) {
+		return fmt.Errorf("unknown action %q", action)
+	}
 	cur, err := settings.Load(h.ConfigPath)
 	if err != nil {
 		return err
@@ -882,7 +1025,17 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, username st
 	cur.Nginx.ChallengeTargets.Extra = append(cur.Nginx.ChallengeTargets.Extra, pattern)
 	cur.Nginx.ChallengeTargets.ExtraTitle = append(cur.Nginx.ChallengeTargets.ExtraTitle, t)
 	cur.Nginx.ChallengeTargets.ExtraDisabled = append(cur.Nginx.ChallengeTargets.ExtraDisabled, false)
-	cur.Nginx.ChallengeTargets.ExtraUpdatedAt = append(cur.Nginx.ChallengeTargets.ExtraUpdatedAt, nowUnix())
+	// CreatedAt, not UpdatedAt: the row is new.  Stamping the edit date on a
+	// row that has never been edited reads as "changed, origin unknown" in
+	// the settings list, which is the opposite of what happened.
+	cur.Nginx.ChallengeTargets.ExtraCreatedAt = append(cur.Nginx.ChallengeTargets.ExtraCreatedAt, nowUnix())
+	cur.Nginx.ChallengeTargets.ExtraUpdatedAt = append(cur.Nginx.ChallengeTargets.ExtraUpdatedAt, 0)
+	// The parallel action column has to grow with the list even when this row
+	// inherits, or every later row's action belongs to the wrong pattern.
+	for len(cur.Nginx.ChallengeTargets.ExtraAction) < len(cur.Nginx.ChallengeTargets.Extra)-1 {
+		cur.Nginx.ChallengeTargets.ExtraAction = append(cur.Nginx.ChallengeTargets.ExtraAction, "")
+	}
+	cur.Nginx.ChallengeTargets.ExtraAction = append(cur.Nginx.ChallengeTargets.ExtraAction, action)
 	cur.Nginx.SeenVersion = "v" + h.Version
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
@@ -895,7 +1048,7 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, username st
 	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_ua_blacklist",
-			pattern, fmt.Sprintf(`{"title":%q}`, t))
+			pattern, fmt.Sprintf(`{"title":%q,"action":%q}`, t, action))
 	}
 	return nil
 }
@@ -927,7 +1080,9 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 		settings.JA4VerdictExtraRule{Pattern: pattern, Verdict: verdict, Action: nginxconf.JA4ActionBot})
 	cur.Nginx.JA4Verdicts.ExtraTitle = append(cur.Nginx.JA4Verdicts.ExtraTitle, t)
 	cur.Nginx.JA4Verdicts.ExtraDisabled = append(cur.Nginx.JA4Verdicts.ExtraDisabled, false)
-	cur.Nginx.JA4Verdicts.ExtraUpdatedAt = append(cur.Nginx.JA4Verdicts.ExtraUpdatedAt, nowUnix())
+	// See appendUABlacklist: a new row carries its creation date, not an edit.
+	cur.Nginx.JA4Verdicts.ExtraCreatedAt = append(cur.Nginx.JA4Verdicts.ExtraCreatedAt, nowUnix())
+	cur.Nginx.JA4Verdicts.ExtraUpdatedAt = append(cur.Nginx.JA4Verdicts.ExtraUpdatedAt, 0)
 	settings.BackfillExtraVerdictIDs(&cur) // ID-0 entries were just appended, so assign them now.
 	cur.Nginx.SeenVersion = "v" + h.Version
 	if err := settings.Save(cur, h.ConfigPath); err != nil {

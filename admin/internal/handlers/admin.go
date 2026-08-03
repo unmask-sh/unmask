@@ -258,10 +258,32 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// than on events.Row so the events package stays independent of
 			// classify.
 			"uaSummary": classify.UASummary,
+			// patText / patLiteral: a stored pattern may declare itself literal
+			// with a marker.  The row shows the text the operator typed and says
+			// separately how it is read -- the marker itself is plumbing.
+			"patText":    settings.PatternText,
+			"patLiteral": settings.IsLiteralPattern,
+			"patMode":    func(p string) string { return string(settings.PatternModeOf(p)) },
+			// Every row says how it is read, including the regex ones: with a new
+			// row defaulting to "contains", a blank badge would mark the unusual
+			// case as the ordinary one.
+			"patModeLabel": func(lang i18n.Lang, p string) string {
+				switch settings.PatternModeOf(p) {
+				case settings.ModeContains:
+					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_contains"), "\n", "")
+				case settings.ModeExact:
+					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_exact"), "\n", "")
+				}
+				return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_regex"), "\n", "")
+			},
 			// uaCrawler: is this UA a listed crawler?  The hunt log marks
 			// those rows -- a crawler in the CHALLENGE log is one that did
 			// not pass verification, which is what an operator hunting
 			// spoofs is scanning for.
+			// uaRuleToken: what the hunt ranking proposes as a black-list
+			// pattern for this UA -- the name it calls itself, or "" when it
+			// only claims to be a browser.
+			"uaRuleToken":    classify.UARuleToken,
 			"uaPlatformIcon": classify.UAPlatformIcon,
 			"uaBrowserColor": classify.UABrowserColor,
 			"uaBrowserIcon":  classify.UABrowserIcon,
