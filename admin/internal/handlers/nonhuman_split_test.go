@@ -47,11 +47,10 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 	// 10,000 requests, 2,000 of them from crawlers we passed on purpose.
 	put("total", 10000)
 	put("crawler_pass", 2000)
-	// 3,100 challenges served, 100 of them cleared -> 3,000 blocked.  The
-	// blocked half comes from the event log, not from this table: its 'pow' /
-	// 'captcha' count every request from a client already carrying a pass
-	// cookie, which on a site with regulars outnumbers the challenges and
-	// drove the figure to zero.
+	// 3,100 challenges fired, 100 of them cleared -> 3,000 blocked.  The fires
+	// come from this table (the access log sees a deny, which serves no page
+	// and so writes no event); the clears are events, one row per occurrence.
+	put("challenge_served", 3100)
 	ev := func(phase string, n int) {
 		t.Helper()
 		for i := 0; i < n; i++ {
@@ -61,7 +60,6 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 			}
 		}
 	}
-	ev("serve", 3100)
 	ev("bv_pow_only", 80)
 	ev("bv_captcha_only", 20)
 
@@ -77,7 +75,11 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 	value, sub := compositionCard(t, body)
 
 	// Exact counters, so these are exact -- no estimate to allow for.
-	for _, want := range []string{"2,000 benign bots", "3,000 malicious bots", "5,000 human"} {
+	for _, want := range []string{
+		legendEntry("overview.kpi.nonhuman_benign", "2,000"),
+		legendEntry("overview.kpi.nonhuman_bad", "3,000"),
+		legendEntry("overview.kpi.nonhuman_human", "5,000"),
+	} {
 		if !strings.Contains(sub, want) {
 			t.Errorf("the card does not read %q: %q", want, sub)
 		}
@@ -137,7 +139,7 @@ func TestBlockedRequestsNeverGoNegative(t *testing.T) {
 	if strings.Contains(value, "-") {
 		t.Errorf("the percentage went negative: %q", value)
 	}
-	if !strings.Contains(sub, "0 malicious bots") {
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_bad", "0")) {
 		t.Errorf("want the blocked half floored at zero, got %q", sub)
 	}
 }
@@ -153,8 +155,8 @@ func TestNonHumanPopoverExplainsBenignAndItsUnit(t *testing.T) {
 		lang i18n.Lang
 		want []string
 	}{
-		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot", "非人間と判定しなかった"}},
-		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot", "not identified as non-human"}},
+		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot", "判定せずに通した", "実訪問者数そのものではありません"}},
+		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot", "without being judged", "not a count of real visitors"}},
 	} {
 		help := i18n.T(tc.lang, "overview.kpi.nonhuman_help")
 		if help == "" || help == "overview.kpi.nonhuman_help" {
@@ -217,7 +219,7 @@ func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, req)
 	_, sub := compositionCard(t, rr.Body.String())
-	if !strings.Contains(sub, "2,800 benign bots") {
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_benign", "2,800")) {
 		t.Errorf("the default view is reading the young per-site counter (40) instead of the table with history (2,800): %q", sub)
 	}
 }
@@ -239,9 +241,11 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
-		VALUES (strftime('%s','now')/60, ?, 'total', 10000)`, site); err != nil {
-		t.Fatal(err)
+	for k, n := range map[string]int{"total": 10000, "challenge_served": 1000} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, k, n); err != nil {
+			t.Fatal(err)
+		}
 	}
 	ev := func(phase string, n int) {
 		t.Helper()
@@ -252,8 +256,7 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 			}
 		}
 	}
-	// 1,000 challenges, 100 cleared, 50 people gave up -> 850 blocked, not 900.
-	ev("serve", 1000)
+	// 1,000 challenges fired, 100 cleared, 50 people gave up -> 850 blocked.
 	ev("bv_pow_only", 100)
 	ev("abandon", 50)
 
@@ -262,8 +265,8 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, req)
 	body := rr.Body.String()
-	if !strings.Contains(body, "850 malicious bots") {
-		m := regexp.MustCompile(`[0-9,]+ malicious bots`).FindString(body)
+	if !strings.Contains(body, legendEntry("overview.kpi.nonhuman_bad", "850")) {
+		m := legendPattern("overview.kpi.nonhuman_bad").FindString(body)
 		t.Errorf("blocked reads %q, want 850: the visitors who walked away are still counted as stopped", m)
 	}
 	// The hero uses the same figure, so the two must not diverge again.
@@ -276,6 +279,22 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 			t.Errorf("a caveat about abandoners survives (%q) although they are subtracted", gone)
 		}
 	}
+}
+
+// legendEntry: what the composition legend reads for one segment, built from
+// the catalog rather than spelled out.  These assertions are about the number
+// the card shows, not about the wording around it, and hard-coding the English
+// phrasing made a legend reorder look like six broken counters.
+func legendEntry(key, count string) string {
+	return i18n.Tf(i18n.LangEN, key, count)
+}
+
+// legendPattern: the same entry with any count, for the failure messages that
+// want to quote back whatever the card really said.
+func legendPattern(key string) *regexp.Regexp {
+	const mark = "\x00"
+	return regexp.MustCompile(strings.ReplaceAll(
+		regexp.QuoteMeta(legendEntry(key, mark)), mark, `[0-9,]+`))
 }
 
 // compositionCard: the percentage and the legend line from the traffic
@@ -379,5 +398,91 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 		if !strings.Contains(tpl, f) {
 			t.Errorf("the legend entry %q has no share", f)
 		}
+	}
+}
+
+// A deny serves no challenge page, so it writes no serve event -- while the
+// access log records it like any other fired challenge.  Reading the fires
+// from the event log therefore undercounts wherever the action is deny:
+// measured on unmask.sh, 493 serve events against 6,329 log fires, so the
+// dashboard reported 5.4% malicious where the truth was 69%.
+//
+// The hero, the challenges-fired tile and the composition card all read the
+// same figure, so a page that disagrees with itself cannot come back.
+func TestDeniedRequestsCountAsChallengesFired(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	for k, n := range map[string]int{"total": 10000, "challenge_served": 6000} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, k, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Only 100 of those 6,000 served an actual page (the rest were denied), so
+	// the event log knows about 100.
+	for i := 0; i < 100; i++ {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
+			VALUES (?, '', x'7f000001', 'serve', datetime('now'))`, site); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	body := rr.Body.String()
+
+	_, sub := compositionCard(t, body)
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_bad", "6,000")) {
+		t.Errorf("the card counted the served pages, not the fired challenges: %q", sub)
+	}
+	// The hero shows the same number.
+	if !strings.Contains(body, ">6,000<") {
+		t.Error("the hero disagrees with the card about how much was stopped")
+	}
+}
+
+// Traffic a bypass rule let through is neither a bot we identified nor a
+// person, and it used to land in the human share -- on unmask.sh the package
+// repo made that 30% of all traffic, package managers counted as people.
+func TestBypassedTrafficIsCountedApart(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	for k, n := range map[string]int{"total": 10000, "bypass_pass": 3000} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, k, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	_, sub := compositionCard(t, rr.Body.String())
+
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_bypass", "3,000")) {
+		t.Errorf("bypassed traffic has no share of its own: %q", sub)
+	}
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_human", "7,000")) {
+		t.Errorf("bypassed traffic is still inside the human share: %q", sub)
 	}
 }
