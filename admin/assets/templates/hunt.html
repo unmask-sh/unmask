@@ -50,21 +50,34 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    two hand-tuned breakpoints this used to carry: the row breaks exactly
    when the cards no longer fit, at whatever width that turns out to be. */
 .rank-grid{display:flex;flex-wrap:wrap;align-items:flex-start;gap:.75rem;margin-bottom:1.25rem}
-.rank-card{flex:0 0 auto}
+.rank-card{flex:0 1 auto;min-width:0}
 /* The two cards whose content is worth extra width.  ASN stops at its cap so
    the default row keeps the balance it was measured for; folding a sibling
    raises the cap (below) so the reclaimed width can reach it. */
 .rank-card-asn{flex:0 1 auto}
-.rank-card-ua{flex:1 1 14rem}
+/* The UA card is the one with no natural width -- a raw UA is 150 characters
+   -- so it takes what the others leave rather than competing for it. */
+.rank-card-ua{flex:1 1 14rem;max-width:none}
 /* A folded card gives up its share of the row.  Spelled out for the two cards
    that carry a flex-grow of their own -- same specificity as those rules, so
    without naming them the fold would lose and the strip would stay full width. */
-.rank-card.folded,.rank-card-ua.folded,.rank-card-asn.folded{flex:0 0 2.6rem}
+.rank-card.folded,.rank-card-ua.folded,.rank-card-asn.folded{flex:0 0 2.6rem;max-width:2.6rem}
 /* Folding a sibling frees width the network card can use for its names, and
    when the card that normally absorbs the slack (UA) is the folded one, it
    takes over that job. */
-.rank-grid:has(.rank-card.folded) .rank-card-asn{max-width:36rem}
+/* 30rem, not the 36 this started at: the JA4 card now carries its whole
+   fingerprint (36 characters where it used to stop at 25), and with the wider
+   cap the three open cards filled the row to the pixel -- leaving no room for
+   the folded card's own 2.6rem strip, which then wrapped to a second line.
+   Folding a card must never make the row taller. */
+.rank-grid:has(.rank-card.folded) .rank-card-asn{max-width:30rem}
 .rank-grid:has(.rank-card-ua.folded) .rank-card-asn{flex-grow:1}
+/* The IP and JA4 cards size to their data and used to stop there, so folding a
+   sibling handed the freed width to ASN and UA and left these two exactly as
+   they were.  Let them take a share of it too -- with a cap, since past their
+   own content there is nothing more to show. */
+.rank-grid:has(.folded) .rank-card-ip:not(.folded),
+.rank-grid:has(.folded) .rank-card-ja4:not(.folded){flex-grow:1;max-width:32rem}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
 /* Folding.  The four cards share one row and the widest data decides what is
@@ -73,9 +86,15 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    it rides a cookie and is resolved server-side -- folding in JS after paint
    would render the row at full width and then jump. */
 .rank-card h3{display:flex}
-.rank-fold{display:flex;align-items:center;gap:.35rem;width:100%;padding:0;border:0;background:none;font:inherit;color:inherit;cursor:pointer;text-align:left}
-.rank-fold:hover{color:#0f172a}
-.rank-fold-caret{font-size:.7rem;color:#94a3b8;transition:transform .12s}
+/* The header IS the control, so it has to look like one before it is hovered:
+   the caret alone, grey and half the size of the title beside it, read as
+   decoration and the fold went unnoticed.  A chip around the caret plus a
+   header that fills on hover says "this row does something". */
+.rank-fold{display:flex;align-items:center;gap:.4rem;width:100%;padding:.15rem .3rem;margin:-.15rem -.3rem .1rem;border:0;border-radius:.25rem;background:none;font:inherit;color:inherit;cursor:pointer;text-align:left}
+.rank-fold:hover{color:#0f172a;background:#f1f5f9}
+.rank-fold:focus-visible{outline:.125rem solid #93c5fd;outline-offset:.0625rem}
+.rank-fold-caret{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:1.1rem;height:1.1rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f8fafc;color:#64748b;font-size:.6rem;line-height:1;transition:transform .12s,background .12s,color .12s}
+.rank-fold:hover .rank-fold-caret{background:#e2e8f0;color:#0f172a;border-color:#cbd5e1}
 .rank-fold-short{display:none}
 .rank-card.folded{max-width:none;width:2.6rem;min-width:2.6rem;padding:.6rem .35rem;overflow:hidden}
 .rank-card.folded h3{margin:0;height:100%}
@@ -99,12 +118,35 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .rank-card-ua.ua-full .ua-mode-off{display:inline}
 .rank-card.folded .ua-mode{display:none}
 table.rank,table.events{width:100%;border-collapse:collapse;font-size:.8rem}
-/* rank table: width follows content.  IP / JA4 / UA have known max lengths so nowrap
-   shows them fully.  action column is nowrap too so buttons don't overflow.  UA is the only
-   variable-length one, distributed naturally via inner table-layout (= UA card stays wide at 1fr).
-   No ellipsis -> no need for a title. */
+/* rank table: width follows content, so a card is as wide as its data needs
+   and no wider.  The key column caps at the longest value its card can hold
+   (--key-max) and ellipsises past it: without a cap one outlier sets the card
+   width for every row, and an IPv6 address is 39 characters where IPv4 is 15.
+   Every value here has a popover with the full string, so the ellipsis costs
+   nothing.  The ASN and UA cards override this -- their values have no length
+   limit at all, so they fill the card instead of sizing it. */
 table.rank{table-layout:auto;width:auto}
-table.rank td.key{max-width:none;white-space:nowrap;overflow:visible;text-overflow:clip;font-family:ui-monospace,Menlo,monospace;color:#0f172a}
+table.rank td.key{max-width:var(--key-max,none);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Menlo,monospace;color:#0f172a}
+/* In rem, not ch: ch is the width of "0", and the fonts ui-monospace resolves
+   to do not all set it to the glyph advance -- 38ch measured 243px where the
+   36-character JA4 it was sizing rendered at 246, so the cap clipped the value
+   it existed to fit.  These are ceilings for an outlier, not target widths:
+   the card sizes itself to the text it actually holds. */
+/* Two ceilings per card: what it shows when it is sharing the row with three
+   siblings, and what it shows once one of them has been folded away.  The
+   narrow pair is deliberately short of the value's full length -- the raw log
+   below reads the same way, and a rank card is for spotting a repeat offender,
+   not for reading a fingerprint character by character.  The full value is in
+   the popover at any width, and folding a sibling reveals it in place. */
+.rank-card-ip{--key-max:11rem}   /* fits IPv4 whole; IPv6 (39 chars) ellipsises */
+.rank-card-ja4{--key-max:11rem}  /* ~25 of the 36 characters, as it read before */
+.rank-grid:has(.folded) .rank-card-ip:not(.folded){--key-max:22rem}
+.rank-grid:has(.folded) .rank-card-ja4:not(.folded){--key-max:20rem}
+/* These two never give width up: their values are the row's identity and are
+   short enough to always fit, while the UA beside them is 150 characters that
+   ellipsise by design.  Shrinking all four equally clipped the identifiers to
+   buy room for a string that was going to be clipped anyway. */
+.rank-card-ip:not(.folded),.rank-card-ja4:not(.folded){flex-shrink:0}
 table.rank td.actions{text-align:left;white-space:nowrap}
 table.rank td.num{white-space:nowrap}
 /* raw-log table: fixed-content columns use nowrap with their natural width.  UA / verdict use ellipsis. */
@@ -124,8 +166,6 @@ table.rank thead th,table.events thead th{text-align:left;padding:.35rem .5rem;b
 table.rank tbody td,table.events tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
 table.rank tbody tr:hover,table.events tbody tr:hover{background:#f8fafc}
 table.rank td.num,table.events td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569;font-family:ui-monospace,Menlo,monospace}
-/* table.rank td.key intentionally excluded: the rank tables (IP / JA4) hold
-   fixed-length values that should never ellipsize — see the rule above. */
 table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* hunt raw log: table-layout:fixed forces it into the viewport and kills the inner events-scroll. */
 table.events{table-layout:fixed;width:100%}
@@ -136,11 +176,11 @@ table.events{table-layout:fixed;width:100%}
    the note wraps inside it instead of sizing the grid. */
 .rank-card-asn{max-width:24rem}
 .rank-card-asn .rank-note{margin:.5rem 0 0;font-size:.72rem;line-height:1.5}
-/* Organisation names run long ("Hosting Solutions International Ltd"), and
-   td.key is nowrap for the IP/JA4 tables that need it.  Clip here instead,
-   so a long name ellipsises rather than pushing the card past its cap. */
-.rank-card-asn table.rank{width:100%}
-.rank-card-asn table.rank td.key{max-width:0;width:100%;overflow:hidden;text-overflow:ellipsis}
+/* Organisation names and UA strings have no length to size a card by, so for
+   these two the key column fills whatever the card was given and ellipsises,
+   rather than the other way round. */
+.rank-card-asn table.rank,.rank-card-ua table.rank{width:100%}
+.rank-card-asn table.rank td.key,.rank-card-ua table.rank td.key{max-width:0;width:100%}
 .rank-card-asn table.rank th{white-space:nowrap}
 /* A JA4 banned from this page is named hunt_<ja4>, which is 40 characters of
    machine-generated text in a content-sized column: one such row widened the
@@ -153,8 +193,7 @@ table.events{table-layout:fixed;width:100%}
  * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
  * (= same purpose as flex min-width:0).  Content uses white-space:nowrap for one line + text-overflow:ellipsis. */
 .rank-card-ua{min-width:0;overflow:hidden}
-.rank-card-ua table.rank{width:100%}
-.rank-card-ua table.rank td.key{max-width:0;width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:.74rem}
+.rank-card-ua table.rank td.key{font-size:.74rem}
 /* country flag PNG (= left of the IP cell).  16x12 png rendered subtly at 14px wide.
  * Served from the existing /static/flags/<cc>.png handler (= same pattern as the dashboard country chart). */
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
@@ -273,7 +312,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 <h1>{{ t .Lang "hunt.title" }}</h1>
 <p class="meta">{{ safeHTML (t .Lang "hunt.subtitle") }}</p>
 
-{{ if .Saved }}<div class="banner ok">{{ t .Lang "hunt.saved" }}</div>{{ end }}
+{{/* A BAN is live the moment it is written (the module re-reads the ban file
+     by mtime); a UA / ASN / JA4 rule is a line in the nginx config and is not.
+     Saying "applied" for both was true only for the first. */}}
+{{ if .Saved }}<div class="banner ok">{{ if .SavedReload }}{{ safeHTML (t .Lang "hunt.saved_reload") }}{{ else }}{{ t .Lang "hunt.saved" }}{{ end }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "hunt.error_prefix" }}{{ .Error }}</div>{{ end }}
 
 <div class="range-bar">
@@ -302,8 +344,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 {{ if not .Filtering }}
 <div class="rank-grid">
   <!-- IP ranking -->
-  <div class="rank-card{{ if index $.RankFolded "ip" }} folded{{ end }}" data-rank-card="ip">
-    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</span><span class="rank-fold-short">IP</span></button></h3>
+  <div class="rank-card rank-card-ip{{ if index $.RankFolded "ip" }} folded{{ end }}" data-rank-card="ip">
+    <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ip" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</span><span class="rank-fold-short">IP</span></button></h3>
     <table class="rank">
       <thead><tr><th>IP</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -349,7 +391,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
        an empty card would read as "no networks", not "cannot tell". */}}
   {{ if .ASNRank }}
   <div class="rank-card rank-card-asn{{ if index $.RankFolded "asn" }} folded{{ end }}" data-rank-card="asn">
-    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</span><span class="rank-fold-short">ASN</span></button></h3>
+    <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "asn" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</span><span class="rank-fold-short">ASN</span></button></h3>
     <table class="rank">
       <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -372,7 +414,19 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
           {{ if .Rule }}
             <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
           {{ else if .ASN }}
-            <a class="rank-act" href="{{ $.BasePath }}/admin/settings/?tab=asn&amp;add_asn={{ .ASN }}">{{ t $.Lang "hunt.btn.asn_rule" }}</a>
+            {{/* Registers from here rather than sending the operator to the ASN
+                 tab: leaving takes the range, the filters and the fold state
+                 with it, and the evidence for the decision is on this page.
+                 The tab is still one click away in the dialog, for the parts a
+                 ranking row cannot express (rate, org rules, ordering). */}}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-asn-form" data-asn="{{ .ASN }}" data-org="{{ .Org }}">
+              <input type="hidden" name="op" value="asn_rule">
+              <input type="hidden" name="asn" value="{{ .ASN }}">
+              <input type="hidden" name="label" value="{{ .Org }}">
+              <input type="hidden" name="action" value="">
+              <input type="hidden" name="range" value="{{ $.Range }}">
+              <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.asn_rule" }}</button>
+            </form>
           {{ end }}
         </td>
       </tr>
@@ -384,8 +438,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   {{ end }}
 
   <!-- JA4 ranking -->
-  <div class="rank-card{{ if index $.RankFolded "ja4" }} folded{{ end }}" data-rank-card="ja4">
-    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</span><span class="rank-fold-short">JA4</span></button></h3>
+  <div class="rank-card rank-card-ja4{{ if index $.RankFolded "ja4" }} folded{{ end }}" data-rank-card="ja4">
+    <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ja4" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</span><span class="rank-fold-short">JA4</span></button></h3>
     <table class="rank">
       <thead><tr><th>JA4</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -398,7 +452,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
              IP (= the most-frequent IP observed with this JA4 in window)
              so the community share submission carries an (ip, ja4) pair
              with ban_source=ja4_ranking. */}}
-        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if .Key }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}{{ clip 25 .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
+        {{/* Full value, clipped by the column rather than by a character
+             count: a JA4 is 36 characters and the card is often wide enough
+             for all of them -- especially with a sibling folded away -- so a
+             fixed clip at 25 hid the tail even when there was room for it.
+             The popover carries the whole string either way. */}}
+        <td class="key{{ if .Key }} cellpop{{ end }}"{{ if .Key }} data-full-value="{{ .Key }}"{{ end }}>{{ if .Key }}{{ .Key }}{{ else }}<span class="muted">(empty)</span>{{ end }}</td>
         <td class="num">{{ if .Key }}<a class="req-search" href="?range={{ $.Range }}&ja4={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ja4_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
@@ -432,7 +491,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
   <!-- UA ranking -->
   <div class="rank-card rank-card-ua{{ if index $.RankFolded "ua" }} folded{{ end }}{{ if $.RankUAFull }} ua-full{{ end }}" data-rank-card="ua">
-    <h3><button type="button" class="rank-fold" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</span><span class="rank-fold-short">UA</span></button><button type="button" class="ua-mode" data-ua-mode aria-label="{{ t $.Lang "hunt.rank.ua_mode" }}"><span class="ua-mode-on">{{ t $.Lang "hunt.rank.ua_mode_full" }}</span><span class="ua-mode-off">{{ t $.Lang "hunt.rank.ua_mode_short" }}</span></button></h3>
+    <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ua" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</span><span class="rank-fold-short">UA</span></button><button type="button" class="ua-mode" data-ua-mode aria-label="{{ t $.Lang "hunt.rank.ua_mode" }}"><span class="ua-mode-on">{{ t $.Lang "hunt.rank.ua_mode_full" }}</span><span class="ua-mode-off">{{ t $.Lang "hunt.rank.ua_mode_short" }}</span></button></h3>
     <table class="rank">
       <thead><tr><th>UA</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -456,10 +515,16 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               {{ end }}
             </span>
             {{ else }}
-            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" onsubmit="return confirm('Add UA pattern {{ .Key }} to blacklist?')">
+            {{/* The pattern is a regex in an nginx map, and the raw UA is a
+                 poor one: "(" and "+" are operators, and the version numbers
+                 stop matching next week.  The dialog proposes the identifying
+                 token instead, and the full string stays one click away. */}}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ua-form" data-ua="{{ .Key }}" data-token="{{ uaRuleToken .Key }}">
               <input type="hidden" name="op" value="ua_blacklist">
               <input type="hidden" name="pattern" value="{{ .Key }}">
               <input type="hidden" name="title" value="bot hunt ({{ .Count }} req)">
+              <input type="hidden" name="action" value="">
+              <input type="hidden" name="ua" value="{{ .Key }}">
               <input type="hidden" name="range" value="{{ $.Range }}">
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
             </form>
@@ -551,6 +616,7 @@ function dismissHuntTip(id){
       <option value="protected"  {{ if eq .ForceReason "protected"  }}selected{{ end }}>protected</option>
       <option value="rate_limit" {{ if eq .ForceReason "rate_limit" }}selected{{ end }}>rate_limit</option>
       <option value="ja4_bot"    {{ if eq .ForceReason "ja4_bot"    }}selected{{ end }}>ja4_bot</option>
+      <option value="ua_target"  {{ if eq .ForceReason "ua_target"  }}selected{{ end }}>ua_target</option>
       <option value="none"       {{ if eq .ForceReason "none"       }}selected{{ end }}>none</option>
     </select>
     <select name="n">
@@ -623,6 +689,79 @@ function dismissHuntTip(id){
     </div>
   </form>
 </dialog>
+<!-- UA black-list dialog.  The action cell used to be a native confirm() that
+     wrote the raw UA straight into the nginx config: no way to see or correct
+     the pattern, and no mention that the rule is not live until a reload. -->
+<dialog id="ua-dialog" class="ban-dialog rule-dialog">
+  <form method="dialog" class="ban-dialog-body">
+    <h3>{{ t .Lang "hunt.rule.ua_h" }}</h3>
+    <div class="rule-dialog-field">
+      <label for="ua-dialog-pattern">{{ t .Lang "hunt.rule.pattern" }}</label>
+      <input type="text" id="ua-dialog-pattern" spellcheck="false" autocomplete="off">
+      <div class="rule-dialog-choice" id="ua-dialog-choice">
+        <label><input type="radio" name="ua-dialog-src" value="full" checked><span>{{ t .Lang "hunt.rule.ua_full" }}</span></label>
+        <label><input type="radio" name="ua-dialog-src" value="token"><span id="ua-dialog-token-label"></span></label>
+      </div>
+      <div class="rule-dialog-choice" id="ua-dialog-modes">
+        <label><input type="radio" name="ua-dialog-mode" value="exact" checked><span>{{ t .Lang "hunt.rule.mode_exact" }}</span></label>
+        <label><input type="radio" name="ua-dialog-mode" value="contains"><span>{{ t .Lang "hunt.rule.mode_contains" }}</span></label>
+        <label><input type="radio" name="ua-dialog-mode" value="regex"><span>{{ t .Lang "hunt.rule.mode_regex" }}</span></label>
+      </div>
+      <p class="rule-dialog-err" id="ua-dialog-err" hidden></p>
+      <p class="rule-dialog-hint" id="ua-dialog-match"></p>
+    </div>
+    <div class="rule-dialog-field">
+      <label for="ua-dialog-title">{{ t .Lang "hunt.rule.label" }}</label>
+      <input type="text" id="ua-dialog-title" maxlength="200" autocomplete="off">
+    </div>
+    <div class="rule-dialog-field">
+      <label for="ua-dialog-action">{{ t .Lang "hunt.rule.action" }}</label>
+      <select id="ua-dialog-action">
+        <option value="">{{ tf .Lang "settings.asn.rate_inherit_ph" .UAResolvedAction }}</option>
+        <option value="pow_only">pow_only</option>
+        <option value="captcha_only">captcha_only</option>
+        <option value="pow_then_captcha">pow_then_captcha</option>
+        <option value="deny">deny</option>
+      </select>
+    </div>
+    <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
+    <div class="ban-dialog-actions">
+      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="ok" class="rank-act" id="ua-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- ASN rule dialog.  Replaces a jump to the settings tab, which took the
+     range, the filters and the fold state with it. -->
+<dialog id="asn-dialog" class="ban-dialog rule-dialog">
+  <form method="dialog" class="ban-dialog-body">
+    <h3>{{ t .Lang "hunt.rule.asn_h" }}</h3>
+    <p class="ban-dialog-target"><code id="asn-dialog-target"></code></p>
+    <div class="rule-dialog-field">
+      <label for="asn-dialog-label">{{ t .Lang "hunt.rule.label" }}</label>
+      <input type="text" id="asn-dialog-label" maxlength="200" autocomplete="off">
+    </div>
+    <div class="rule-dialog-field">
+      <label for="asn-dialog-action">{{ t .Lang "hunt.rule.action" }}</label>
+      <select id="asn-dialog-action">
+        <option value="">{{ tf .Lang "settings.asn.rate_inherit_ph" .ASNDefaultRuleAction }}</option>
+        <option value="skip">skip</option>
+        <option value="pow_only">pow_only</option>
+        <option value="captcha_only">captcha_only</option>
+        <option value="pow_then_captcha">pow_then_captcha</option>
+        <option value="deny">deny</option>
+      </select>
+    </div>
+    <p class="rule-dialog-hint">{{ t .Lang "hunt.rule.asn_more" }}
+      <a href="{{ .BasePath }}/admin/settings/?tab=asn">{{ t .Lang "hunt.rule.open_tab" }}</a></p>
+    <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
+    <div class="ban-dialog-actions">
+      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="ok" class="rank-act" id="asn-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>
+    </div>
+  </form>
+</dialog>
 <style>
 .ban-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:28rem;width:90%;background:#fff;color:#0f172a}
 .ban-dialog::backdrop{background:rgba(15,23,42,.45)}
@@ -650,6 +789,26 @@ function dismissHuntTip(id){
 .ban-dialog-comment textarea{resize:vertical}
 .ban-dialog-counter{text-align:right;color:#94a3b8;font-size:.72rem}
 .ban-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.3rem}
+/* rule dialogs (UA black list / ASN rule).  Same shell as the BAN dialog --
+   they are the same gesture from the same rank cards -- with a field stack in
+   place of the share group. */
+.rule-dialog{max-width:32rem}
+.rule-dialog-field{display:flex;flex-direction:column;gap:.25rem}
+.rule-dialog-field label{color:#475569;font-size:.78rem}
+.rule-dialog-field input[type=text],.rule-dialog-field select{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem}
+.rule-dialog-field input#ua-dialog-pattern{font-family:ui-monospace,monospace}
+.rule-dialog-choice{display:flex;gap:.9rem;font-size:.76rem;color:#475569;margin-top:.1rem;flex-wrap:wrap}
+/* An author display: rule beats the UA sheet's [hidden], so the token/full
+   pair stayed on screen for a UA with no token -- offering a radio that sets
+   the pattern to nothing. */
+.rule-dialog-choice[hidden]{display:none}
+.rule-dialog-choice label{display:inline-flex;align-items:center;gap:.3rem;cursor:pointer}
+.rule-dialog-choice code{font-family:ui-monospace,monospace;background:#f1f5f9;padding:0 .2rem;border-radius:.15rem}
+.rule-dialog-hint{margin:0;font-size:.76rem;color:#64748b;line-height:1.5}
+.rule-dialog-hint a{color:#1d4ed8;text-decoration:underline}
+.rule-dialog-err{margin:0;font-size:.76rem;color:#b91c1c;line-height:1.5}
+.rule-dialog-warn{margin:.2rem 0 0;font-size:.76rem;color:#92400e;background:#fffbeb;border-left:.15rem solid #f59e0b;border-radius:.2rem;padding:.4rem .6rem;line-height:1.6}
+.rule-dialog-warn code{font-family:ui-monospace,monospace}
 </style>
 
 <script>
@@ -687,6 +846,7 @@ function dismissHuntTip(id){
     // the cookie, so the last one does not fold.
     if (open <= 1 && !card.classList.contains('folded')) return;
     var folded = card.classList.toggle('folded');
+    btn.setAttribute('aria-expanded', folded ? 'false' : 'true');
     var list = readCookie('unmask_rank_fold').split(',').filter(Boolean);
     var at = list.indexOf(key);
     if (folded && at === -1) list.push(key);
@@ -1138,6 +1298,7 @@ function dismissHuntTip(id){
     form.submit();
   });
 
+
   document.querySelectorAll('form.js-ban-form').forEach(function(form){
     form.addEventListener('submit', function(ev){
       if (form.dataset.confirmed === '1') return; // the re-submit passes straight through
@@ -1157,6 +1318,165 @@ function dismissHuntTip(id){
         shareCb.disabled = false;
       }
       syncShareRows(false);
+      pending = form;
+      dlg.returnValue = '';
+      dlg.showModal();
+    });
+  });
+})();
+
+// UA black list.  The pattern is a regex in an nginx map, so it is checked
+// here before the round trip: the server applies the same rule and would
+// reject it, but an operator acting on a ranking row deserves to see WHY
+// before losing the dialog.  The two rules are the server's -- no quote /
+// backslash / control characters, and it has to compile.
+(function(){
+  var dlg = document.getElementById('ua-dialog');
+  if (!dlg || !dlg.showModal) return;
+  var patEl = document.getElementById('ua-dialog-pattern');
+  var ttlEl = document.getElementById('ua-dialog-title');
+  var errEl = document.getElementById('ua-dialog-err');
+  var mchEl = document.getElementById('ua-dialog-match');
+  var okBtn = document.getElementById('ua-dialog-ok');
+  var tokLbl = document.getElementById('ua-dialog-token-label');
+  var actEl = document.getElementById('ua-dialog-action');
+  var choice = document.getElementById('ua-dialog-choice');
+  var pending = null, token = '', full = '', srcUA = '';
+
+  // asRegex: the reading the server will apply, computed here so the dialog
+  // can say up front whether the rule matches.
+  // The pattern is a regex and a UA is made of characters that mean something
+  // in one -- "(X11; Linux x86_64)" is a group, so pasting the UA verbatim
+  // gives a pattern that compiles, passes every check, and matches the UA with
+  // its parentheses REMOVED: nothing.  Character classes rather than
+  // backslashes, because a backslash is rejected outright (it could escape the
+  // quote the pattern is rendered inside in the nginx map).
+  var MARKERS = {contains: 'contains:', exact: 'exact:', regex: ''};
+  function curMode(){
+    var m = document.querySelector('input[name=ua-dialog-mode]:checked');
+    return m ? m.value : 'exact';
+  }
+  function setMode(v){
+    var m = document.querySelector('input[name=ua-dialog-mode][value=' + v + ']');
+    if (m) { m.checked = true; }
+    validate();
+  }
+  // The same reading the server applies: a literal is escaped, an exact one is
+  // anchored.  Kept here so the dialog can say up front whether the rule will
+  // match, instead of the operator finding out from the traffic.
+  function asRegex(text, mode){
+    if (mode === 'regex') return text;
+    var q = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return mode === 'exact' ? '^' + q + '$' : q;
+  }
+
+  function validate(){
+    var p = patEl.value.trim();
+    var msg = '';
+    if (!p) msg = {{ t .Lang "hunt.rule.err_empty" }};
+    else if (/["\\\x00\r\n]/.test(p)) msg = {{ t .Lang "hunt.rule.err_chars" }};
+    else {
+      try {
+        var re = new RegExp(asRegex(p, curMode()));
+        // The check that catches a pattern which is valid but wrong.  The
+        // rules above reject what nginx would refuse to load; this one rejects
+        // what nginx loads happily and then never fires.
+        if (srcUA && !re.test(srcUA)) msg = {{ t .Lang "hunt.rule.err_nomatch" }};
+      } catch(e){ msg = {{ t .Lang "hunt.rule.err_regex" }} + ' ' + e.message; }
+    }
+    errEl.textContent = msg;
+    errEl.hidden = !msg;
+    okBtn.disabled = !!msg;
+    // How many rows of the UA ranking this pattern would take.  Scoped to
+    // what is on screen and labelled that way: a count over all traffic
+    // would need its own query per keystroke, and the ranking is what the
+    // operator is looking at anyway.
+    if (msg) { mchEl.textContent = ''; return; }
+    var re; try { re = new RegExp(p, 'i'); } catch(e){ mchEl.textContent = ''; return; }
+    var rows = document.querySelectorAll('.rank-card-ua form.js-ua-form');
+    var hit = 0;
+    rows.forEach(function(f){ if (re.test(f.dataset.ua || '')) hit++; });
+    mchEl.textContent = {{ t .Lang "hunt.rule.match_prefix" }} + ' ' + hit + ' / ' + rows.length;
+  }
+  patEl.addEventListener('input', function(){
+    // Typing means the operator is off the presets; drop the radio.
+    var checked = choice.querySelector('input:checked');
+    if (checked && patEl.value !== (checked.value === 'token' ? token : full)) checked.checked = false;
+    validate();
+  });
+  choice.addEventListener('change', function(ev){
+    if (!ev.target.value) return;
+    patEl.value = ev.target.value === 'token' ? token : full;
+    // A token is a fragment of the UA, so it can only be read as contains;
+    // the whole string is naturally exact.
+    setMode(ev.target.value === 'token' ? 'contains' : 'exact');
+    validate();
+  });
+  dlg.addEventListener('close', function(){
+    if (!pending) return;
+    var form = pending; pending = null;
+    if (dlg.returnValue !== 'ok') return;
+    form.querySelector('input[name=pattern]').value = MARKERS[curMode()] + patEl.value.trim();
+    var tIn = form.querySelector('input[name=title]');
+    if (tIn) tIn.value = ttlEl.value.trim();
+    var aIn = form.querySelector('input[name=action]');
+    if (aIn) aIn.value = actEl ? actEl.value : '';
+    form.dataset.confirmed = '1';
+    form.submit();
+  });
+  document.querySelectorAll('form.js-ua-form').forEach(function(form){
+    form.addEventListener('submit', function(ev){
+      if (form.dataset.confirmed === '1') return;
+      ev.preventDefault();
+      full  = form.dataset.ua || '';
+      srcUA = full;
+      token = form.dataset.token || '';
+      // No token means the UA only claims to be a browser: pinning
+      // "Mozilla" would challenge the whole site, so the choice is not
+      // offered and the operator starts from the full string.
+      choice.hidden = !token;
+      if (token) tokLbl.innerHTML = '<code></code>';
+      if (token) tokLbl.firstChild.textContent = token;
+      patEl.value = full;
+      var r = choice.querySelector('input[value=' + (token ? 'token' : 'full') + ']');
+      if (r) r.checked = true;
+      ttlEl.value = (form.querySelector('input[name=title]') || {}).value || '';
+      if (actEl) actEl.value = '';
+      validate();
+      pending = form;
+      dlg.returnValue = '';
+      dlg.showModal();
+    });
+  });
+})();
+
+// ASN rule.  Nothing to validate -- the number comes from the ranking row,
+// and the action is a fixed list -- so the dialog exists to keep the
+// operator on the page and to say what taking the action costs.
+(function(){
+  var dlg = document.getElementById('asn-dialog');
+  if (!dlg || !dlg.showModal) return;
+  var tgtEl = document.getElementById('asn-dialog-target');
+  var lblEl = document.getElementById('asn-dialog-label');
+  var actEl = document.getElementById('asn-dialog-action');
+  var pending = null;
+  dlg.addEventListener('close', function(){
+    if (!pending) return;
+    var form = pending; pending = null;
+    if (dlg.returnValue !== 'ok') return;
+    form.querySelector('input[name=label]').value = lblEl.value.trim();
+    form.querySelector('input[name=action]').value = actEl.value;
+    form.dataset.confirmed = '1';
+    form.submit();
+  });
+  document.querySelectorAll('form.js-asn-form').forEach(function(form){
+    form.addEventListener('submit', function(ev){
+      if (form.dataset.confirmed === '1') return;
+      ev.preventDefault();
+      var asn = form.dataset.asn || '', org = form.dataset.org || '';
+      tgtEl.textContent = 'AS' + asn + (org ? ' — ' + org : '');
+      lblEl.value = org;
+      actEl.value = '';
       pending = form;
       dlg.returnValue = '';
       dlg.showModal();

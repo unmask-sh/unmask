@@ -940,6 +940,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//	"banned"     : persistent BAN list hit
 	//	"protected"  : mode coming from protected path (captcha / strict)
 	//	"rate_limit" : rate-limit redirect (/_rl/...)
+	//	"ua_target"  : the UA matched the black list (ua-filter tab).  Resolved
+	//	               here rather than forwarded: native nginx fires this
+	//	               challenge off $is_challenge_target and sends no header.
 	//	"test"       : debug paths `?_test_ja4=1` / `?_force=captcha`
 	//
 	// Priority is determined by overwrite order (last writer wins).
@@ -1020,6 +1023,22 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	case "pow_then_captcha":
 		forceReason = "none"
 		test = "1"
+	}
+
+	// The UA black list is the one axis nginx cannot name for itself: it fires
+	// the challenge off $is_challenge_target and forwards no header saying so,
+	// which left the operator's own rule recorded as force_reason=none -- the
+	// hunt log showed the rule working and could not say a rule was involved.
+	// Resolved once here (the scan walks every preset pattern) and reused for
+	// the chain further down.  Placed after the other reasons so honeypot /
+	// ban / protected / rate-limit / test keep theirs.
+	uaTargetCat, uaRowAction := "", ""
+	if ua := r.Header.Get("User-Agent"); ua != "" {
+		_, uaTargetCat, uaRowAction = lookupUAListed(ua, h.cfg().Nginx)
+	}
+	uaTargetHit := uaTargetCat == "challenge" || h.cfg().Nginx.ChallengeTargets.All
+	if uaTargetHit && forceReason == "none" {
+		forceReason = "ua_target"
 	}
 
 	// isPreview: the operator's theme-tab iframe (?_preview=1) or an
@@ -1294,9 +1313,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// Chrome that failed the transparent PoW was walked into the CAPTCHA
 		// leg the operator only meant for black-listed UAs.
 		if ua := r.Header.Get("User-Agent"); ua != "" {
-			if _, cat := lookupUAListed(ua, h.cfg().Nginx); cat == "challenge" || h.cfg().Nginx.ChallengeTargets.All {
+			if uaTargetHit {
 				if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 					chMode = act
+				}
+				// The matched row's own chain, when it pinned one.  Same
+				// precedence as the per-preset override below: the more
+				// specific rule wins over the list-wide default.
+				if settings.IsValidRateChallengeMode(uaRowAction) {
+					chMode = uaRowAction
 				}
 			}
 			// Per-group override: scan the UA against any upstream-rescue
@@ -1497,7 +1522,12 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		rlInt, _ := strconv.Atoi(rl)
 		testInt, _ := strconv.Atoi(test)
 		payload := map[string]any{
-			"force_reason": forceReason, "rl": rlInt, "test": testInt,
+			// ch_mode: which chain this serve offered.  force_reason says WHY
+			// the challenge fired; without this the row cannot say whether the
+			// visitor was about to meet a CAPTCHA or a transparent PoW, and
+			// that is the difference between a rule working quietly and a rule
+			// putting a puzzle in front of people.
+			"force_reason": forceReason, "ch_mode": chMode, "rl": rlInt, "test": testInt,
 			// Echo the beacon token so this serve row shares a group key
 			// with the subsequent load / pow / bv_* beacons in the hunt UI.
 			"bt": beaconToken,

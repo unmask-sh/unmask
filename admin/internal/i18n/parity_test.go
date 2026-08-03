@@ -3,6 +3,7 @@ package i18n
 import (
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +72,52 @@ func TestLocaleFormatVerbParity(t *testing.T) {
 		if !slices.Equal(jverbs, everbs) {
 			t.Errorf("key %q: fmt-verb mismatch ja=%v en=%v\n  ja=%q\n  en=%q",
 				k, jverbs, everbs, jv, ev)
+		}
+	}
+}
+
+// An arrow on a rank-card action meant "this leaves the page": the ASN and UA
+// buttons went to the settings tab, taking the range, the filters and the fold
+// state with them.  Both open a dialog now, like BAN beside them, and a label
+// that still promises a jump is describing the old behaviour.
+func TestRankActionLabelsDoNotPromiseANavigation(t *testing.T) {
+	for _, lang := range []Lang{LangJA, LangEN} {
+		for k, v := range dict[lang] {
+			if !strings.HasPrefix(k, "hunt.btn.") {
+				continue
+			}
+			for _, arrow := range []string{"→", "↗", "->"} {
+				if strings.Contains(v, arrow) {
+					t.Errorf("%s/%s = %q: the arrow reads as a link away from hunt, but the button opens a dialog", lang, k, v)
+				}
+			}
+		}
+	}
+}
+
+// The composition legend renders "<label> <count>" from the catalog and then
+// appends the share, so the count has to be the LAST thing the string emits or
+// the two figures end up on either side of the label: EN read "326,466 benign
+// bots 69.5%" while JA read "良性 bot 326,466 69.5%", and only one of those is
+// scannable.  Nothing in the template can enforce it -- the placement lives in
+// the translation.
+func TestCompositionLegendEndsWithItsCount(t *testing.T) {
+	keys := []string{
+		"overview.kpi.nonhuman_benign",
+		"overview.kpi.nonhuman_bad",
+		"overview.kpi.nonhuman_bypass",
+		"overview.kpi.nonhuman_human",
+	}
+	for _, lang := range []Lang{LangJA, LangEN} {
+		for _, k := range keys {
+			s, ok := dict[lang][k]
+			if !ok {
+				t.Errorf("%s/%s: missing", lang, k)
+				continue
+			}
+			if !strings.HasSuffix(s, "%s") {
+				t.Errorf("%s/%s = %q: must end with the count so the share reads next to it", lang, k, s)
+			}
 		}
 	}
 }

@@ -1537,3 +1537,78 @@ func uaWindowsVer(ua string) string {
 	// seeing, not hiding.
 	return " NT " + m[1]
 }
+
+// uaRuleTokenRE: what a black-list pattern is allowed to be.  The value is
+// used verbatim as a regex inside a quoted nginx map entry, and escaping is
+// not an option there -- a backslash is rejected outright as a way out of the
+// quotes -- so the token has to be free of regex meaning to begin with.
+var uaRuleTokenRE = regexp.MustCompile(`^[A-Za-z0-9_-]{3,40}$`)
+
+// UARuleToken: the part of a User-Agent worth turning into a black-list
+// pattern -- the name the client calls itself, without the version that will
+// have moved on by next week and without the "(+https://example.com/bot)"
+// comment.
+//
+// That comment is the reason this exists.  Self-identifying crawlers write it,
+// so it is on exactly the strings an operator wants to list, and "(+" is not a
+// valid repeat: the raw UA compiles as a regex nowhere, and nginx refuses the
+// whole config at the next reload.
+//
+// Returns "" when the UA names nothing worth pinning -- an ordinary browser
+// string, whose only leading token is "Mozilla" and would match every visitor
+// on the site.  Callers offer the full string instead.
+func UARuleToken(ua string) string {
+	ua = strings.TrimSpace(ua)
+	if ua == "" {
+		return ""
+	}
+	// The leading product token, for clients that name themselves up front:
+	// "OmvionLeadLake/1.0 (...)", "python-requests/2.31.0", "curl/8.0".
+	if tok := uaLeadingProduct(ua); tok != "" && !strings.EqualFold(tok, "Mozilla") {
+		return tok
+	}
+	// Otherwise the bot-shaped member of the comment, for the crawlers that
+	// wear a browser UA: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://...)".
+	return uaCommentBot(ua)
+}
+
+// uaLeadingProduct: the product name before the first version / space / comment.
+func uaLeadingProduct(ua string) string {
+	if i := strings.IndexAny(ua, "/ (;"); i > 0 {
+		ua = ua[:i]
+	}
+	if uaRuleTokenRE.MatchString(ua) {
+		return ua
+	}
+	return ""
+}
+
+// uaCommentBot: the first bot-shaped name inside the parenthesised comment.
+// URLs are skipped -- "+http://www.google.com/bot.html" contains "bot" and is
+// not a name.
+func uaCommentBot(ua string) string {
+	l := strings.IndexByte(ua, '(')
+	r := strings.LastIndexByte(ua, ')')
+	if l < 0 || r <= l {
+		return ""
+	}
+	for _, seg := range strings.Split(ua[l+1:r], ";") {
+		seg = strings.TrimSpace(seg)
+		if seg == "" || strings.HasPrefix(seg, "+") || strings.HasPrefix(strings.ToLower(seg), "http") {
+			continue
+		}
+		name := seg
+		if i := strings.IndexAny(name, "/ "); i > 0 {
+			name = name[:i]
+		}
+		low := strings.ToLower(name)
+		if !strings.Contains(low, "bot") && !strings.Contains(low, "crawler") &&
+			!strings.Contains(low, "spider") && !strings.Contains(low, "scanner") {
+			continue
+		}
+		if uaRuleTokenRE.MatchString(name) {
+			return name
+		}
+	}
+	return ""
+}
