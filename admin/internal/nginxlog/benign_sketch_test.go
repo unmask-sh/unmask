@@ -77,3 +77,59 @@ func TestBenignCrawlerCounterSurvivesFlush(t *testing.T) {
 		t.Errorf("challenge_served = %d, want 1 (the GPTBot we challenged)", got)
 	}
 }
+
+// A request a bypass rule let through has to be countable.  The access log
+// could not say so -- fc is 0 for "bypassed" and for "matched nothing" alike --
+// so the dashboard put package managers fetching a repo behind a bypass path
+// into its human share: 30% of all traffic on one install.
+//
+// The field is optional in the parser on purpose: the binary is deployed
+// before the config that emits it, and every line written in that window has
+// to keep parsing.
+func TestBypassMarkerIsCountedAndOptional(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{
+		d: d, buckets: map[bucketKey]*bucket{},
+		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
+		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
+	}
+	// Two bypassed requests, one ordinary, one challenged-while-bypassed (which
+	// cannot happen in nginx but must not double-count if it ever does), and one
+	// line in the old shape with no bp= field at all.
+	for _, l := range []string{
+		"1754000000.000 site=s kind= fc=0 hp=0 ip=1.1.1.1 ja4=- hpuri=- bp=1 ua=libdnf",
+		"1754000000.000 site=s kind= fc=0 hp=0 ip=1.1.1.2 ja4=- hpuri=- bp=1 ua=curl/8.0",
+		"1754000000.000 site=s kind= fc=0 hp=0 ip=1.1.1.3 ja4=- hpuri=- bp=0 ua=Mozilla/5.0",
+		"1754000000.000 site=s kind= fc=1 hp=0 ip=1.1.1.4 ja4=- hpuri=- bp=1 ua=curl/8.0",
+		"1754000000.000 site=s kind= fc=0 hp=0 ip=1.1.1.5 ja4=- hpuri=- ua=Mozilla/5.0",
+	} {
+		r.onLine(l)
+	}
+	r.flushOnce(true)
+
+	get := func(kind string) int {
+		var n int
+		if err := d.QueryRowContext(context.Background(),
+			`SELECT COALESCE(SUM(cnt),0) FROM unmask_cookie_minute WHERE kind = ?`, kind).Scan(&n); err != nil {
+			t.Fatalf("read %s: %v", kind, err)
+		}
+		return n
+	}
+	if got := get("bypass_pass"); got != 2 {
+		t.Errorf("bypass_pass = %d, want 2 (the two passed bypass lines only)", got)
+	}
+	if got := get("total"); got != 5 {
+		t.Errorf("total = %d, want 5 -- one per line, including the one with no bp= field", got)
+	}
+	if got := get("challenge_served"); got != 1 {
+		t.Errorf("challenge_served = %d, want 1", got)
+	}
+}

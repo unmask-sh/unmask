@@ -60,18 +60,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// a cold cache pays the slowest one, not their sum -- the landing page's
 	// biggest win (they were previously run back-to-back).
 	var (
-		kpiServes, kpiPoWPass, kpiCaptchaPass int
-		kpiLoaded, kpiAbandon                 int
-		rTotal, rBenign                       int
-		rKnown                                bool
-		uBlocked                              int
-		uKnown                                bool
-		recentRaw                             []events.Row
-		recentErr                             error
-		aiRows                                []AITrafficRow
-		aiDetail                              map[string][]AICrawlerRow
-		aiServed                              []dashboard.AITrafficRow
-		overBlock                             OverBlockHealth
+		kpiServes, kpiPoWPass, kpiCaptchaPass   int
+		kpiLoaded, kpiAbandon                   int
+		rTotal, rBenign, rBypassed, rChallenged int
+		rKnown                                  bool
+		uBlocked                                int
+		uKnown                                  bool
+		recentRaw                               []events.Row
+		recentErr                               error
+		aiRows                                  []AITrafficRow
+		aiDetail                                map[string][]AICrawlerRow
+		aiServed                                []dashboard.AITrafficRow
+		overBlock                               OverBlockHealth
 	)
 	var wg sync.WaitGroup
 	launch := func(f func()) {
@@ -101,7 +101,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// access-log feed is off (no counters at all).
 	launch(func() {
 		var err error
-		rTotal, rBenign, rKnown, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
+		rTotal, rBenign, rBypassed, rChallenged, rKnown, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
 		if err != nil {
 			log.Printf("trafficRequests: %v", err)
 		}
@@ -135,7 +135,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// remains is still an estimate at the edges (a serve in the last seconds
 	// has not had time to pass, and an abandon that never sent its beacon
 	// cannot be told from a bot that fetched the page and left).
-	kpiBlocked := kpiServes - kpiPoWPass - kpiCaptchaPass - kpiAbandon
+	// Challenges fired comes from the access log, not the event log: a deny
+	// serves no challenge page, so it writes no serve event while the log still
+	// records it.  On a site that denies bots outright the event log saw 493 of
+	// 6,329 -- a 12x undercount of the headline claim.  kpiServes stays for the
+	// funnel below, where it means "challenge pages served", which is what the
+	// pass counts beside it are a fraction of.
+	kpiFired := rChallenged
+	if kpiFired < kpiServes {
+		// No log feed (or it is behind): fall back to what the events know.
+		kpiFired = kpiServes
+	}
+	kpiBlocked := kpiFired - kpiPoWPass - kpiCaptchaPass - kpiAbandon
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
 	}
@@ -180,27 +191,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Non-human = requests from bots we deliberately passed PLUS requests we
 	// answered with a challenge nobody cleared.  Each request is counted once
 	// on one side or the other, so the sum cannot exceed the total.
-	// The blocked half is the hero's own figure -- challenges served minus the
-	// ones cleared -- so the two agree instead of offering the operator two
-	// counts of the same thing.
+	// Blocked = the challenges the data plane actually fired, minus the ones
+	// that were cleared or walked away from.  The fires come from the access
+	// log rather than the event log: a deny serves no challenge page, so it
+	// writes no serve event while the log still records it -- on a site that
+	// denies bots outright the event log saw 493 of 6,329.  The solves and the
+	// abandons stay events, because each is one row per occurrence, which is
+	// exactly what this table's 'pow' / 'captcha' are not (they count every
+	// request from a client that already holds a cookie).
 	//
-	// Except under a host filter.  The hero's counts are host-scoped and the
-	// request totals cannot be (unmask_cookie_minute has no host dimension), so
-	// using them together would divide a filtered numerator by an unfiltered
-	// denominator and understate the ratio.  Recount without the host filter in
-	// that case -- three more reads, only on a page the operator has narrowed.
+	// The event terms are site-scoped only: the log totals carry no host
+	// dimension, so mixing a host-filtered numerator with an unfiltered
+	// denominator would understate the ratio on a narrowed page.
 	tileBlocked := kpiBlocked
-	if len(hosts) > 0 {
-		serves := countEvents(ctx, h, 1440, "serve", site, nil)
-		pow := countEvents(ctx, h, 1440, "bv_pow_only", site, nil)
-		cap := countEventsPhases(ctx, h, 1440,
-			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, nil)
-		gone := countEvents(ctx, h, 1440, "abandon", site, nil)
-		tileBlocked = serves - pow - cap - gone
-		if tileBlocked < 0 {
-			tileBlocked = 0
-		}
-	}
 	rNonHuman := rBenign + tileBlocked
 	if rNonHuman > rTotal {
 		rNonHuman = rTotal
@@ -260,7 +263,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
-		"KPIServes":      kpiServes,
+		"KPIServes":      kpiFired,
 		"KPIPoWPass":     kpiPoWPass,
 		"KPICaptchaPass": kpiCaptchaPass,
 		"KPIBlocked":     kpiBlocked,
@@ -277,7 +280,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// real visitors, plus any bot that was never challenged and is not a
 		// listed crawler -- the popover says so rather than the label claiming
 		// more than the number can carry.
-		"KPIReqHuman":      rTotal - rNonHuman,
+		// What is left after the three we can name.  Still a residual, but a
+		// much smaller one: the bypassed traffic that used to swell it is now
+		// counted apart.
+		"KPIReqHuman":      rTotal - rNonHuman - rBypassed,
+		"KPIReqBypassed":   rBypassed,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,

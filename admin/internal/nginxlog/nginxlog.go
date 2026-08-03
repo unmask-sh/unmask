@@ -450,7 +450,10 @@ func (r *Reader) Loaded() bool {
 // the "-" placeholder to "" (= same meaning: no fingerprint).
 var lineRE = regexp.MustCompile(
 	`([0-9]+\.[0-9]+) site=(\S*) kind=([a-z0-9_-]*)` +
-		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=(\S*))?(?: hpuri=(\S*))?(?: ua=(.*))?`)
+		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=(\S*))?(?: hpuri=(\S*))?` +
+		// bp is optional: the binary is deployed before the config that emits it,
+		// so both shapes have to parse for the length of that window.
+		`(?: bp=([01]))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -462,7 +465,12 @@ type parsed struct {
 	ip    string
 	ja4   string
 	hpuri string // honeypot trip URI ($request_uri); only set on hp=1 lines
-	ua    string
+	// bypassed: the configuration let this request through without judging it
+	// (bypass IP or bypass path).  Absent on lines written before the config
+	// carried the field, which read as false -- the same as "not bypassed",
+	// which is the safe way round: it under-counts rather than inventing one.
+	bypassed bool
+	ua       string
 }
 
 func (r *Reader) parse(line string) (parsed, bool) {
@@ -493,13 +501,14 @@ func (r *Reader) parse(line string) (parsed, bool) {
 	}
 	return parsed{
 		msec: v, site: s,
-		kind:  m[3],
-		fc:    m[4] == "1",
-		hp:    m[5] == "1",
-		ip:    m[6],
-		ja4:   ja4,
-		hpuri: m[8],
-		ua:    m[9],
+		kind:     m[3],
+		fc:       m[4] == "1",
+		hp:       m[5] == "1",
+		ip:       m[6],
+		ja4:      ja4,
+		hpuri:    m[8],
+		bypassed: m[9] == "1",
+		ua:       m[10],
 	}, true
 }
 
@@ -535,6 +544,13 @@ func (r *Reader) onLine(line string) {
 		if tag := r.classifyCrawler(p.ua); tag != "" {
 			r.bumpKind(p.site, "crawler_pass")
 		}
+	}
+	// A request the configuration let through without judging it.  Counted
+	// apart from the rest: it is neither a bot we identified nor a person, and
+	// folding it into either is a claim the data cannot support -- a bypassed
+	// path serves package managers and people alike.
+	if !p.fc && p.bypassed {
+		r.bumpKind(p.site, "bypass_pass")
 	}
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
@@ -729,6 +745,18 @@ func (r *Reader) BumpCrawler(ua string, served bool) {
 		return
 	}
 	r.bumpCrawler(ua, served)
+}
+
+// BumpBypass records a request the configuration let through without judging
+// it.  Forward-auth mode writes no access-log line, so it has to feed the same
+// counter onLine fills in native mode -- otherwise the two wires disagree on
+// what the traffic was made of, which is the divergence this counter exists to
+// remove in the first place.
+func (r *Reader) BumpBypass(site string) {
+	if r == nil {
+		return
+	}
+	r.bumpKind(site, "bypass_pass")
 }
 
 // BumpTrafficHLL / BumpCountry: exported entry points for forward-auth mode.
