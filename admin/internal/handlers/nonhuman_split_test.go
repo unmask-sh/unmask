@@ -486,3 +486,37 @@ func TestBypassedTrafficIsCountedApart(t *testing.T) {
 		t.Errorf("bypassed traffic is still inside the human share: %q", sub)
 	}
 }
+
+// The four segments are shares of one total, so any request counted twice
+// surfaces as a negative human remainder.  It did: a listed crawler fetching a
+// bypassed path was both crawler_pass and bypass_pass, and tool1-us rendered
+// "人間 -2,493" against 718,238 requests.
+func TestSegmentsNeverOversubscribeTheTotal(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately oversubscribed: the halves add up to more than the total,
+	// which is what a double count looks like from here.
+	for k, n := range map[string]int{"total": 1000, "crawler_pass": 600, "bypass_pass": 600} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, k, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	_, sub := compositionCard(t, rr.Body.String())
+	if strings.Contains(sub, "-") {
+		t.Errorf("a segment went negative: %q", sub)
+	}
+}
