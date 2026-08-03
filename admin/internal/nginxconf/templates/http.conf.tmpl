@@ -92,7 +92,7 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 map $http_user_agent $unmask_search_bot_ua {
     default 0;
 {{- range .SearchBotPatterns }}
-    "~*{{ . }}" 1;
+    "~*{{ rx . }}" 1;
 {{- end }}
 }
 # Notification-preview fetchers (Apple notification service extensions pulling
@@ -106,7 +106,7 @@ map $http_user_agent $unmask_search_bot_ua {
 map $http_user_agent $unmask_notif_preview_ua {
     default 0;
 {{- range .NotifPreviewPatterns }}
-    "~*{{ . }}" 1;
+    "~*{{ rx . }}" 1;
 {{- end }}
 }
 map $effective_ja4 $unmask_apple_tls {
@@ -122,7 +122,7 @@ map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls" $is_search_
 map $http_user_agent $is_search_bot {
     default 0;
 {{- range .SearchBotPatterns }}
-    "~*{{ . }}" 1;
+    "~*{{ rx . }}" 1;
 {{- end }}
 }
 {{- end }}
@@ -249,7 +249,7 @@ map $unmask_lb_ja4_or_sentinel $effective_ja4 {
 map $effective_ja4 $ja4_verdict {
     default "ok";
 {{- range .JA4Verdicts }}
-    "~^{{ .Pattern }}" "{{ .Verdict }}";
+    "~^{{ rx .Pattern }}" "{{ .Verdict }}";
 {{- end }}
 }
 
@@ -260,7 +260,7 @@ map $effective_ja4 $ja4_verdict {
 map $effective_ja4 $ja4_action {
     default "ok";
 {{- range .JA4Verdicts }}
-    "~^{{ .Pattern }}" "{{ .Action }}";
+    "~^{{ rx .Pattern }}" "{{ .Action }}";
 {{- end }}
 }
 
@@ -286,7 +286,7 @@ map $http_user_agent $is_challenge_target {
 map $http_user_agent $is_challenge_target {
     default 0;
 {{- range .ChallengeTargetPatterns }}
-    "~*{{ . }}" 1;
+    "~*{{ rx . }}" 1;
 {{- end }}
 }
 {{- end }}
@@ -388,7 +388,7 @@ map $request_uri $unmask_banned_effective {
 map $request_uri $unmask_hp_global {
     default "0";
 {{- range .HoneypotPatternsGlobal }}
-    "~*{{ . }}" "1";
+    "~*{{ rx . }}" "1";
 {{- end }}
 }
 
@@ -399,7 +399,7 @@ map $request_uri $unmask_hp_global {
 map $request_uri $unmask_hp_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
-    "~*{{ . }}" "1";
+    "~*{{ rx . }}" "1";
 {{- end }}
 }
 {{- end }}
@@ -456,7 +456,7 @@ map $serve_bot_challenge $unmask_hp_uri {
 map $request_uri $unmask_pp_global {
     default "";
 {{- range .ProtectedPathsGlobal }}
-    "~*{{ .Pattern }}" "{{ .Mode }}";
+    "~*{{ rx .Pattern }}" "{{ .Mode }}";
 {{- end }}
 }
 
@@ -469,7 +469,7 @@ map $request_uri $unmask_pp_global {
 map $request_uri $unmask_pp_host_{{ .VarName }} {
     default "";
 {{- range .Rules }}
-    "~*{{ .Pattern }}" "{{ .Mode }}";
+    "~*{{ rx .Pattern }}" "{{ .Mode }}";
 {{- end }}
 }
 {{- end }}
@@ -591,7 +591,7 @@ map $unmask_asn_action $is_asn_challenge {
 map $request_uri $unmask_gx_global {
     default "0";
 {{- range .GeoExemptPathsGlobal }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 {{- if .GeoExemptPathsPerHost }}
@@ -599,7 +599,7 @@ map $request_uri $unmask_gx_global {
 map $request_uri $unmask_gx_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 {{- end }}
@@ -623,7 +623,7 @@ map $unmask_gx_global $is_geo_exempt_path {
 map $request_uri $unmask_ax_global {
     default "0";
 {{- range .AsnExemptPathsGlobal }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 {{- if .AsnExemptPathsPerHost }}
@@ -631,7 +631,7 @@ map $request_uri $unmask_ax_global {
 map $request_uri $unmask_ax_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 {{- end }}
@@ -724,7 +724,7 @@ map "$community_bans_hit_ipja4$community_bans_hit_ja4$community_bans_hit_ip" $co
 map $request_uri $unmask_bp_global {
     default "0";
 {{- range .BypassPathsGlobal }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 
@@ -736,7 +736,7 @@ map $request_uri $unmask_bp_global {
 map $request_uri $unmask_bp_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
-    "~{{ . }}" "1";
+    "~{{ rx . }}" "1";
 {{- end }}
 }
 {{- end }}
@@ -1058,7 +1058,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
 map $request_uri {{ .MatchVar }} {
     default 0;
 {{- range .Patterns }}
-    "~*{{ . }}" 1;
+    "~*{{ rx . }}" 1;
 {{- end }}
 }
 map {{ .MatchVar }} {{ .KeyVar }} {
@@ -1199,7 +1199,17 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # the only way a rescued crawler (passed straight through, never in
 # unmask_event) is counted.  nginx default-escapes the value, so no log
 # injection via a crafted UA.
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri ua=$http_user_agent';
+# bp=1 marks a request the configuration let through without judging it: a
+# bypass IP or a bypass path.  Without it the log cannot tell "deliberately
+# passed" from "matched nothing", so a repo or an API served under a bypass
+# path lands in the dashboard's human share -- on one install 30% of all
+# traffic was package managers counted as people.
+map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
+    default 1;
+    "00"    0;
+}
+
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

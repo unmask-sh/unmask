@@ -56,6 +56,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-seg{display:block;height:100%}
 .comp-seg.comp-benign,i.comp-benign{background:#16a34a}
 .comp-seg.comp-bad,i.comp-bad{background:#dc2626}
+.comp-seg.comp-bypass,i.comp-bypass{background:#c7d2fe}
 .comp-seg.comp-human,i.comp-human{background:#94a3b8}
 .comp-legend{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.78rem;color:#475569}
 .comp-legend span{display:inline-flex;align-items:center;gap:.35rem}
@@ -230,11 +231,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <div class="comp-bar" role="img" aria-label="{{ t .Lang "overview.kpi.nonhuman" }}">
     <span class="comp-seg comp-benign" style="width:{{ pctOf .KPIReqBenign $t }}%"></span>
     <span class="comp-seg comp-bad"    style="width:{{ pctOf .KPIReqBlocked $t }}%"></span>
+    <span class="comp-seg comp-bypass" style="width:{{ pctOf .KPIReqBypassed $t }}%"></span>
     <span class="comp-seg comp-human"  style="width:{{ pctOf .KPIReqHuman $t }}%"></span>
   </div>
   <div class="comp-legend">
     <span><i class="comp-benign"></i>{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIReqBenign) }}<b class="comp-share">{{ pctLabel .KPIReqBenign $t }}</b></span>
     <span><i class="comp-bad"></i>{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIReqBlocked) }}<b class="comp-share">{{ pctLabel .KPIReqBlocked $t }}</b></span>
+    {{ if .KPIReqBypassed }}<span><i class="comp-bypass"></i>{{ tf .Lang "overview.kpi.nonhuman_bypass" (comma .KPIReqBypassed) }}<b class="comp-share">{{ pctLabel .KPIReqBypassed $t }}</b></span>{{ end }}
     <span><i class="comp-human"></i>{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}<b class="comp-share">{{ pctLabel .KPIReqHuman $t }}</b></span>
   </div>
   {{ end }}

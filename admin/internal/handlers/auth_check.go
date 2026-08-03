@@ -659,6 +659,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// funnel, unique-IP (DailyUniqueIPs) and per-country (DailyPassByCountry)
 		// charts are blank in forward-auth.
 		h.NginxLog.BumpCrawler(ua, action != "pass")
+		if reason == "bypass:ip" || reason == "bypass:path" {
+			h.NginxLog.BumpBypass(site)
+		}
 		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind, ua)
 		h.NginxLog.BumpCountry(site, ip, kind)
 		// Per-IP cookie-reuse ranking.  Pass the raw bvKind (not the
@@ -1135,13 +1138,18 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 			return axisDecision{sev: sevPass, reason: "ua:search_ai"}, true
 		}
 	}
-	if listed, category := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
+	if listed, category, rowAct := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
 		// The black-list chain is the operator's ChallengeTargets.DefaultAction
 		// (ua-filter tab picker), keeping this axis in sync with native
 		// ServeChallenge.  Unset keeps the historical fixed captcha_only.
 		act := strings.TrimSpace(cfg.Nginx.ChallengeTargets.DefaultAction)
 		if !settings.IsValidRateChallengeMode(act) {
 			act = settings.RateChallengeCaptchaOnly
+		}
+		// A row that pinned its own chain wins over the list default, the
+		// same way a preset's PresetAction override does on the native side.
+		if settings.IsValidRateChallengeMode(rowAct) {
+			act = rowAct
 		}
 		s := severityFromAction(act)
 		return axisDecision{
@@ -1212,7 +1220,7 @@ func isSearchBotUA(ua, ja4Action string, n settings.Nginx, rangeVerifiedUA *rege
 			return true
 		}
 	}
-	if listed, category := lookupUAListed(ua, n); listed != "" && category == "search_ai" {
+	if listed, category, _ := lookupUAListed(ua, n); listed != "" && category == "search_ai" {
 		return true
 	}
 	return false
@@ -1795,17 +1803,18 @@ func lookupJA4Verdict(ja4 string, n settings.Nginx) (verdict, action, source str
 }
 
 // lookupUAListed: if the UA hits any of search_bots /
-// challenge_targets presets / extras, return the listed name +
-// category.  Unregistered -> "" / "".
+// challenge_targets presets / extras, return the listed name, category, and
+// the chain that entry pinned for itself (empty = inherit the list default).
+// Unregistered -> "" / "" / "".
 //
 // category:
 //
 //	"search_ai"  : matched SearchBots (= normally rescued)
 //	"challenge"  : matched ChallengeTargets (= normally blocked)
 //	""           : matched neither (= normal human handling -> show the button)
-func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
+func lookupUAListed(ua string, n settings.Nginx) (listed, category, action string) {
 	if ua == "" {
-		return "", ""
+		return "", "", ""
 	}
 	// SearchBots rescue list.  The built-in Googlebot / GPTBot / ... presets
 	// were removed (the crawler-user-agents.json upstream path in
@@ -1816,7 +1825,7 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 			continue
 		}
 		if matchedRegex(p, ua) {
-			return "extra", "search_ai"
+			return "extra", "search_ai", ""
 		}
 	}
 	// ChallengeTargets: the block list (= curl / Python-Requests / Headless etc.)
@@ -1830,7 +1839,7 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 		}
 		for _, p := range g.Patterns {
 			if matchedRegex(p, ua) {
-				return g.ID, "challenge"
+				return g.ID, "challenge", ""
 			}
 		}
 	}
@@ -1839,7 +1848,14 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 			continue
 		}
 		if matchedRegex(p, ua) {
-			return "extra", "challenge"
+			// The row's own chain, when it pinned one.  Both callers apply it
+			// over ChallengeTargets.DefaultAction, the same way a preset's
+			// PresetAction override does.
+			act := ""
+			if i < len(n.ChallengeTargets.ExtraAction) {
+				act = strings.TrimSpace(n.ChallengeTargets.ExtraAction[i])
+			}
+			return "extra", "challenge", act
 		}
 	}
 	// Upstream rescue groups (= crawler-user-agents.json categories) resolved
@@ -1861,11 +1877,11 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category string) {
 				continue
 			}
 			if matchedRegex(e.Pattern, ua) {
-				return cat, "challenge"
+				return cat, "challenge", ""
 			}
 		}
 	}
-	return "", ""
+	return "", "", ""
 }
 
 // pickValidBV returns the first `_bv` cookie value on the request that
