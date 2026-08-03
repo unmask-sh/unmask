@@ -540,7 +540,12 @@ func (r *Reader) onLine(line string) {
 	// decision, so this is the benign half of the overview's non-human split.
 	// Counted per site here rather than derived from unmask_crawler_minute,
 	// which has no site column and so cannot answer a site-scoped view.
-	if !p.fc && r.classifyCrawler != nil && p.ua != "" {
+	// Not when the request was bypassed: the segments are shares of one total,
+	// so a listed crawler fetching a bypassed path counted twice and pushed the
+	// human remainder below zero (-2,493 of 718,238 on tool1-us).  Bypass wins,
+	// because it is the stronger statement: the request was never judged at
+	// all, so calling it a crawler we chose to pass is the wrong story.
+	if !p.fc && !p.bypassed && r.classifyCrawler != nil && p.ua != "" {
 		if tag := r.classifyCrawler(p.ua); tag != "" {
 			r.bumpKind(p.site, "crawler_pass")
 		}

@@ -260,6 +260,15 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	for i := range recent {
 		recentUAList[i] = recent[i].UA
 	}
+	// The segments are shares of one total, so a double count anywhere above
+	// surfaces here as a negative remainder -- which is how the overlap between
+	// crawler_pass and bypass_pass was found.  Floored so the card degrades to
+	// "0% human" rather than rendering a negative share, and the counters that
+	// caused it stay visible for the operator to notice.
+	rHuman := rTotal - rNonHuman - rBypassed
+	if rHuman < 0 {
+		rHuman = 0
+	}
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
@@ -283,7 +292,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// What is left after the three we can name.  Still a residual, but a
 		// much smaller one: the bypassed traffic that used to swell it is now
 		// counted apart.
-		"KPIReqHuman":      rTotal - rNonHuman - rBypassed,
+		"KPIReqHuman":      rHuman,
 		"KPIReqBypassed":   rBypassed,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
