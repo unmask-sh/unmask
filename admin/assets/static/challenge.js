@@ -378,7 +378,14 @@
   });
 
   // --- function definitions (placed before any early return) ---
-  function showCaptcha(){
+  function showCaptcha(why){
+    // why: which decision put this CAPTCHA on screen.  "chain" = the operator
+    // asked for captcha_only, "pow_then_captcha" = the configured chain's
+    // second leg, "flags_retry" = the client tripped the bot-flag threshold
+    // AND had already retried, which is a page-side escalation the server
+    // cannot see at serve time.  Recorded on every path so a CAPTCHA never
+    // has to be explained by inference from the timeline.
+    var capReason = why || 'unknown';
     document.getElementById('spinner').style.display='none';
     document.getElementById('msg').style.display='none';
     // Collapse the PoW progress bar's reserved box (height + .6em/1em margins) so
@@ -406,7 +413,7 @@
     if (ext && ext.provider && ext.site_key) {
       document.getElementById('clickRow').style.display='none';
       mountExternalCaptcha(ext.provider, ext.site_key);
-      _bcDebug('captcha', { provider: ext.provider });
+      _bcDebug('captcha', { provider: ext.provider, cap_reason: capReason });
       return;
     }
 
@@ -416,7 +423,7 @@
       cb.disabled = true;
       submitClick();
     });
-    _bcDebug('captcha');
+    _bcDebug('captcha', { cap_reason: capReason });
   }
 
   // --- 3rd party CAPTCHA widget mount ---
@@ -841,7 +848,7 @@
   })();
 
   if (chMode === 'captcha_only') {
-    showCaptcha();
+    showCaptcha('chain');
     return;
   }
   // chainPoWThenCaptcha: when true, the PoW success path branches into
@@ -853,7 +860,7 @@
     var rc=0;
     try{var m2=document.cookie.match(/_br=(\d+)/);if(m2)rc=parseInt(m2[1]);}catch(e){}
     if(rc>=2){
-      showCaptcha();
+      showCaptcha('flags_retry');
       return;
     }
     // _br retry counter: independent of _bv server-validity windows.  365 days
@@ -901,9 +908,38 @@
     0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
   ]);
   var SHA256_W = new Uint32Array(64);
+  // UTF-8 encode by hand rather than through TextEncoder.  TextEncoder does
+  // not exist in every browser this page has to work in -- EdgeHTML shipped it
+  // neither on the window nor in a worker -- and here a missing one is fatal
+  // rather than degraded: sha256 IS the proof of work, so the visitor sits on
+  // a challenge that can never complete, reloads, and gets the same thing.
+  // Observed in production as `'TextEncoder' is not defined` at line 3 of the
+  // worker blob, from an Edge 18 client that never passed.
+  function utf8Bytes(str){
+    var out=[], i, c, lo;
+    for(i=0;i<str.length;i++){
+      c=str.charCodeAt(i);
+      if(c<0x80){ out.push(c); continue; }
+      if(c<0x800){ out.push(0xc0|(c>>6),0x80|(c&0x3f)); continue; }
+      // A code point past the BMP arrives as a surrogate pair; anything else
+      // in that range is unpaired and encodes as U+FFFD, which is what
+      // TextEncoder does with it too.
+      if(c>=0xd800&&c<0xdc00){
+        lo=(i+1<str.length)?str.charCodeAt(i+1):0;
+        if(lo>=0xdc00&&lo<0xe000){
+          c=0x10000+((c-0xd800)<<10)+(lo-0xdc00); i++;
+          out.push(0xf0|(c>>18),0x80|((c>>12)&0x3f),0x80|((c>>6)&0x3f),0x80|(c&0x3f));
+          continue;
+        }
+        c=0xfffd;
+      } else if(c>=0xdc00&&c<0xe000){ c=0xfffd; }
+      out.push(0xe0|(c>>12),0x80|((c>>6)&0x3f),0x80|(c&0x3f));
+    }
+    return new Uint8Array(out);
+  }
   function sha256(str){
     // UTF-8 encode + pad to 64-byte chunks
-    var enc=new TextEncoder().encode(str);
+    var enc=utf8Bytes(str);
     var msgLen=enc.length, bitLen=msgLen*8;
     var paddedLen=Math.ceil((msgLen+9)/64)*64;
     var p=new Uint8Array(paddedLen);
@@ -997,9 +1033,14 @@
   // defines, so there is exactly one SHA-256 implementation to keep correct.
   function solveInWorker(){
     return new Promise(function(resolve, reject){
+      // Every function the worker calls has to be injected here.  sha256's own
+      // dependency was missed once already -- it reached for TextEncoder,
+      // which the worker scope did not have -- and the failure mode is silent:
+      // the worker dies, the catch below falls back to the yielding UI-thread
+      // loop, and the visitor pays the slow path the worker exists to avoid.
       var src='var SHA256_K=new Uint32Array(['+Array.prototype.join.call(SHA256_K,',')+']);'+
         'var SHA256_W=new Uint32Array(64);'+
-        sha256.toString()+leadingZeroBits.toString()+
+        utf8Bytes.toString()+sha256.toString()+leadingZeroBits.toString()+
         'onmessage=function(e){'+
         'var seed=e.data.seed,diff=e.data.diff,max=e.data.max,batch=e.data.batch;'+
         'for(var n=0;n<max;n++){'+
@@ -1076,7 +1117,7 @@
   // phase-level (bv_<chMode>) so the funnel doesn't need JSON_EXTRACT.
   if (chainPoWThenCaptcha) {
     _bcDebug('pow_pass', { pow_iterations: target, pow_elapsed_ms: elapsed, token_flags: flags });
-    showCaptcha();
+    showCaptcha('pow_then_captcha');
     return;
   }
 
@@ -1144,6 +1185,12 @@
     showCookieError();
     return;
   }
-  var wait=Math.max(800-elapsed,100);
-  setTimeout(function(){passAndRedirect();},wait);
+  // Redirect as soon as the cookie is written.  There used to be a floor of
+  // 800ms here, padding a fast solve out so the "verified" beat could be seen
+  // -- but the beat does not need padding: location.replace keeps this page
+  // painted (checkmark + "connecting") until the destination renders, so the
+  // visitor sees it either way.  Nothing else needs the delay: the pass beacon
+  // goes out via sendBeacon (or fetch keepalive) and the /bvj request sets
+  // keepalive precisely so the redirect may win the race.
+  setTimeout(function(){passAndRedirect();},0);
 })();
