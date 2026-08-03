@@ -117,6 +117,7 @@
 .session-note-ref{color:#0f172a;font-weight:700;font-size:.7rem;flex:none}
 /* Session total: separated from the per-phase lines by a rule, since it is a
    summary of them rather than another step in the sequence. */
+.session-lead{margin-bottom:.4rem;padding-bottom:.35rem;border-bottom:1px solid #e2e8f0;font-size:.72rem;color:#475569}
 .session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
   font-size:.75rem;color:#334155;white-space:nowrap}
 .session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
@@ -268,7 +269,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -672,6 +673,13 @@ document.addEventListener('DOMContentLoaded', function(){
         // (server-validated), so it needs no escaping beyond this.
         var sub = (tr.getAttribute('data-sub') || '').replace(/[^a-z0-9_]/g, '');
         if (sub) label += '(' + sub + ')';
+        // The chain the serve offered.  Without it the timeline says a
+        // challenge fired but not whether the visitor was about to meet a
+        // CAPTCHA or a transparent PoW -- and that is the difference between
+        // a rule working quietly and a rule putting a puzzle in front of
+        // someone.  Server-written enum, so the same character filter is all
+        // the escaping it needs.
+
         var det = tr.getAttribute('data-detail') || '';
         var mark = '';
         if (det) {
@@ -681,7 +689,34 @@ document.addEventListener('DOMContentLoaded', function(){
         return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
                '</time> <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
       });
-      var out = '<div class="session-timeline">' + lines.join('') + '</div>';
+      // The chain the challenge offered, stated once for the session rather
+      // than glued to the serve line: it is what the visitor was about to
+      // meet, not a phase they passed through.  It leads, because the total
+      // below sums the lines and has to sit against them.
+      var chm = '';
+      dedupedChain.forEach(function(tr){
+        var v = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
+        if (v) chm = v;
+      });
+      // What was offered, and -- only when they differ -- what the visitor
+      // actually met.  The page can escalate after the serve (a client looping
+      // on the challenge gets walked into the CAPTCHA), and the server cannot
+      // know that at serve time.  Reading the divergence off the timeline
+      // means knowing what pow_only implies and spotting the contradiction
+      // yourself, which is the same "recorded but unreadable" trap this
+      // popover exists to close.
+      var sawCaptcha = dedupedChain.some(function(tr){
+        return tr.getAttribute('data-phase') === 'captcha';
+      });
+      var lead = '';
+      if (chm) {
+        lead = {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong>';
+        if (sawCaptcha && chm !== 'captcha_only') {
+          lead += ' &rarr; ' + {{ t .Lang "th.ch_mode_actual" }} + ' <strong>captcha</strong>';
+        }
+      }
+      var out = (lead ? '<div class="session-lead">' + lead + '</div>' : '') +
+                '<div class="session-timeline">' + lines.join('') + '</div>';
       // Total time across the session -- first event to last.  The lines above
       // say when each step happened; the figure worth comparing between
       // sessions is how long the whole thing took, and reading it off the
@@ -780,6 +815,43 @@ document.addEventListener('DOMContentLoaded', function(){
     phaseCell.insertBefore(document.createTextNode(' '), phaseCell.firstChild);
     phaseCell.insertBefore(hint, phaseCell.firstChild);
   });
+  // Every phase pill answers "what was this row", and it answers it the same
+  // way whether the row stands alone or is one of a collapsed session: same
+  // timeline, one line instead of several.  Until now a lone serve row -- the
+  // common case on a quiet site -- had no popover at all, so the chain it
+  // offered was recorded and invisible.
+  document.querySelectorAll('table.events tbody tr').forEach(function(tr){
+    var cell = tr.querySelector('td:nth-child(5)');
+    if (!cell || cell.querySelector('.session-chain')) return; // the chain has its own
+    var pill = cell.querySelector('.phase-pill');
+    if (!pill || pill.dataset.popWired === '1') return;
+    pill.dataset.popWired = '1';
+    var esc = function(v){ var d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
+    var html = function(){
+      var ph = tr.getAttribute('data-phase') || '';
+      var when = (tr.querySelector('td:first-child') || {}).textContent || '';
+      var chm = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
+      return (chm ? '<div class="session-lead">' + {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong></div>' : '') +
+             '<div class="session-timeline"><div class="session-line">' +
+             '<time class="ts-mono">' + esc(when.trim()) + '</time> ' +
+             '<span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph) + '</span>' +
+             '</div></div>';
+    };
+    pill.style.cursor = 'pointer';
+    var t = null;
+    pill.addEventListener('mouseenter', function(e){
+      clearTimeout(t);
+      if (pin.hasPinFor(pill)) return;
+      var x = e.pageX, y = e.pageY;
+      t = setTimeout(function(){ pin.showHover(html(), x, y, pill); }, 200);
+    });
+    pill.addEventListener('mouseleave', function(){ clearTimeout(t); pin.hideHover(); });
+    pill.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation(); clearTimeout(t);
+      pin.handleClick(html(), e.pageX, e.pageY, pill, tr.getAttribute('data-phase') || 'event');
+    });
+  });
+
   // Optional client-side hard cap on visible sessions (= overview card caps
   // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
   // keep the partial parameterless.

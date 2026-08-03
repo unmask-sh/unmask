@@ -406,10 +406,16 @@ type Row struct {
 	Reason string `json:"reason,omitempty"`
 	// ForceReason: why a challenge was forced, sourced from payload
 	// "force_reason" (rate_limit / ja4_bot / honeypot / banned / protected /
-	// test / none).  Present on phase=serve rows.  Distinct from Reason above
+	// ua_target / test / none).  Present on phase=serve rows.  Distinct from Reason above
 	// (the roaming-rebind cause); notably surfaces rate_limit so a rate-limit
 	// block is greppable / countable from `unmask events`.
 	ForceReason string `json:"force_reason,omitempty"`
+	// ChMode: the chain the serve offered (pow_only / captcha_only /
+	// pow_then_captcha / deny).  Present on phase=serve rows.  What actually
+	// happened is a separate row -- a phase=captcha beacon means the CAPTCHA
+	// was really shown -- but this answers the question at the point of the
+	// decision, without correlating a session.
+	ChMode string `json:"ch_mode,omitempty"`
 	// AbandonPhase / LeftAtMs / NoticeDelayMs: departure detail, sourced from
 	// the abandon beacon.  AbandonPhase is the step the visitor was on when
 	// they left; LeftAtMs is when they actually left (the browser's own event
@@ -492,6 +498,7 @@ func decorateRowFromPayload(row *Row, payload string) {
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)
 	row.ForceReason = extractForceReason(payload)
+	row.ChMode = extractStringField(payload, "ch_mode", 24)
 	if row.Phase == "abandon" {
 		row.AbandonPhase = extractStringField(payload, "abandon_phase", 32)
 		row.AbandonVia = extractStringField(payload, "abandon_via", 16)
@@ -529,7 +536,7 @@ func extractIntField(payload, key string) int {
 }
 
 // extractForceReason pulls "force_reason" out of payload_json -- why a challenge
-// was forced (rate_limit / ja4_bot / honeypot / banned / protected / test /
+// was forced (rate_limit / ja4_bot / honeypot / banned / protected / ua_target / test /
 // none).  Recorded on phase=serve rows; empty elsewhere.
 func extractForceReason(payload string) string {
 	return extractStringField(payload, "force_reason", 24)
