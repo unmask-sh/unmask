@@ -16,6 +16,8 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // AdminPlayground: GET {base}/admin/playground/  — render the UI.
@@ -164,6 +166,11 @@ func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 // "~*", compile the pure pattern case-insensitive, and match.  On a bad
 // pattern, return false (= log only).
 func matchedRegex(pat, s string) bool {
+	// A literal pattern means itself; resolve it to the expression that says
+	// so.  Single point on the Go side -- lookupUAListed, lookupJA4Verdict and
+	// the playground all arrive here -- so the admin and the rendered nginx
+	// map cannot disagree about what a pattern means.
+	pat = settings.PatternRegex(pat)
 	pat = strings.TrimPrefix(pat, "~*")
 	pat = strings.TrimPrefix(pat, "~")
 	// compileCachedRe memoizes by pattern string: lookupJA4Verdict /

@@ -40,7 +40,7 @@
       {{ if gt $cr 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $cr }}">{{ $cr }}</time>{{ if gt $up 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $up }}">{{ $up }}</time>{{ end }}</div>{{ end }}
     </span>
     <input type="text" name="{{ $.Name }}_title" value="{{ $t }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-title">
-    <input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat">
+    <span class="rule-pat-wrap"><input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
     <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
     <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
     <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -60,7 +60,7 @@
         <div class="pat empty"></div>
       </span>
       <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-title">
-      <input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat">
+      <span class="rule-pat-wrap"><input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
       <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
       <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
       <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -265,6 +265,34 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-row input[type=text]{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;color:#0f172a;padding:.4rem .55rem;font-size:.85rem}
 .rule-row input.rule-title{flex:1;font-family:-apple-system,sans-serif;font-weight:600}
 .rule-row input.rule-pat{flex:2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem}
+/* Pattern-mode toggle.  Every one of these fields is a regular expression, and
+   the obvious thing to do with one -- paste the value you want to match -- is
+   the thing that silently does not work: a User-Agent pasted verbatim compiles
+   and matches nothing, because its parentheses are groups.  The chip says
+   which reading is in force and switches it, in the field, where the mistake
+   is made.  Layered inside the input rather than beside it so it costs the
+   row no width. */
+.rule-pat-wrap{position:relative;display:flex;flex:2;min-width:0}
+.rule-pat-wrap input.rule-pat{flex:1;min-width:0}  /* padding-right is set from JS to the chip's real width */
+.rule-pat-mode{position:absolute;top:50%;right:.25rem;transform:translateY(-50%);padding:.15rem .4rem;border:1px solid #c4b5fd;border-radius:.25rem;background:#ede9fe;color:#5b21b6;font-size:.62rem;line-height:1.15;cursor:pointer;white-space:pre;text-align:center;width:max-content;font-family:system-ui,sans-serif;box-shadow:0 .0625rem 0 rgba(15,23,42,.08);transition:background .12s,border-color .12s,box-shadow .12s}
+.rule-pat-mode:hover{background:#ddd6fe;border-color:#8b5cf6;color:#4c1d95;box-shadow:0 .125rem .25rem rgba(15,23,42,.14)}
+.rule-pat-mode:active{transform:translateY(-50%) translateY(.0625rem);box-shadow:none}
+.rule-pat-mode:focus-visible{outline:.125rem solid #93c5fd;outline-offset:.0625rem}
+/* The mode is also the state, so each one gets its own colour: grey reads as
+   'nothing chosen', which is wrong -- regex is a choice like the others. */
+.rule-pat-mode[data-mode="regex"]:hover{background:#c4b5fd;border-color:#7c3aed;color:#4c1d95}
+.rule-pat-mode[data-mode="contains"]:hover{background:#86efac;border-color:#16a34a}
+.rule-pat-mode[data-mode="exact"]:hover{background:#93c5fd;border-color:#2563eb}
+.rule-pat-mode[data-mode="regex"]{background:#ede9fe;border-color:#a78bfa;color:#5b21b6}
+.rule-pat-mode[data-mode="contains"]{background:#dcfce7;border-color:#4ade80;color:#166534}
+.rule-pat-mode[data-mode="exact"]{background:#dbeafe;border-color:#60a5fa;color:#1e40af}
+.rule-row:not(.editing) .rule-pat-wrap{display:none}
+/* The committed row says which reading a pattern has, so a list can be read
+   without opening every row. */
+.pat .pat-lit{margin-left:.35rem;padding:0 .3rem;border-radius:.2rem;font-size:.66rem;font-family:system-ui,sans-serif}
+.pat .pat-lit[data-mode="contains"]{background:#dcfce7;color:#166534}
+.pat .pat-lit[data-mode="exact"]{background:#dbeafe;color:#1e40af}
+.pat .pat-lit[data-mode="regex"]{background:#ede9fe;color:#5b21b6}
 .rule-row input.rule-verd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:#92400e}
 /* Free-text note beside a bare value (IP / host).  Narrower than the value it
    annotates and set in the UI font, so a row still reads value-first. */
@@ -1205,7 +1233,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat"><code>{{ .ID }}</code> · {{ .CIDRs }}{{ if .Header }} · {{ .Header }}{{ end }}</div>
           </span>
           <input type="text" name="lb_extra_label" value="{{ .Label }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="{{ t $.Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="{{ t $.Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="lb_extra_cidrs" value="{{ .CIDRs }}" placeholder="{{ t $.Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
           <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="{{ t $.Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
           <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
@@ -1290,7 +1318,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="re_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <select name="re_type" class="rule-action" style="width:5rem"><option value="path" {{ if ne .Type "ua" }}selected{{ end }}>path</option><option value="ua" {{ if eq .Type "ua" }}selected{{ end }}>UA</option></select>
-          <input type="text" name="re_pattern" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="re_pattern" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1311,7 +1339,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             </span>
             <input type="text" name="re_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
             <select name="re_type" class="rule-action" style="width:5rem"><option value="path" selected>path</option><option value="ua">UA</option></select>
-            <input type="text" name="re_pattern" value="" placeholder="{{ t .Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat">
+            <span class="rule-pat-wrap"><input type="text" name="re_pattern" value="" placeholder="{{ t .Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
             <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
             <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
             <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1567,7 +1595,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="bypass_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="bypass_ip" value="{{ .IP }}" placeholder="{{ t $.Lang "settings.network.bypass_placeholder" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="bypass_ip" value="{{ .IP }}" placeholder="{{ t $.Lang "settings.network.bypass_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1586,7 +1614,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.network.empty_ip" }}</div>
           </span>
           <input type="text" name="bypass_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="bypass_ip" value="" placeholder="{{ t .Lang "settings.network.bypass_placeholder" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="bypass_ip" value="" placeholder="{{ t .Lang "settings.network.bypass_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -1629,7 +1657,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <div class="pat{{ if not .IP }} empty{{ end }}" data-empty="{{ t $.Lang "settings.network.empty_ip" }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
             </span>
             <input type="text" name="stats_exclude_ips_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-            <input type="text" name="stats_exclude_ips" value="{{ .IP }}" placeholder="10.8.100.1" class="rule-pat">
+            <span class="rule-pat-wrap"><input type="text" name="stats_exclude_ips" value="{{ .IP }}" placeholder="10.8.100.1" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
             <button type="button" class="rule-edit" aria-label="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
             <button type="button" class="rule-save" aria-label="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
             <button type="button" class="rule-del" aria-label="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
@@ -1643,7 +1671,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
                 <div class="pat empty">{{ t .Lang "settings.network.empty_ip" }}</div>
               </span>
               <input type="text" name="stats_exclude_ips_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-              <input type="text" name="stats_exclude_ips" value="" placeholder="10.8.100.1" class="rule-pat">
+              <span class="rule-pat-wrap"><input type="text" name="stats_exclude_ips" value="" placeholder="10.8.100.1" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
               <button type="button" class="rule-edit" aria-label="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
               <button type="button" class="rule-save" aria-label="{{ t .Lang "settings.ua.save_row" }}">✓</button>
               <button type="button" class="rule-del" aria-label="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
@@ -1743,7 +1771,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -1763,7 +1791,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
           </span>
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="bp_path"  value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -1986,11 +2014,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="white_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ patText .Pattern }}{{ if patLiteral .Pattern }}<span class="pat-lit" data-mode="{{ patMode .Pattern }}">{{ patModeLabel $.Lang .Pattern }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="white_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="white_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="white_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -2010,7 +2038,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
           </span>
           <input type="text" name="white_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="white_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="white_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -2116,11 +2144,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="black_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ .Pattern }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if .Pattern }}{{ patText .Pattern }}{{ if patLiteral .Pattern }}<span class="pat-lit" data-mode="{{ patMode .Pattern }}">{{ patModeLabel $.Lang .Pattern }}</span>{{ end }}{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }} <span class="action-pill action-suspect ua-act-pill{{ if not .Action }} inherit{{ end }}" data-pill="action">{{ if .Action }}{{ .Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.ChallengeDefaultActionLabel }}{{ end }}</span></div>
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="black_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="black_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="black_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
+        {{/* Per-row chain.  The list-wide default is the right answer for most
+             rows, so "inherit" leads and names what it resolves to. */}}
+        <select name="black_extra_action" class="rule-action extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="" data-inherit-pill {{ if eq .Action "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.ChallengeDefaultActionLabel }}</option>
+          <option value="pow_only"         {{ if eq .Action "pow_only"         }}selected{{ end }}>pow_only</option>
+          <option value="captcha_only"     {{ if eq .Action "captcha_only"     }}selected{{ end }}>captcha_only</option>
+          <option value="pow_then_captcha" {{ if eq .Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
+        </select>
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
         <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
@@ -2133,13 +2170,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="black_extra_enabled" value="1">
-          <input type="hidden" name="black_extra_created_at" value="">
+          <input type="hidden" name="black_extra_created_at" value=""><input type="hidden" name="black_extra_updated_at" value="">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
           </span>
           <input type="text" name="black_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="black_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="black_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern_black" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
+          <select name="black_extra_action" class="rule-action extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
+            <option value="" data-inherit-pill selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .ChallengeDefaultActionLabel }}</option>
+            <option value="pow_only">pow_only</option>
+            <option value="captcha_only">captcha_only</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
+            <option value="deny">deny</option>
+          </select>
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
           <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
@@ -2663,7 +2707,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
           </span>
           <input type="text" name="ja4_extra_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="ja4_extra_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="ja4_extra_pat" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="ja4_extra_verd" value="{{ $r.Verdict }}" placeholder="{{ t $.Lang "settings.ja4.placeholder.verdict" }}" class="rule-verd">
           <select name="ja4_extra_action" class="rule-action">
             <option value="bot" {{ if eq $r.Action "bot" }}selected{{ end }}>{{ t $.Lang "settings.ja4.action_label.bot" }}</option>
@@ -2696,7 +2740,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <div class="pat empty">{{ t .Lang "settings.ua.empty_pattern" }}</div>
             </span>
             <input type="text" name="ja4_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-            <input type="text" name="ja4_extra_pat" value="" placeholder="{{ t .Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat">
+            <span class="rule-pat-wrap"><input type="text" name="ja4_extra_pat" value="" placeholder="{{ t .Lang "settings.ja4.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
             <input type="text" name="ja4_extra_verd" value="" placeholder="{{ t .Lang "settings.ja4.placeholder.verdict" }}" class="rule-verd">
             <select name="ja4_extra_action" class="rule-action">
               <option value="bot" selected>{{ t .Lang "settings.ja4.action_label.bot" }}</option>
@@ -2822,7 +2866,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
         <select name="honeypot_url_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
           <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -2849,7 +2893,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
           </span>
           <input type="text" name="honeypot_url_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="honeypot_url_path" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="" placeholder="{{ t .Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
           <select name="honeypot_url_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
             <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -2970,7 +3014,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="protected_site" list="protected-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
         <select name="protected_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
           <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -2998,7 +3042,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
           </span>
           <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="protected_path" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="protected_path" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="protected_site" list="protected-site-candidates" value="" placeholder="{{ t .Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
           <select name="protected_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
             <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -3925,7 +3969,7 @@ function secToHuman(s){
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="geo_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.geo.label_ph" }}" class="rule-title">
-        <input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="geo_country" value="{{ $r.Country }}" list="geo-country-datalist" placeholder="{{ t $.Lang "settings.geo.add_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <select name="geo_action" class="rule-action">
           <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRuleAction }}</option>
           <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
@@ -3953,7 +3997,7 @@ function secToHuman(s){
             <div class="pat empty">{{ t .Lang "settings.geo.add_ph" }}</div>
           </span>
           <input type="text" name="geo_label" value="" placeholder="{{ t .Lang "settings.geo.label_ph" }}" class="rule-title">
-          <input type="text" name="geo_country" value="" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="geo_country" value="" list="geo-country-datalist" placeholder="{{ t .Lang "settings.geo.add_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <select name="geo_action" class="rule-action">
             <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRuleAction }}</option>
             <option value="skip">skip</option>
@@ -4001,7 +4045,7 @@ function secToHuman(s){
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="gx_site" list="gx-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -4021,7 +4065,7 @@ function secToHuman(s){
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
           </span>
           <input type="text" name="gx_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="gx_path"  value="" placeholder="{{ t .Lang "settings.geo.exempt.placeholder" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="gx_path"  value="" placeholder="{{ t .Lang "settings.geo.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="gx_site" list="gx-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -4208,7 +4252,7 @@ function secToHuman(s){
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
-        <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+        <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span></span>
         <select name="asn_action" class="rule-action">
           <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
           <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
@@ -4236,7 +4280,7 @@ function secToHuman(s){
             <div class="pat empty">{{ t .Lang "settings.asn.add_ph" }}</div>
           </span>
           <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title">
-          <span class="asn-suggest-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"></span>
+          <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span></span>
           <select name="asn_action" class="rule-action">
             <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRuleAction }}</option>
             <option value="skip">skip</option>
@@ -4282,7 +4326,7 @@ function secToHuman(s){
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
-        <input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+        <span class="rule-pat-wrap"><input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="ax_site" list="ax-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
         <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
         <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
@@ -4302,7 +4346,7 @@ function secToHuman(s){
             <div class="pat empty">{{ t .Lang "settings.bypass_paths.empty_pattern" }}</div>
           </span>
           <input type="text" name="ax_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
-          <input type="text" name="ax_path"  value="" placeholder="{{ t .Lang "settings.asn.exempt.placeholder" }}" class="rule-pat">
+          <span class="rule-pat-wrap"><input type="text" name="ax_path"  value="" placeholder="{{ t .Lang "settings.asn.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="ax_site" list="ax-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
           <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
           <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -6568,7 +6612,17 @@ document.addEventListener('DOMContentLoaded', function(){
     const mode = row.querySelector('input[name$="_mode"]');
     if (mode) upsert('mode', mode.value, 'action-' + (mode.value || 'ok'));
     const act = row.querySelector('select.extra-action-sel');
-    if (act) upsert('action', act.value === 'inherit' ? '' : act.value, 'action-bot');
+    if (act) {
+      // An empty value is "inherit".  Where the list renders a pill for that
+      // (the option carries data-inherit-pill), keep showing the option's own
+      // label -- it names the chain the row will actually run, which is more
+      // use than a row with no pill at all.  Lists without the marker keep
+      // dropping the pill, as they always have.
+      const opt = act.options[act.selectedIndex];
+      const inheritPill = opt && opt.hasAttribute('data-inherit-pill');
+      const text = act.value && act.value !== 'inherit' ? act.value : (inheritPill ? opt.textContent.trim() : '');
+      upsert('action', text, act.value && act.value !== 'inherit' ? 'action-bot' : 'action-suspect inherit');
+    }
     const site = row.querySelector('input.rule-action[name$="_site"]');
     if (site) upsert('site', site.value.trim() ? 'site=' + site.value.trim() : '', 'action-suspect');
   }
@@ -6990,3 +7044,103 @@ document.addEventListener('DOMContentLoaded', function(){
 
 </body>
 </html>
+
+<script>
+(function(){
+// Pattern mode.  Every one of these fields is a regular expression, and the
+// obvious move -- paste the value you want to match -- silently does not work:
+// a User-Agent pasted verbatim compiles and matches nothing, because its
+// parentheses are read as groups.  The mode rides in the stored value as a
+// marker (one string, one meaning) and the chip in the field shows and cycles
+// it; the input always shows the bare text, so what the operator pasted is
+// what they keep seeing.
+var MODES = [
+  {id: 'regex',    marker: '',          label: {{ t .Lang "settings.rule.pat_regex" }},    ph: ''},
+  {id: 'contains', marker: 'contains:', label: {{ t .Lang "settings.rule.pat_contains" }}, ph: {{ t .Lang "settings.rule.pat_ph_contains" }}},
+  {id: 'exact',    marker: 'exact:',    label: {{ t .Lang "settings.rule.pat_exact" }},    ph: {{ t .Lang "settings.rule.pat_ph_exact" }}}
+];
+function modeIndexOf(v) {
+  for (var i = 1; i < MODES.length; i++) if (v.indexOf(MODES[i].marker) === 0) return i;
+  return 0;
+}
+function applyMode(input, btn, i) {
+  var m = MODES[i];
+  btn.dataset.mode = m.id;
+  btn.textContent = m.label;
+  // Each list ships its own regex placeholder (it shows that list's syntax);
+  // the literal modes describe what the box now expects instead.
+  input.placeholder = m.ph || (input.dataset.phRegex || '');
+  reserveChipRoom(input, btn);
+}
+// Reserve exactly the room the chip takes, in whatever language it renders: a
+// fixed padding fits one locale and lets the text run under the chip in the
+// next.  A hidden element measures 0, and these rows start hidden (the edit
+// lane only appears once a row is opened), so this is re-run when the row
+// becomes visible -- measuring once at load reserved 0 and the value ran
+// straight under the chip.
+function reserveChipRoom(input, btn) {
+  var w = btn.offsetWidth;
+  if (w > 0) input.style.paddingRight = (w + 10) + 'px';
+}
+function initPatMode(wrap) {
+  var input = wrap.querySelector('input.rule-pat');
+  var btn = wrap.querySelector('.rule-pat-mode');
+  if (!input || !btn || btn.dataset.wired === '1') return;
+  btn.dataset.wired = '1';
+  if (input.dataset.phRegex === undefined) input.dataset.phRegex = input.placeholder || '';
+  var i = modeIndexOf(input.value);
+  if (i > 0) input.value = input.value.slice(MODES[i].marker.length);
+  // A blank row is a new one, and the safe reading is the one that needs no
+  // escaping.  A row that already holds a pattern keeps its own reading: an
+  // existing unmarked value IS a regex.
+  else if (input.value === '') i = 1;
+  applyMode(input, btn, i);
+  btn.addEventListener('click', function(){
+    var cur = 0;
+    for (var k = 0; k < MODES.length; k++) if (MODES[k].id === btn.dataset.mode) cur = k;
+    applyMode(input, btn, (cur + 1) % MODES.length);
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+  });
+}
+document.querySelectorAll('.rule-pat-wrap').forEach(initPatMode);
+// Rows added from a <template> arrive after this runs.
+var patModeObserver = new MutationObserver(function(muts){
+  muts.forEach(function(m){
+    m.addedNodes.forEach(function(n){
+      if (n.nodeType !== 1) return;
+      if (n.matches && n.matches('.rule-pat-wrap')) initPatMode(n);
+      if (n.querySelectorAll) n.querySelectorAll('.rule-pat-wrap').forEach(initPatMode);
+    });
+  });
+});
+document.querySelectorAll('.rule-list').forEach(function(l){
+  patModeObserver.observe(l, {childList: true, subtree: true, attributes: true, attributeFilter: ['class']});
+});
+// A row opening for editing is the moment the chip has a width to measure.
+new MutationObserver(function(muts){
+  muts.forEach(function(m){
+    if (m.type !== 'attributes' || !m.target.classList || !m.target.classList.contains('editing')) return;
+    m.target.querySelectorAll('.rule-pat-wrap').forEach(function(w){
+      var i = w.querySelector('input.rule-pat'), b = w.querySelector('.rule-pat-mode');
+      if (i && b) reserveChipRoom(i, b);
+    });
+  });
+}).observe(document.body, {subtree: true, attributes: true, attributeFilter: ['class']});
+// Put the marker back at submit time, so the field never shows it to the
+// person typing in it.
+document.querySelectorAll('form').forEach(function(f){
+  f.addEventListener('submit', function(){
+    f.querySelectorAll('.rule-pat-wrap').forEach(function(w){
+      var input = w.querySelector('input.rule-pat');
+      var btn = w.querySelector('.rule-pat-mode');
+      if (!input || !btn) return;
+      var v = input.value.trim();
+      if (v === '') return;
+      for (var k = 1; k < MODES.length; k++) {
+        if (MODES[k].id === btn.dataset.mode) { input.value = MODES[k].marker + v; return; }
+      }
+    });
+  });
+});
+})();
+</script>
