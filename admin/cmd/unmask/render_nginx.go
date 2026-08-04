@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -106,18 +108,44 @@ func cmdRenderNginx(args []string) error {
 		return nil
 	}
 
-	if err := nginxconf.Render(s, *outDir, Version); err != nil {
-		return err
-	}
 	dst := *outDir
 	if dst == "" {
 		dst = s.Nginx.OutputDir
+	}
+	// Read the PoW difficulty the running nginx is still enforcing BEFORE the
+	// render overwrites it, so the warning below can compare the two.
+	prevDiff := renderedPowDifficulty(filepath.Join(dst, "http.inc"))
+
+	if err := nginxconf.Render(s, *outDir, Version); err != nil {
+		return err
 	}
 	for _, name := range renderedFiles {
 		fmt.Fprintf(os.Stderr, "rendered: %s\n", filepath.Join(dst, name))
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "To apply:  sudo nginx -s reload")
+	// Lowering the PoW difficulty is the one config change that BREAKS the site
+	// until the reload lands, and it does so silently.  The daemon starts
+	// serving easier puzzles the moment it restarts, while the native plugin
+	// keeps verifying against the value nginx parsed at its last reload: a
+	// solve two bits short of the old gate passes only 1 time in 4, so the
+	// visitor solves, is refused, and is challenged again -- about four times
+	// on average before one happens to clear.  Seen in production 2026-08-04,
+	// reported as "the PoW screen loops about five times".
+	//
+	// Ordering rule: lower the GATE first (this render + a reload), then the
+	// daemon.  Raising is the mirror image -- old solves stop clearing the new
+	// gate -- but that resolves itself as cookies are re-minted, so only the
+	// dangerous direction is called out here.
+	if newDiff := s.Challenge.Default.ResolvedPowDifficulty(); prevDiff > 0 && newDiff < prevDiff {
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintf(os.Stderr, "WARNING: PoW difficulty drops %d -> %d bits.  Until nginx reloads it keeps\n", prevDiff, newDiff)
+		fmt.Fprintf(os.Stderr, "         verifying against %d, so roughly %d%% of the solves the daemon is\n",
+			prevDiff, 100-100/(1<<uint(prevDiff-newDiff)))
+		fmt.Fprintln(os.Stderr, "         already handing out will be refused and those visitors re-challenged")
+		fmt.Fprintln(os.Stderr, "         in a loop.  Reload now:")
+		fmt.Fprintln(os.Stderr, "             sudo nginx -t && sudo nginx -s reload")
+	}
 	// Reload is the right advice for a config-only change -- but not while the
 	// running nginx still maps libraries a package already replaced, where a
 	// reload forks fresh workers from the stale master image and they can
@@ -135,4 +163,28 @@ func cmdRenderNginx(args []string) error {
 		fmt.Fprintln(os.Stderr, "             sudo systemctl restart nginx")
 	}
 	return nil
+}
+
+// renderedPowDifficulty reads the unmask_bv_pow_difficulty directive out of an
+// already-rendered http.inc -- i.e. the value the running nginx parsed at its
+// last reload.  0 when the file is absent or carries no such line (a fresh
+// install, or a forward-auth deployment that renders no plugin directives), so
+// callers treat it as "nothing to compare".
+func renderedPowDifficulty(path string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		f := strings.Fields(strings.TrimSpace(line))
+		if len(f) < 2 || f[0] != "unmask_bv_pow_difficulty" {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSuffix(f[1], ";"))
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
