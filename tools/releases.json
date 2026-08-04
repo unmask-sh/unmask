@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.19",
+  "latest": "0.1.20",
   "releases": [
+    {
+      "version": "0.1.20",
+      "date": "2026-08-05",
+      "notes": "A visitor who left while the challenge page was holding lost the solve they had already made. The display hold added in the previous release ran at the moment the proof of work completed - ahead of the pass cookie, the beacon and the credential fetch - so closing the tab during a pause unmask itself imposed meant no cookie, no record of the solve, and a fresh challenge on the next request. It surfaced while measuring a difficulty change: splitting the window at the hour the hold reached the fleet, one node ran 2.20% abandonment without it and 17.9% with it, against an 11.87% baseline before either change. The hold was not merely mis-counting departures, it was causing them, and it was large enough to hide the improvement underneath. The completed-state paint stays where it was; only the wait moves, to after the cookie is written, so leaving during it now keeps the pass."
+    },
     {
       "version": "0.1.19",
       "date": "2026-08-05",
