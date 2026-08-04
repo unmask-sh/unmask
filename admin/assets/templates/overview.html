@@ -63,6 +63,18 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-legend i{width:.6rem;height:.6rem;border-radius:.15rem;display:inline-block}
 /* The share is the point of the bar; the count is the detail behind it. */
 .comp-share{margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
+/* Denominator switch.  Segmented-control shape so the two read as one choice
+   rather than two links. */
+.comp-scope{display:flex;gap:0;margin:0 0 .5rem;font-size:.72rem}
+.comp-scope a{padding:.2rem .6rem;border:1px solid #e2e8f0;color:#64748b;text-decoration:none;background:#fff}
+.comp-scope a:first-child{border-radius:.25rem 0 0 .25rem}
+.comp-scope a:last-child{border-radius:0 .25rem .25rem 0;border-left:0}
+.comp-scope a:hover{background:#f8fafc;color:#334155}
+.comp-scope a.on{background:#0f172a;border-color:#0f172a;color:#fff}
+/* A row whose traffic left the denominator: still listed (it did not vanish),
+   but visibly not part of the arithmetic above. */
+.comp-out{opacity:.5}
+.comp-out .comp-share{color:#94a3b8;font-style:italic}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem}
 .kpi{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.85rem .9rem;display:flex;flex-direction:column;gap:.15rem}
 .kpi .label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
@@ -220,28 +232,101 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      a site is dealing with independent of its size (77% on one node, 10% on
      another).  It also carries four numbers, which a 13rem tile could only show
      at 0.7rem across two wrapped lines. */}}
-<div class="bcd-card comp-card">
+<div class="bcd-card comp-card" id="comp-card">
   <div class="comp-hd">
     <h2>{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></h2>
-    <div class="comp-pct">{{ if .KPINonHumanKnown }}{{ printf "%.1f" .KPINonHumanPct }}<span class="comp-pct-u">%</span>{{ else }}—{{ end }}</div>
-    <div class="comp-of">{{ if .KPINonHumanKnown }}{{ tf .Lang "overview.kpi.nonhuman_of_card" (comma .KPIReqTotal) }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+    {{/* Both denominators are rendered; the toggle only changes which is on
+         screen.  Every number inside one .comp-view -- headline, caption, bar
+         widths, legend shares -- is taken against that view's own Denom, so a
+         percentage can never sit beside a caption naming a different total.
+         Nothing is recomputed in the page: the formula stays in Go, once. */}}
+    {{ range .CompViews }}
+    <div class="comp-view" data-scope="{{ .Scope }}"{{ if not .Active }} hidden{{ end }}>
+      <div class="comp-pct">{{ if $.KPINonHumanKnown }}{{ printf "%.1f" .Pct }}<span class="comp-pct-u">%</span>{{ else }}—{{ end }}</div>
+      <div class="comp-of">{{ if $.KPINonHumanKnown }}{{ if eq .Scope "judged" }}{{ tf $.Lang "overview.kpi.nonhuman_of_judged" (comma .Denom) }}{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_of_card" (comma .Denom) }}{{ end }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+    </div>
+    {{ end }}
   </div>
   {{ if .KPINonHumanKnown }}
-  {{ $t := .KPIReqTotal }}
-  <div class="comp-bar" role="img" aria-label="{{ t .Lang "overview.kpi.nonhuman" }}">
-    <span class="comp-seg comp-benign" style="width:{{ pctOf .KPIReqBenign $t }}%"></span>
-    <span class="comp-seg comp-bad"    style="width:{{ pctOf .KPIReqBlocked $t }}%"></span>
-    <span class="comp-seg comp-bypass" style="width:{{ pctOf .KPIReqBypassed $t }}%"></span>
-    {{ if .KPIReqHumanKnown }}<span class="comp-seg comp-human"  style="width:{{ pctOf .KPIReqHuman $t }}%"></span>{{ end }}
-  </div>
-  <div class="comp-legend">
-    <span><i class="comp-benign"></i>{{ tf .Lang "overview.kpi.nonhuman_benign" (comma .KPIReqBenign) }}<b class="comp-share">{{ pctLabel .KPIReqBenign $t }}</b></span>
-    <span><i class="comp-bad"></i>{{ tf .Lang "overview.kpi.nonhuman_bad" (comma .KPIReqBlocked) }}<b class="comp-share">{{ pctLabel .KPIReqBlocked $t }}</b></span>
-    {{ if .KPIReqBypassed }}<span><i class="comp-bypass"></i>{{ tf .Lang "overview.kpi.nonhuman_bypass" (comma .KPIReqBypassed) }}<b class="comp-share">{{ pctLabel .KPIReqBypassed $t }}</b></span>{{ end }}
-    <span><i class="comp-human"></i>{{ if .KPIReqHumanKnown }}{{ tf .Lang "overview.kpi.nonhuman_human" (comma .KPIReqHuman) }}<b class="comp-share">{{ pctLabel .KPIReqHuman $t }}</b>{{ else }}{{ tf .Lang "overview.kpi.nonhuman_human" "—" }}<b class="comp-share" title="{{ t .Lang "overview.kpi.nonhuman_human_unknown" }}">?</b>{{ end }}</span>
+  {{/* Denominator switch.  Bypassed requests are the ones the operator exempted
+       from judgement; leaving them in answers "what is this server serving?",
+       taking them out answers "of what unmask judged, how much was not a
+       person?".  On a real install the two differ by about 2x, so the card
+       offers both rather than picking one silently.  Real links, so the choice
+       works without JS and can be bookmarked; the script below upgrades them to
+       an in-place swap of the already-rendered views. */}}
+  {{ if .KPIReqBypassed }}
+  <div class="comp-scope">
+    {{ range .CompViews }}
+    <a href="?comp={{ .Scope }}" data-scope="{{ .Scope }}"{{ if .Active }} class="on" aria-current="true"{{ end }}>{{ if eq .Scope "judged" }}{{ t $.Lang "overview.kpi.scope_judged" }}{{ else }}{{ t $.Lang "overview.kpi.scope_all" }}{{ end }}</a>
+    {{ end }}
   </div>
   {{ end }}
+  {{ range .CompViews }}
+  {{ $t := .Denom }}
+  {{ $judged := eq .Scope "judged" }}
+  <div class="comp-view" data-scope="{{ .Scope }}"{{ if not .Active }} hidden{{ end }}>
+    <div class="comp-bar" role="img" aria-label="{{ t $.Lang "overview.kpi.nonhuman" }}">
+      <span class="comp-seg comp-benign" style="width:{{ pctOf $.KPIReqBenign $t }}%"></span>
+      <span class="comp-seg comp-bad"    style="width:{{ pctOf $.KPIReqBlocked $t }}%"></span>
+      {{ if not $judged }}<span class="comp-seg comp-bypass" style="width:{{ pctOf $.KPIReqBypassed $t }}%"></span>{{ end }}
+      {{ if $.KPIReqHumanKnown }}<span class="comp-seg comp-human"  style="width:{{ pctOf $.KPIReqHuman $t }}%"></span>{{ end }}
+    </div>
+    <div class="comp-legend">
+      <span><i class="comp-benign"></i>{{ tf $.Lang "overview.kpi.nonhuman_benign" (comma $.KPIReqBenign) }}<b class="comp-share">{{ pctLabel $.KPIReqBenign $t }}</b></span>
+      <span><i class="comp-bad"></i>{{ tf $.Lang "overview.kpi.nonhuman_bad" (comma $.KPIReqBlocked) }}<b class="comp-share">{{ pctLabel $.KPIReqBlocked $t }}</b></span>
+      {{/* Kept visible when excluded, greyed and without a share: the traffic did
+           not vanish, it left the denominator, and a segment that disappears
+           reads as "there is none". */}}
+      {{ if $.KPIReqBypassed }}<span{{ if $judged }} class="comp-out"{{ end }}><i class="comp-bypass"></i>{{ tf $.Lang "overview.kpi.nonhuman_bypass" (comma $.KPIReqBypassed) }}<b class="comp-share">{{ if $judged }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ else }}{{ pctLabel $.KPIReqBypassed $t }}{{ end }}</b></span>{{ end }}
+      <span><i class="comp-human"></i>{{ if $.KPIReqHumanKnown }}{{ tf $.Lang "overview.kpi.nonhuman_human" (comma $.KPIReqHuman) }}<b class="comp-share">{{ pctLabel $.KPIReqHuman $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_human" "—" }}<b class="comp-share" title="{{ t $.Lang "overview.kpi.nonhuman_human_unknown" }}">?</b>{{ end }}</span>
+    </div>
+  </div>
+  {{ end }}
+  {{ end }}
 </div>
+
+<style>
+/* Colocated with the script below: a hidden view must stay hidden even though
+   .comp-view sits inside a flex header, where display:flex would beat [hidden].
+   (The same trap the rule-dialog choices hit.) */
+.comp-view[hidden]{display:none}
+</style>
+<script>
+// Denominator toggle: both views are already in the DOM, rendered by the server
+// against their own totals, so switching is a visibility flip -- no request, no
+// navigation, and no arithmetic repeated here.  The links keep working without
+// JS; this only intercepts them.
+(function(){
+  var card = document.getElementById('comp-card');
+  if (!card) return;
+  var nav = card.querySelector('.comp-scope');
+  if (!nav) return;
+  nav.addEventListener('click', function(e){
+    var a = e.target.closest('a[data-scope]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    var want = a.getAttribute('data-scope');
+    card.querySelectorAll('.comp-view').forEach(function(v){
+      v.hidden = v.getAttribute('data-scope') !== want;
+    });
+    nav.querySelectorAll('a[data-scope]').forEach(function(link){
+      var on = link.getAttribute('data-scope') === want;
+      link.classList.toggle('on', on);
+      if (on) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current');
+    });
+    // Remember it the same way the server would have, and put the choice in the
+    // URL so a reload or a shared link opens on the view being looked at.
+    try {
+      document.cookie = 'unmask_comp_scope=' + encodeURIComponent(want) +
+        ';path=' + (window.UNMASK_BASE || '/unmask') + ';max-age=' + (365*24*3600) + ';SameSite=Lax';
+      var u = new URL(window.location.href);
+      u.searchParams.set('comp', want);
+      history.replaceState(null, '', u);
+    } catch (_) {}
+  });
+})();
+</script>
 
 <div class="kpi-grid">
   <div class="kpi k-serve">
