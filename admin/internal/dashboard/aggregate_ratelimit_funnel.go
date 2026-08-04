@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"time"
 
@@ -136,7 +137,13 @@ func rollupRateLimitFunnelRange(ctx context.Context, d *db.DB, fromHour, toHour 
 }
 
 // scanPairs runs a two-column (string, int64) aggregate query and calls fn for
-// each row.  A NULL string column yields "".
+// each row.  A NULL string column yields "" -- and that has to be real, not
+// aspirational: stealthStmt groups by ja4_verdict, which is NULL on rows that
+// carry no verdict, and scanning that into a bare string errors.  The error
+// then wedges the whole rollup -- the cursor never advances past the hour, the
+// 60s ticker retries it forever (one log line per minute), and the read path's
+// "live tail" raw-scans an ever-growing window, which is exactly the load this
+// rollup exists to avoid.
 func scanPairs(ctx context.Context, d *db.DB, stmt string, args []any, fn func(string, int64)) error {
 	rows, err := d.QueryContext(ctx, stmt, args...)
 	if err != nil {
@@ -144,12 +151,12 @@ func scanPairs(ctx context.Context, d *db.DB, stmt string, args []any, fn func(s
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var name string
+		var name sql.NullString
 		var n int64
 		if err := rows.Scan(&name, &n); err != nil {
 			return err
 		}
-		fn(name, n)
+		fn(name.String, n)
 	}
 	return rows.Err()
 }
