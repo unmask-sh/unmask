@@ -57,6 +57,58 @@ func TestBlackListChallengeNamesItsAxis(t *testing.T) {
 	}
 }
 
+// A challenge the site's default posture raised (the Operating-mode buckets
+// challenge every no-match request out of the box) is not a per-visitor rule
+// hit.  The first install running that posture at scale (2026-08-04) had its
+// whole hunt log reading "ua_target" because the attribution keyed on "is a
+// challenge candidate" rather than "matched a pattern" -- every bystander was
+// painted as a black-list match and the rows the label exists for were
+// indistinguishable from the crowd.
+func TestDefaultPostureChallengeIsNotAUARuleHit(t *testing.T) {
+	h := newTestHandler(t)
+	cur := h.snapshotSettings()
+	cur.Server.BasePath = "/unmask"
+	cur.Nginx.ChallengeTargets.DefaultAction = "captcha_only"
+	cur.Nginx.ChallengeTargets.Extra = []string{"X11; Linux x86_64"}
+	h.SetSettings(cur)
+
+	const farmUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+	const plainUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+
+	serve := func(ua string) (reason, chain string) {
+		req := httptest.NewRequest(http.MethodGet, "/unmask/challenge/?u=%2F", nil)
+		req.Header.Set("User-Agent", ua)
+		rr := httptest.NewRecorder()
+		h.ServeChallenge(rr, req)
+		body := rr.Body.String()
+		m := regexp.MustCompile(`/\*__CAPTCHA_FORCE__\*/"([a-z_]*)"`).FindStringSubmatch(body)
+		c := regexp.MustCompile(`/\*__CHMODE__\*/"([a-z_]*)"`).FindStringSubmatch(body)
+		if m == nil || c == nil {
+			t.Fatalf("no force reason / chain in the served page (status %d)", rr.Code)
+		}
+		return m[1], c[1]
+	}
+
+	// An unmatched UA challenged by the posture alone: no rule attribution,
+	// and the chain is the Operating-mode bucket's (pow_only default), not the
+	// black-list DefaultAction.
+	reason, chain := serve(plainUA)
+	if reason == "ua_target" {
+		t.Errorf("the default posture attributed an unmatched UA as ua_target (reason=%q)", reason)
+	}
+	if chain != "pow_only" {
+		t.Errorf("posture chain = %q, want pow_only (the bucket action, not the black-list default)", chain)
+	}
+	// A listed UA keeps both: the label and the black-list chain.
+	reason, chain = serve(farmUA)
+	if reason != "ua_target" {
+		t.Errorf("a black-listed UA served force_reason=%q, want ua_target", reason)
+	}
+	if chain != "captcha_only" {
+		t.Errorf("black-list chain = %q, want captcha_only (DefaultAction)", chain)
+	}
+}
+
 // The reason is only useful if it can be filtered for.
 func TestHuntOffersTheUATargetReason(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/hunt.html")

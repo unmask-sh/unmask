@@ -22,6 +22,32 @@
   var API_BASE = '/unmask/api' + (SITE === 'default' ? '' : '/' + SITE);
 
   // ============================================================
+  // Invisible display style: the <head> inline script stamped
+  // data-unmask-style before first paint, and the CSS is holding the card at
+  // opacity 0.  Reveal when the operator's blank window elapses -- or the
+  // moment any screen needs the visitor (CAPTCHA, error), whichever is first.
+  // A solve that beats the timer redirects with nothing ever shown, so the
+  // visit reads as a plain navigation.  revealNow is idempotent; the fade
+  // duration comes from reveal_fade_ms (0 = pop in with no fade).
+  // ============================================================
+  var _de = document.documentElement;
+  var _invisible = _de.getAttribute('data-unmask-style') === 'invisible';
+  function revealNow(){
+    if (!_invisible || _de.hasAttribute('data-unmask-reveal')) return;
+    var fade = (window.UNMASK && window.UNMASK.reveal_fade_ms) | 0;
+    if (fade < 0) fade = 0;
+    try { _de.style.setProperty('--unmask-fade', fade + 'ms'); } catch (_) {}
+    _de.setAttribute('data-unmask-reveal', '1');
+  }
+  if (_invisible) {
+    var _rev = (window.UNMASK && window.UNMASK.invisible_reveal_ms) | 0;
+    if (_rev <= 0) _rev = 1200;
+    // A backgrounded tab may clamp this timer; that only delays a reveal
+    // nobody is looking at.
+    setTimeout(revealNow, _rev);
+  }
+
+  // ============================================================
   // debug log send (for investigating challenge loop stalls)
   //   beacons each phase's state to API_BASE + '/debug'
   //   - rate limit is implemented server-side (same IP, 20 per 5 min)
@@ -340,6 +366,24 @@
   // set initial text
   document.getElementById('msg').textContent=t.verify;
 
+  // Freeze the message box at whatever height its FIRST line count needs, so a
+  // later, shorter line cannot shrink it.  The body is centred vertically, so
+  // any change in this element's height moves everything -- spinner, card, and
+  // the operator's logo above it.  Measured before this: switching to the
+  // connecting line drops the box from two rendered lines to one (48px -> 24px)
+  // and shifts the spinner 19px on a desktop viewport.  That jump was always
+  // there; the display hold is what gives a visitor time to see it.
+  //
+  // Measured rather than hard-coded: the line count depends on the viewport and
+  // on the locale's own wording, so a fixed rem value would be right for
+  // Japanese at 1280px and wrong everywhere else.  min-height only sets a
+  // floor, so a rotation that needs MORE lines still grows normally.
+  try {
+    var _m0 = document.getElementById('msg');
+    var _h0 = _m0 && _m0.getBoundingClientRect().height;
+    if (_h0 > 0) { _m0.style.minHeight = _h0 + 'px'; }
+  } catch (_) {}
+
   // ============================================================
   // _preview=1 / admin theme cards: stop here.  Setup has run far enough
   // to paint the brand (logo / site name / footer / preset text); skip
@@ -386,6 +430,7 @@
     // cannot see at serve time.  Recorded on every path so a CAPTCHA never
     // has to be explained by inference from the timeline.
     var capReason = why || 'unknown';
+    revealNow(); // a screen that needs interaction is never withheld
     document.getElementById('spinner').style.display='none';
     document.getElementById('msg').style.display='none';
     // Collapse the PoW progress bar's reserved box (height + .6em/1em margins) so
@@ -698,6 +743,7 @@
   }
 
   function showError(msg){
+    revealNow(); // an error the visitor cannot see is a silent hang
     var el=document.getElementById('errMsg');
     el.textContent=msg;
     el.style.display='block';
@@ -723,6 +769,7 @@
     de: { title:'Bitte Cookies aktivieren', desc:'Diese Website benötigt Cookies zum Laden. Aktivieren Sie Cookies in Ihren Browser-Einstellungen und laden Sie die Seite neu.' }
   };
   function showCookieError(){
+    revealNow(); // same contract as showError: never withhold an error screen
     var c=COOKIE_ERR_I18N[lang]||COOKIE_ERR_I18N.en;
     document.getElementById('spinner').style.display='none';
     document.getElementById('msg').style.display='none';
@@ -1095,18 +1142,11 @@
   //   parts[3] = flags base36.
   var tok=issuedAt+'.pow2.'+target.toString(36)+'.'+flags.toString(36);
 
+  // elapsed = the pure solve time, captured before any display hold, and it
+  // is what every beacon reports.  The old floor re-measured after its own
+  // sleep, so a 1.5s hold read as a plausible 1.5s solve and hid itself in
+  // the metrics for weeks.
   var elapsed=Date.now()-start;
-
-  // Spinner floor: PoW often finishes in ~30-100 ms on modern hardware, which
-  // makes the page look like it skipped the check entirely.  Hold the spinner
-  // for at least `pow_min_display_ms` (= operator-configured floor; default
-  // 1.5s) so the visual "we ran a verification" beat lands.  0 disables the
-  // floor for real-timing measurement on /unmask/test/.
-  var minDisp = (window.UNMASK && window.UNMASK.pow_min_display_ms) || 0;
-  if (minDisp > 0 && elapsed < minDisp) {
-    await new Promise(function(r){ setTimeout(r, minDisp - elapsed); });
-    elapsed = Date.now() - start;
-  }
 
   // Branch by chain mode.  Two distinct phases because they mean different things:
   //   - 'pow_pass'    : PoW solved + handing off to next stage (= midpoint; still unauthenticated.
@@ -1115,10 +1155,61 @@
   //                     via the challenge_mode=pow_only route)
   // "Total PoW solved" is SUM(phase IN ('bv_pow_only','pow_pass')); _bv issuance attribution is
   // phase-level (bv_<chMode>) so the funnel doesn't need JSON_EXTRACT.
+  // The CAPTCHA leg branches BEFORE the display floor below: it needs the
+  // visitor's hands, and holding a solved spinner in front of a task would be
+  // pure added latency.
   if (chainPoWThenCaptcha) {
     _bcDebug('pow_pass', { pow_iterations: target, pow_elapsed_ms: elapsed, token_flags: flags });
     showCaptcha('pow_then_captcha');
     return;
+  }
+
+  // Display floor (visible style): hold the page to pow_min_display_ms of
+  // total display before redirecting, so the check reads as a check instead of
+  // an unparseable flash; the residual shows the "verified" state -- the beat
+  // an operator configures min_display_ms for.  The invisible style skips it:
+  // its fast path shows nothing, and holding a blank page would only delay
+  // the visitor.  (0 = no floor; /unmask/test/ overrides via ?_pow_display=N.)
+  var minDisp = (window.UNMASK && window.UNMASK.pow_min_display_ms) || 0;
+  var shownFor = Date.now()-start;
+  if (!_invisible && minDisp > 0 && shownFor < minDisp) {
+    try {
+      // The spinner keeps turning and the words do not change.
+      //
+      // Turning: stopping the spinner here left the visitor on a still frame
+      // for the hold AND for the whole navigation that follows, because the
+      // spinner passAndRedirect starts lives inside the CAPTCHA card, which a
+      // PoW-only pass never showed.  Nothing moved from the solve until the
+      // destination painted; one continuous motion is what a page transition
+      // should look like.
+      //
+      // Unchanged: the line already says the site is loading, which stays true
+      // through the hold and through the navigation (location.replace keeps
+      // this page painted until the destination renders).  Advancing it to
+      // "connecting" was tried and dropped -- in Japanese the two are near
+      // synonyms, so it read as a change without a difference, while costing a
+      // real reflow: the shorter line dropped the centred layout by 24px and
+      // moved the spinner and any operator logo with it.  A "verified" tick is
+      // worse still: this screen deliberately never tells a visitor they are
+      // being screened, so announcing the result of a check reads backwards.
+      // That tick belongs to the CAPTCHA path, where the visitor knowingly did
+      // something and is owed the outcome.
+      // The bar fills to 100% and STAYS there until the page navigates away.
+      //
+      // powProgress() clamps the fill at 95% while solving -- deliberately, so
+      // a long solve never sits at a frozen 100% -- and nothing was writing the
+      // final 100%: the bar simply faded out from wherever it had got to.  A
+      // fast solve barely moves it, so holding the page for 800ms showed a
+      // nearly-empty bar dissolving, which reads as the progress resetting.
+      //
+      // Fading it once full is no better: a bar that vanishes the moment it
+      // completes takes the answer away just as the visitor reads it, and it is
+      // one more thing moving on a screen whose whole point is now to hold
+      // still.  A full bar left alone says "done" and lets the navigation be
+      // the next event.
+      var _pf=document.getElementById('powProgressFill'); if (_pf) _pf.style.width='100%';
+    } catch (_) {}
+    await new Promise(function(r){ setTimeout(r, minDisp - shownFor); });
   }
 
   // Capture the prior _bv (the accumulated per-IP signature list) BEFORE the
