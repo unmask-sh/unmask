@@ -1024,7 +1024,6 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	h.updateSettingsInMemory(func(live *settings.Settings) {
 		live.DB = s.DB
-		live.Nginx.ChallengeTargets.All = cur.Nginx.ChallengeTargets.All
 		// Setup wizard only touches the global Default record (= per-site
 		// overrides are introduced later via the settings tab).
 		live.Challenge.Default.ObserveOnly = cur.Challenge.Default.ObserveOnly

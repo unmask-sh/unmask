@@ -391,8 +391,7 @@ type renderData struct {
 	GeoExemptPathsPerHost   []BypassPathHostMaps
 	AsnExemptPathsGlobal    []string
 	AsnExemptPathsPerHost   []BypassPathHostMaps
-	ChallengeAll            bool                   // true -> $is_challenge_target = 1 (= UA-agnostic)
-	ChallengeTargetPatterns []string               // OR list of UA patterns evaluated when false
+	ChallengeTargetPatterns []string               // OR list of UA patterns for $is_challenge_target
 	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
 	HTTPSRedirectExempt     []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
@@ -754,9 +753,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.HTTPSRedirectExempt = ResolveRedirectExemptClauses(ex.EnabledPresets, ex.DisabledPresets, custom)
 	}
 
-	// challenge target UA: all=true is UA-agnostic.  Otherwise enabled presets + extras.
-	d.ChallengeAll = s.Nginx.ChallengeTargets.All
-	if !d.ChallengeAll {
+	// challenge target UA: enabled presets + extras.  Whether a request nothing
+	// here matches is challenged anyway is the Global axis's call
+	// (known_browser_action / unknown_ua_action), not this list's.
+	{
 		disabledTgt := toSet(s.Nginx.ChallengeTargets.DisabledPresets)
 		seen := map[string]bool{}
 		for _, g := range ChallengeTargetGroups {

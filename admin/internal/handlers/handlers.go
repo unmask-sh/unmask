@@ -63,11 +63,18 @@ const (
 	challengeJSScriptTag = `<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
-	// PoW spinner floor.  Default 0 (= no floor, real timing); only the
-	// /unmask/test/ pages override this via `?_pow_display=N` to slow the
-	// spinner down for visual inspection.  Production traffic always sees
-	// the real PoW solve time.
-	powMinDisplayMsPH       = "/*__POW_MIN_DISPLAY_MS__*/0"
+	// PoW display floor (visible style).  The HTML's own value 0 means "no
+	// floor" if substitution ever fails; the handler injects the resolved
+	// ChallengeValues.MinDisplayMS (default 800), and the /unmask/test/
+	// pages can override it via `?_pow_display=N` for visual inspection.
+	powMinDisplayMsPH = "/*__POW_MIN_DISPLAY_MS__*/0"
+	// Challenge display style + the invisible style's timing knobs.  The
+	// style is injected twice by one ReplaceAll: into an inline <head> script
+	// (so the CSS hides the card BEFORE first paint -- a deferred script
+	// would flash the content it is about to hide) and into window.UNMASK.
+	challengeStylePH        = `/*__CHALLENGE_STYLE__*/"visible"`
+	invisibleRevealPH       = "/*__INVISIBLE_REVEAL_MS__*/1200"
+	revealFadePH            = "/*__REVEAL_FADE_MS__*/200"
 	origPathPlaceholder     = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder  = `/*__BEACON_TOKEN__*/""`
 	issuedAtPlaceholder     = `/*__ISSUED_AT__*/0`
@@ -1036,7 +1043,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if ua := r.Header.Get("User-Agent"); ua != "" {
 		_, uaTargetCat, uaRowAction = lookupUAListed(ua, h.cfg().Nginx)
 	}
-	uaTargetHit := uaTargetCat == "challenge" || h.cfg().Nginx.ChallengeTargets.All
+	// uaListed is what "ua_target" MEANS: this visitor's UA matched a
+	// black-list pattern (preset or extra row).  Both the attribution and the
+	// black-list chain key on this one fact; a serve nothing here matched is
+	// the Global axis's business (bucket actions), not this list's.
+	uaListed := uaTargetCat == "challenge"
 
 	// isPreview: the operator's theme-tab iframe (?_preview=1) or an
 	// auth-gated /admin/test/ page.  Must serve the real challenge markup, not
@@ -1093,8 +1104,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// shows up as "none".  Lowest priority of the page-side axes, and
 		// deliberately here rather than earlier -- the rebind gate above reads
 		// "no forced reason", so naming the axis sooner re-challenged a visitor
-		// who had merely changed IP.
-		if forceReason == "none" && uaTargetHit {
+		// who had merely changed IP.  A serve no pattern matched stays "none":
+		// the Global axis challenging by default is the site's posture, not a
+		// rule hit.
+		if forceReason == "none" && uaListed {
 			forceReason = "ua_target"
 		}
 	}
@@ -1313,13 +1326,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// not a global default.  Native nginx sends every escalation here as
 		// forceReason="none" with no target-vs-plain distinction, so gate the
 		// override on the UA actually matching a challenge target (preset /
-		// extra / upstream black group, or the catch-all All toggle).
-		// Ungated it overrode the Operating-mode pick for every plain
-		// challenge: with default_action=pow_then_captcha a current-stable
-		// Chrome that failed the transparent PoW was walked into the CAPTCHA
-		// leg the operator only meant for black-listed UAs.
+		// extra / upstream black group).  Ungated it overrode the
+		// Operating-mode pick for every plain challenge: with
+		// default_action=pow_then_captcha a current-stable Chrome that failed
+		// the transparent PoW was walked into the CAPTCHA leg the operator
+		// only meant for black-listed UAs.
 		if ua := r.Header.Get("User-Agent"); ua != "" {
-			if uaTargetHit {
+			if uaListed {
 				if act := strings.TrimSpace(h.cfg().Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 					chMode = act
 				}
@@ -1419,17 +1432,37 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(bvMaxEntriesPlaceholder),
 		[]byte(fmt.Sprintf("/*__BV_MAX_ENTRIES__*/%d", h.cfg().Rebind.MaxEntriesResolved())))
 
-	// PoW spinner floor.  Production sees no floor (real PoW timing); the
-	// /unmask/test/ pages opt into a slowdown via `?_pow_display=N` so an
-	// operator inspecting the visuals can actually see the spinner instead
-	// of having it flash past.  Clamps to a safe range so a hostile query
-	// value cannot wedge the page indefinitely.
+	// PoW display floor (visible style): the operator's MinDisplayMS, holding
+	// the page long enough that the check reads as a check rather than an
+	// unparseable flash; the residual after a fast solve shows the "verified"
+	// state.  `?_pow_display=N` (the /unmask/test/ inspection knob) overrides
+	// it, clamped so a hostile query value cannot wedge the page indefinitely.
+	// The floor pads only the perceived stay: pow_elapsed_ms keeps reporting
+	// the pure solve time (challenge.js captures it before the hold).
+	minDisplay := ch.ResolvedMinDisplayMS()
 	if v := strings.TrimSpace(r.URL.Query().Get("_pow_display")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n <= 30000 {
-			body = bytes.ReplaceAll(body, []byte(powMinDisplayMsPH),
-				[]byte(fmt.Sprintf("/*__POW_MIN_DISPLAY_MS__*/%d", n)))
+			minDisplay = n
 		}
 	}
+	body = bytes.ReplaceAll(body, []byte(powMinDisplayMsPH),
+		[]byte(fmt.Sprintf("/*__POW_MIN_DISPLAY_MS__*/%d", minDisplay)))
+
+	// Challenge display style.  A preview always renders visible: the operator
+	// opened the page to look at it, and the invisible style would show them a
+	// blank card until the reveal timer -- the one visitor for whom that is
+	// never the point.  One ReplaceAll covers both injection sites (the
+	// pre-paint <head> script and window.UNMASK).
+	style := ch.ResolvedDisplayStyle()
+	if isPreview {
+		style = settings.ChallengeDisplayVisible
+	}
+	body = bytes.ReplaceAll(body, []byte(challengeStylePH),
+		[]byte(`/*__CHALLENGE_STYLE__*/"`+style+`"`))
+	body = bytes.ReplaceAll(body, []byte(invisibleRevealPH),
+		[]byte(fmt.Sprintf("/*__INVISIBLE_REVEAL_MS__*/%d", ch.ResolvedInvisibleRevealMS())))
+	body = bytes.ReplaceAll(body, []byte(revealFadePH),
+		[]byte(fmt.Sprintf("/*__REVEAL_FADE_MS__*/%d", ch.ResolvedRevealFadeMS())))
 
 	// Original URI (path + query): 3-tier source.
 	//   1. _orig query string (passed by nginx-rendered-protect.inc as a

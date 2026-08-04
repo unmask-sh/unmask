@@ -11,8 +11,25 @@
 <link rel="dns-prefetch" href="https://challenges.cloudflare.com">
 <link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>
 <title>Security check</title>
+<script>
+// Challenge display style, applied BEFORE first paint: this inline script runs
+// during parse, ahead of the content below, so the invisible style's CSS can
+// hide the card without the one-frame flash a deferred script would allow.
+// The value is substituted by ServeChallenge; the HTML's own default keeps an
+// un-substituted build fully visible (the safe way to fail).
+document.documentElement.setAttribute('data-unmask-style', /*__CHALLENGE_STYLE__*/"visible");
+</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
+/* Invisible display style: nothing but the themed background until the reveal
+   timer fires (or a CAPTCHA / error needs interaction).  challenge.js flips
+   data-unmask-reveal on the <html> element and sets --unmask-fade from the
+   operator's reveal_fade_ms (0 = pop in with no fade). */
+html[data-unmask-style="invisible"] .box,
+html[data-unmask-style="invisible"] #brand-head{opacity:0;transition:opacity var(--unmask-fade,200ms) ease}
+html[data-unmask-style="invisible"][data-unmask-reveal] .box,
+html[data-unmask-style="invisible"][data-unmask-reveal] #brand-head{opacity:1}
+@media (prefers-reduced-motion: reduce){html[data-unmask-style="invisible"] .box,html[data-unmask-style="invisible"] #brand-head{transition:none}}
 /* padding-block guarantees a minimum top/bottom margin: with justify-content:center
    the content is centred while it fits, but once a tall CAPTCHA makes it exceed the
    viewport the free space hits zero and the top would otherwise jam against the edge.
@@ -297,7 +314,7 @@ body.uc-on button:disabled{opacity:.5}
        build leaves an empty element rather than a stray label. -->
   <div class="unmask-ref"><!--__REF__--></div>
 </div>
-<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, brand: /*__BRANDING__*/null};
+<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, display_style: /*__CHALLENGE_STYLE__*/"visible", invisible_reveal_ms: /*__INVISIBLE_REVEAL_MS__*/1200, reveal_fade_ms: /*__REVEAL_FADE_MS__*/200, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, brand: /*__BRANDING__*/null};
 (function(){
   // apply the theme to body class right after document construction (= prevent flash).
   var U=window.UNMASK;
