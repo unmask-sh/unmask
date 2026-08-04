@@ -112,77 +112,65 @@ func TestPassRedirectHoldIsHonest(t *testing.T) {
 	if !strings.Contains(js, "setTimeout(function(){passAndRedirect();},0)") {
 		t.Error("the pass path no longer redirects on the next tick")
 	}
+	// The WAIT must run after the pass cookie is written, never before.  It
+	// used to sit at the solve, ahead of the cookie and the beacon, so a
+	// visitor who closed the tab during a hold WE imposed lost the solve they
+	// had already paid for: no _bv, no bv_pow_only, an abandon beacon instead.
+	// Measured the hour it shipped: gb went 2.20% abandonment (16-bit, no hold)
+	// to 17.9% (16-bit + hold) against an 11.87% baseline -- big enough to hide
+	// a real improvement underneath it.
+	paint := strings.Index(js, "var holdUntil")
+	cookie := strings.Index(js, "document.cookie='_bv='")
+	wait := strings.Index(js, "holdUntil - Date.now()")
+	beacon := strings.Index(js, "_bcDebug('bv_pow_only'")
+	for name, i := range map[string]int{"holdUntil": paint, "cookie write": cookie, "wait": wait, "beacon": beacon} {
+		if i < 0 {
+			t.Fatalf("cannot locate %s", name)
+		}
+	}
+	if wait < cookie || wait < beacon {
+		t.Error("the display hold waits before the pass cookie / beacon; a visitor who leaves during it loses a solve they already made")
+	}
+	if paint > cookie {
+		t.Error("the completed-state paint runs after the cookie write; it belongs at the moment the solve lands")
+	}
 	// The hold must not re-measure elapsed after its sleep.
-	hold := strings.Index(js, "var shownFor")
-	if hold < 0 {
-		t.Fatal("cannot locate the display-floor hold")
-	}
-	// The hold block runs from its `shownFor` measurement to the sleep that
-	// ends it.  Bounded by the code, not by a character count -- a fixed window
-	// silently stopped covering the block as comments were added to it.
-	holdEnd := strings.Index(js[hold:], "await new Promise")
-	if holdEnd < 0 {
-		t.Fatal("cannot find the end of the display-floor hold")
-	}
-	seg := js[hold : hold+holdEnd]
+	holdEnd := strings.Index(js[paint:], "document.cookie='_bv='")
+	seg := js[paint : paint+holdEnd]
 	if strings.Contains(seg, "elapsed = Date.now()") {
 		t.Error("the hold re-measures elapsed after sleeping, so the floor leaks into pow_elapsed_ms again")
 	}
-	// The hold must not stop the spinner.  A PoW-only pass never shows the
-	// CAPTCHA card, so the spinner passAndRedirect starts is invisible on that
-	// path -- hiding this one left the visitor on a still frame from the solve
-	// until the destination painted, which is the span a page transition most
-	// needs to look busy.
+	// The paint must not stop the spinner, and must not swap the wording.
 	if strings.Contains(seg, `getElementById('spinner')`) {
-		t.Error("the display hold touches the spinner; it must keep turning through the hold and the navigation that follows")
+		t.Error("the hold touches the spinner; it must keep turning through the hold and the navigation that follows")
 	}
-	// The hold changes no words.  This screen never tells a visitor a check is
-	// running, so announcing a verified result reads backwards; and advancing
-	// to "connecting" was a change without a difference (near synonyms in
-	// Japanese) that cost a real reflow.  The spinner carries the liveness.
-	for _, s := range []string{"t.verified", "t.connecting"} {
-		if strings.Contains(seg, s) {
-			t.Errorf("the hold swaps the message to %s; the line should stay as it is and let the spinner carry the motion", s)
+	for _, w := range []string{"t.verified", "t.connecting"} {
+		if strings.Contains(seg, w) {
+			t.Errorf("the hold swaps the message to %s; the line should stay as it is", w)
 		}
 	}
-
-	// The progress bar finishes before it leaves.  powProgress() clamps the fill
-	// at 95% while solving (so a long solve never sits at a frozen 100%), and
-	// nothing wrote the final 100% -- the bar just faded from wherever it had
-	// reached.  A 200ms solve barely moves it, so holding the page for 800ms
-	// showed a nearly-empty bar dissolving, which reads as the progress
-	// resetting rather than completing.
+	// The bar finishes rather than dissolving from wherever it reached.
 	if !strings.Contains(seg, "style.width='100%'") {
 		t.Error("the hold does not fill the progress bar; a fast solve leaves it nearly empty, which reads as a reset")
 	}
-	// And it stays full.  Fading a completed bar takes the answer away just as
-	// it is read, and adds motion to a screen that is now meant to hold still --
-	// the navigation should be the next thing that happens, not the bar leaving.
 	if strings.Contains(seg, "style.opacity='0'") {
 		t.Error("the hold fades the progress bar out; a full bar should stay until the page navigates away")
 	}
-
-	// The message box keeps its first-rendered height regardless.  The body
-	// centres vertically, so this element's height IS the page's layout: a
-	// shorter line drops the box (measured: 48px -> 24px) and moves the spinner
-	// and any operator logo with it, by up to 19px.  Nothing rewrites the line
-	// today, but a locale's own wording, a long site name or a future line
-	// would, and the hold is what gives a visitor time to watch it happen.
-	// Measured at load, not hard-coded: the line count depends on the viewport
-	// and on each locale.
+	// The message box keeps its first-rendered height so nothing reflows.
 	if !strings.Contains(js, "style.minHeight") {
 		t.Error("the message box height is not pinned, so a shorter line reflows the page under the visitor")
 	}
-	pin := strings.Index(js, "style.minHeight")
-	if init := strings.Index(js, "textContent=t.verify"); init < 0 || pin < init {
-		t.Error("the height floor is not taken from the first rendered line")
+	if pin := strings.Index(js, "style.minHeight"); pin < 0 || pin > strings.Index(js, "textContent=t.verify")+400 {
+		if init := strings.Index(js, "textContent=t.verify"); init < 0 || pin < init {
+			t.Error("the height floor is not taken from the first rendered line")
+		}
 	}
 	// And the CAPTCHA chain branches before the hold runs.
 	chain := strings.Index(js, "if (chainPoWThenCaptcha)")
 	if chain < 0 {
 		t.Fatal("cannot locate the chain branch")
 	}
-	if chain > hold {
+	if chain > paint {
 		t.Error("the display floor runs before the CAPTCHA branch, so the operator's floor delays a screen that needs interaction")
 	}
 }
