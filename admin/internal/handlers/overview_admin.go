@@ -208,9 +208,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	if rNonHuman > rTotal {
 		rNonHuman = rTotal
 	}
-	if rKnown && rTotal > 0 {
-		nonHumanPct = float64(rNonHuman) / float64(rTotal) * 100
-	}
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
 	if h.BanMgr != nil {
@@ -274,6 +271,47 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	if !rHumanKnown {
 		rHuman = 0
 	}
+
+	// Which denominator the share is taken against.  Bypassed requests are the
+	// ones the operator exempted from judgement -- package managers, monitors,
+	// a feed -- and on a real install they are not a rounding error: 56% of a
+	// day's traffic on one fleet node.  Left in the denominator they dilute
+	// every other share, so the headline answers "what is this server
+	// serving?" when the question an operator usually has is "of what unmask
+	// actually judged, how much was not a person?".  Both are legitimate, and
+	// they differ by about 2x here, so the card names the denominator it used
+	// and lets the operator switch rather than picking one silently.
+	//
+	// BOTH denominators are computed here and BOTH are rendered; the toggle
+	// only changes which one is on screen.  That keeps the arithmetic in one
+	// place -- recomputing it in JS on click would put the same formula in two
+	// languages, the drift this codebase keeps paying for -- while costing
+	// nothing: the two views come from counts already in hand, so switching
+	// needs no request at all, let alone a navigation.
+	compScope := resolveCompScope(r)
+	compViews := make([]map[string]any, 0, 2)
+	for _, v := range []struct {
+		scope string
+		denom int
+	}{
+		{compScopeAll, rTotal},
+		{compScopeJudged, rTotal - rBypassed},
+	} {
+		if v.denom < 0 {
+			v.denom = 0
+		}
+		pct := 0.0
+		if rKnown && v.denom > 0 {
+			pct = float64(rNonHuman) / float64(v.denom) * 100
+		}
+		compViews = append(compViews, map[string]any{
+			"Scope": v.scope, "Denom": v.denom, "Pct": pct,
+			"Active": v.scope == compScope,
+		})
+		if v.scope == compScope {
+			nonHumanPct = pct
+		}
+	}
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
@@ -300,6 +338,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIReqHuman":      rHuman,
 		"KPIReqHumanKnown": rHumanKnown,
 		"KPIReqBypassed":   rBypassed,
+		// CompScope is the view shown first; CompViews carries both, each with
+		// the denominator its own headline, bar and legend shares are taken
+		// against -- so a card can never show a percentage of one total beside
+		// a caption naming another.
+		"CompScope":        compScope,
+		"CompViews":        compViews,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
@@ -325,6 +369,17 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"AITrafficDetail": aiDetail,
 		"AITrafficServed": aiServed,
 		"OverBlock":       overBlock,
+	}
+	// Persist the denominator choice when it arrived as a link click, so the
+	// next visit opens on the view the operator picked.  Written only for an
+	// explicit ?comp= (never on a plain load) so a bookmarked URL cannot
+	// silently repin someone else's session, and Lax/HttpOnly-free because the
+	// value is a view preference the template reads back, not a credential.
+	if v := r.URL.Query().Get("comp"); v == compScopeAll || v == compScopeJudged {
+		http.SetCookie(w, &http.Cookie{
+			Name: compScopeCookieName, Value: v, Path: h.basePath(),
+			MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode,
+		})
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -746,4 +801,41 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 		}
 	}
 	return total, blocked, true
+}
+
+// Traffic-composition denominator, persisted per operator.
+//
+//	compScopeAll    — every request the access log saw (the default: it is the
+//	                  figure the card has always shown, and changing what a
+//	                  daily number means without being asked is its own bug)
+//	compScopeJudged — minus the requests a bypass rule exempted, i.e. the
+//	                  traffic unmask actually evaluated
+const (
+	compScopeAll        = "all"
+	compScopeJudged     = "judged"
+	compScopeCookieName = "unmask_comp_scope"
+)
+
+// resolveCompScope reads the operator's saved denominator choice.  Anything
+// unrecognised (absent cookie, hand-edited value) falls back to the default
+// rather than erroring: this selects a view, and a malformed one is not worth
+// a broken page.
+func resolveCompScope(r *http.Request) string {
+	if r == nil {
+		return compScopeAll
+	}
+	// The query parameter is how the toggle links switch; the cookie is what
+	// makes the choice stick.  Query wins so a link works on the first click,
+	// before the cookie it sets has been read back.
+	if v := r.URL.Query().Get("comp"); v == compScopeJudged || v == compScopeAll {
+		return v
+	}
+	c, err := r.Cookie(compScopeCookieName)
+	if err != nil || c == nil {
+		return compScopeAll
+	}
+	if v := decodeCookieValue(c.Value); v == compScopeJudged {
+		return compScopeJudged
+	}
+	return compScopeAll
 }

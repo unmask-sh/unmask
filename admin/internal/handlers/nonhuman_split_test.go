@@ -352,8 +352,10 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	}
 
 	// The bar's segments are shares of one total, so they have to be driven by
-	// the same total the percentage is.
-	for _, f := range []string{"pctOf .KPIReqBenign $t", "pctOf .KPIReqBlocked $t", "pctOf .KPIReqHuman $t"} {
+	// the same total the percentage is.  ($. because the card renders inside a
+	// range over the two denominators -- both views exist in the DOM so the
+	// toggle is a visibility flip rather than a page load.)
+	for _, f := range []string{"pctOf $.KPIReqBenign $t", "pctOf $.KPIReqBlocked $t", "pctOf $.KPIReqHuman $t"} {
 		if !strings.Contains(tpl, f) {
 			t.Errorf("the bar segment %q is not sized against the shared total", f)
 		}
@@ -394,7 +396,7 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	tpl := string(b)
-	for _, f := range []string{"pctLabel .KPIReqBenign $t", "pctLabel .KPIReqBlocked $t", "pctLabel .KPIReqHuman $t"} {
+	for _, f := range []string{"pctLabel $.KPIReqBenign $t", "pctLabel $.KPIReqBlocked $t", "pctLabel $.KPIReqHuman $t"} {
 		if !strings.Contains(tpl, f) {
 			t.Errorf("the legend entry %q has no share", f)
 		}
