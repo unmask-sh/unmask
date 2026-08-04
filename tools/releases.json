@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.18",
+  "latest": "0.1.19",
   "releases": [
+    {
+      "version": "0.1.19",
+      "date": "2026-08-05",
+      "notes": "The challenge page's presentation is a setting rather than a hard-coded beat. Removing the artificial waits in the previous release left a ~150ms interstitial - a flash a visitor notices but cannot read, the worst perceptual band there is. The visible style, the default, now holds the page to a configurable minimum (800ms out of the box; 0 redirects the instant the solve lands) with the spinner turning, the wording unchanged and the progress bar resting at 100% rather than fading from wherever it had reached. The invisible style shows nothing but the themed background until a configurable reveal delay, so a fast device passes with nothing shown at all and only a visitor who is actually waiting sees the spinner and its explanation. A CAPTCHA escalation and every error screen appear immediately in both styles, the hold never delays the CAPTCHA leg, and it is never counted into the solve-time metrics. The traffic-composition card can now be read against the traffic unmask actually judged rather than against everything the server served: requests a bypass rule exempted are not a rounding error, and leaving them in the denominator halves every other share. Both readings are rendered at once, so switching is instant. Removed: challenge_targets.all, which said the same thing the Operating-mode bucket actions already say from a key no form has rendered in months - a default install behaves identically, and an operator who had set known_browser_action: pass alongside it will find that choice honoured instead of silently overridden. Fixed: that same toggle made hunt attribute every challenge to the operator's UA rules, so on an install challenging every visitor the rows the label exists for were lost in the crowd; the rate-limit funnel rollup wedged forever on the first hour containing an event with no verdict, retrying it every minute while the dashboard raw-scanned an ever-growing window; and lowering the proof-of-work difficulty broke the site silently until nginx reloaded - the module kept verifying against the old target, refusing three solves in four and looping the visitor - so render-nginx now says so before it happens."
+    },
     {
       "version": "0.1.18",
       "date": "2026-08-04",
