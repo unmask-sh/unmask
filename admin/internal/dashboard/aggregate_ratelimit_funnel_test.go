@@ -150,3 +150,47 @@ func TestRateLimitFunnel_Idempotent(t *testing.T) {
 		t.Fatalf("unexpected counts: %+v", a1)
 	}
 }
+
+// TestRateLimitFunnel_NullVerdict: ja4_verdict is NULL on rows that carry no
+// verdict, and stealthStmt GROUPs by it, so the rollup scans a NULL group name.
+// Scanning that into a bare string errored -- and because a failed batch never
+// advances the cursor, the 60s ticker retried the same hour forever: one log
+// line per minute and a "live tail" raw scan growing without bound (seen in
+// production 2026-08-04, wedged since the install's first rate-limited hour
+// that contained such a row).
+func TestRateLimitFunnel_NullVerdict(t *testing.T) {
+	d := iwTestDB(t)
+	ctx := context.Background()
+	when := time.Now().Add(-60 * time.Hour).UTC().Format("2006-01-02 15:04:05")
+	seed := func(phase string, rl int, verdict any) {
+		pj := fmt.Sprintf(`{"rl":%d}`, rl)
+		if _, err := d.ExecContext(ctx, `INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('','','',0,?,'UA','',?,0,?,0,0,'','',?,?)`,
+			[]byte{10, 0, 0, 9}, verdict, phase, pj, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("serve", 1, nil) // rate-limited serve, no verdict recorded
+	seed("load", 0, nil)  // the stealth-count row whose group name is NULL
+
+	if err := RollupRateLimitFunnel(ctx, d); err != nil {
+		t.Fatalf("rollup errored on a NULL ja4_verdict group: %v", err)
+	}
+	cur, err := stateCursor(ctx, d, rlfState)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Now().Unix()/3600 - trafficSettleHours; cur != want {
+		t.Fatalf("cursor did not settle past the NULL-verdict hour: cur=%d want=%d", cur, want)
+	}
+	row, rolled, err := rateLimitFunnelRowAgg(ctx, d, 200, []string{"bot_x"})
+	if err != nil || !rolled {
+		t.Fatalf("agg read after rollup: rolled=%v err=%v", rolled, err)
+	}
+	// The NULL-verdict load counts as a load; it can never be a bot verdict, so
+	// stealth stays 0.
+	if row.Serve != 1 || row.Load != 1 || row.Stealth != 0 {
+		t.Fatalf("unexpected counts: %+v", row)
+	}
+}
