@@ -718,7 +718,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"JA4Verdicts":           cur.JA4Verdicts,
 		"JA4PresetAction":       cur.JA4Verdicts.PresetAction,
 		"JA4ExtraAction":        padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
-		"ChallengeAll":          cur.ChallengeTargets.All,
 		"ChallengeGroups":       tgtGroups,
 		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt, cur.ChallengeTargets.ExtraAction),
 		// What "inherit" resolves to, so a row that pins nothing still says
@@ -2521,11 +2520,7 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 		n.SearchBots.UpstreamGroupAction = actOverrides
 	}
 
-	// ── blocklist (= legacy challenge-targets) ──────────
-	// ChallengeTargets.All has NO control on this form (the black_all checkbox
-	// was removed with the preset overhaul), so the save must not touch it —
-	// reading the absent field here forced All=false on every ua-filter save,
-	// silently flipping a config-file-managed all:true install.
+	// ── blocklist (= challenge-targets) ──────────
 	blackEnabled := map[string]bool{}
 	for _, id := range r.Form["black_presets"] {
 		blackEnabled[id] = true
@@ -3773,6 +3768,47 @@ func applyChallengeForm(c *settings.ChallengeValues, r *http.Request) error {
 		// Blank field = unset: track ResolvedPowDifficulty's built-in default
 		// instead of pinning today's number.
 		c.PowDifficulty = 0
+	}
+	// Display style.  The radio always posts; "visible" is what unset already
+	// resolves to, so it is stored as the non-deviation "".
+	switch v := strings.TrimSpace(r.FormValue("challenge_display_style")); v {
+	case settings.ChallengeDisplayInvisible:
+		c.DisplayStyle = settings.ChallengeDisplayInvisible
+	case settings.ChallengeDisplayVisible, "":
+		c.DisplayStyle = ""
+	default:
+		return fmt.Errorf("challenge_display_style must be visible or invisible (got %q)", v)
+	}
+	// min_display_ms: blank = follow the built-in default (800); an explicit 0
+	// = no floor.  The pointer keeps those two states apart in config.yml.
+	if v := strings.TrimSpace(r.FormValue("min_display_ms")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 30000 {
+			return fmt.Errorf("min_display_ms must be an integer in 0-30000 (got %q)", v)
+		}
+		c.MinDisplayMS = &n
+	} else {
+		c.MinDisplayMS = nil
+	}
+	if v := strings.TrimSpace(r.FormValue("invisible_reveal_ms")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 100 || n > 30000 {
+			return fmt.Errorf("invisible_reveal_ms must be an integer in 100-30000 (got %q)", v)
+		}
+		c.InvisibleRevealMS = n
+	} else {
+		// Blank = follow the built-in default (1200).
+		c.InvisibleRevealMS = 0
+	}
+	// reveal_fade_ms: blank = default (200); explicit 0 = no fade.
+	if v := strings.TrimSpace(r.FormValue("reveal_fade_ms")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 0 || n > 5000 {
+			return fmt.Errorf("reveal_fade_ms must be an integer in 0-5000 (got %q)", v)
+		}
+		c.RevealFadeMS = &n
+	} else {
+		c.RevealFadeMS = nil
 	}
 	if v := strings.TrimSpace(r.FormValue("debug_rate_limit_per_5min")); v != "" {
 		n, err := strconv.Atoi(v)

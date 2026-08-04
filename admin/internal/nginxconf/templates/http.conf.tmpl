@@ -273,23 +273,18 @@ map $ja4_action $ja4_hit_flag {
 # -----------------------------------------------------------------------------
 # Challenge-target UA decision ($is_challenge_target)
 # -----------------------------------------------------------------------------
-# When a bot signal fires (JA4 action=bot/suspect / honeypot), should this UA
-# be challenged?  Generalization of the old `$is_known_browser`.
-# Controlled by config.yml's nginx.challenge_targets:
-#   all = true  -> always a target regardless of UA (every access is a candidate)
-#   all = false -> only UAs matching a preset group + extra are targeted
-{{- if .ChallengeAll }}
-map $http_user_agent $is_challenge_target {
-    default 1;
-}
-{{- else }}
+# The UA black list (ua-filter tab): preset groups + the operator's own rows.
+# A match challenges unconditionally (see $final_challenge below); a request
+# nothing here matches falls through to the Global axis, whose bucket actions
+# (known_browser_action / unknown_ua_action) decide whether it is challenged
+# anyway.  "Challenge every access" is therefore expressed on the Operating
+# mode tab, not by this list.
 map $http_user_agent $is_challenge_target {
     default 0;
 {{- range .ChallengeTargetPatterns }}
     "~*{{ rx . }}" 1;
 {{- end }}
 }
-{{- end }}
 
 # -----------------------------------------------------------------------------
 # Global axis: no-match action ($is_known_browser → action → should-challenge)
@@ -776,8 +771,7 @@ map $unmask_bp_global $is_bypass_path {
 #   3. is_bypass_path=1               -> exempt (bypass path)
 #   4. is_net_challenge=1             -> challenge (country OR asn veto; chMode picked by admin)
 #   5. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
-#   6. is_challenge_target=0          -> exempt (CLI / library; matches ua-filter whitelist)
-#   7. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
+#   6. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
 #                                         fires regardless of ja4_action (ok /
 #                                         unknown / bot) and honeypot presence.
 #                                         "matches blacklist = must clear PoW"
@@ -785,6 +779,10 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
+#   7. honeypot trip                  -> challenge (even for a non-target UA)
+#   8. everything else                -> the Global axis's call
+#                                        ($unmatched_should_challenge: the
+#                                        known/unknown-UA bucket actions)
 map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt

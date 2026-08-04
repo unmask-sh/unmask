@@ -153,6 +153,27 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .banner code{background:rgba(255,255,255,.6);padding:.05em .35em;border-radius:.2rem}
 
 .field{display:block;margin:.75rem 0}
+/* Challenge display settings.  Fenced so the visitor-facing timings read as
+   one subject, and split so each timing sits under the style it belongs to. */
+.ch-display{border:1px solid #e2e8f0;border-radius:.375rem;padding:.25rem 1rem 1rem;margin:1.25rem 0}
+.ch-display>legend{padding:0 .4rem;font-size:.85rem;font-weight:600;color:#475569;display:flex;align-items:center;gap:.4rem}
+/* Radio-card, matching the network tab's IP-geo database modes: the settings a
+   choice governs live INSIDE its card, so they cannot be read as belonging to
+   the option above.  The unselected body is hidden rather than disabled --
+   hidden inputs still submit, and a disabled one would submit blank, which the
+   save handler reads as "follow the default" and would erase the other style's
+   stored timings on every switch. */
+.ch-mode-row{margin:0 0 .6rem;padding:.4rem .55rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#fff}
+.ch-mode-row:has(input[type=radio]:checked){border-color:#93c5fd;background:#f5faff}
+.ch-mode-label{display:flex;align-items:baseline;gap:.4rem;cursor:pointer;font-size:.85rem}
+.ch-mode-sub{color:#64748b;font-size:.72rem;font-weight:400;margin-left:.3rem}
+.ch-mode-body{margin:.4rem 0 0 1.6rem}
+/* Both bodies are always shown: the settings ARE the explanation of what the
+   mode does, so hiding one removes what the choice is made with.  The card
+   that is not in effect reads as such -- dimmed, never disabled (a disabled
+   input submits blank, which the save handler reads as "follow the default"
+   and would erase the other style's stored timings on every switch). */
+.ch-mode-row:not(:has(input[type=radio]:checked)) .ch-mode-body{opacity:.5}
 .bcd-card>.field:first-child,.bcd-card>form>.field:first-child{margin-top:0}
 .field-label-row{display:flex;align-items:center;gap:.4rem;margin-bottom:.25rem}
 .field-label-row label,.field-label-row>span{margin:0;line-height:1.2}
@@ -2057,10 +2078,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2 style="color:#b91c1c">✗ {{ t .Lang "settings.ua.black_h" }}</h2>
     <p class="desc">{{ t .Lang "settings.ua.black_desc" }}</p>
 
-    <!-- The legacy "challenge every access" checkbox moved to the
-         "Operating mode" tab (= settings.global) so cross-axis behaviour
-         stays out of the UA-filter view.  Existing config.yml's
-         challenge_targets.all is still honoured on the back end. -->
+    <!-- "Challenge every access" is the Operating mode tab's business (the
+         known/unknown-UA bucket actions); this list only names UAs that are
+         challenged unconditionally. -->
 
     <!-- default action for black-list match.  Independent from
          rate_limit.default.challenge_mode (= each axis has its own field). -->
@@ -3277,6 +3297,82 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              style="width:6rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">bit</span>
     </div>
+
+    {{/* Display settings, fenced off from the cookie/difficulty fields above:
+         they are the only ones on this tab a visitor SEES rather than feels. */}}
+    {{ $chStyle := .ChallengeValues.ResolvedDisplayStyle }}
+    <fieldset class="ch-display" data-style="{{ $chStyle }}">
+      {{/* The help trigger sits INSIDE the legend, next to the words it
+           explains: floated into the fieldset's corner it opened its popover
+           at the top right, detached from anything naming the subject.  The
+           two cards below ARE the choice, so there is no separate "display
+           style" label for it to hang off. */}}
+      <legend>{{ t .Lang "settings.challenge.display_section" }}<button type="button" class="ua-help-trigger" data-help-target="ch-style-help" aria-label="?">?</button></legend>
+      <script type="text/html" id="ch-style-help">{{ safeHTML (t .Lang "settings.challenge.display_style_help") }}</script>
+
+      {{/* Same shape as the network tab's IP-geo database modes: each choice is
+           a card that CONTAINS the settings it governs, so a timing is never
+           read as belonging to the option above it.  Unlike those, BOTH bodies
+           stay rendered -- the settings are what the mode does, so hiding the
+           unselected one takes away what an operator needs to choose with.  The
+           inactive card is dimmed instead, and its inputs stay editable and
+           submitted so a value survives switching. */}}
+      <div class="field ch-mode-row">
+        <label class="ch-mode-label">
+          <input type="radio" name="challenge_display_style" value="visible" {{ if ne $chStyle "invisible" }}checked{{ end }} data-target="ch-mode-visible">
+          <strong>{{ t .Lang "settings.challenge.display_visible" }}</strong>
+          <span class="ch-mode-sub">{{ t .Lang "settings.challenge.display_visible_sub" }}</span>
+        </label>
+        <div class="ch-mode-body" id="ch-mode-visible">
+          <div class="field">
+            <div class="field-label field-label-row">
+              <label for="ch-min-display">{{ t .Lang "settings.challenge.min_display_ms" }}</label>
+              <button type="button" class="ua-help-trigger" data-help-target="ch-min-display-help" aria-label="?">?</button>
+            </div>
+            <script type="text/html" id="ch-min-display-help">{{ safeHTML (t .Lang "settings.challenge.min_display_ms_help") }}</script>
+            <input type="number" id="ch-min-display" name="min_display_ms" min="0" max="30000" step="50"
+                   value="{{ .ChallengeValues.MinDisplayMSField }}"
+                   placeholder="800 (default)"
+                   style="width:8rem">
+            <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="field ch-mode-row">
+        <label class="ch-mode-label">
+          <input type="radio" name="challenge_display_style" value="invisible" {{ if eq $chStyle "invisible" }}checked{{ end }} data-target="ch-mode-invisible">
+          <strong>{{ t .Lang "settings.challenge.display_invisible" }}</strong>
+          <span class="ch-mode-sub">{{ t .Lang "settings.challenge.display_invisible_sub" }}</span>
+        </label>
+        <div class="ch-mode-body" id="ch-mode-invisible">
+          <div class="field">
+            <div class="field-label field-label-row">
+              <label for="ch-inv-reveal">{{ t .Lang "settings.challenge.invisible_reveal_ms" }}</label>
+              <button type="button" class="ua-help-trigger" data-help-target="ch-inv-reveal-help" aria-label="?">?</button>
+            </div>
+            <script type="text/html" id="ch-inv-reveal-help">{{ safeHTML (t .Lang "settings.challenge.invisible_reveal_ms_help") }}</script>
+            <input type="number" id="ch-inv-reveal" name="invisible_reveal_ms" min="100" max="30000" step="100"
+                   value="{{ if gt .ChallengeValues.InvisibleRevealMS 0 }}{{ .ChallengeValues.InvisibleRevealMS }}{{ end }}"
+                   placeholder="1200 (default)"
+                   style="width:8rem">
+            <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
+          </div>
+          <div class="field">
+            <div class="field-label field-label-row">
+              <label for="ch-reveal-fade">{{ t .Lang "settings.challenge.reveal_fade_ms" }}</label>
+              <button type="button" class="ua-help-trigger" data-help-target="ch-reveal-fade-help" aria-label="?">?</button>
+            </div>
+            <script type="text/html" id="ch-reveal-fade-help">{{ safeHTML (t .Lang "settings.challenge.reveal_fade_ms_help") }}</script>
+            <input type="number" id="ch-reveal-fade" name="reveal_fade_ms" min="0" max="5000" step="50"
+                   value="{{ .ChallengeValues.RevealFadeMSField }}"
+                   placeholder="200 (default)"
+                   style="width:8rem">
+            <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
+          </div>
+        </div>
+      </div>
+    </fieldset>
 
     <div class="field">
       <div class="field-label field-label-row">
@@ -7142,5 +7238,21 @@ document.querySelectorAll('form').forEach(function(f){
     });
   });
 });
+})();
+</script>
+
+<script>
+// Challenge display style: reflect the pick onto the fieldset.  Both bodies
+// stay on screen (they are how an operator sees what each mode does); the CSS
+// dims whichever card is not selected, keyed off :has(:checked), so this only
+// has to record the choice for anything else that reads it.
+(function(){
+  var fs = document.querySelector('.ch-display');
+  if (!fs) return;
+  fs.addEventListener('change', function(e){
+    var el = e.target;
+    if (!el || el.name !== 'challenge_display_style' || !el.checked) return;
+    fs.setAttribute('data-style', el.value);
+  });
 })();
 </script>

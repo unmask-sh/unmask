@@ -203,6 +203,38 @@ type ChallengeValues struct {
 	// wait 3-4x the mean whatever the setting, and raising it stretches that
 	// tail proportionally.
 	PowDifficulty int `yaml:"pow_difficulty,omitempty"`
+	// DisplayStyle: how the challenge page presents itself while the PoW runs.
+	//
+	//	"visible" (default) : the interstitial shows from the first paint and,
+	//	                      via MinDisplayMS, stays long enough to read -- the
+	//	                      Cloudflare-style "a check ran here" beat.  Without
+	//	                      the floor a modern device solves in ~150ms and the
+	//	                      page is a flash the visitor notices but cannot
+	//	                      parse.
+	//	"invisible"         : nothing but the themed background until
+	//	                      InvisibleRevealMS elapses; a fast solve redirects
+	//	                      before anything appears, so the visit reads as a
+	//	                      plain navigation (AWS-WAF-style).  Slow devices
+	//	                      still get the spinner and its explanation.
+	//
+	// A CAPTCHA escalation and every error state reveal immediately in both
+	// styles: a screen that needs interaction is never withheld.
+	DisplayStyle string `yaml:"display_style,omitempty"`
+	// MinDisplayMS: visible style's floor on total page display before the
+	// post-solve redirect (the remainder shows the "verified" state).  Pointer
+	// semantics: nil = the built-in default (800ms), an explicit 0 = no floor
+	// (redirect the instant the solve lands, accepting the flash).  The floor
+	// pads only the visitor-perceived stay -- the pow_elapsed_ms beacon field
+	// keeps reporting the pure solve time.
+	MinDisplayMS *int `yaml:"min_display_ms,omitempty"`
+	// InvisibleRevealMS: invisible style's blank window.  A solve that beats
+	// it shows nothing at all; past it the page content appears.  0 / unset =
+	// the built-in default (1200ms).
+	InvisibleRevealMS int `yaml:"invisible_reveal_ms,omitempty"`
+	// RevealFadeMS: how long the invisible style's reveal fades in.  nil =
+	// the built-in default (200ms), an explicit 0 = no fade (content pops in
+	// at the reveal instant).
+	RevealFadeMS *int `yaml:"reveal_fade_ms,omitempty"`
 	// ObserveOnly: monitor mode. When true, all challenge actions are
 	// suppressed and only event logging continues (= for the post-install
 	// observation phase).
@@ -260,6 +292,82 @@ func (c ChallengeValues) ResolvedPowDifficulty() int {
 		return 18
 	}
 	return c.PowDifficulty
+}
+
+// ChallengeDisplayVisible / ChallengeDisplayInvisible: the two DisplayStyle
+// values.  Anything else (including "") resolves to visible.
+const (
+	ChallengeDisplayVisible   = "visible"
+	ChallengeDisplayInvisible = "invisible"
+)
+
+// ResolvedDisplayStyle: "invisible" only when set exactly; everything else is
+// the visible default.
+func (c ChallengeValues) ResolvedDisplayStyle() string {
+	if c.DisplayStyle == ChallengeDisplayInvisible {
+		return ChallengeDisplayInvisible
+	}
+	return ChallengeDisplayVisible
+}
+
+// ResolvedMinDisplayMS: nil = default 800; explicit values clamp to 0..30000
+// (matching the /unmask/test/ ?_pow_display override's ceiling).
+func (c ChallengeValues) ResolvedMinDisplayMS() int {
+	if c.MinDisplayMS == nil {
+		return 800
+	}
+	n := *c.MinDisplayMS
+	if n < 0 {
+		return 0
+	}
+	if n > 30000 {
+		return 30000
+	}
+	return n
+}
+
+// ResolvedInvisibleRevealMS: <=0 = default 1200; clamps to 30000.
+func (c ChallengeValues) ResolvedInvisibleRevealMS() int {
+	n := c.InvisibleRevealMS
+	if n <= 0 {
+		return 1200
+	}
+	if n > 30000 {
+		return 30000
+	}
+	return n
+}
+
+// ResolvedRevealFadeMS: nil = default 200; explicit values clamp to 0..5000.
+func (c ChallengeValues) ResolvedRevealFadeMS() int {
+	if c.RevealFadeMS == nil {
+		return 200
+	}
+	n := *c.RevealFadeMS
+	if n < 0 {
+		return 0
+	}
+	if n > 5000 {
+		return 5000
+	}
+	return n
+}
+
+// MinDisplayMSField / RevealFadeMSField: the raw form value ("" = unset,
+// follow the built-in default) for the settings template, which cannot
+// dereference a *int on its own.
+func (c ChallengeValues) MinDisplayMSField() string {
+	if c.MinDisplayMS == nil {
+		return ""
+	}
+	return strconv.Itoa(*c.MinDisplayMS)
+}
+
+func (c ChallengeValues) RevealFadeMSField() string {
+	if c.RevealFadeMS == nil {
+		return ""
+	}
+	return strconv.Itoa(*c.RevealFadeMS)
 }
 
 // Branding: multi-site Default + Sites wrapper around a BrandingValues
@@ -1831,7 +1939,6 @@ func (h HoneypotConfig) ResolvedBanDurationSec() int {
 //	disabled_presets : list of preset-group IDs to keep OFF
 //	extra            : custom UA patterns (= nginx case-insensitive regex)
 type ChallengeTargetsConfig struct {
-	All             bool     `yaml:"all"`
 	DisabledPresets []string `yaml:"disabled_presets"`
 	Extra           []string `yaml:"extra"`
 	ExtraTitle      []string `yaml:"extra_title,omitempty"`
@@ -3631,11 +3738,14 @@ func defaults() Settings {
 				"chrome-prefetch-proxy",
 			},
 			ChallengeTargets: ChallengeTargetsConfig{
-				// Default = challenge every UA (= safe default for self-hosted
-				// setups that prioritize bot exclusion). Search / AI bots are
-				// reliably bypassed via the other path (= SearchBots + official
-				// IP range two-tier rescue), so SEO incidents don't occur.
-				All: true,
+				// The out-of-the-box "challenge every visitor" posture lives
+				// in the Global axis (KnownBrowserAction pow_only + empty
+				// UnknownUAAction = pow_only), NOT here: this list only names
+				// UAs challenged unconditionally.  Search / AI bots are
+				// reliably bypassed via the other path (= SearchBots +
+				// official IP range two-tier rescue), so SEO incidents don't
+				// occur.
+				//
 				// Only presets that still exist may be listed: the ua-filter
 				// save rebuilds this list from nginxconf.ChallengeTargetGroups
 				// (currently just "empty"), so retired IDs (cli / python_libs

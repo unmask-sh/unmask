@@ -11,7 +11,7 @@ import (
 // ChallengeTargets.DefaultAction is the black-list chain (ua-filter tab:
 // "chain used when a black-list UA match triggers a challenge").  These tests
 // pin its scope: it fires only when the UA actually matches a challenge
-// target (extra / preset / All), and a plain no-match challenge keeps the
+// target (extra / preset), and a plain no-match challenge keeps the
 // Operating-mode pick.  Regression: ServeChallenge applied it to every
 // forceReason="none" challenge, so with default_action=pow_then_captcha a
 // current-stable Chrome that failed the transparent PoW was walked into the
@@ -52,12 +52,13 @@ func TestServeChallengeBlacklistDefaultActionScope(t *testing.T) {
 		t.Errorf("black-list extra hit: chmode=%q, want pow_then_captcha (DefaultAction)", got)
 	}
 
-	// The catch-all All toggle black-lists every UA, so DefaultAction applies
-	// to the plain browser too.
-	s.Nginx.ChallengeTargets.All = true
+	// Challenge-everything is the Operating-mode buckets' job, and stays under
+	// their chain: hardening the posture there must not hand plain browsers to
+	// the black-list chain.
+	s.Global.KnownBrowserAction = settings.RateChallengeCaptchaOnly
 	h.SetSettings(s)
-	if got := servedChMode(t, h, uaCurrentChrome); got != settings.RateChallengePoWThenCaptcha {
-		t.Errorf("All=true: chmode=%q, want pow_then_captcha (catch-all keeps DefaultAction)", got)
+	if got := servedChMode(t, h, uaCurrentChrome); got != settings.RateChallengeCaptchaOnly {
+		t.Errorf("bucket action: chmode=%q, want captcha_only (Operating-mode pick, not DefaultAction)", got)
 	}
 }
 
