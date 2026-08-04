@@ -8,6 +8,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.20] - 2026-08-05
+
+### Fixed
+- (2026-08-05) **A visitor who left while the challenge page was holding lost the solve they had already made.**  The display hold added in 0.1.19 ran at the moment the proof of work completed -- ahead of the pass cookie, the beacon and the credential fetch -- so closing the tab during a pause unmask itself imposed meant no cookie, no record of the solve, and a fresh challenge on the next request.  It surfaced while measuring a difficulty change: splitting the window at the hour the hold reached the fleet, one node ran 2.20% abandonment without it and 17.9% with it, against an 11.87% baseline before either change.  The hold was not merely mis-counting departures, it was causing them, and it was large enough to hide the improvement underneath.  The completed-state paint stays where it was; only the wait moves, to after the cookie is written, so leaving during it now keeps the pass.
+
 ## [0.1.19] - 2026-08-05
 
 ### Added
