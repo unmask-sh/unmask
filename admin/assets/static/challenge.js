@@ -1164,52 +1164,29 @@
     return;
   }
 
-  // Display floor (visible style): hold the page to pow_min_display_ms of
-  // total display before redirecting, so the check reads as a check instead of
-  // an unparseable flash; the residual shows the "verified" state -- the beat
-  // an operator configures min_display_ms for.  The invisible style skips it:
-  // its fast path shows nothing, and holding a blank page would only delay
-  // the visitor.  (0 = no floor; /unmask/test/ overrides via ?_pow_display=N.)
+  // Display floor (visible style), part 1 of 2: paint the completed state now.
+  // The WAIT itself is deferred until after the pass cookie is written -- see
+  // part 2.  Splitting them is the whole point: this half is cosmetic and
+  // belongs at the moment the solve lands.
+  //
+  // The spinner keeps turning and the words do not change.  Stopping the
+  // spinner left the visitor on a still frame for the hold AND the navigation
+  // that follows, because the spinner passAndRedirect starts lives inside the
+  // CAPTCHA card, which a PoW-only pass never showed.  The line already says
+  // the site is loading, which stays true throughout; advancing it to
+  // "connecting" was a change without a difference that cost a real reflow,
+  // and a "verified" tick reads backwards on a screen that deliberately never
+  // told the visitor a check was running.
+  //
+  // The bar fills to 100% and stays: powProgress() clamps at 95% while
+  // solving, nothing wrote the final 100%, and a fast solve left it dissolving
+  // nearly empty, which reads as the progress resetting.
   var minDisp = (window.UNMASK && window.UNMASK.pow_min_display_ms) || 0;
-  var shownFor = Date.now()-start;
-  if (!_invisible && minDisp > 0 && shownFor < minDisp) {
+  var holdUntil = (!_invisible && minDisp > 0) ? start + minDisp : 0;
+  if (holdUntil) {
     try {
-      // The spinner keeps turning and the words do not change.
-      //
-      // Turning: stopping the spinner here left the visitor on a still frame
-      // for the hold AND for the whole navigation that follows, because the
-      // spinner passAndRedirect starts lives inside the CAPTCHA card, which a
-      // PoW-only pass never showed.  Nothing moved from the solve until the
-      // destination painted; one continuous motion is what a page transition
-      // should look like.
-      //
-      // Unchanged: the line already says the site is loading, which stays true
-      // through the hold and through the navigation (location.replace keeps
-      // this page painted until the destination renders).  Advancing it to
-      // "connecting" was tried and dropped -- in Japanese the two are near
-      // synonyms, so it read as a change without a difference, while costing a
-      // real reflow: the shorter line dropped the centred layout by 24px and
-      // moved the spinner and any operator logo with it.  A "verified" tick is
-      // worse still: this screen deliberately never tells a visitor they are
-      // being screened, so announcing the result of a check reads backwards.
-      // That tick belongs to the CAPTCHA path, where the visitor knowingly did
-      // something and is owed the outcome.
-      // The bar fills to 100% and STAYS there until the page navigates away.
-      //
-      // powProgress() clamps the fill at 95% while solving -- deliberately, so
-      // a long solve never sits at a frozen 100% -- and nothing was writing the
-      // final 100%: the bar simply faded out from wherever it had got to.  A
-      // fast solve barely moves it, so holding the page for 800ms showed a
-      // nearly-empty bar dissolving, which reads as the progress resetting.
-      //
-      // Fading it once full is no better: a bar that vanishes the moment it
-      // completes takes the answer away just as the visitor reads it, and it is
-      // one more thing moving on a screen whose whole point is now to hold
-      // still.  A full bar left alone says "done" and lets the navigation be
-      // the next event.
       var _pf=document.getElementById('powProgressFill'); if (_pf) _pf.style.width='100%';
     } catch (_) {}
-    await new Promise(function(r){ setTimeout(r, minDisp - shownFor); });
   }
 
   // Capture the prior _bv (the accumulated per-IP signature list) BEFORE the
@@ -1283,5 +1260,23 @@
   // visitor sees it either way.  Nothing else needs the delay: the pass beacon
   // goes out via sendBeacon (or fetch keepalive) and the /bvj request sets
   // keepalive precisely so the redirect may win the race.
+  // Display floor, part 2 of 2: the wait.  It runs HERE, after the pass cookie
+  // is written and the beacon is away, never before.
+  //
+  // It used to sit at the solve, ahead of all of that, so a visitor who closed
+  // the tab during a hold WE imposed lost the solve they had already paid for:
+  // no _bv, no bv_pow_only, and an abandon beacon instead.  Measured on the
+  // fleet the hour it shipped -- gb's abandonment went 2.20% (16-bit, no hold)
+  // to 17.9% (16-bit + hold) against an 11.87% baseline, an effect big enough
+  // to mask a real improvement underneath it.
+  //
+  // Deferring it costs nothing: the cookie write and the beacon are
+  // synchronous or keepalive, so the only thing between them and the redirect
+  // is this cosmetic pause, and leaving during it now keeps the pass.
+  if (holdUntil) {
+    var _left = holdUntil - Date.now();
+    if (_left > 0) { await new Promise(function(r){ setTimeout(r, _left); }); }
+  }
+
   setTimeout(function(){passAndRedirect();},0);
 })();
