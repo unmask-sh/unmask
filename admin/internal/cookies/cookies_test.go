@@ -113,10 +113,37 @@ func TestPowSeedRoundTrip(t *testing.T) {
 	issued := nowUnix()
 	const diff = 10
 	seed := PowSeed(secret, ip, host, issued)
+	// Keep solving until the nonce clears the issuing seed and clears NONE of
+	// the three foreign ones.  A hash that satisfies one seed satisfies an
+	// unrelated seed with probability 2^-diff, so taking the first solution
+	// made each negative assertion below a 1-in-1024 coin flip -- three of
+	// them, on a seed reseeded from the clock every run, which is a ~0.3%
+	// failure that surfaces at random and reads as a real regression.  The
+	// retry costs 1.003 solves on average and makes the outcome deterministic.
+	// (The property under test is unchanged: this is the case a real client
+	// produces 997 times in 1000.)
+	foreign := []string{
+		PowSeed(secret, "8.8.8.8", host, issued),
+		PowSeed(secret, ip, "other.example.com", issued),
+		PowSeed("other-secret", ip, host, issued),
+	}
+	clears := func(s string, nonce int64) bool {
+		sum := sha256.Sum256([]byte(s + ":" + strconv.FormatInt(nonce, 10)))
+		return leadingZeroBits(sum[:]) >= diff
+	}
 	var nonce int64
 	for nonce = 0; nonce < 1<<24; nonce++ {
-		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
-		if leadingZeroBits(sum[:]) >= diff {
+		if !clears(seed, nonce) {
+			continue
+		}
+		ok := true
+		for _, f := range foreign {
+			if clears(f, nonce) {
+				ok = false
+				break
+			}
+		}
+		if ok {
 			break
 		}
 	}
