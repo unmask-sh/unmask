@@ -227,3 +227,55 @@ func TestHardDenyHasTheSamePlaceOnBothWires(t *testing.T) {
 		}
 	}
 }
+
+// The two wires must record the SAME buckets, not just reach the same verdict.
+// forward-auth had no crawler_pass arm at all: a rescued crawler was passed
+// correctly and then counted as nothing, so on a node answering /api/check the
+// composition card's benign share sat at zero all day while the residue tracked
+// the crawler table request for request (227 of 1,094 in an hour).  Every
+// functional test passed -- the DECISION was right, only the bookkeeping was
+// missing, and native's own tests cannot see a gap on the other wire.
+func TestBothWiresRecordTheSameBuckets(t *testing.T) {
+	fa, err := os.ReadFile("auth_check.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nat, err := os.ReadFile("../nginxlog/nginxlog.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Every kind onLine can write, forward-auth must be able to write too.
+	// Checked through the exported bump method rather than the kind string,
+	// because that is the only route the other wire has -- and both halves are
+	// asserted, so renaming the method without wiring it still fails.
+	for kind, method := range map[string]string{
+		"crawler_pass": "BumpCrawlerPass",
+		"bypass_pass":  "BumpBypass",
+	} {
+		if !strings.Contains(string(nat), `bumpKind(site, "`+kind+`")`) {
+			t.Errorf("%s does not write %s; the two wires cannot agree through it", method, kind)
+		}
+		if !strings.Contains(string(nat), `r.bumpKind(p.site, "`+kind+`")`) {
+			t.Errorf("onLine no longer writes %s natively; update this test with it", kind)
+		}
+		if !strings.Contains(string(fa), "h.NginxLog."+method+"(") {
+			t.Errorf("forward-auth never calls %s, so it never records %s: the same traffic lands "+
+				"in different buckets depending on the deploy mode", method, kind)
+		}
+	}
+	// ...and in the same order, as one decision rather than independent ifs.
+	sw := strings.Index(string(fa), "switch {\n\t\tcase bvKind != \"\" || fc:")
+	if sw < 0 {
+		t.Fatal("the forward-auth classification is not a single switch; independent ifs are how the native side counted a cookie holder twice")
+	}
+	seg := string(fa)[sw:]
+	if end := strings.Index(seg, "\n\t\t}"); end > 0 {
+		seg = seg[:end]
+	}
+	crawler := strings.Index(seg, "BumpCrawlerPass")
+	bypass := strings.Index(seg, "BumpBypass")
+	if crawler < 0 || bypass < 0 || crawler > bypass {
+		t.Error("forward-auth does not classify crawler before bypass; native does, so a listed " +
+			"crawler on a bypassed path would be counted differently on each wire")
+	}
+}
