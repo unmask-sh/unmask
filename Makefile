@@ -418,22 +418,29 @@ repo:
 #
 # Container runs as the host uid:gid so files under /out stay writable by the
 # `apps` user (= no root-owned files in unmask-dl-build/).
+# UNMASK_DL_BUILD_DIR / UNMASK_CHANNEL are honoured so a testing build indexes
+# into its own tree.  Without them this always wrote the stable apk repo, which
+# on a testing build is the one place the channel could leak.
+DL_BUILD_DIR ?= $(UNMASK_DL_BUILD_DIR)
+DL_BUILD_DIR := $(if $(DL_BUILD_DIR),$(DL_BUILD_DIR),../unmask-dl-build)
+
 repo-apk:
 	@test -d $(DIST) || { echo 'ERR: $(DIST) absent; run `make package` first' >&2; exit 1; }
 	@test -d ../keys || { echo 'ERR: ../keys missing — expected RSA private key at ../keys/oss@unmask.sh-260509.rsa' >&2; exit 1; }
-	@test -d ../unmask-dl-build || { echo 'ERR: ../unmask-dl-build missing — run `make repo` once to seed the layout' >&2; exit 1; }
+	@test -d $(DL_BUILD_DIR) || { echo 'ERR: $(DL_BUILD_DIR) missing — run `make repo` once to seed the layout' >&2; exit 1; }
 	docker build -t unmask-alpine-builder -f tools/Dockerfile.alpine tools/
 	docker run --rm \
 		--user $(shell id -u):$(shell id -g) \
 		-v $(realpath .):/work \
 		-v $(realpath ../keys):/keys:ro \
-		-v $(realpath ../unmask-dl-build):/out \
+		-v $(realpath $(DL_BUILD_DIR)):/out \
 		-e UNMASK_RSA_PRIVKEY=$${UNMASK_RSA_PRIVKEY:-/keys/oss@unmask.sh-260509.rsa} \
 		-e UNMASK_RSA_PUBNAME=$${UNMASK_RSA_PUBNAME:-oss@unmask.sh-260509.rsa.pub} \
+		-e UNMASK_CHANNEL=$${UNMASK_CHANNEL:-stable} \
 		unmask-alpine-builder \
 		/work/tools/build-repo.sh /out apk
 	@echo ""
-	@echo ">>> apk repo regenerated at ../unmask-dl-build/apk/"
+	@echo ">>> apk repo regenerated under $(DL_BUILD_DIR)"
 	@ls -la ../unmask-dl-build/apk/main/*/APKINDEX.tar.gz 2>/dev/null || true
 
 ## publish - rsync repo/ to unmask.sh/dl/ (a GCE VM) via tools/publish-repo.sh.
