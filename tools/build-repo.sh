@@ -28,12 +28,12 @@
 #   Don't have the rpm stage wipe out merged-in deb/apk metadata that
 #   was generated on another host and shipped over via tgz.
 #
-# Output layout (= single path):
-#   <OUT_DIR>/rpm/{x86_64,aarch64}/{RPMS,repodata}/
-#   <OUT_DIR>/deb/dists/stable/main/binary-{amd64,arm64}/{Packages.gz,InRelease,Release.gpg}
-#   <OUT_DIR>/deb/pool/main/u/unmask/*.deb
-#   <OUT_DIR>/apk/main/{x86_64,aarch64}/{APKINDEX.tar.gz,*.apk}
-#   <OUT_DIR>/keys/{RPM-GPG-KEY-unmask,unmask.rsa.pub}
+# Output layout (<CH> is "" for the stable channel, "testing/" for testing):
+#   <OUT_DIR>/<CH>rpm/{x86_64,aarch64}/{RPMS,repodata}/
+#   <OUT_DIR>/<CH>deb/dists/<channel>/main/binary-{amd64,arm64}/{Packages.gz,InRelease,Release.gpg}
+#   <OUT_DIR>/<CH>deb/pool/main/u/unmask/*.deb
+#   <OUT_DIR>/<CH>apk/main/{x86_64,aarch64}/{APKINDEX.tar.gz,*.apk}
+#   <OUT_DIR>/keys/{RPM-GPG-KEY-unmask,unmask.rsa.pub}   (shared by both channels)
 #
 # GPG / RSA signing is controlled by environment variables:
 #   UNMASK_GPG_KEY_ID=C03DD45E28C4446FDDC48EFC34A320B544B28158  # rpm/deb signing key (fpr)
@@ -57,6 +57,29 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="${DIST:-$ROOT/dist}"
 OUT="${1:-$ROOT/../unmask-dl-build}"
 STAGE="${2:-all}"
+
+# CHANNEL: which repo the artifacts are indexed into.
+#
+#   stable  (default)  <OUT>/{rpm,deb,apk}          -- the published URLs, unchanged
+#   testing            <OUT>/testing/{rpm,deb,apk}  -- a parallel tree
+#
+# A build goes to testing first, whoever reported the bug confirms it, and the
+# SAME file is then copied into stable (tools/promote-repo.sh).  Nothing is
+# renamed on the way, so what was confirmed is what ships -- which is only true
+# because the version does not encode the channel.
+#
+# keys/, index.html and releases.json stay at the top: one signing key serves
+# both channels (a second key would mean the reporter importing two), and the
+# landing page describes the project rather than a channel.
+CHANNEL="${UNMASK_CHANNEL:-stable}"
+case "$CHANNEL" in
+    stable)  CH_OUT="$OUT" ;;
+    testing) CH_OUT="$OUT/testing" ;;
+    *) echo "build-repo.sh: unknown UNMASK_CHANNEL '$CHANNEL' (want stable|testing)" >&2; exit 2 ;;
+esac
+# The deb suite has to differ too, or apt caches one channel's Release file for
+# the other -- same suite name, same cache key.
+DEB_SUITE="$CHANNEL"
 
 case "$STAGE" in
     all|rpm|deb|apk) ;;
@@ -137,7 +160,8 @@ have abuild-sign  && echo "  [ok] abuild-sign (= optional apk signing)"
 echo
 
 echo "==> output: $OUT  (stage=$STAGE)"
-mkdir -p "$OUT"/{rpm,deb,apk,keys}
+mkdir -p "$CH_OUT"/{rpm,deb,apk}
+mkdir -p "$OUT/keys"
 
 # ---- /dl/ landing page (= the custom index served at unmask.sh/dl/) ----
 # Evergreen (links to dirs + /install/, no per-build data), so always refresh.
@@ -192,13 +216,13 @@ if ! stage_active rpm; then
     echo "==> rpm stage: skip (= stage filter '$STAGE')"
 elif [ "$HAVE_CREATEREPO" = 1 ]; then
     echo "==> rpm stage: regenerate (= single path)"
-    rm -rf "$OUT/rpm"
-    mkdir -p "$OUT/rpm"
+    rm -rf "$CH_OUT/rpm"
+    mkdir -p "$CH_OUT/rpm"
 
     # Place the corresponding rpms per arch.  noarch (= unmask-release etc.)
     # goes into every arch dir.
     for arch in x86_64 aarch64; do
-        arch_dir="$OUT/rpm/$arch/RPMS"
+        arch_dir="$CH_OUT/rpm/$arch/RPMS"
         mkdir -p "$arch_dir"
         # per-arch rpms
         for f in "$DIST"/*."$arch".rpm; do
@@ -211,7 +235,7 @@ elif [ "$HAVE_CREATEREPO" = 1 ]; then
     done
     # sign packages + generate repodata
     for arch in x86_64 aarch64; do
-        arch_dir="$OUT/rpm/$arch"
+        arch_dir="$CH_OUT/rpm/$arch"
         [ -d "$arch_dir/RPMS" ] || continue
         # GPG-sign each rpm package (= required for dnf gpgcheck=1).  Done
         # before createrepo_c so the metadata hashes the signed files.
@@ -246,9 +270,9 @@ elif [ "$HAVE_CREATEREPO" = 1 ]; then
     # direct-URL bootstrap rpm thus carries the same GPG signature as the in-repo
     # copy -- otherwise hosts with localpkg_gpgcheck=1 reject it.
     signed_rel=$(ls -1 "$OUT"/rpm/*/RPMS/unmask-release-[0-9]*.noarch.rpm 2>/dev/null | sort -V | tail -1)
-    [ -n "$signed_rel" ] && cp -f "$signed_rel" "$OUT/rpm/unmask-release-latest.noarch.rpm"
+    [ -n "$signed_rel" ] && cp -f "$signed_rel" "$CH_OUT/rpm/unmask-release-latest.noarch.rpm"
 else
-    echo "==> rpm stage: skip (= createrepo_c absent / keeping existing $OUT/rpm)"
+    echo "==> rpm stage: skip (= createrepo_c absent / keeping existing $CH_OUT/rpm)"
 fi
 
 # ============================================================
@@ -257,11 +281,11 @@ fi
 if ! stage_active deb; then
     echo "==> deb stage: skip (= stage filter '$STAGE')"
 elif [ "$HAVE_APT" = 1 ]; then
-    echo "==> deb stage: regenerate (= single path / Suites: stable)"
-    rm -rf "$OUT/deb"
-    mkdir -p "$OUT/deb"
+    echo "==> deb stage: regenerate (= channel $CHANNEL / Suites: $DEB_SUITE)"
+    rm -rf "$CH_OUT/deb"
+    mkdir -p "$CH_OUT/deb"
 
-    POOL="$OUT/deb/pool/main/u/unmask"
+    POOL="$CH_OUT/deb/pool/main/u/unmask"
     mkdir -p "$POOL"
     cp "$DIST"/*.deb "$POOL"/ 2>/dev/null || true
     # Drop the unmask-release alias at the TOP of /dl/deb/ with the filename the
@@ -269,13 +293,13 @@ elif [ "$HAVE_APT" = 1 ]; then
     # `apt install <localfile>` installs it directly.  Placed OUTSIDE pool/ so
     # apt-ftparchive does not index it as a duplicate of the versioned package.
     latest=$(ls -1 "$POOL"/unmask-release_[0-9]*_all.deb 2>/dev/null | sort -V | tail -1)
-    [ -n "$latest" ] && cp -f "$latest" "$OUT/deb/unmask-release-latest.deb"
+    [ -n "$latest" ] && cp -f "$latest" "$CH_OUT/deb/unmask-release-latest.deb"
 
-    DSTABLE="$OUT/deb/dists/stable"
+    DSTABLE="$CH_OUT/deb/dists/$DEB_SUITE"
     for arch in amd64 arm64; do
         bin="$DSTABLE/main/binary-$arch"
         mkdir -p "$bin"
-        ( cd "$OUT/deb" && apt-ftparchive --arch "$arch" packages "pool/main" ) > "$bin/Packages"
+        ( cd "$CH_OUT/deb" && apt-ftparchive --arch "$arch" packages "pool/main" ) > "$bin/Packages"
         gzip -kf "$bin/Packages"
     done
 
@@ -287,13 +311,13 @@ elif [ "$HAVE_APT" = 1 ]; then
     apt-ftparchive \
         -o APT::FTPArchive::Release::Origin=unmask \
         -o APT::FTPArchive::Release::Label=unmask \
-        -o APT::FTPArchive::Release::Suite=stable \
-        -o APT::FTPArchive::Release::Codename=stable \
+        -o APT::FTPArchive::Release::Suite=$DEB_SUITE \
+        -o APT::FTPArchive::Release::Codename=$DEB_SUITE \
         -o APT::FTPArchive::Release::Architectures="amd64 arm64" \
         -o APT::FTPArchive::Release::Components=main \
         -o APT::FTPArchive::Release::Description="unmask package repository (single-path / distro-neutral)" \
-        release "$DSTABLE" > "$OUT/deb/.Release.tmp"
-    mv "$OUT/deb/.Release.tmp" "$DSTABLE/Release"
+        release "$DSTABLE" > "$CH_OUT/deb/.Release.tmp"
+    mv "$CH_OUT/deb/.Release.tmp" "$DSTABLE/Release"
     if [ -n "${UNMASK_GPG_KEY_ID:-}" ]; then
         gpg --batch --yes --default-key "$UNMASK_GPG_KEY_ID" \
             --clearsign -o "$DSTABLE/InRelease" "$DSTABLE/Release"
@@ -301,7 +325,7 @@ elif [ "$HAVE_APT" = 1 ]; then
             --detach-sign --armor -o "$DSTABLE/Release.gpg" "$DSTABLE/Release"
     fi
 else
-    echo "==> deb stage: skip (= apt-ftparchive absent / keeping existing $OUT/deb)"
+    echo "==> deb stage: skip (= apt-ftparchive absent / keeping existing $CH_OUT/deb)"
 fi
 
 # ============================================================
@@ -311,11 +335,11 @@ if ! stage_active apk; then
     echo "==> apk stage: skip (= stage filter '$STAGE')"
 elif [ "$HAVE_APK" = 1 ]; then
     echo "==> apk stage: regenerate (= single path / main 1 channel)"
-    rm -rf "$OUT/apk"
-    mkdir -p "$OUT/apk"
+    rm -rf "$CH_OUT/apk"
+    mkdir -p "$CH_OUT/apk"
 
     for arch in x86_64 aarch64; do
-        d="$OUT/apk/main/$arch"
+        d="$CH_OUT/apk/main/$arch"
         mkdir -p "$d"
         # per-arch apks + noarch (= unmask-release)
         for f in "$DIST"/*_"$arch".apk "$DIST"/*_noarch.apk; do
@@ -373,9 +397,9 @@ elif [ "$HAVE_APK" = 1 ]; then
     # noarch), parallel to rpm/deb.  Placed OUTSIDE main/ so `apk index` does not
     # list it; `apk add --allow-untrusted <localfile>` installs it directly.
     rel_apk=$(ls -1 "$OUT"/apk/main/*/unmask-release-[0-9]*.apk 2>/dev/null | sort -V | tail -1)
-    [ -n "$rel_apk" ] && cp -f "$rel_apk" "$OUT/apk/unmask-release-latest.apk"
+    [ -n "$rel_apk" ] && cp -f "$rel_apk" "$CH_OUT/apk/unmask-release-latest.apk"
 else
-    echo "==> apk stage: skip (= apk absent / keeping existing $OUT/apk)"
+    echo "==> apk stage: skip (= apk absent / keeping existing $CH_OUT/apk)"
 fi
 
 # ---- summary ----
