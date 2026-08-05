@@ -39,6 +39,28 @@ gpgcheck=1
 repo_gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-unmask
 metadata_expire=300
+
+# Pre-release channel, deliberately DISABLED.  It exists so that confirming a
+# fix takes one command and no setup:
+#
+#   dnf --enablerepo=unmask-testing update unmask
+#
+# Whoever reported a bug is the person least deserving of a five-step
+# instruction, and asking them to install a second release package would also
+# mean importing a second key.  Same key, same package, one flag.
+#
+# enabled=0 is what makes it safe to ship to everyone: nothing reaches this
+# repo unless the flag is passed, so an ordinary `dnf update` cannot wander
+# into a pre-release, and there is no state to undo afterwards -- the next
+# update goes back to stable on its own.
+[unmask-testing]
+name=unmask repository (testing -- pre-release builds, not for production)
+baseurl=https://unmask.sh/dl/testing/rpm/\$basearch
+enabled=0
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-unmask
+metadata_expire=300
 EOF
 
 exit 0
