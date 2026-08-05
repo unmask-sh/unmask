@@ -28,7 +28,7 @@ RUN cd nginx-${NGINX_VERSION} \
 # Runtime stage
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libssl3 libpcre2-8-0 zlib1g openssl \
+    libssl3 libpcre2-8-0 zlib1g openssl apache2-utils \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --no-create-home --shell /usr/sbin/nologin nginx \
     && mkdir -p /usr/sbin /usr/lib/nginx/modules /etc/nginx \
@@ -46,6 +46,8 @@ COPY --from=build /src/nginx-${NGINX_VERSION}/objs/ngx_http_unmask_module.so \
 # the /etc/unmask volume.
 COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/share/unmask/challenge/
 COPY e2e/docker/nginx/nginx.conf /etc/nginx/nginx.conf
+# Stock config for the comparison service (scenario 55): same binary, no module.
+COPY e2e/docker/nginx/stock.conf /etc/nginx/stock.conf
 
 # self-signed cert (= e2e only.  Clients are expected to skip verification with --insecure / -k)
 RUN openssl req -x509 -nodes -newkey rsa:2048 -days 365 \

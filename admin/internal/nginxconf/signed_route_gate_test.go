@@ -92,7 +92,7 @@ func TestSignedRouteGatedByWebBotAuth(t *testing.T) {
 		out := renderWBA(t, true, "http.inc")
 		for _, want := range []string{
 			"map $uri $unmask_uri_is_unmask",
-			`map "$unmask_has_signed_agent:$unmask_uri_is_unmask:$final_challenge" $unmask_signed_gate`,
+			`map "$unmask_has_signed_agent:$unmask_uri_is_unmask" $unmask_signed_gate`,
 			"map $unmask_signed_action $unmask_signed_verified",
 			// PAT off → the combined map reads the signed flag + a literal 0.
 			`map "$unmask_signed_verified:0" $unmask_verified`,
@@ -197,7 +197,7 @@ func TestPATRouteGatedByPrivacyPass(t *testing.T) {
 		for _, want := range []string{
 			"map $uri $unmask_uri_is_unmask",
 			"map $http_authorization $unmask_has_pat",
-			`map "$unmask_has_pat:$unmask_uri_is_unmask:$final_challenge" $unmask_pat_gate`,
+			`map "$unmask_has_pat:$unmask_uri_is_unmask" $unmask_pat_gate`,
 			"map $unmask_pat_action $unmask_pat_verified",
 			// WBA off → the combined map reads a literal 0 + the pat flag.
 			`map "0:$unmask_pat_verified" $unmask_verified`,

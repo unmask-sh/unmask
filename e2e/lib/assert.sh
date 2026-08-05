@@ -17,6 +17,16 @@ log_pass() { printf '%b\n' "  ${GREEN}PASS${RESET}  $*"; }
 log_fail() { _E2E_FAILS=$((${_E2E_FAILS:-0} + 1)); printf '%b\n' "  ${RED}FAIL${RESET}  $*" >&2; }
 log_skip() { printf '%b\n' "  ${YELLOW}SKIP${RESET}  $*"; }
 
+# log_note: a measurement worth seeing after the run, not just while it scrolls
+# past.  Prints inline like log(), and when run.sh has set E2E_NOTES the line is
+# also collected and reprinted in the summary block at the end -- a figure
+# buried 50 scenarios up is a figure nobody reads.
+log_note() {
+    printf '%b\n' "  $*"
+    [ -n "${E2E_NOTES:-}" ] && printf '%s\n' "$*" >>"$E2E_NOTES"
+    return 0
+}
+
 # Exit guard: a scenario is a FAIL when ANY assertion failed, not just when
 # its LAST command happened to exit non-zero.  Without this, a mid-scenario
 # assert_eq failure is silently swallowed as long as the final assert passes

@@ -1005,9 +1005,19 @@ map $uri $unmask_uri_is_unmask {
 # subrequest overhead — and keeps working even when the admin daemon is down.
 # Ban enforcement stays terminal: the ban if-blocks in server.inc run before
 # this gate and short-circuit the rewrite phase.
-map "$unmask_has_signed_agent:$unmask_uri_is_unmask:$final_challenge" $unmask_signed_gate {
+#
+# $final_challenge is reached through the map VALUE, not folded into the key.
+# nginx builds a key eagerly -- every variable in it, on every request -- and
+# resolves only the matched entry's value.  With it in the key, every request to
+# the vhost evaluated the whole decision chain (JA4 fingerprint included) just
+# to answer a question only a SIGNED request can answer yes to.  On a location
+# that does not include protect.inc -- a static asset, an upload endpoint --
+# nothing else builds those variables, so turning this feature on cost the
+# vhost 13x: measured 56k -> 3.9k req/s.  Through the value, only a signed
+# request off the unmask mount pays.  Identical truth table either way.
+map "$unmask_has_signed_agent:$unmask_uri_is_unmask" $unmask_signed_gate {
     volatile;
-    "1:0:1"  1;
+    "1:0"    $final_challenge;
     default  0;
 }
 
@@ -1033,9 +1043,11 @@ map $http_authorization $unmask_has_pat {
 }
 
 # $unmask_pat_gate: detour ONLY a PrivateToken request about to be challenged.
-map "$unmask_has_pat:$unmask_uri_is_unmask:$final_challenge" $unmask_pat_gate {
+# $final_challenge through the map value, not the key -- see the Web Bot Auth
+# gate above for the measurement.
+map "$unmask_has_pat:$unmask_uri_is_unmask" $unmask_pat_gate {
     volatile;
-    "1:0:1"  1;
+    "1:0"    $final_challenge;
     default  0;
 }
 

@@ -67,6 +67,10 @@ clear_ban_state() {
     sleep 0.2
 }
 
+# Measurements scenarios want surfaced after the run (see log_note).
+E2E_NOTES=$(mktemp); export E2E_NOTES
+trap 'rm -f "$E2E_NOTES"' EXIT
+
 for s in "$DIR"/scenarios/[0-9]*.sh; do
     name=$(basename "$s" .sh)
     num="${name%%-*}"
@@ -93,6 +97,11 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
 done
 
 echo "----------------------------------------"
+if [ -s "$E2E_NOTES" ]; then
+    echo "  measured:"
+    sed 's/^/    /' "$E2E_NOTES"
+    echo "----------------------------------------"
+fi
 echo "  total: passed=$passed  failed=$failed  skipped=$skipped"
 if [ "$failed" -gt 0 ]; then
     echo "  failed: ${failed_names[*]}"
