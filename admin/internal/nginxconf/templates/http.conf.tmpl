@@ -669,6 +669,87 @@ map "$geo_challenge_eff:$asn_challenge_eff" $is_net_challenge {
     "0:0"   0;
 }
 
+{{- if .HardDenyActive }}
+# -----------------------------------------------------------------------------
+# Hard deny dispatch ($unmask_deny_now)
+# -----------------------------------------------------------------------------
+# An axis whose action is "deny" is enforced HERE -- beside the ban, ahead of
+# everything that reads _bv -- rather than through $final_challenge below.
+#
+# It used to go through $final_challenge, whose first rule is "a valid _bv
+# exempts you".  That made "deny" mean "deny unless this client has cleared a
+# challenge at some point in the last week", which against anything that can
+# clear one is not a deny at all.  Measured on a production install: a crawler
+# the operator had already taken out of the rescue list solved the
+# proof-of-work from 419 addresses and served itself 137,051 requests in a day.
+# Difficulty is no answer either -- the pass cookie lasts a week, so the cost is
+# one solve per address per week whatever the difficulty is.
+#
+# The rescues stay ABOVE this, so nothing the operator exempted on purpose is
+# affected: a search bot is still rescued, a bypass IP or path still passes.
+# What changes is only that a client the operator denied cannot buy its way past
+# by having solved something once.
+#
+# Emitted only when some axis on this install CAN resolve to deny.  The
+# dispatch is an `if` in the server rewrite phase, so it is read on every
+# request to the vhost -- including ones served by locations that never include
+# protect.inc and therefore never read $final_challenge.  On those, building
+# $unmask_deny_now would newly cost a $is_search_bot UA-regex sweep per request
+# to answer a question that has only one possible answer.  So: nothing to deny,
+# nothing rendered, nothing to pay.
+map $http_user_agent $unmask_ua_deny {
+    default 0;
+{{- range .HardDenyUAPatterns }}
+    "~*{{ rx . }}" 1;
+{{- end }}
+}
+
+# Each network axis denies only where its OWN exempt-path list does not apply --
+# the same guard $geo_challenge_eff / $asn_challenge_eff apply above.  Without
+# it, turning a country rule into a deny would start blocking the paths the
+# operator had explicitly exempted from that very rule.
+map "$is_geo_exempt_path:$unmask_geo_action" $geo_deny_eff {
+    default    0;
+    "~^0:deny$" 1;
+}
+map "$is_asn_exempt_path:$unmask_asn_action" $asn_deny_eff {
+    default    0;
+    "~^0:deny$" 1;
+}
+
+map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny" $unmask_axis_deny {
+    default    0;
+    "~^1:"     1;  # country rule
+    "~^0:1:"   1;  # ASN rule
+    "~^0:0:1$" 1;  # UA black-list row / preset / upstream group
+}
+
+# The rescues are consulted through a map VALUE, not folded into a key, so they
+# are evaluated only on the branch that needs them.  nginx builds a map key
+# eagerly -- every variable in it, every request -- but resolves only the
+# matched entry's value.  $is_search_bot is the expensive one (a UA regex list
+# plus $effective_ja4 behind the notification-preview composite), and asking it
+# on every request would make adding one deny rule cost the whole vhost:
+# measured on a location that does NOT include protect.inc, 46k -> 3.4k req/s,
+# because such a location otherwise never builds these variables at all.
+# Keyed this way, only a request that actually matched a deny rule pays.
+map $unmask_axis_deny $unmask_deny_raw {
+    default 0;
+    "1"     $unmask_deny_unrescued;
+}
+map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $unmask_deny_unrescued {
+    default 0;
+    "0:0:0" 1;
+}
+
+# /unmask/* is masked off for the same reason the ban masks it: the dispatch is
+# a rewrite, and without this the rewritten request matches again and loops.
+map $request_uri $unmask_deny_now {
+    default      $unmask_deny_raw;
+    "~^/unmask/" 0;
+}
+{{- end }}
+
 {{- if .CommunityBansSubscribe }}
 
 # -----------------------------------------------------------------------------

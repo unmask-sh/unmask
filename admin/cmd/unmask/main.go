@@ -1019,6 +1019,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// instead of returning a bare 403).  Always the branded "blocked" page --
 	// no challenge fallback, since a deny ban is a hard block.
 	mux.HandleFunc(base+"/_ban/", h.ServeBanDeny)
+	// Axis-deny path (a UA black-list row, country or ASN rule whose action is
+	// "deny").  Dispatched from server.inc beside the ban, ahead of the pass
+	// cookie, so "deny" is not escapable by having cleared a challenge once.
+	mux.HandleFunc(base+"/_deny/", h.ServeAxisDeny)
 	// debug / test pages (sanity checks).  Exposed via two paths:
 	//   public side  /unmask/test/*       — gated by the settings.Challenge.PublicTestPages toggle (default 404)
 	//   admin side   /unmask/admin/test/* — always available to logged-in users (AuthMiddleware)

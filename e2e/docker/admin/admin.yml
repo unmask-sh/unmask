@@ -147,11 +147,17 @@ nginx:
   # the blanket challenge off so is_challenge_target matches only UAs
   # explicitly in the blacklist (= curl / library / scrapers).
   challenge_targets:
-    all: false
     # chmode for honeypot / protected-path / ja4 challenges.  pow_only (as on
     # uic.jp) so a real headless browser (scenario 27) can auto-clear it without
     # a human CAPTCHA.
     default_action: pow_only
+    # Scenario 53 (= hard deny outranks the pass cookie).  One row pinned to
+    # deny, so the scenario can prove the difference between "denied" and
+    # "challenged" with the SAME valid cookie on both requests.
+    extra:
+      - "contains:UnmaskDenyProbe"
+    extra_action:
+      - deny
   # Scenario 12 (= max-severity composition) needs both axes wired:
   #   - geo: JP rule action=pow_only / CN rule action=deny
   #   - ja4: a known fingerprint classified as bot

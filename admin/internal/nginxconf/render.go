@@ -391,9 +391,33 @@ type renderData struct {
 	GeoExemptPathsPerHost   []BypassPathHostMaps
 	AsnExemptPathsGlobal    []string
 	AsnExemptPathsPerHost   []BypassPathHostMaps
-	ChallengeTargetPatterns []string               // OR list of UA patterns for $is_challenge_target
-	HTTPSRedirect           bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
-	HTTPSRedirectExempt     []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
+	ChallengeTargetPatterns []string // OR list of UA patterns for $is_challenge_target
+	// HardDenyActive: any axis on this install can resolve to "deny".  When it
+	// cannot -- which is most installs -- none of the deny plumbing is emitted
+	// at all, and that is a performance decision, not tidiness.
+	//
+	// The dispatch is an `if` in the SERVER rewrite phase, so it is read on
+	// every request to the vhost, including ones served by locations that do
+	// not include protect.inc.  Those locations never read $final_challenge, so
+	// today they never evaluate the axis variables either; making them build
+	// $unmask_deny_now would newly cost them a $is_search_bot UA-regex sweep
+	// per request for a decision that can only ever come out "no".
+	//
+	// (Where protect.inc IS included the marginal cost is small: $final_challenge
+	// is a composite-key map, so nginx already builds every one of those
+	// variables to form the key -- the pass cookie short-circuits the DECISION,
+	// never the computation -- and map variables are cached per request.  What
+	// is left is one extra UA map plus a few short composite-key lookups.)
+	HardDenyActive bool
+	// HardDenyUAPatterns: the subset of ChallengeTargetPatterns whose resolved
+	// action is "deny".  Rendered into $unmask_ua_deny, which server.inc acts on
+	// BEFORE the pass cookie -- so a UA the operator denied cannot buy its way
+	// past by clearing one challenge.  Empty on every install that denies
+	// nothing by UA, which is most of them, and the map is then not emitted at
+	// all (no rendered-config diff).
+	HardDenyUAPatterns  []string
+	HTTPSRedirect       bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	HTTPSRedirectExempt []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -789,6 +813,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				d.ChallengeTargetPatterns = append(d.ChallengeTargetPatterns, p)
 			}
 		}
+		// ...and the subset of all that whose action is "deny", which nginx
+		// needs to name on its own: a deny is dispatched from server.inc ahead
+		// of the pass cookie (see $unmask_deny_now), so it cannot wait for the
+		// daemon to resolve the chain the way an ordinary challenge does.
+		d.HardDenyUAPatterns = hardDenyUAPatterns(s, seenVer, upstreamGroupBlackPatterns)
 	}
 
 	// JA4 verdicts: enabled presets + extras.
@@ -1314,6 +1343,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 	}
 
+	// Can anything on this install deny?  Computed here because the geo / ASN
+	// rules above are the last of the three sources to be resolved.  When the
+	// answer is no, the whole deny block is left out of both files -- see
+	// HardDenyActive for why that is a cost decision rather than a cosmetic one.
+	d.HardDenyActive = len(d.HardDenyUAPatterns) > 0 ||
+		d.GeoDefaultAction == settings.RateChallengeDeny ||
+		d.AsnDefaultAction == settings.RateChallengeDeny
+	for _, r := range d.GeoRules {
+		d.HardDenyActive = d.HardDenyActive || r.Action == settings.RateChallengeDeny
+	}
+	for _, r := range d.AsnRules {
+		d.HardDenyActive = d.HardDenyActive || r.Action == settings.RateChallengeDeny
+	}
+
 	// ASN rate zones: one limit_req zone per RatePerMin>0 rule (separate from the
 	// immediate-action geo block above, which skips rate rules).  Each walks the
 	// mmdb for the rule's networks emitting a per-CIDR ASN value, so the counter
@@ -1566,6 +1609,85 @@ func toSet(xs []string) map[string]bool {
 // per-pattern OFF wins over the group default).  Patterns in rangeVerified
 // are skipped on the white side only: their rescue is carried by the
 // vendor's IP-range presets (geo $is_bypass_ip), not by the UA string.
+// hardDenyUAPatterns: the UA black-list patterns whose resolved action is
+// "deny".  The precedence mirrors ServeChallenge's chain for this axis -- list
+// default, then the operator's own row, then the upstream group, then the
+// preset, each overriding the one before -- because the two have to agree on
+// which UAs get denied ahead of the cookie and which merely get challenged.
+// TestHardDenyRenderMatchesTheDaemon holds them together.
+//
+// A pattern reachable through more than one source is emitted when ANY of them
+// says deny.  That is deliberate: the alternative is a request nginx lets past
+// on a technicality that the daemon would then have denied, and this axis
+// exists precisely because "let past on a technicality" is the bug.
+func hardDenyUAPatterns(s settings.Settings, seenVer string, upstreamBlack []string) []string {
+	ct := s.Nginx.ChallengeTargets
+	def := strings.TrimSpace(ct.DefaultAction)
+	denies := func(act string) bool {
+		act = strings.TrimSpace(act)
+		if act == "" {
+			act = def
+		}
+		return act == settings.RateChallengeDeny
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p = trimSpaceAndQuotes(p); p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	disabled := toSet(ct.DisabledPresets)
+	for _, g := range ChallengeTargetGroups {
+		if disabled[g.ID] || PresetIsNew(seenVer, g.AddedIn) {
+			continue
+		}
+		if denies(ct.PresetAction[g.ID]) {
+			for _, p := range g.Patterns {
+				add(p)
+			}
+		}
+	}
+	for i, p := range ct.Extra {
+		if i < len(ct.ExtraDisabled) && ct.ExtraDisabled[i] {
+			continue
+		}
+		act := ""
+		if i < len(ct.ExtraAction) {
+			act = ct.ExtraAction[i]
+		}
+		if denies(act) {
+			add(p)
+		}
+	}
+	// Upstream rescue groups resolved to "black": their per-group action, or
+	// the list default when they pinned none.  upstreamBlack is already the
+	// enabled/deduped pattern set, so walk the catalogue only to find which
+	// group each pattern came from.
+	inBlack := toSet(upstreamBlack)
+	groups := classify.UpstreamRescueList()
+	cats := make([]string, 0, len(groups))
+	for cat := range groups {
+		cats = append(cats, cat)
+	}
+	sort.Strings(cats)
+	for _, cat := range cats {
+		if classify.ResolveGroupMode(cat, s.Nginx.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
+			continue
+		}
+		if !denies(s.Nginx.SearchBots.UpstreamGroupAction[cat]) {
+			continue
+		}
+		for _, e := range groups[cat] {
+			if inBlack[e.Pattern] {
+				add(e.Pattern)
+			}
+		}
+	}
+	return out
+}
+
 func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, rangeVerified map[string]bool) (white, black, guarded []string) {
 	groups := classify.UpstreamRescueList()
 	// Iterate categories in sorted order: groups is a map, and Go map
@@ -1786,4 +1908,15 @@ func trimSpaceAndQuotes(s string) string {
 		return ""
 	}
 	return s
+}
+
+// HardDenyUAPatternsForTest exposes hardDenyUAPatterns to the handlers package,
+// which owns the daemon-side answer to the same question.  The two are held
+// together by TestHardDenyRenderMatchesTheDaemon; without a way to call this
+// one from there, the only thing pinning them would be that the same person
+// happened to edit both.
+func HardDenyUAPatternsForTest(s settings.Settings) []string {
+	_, black, _ := collectUpstreamPatternsByMode(
+		s.Nginx.SearchBots.UpstreamGroupMode, toSet(s.Nginx.SearchBots.UpstreamDisabled), map[string]bool{})
+	return hardDenyUAPatterns(s, "", black)
 }

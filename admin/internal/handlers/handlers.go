@@ -837,6 +837,80 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(renderBanDenyC(br, banPreset, br.ResolvedDenyBanTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref, denyColorsBan(br)))
 }
 
+// ServeAxisDeny writes the "blocked" page for a request an axis resolved to
+// "deny" -- a UA black-list row pinned to deny, a country rule, an ASN rule.
+//
+// It exists because "deny" did not deny.  Every axis below the pass cookie was
+// only consulted when $bv_any_valid was 0, so the word meant "deny unless this
+// client already cleared a challenge once".  Against anything that can mint a
+// cookie that is not a block at all: measured on a production install,
+// Bytespider solved the proof-of-work from 419 addresses and served itself
+// 137,051 requests in a day through a UA the operator had already taken out of
+// the rescue list.  Raising the PoW difficulty cannot reach it either -- a
+// cookie lasts a week, so the cost is one solve per address per week no matter
+// what the difficulty is.  The only fix is ordering.
+//
+// So this is dispatched from server.inc alongside the ban, BEFORE anything
+// looks at _bv, and it deliberately shares the ban's shape: same branded page,
+// same JSON form for non-navigations, no escape hatch.  A ban is the one axis
+// that always worked this way; this makes the rest of them mean it too.
+func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
+	site := siteFromRequest(r, h.snapshotSettings())
+	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	verdict := h.resolvedVerdictName(ja4)
+	ref := newRef()
+	origPath := ""
+	if p := r.URL.RequestURI(); strings.HasPrefix(p, h.basePath()+"/_deny") {
+		origPath = truncateAt(strings.TrimPrefix(p, h.basePath()+"/_deny"), 200)
+	}
+	if pkt := events.PackIP(clientIP(r)); pkt != nil {
+		events.InsertAsync(h.DB, &events.Event{
+			Site:         site,
+			Host:         h.HostID,
+			Scheme:       schemeFromRequest(r),
+			Port:         portFromRequest(r),
+			IPPacked:     pkt,
+			UserAgent:    r.Header.Get("User-Agent"),
+			JA4:          safeJA4(ja4),
+			JA4Verdict:   verdict,
+			JA4VerdictID: h.VerdictNameToID(verdict),
+			Phase:        string(events.PhaseServe),
+			Payload: map[string]any{
+				// Named for the axis rather than folded into "banned": the hunt
+				// log has to separate "a rule the operator wrote said no" from
+				// "a signal fired and banned this client", or the one row that
+				// explains a support ticket is the one that reads wrong.
+				"force_reason": "axis_deny",
+				"deny":         1,
+				"method":       r.Method,
+				"ref":          ref,
+				"orig_path":    origPath,
+			},
+		})
+	}
+
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	if !isHTMLNavigation(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"error":  "blocked",
+			"reason": "axis_deny",
+		})
+		return
+	}
+	cfg := h.cfg()
+	br := cfg.Branding.Resolve(site)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusForbidden)
+	// The ban copy, because to the visitor this IS a block: persistent until the
+	// operator changes the rule, with no retry that would help.  The rate-limit
+	// wording ("try again shortly") would be a lie here.
+	_, _ = w.Write(renderBanDenyC(br, br.ResolvedDenyBanCopyPreset(),
+		br.ResolvedDenyBanTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref, denyColorsBan(br)))
+}
+
 // banProbedOrigPath recovers the URL a banned client was probing when the
 // native ban-challenge rewrite dropped the _orig arg.  server.inc rewrites a
 // banned IP from its probed URI straight to /unmask/challenge/ (no _orig) so a
