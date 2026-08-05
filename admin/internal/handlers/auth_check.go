@@ -684,13 +684,25 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// funnel, unique-IP (DailyUniqueIPs) and per-country (DailyPassByCountry)
 		// charts are blank in forward-auth.
 		h.NginxLog.BumpCrawler(ua, action != "pass")
-		// Same precedence as onLine's native path: a request that already
-		// counted as a pass cookie is not also "bypassed".  Both feed the one
-		// total the composition card divides up, and counting a cookie holder
-		// twice steals from the human remainder -- measured at 397,043 of
-		// 3,582,523 requests a day on an install serving its own assets from
-		// bypassed paths.
-		if bvKind == "" && (reason == "bypass:ip" || reason == "bypass:path") {
+		// The same classification onLine performs natively, in the same order:
+		// pass cookie, then challenged, then listed crawler, then bypassed.
+		// Exactly one may fire, because all four are shares of the one total the
+		// composition card divides up -- counting a cookie holder twice steals
+		// from the human remainder (measured at 397,043 of 3,582,523 requests a
+		// day on an install serving its own assets from bypassed paths).
+		//
+		// The crawler arm was absent here, and only this wire can lose it:
+		// native reads the classification off the log line, forward-auth has to
+		// state it.  Every rescued crawler therefore fell out of the benign
+		// share into the residue, which is how it was found -- the residue
+		// tracked the crawler table request for request (227 of 1,094 in an
+		// hour) while crawler_pass stayed at zero all day.
+		switch {
+		case bvKind != "" || fc:
+			// counted by Bump above as pow / captcha / challenge_served.
+		case classify.LookupTag(ua) != "":
+			h.NginxLog.BumpCrawlerPass(site)
+		case reason == "bypass:ip" || reason == "bypass:path":
 			h.NginxLog.BumpBypass(site)
 		}
 		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind, ua)

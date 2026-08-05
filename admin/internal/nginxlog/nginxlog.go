@@ -786,6 +786,22 @@ func (r *Reader) BumpBypass(site string) {
 	r.bumpKind(site, "bypass_pass")
 }
 
+// BumpCrawlerPass: the forward-auth twin of onLine's crawler_pass case -- a
+// listed crawler this configuration passed on purpose.
+//
+// It was missing, and forward-auth is the only wire that can lose it: native
+// classifies straight off the access-log line, while forward-auth has to say so
+// explicitly.  So on a node answering /api/check every rescued crawler landed
+// in the composition card's residue instead of its benign share, and the
+// residue matched the crawler table request for request -- 227 of 1,094 on the
+// node where it surfaced, with crawler_pass flat zero for the whole day.
+func (r *Reader) BumpCrawlerPass(site string) {
+	if r == nil {
+		return
+	}
+	r.bumpKind(site, "crawler_pass")
+}
+
 // BumpTrafficHLL / BumpCountry: exported entry points for forward-auth mode.
 // /api/check has the IP (and the Reader's geo is wired in both modes), but emits
 // no access-log line, so without these the unique-IP (DailyUniqueIPs) and
