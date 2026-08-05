@@ -31,13 +31,19 @@ overrides:
   # apk `=`): the .so and the daemon share the _bv / JA4 contract, so a mixed
   # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends,
   # so each lists nginx too.
+  #
+  # deb and apk need the RELEASE as well, rpm does not.  rpm's `=` with no
+  # release given matches any release; dpkg and apk compare the whole version
+  # string, so `(= 0.1.21)` against an installed 0.1.21-1 is simply unsatisfied
+  # -- apt reports "held broken packages" and apk "breaks: ...[unmask=0.1.21]".
+  # Measured on all three after the release became settable.
   rpm:
     depends:
       - "unmask = ${UNMASK_VERSION}"
       - nginx
   deb:
     depends:
-      - "unmask (= ${UNMASK_VERSION})"
+      - "unmask (= ${UNMASK_VERSION}-${UNMASK_RELEASE})"
       - nginx
   # On Alpine, gcompat lets nginx (musl-linked) dlopen our glibc-built
   # plugin .so.  Without it the module fails to load and the challenge
@@ -50,7 +56,7 @@ overrides:
       scripts:
         postupgrade: ./scripts/postinstall-plugin-nginx-fat.sh
     depends:
-      - "unmask=${UNMASK_VERSION}"
+      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
       - nginx
       - gcompat
 
