@@ -284,11 +284,14 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// payload_json carries the chain and the reason the challenge fired, as
+	// every real event does -- the abandon rate reads them to tell an ordinary
+	// visitor apart from a client a rule targeted.
 	ev := func(phase string, n int) {
 		t.Helper()
 		for i := 0; i < n; i++ {
-			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
-				VALUES (?, '', x'7f000001', ?, datetime('now'))`, site, phase); err != nil {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, payload_json, date_created)
+				VALUES (?, '', x'7f000001', ?, '{"chmode":"pow_only"}', datetime('now'))`, site, phase); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -297,13 +300,7 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 	// gave up and 850 were stopped.
 	ev("load", 150)
 	ev("bv_pow_only", 100)
-	// The `abandon` beacon only arrives if the leaving page manages to send it,
-	// so it is a floor, not a count: measured against a real day it reported
-	// 1,012 where load-minus-passes said 12,046.  Seeded here at a similarly
-	// lossy 3 -- taking THIS number would put blocked at 897, and would put two
-	// figures on one page under the name "abandoned" an order of magnitude
-	// apart, since the tile has always derived it.
-	ev("abandon", 3)
+	ev("abandon", 50)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
@@ -582,10 +579,10 @@ func TestOtherSegmentBreaksDownIntoItsParts(t *testing.T) {
 	for _, e := range []struct {
 		phase string
 		n     int
-	}{{"load", 250}, {"bv_pow_only", 200}} {
+	}{{"load", 250}, {"bv_pow_only", 200}, {"abandon", 50}} {
 		for i := 0; i < e.n; i++ {
-			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
-				VALUES (?, '', x'7f000001', ?, datetime('now'))`, site, e.phase); err != nil {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, payload_json, date_created)
+				VALUES (?, '', x'7f000001', ?, '{"chmode":"pow_only"}', datetime('now'))`, site, e.phase); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -658,5 +655,64 @@ func TestSegmentsNeverOversubscribeTheTotal(t *testing.T) {
 	_, sub := compositionCard(t, rr.Body.String())
 	if strings.Contains(sub, "-") {
 		t.Errorf("a segment went negative: %q", sub)
+	}
+}
+
+// The abandon rate answers "is the challenge too heavy for real people", so it
+// must not count clients the operator deliberately targeted.  Counting every
+// abandon made it a readout of how much targeted traffic the rules were turning
+// away: on one node 65,634 of 65,676 abandons carried force_reason=ua_target at
+// captcha_only, so the tile read 99.2% while ordinary visitors abandoned 32
+// times.  Switching to the `abandon` beacon alone does not fix it either -- the
+// residential browser farm sends the beacon faithfully, and that reading was
+// still 83.6%.
+func TestAbandonRateCountsOnlyUnruledPoW(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+
+	ev := func(phase, reason, mode string, n int) {
+		t.Helper()
+		pj := `{"force_reason":"` + reason + `","chmode":"` + mode + `"}`
+		if reason == "" {
+			pj = `{"chmode":"` + mode + `"}`
+		}
+		for i := 0; i < n; i++ {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, payload_json, date_created)
+				VALUES (?, '', x'7f000001', ?, ?, datetime('now'))`, site, phase, pj); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// A targeted population that loads and walks away from a CAPTCHA, and a
+	// small ordinary one facing the transparent PoW.
+	ev("load", "ua_target", "captcha_only", 900)
+	ev("abandon", "ua_target", "captcha_only", 800)
+	ev("load", "", "pow_only", 100)
+	ev("abandon", "", "pow_only", 5)
+	ev("bv_pow_only", "", "pow_only", 95)
+
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	body := rr.Body.String()
+
+	// 5 of 100, not 905 of 1,000 and not 805 of 1,000.
+	//
+	// Extracted and compared whole rather than with Contains: "905 of 100 ..."
+	// CONTAINS "5 of 100 ...", so a substring check passes on the exact wrong
+	// value this test exists to catch.  It did -- the first version of this
+	// assertion went green against the old behaviour.
+	want := i18n.Tf(i18n.LangEN, "overview.kpi.abandon_sub", "5", "100")
+	got := regexp.MustCompile(`[0-9,]+ of [0-9,]+ did not finish[^<]*`).FindString(body)
+	if got != want {
+		t.Errorf("the abandon tile reads %q, want %q: it is still counting clients a rule targeted", got, want)
+	}
+	// ...and the rate is theirs, not the farm's.
+	if strings.Contains(body, ">80.0<") || strings.Contains(body, ">88.5<") {
+		t.Error("the abandon rate is the targeted population's, not the ordinary visitors'")
 	}
 }

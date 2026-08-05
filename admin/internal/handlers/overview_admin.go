@@ -62,6 +62,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	var (
 		kpiServes, kpiPoWPass, kpiCaptchaPass int
 		kpiLoaded                             int
+		powLoaded, powAbandon                 int
 		comp                                  dashboard.TrafficComposition
 		uBlocked                              int
 		uKnown                                bool
@@ -82,12 +83,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// transparent (mostly real browsers); the CAPTCHA paths mean a human solved
 	// one.  The old "verify" phase does not exist in native mode.
 	launch(func() { kpiPoWPass = countEvents(ctx, h, 1440, "bv_pow_only", site, hosts) })
-	// Challenge pages that actually ran their JS.  This is the denominator for
-	// the abandon rate below, and it has to be `load` rather than `serve`: a
-	// scraper that never executes JS is served a page and emits no load, so
-	// counting serves would fold every bot into a number meant to describe
-	// real visitors.
+	// Challenge pages that actually ran their JS.  `load` rather than `serve`
+	// because a scraper that never executes JS is served a page and emits no
+	// load, so counting serves would fold every bot into a number meant to
+	// describe real visitors.  Used by the funnel below.
 	launch(func() { kpiLoaded = countEvents(ctx, h, 1440, "load", site, hosts) })
+	// ...and the abandon rate's own pair, narrowed to ordinary visitors facing
+	// the transparent proof-of-work.  See countUnruledPoW: counting every
+	// abandon made the tile a readout of how much targeted traffic the rules
+	// were turning away, which is the configuration working rather than
+	// visitors lost.
+	launch(func() { powLoaded = countUnruledPoW(ctx, h, 1440, "load", site, hosts) })
+	launch(func() { powAbandon = countUnruledPoW(ctx, h, 1440, "abandon", site, hosts) })
 	launch(func() {
 		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
@@ -141,26 +148,26 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// No log feed (or it is behind): fall back to what the events know.
 		kpiFired = kpiServes
 	}
-	// The abandons are the visitors whose browser ran the challenge and never
-	// passed -- derived, not the `abandon` beacon event.  The beacon only
-	// arrives if the page gets to send it, and measured against the same window
-	// it reported 1,012 where the arithmetic says 12,046: a 12x loss.  The
-	// abandon tile has always used the derived figure, so taking the event here
-	// put two numbers on one page under one name, an order of magnitude apart.
+	// The abandon figure: ordinary visitors who ran the transparent
+	// proof-of-work and left without finishing it.
 	//
-	// It also makes the blocked figure exactly "fired minus loaded" -- the
-	// challenges whose JS never ran at all, which is as clean a definition of
-	// the malicious side as this data has, and non-negative by construction
-	// wherever the log feed is not behind.
-	abandon := kpiLoaded - kpiPoWPass - kpiCaptchaPass
-	if abandon < 0 {
-		// Passes from sessions whose `load` fell before this window.
-		abandon = 0
-	}
+	// Both halves are narrowed the same way, because the question is whether
+	// the challenge costs real visitors -- not how much targeted traffic the
+	// rules are turning away.  Deriving it from every load instead (load minus
+	// passes) read 99.2% on a node where a residential browser farm was being
+	// sent to a CAPTCHA it never solves; ordinary visitors there abandoned 32
+	// times.  Using the `abandon` beacon but counting all of it still read
+	// 83.6%, because that farm sends the beacon faithfully.
+	abandon := powAbandon
 	abandonPct := 0.0
-	if kpiLoaded > 0 {
-		abandonPct = float64(abandon) / float64(kpiLoaded) * 100
+	if powLoaded > 0 {
+		abandonPct = float64(abandon) / float64(powLoaded) * 100
 	}
+	// Blocked subtracts only the visitors who walked away, not everything that
+	// loaded and did not pass: a targeted client shown a CAPTCHA it never
+	// solves WAS stopped, and crediting it as "walked away" hands the malicious
+	// side back to the traffic the rules exist to catch.  On the farm node that
+	// is 65,634 of 65,676 abandons.
 	kpiBlocked := kpiFired - kpiPoWPass - kpiCaptchaPass - abandon
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
@@ -354,6 +361,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"ObserveOnly":    observeOnly,
 		"KPIWouldBlock":  kpiWouldBlock,
 		"KPILoaded":      kpiLoaded,
+		// The abandon tile's own denominator: ordinary visitors who ran the
+		// transparent PoW.  Deliberately NOT kpiLoaded -- showing "N / <every
+		// load>" beside a rate computed over a narrower population is two
+		// figures that cannot be divided into each other.
+		"KPIPoWLoaded":   powLoaded,
 		"KPIAbandon":     abandon,
 		"KPIAbandonPct":  abandonPct,
 		"KPIKnown":       kpiKnown,
@@ -637,6 +649,58 @@ func sparkPoints(series []int) string {
 // countEvents: count of unmask_event rows in the last `minutes`.  Empty phase
 // means all rows.  Non-empty hosts narrows via IN (...) for multi-host filtering.
 // Best-effort (= on error, return 0 and just log).
+// countUnruledPoW: events of one phase that reached an ORDINARY visitor -- the
+// transparent proof-of-work, fired by nothing in particular.
+//
+// The abandon rate answers "is the challenge too heavy for real people", and
+// counting every abandon answers a different question badly.  A client the
+// operator deliberately targeted -- a UA rule, a JA4 bot verdict, a header
+// mismatch -- being shown a CAPTCHA and walking away is the configuration
+// working, not a visitor lost.  Measured on one node over a day: 65,634 of
+// 65,676 abandons carried force_reason=ua_target at captcha_only, so the tile
+// read 99.2% while ordinary visitors abandoned 32 times.  Red, and about
+// nothing the operator would want to act on.
+//
+// Switching to the `abandon` beacon alone does not fix it: the residential
+// browser farm sends the beacon faithfully, so that reading was still 83.6%.
+// The split that works is the reason the challenge fired, which both the load
+// and abandon payloads already carry.
+//
+// force_reason is absent or "none" for a challenge no rule forced, and the
+// chain has to be pow_only -- a CAPTCHA is only ever shown to a client
+// something already found suspicious, so an abandon there is not evidence
+// about ordinary visitors either.
+func countUnruledPoW(ctx context.Context, h *Handler, minutes int, phase, site string, hosts []string) int {
+	reasonExpr := `json_extract(payload_json, '$.force_reason')`
+	modeExpr := `json_extract(payload_json, '$.chmode')`
+	if h.DB.Driver != "sqlite" {
+		reasonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.force_reason'))`
+		modeExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.chmode'))`
+	}
+	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes) +
+		` AND phase = ?` +
+		` AND (` + reasonExpr + ` IS NULL OR ` + reasonExpr + ` IN ('', 'none'))` +
+		` AND ` + modeExpr + ` = 'pow_only'`
+	args := []any{phase}
+	if site != "" {
+		stmt += " AND site = ?"
+		args = append(args, site)
+	}
+	if len(hosts) > 0 {
+		placeholders := strings.Repeat("?,", len(hosts))
+		stmt += " AND host IN (" + placeholders[:len(placeholders)-1] + ")"
+		for _, hh := range hosts {
+			args = append(args, hh)
+		}
+	}
+	var n int
+	if err := h.DB.QueryRowContext(ctx, stmt, args...).Scan(&n); err != nil {
+		log.Printf("countUnruledPoW (phase=%q): %v", phase, err)
+		return 0
+	}
+	return n
+}
+
 func countEvents(ctx context.Context, h *Handler, minutes int, phase, site string, hosts []string) int {
 	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
 	args := []any{}

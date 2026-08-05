@@ -369,8 +369,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
        challenge is costing real visitors, not just bots. */}}
   <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}">
     <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
-    <div class="value">{{ if and .KPIKnown (gt .KPILoaded 0) }}{{ printf "%.1f" .KPIAbandonPct }}<span style="font-size:1.2rem;font-weight:600;margin-left:.15rem;opacity:.85">%</span>{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if gt .KPILoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIAbandon) (comma .KPILoaded) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
+    <div class="value">{{ if and .KPIKnown (gt .KPIPoWLoaded 0) }}{{ printf "%.1f" .KPIAbandonPct }}<span style="font-size:1.2rem;font-weight:600;margin-left:.15rem;opacity:.85">%</span>{{ else }}—{{ end }}</div>
+    <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIAbandon) (comma .KPIPoWLoaded) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
   </div>
   <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
     <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
