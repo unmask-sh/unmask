@@ -12,11 +12,18 @@
 #   PACKAGE_HOMEPAGE  https://github.com/unmask-sh/unmask for product packages,
 #                     https://unmask.sh/ for release
 #   UNMASK_VERSION    package version (= same across all packages)
+#   UNMASK_RELEASE    package release / revision (default 1).  Bumped for each
+#                     build published to the testing channel: the channel works
+#                     by promoting the SAME file to stable, so the release is
+#                     the only thing that separates one attempt from the next.
+#                     A rebuild that reuses a release number would leave two
+#                     different artifacts sharing one NVR.
 
 name: ${PACKAGE_NAME}
 arch: ${PACKAGE_ARCH}
 platform: linux
 version: ${UNMASK_VERSION}
+release: ${UNMASK_RELEASE}
 section: net
 priority: optional
 maintainer: unmask maintainers <oss@unmask.sh>
