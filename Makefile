@@ -595,9 +595,9 @@ package-plugin-nginx-fat:
 	rm -rf $(DIST)/.tmp-pkg
 	@echo ""
 	@echo ">>> fat plugin output:"
-	@ls -lah $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-1.*.rpm \
-	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.deb \
-	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.apk 2>/dev/null
+	@ls -lah $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-$(UNMASK_RELEASE).*.rpm \
+	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-$(UNMASK_RELEASE)_*.deb \
+	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_*.apk 2>/dev/null
 
 ## package-plugin-nginx - optional plugin for the nginx native module (rpm/deb/apk set).
 # Prereq: run `build-module NGINX_VERSION=<host nginx version>` once.
@@ -626,9 +626,9 @@ package-plugin-nginx-rpm: build-module
 	$(call _nfpm_plugin,rpm)
 	# rpm: original name unmask-plugin-nginx-X.Y.Z-1.<arch>.rpm
 	#    -> new name unmask-plugin-nginx-X.Y.Z-nginx_A.B.C.<arch>.rpm
-	@for f in $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-1.*.rpm; do \
+	@for f in $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-$(UNMASK_RELEASE).*.rpm; do \
 		test -f "$$f" || continue; \
-		new=$$(echo "$$f" | sed "s|-1\\.\\([^.]*\\)\\.rpm$$|-nginx_$(NGINX_VERSION).\\1.rpm|"); \
+		new=$$(echo "$$f" | sed "s|-$(UNMASK_RELEASE)\\.\\([^.]*\\)\\.rpm$$|-nginx_$(NGINX_VERSION).\\1.rpm|"); \
 		mv "$$f" "$$new"; \
 		echo ">>> plugin rpm: $$new"; \
 	done
@@ -637,9 +637,9 @@ package-plugin-nginx-deb: build-module
 	$(call _nfpm_plugin,deb)
 	# deb: original name unmask-plugin-nginx_X.Y.Z_<arch>.deb
 	#    -> new name unmask-plugin-nginx_X.Y.Z-nginx_A.B.C_<arch>.deb
-	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.deb; do \
+	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-$(UNMASK_RELEASE)_*.deb; do \
 		test -f "$$f" || continue; \
-		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)_|"); \
+		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)-$(UNMASK_RELEASE)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)-$(UNMASK_RELEASE)_|"); \
 		mv "$$f" "$$new"; \
 		echo ">>> plugin deb: $$new"; \
 	done
@@ -648,9 +648,9 @@ package-plugin-nginx-apk: build-module
 	$(call _nfpm_plugin,apk)
 	# apk: original name unmask-plugin-nginx_X.Y.Z_<arch>.apk
 	#    -> new name unmask-plugin-nginx_X.Y.Z-nginx_A.B.C_<arch>.apk
-	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)_*.apk; do \
+	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_*.apk; do \
 		test -f "$$f" || continue; \
-		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)_|"); \
+		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)-r$(UNMASK_RELEASE)_|"); \
 		mv "$$f" "$$new"; \
 		echo ">>> plugin apk: $$new"; \
 	done
