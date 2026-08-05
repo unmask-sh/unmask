@@ -16,6 +16,22 @@
 #   UNMASK_DL_USER       default: unmask              (= dedicated user for rsync)
 #   UNMASK_DL_PATH       default: /var/www/unmask.sh/dl/
 #   UNMASK_SSH_KEY       default: ~/.ssh/id_ed25519
+#   UNMASK_RSH           default: ssh                 (= override the transport)
+#
+# The defaults above are not what the dev2 build host actually uses, and
+# finding that out from scratch costs an evening, so: there is no "unmask" ssh
+# user on the VM and ~/.ssh/id_ed25519 does not exist there.  The working
+# invocation is root over the ansible key, with sudo because only root can read
+# it:
+#
+#   sudo -n env UNMASK_DL_USER=root \
+#       UNMASK_RSH="ssh -i /home/admin/ansible-playbook/ssh/uic-common-root" \
+#       tools/publish-repo.sh
+#
+# Ownership survives that without a chown: the build tree is apps:apps on dev2,
+# apps is uid 1001 on BOTH hosts, and rsync -a preserves the numeric id -- which
+# is why /var/www/unmask.sh/dl is apps-owned despite root doing the writing.
+# Check with --dry-run first either way.
 #   UNMASK_DL_BUILD_DIR  default: ../unmask-dl-build  (= build output of build-repo.sh)
 #
 # Notes:
@@ -33,6 +49,7 @@ HOST="${UNMASK_DL_HOST:-unmask.sh}"
 USER="${UNMASK_DL_USER:-unmask}"
 DEST_PATH="${UNMASK_DL_PATH:-/var/www/unmask.sh/dl/}"
 SSH_KEY="${UNMASK_SSH_KEY:-$HOME/.ssh/id_ed25519}"
+RSH="${UNMASK_RSH:-ssh -i $SSH_KEY}"
 
 DRY=""
 [ "${1:-}" = "--dry-run" ] && DRY="--dry-run"
@@ -94,7 +111,7 @@ rsync -avhz $DRY \
     $APK_EXCLUDE \
     --info=progress2 \
     --copy-unsafe-links \
-    -e "ssh -i $SSH_KEY -o BatchMode=yes" \
+    -e "$RSH -o BatchMode=yes" \
     "$SRC_DIR/" "$USER@$HOST:$DEST_DIR"
 
 echo
