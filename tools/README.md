@@ -9,6 +9,8 @@ repository (= `https://unmask.sh/dl/`).
 |-----------------------|-------------------------------------------------------------------------|
 | `build-repo.sh`       | Assemble `../unmask-dl-build/` from `../dist/*.rpm / *.deb / *.apk`.    |
 | `publish-repo.sh`     | `rsync` the assembled tree up to `unmask.sh:/var/www/unmask.sh/dl/`.    |
+| `promote-repo.sh`     | Copy a confirmed testing build into the stable tree (no rebuild).       |
+| `pkgdeps-test.sh`     | Install a companion package next to the core it pins, per format.       |
 | `with-gpg-preset.sh`  | Shim that preseeds the GPG passphrase before invoking `rpm --addsign`.  |
 | `Dockerfile.alpine`   | Image used by `make repo-apk` (apk-tools + abuild on Alpine 3.20).      |
 
@@ -90,3 +92,67 @@ remote `apk/` copy (e.g. emergency push when `make repo-apk` was not run).
 
 Stages that are not active leave their existing output untouched (= no
 `rm -rf`).
+
+## The testing channel
+
+A channel for handing a fix to whoever reported it, confirming it, and then
+shipping the same build.  `UNMASK_CHANNEL=testing` indexes and publishes into
+`/dl/testing/`; unset, everything behaves exactly as it did before.
+
+### Publishing a build for confirmation
+
+```sh
+# Release 1 for the first attempt.  Bump it for every further attempt -- the
+# reporter's update only moves if the version does, and republishing the same
+# one leaves them on the broken build believing they tested the fix.
+make package UNMASK_VERSION=0.1.21 UNMASK_RELEASE=1
+UNMASK_CHANNEL=testing tools/build-repo.sh
+UNMASK_CHANNEL=testing tools/publish-repo.sh
+```
+
+Then give the reporter one line:
+
+```sh
+sudo dnf --enablerepo=unmask-testing update unmask                        # RHEL family
+sudo apt update && sudo apt install unmask=0.1.21-1                       # Debian family
+sudo apk add --repository https://unmask.sh/dl/testing/apk/main unmask    # Alpine
+```
+
+Nothing else to set up: `unmask-release` already configured the channel and
+left it inactive, and both channels share one signing key.
+
+### Promoting a confirmed build
+
+```sh
+tools/promote-repo.sh --dry-run     # read it first
+tools/promote-repo.sh               # copies the SAME files into the stable tree
+tools/build-repo.sh                 # reindex stable
+tools/publish-repo.sh               # push stable (testing is left untouched)
+```
+
+The build is copied, never rebuilt.  That is the whole point: a rebuild
+produces different bytes even from identical source, because the version is
+compiled into the binary, so "what you confirmed is what shipped" would stop
+being literally true.  `promote-repo.sh` reads each file back after copying and
+refuses outright if a name already exists in stable with different content --
+two artifacts under one NVR cannot be fixed by overwriting, only by publishing
+a new release number.
+
+### Things that bite
+
+- **`publish-repo.sh` runs `--delete-after`.**  Publishing stable excludes
+  `testing/` explicitly; without that it deletes the remote testing tree out
+  from under whoever is confirming a fix.  Each channel syncs only its own
+  subtree.
+- **The apt pin needs origin AND suite.**  `o=unmask` alone demotes stable too
+  and ordinary upgrades stop; `a=testing` alone catches Debian's own testing
+  suite.  Written by the `unmask-release` postinstall, verified against a real
+  two-suite repo.
+- **deb and apk pin the companion packages with the release, rpm without it.**
+  rpm's `=` matches any release; dpkg and apk compare the whole string.  Get it
+  wrong and the packages build cleanly and cannot be installed.
+  `tools/pkgdeps-test.sh` checks all three.
+- **The channel is only reachable once a release ships the `unmask-release`
+  that configures it.**  Before that a reporter can still use it by hand
+  (`dnf --repofrompath=...`, `apk --repository`, a manual sources.list entry).
+
