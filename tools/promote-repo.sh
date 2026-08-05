@@ -10,12 +10,18 @@
 #
 # The whole reason this is a copy and not a rebuild: the strongest thing that
 # can be said after somebody confirms a fix is "what you confirmed is what
-# shipped", and that is only literally true if the bytes are the same.  A
-# rebuild would not be -- this project compiles the version into the binary, so
-# even the same source at the same version produces a different file once
-# anything about the build differs.  So the artifact moves and nothing is
-# renamed, which also means the NVR a reporter quotes identifies exactly one
-# build forever.
+# shipped".  A rebuild cannot say it -- this project compiles the version into
+# the binary, so the same source produces a different file once anything about
+# the build differs.  So the artifact moves and nothing is renamed, which also
+# means the NVR a reporter quotes identifies exactly one build forever.
+#
+# One honest caveat, measured rather than assumed: build-repo.sh re-signs every
+# rpm when it indexes (`rpm --addsign`), and an rpm signature carries a
+# timestamp, so the stable copy of an rpm is not byte-identical to the testing
+# one it came from.  The PAYLOAD is -- same PAYLOADDIGEST, and extracting both
+# gives no diff -- so what was confirmed is what ships; only the signature block
+# differs.  deb and apk are not re-signed per index and stay byte-identical.
+# The check below therefore compares payloads for rpm and bytes for the rest.
 #
 # Refuses to overwrite: if a file of the same name already exists in stable
 # with different content, that is two different artifacts under one NVR -- one
@@ -48,8 +54,20 @@ copied=0
 skipped=0
 conflicts=0
 
-# same <a> <b> -> 0 when both exist and are byte-identical
-same() { [ -f "$1" ] && [ -f "$2" ] && cmp -s "$1" "$2"; }
+# same <a> <b> -> 0 when both exist and carry the same content.  For rpm that
+# means the payload digest, because indexing re-signs and a signature carries a
+# timestamp; for deb and apk it means the bytes.
+same() {
+    [ -f "$1" ] && [ -f "$2" ] || return 1
+    case "$1" in
+        *.rpm)
+            _da=$(rpm -qp --qf '%{PAYLOADDIGEST}' "$1" 2>/dev/null)
+            _db=$(rpm -qp --qf '%{PAYLOADDIGEST}' "$2" 2>/dev/null)
+            [ -n "$_da" ] && [ "$_da" = "$_db" ]
+            ;;
+        *) cmp -s "$1" "$2" ;;
+    esac
+}
 
 promote_file() { # <src file> <dest dir>
     _s=$1; _d=$2
