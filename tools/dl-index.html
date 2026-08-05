@@ -71,7 +71,8 @@
         <li><a class="name" href="/dl/rpm/">rpm/</a>   <span class="desc">DNF / YUM repository &mdash; RHEL · Alma · Rocky · Fedora (<code>x86_64</code>, <code>aarch64</code>).</span></li>
         <li><a class="name" href="/dl/deb/">deb/</a>   <span class="desc">APT repository &mdash; Debian · Ubuntu (<code>pool/</code> + signed <code>dists/</code>).</span></li>
         <li><a class="name" href="/dl/apk/">apk/</a>   <span class="desc">Alpine repository &mdash; signed <code>APKINDEX</code> (<code>x86_64</code>, <code>aarch64</code>).</span></li>
-        <li><a class="name" href="/dl/keys/">keys/</a> <span class="desc">GPG + apk signing public keys (for manual verification).</span></li>
+        <li><a class="name" href="/dl/testing/">testing/</a> <span class="desc"><strong>Pre-release builds &mdash; not for production.</strong>  A fix published for confirmation before it is released; the same file is copied into the repositories above once confirmed.  Configured by <code>unmask-release</code> and inactive unless asked for by name &mdash; see <a href="/docs/faq/#install-specific-version">installing a specific version</a>.</span></li>
+        <li><a class="name" href="/dl/keys/">keys/</a> <span class="desc">GPG + apk signing public keys (for manual verification, shared by both channels).</span></li>
         <li><a class="name" href="/dl/ipgeo/">ipgeo/</a> <span class="desc">DB-IP Lite GeoIP mirror (CC BY 4.0) used by <code>unmask install-ipgeo</code>.</span></li>
         <li><a class="name" href="/dl/feed/">feed/</a> <span class="desc">Aggregated community-bans bot-IP / JA4 feed.</span></li>
       </ul>
