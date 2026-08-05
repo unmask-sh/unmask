@@ -51,8 +51,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 # build <channel> <format> -> path to the built package
 build() {
-    _ch=$1; _fmt=$2
-    set -- $("$PKGVER" "$V" "$_ch" "$_fmt")
+    _ch=$1; _fmt=$2; _it=${3:-1}
+    set -- $("$PKGVER" "$V" "$_ch" "$_fmt" "$_it")
     cat >"$WORK/n.yaml" <<EOF
 name: unmask-pkgver-probe
 arch: amd64
@@ -62,7 +62,7 @@ release: "$2"
 maintainer: unmask maintainers <oss@unmask.sh>
 description: throwaway package used only to read back the version nfpm emits
 EOF
-    _out="$WORK/$_ch-$_fmt"
+    _out="$WORK/$_ch-$_fmt-$_it"
     mkdir -p "$_out"
     "$NFPM" pkg -f "$WORK/n.yaml" -p "$_fmt" -t "$_out/" >/dev/null 2>&1 || return 1
     ls "$_out"/* 2>/dev/null | head -1
@@ -146,6 +146,37 @@ PY
         fi
         ;;
     esac
+done
+
+# ---- successive testing rounds must climb ------------------------------
+# The channel exists to go back and forth with a reporter, so round 2 has to
+# reach someone already on round 1 -- and round 10 has to beat round 9, which
+# only holds if the trailing digits compare as numbers rather than as text.
+say ""
+say "== successive testing rounds must climb (rc1 < rc2 < rc9 < rc10) =="
+for fmt in rpm deb apk; do
+    prev=""; prev_it=""
+    for it in 1 2 9 10; do
+        p=$(build testing "$fmt" "$it") || { bad "$fmt    nfpm could not build rc$it"; break; }
+        cur=$(shipped "$p" "$fmt")
+        [ -n "$cur" ] || { skipf "$fmt    cannot read rc$it back"; break; }
+        if [ -n "$prev" ]; then
+            case "$fmt" in
+            rpm) command -v rpm >/dev/null 2>&1 &&
+                    { r=$(rpm --eval "%{lua:print(rpm.vercmp(\"$prev\", \"$cur\"))}" 2>/dev/null)
+                      [ "$r" = "-1" ] && ok "rpm    $prev < $cur" || bad "rpm    $prev vs $cur -> $r"; } ||
+                    skipf "rpm    rc$prev_it vs rc$it" ;;
+            deb) command -v dpkg >/dev/null 2>&1 &&
+                    { dpkg --compare-versions "$prev" lt "$cur" && ok "deb    $prev < $cur" || bad "deb    $prev is not < $cur"; } ||
+                    skipf "deb    rc$prev_it vs rc$it" ;;
+            apk) command -v docker >/dev/null 2>&1 &&
+                    { o=$(docker run --rm alpine:3.20 apk version -t "$prev" "$cur" 2>/dev/null)
+                      [ "$o" = "<" ] && ok "apk    $prev < $cur" || bad "apk    $prev vs $cur -> '$o'"; } ||
+                    skipf "apk    rc$prev_it vs rc$it" ;;
+            esac
+        fi
+        prev=$cur; prev_it=$it
+    done
 done
 
 say ""
