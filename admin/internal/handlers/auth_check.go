@@ -370,6 +370,31 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 				action, reason, status = "challenge", d.reason, http.StatusUnauthorized
 			}
 			honeypotChMode = d.chMode
+		// Hard deny.  Placed with the ban, above everything else, because it is
+		// the same kind of statement: the operator said this client is not
+		// served, and there is nothing for it to prove otherwise.
+		//
+		// It has to sit ABOVE the pass cookie (case bvOK below) -- where it used
+		// to be, under it, "deny" meant "deny unless you cleared a challenge at
+		// some point in the last week", so anything able to clear one met the
+		// rule exactly once.  Measured: a crawler already removed from the
+		// rescue list solved the proof-of-work from 419 addresses and took
+		// 137,051 requests in a day.
+		//
+		// It also has to sit above the Web Bot Auth and Privacy Pass vetoes,
+		// because native does: server.inc dispatches $unmask_deny_now before
+		// either gate, so with this case below them a signed agent whose UA is
+		// denied would be blocked in native mode and passed in forward-auth.
+		// (Above them is also the cheaper order -- verifying a signature we are
+		// about to discard costs a subrequest to the daemon.)
+		//
+		// The rescues are re-checked here rather than left to the cases below,
+		// because those come after the cookie: a search bot or a bypassed
+		// address must still pass.  Same set native folds into $unmask_deny_now.
+		case hardDenyUA(ua, cfg.Nginx) &&
+			!isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA) &&
+			!matchers.ipBypass.Match(ip) && !matchPath(uri, matchers.bypass):
+			action, reason, status = "block", "ua:deny", http.StatusForbidden
 		// (2) Veto-passes, in native order.  Each is a hard pass that wins over
 		// the gating axes below.
 		case wbaResult.OK && cfg.Nginx.WebBotAuth.IsOperatorAllowed(wbaResult.Operator):
@@ -1888,6 +1913,112 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category, action strin
 		}
 	}
 	return "", "", ""
+}
+
+// anyUADenyConfigured: does ANY UA-list source name "deny"?  String compares
+// only -- no regex, no UA involved -- so hardDenyUA can bail before the scan.
+func anyUADenyConfigured(n settings.Nginx) bool {
+	ct := n.ChallengeTargets
+	if strings.TrimSpace(ct.DefaultAction) == settings.RateChallengeDeny {
+		return true
+	}
+	for _, a := range ct.ExtraAction {
+		if strings.TrimSpace(a) == settings.RateChallengeDeny {
+			return true
+		}
+	}
+	for _, a := range ct.PresetAction {
+		if strings.TrimSpace(a) == settings.RateChallengeDeny {
+			return true
+		}
+	}
+	for _, a := range n.SearchBots.UpstreamGroupAction {
+		if strings.TrimSpace(a) == settings.RateChallengeDeny {
+			return true
+		}
+	}
+	return false
+}
+
+// hardDenyUA reports whether the UA black list resolves ua to "deny".
+//
+// ANY matching source saying deny is decisive -- the list default, the
+// operator's own row, an upstream group, a preset.  That is not the
+// last-writer-wins rule the ordinary chain uses further down ServeChallenge,
+// and deliberately so: that rule picks among challenge chains, where "which
+// screen" is a preference, while this one answers "is this client served at
+// all", where the strongest statement has to win.  It is the same
+// max-severity rule the security axes already compose by, and it is what lets
+// the nginx render (hardDenyUAPatterns) emit a flat pattern list that cannot
+// disagree with this function.
+func hardDenyUA(ua string, n settings.Nginx) bool {
+	// No early-out on an empty UA, unlike lookupUAListed.  nginx matches
+	// $http_user_agent against the pattern list whatever it holds, and one of
+	// the shipped presets is "^.{0,5}$" -- an absent UA matches it.  Skipping
+	// the empty case here would have denied a headerless client in native mode
+	// and passed the same client in forward-auth, which is the divergence
+	// TestHardDenyRenderMatchesTheDaemon exists to catch (it caught this).
+	ct := n.ChallengeTargets
+	// Cheap precheck first.  This is called from the decision switch, so it runs
+	// for nearly every forward-auth request, and the scan below walks every
+	// preset pattern -- the same work the UA axis already does further down.  An
+	// install that denies nothing by UA (most of them, and every fleet node
+	// today) can answer from a handful of string compares instead.  Mirrors the
+	// render side, which emits no deny plumbing at all in that case.
+	if !anyUADenyConfigured(n) {
+		return false
+	}
+	def := strings.TrimSpace(ct.DefaultAction)
+	denies := func(act string) bool {
+		if act = strings.TrimSpace(act); act == "" {
+			act = def
+		}
+		return act == settings.RateChallengeDeny
+	}
+	disabled := map[string]bool{}
+	for _, id := range ct.DisabledPresets {
+		disabled[strings.TrimSpace(id)] = true
+	}
+	for _, g := range nginxconf.ChallengeTargetGroups {
+		if disabled[g.ID] || !denies(ct.PresetAction[g.ID]) {
+			continue
+		}
+		for _, p := range g.Patterns {
+			if matchedRegex(p, ua) {
+				return true
+			}
+		}
+	}
+	for i, p := range ct.Extra {
+		if i < len(ct.ExtraDisabled) && ct.ExtraDisabled[i] {
+			continue
+		}
+		act := ""
+		if i < len(ct.ExtraAction) {
+			act = ct.ExtraAction[i]
+		}
+		if denies(act) && matchedRegex(p, ua) {
+			return true
+		}
+	}
+	upstreamDisabled := map[string]bool{}
+	for _, p := range n.SearchBots.UpstreamDisabled {
+		upstreamDisabled[strings.TrimSpace(p)] = true
+	}
+	for cat, entries := range classify.UpstreamRescueList() {
+		if classify.ResolveGroupMode(cat, n.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
+			continue
+		}
+		if !denies(n.SearchBots.UpstreamGroupAction[cat]) {
+			continue
+		}
+		for _, e := range entries {
+			if !upstreamDisabled[e.Pattern] && matchedRegex(e.Pattern, ua) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // pickValidBV returns the first `_bv` cookie value on the request that
