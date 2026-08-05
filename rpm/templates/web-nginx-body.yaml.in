@@ -55,13 +55,13 @@ overrides:
       - nginx
   deb:
     depends:
-      - "unmask (= ${UNMASK_VERSION})"
+      - "unmask (= ${UNMASK_VERSION}-${UNMASK_RELEASE})"
       - nginx
   # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
   # script runs otherwise) so symlinks/maphash are re-applied.
   apk:
     depends:
-      - "unmask=${UNMASK_VERSION}"
+      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
       - nginx
     apk:
       scripts:
