@@ -3953,8 +3953,15 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 //	          denies bots outright.
 //	bypassed = requests let through without being judged (a bypass IP or path).
 //	benign  = requests from listed crawlers we passed on purpose
-//	          ('crawler_pass'; the install-wide view reads the same requests
-//	          from unmask_crawler_minute, which has far more history)
+//	          ('crawler_pass')
+//	passed  = requests that ARRIVED holding a valid pass cookie ('pow' /
+//	          'captcha').  Not the act of clearing one -- that is an event, and
+//	          the caller adds it.
+//	unchallenged = every request the counters did not name: judged, let through,
+//	          and neither challenged nor bypassed nor a listed crawler.  An
+//	          Operating-mode bucket set to pass produces these; the default
+//	          (pow_only) produces none.  By subtraction, so a kind added later
+//	          lands here until it is named rather than vanishing from the total.
 //
 // Requests, not clients, because that is the unit of the question: a crawler
 // making twenty requests from one address is twenty requests of load, and the
@@ -3964,10 +3971,21 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 // addresses look larger than a search engine that outweighed it in traffic.
 //
 // Exact counters rather than HLL, so there is no estimate to caveat.
-// ok=false when there is no counter data at all (= access-log feed off).
-func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (total, benign, bypassed, challenged int, ok bool, err error) {
+// OK=false when there is no counter data at all (= access-log feed off).
+type TrafficComposition struct {
+	Total        int
+	Benign       int
+	Bypassed     int
+	Challenged   int
+	Passed       int
+	Unchallenged int
+	OK           bool
+}
+
+func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (TrafficComposition, error) {
+	var c TrafficComposition
 	if d == nil {
-		return 0, 0, 0, 0, false, nil
+		return c, nil
 	}
 	cutoff := time.Now().Unix()/60 - int64(minutes)
 	args := []any{cutoff}
@@ -3976,30 +3994,38 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (t
 		cond = " AND site = ?"
 		args = append(args, site)
 	}
-	err = d.QueryRowContext(ctx, `
+	err := d.QueryRowContext(ctx, `
         SELECT COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'crawler_pass'     THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'bypass_pass'      THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0)
+               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
-        WHERE bucket_min >= ?`+cond, args...).Scan(&total, &benign, &bypassed, &challenged)
+        WHERE bucket_min >= ?`+cond, args...).
+		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed)
 	if err != nil {
-		return 0, 0, 0, 0, false, err
+		return TrafficComposition{}, err
 	}
-	if site == "" {
-		// The install-wide view reads the benign half from unmask_crawler_minute
-		// instead.  Both are written by the same classifier on the same
-		// condition in the same pass -- crawler_pass is per site, and
-		// SUM(total - served) here is the same requests summed install-wide --
-		// but the crawler table predates the counter by a long way, so on the
-		// default view this answers for the whole window from the first render
-		// after an upgrade rather than filling in over the following day.
-		var wide int
-		if err := d.QueryRowContext(ctx, `
-            SELECT COALESCE(SUM(total) - SUM(served), 0) FROM unmask_crawler_minute
-            WHERE bucket_min >= ?`, cutoff).Scan(&wide); err == nil && wide > benign {
-			benign = wide
-		}
+	// All four figures come from the one table above, deliberately.  The
+	// install-wide view used to take the benign half from the crawler table
+	// instead, on the reasoning that it predates this counter and so answers
+	// for the whole window right after an upgrade rather than filling in over
+	// a day.  That traded a real invariant for a cosmetic one: the four are
+	// shares of ONE total, and that table is not part of the total's
+	// bookkeeping -- its "passed" counts crawlers that hit a bypassed path,
+	// which the same request already contributed to bypass_pass (535,977 in a
+	// day on the install where this surfaced).  The card could then not
+	// compute a human remainder at all and rendered it unknown.
+	//
+	// Bump() adds 1 to 'total' and 1 to at most one other kind per request, and
+	// those kinds are mutually exclusive, so what is left over is requests that
+	// carried no kind at all.  Floored anyway: a negative here would mean the
+	// exclusivity broke again, and the card's "other" share is where that shows
+	// up rather than silently skewing a named segment.
+	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed
+	if c.Unchallenged < 0 {
+		c.Unchallenged = 0
 	}
-	return total, benign, bypassed, challenged, total > 0, nil
+	c.OK = c.Total > 0
+	return c, nil
 }

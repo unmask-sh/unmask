@@ -107,6 +107,7 @@ func TestCompositionLegendEndsWithItsCount(t *testing.T) {
 		"overview.kpi.nonhuman_bad",
 		"overview.kpi.nonhuman_bypass",
 		"overview.kpi.nonhuman_human",
+		"overview.kpi.nonhuman_other",
 	}
 	for _, lang := range []Lang{LangJA, LangEN} {
 		for _, k := range keys {
