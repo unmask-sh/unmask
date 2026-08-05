@@ -50,7 +50,7 @@ metadata_expire=300
 # mean importing a second key.  Same key, same package, one flag.
 #
 # enabled=0 is what makes it safe to ship to everyone: nothing reaches this
-# repo unless the flag is passed, so an ordinary `dnf update` cannot wander
+# repo unless the flag is passed, so an ordinary 'dnf update' cannot wander
 # into a pre-release, and there is no state to undo afterwards -- the next
 # update goes back to stable on its own.
 [unmask-testing]
