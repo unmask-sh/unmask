@@ -72,6 +72,7 @@ services:
     ports:
       - "8443:8443"
       - "8444:8444"   # scenario 48: server-scope protect.inc vhost
+      - "8445:8445"   # scenario 55: bare control vhost (no server.inc) for the overhead ratio
     healthcheck:
       test: ["CMD", "openssl", "s_client", "-connect", "127.0.0.1:8443", "-servername", "localhost"]
       interval: 2s
@@ -82,6 +83,35 @@ services:
   # environments where the nginx module is not an option).  Independent of
   # the nginx container; talks HTTP to admin, so no shared volume is needed.
   # Exercised by scenario 14.
+
+  # Stock nginx for scenario 55: the SAME image and therefore the same binary,
+  # started against a config that does not load the module and includes nothing
+  # from unmask.  Comparing against a different nginx build would measure the
+  # build; comparing against another vhost inside the module-loaded process
+  # cannot see what the module itself costs.  This can.
+  stock-nginx:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/nginx/Dockerfile
+    command: ["/usr/sbin/nginx", "-c", "/etc/nginx/stock.conf", "-g", "daemon off;"]
+    healthcheck:
+      test: ["CMD", "openssl", "s_client", "-connect", "127.0.0.1:8446", "-servername", "localhost"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  # Load generator, kept in its own container so it is not competing with the
+  # server it is measuring for the same CPU.  Same image (it carries ab).
+  bench:
+    build:
+      context: ../..
+      dockerfile: e2e/docker/nginx/Dockerfile
+    command: ["sleep", "infinity"]
+    depends_on:
+      nginx:
+        condition: service_healthy
+      stock-nginx:
+        condition: service_healthy
   apache:
     build:
       context: ../..
