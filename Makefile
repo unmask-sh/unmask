@@ -28,6 +28,11 @@
 #
 
 UNMASK_VERSION ?= 0.1.20
+# Package release / revision.  1 for a normal build.  A build published to the
+# testing channel bumps it for every attempt (2, 3, ...), because promotion
+# copies the file rather than renaming it -- reusing a number would put two
+# different artifacts under one NVR.
+UNMASK_RELEASE ?= 1
 GOOS           ?= linux
 # Default from `go env`; on hosts without Go (e.g. the arm64 qemu builder
 # container running build-module-multi) fall back to uname -m, NOT a hardcoded
@@ -480,8 +485,8 @@ NFPM_TPL = rpm/templates
 # because alpine refuses unsigned packages outright.
 define _nfpm_yaml
 	mkdir -p $$(dirname $(6))
-	PACKAGE_NAME='$(2)' PACKAGE_ARCH='$(3)' PACKAGE_VENDOR='$(4)' PACKAGE_HOMEPAGE='$(5)' UNMASK_VERSION='$(UNMASK_VERSION)' \
-		envsubst '$$PACKAGE_NAME $$PACKAGE_ARCH $$PACKAGE_VENDOR $$PACKAGE_HOMEPAGE $$UNMASK_VERSION' \
+	PACKAGE_NAME='$(2)' PACKAGE_ARCH='$(3)' PACKAGE_VENDOR='$(4)' PACKAGE_HOMEPAGE='$(5)' UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_RELEASE='$(UNMASK_RELEASE)' \
+		envsubst '$$PACKAGE_NAME $$PACKAGE_ARCH $$PACKAGE_VENDOR $$PACKAGE_HOMEPAGE $$UNMASK_VERSION $$UNMASK_RELEASE' \
 		< $(NFPM_TPL)/common.yaml.in > $(6)
 	if [ "$(1)" != "release" ]; then \
 		PACKAGE_HOMEPAGE='$(5)' \
