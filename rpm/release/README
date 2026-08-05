@@ -29,3 +29,26 @@ To verify the key fingerprint outside of this package, see:
 
 Project: https://unmask.sh/
 License: Apache-2.0
+
+Trying a pre-release build
+--------------------------
+When a fix is published for confirmation it goes to the testing channel first.
+That channel is configured by this package but never active on its own: an
+ordinary update cannot reach it, and nothing has to be undone afterwards.
+
+  RHEL / Rocky / Alma / openSUSE
+      sudo dnf --enablerepo=unmask-testing update unmask
+
+  Debian / Ubuntu
+      sudo apt update
+      sudo apt install unmask=<version>      # the version you were given
+
+  Alpine
+      sudo apk add --repository https://unmask.sh/dl/testing/apk/main unmask
+
+The signing key is the same one this package installed, so there is nothing
+else to set up.
+
+Once the fix is confirmed, the identical file is copied into the stable
+channel -- not rebuilt -- so the build you confirmed is the build that ships.
+Your next ordinary update moves you back onto stable by itself.
