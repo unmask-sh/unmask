@@ -29,7 +29,7 @@ func TestAbandonRateExcludesClientsThatNeverRanTheJS(t *testing.T) {
 			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
 			 phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
 			VALUES ('','','https',443,x'7f000001','ua','','',0,?,0,0,'','',?,datetime('now'))`,
-			phase, `{"bt":"`+bt+`"}`); err != nil {
+			phase, `{"bt":"`+bt+`","chmode":"pow_only"}`); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -45,6 +45,10 @@ func TestAbandonRateExcludesClientsThatNeverRanTheJS(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		ins("bv_pow_only", "human")
 	}
+	// The one who gave up says so: the rate counts the beacon now, not
+	// load-minus-passes, because the latter also counts every targeted client
+	// that ran the JS and was never going to finish.
+	ins("abandon", "human")
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"}) // assertions read the EN copy
