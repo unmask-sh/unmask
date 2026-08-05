@@ -37,6 +37,32 @@ SSH_KEY="${UNMASK_SSH_KEY:-$HOME/.ssh/id_ed25519}"
 DRY=""
 [ "${1:-}" = "--dry-run" ] && DRY="--dry-run"
 
+# CHANNEL: which repo tree to publish.
+#
+#   stable  (default)  the published URLs -- everything EXCEPT testing/
+#   testing            only <SRC>/testing/ -> <DEST>/testing/
+#
+# The split is not cosmetic.  This rsync runs --delete-after, so publishing
+# stable from a build tree that has no testing/ in it would delete the remote
+# testing tree -- taking the build away from whoever was in the middle of
+# confirming a fix on it.  Each channel therefore syncs only its own subtree,
+# and stable explicitly excludes the other one.
+CHANNEL="${UNMASK_CHANNEL:-stable}"
+case "$CHANNEL" in
+    stable)
+        SRC_DIR="$SRC"
+        DEST_DIR="$DEST_PATH"
+        CHANNEL_EXCLUDE="--exclude=testing/"
+        ;;
+    testing)
+        SRC_DIR="$SRC/testing"
+        DEST_DIR="${DEST_PATH%/}/testing/"
+        CHANNEL_EXCLUDE=""
+        [ -d "$SRC_DIR" ] || { echo "ERR: $SRC_DIR is missing.  Run UNMASK_CHANNEL=testing build-repo.sh first." >&2; exit 1; }
+        ;;
+    *) echo "publish-repo.sh: unknown UNMASK_CHANNEL '$CHANNEL' (want stable|testing)" >&2; exit 2 ;;
+esac
+
 [ -d "$SRC" ] || { echo "ERR: $SRC is missing.  Run build-repo.sh first." >&2; exit 1; }
 
 # apk/ exclusion is now opt-in.
@@ -55,7 +81,7 @@ if [ "${UNMASK_PUBLISH_SKIP_APK:-0}" = "1" ]; then
     APK_EXCLUDE="--exclude=apk/"
 fi
 
-echo "==> rsync $SRC/ -> $USER@$HOST:$DEST_PATH"
+echo "==> rsync ($CHANNEL) $SRC_DIR/ -> $USER@$HOST:$DEST_DIR"
 # Note: feed/ and ipgeo/ are remote-only artifacts that do not exist under
 # repo/ — feed/ is produced by the feed-server cron, ipgeo/ is the GeoIP
 # (DB-IP Lite) mirror that ipgeo/install.go fetches as its primary mmdb
@@ -64,11 +90,12 @@ rsync -avhz $DRY \
     --delete-after \
     --exclude=feed/ \
     --exclude=ipgeo/ \
+    $CHANNEL_EXCLUDE \
     $APK_EXCLUDE \
     --info=progress2 \
     --copy-unsafe-links \
     -e "ssh -i $SSH_KEY -o BatchMode=yes" \
-    "$SRC/" "$USER@$HOST:$DEST_PATH"
+    "$SRC_DIR/" "$USER@$HOST:$DEST_DIR"
 
 echo
 echo "==> publish complete."
