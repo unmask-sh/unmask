@@ -160,6 +160,27 @@ have abuild-sign  && echo "  [ok] abuild-sign (= optional apk signing)"
 echo
 
 echo "==> output: $OUT  (stage=$STAGE)"
+# One version per build.  Every stage copies the whole of $DIST into the
+# channel, so two versions sitting there put BOTH into the repository -- and
+# because clients take the newest, an unreleased build then ships to everyone
+# on the channel.  That happened: a 0.1.22 built for testing landed in $DIST
+# beside the released 0.1.21, and stable served 0.1.22 to Alpine.
+#
+# Overridable for the rare deliberate multi-version tree, but it has to be
+# said out loud.
+if [ "${UNMASK_ALLOW_MIXED_VERSIONS:-0}" != "1" ]; then
+    _vers=$(ls -1 "$DIST"/unmask-[0-9]*.rpm "$DIST"/unmask_[0-9]*.deb "$DIST"/unmask_[0-9]*.apk 2>/dev/null |
+        sed -E 's#.*/unmask[-_]([0-9]+\.[0-9]+\.[0-9]+).*#\1#' | sort -u)
+    _n=$(printf '%s\n' "$_vers" | grep -c . || true)
+    if [ "${_n:-0}" -gt 1 ]; then
+        echo "ERR: $DIST holds more than one version: $(printf '%s ' $_vers)" >&2
+        echo "     Every stage copies all of it into the channel and clients take the" >&2
+        echo "     newest, so this would publish the highest one.  Clear the versions you" >&2
+        echo "     are not publishing, or set UNMASK_ALLOW_MIXED_VERSIONS=1." >&2
+        exit 1
+    fi
+fi
+
 mkdir -p "$CH_OUT"/{rpm,deb,apk}
 mkdir -p "$OUT/keys"
 
@@ -368,6 +389,20 @@ elif [ "$HAVE_APK" = 1 ]; then
         # The signature on APKINDEX.tar.gz produced by `abuild-sign` below is
         # what clients verify; the index-time check is developer-side only.
         ( cd "$d" && apk index --quiet --allow-untrusted --description "unmask repository (single-path)" -o APKINDEX.tar.gz *.apk )
+        # An unsigned index is not a degraded repo, it is an invisible one: apk
+        # reports "UNTRUSTED signature" and every package vanishes, so `apk add
+        # unmask` fails with "no such package".  Skipping the signature quietly
+        # therefore publishes a broken repository that looks fine from here.
+        #
+        # It happened: UNMASK_RSA_PRIVKEY was overridden with a HOST path, which
+        # does not exist inside this container, so `-f` was false and signing was
+        # skipped without a word.  The unsigned index reached unmask.sh.
+        if [ -n "${UNMASK_RSA_PRIVKEY:-}" ] && [ ! -f "$UNMASK_RSA_PRIVKEY" ]; then
+            echo "ERR: UNMASK_RSA_PRIVKEY=$UNMASK_RSA_PRIVKEY does not exist here." >&2
+            echo "     Inside the repo-apk container the key is mounted at /keys/ --" >&2
+            echo "     a host path will not resolve.  Refusing to write an unsigned index." >&2
+            exit 1
+        fi
         if [ -n "${UNMASK_RSA_PRIVKEY:-}" ] && [ -f "$UNMASK_RSA_PRIVKEY" ]; then
             # -p sets the pub-key NAME embedded in the index signature filename
             # (= `.SIGN.RSA256.<pubname>` inside APKINDEX.tar.gz).  apk-tools looks
