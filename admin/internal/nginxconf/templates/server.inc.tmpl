@@ -99,6 +99,23 @@ if ($unmask_banned_effective = "1") {
     rewrite ^ /unmask/challenge/ last;
 }
 
+{{- if .HardDenyActive }}
+# Hard deny: a UA black-list row, country rule or ASN rule whose action is
+# "deny".  Enforced here, beside the ban, because the decision map further down
+# exempts anything holding a valid _bv -- which made "deny" mean "deny unless
+# you cleared a challenge once", and a client that can clear one then never
+# meets the rule again.  The rescues ($is_search_bot / $is_bypass_ip /
+# $is_bypass_path) are folded into $unmask_deny_now ahead of this, so an
+# exemption the operator set on purpose still wins.
+#
+# Emitted only when some axis can actually resolve to deny: this `if` is in the
+# server rewrite phase, so it costs every request to the vhost, and on an
+# install that denies nothing there is no answer for it to find.
+if ($unmask_deny_now = "1") {
+    rewrite ^ /unmask/_deny$request_uri last;
+}
+{{- end }}
+
 {{ if .WebBotAuthEnabled }}
 # Web Bot Auth (RFC 9421 HTTP Message Signatures).  The native plugin only
 # DETECTS the Signature-Input header ($unmask_has_signed_agent); the
