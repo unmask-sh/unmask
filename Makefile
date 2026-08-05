@@ -942,18 +942,36 @@ e2e-lifecycle:
 # guests.  Both must pass before publishing.  Outside contributors run
 # `make e2e-docker` instead; the install matrix run is reserved for the
 # release maintainer.
+## verify-packages - what the packages do AFTER they build, which the build
+# cannot tell you.  Three failures in one evening got through a green build and
+# would have landed on users:
+#   - deb and apk pinned the core without its release, so the companion
+#     packages built cleanly and could not be installed alongside it
+#   - a backtick inside a COMMENT in the postinstall ran dnf and pasted its
+#     output into /etc/yum.repos.d/unmask.repo, so the whole file -- stable
+#     repo included -- stopped parsing, while the package reported success
+# Both are invisible until a package manager reads the result, so these ask one.
+.PHONY: verify-packages
+verify-packages:
+	@echo '--- companion version pins resolve (rpm / deb / apk) ---'
+	tools/pkgdeps-test.sh
+	@echo '--- unmask-release writes a repo config that parses ---'
+	tools/repoconf-test.sh
+
 .PHONY: distro-check
 distro-check:
-	@echo '=== gate 1/4: MariaDB backend smoke (docker) ==='
+	@echo '=== gate 1/5: package behaviour (pins + repo config, per format) ==='
+	$(MAKE) verify-packages
+	@echo '=== gate 2/5: MariaDB backend smoke (docker) ==='
 	$(MAKE) test-mariadb
-	@echo '=== gate 2/4: e2e — SQLite backend (docker compose) ==='
+	@echo '=== gate 3/5: e2e — SQLite backend (docker compose) ==='
 	$(MAKE) e2e-docker
-	@echo '=== gate 3/4: e2e — MariaDB backend (docker compose) ==='
+	@echo '=== gate 4/5: e2e — MariaDB backend (docker compose) ==='
 	$(MAKE) e2e-docker-mariadb
-	@echo '=== gate 4/4: install matrix (10 distros, verdict-gated) ==='
+	@echo '=== gate 5/5: install matrix (10 distros, verdict-gated) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
-	@echo '=== release gate PASSED — e2e (SQLite + MariaDB) + 10-distro install matrix green ==='
+	@echo '=== release gate PASSED — package behaviour + e2e (SQLite + MariaDB) + 10-distro install matrix green ==='
 	@echo '    (recorded in $(DIST)/.release-gate-ok — consumed by release-github)'
 
 ## vet           - go vet

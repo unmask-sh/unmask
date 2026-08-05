@@ -11,6 +11,7 @@ repository (= `https://unmask.sh/dl/`).
 | `publish-repo.sh`     | `rsync` the assembled tree up to `unmask.sh:/var/www/unmask.sh/dl/`.    |
 | `promote-repo.sh`     | Copy a confirmed testing build into the stable tree (no rebuild).       |
 | `pkgdeps-test.sh`     | Install a companion package next to the core it pins, per format.       |
+| `repoconf-test.sh`    | Install `unmask-release` and let each package manager read what it wrote.|
 | `with-gpg-preset.sh`  | Shim that preseeds the GPG passphrase before invoking `rpm --addsign`.  |
 | `Dockerfile.alpine`   | Image used by `make repo-apk` (apk-tools + abuild on Alpine 3.20).      |
 
@@ -137,6 +138,27 @@ being literally true.  `promote-repo.sh` reads each file back after copying and
 refuses outright if a name already exists in stable with different content --
 two artifacts under one NVR cannot be fixed by overwriting, only by publishing
 a new release number.
+
+### Before publishing anything
+
+```sh
+make verify-packages     # also gate 1/5 of `make distro-check`
+```
+
+A green build says nothing about whether the packages can be installed.  Three
+failures in one evening proved it, each reporting success at build time:
+
+- deb and apk pinned the core without its release, so the companion packages
+  could not be installed alongside it (`held broken packages`).
+- a backtick inside a **comment** in the postinstall ran `dnf` and pasted its
+  output into `/etc/yum.repos.d/unmask.repo`, so the whole file -- stable repo
+  included -- stopped parsing.  The package installed reporting success.
+- the Makefile's own `ls` patterns still had the release hardcoded, so a
+  correct build exited non-zero.
+
+All three are invisible until a package manager reads the result, so
+`verify-packages` asks one: install the packages in a container, per format,
+and check what the tools say.
 
 ### Things that bite
 
