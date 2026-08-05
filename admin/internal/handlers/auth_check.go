@@ -659,7 +659,13 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// funnel, unique-IP (DailyUniqueIPs) and per-country (DailyPassByCountry)
 		// charts are blank in forward-auth.
 		h.NginxLog.BumpCrawler(ua, action != "pass")
-		if reason == "bypass:ip" || reason == "bypass:path" {
+		// Same precedence as onLine's native path: a request that already
+		// counted as a pass cookie is not also "bypassed".  Both feed the one
+		// total the composition card divides up, and counting a cookie holder
+		// twice steals from the human remainder -- measured at 397,043 of
+		// 3,582,523 requests a day on an install serving its own assets from
+		// bypassed paths.
+		if bvKind == "" && (reason == "bypass:ip" || reason == "bypass:path") {
 			h.NginxLog.BumpBypass(site)
 		}
 		h.NginxLog.BumpTrafficHLL(site, ip, fc, bvKind, ua)

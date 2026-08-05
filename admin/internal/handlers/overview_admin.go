@@ -60,18 +60,17 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// a cold cache pays the slowest one, not their sum -- the landing page's
 	// biggest win (they were previously run back-to-back).
 	var (
-		kpiServes, kpiPoWPass, kpiCaptchaPass   int
-		kpiLoaded, kpiAbandon                   int
-		rTotal, rBenign, rBypassed, rChallenged int
-		rKnown                                  bool
-		uBlocked                                int
-		uKnown                                  bool
-		recentRaw                               []events.Row
-		recentErr                               error
-		aiRows                                  []AITrafficRow
-		aiDetail                                map[string][]AICrawlerRow
-		aiServed                                []dashboard.AITrafficRow
-		overBlock                               OverBlockHealth
+		kpiServes, kpiPoWPass, kpiCaptchaPass int
+		kpiLoaded                             int
+		comp                                  dashboard.TrafficComposition
+		uBlocked                              int
+		uKnown                                bool
+		recentRaw                             []events.Row
+		recentErr                             error
+		aiRows                                []AITrafficRow
+		aiDetail                              map[string][]AICrawlerRow
+		aiServed                              []dashboard.AITrafficRow
+		overBlock                             OverBlockHealth
 	)
 	var wg sync.WaitGroup
 	launch := func(f func()) {
@@ -89,10 +88,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// counting serves would fold every bot into a number meant to describe
 	// real visitors.
 	launch(func() { kpiLoaded = countEvents(ctx, h, 1440, "load", site, hosts) })
-	// Visitors who loaded the challenge and left.  Subtracted from the blocked
-	// figure below: someone who walked away was not stopped by unmask, and
-	// leaving them in meant every headline carried a footnote about it.
-	launch(func() { kpiAbandon = countEvents(ctx, h, 1440, "abandon", site, hosts) })
 	launch(func() {
 		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
@@ -101,7 +96,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// access-log feed is off (no counters at all).
 	launch(func() {
 		var err error
-		rTotal, rBenign, rBypassed, rChallenged, rKnown, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
+		comp, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
 		if err != nil {
 			log.Printf("trafficRequests: %v", err)
 		}
@@ -141,12 +136,32 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// 6,329 -- a 12x undercount of the headline claim.  kpiServes stays for the
 	// funnel below, where it means "challenge pages served", which is what the
 	// pass counts beside it are a fraction of.
-	kpiFired := rChallenged
+	kpiFired := comp.Challenged
 	if kpiFired < kpiServes {
 		// No log feed (or it is behind): fall back to what the events know.
 		kpiFired = kpiServes
 	}
-	kpiBlocked := kpiFired - kpiPoWPass - kpiCaptchaPass - kpiAbandon
+	// The abandons are the visitors whose browser ran the challenge and never
+	// passed -- derived, not the `abandon` beacon event.  The beacon only
+	// arrives if the page gets to send it, and measured against the same window
+	// it reported 1,012 where the arithmetic says 12,046: a 12x loss.  The
+	// abandon tile has always used the derived figure, so taking the event here
+	// put two numbers on one page under one name, an order of magnitude apart.
+	//
+	// It also makes the blocked figure exactly "fired minus loaded" -- the
+	// challenges whose JS never ran at all, which is as clean a definition of
+	// the malicious side as this data has, and non-negative by construction
+	// wherever the log feed is not behind.
+	abandon := kpiLoaded - kpiPoWPass - kpiCaptchaPass
+	if abandon < 0 {
+		// Passes from sessions whose `load` fell before this window.
+		abandon = 0
+	}
+	abandonPct := 0.0
+	if kpiLoaded > 0 {
+		abandonPct = float64(abandon) / float64(kpiLoaded) * 100
+	}
+	kpiBlocked := kpiFired - kpiPoWPass - kpiCaptchaPass - abandon
 	if kpiBlocked < 0 {
 		kpiBlocked = 0
 	}
@@ -172,16 +187,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// construction (they do not run the JS, so they never reach `load`), which
 	// is what separates it from the blocked count above.  Measured at 6.55%
 	// across the fleet when the proof-of-work still ran on the UI thread.
-	// Negative would mean passes from sessions whose load fell before this
-	// window; clamp rather than show a nonsense figure.
-	abandon := kpiLoaded - kpiPoWPass - kpiCaptchaPass
-	if abandon < 0 {
-		abandon = 0
-	}
-	abandonPct := 0.0
-	if kpiLoaded > 0 {
-		abandonPct = float64(abandon) / float64(kpiLoaded) * 100
-	}
+	// (Computed with the blocked figure above, which subtracts the same count.)
+	//
 	// If the shared 5s deadline expired during the COUNT(*) queries above, the
 	// kpi* values are partial zeros rather than real measurements.  Flag it so
 	// the template renders "—" and suppresses the reassuring "😴 quiet / 0
@@ -204,9 +211,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// dimension, so mixing a host-filtered numerator with an unfiltered
 	// denominator would understate the ratio on a narrowed page.
 	tileBlocked := kpiBlocked
-	rNonHuman := rBenign + tileBlocked
-	if rNonHuman > rTotal {
-		rNonHuman = rTotal
+	rNonHuman := comp.Benign + tileBlocked
+	if rNonHuman > comp.Total {
+		rNonHuman = comp.Total
 	}
 	// BAN has no host axis (= keyed on the IP+JA4 pair, global).  Same number for every host.
 	currentBans := 0
@@ -257,20 +264,45 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	for i := range recent {
 		recentUAList[i] = recent[i].UA
 	}
-	// The segments are shares of one total, so a double count anywhere above
-	// surfaces here as a negative remainder -- which is how the overlap between
-	// crawler_pass and bypass_pass was found.  Floored so the card degrades to
-	// "0% human" rather than rendering a negative share, and the counters that
-	// caused it stay visible for the operator to notice.
-	// A negative remainder means the segments oversubscribe the total, so the
-	// human share is not a small number -- it is unknown.  Reporting 0 would be
-	// a silent zero: indistinguishable from a site with no visitors, and this
-	// card is exactly where that lie is hardest to catch.
-	rHuman := rTotal - rNonHuman - rBypassed
-	rHumanKnown := rHuman >= 0
-	if !rHumanKnown {
-		rHuman = 0
+	// Human is COUNTED, not left over: requests that arrived already holding a
+	// pass cookie, plus the ones that cleared a challenge inside the window
+	// (those arrived without a cookie, so the counters filed them under
+	// challenge_served and the blocked figure above has already given them
+	// back).  As a remainder it silently absorbed everything the other three
+	// segments could not explain -- including the people who loaded the
+	// challenge and left, who are not human traffic that got through and were
+	// being reported on the abandon tile as a problem at the same moment this
+	// card was counting them as fine.
+	rHuman := comp.Passed + kpiPoWPass + kpiCaptchaPass
+	// ...which leaves a residue, and it gets its own segment rather than being
+	// hidden in a neighbour.  Two things are in it, both real and neither
+	// belonging to a named share:
+	//
+	//   - the abandons, per above.
+	//   - requests judged and let through with no challenge at all (an
+	//     Operating-mode bucket set to pass).  Not "bypassed" -- that means
+	//     exempted from judgement -- and not blocked.  Zero on a default
+	//     install, which is why this went unnoticed.
+	//
+	// Both are non-negative, so under exclusive counters this cannot go below
+	// zero.  When it does, the exclusivity has broken again, and "other" is
+	// where that is visible instead of a named segment quietly absorbing it --
+	// so the unknown case lives HERE now, and the human share always renders a
+	// real measurement.
+	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman
+	rOtherKnown := rOther >= 0
+	if !rOtherKnown {
+		rOther = 0
 	}
+	// Named components for the segment's popover, so "other" is a description
+	// rather than a shrug.  The balance is what the two measured terms do not
+	// account for: window edges (a solve counted whose serve fell before the
+	// cutoff) and the clamps above.  Always rendered, including at zero and
+	// including when negative -- "0" is the statement that the parts explain the
+	// whole, which is worth more than the line's absence, and a skew worth
+	// noticing is exactly what an operator should see rather than a tidied
+	// number.
+	rOtherSkew := rOther - abandon - comp.Unchallenged
 
 	// Which denominator the share is taken against.  Bypassed requests are the
 	// ones the operator exempted from judgement -- package managers, monitors,
@@ -294,14 +326,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		scope string
 		denom int
 	}{
-		{compScopeAll, rTotal},
-		{compScopeJudged, rTotal - rBypassed},
+		{compScopeAll, comp.Total},
+		{compScopeJudged, comp.Total - comp.Bypassed},
 	} {
 		if v.denom < 0 {
 			v.denom = 0
 		}
 		pct := 0.0
-		if rKnown && v.denom > 0 {
+		if comp.OK && v.denom > 0 {
 			pct = float64(rNonHuman) / float64(v.denom) * 100
 		}
 		compViews = append(compViews, map[string]any{
@@ -325,19 +357,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIAbandon":     abandon,
 		"KPIAbandonPct":  abandonPct,
 		"KPIKnown":       kpiKnown,
-		"KPIReqTotal":    rTotal,
-		"KPIReqBenign":   rBenign,
+		"KPIReqTotal":    comp.Total,
+		"KPIReqBenign":   comp.Benign,
 		"KPIReqNonHuman": rNonHuman,
-		// What is left: requests unmask did not identify as non-human.  Mostly
-		// real visitors, plus any bot that was never challenged and is not a
-		// listed crawler -- the popover says so rather than the label claiming
-		// more than the number can carry.
-		// What is left after the three we can name.  Still a residual, but a
-		// much smaller one: the bypassed traffic that used to swell it is now
-		// counted apart.
-		"KPIReqHuman":      rHuman,
-		"KPIReqHumanKnown": rHumanKnown,
-		"KPIReqBypassed":   rBypassed,
+		// Requests holding a pass cookie plus the challenges cleared inside the
+		// window: a count, not a remainder, so the label means what it says.
+		"KPIReqHuman":    rHuman,
+		"KPIReqBypassed": comp.Bypassed,
+		// The residue, with the two things in it named for the popover.
+		"KPIReqOther":        rOther,
+		"KPIReqOtherKnown":   rOtherKnown,
+		"KPIReqOtherAbandon": abandon,
+		"KPIReqOtherUnchall": comp.Unchallenged,
+		"KPIReqOtherSkew":    rOtherSkew,
 		// CompScope is the view shown first; CompViews carries both, each with
 		// the denominator its own headline, bar and legend shares are taken
 		// against -- so a card can never show a percentage of one total beside
@@ -348,7 +380,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
 		"KPINonHumanPct":   nonHumanPct,
-		"KPINonHumanKnown": rKnown && rTotal > 0,
+		"KPINonHumanKnown": comp.OK && comp.Total > 0,
 		"KPICurrentBans":   currentBans,
 		"Recent":           recent,
 		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the

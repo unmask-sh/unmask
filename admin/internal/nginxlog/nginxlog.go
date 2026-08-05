@@ -536,25 +536,47 @@ func (r *Reader) onLine(line string) {
 		kind = "challenge_served"
 	}
 	r.Bump(p.site, kind)
-	// A listed crawler we did not challenge: the pass was the configuration's
-	// decision, so this is the benign half of the overview's non-human split.
-	// Counted per site here rather than derived from unmask_crawler_minute,
-	// which has no site column and so cannot answer a site-scoped view.
-	// Not when the request was bypassed: the segments are shares of one total,
-	// so a listed crawler fetching a bypassed path counted twice and pushed the
-	// human remainder below zero (-2,493 of 718,238 on tool1-us).  Bypass wins,
-	// because it is the stronger statement: the request was never judged at
-	// all, so calling it a crawler we chose to pass is the wrong story.
-	if !p.fc && !p.bypassed && r.classifyCrawler != nil && p.ua != "" {
-		if tag := r.classifyCrawler(p.ua); tag != "" {
-			r.bumpKind(p.site, "crawler_pass")
-		}
-	}
-	// A request the configuration let through without judging it.  Counted
-	// apart from the rest: it is neither a bot we identified nor a person, and
-	// folding it into either is a claim the data cannot support -- a bypassed
-	// path serves package managers and people alike.
-	if !p.fc && p.bypassed {
+	// crawler_pass / bypass_pass are shares of the same total the composition
+	// card divides up, so exactly one of them may fire per request -- and
+	// neither may fire for a request that already counted as a pass cookie
+	// above, or the human remainder is stolen from.
+	//
+	// Precedence, strongest statement first:
+	//
+	//   1. carries a valid _bv (p.kind "pow" / "captcha") -- somebody already
+	//      cleared a challenge for this client.  That it also happened to
+	//      match a bypass rule says nothing extra: it would have passed
+	//      regardless.
+	//   2. a listed crawler -- we know what this client IS, and the card's
+	//      benign share is a statement about the client, not about which code
+	//      path let it past.  The crawler funnel further down the same page
+	//      counts it as a crawler no matter what path it asked for, so filing
+	//      it as "passed through" here made one page disagree with itself by
+	//      3.2x: 239,996 against 775,973 over a day.
+	//   3. bypassed -- the fallback, and it has to be last, because it is the
+	//      one bucket that says nothing about the traffic.  It means "exempted
+	//      from judgement", so anything we can actually name should be named
+	//      first and this should keep only what is left (a package manager, a
+	//      monitor, an API client).
+	//
+	// Both overlaps have been measured in production.  Crawler and bypass
+	// firing TOGETHER pushed the human remainder to -2,493 of 718,238 on
+	// tool1-us (fixed in 0.1.18 -- by exclusivity, which is what mattered;
+	// the order chosen there was the wrong way round).  Cookie-over-bypass was
+	// the bigger one and hid behind it: on an install serving its own assets
+	// from bypassed paths, 397,043 of 3,582,523 requests in a day were counted
+	// twice, and the excess tracked the site's bypass-path share exactly --
+	// 80.1% on the site serving 51% of its requests from /lib/ and /design/,
+	// 1.4% on the sister site whose assets live on a CDN and whose bypass-path
+	// share is 3%.
+	switch {
+	case p.kind != "":
+		// counted by Bump above as "pow" / "captcha"; nothing further.
+	case p.fc:
+		// counted above as "challenge_served".
+	case r.classifyCrawler != nil && p.ua != "" && r.classifyCrawler(p.ua) != "":
+		r.bumpKind(p.site, "crawler_pass")
+	case p.bypassed:
 		r.bumpKind(p.site, "bypass_pass")
 	}
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
