@@ -51,6 +51,13 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 	// come from this table (the access log sees a deny, which serves no page
 	// and so writes no event); the clears are events, one row per occurrence.
 	put("challenge_served", 3100)
+	// 4,900 requests arrived already holding a pass cookie.  These have to be
+	// in the fixture: the human share is a COUNT of them, not what is left when
+	// the other segments are taken away, so a fixture without them describes an
+	// install whose visitors all show up for the first time.  With the 100
+	// clears below they make the 5,000 asserted at the bottom.
+	put("pow", 4800)
+	put("captcha", 100)
 	ev := func(phase string, n int) {
 		t.Helper()
 		for i := 0; i < n; i++ {
@@ -79,6 +86,8 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 		legendEntry("overview.kpi.nonhuman_benign", "2,000"),
 		legendEntry("overview.kpi.nonhuman_bad", "3,000"),
 		legendEntry("overview.kpi.nonhuman_human", "5,000"),
+		// Every request is accounted for, so there is no residue.
+		legendEntry("overview.kpi.nonhuman_other", "0"),
 	} {
 		if !strings.Contains(sub, want) {
 			t.Errorf("the card does not read %q: %q", want, sub)
@@ -155,8 +164,11 @@ func TestNonHumanPopoverExplainsBenignAndItsUnit(t *testing.T) {
 		lang i18n.Lang
 		want []string
 	}{
-		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot", "判定せずに通した", "実訪問者数そのものではありません"}},
-		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot", "without being judged", "not a count of real visitors"}},
+		// The human share is a count, and the copy has to say so: while it was a
+		// remainder it silently held the abandons and anything passed without a
+		// challenge, and the popover's job is to stop the label over-claiming.
+		{i18n.LangJA, []string{"意図的に素通し", "リクエスト数", "GPTBot", "判定せずに通した", "残りを引いた数ではありません", "その他"}},
+		{i18n.LangEN, []string{"deliberately lets through", "requests", "GPTBot", "without being judged", "not left over", "Other"}},
 	} {
 		help := i18n.T(tc.lang, "overview.kpi.nonhuman_help")
 		if help == "" || help == "overview.kpi.nonhuman_help" {
@@ -181,12 +193,28 @@ func stripTags(s string) string {
 	return regexp.MustCompile(`<[^>]*>`).ReplaceAllString(s, "")
 }
 
-// crawler_pass starts at the upgrade, but unmask_crawler_minute has been
-// recording the same requests all along -- same classifier, same condition,
-// same pass, differing only in that one is per site and the other install-wide.
-// The default view reads the longer-lived table so the benign half answers for
-// the whole window immediately instead of filling in over the following day.
-func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
+// dropPopups: remove the help text nested inside a fragment before its tags are
+// stripped.  The legend carries an info popup now (the "other" breakdown), and
+// folding prose into the figures makes every assertion about what the card
+// READS match on a sentence instead -- "no segment went negative" started
+// failing on the minus sign in a balance line meant to be signed.
+var popupRe = regexp.MustCompile(`(?s)<span class="info-popup[^"]*">.*?</span></span>`)
+
+func dropPopups(s string) string { return popupRe.ReplaceAllString(s, "") }
+
+// All four figures on the composition card are shares of ONE total, so they
+// have to come from the one table that keeps that total's books.
+//
+// This test used to assert the opposite: the install-wide view read the benign
+// half from the crawler table, on the reasoning that it predates the per-site
+// counter and so answers for the whole window right after an upgrade instead
+// of filling in over a day.  That was a cosmetic gain paid for with the
+// invariant -- the crawler table counts a crawler that hit a bypassed path,
+// and the same request already counted as bypassed, so the shares
+// oversubscribed the total and the human remainder could not be computed at
+// all.  Measured on the install where it surfaced: 535,977 requests double
+// counted in a day, and the card rendered "human" as unknown.
+func TestCompositionSharesDivideOneTotal(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
 	s.Server.BasePath = "/unmask"
@@ -207,8 +235,9 @@ func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The same traffic as the counter has seen so far, plus the day before it
-	// existed: 3,000 crawler requests, 200 of them challenged.
+	// A crawler table carrying far MORE than the counter -- the shape that used
+	// to win.  It must be ignored: those 2,800 are not accounted for in the
+	// 10,000 total, so folding them in makes the shares exceed it.
 	if _, err := h.DB.Exec(`INSERT INTO unmask_crawler_minute (bucket_min, category, total, served)
 		VALUES (strftime('%s','now')/60, 'search-engine', 3000, 200)`); err != nil {
 		t.Fatal(err)
@@ -219,8 +248,16 @@ func TestInstallWideBenignReadsTheTableWithHistory(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, req)
 	_, sub := compositionCard(t, rr.Body.String())
-	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_benign", "2,800")) {
-		t.Errorf("the default view is reading the young per-site counter (40) instead of the table with history (2,800): %q", sub)
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_benign", "40")) {
+		t.Errorf("the benign half is not the counter that shares the total (40): %q", sub)
+	}
+	if strings.Contains(sub, legendEntry("overview.kpi.nonhuman_benign", "2,800")) {
+		t.Error("the benign half came from the crawler table again; its requests are not part of the total the other shares divide")
+	}
+	// And the shares still fit inside the total: oversubscription shows up as an
+	// unknown residue, which is the whole point of giving it a segment.
+	if strings.Contains(sub, legendEntry("overview.kpi.nonhuman_other", "—")) {
+		t.Error("the residue is unknown, so the shares still oversubscribe the total")
 	}
 }
 
@@ -256,9 +293,17 @@ func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 			}
 		}
 	}
-	// 1,000 challenges fired, 100 cleared, 50 people gave up -> 850 blocked.
+	// 1,000 challenges fired, 150 of them ran their JS, 100 cleared -> 50 people
+	// gave up and 850 were stopped.
+	ev("load", 150)
 	ev("bv_pow_only", 100)
-	ev("abandon", 50)
+	// The `abandon` beacon only arrives if the leaving page manages to send it,
+	// so it is a floor, not a count: measured against a real day it reported
+	// 1,012 where load-minus-passes said 12,046.  Seeded here at a similarly
+	// lossy 3 -- taking THIS number would put blocked at 897, and would put two
+	// figures on one page under the name "abandoned" an order of magnitude
+	// apart, since the tile has always derived it.
+	ev("abandon", 3)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
@@ -320,7 +365,19 @@ func compositionCard(t *testing.T, body string) (pct, legend string) {
 		// No legend when there is no data; the caller's assertions say so.
 		return stripTags(m[1]), ""
 	}
-	return stripTags(m[1]), strings.Join(strings.Fields(stripTags(l[1])), " ")
+	return stripTags(m[1]), strings.Join(strings.Fields(stripTags(dropPopups(l[1]))), " ")
+}
+
+// compositionPopup: the "other" segment's breakdown, which compositionCard
+// deliberately strips out of the legend.
+func compositionPopup(t *testing.T, body string) string {
+	t.Helper()
+	m := regexp.MustCompile(`(?s)<span class="info-popup comp-other-pop">(.*?)</span></span>`).FindStringSubmatch(body)
+	if m == nil {
+		t.Fatal("the other segment carries no breakdown")
+	}
+	return strings.Join(strings.Fields(stripTags(
+		strings.ReplaceAll(m[1], "<br>", " | "))), " ")
 }
 
 // The composition figure sits in its own full-width card rather than in the KPI
@@ -355,7 +412,7 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	// the same total the percentage is.  ($. because the card renders inside a
 	// range over the two denominators -- both views exist in the DOM so the
 	// toggle is a visibility flip rather than a page load.)
-	for _, f := range []string{"pctOf $.KPIReqBenign $t", "pctOf $.KPIReqBlocked $t", "pctOf $.KPIReqHuman $t"} {
+	for _, f := range []string{"pctOf $.KPIReqBenign $t", "pctOf $.KPIReqBlocked $t", "pctOf $.KPIReqHuman $t", "pctOf $.KPIReqOther $t"} {
 		if !strings.Contains(tpl, f) {
 			t.Errorf("the bar segment %q is not sized against the shared total", f)
 		}
@@ -396,7 +453,7 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	tpl := string(b)
-	for _, f := range []string{"pctLabel $.KPIReqBenign $t", "pctLabel $.KPIReqBlocked $t", "pctLabel $.KPIReqHuman $t"} {
+	for _, f := range []string{"pctLabel $.KPIReqBenign $t", "pctLabel $.KPIReqBlocked $t", "pctLabel $.KPIReqHuman $t", "pctLabel $.KPIReqOther $t"} {
 		if !strings.Contains(tpl, f) {
 			t.Errorf("the legend entry %q has no share", f)
 		}
@@ -484,8 +541,89 @@ func TestBypassedTrafficIsCountedApart(t *testing.T) {
 	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_bypass", "3,000")) {
 		t.Errorf("bypassed traffic has no share of its own: %q", sub)
 	}
-	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_human", "7,000")) {
-		t.Errorf("bypassed traffic is still inside the human share: %q", sub)
+	// The other 7,000 carry no counter of any kind, so they are traffic this
+	// install let through without judging OR challenging -- which is a
+	// description of the residue, not of a person.  They used to be promoted to
+	// "human" for no better reason than being what was left.
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_other", "7,000")) {
+		t.Errorf("unclassified traffic did not land in the residue: %q", sub)
+	}
+	if !strings.Contains(sub, legendEntry("overview.kpi.nonhuman_human", "0")) {
+		t.Errorf("traffic with no pass cookie is still counted as human: %q", sub)
+	}
+}
+
+// "Other" has to say what is in it, or it is a shrug with a number attached.
+// Two things are, both real and neither belonging to a named share: the people
+// who loaded the challenge and left, and requests let through with no challenge
+// at all.  The breakdown has to ADD UP to the segment -- a popover that lists
+// parts summing to something else is worse than no popover, because it invites
+// the reader to trust arithmetic that is not being done.
+func TestOtherSegmentBreaksDownIntoItsParts(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	const site = "example.com"
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	// 10,000 requests: 1,000 challenged, 6,000 arrived with a pass cookie, and
+	// 3,000 that no counter names -- judged and let through with no challenge.
+	for k, n := range map[string]int{"total": 10000, "challenge_served": 1000, "pow": 6000} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
+			VALUES (strftime('%s','now')/60, ?, ?, ?)`, site, k, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, e := range []struct {
+		phase string
+		n     int
+	}{{"load", 250}, {"bv_pow_only", 200}} {
+		for i := 0; i < e.n; i++ {
+			if _, err := h.DB.Exec(`INSERT INTO unmask_event (site, host, ip_address, phase, date_created)
+				VALUES (?, '', x'7f000001', ?, datetime('now'))`, site, e.phase); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/?site="+site, nil)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	body := rr.Body.String()
+	_, sub := compositionCard(t, body)
+
+	// blocked = 1,000 fired - 200 cleared - 50 abandoned = 750.
+	// human   = 6,000 with a cookie + 200 that cleared one here = 6,200.
+	// other   = 10,000 - 0 - 750 - 0 - 6,200 = 3,050, being the 3,000 nothing
+	//           named plus the 50 who walked away.
+	for _, want := range []string{
+		legendEntry("overview.kpi.nonhuman_bad", "750"),
+		legendEntry("overview.kpi.nonhuman_human", "6,200"),
+		legendEntry("overview.kpi.nonhuman_other", "3,050"),
+	} {
+		if !strings.Contains(sub, want) {
+			t.Errorf("the card does not read %q: %q", want, sub)
+		}
+	}
+	pop := compositionPopup(t, body)
+	for _, want := range []string{
+		i18n.Tf(i18n.LangEN, "overview.kpi.other_abandon", "50"),
+		i18n.Tf(i18n.LangEN, "overview.kpi.other_unchallenged", "3,000"),
+	} {
+		if !strings.Contains(pop, want) {
+			t.Errorf("the breakdown does not name %q: %q", want, pop)
+		}
+	}
+	// 50 + 3,000 is the whole 3,050, and the balance says so.  Rendered at zero
+	// rather than dropped: "0" is the statement that the parts explain the
+	// whole, and a reader cannot tell an absent line from an unwritten one.
+	if !strings.Contains(pop, i18n.Tf(i18n.LangEN, "overview.kpi.other_skew", "0")) {
+		t.Errorf("the breakdown does not close: no balance line reading 0: %q", pop)
 	}
 }
 

@@ -44,7 +44,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    clears.  auto-fit still wraps rather than overflowing when the window is
    genuinely narrow, and the padding and type sizes below are tightened to match. */
 /* Traffic composition card.  Full width because the breakdown is the point:
-   three shares of one total read as a bar and three labels, not as four numbers
+   five shares of one total read as a bar and five labels, not as five numbers
    crammed into a tile the width of a phone. */
 .comp-card{padding:.9rem 1.25rem}
 .comp-hd{display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap}
@@ -58,8 +58,21 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-seg.comp-bad,i.comp-bad{background:#dc2626}
 .comp-seg.comp-bypass,i.comp-bypass{background:#c7d2fe}
 .comp-seg.comp-human,i.comp-human{background:#94a3b8}
+/* Hatched rather than a fifth flat colour: this segment is the traffic the
+   other four could not claim, and a solid swatch would read as one more
+   category of its own. */
+.comp-seg.comp-other,i.comp-other{background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 .18rem,#cbd5e1 .18rem,#cbd5e1 .36rem)}
+/* Last entry in the legend, so anchor the popup to its right edge -- left:0
+   would push 28rem off-screen on a narrow window. */
+.comp-other-pop{left:auto;right:0;width:max-content;max-width:min(24rem,calc(100vw - 1rem))}
 .comp-legend{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.78rem;color:#475569}
 .comp-legend span{display:inline-flex;align-items:center;gap:.35rem}
+/* ...and that rule sets display on EVERY descendant span, which outranks
+   .info-popup's own display:none (a class plus a type beats a class alone) and
+   would pin the breakdown permanently open.  Put it back at the same scope it
+   was lost.  Deliberately weaker than popover-pin.css's :hover and .pinned
+   rules, so both still work. */
+.comp-legend .info-popup{display:none}
 .comp-legend i{width:.6rem;height:.6rem;border-radius:.15rem;display:inline-block}
 /* The share is the point of the bar; the count is the detail behind it. */
 .comp-share{margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
@@ -270,7 +283,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <span class="comp-seg comp-benign" style="width:{{ pctOf $.KPIReqBenign $t }}%"></span>
       <span class="comp-seg comp-bad"    style="width:{{ pctOf $.KPIReqBlocked $t }}%"></span>
       {{ if not $judged }}<span class="comp-seg comp-bypass" style="width:{{ pctOf $.KPIReqBypassed $t }}%"></span>{{ end }}
-      {{ if $.KPIReqHumanKnown }}<span class="comp-seg comp-human"  style="width:{{ pctOf $.KPIReqHuman $t }}%"></span>{{ end }}
+      <span class="comp-seg comp-human"  style="width:{{ pctOf $.KPIReqHuman $t }}%"></span>
+      {{ if $.KPIReqOtherKnown }}<span class="comp-seg comp-other" style="width:{{ pctOf $.KPIReqOther $t }}%"></span>{{ end }}
     </div>
     <div class="comp-legend">
       <span><i class="comp-benign"></i>{{ tf $.Lang "overview.kpi.nonhuman_benign" (comma $.KPIReqBenign) }}<b class="comp-share">{{ pctLabel $.KPIReqBenign $t }}</b></span>
@@ -279,7 +293,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
            not vanish, it left the denominator, and a segment that disappears
            reads as "there is none". */}}
       {{ if $.KPIReqBypassed }}<span{{ if $judged }} class="comp-out"{{ end }}><i class="comp-bypass"></i>{{ tf $.Lang "overview.kpi.nonhuman_bypass" (comma $.KPIReqBypassed) }}<b class="comp-share">{{ if $judged }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ else }}{{ pctLabel $.KPIReqBypassed $t }}{{ end }}</b></span>{{ end }}
-      <span><i class="comp-human"></i>{{ if $.KPIReqHumanKnown }}{{ tf $.Lang "overview.kpi.nonhuman_human" (comma $.KPIReqHuman) }}<b class="comp-share">{{ pctLabel $.KPIReqHuman $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_human" "—" }}<b class="comp-share" title="{{ t $.Lang "overview.kpi.nonhuman_human_unknown" }}">?</b>{{ end }}</span>
+      <span><i class="comp-human"></i>{{ tf $.Lang "overview.kpi.nonhuman_human" (comma $.KPIReqHuman) }}<b class="comp-share">{{ pctLabel $.KPIReqHuman $t }}</b></span>
+      {{/* The residue, named.  It carries a breakdown rather than a label
+           claiming more than the number can carry -- and an operator who sees
+           it grow can tell which of the two halves grew. */}}
+      <span><i class="comp-other"></i>{{ if $.KPIReqOtherKnown }}{{ tf $.Lang "overview.kpi.nonhuman_other" (comma $.KPIReqOther) }}<b class="comp-share">{{ pctLabel $.KPIReqOther $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>{{ end }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><br>{{ tf $.Lang "overview.kpi.other_abandon" (comma $.KPIReqOtherAbandon) }}<br>{{ tf $.Lang "overview.kpi.other_unchallenged" (comma $.KPIReqOtherUnchall) }}<br>{{ tf $.Lang "overview.kpi.other_skew" (comma $.KPIReqOtherSkew) }}{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span></span>
     </div>
   </div>
   {{ end }}
