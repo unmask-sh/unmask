@@ -1935,6 +1935,14 @@ type RLIPRow struct {
 type RLPathRow struct {
 	Path  string
 	Count int
+	// Site / Scheme / Port: enough to name WHICH host the path belongs to and
+	// to open it.  A path on its own does not identify anything on an install
+	// serving several hosts -- and the stats page's default view is exactly
+	// that, since site="default" means "no site filter" in the SQL below.
+	// "/article/detail/1" then belongs to any of them.
+	Site   string
+	Scheme string
+	Port   int
 }
 
 // RLSummary: aggregation period + total hit count (= header description text).
@@ -2159,6 +2167,12 @@ type CaptchaPassRow struct {
 	ForceReason string // "$.force_reason": axis that raised the challenge (none = normal path)
 	IsBot       bool   // filled by the handler from the verdict->action map
 	CountryCode string // filled by the handler from IP-geo
+	// Which host the path was requested on, and how to reach it.  Without
+	// these the path column names a path and nothing else -- on the default
+	// view, which spans every site, that is not enough to know where to look.
+	Site   string
+	Scheme string
+	Port   int
 }
 
 // CaptchaPassIPRow is one IP's repeated captcha passes (= the ranking).
@@ -2315,7 +2329,8 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	frExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	stmt := fmt.Sprintf(`
         SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(ja4, ''), COALESCE(user_agent, ''),
-               COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, '')
+               COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, ''),
+               COALESCE(site, ''), COALESCE(scheme, ''), COALESCE(port, 0)
         FROM unmask_event
         WHERE %s%s AND phase IN %s
         ORDER BY date_created DESC LIMIT ?`,
@@ -2328,14 +2343,23 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	var out []CaptchaPassRow
 	for rows.Next() {
 		var raw []byte
-		var dc, verdict, ja4, ua, path, ref, phase, fr string
-		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase, &fr); err != nil {
+		var dc, verdict, ja4, ua, path, ref, phase, fr, site, scheme string
+		// port is scanned as text and parsed, not straight into an int: the
+		// column is INTEGER in the schema but SQLite stores whatever it was
+		// given, and a row written with an empty string (fixtures, a
+		// hand-repaired database) fails an int scan and takes the whole
+		// report down with it.  An unreadable port is 0, which the URL
+		// builder already treats as "no port".
+		var portRaw sql.NullString
+		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase, &fr,
+			&site, &scheme, &portRaw); err != nil {
 			return nil, err
 		}
 		out = append(out, CaptchaPassRow{
 			TS: parseDateTimeToUnix(dc), Date: dc, IP: ipFromBytes(raw),
 			Verdict: verdict, JA4: ja4, UA: truncate(ua, 80), UAFull: ua,
 			Path: path, Ref: ref, Phase: phase, ForceReason: fr,
+			Site: site, Scheme: scheme, Port: atoiOrZero(portRaw.String),
 		})
 	}
 	return out, rows.Err()
@@ -2443,11 +2467,12 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, 
 		pathExpr = fmt.Sprintf(`SUBSTRING_INDEX(%s, '?', 1)`, jsonPath)
 	}
 	stmt := fmt.Sprintf(`
-        SELECT %s AS path, COUNT(*) AS n
+        SELECT %s AS path, COUNT(*) AS n, site,
+               COALESCE(MAX(scheme), ''), COALESCE(MAX(port), 0)
         FROM unmask_event
         WHERE %s%s AND phase='serve' AND %s IN ('1', 1)
           AND %s IS NOT NULL AND %s <> ''
-        GROUP BY path ORDER BY n DESC LIMIT ?`,
+        GROUP BY path, site ORDER BY n DESC LIMIT ?`,
 		pathExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL, jsonPath, jsonPath)
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
@@ -2456,15 +2481,26 @@ func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, 
 	defer rows.Close()
 	var out []RLPathRow
 	for rows.Next() {
-		var p sql.NullString
+		var p, portRaw sql.NullString
 		var n int
-		if err := rows.Scan(&p, &n); err != nil {
+		var site, scheme string
+		if err := rows.Scan(&p, &n, &site, &scheme, &portRaw); err != nil {
 			return nil, err
 		}
 		path := strings.Trim(p.String, `"`)
-		out = append(out, RLPathRow{Path: path, Count: n})
+		out = append(out, RLPathRow{Path: path, Count: n, Site: site, Scheme: scheme, Port: atoiOrZero(portRaw.String)})
 	}
 	return out, rows.Err()
+}
+
+// atoiOrZero: a numeric column read as text.  Anything unparseable is 0,
+// which every caller here already means as "unknown".
+func atoiOrZero(s string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(s))
+	if err != nil || n < 0 || n > 65535 {
+		return 0
+	}
+	return n
 }
 
 // RLQueryCount: a single query string for a given path with its count.
