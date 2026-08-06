@@ -2000,7 +2000,8 @@ func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, ho
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
 	stmt := fmt.Sprintf(`
-        SELECT ip_address, COALESCE(user_agent, ''), date_created, COALESCE(%s, '')
+        SELECT ip_address, COALESCE(user_agent, ''), date_created, COALESCE(%s, ''),
+               COALESCE(site, ''), COALESCE(scheme, ''), COALESCE(port, 0)
         FROM unmask_event
         WHERE %s%s AND phase='serve' AND %s IN ('1', 1)`,
 		jsonPath, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL)
@@ -2016,13 +2017,23 @@ func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, ho
 	}
 	ipm := map[string]*ipAcc{}
 	pathCount := map[string]int{}
+	// Which host each path was hit on, so the ranking can say where it lives.
+	// First one wins: this aggregation counts a path across hosts as one row
+	// (the SQL twin groups by path+site and would split them), so naming the
+	// first host seen is the honest reading of a single row -- and on the
+	// installs this view is for, a path belongs to one host anyway.
+	pathMeta := map[string]struct {
+		site, scheme string
+		port         int
+	}{}
 	queryCount := map[string]map[string]int{}
 	var total int
 	var minDate, maxDate string
 	for rows.Next() {
 		var raw []byte
-		var ua, dc, path string
-		if err := rows.Scan(&raw, &ua, &dc, &path); err != nil {
+		var ua, dc, path, site, scheme string
+		var portRaw sql.NullString
+		if err := rows.Scan(&raw, &ua, &dc, &path, &site, &scheme, &portRaw); err != nil {
 			return RLSummary{}, nil, nil, nil, err
 		}
 		total++
@@ -2057,6 +2068,12 @@ func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, ho
 			base, q = p[:i], p[i+1:]
 		}
 		pathCount[base]++
+		if _, ok := pathMeta[base]; !ok {
+			pathMeta[base] = struct {
+				site, scheme string
+				port         int
+			}{site, scheme, atoiOrZero(portRaw.String)}
+		}
 		if q != "" {
 			if queryCount[base] == nil {
 				queryCount[base] = map[string]int{}
@@ -2085,7 +2102,10 @@ func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, ho
 
 	pathRows := make([]RLPathRow, 0, len(pathCount))
 	for p, c := range pathCount {
-		pathRows = append(pathRows, RLPathRow{Path: p, Count: c})
+		m := pathMeta[p]
+		pathRows = append(pathRows, RLPathRow{
+			Path: p, Count: c, Site: m.site, Scheme: m.scheme, Port: m.port,
+		})
 	}
 	sort.Slice(pathRows, func(i, j int) bool { return pathRows[i].Count > pathRows[j].Count })
 	if len(pathRows) > pathLimit {
