@@ -24,6 +24,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log"
 	"regexp"
 	"sort"
 	"strconv"
@@ -71,6 +72,20 @@ func RunMigrations(conn *DB) error {
 				continue
 			}
 			if _, err := conn.Exec(s); err != nil {
+				if isAlreadyAppliedErr(err) {
+					// The statement's end state is already in place -- a column
+					// or index this migration adds exists, usually because a
+					// development binary ran an earlier form of the change.
+					// Stopping here is what wedges an install forever: the
+					// failure aborts the file, the version is never recorded,
+					// and every restart retries the same ALTER against the
+					// same column.  Three fleet nodes sat in that loop with
+					// the ref_id column present and its index missing.  The
+					// remaining statements still run, so the parts that are
+					// genuinely absent get created.
+					log.Printf("db: %s: statement already in effect, continuing: %v", m.name, err)
+					continue
+				}
 				return fmt.Errorf("apply %s: %w\n--- stmt ---\n%s", m.name, err, s)
 			}
 		}
@@ -79,6 +94,21 @@ func RunMigrations(conn *DB) error {
 		}
 	}
 	return nil
+}
+
+// isAlreadyAppliedErr: does this error mean "the schema element this statement
+// creates is already there"?  Recognized narrowly -- a duplicate column or a
+// duplicate index/key name -- because those are the only errors whose presence
+// PROVES the end state exists.  Anything else (syntax, locks, constraint
+// violations) still aborts the migration.
+//
+//	sqlite:  "duplicate column name: X" / "index X already exists"
+//	mariadb: 1060 "Duplicate column name" / 1061 "Duplicate key name"
+func isAlreadyAppliedErr(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "duplicate column name") ||
+		strings.Contains(msg, "duplicate key name") ||
+		(strings.Contains(msg, "index") && strings.Contains(msg, "already exists"))
 }
 
 // ensureSchemaMigrationsTable: create the version-history table (= CREATE TABLE IF NOT EXISTS).
