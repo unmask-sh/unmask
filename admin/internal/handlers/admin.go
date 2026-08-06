@@ -1303,6 +1303,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		cpRecent                []dashboard.CaptchaPassRow
 		cpReuse                 []dashboard.CookieReuseRow
 		powReuse                []dashboard.CookieReuseRow
+		rebindReuse             []dashboard.CookieReuseRow
 		aiTraffic               []dashboard.AITrafficRow
 		aiTrafficAll            []AITrafficRow
 		aiTrafficDetail         map[string][]AICrawlerRow
@@ -1453,6 +1454,11 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	run("CaptchaReuse", func() error {
 		var e error
 		cpReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "captcha", hosts, hours, 30)
+		return e
+	})
+	run("RebindReuse", func() error {
+		var e error
+		rebindReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "rebind", hosts, hours, 30)
 		return e
 	})
 	run("PowReuse", func() error {
@@ -1687,7 +1693,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// resolver the forward-auth path uses), tagging bot/suspect rows for
 	// highlight.  Both kinds get the identical treatment.
 	reuseNginxCfg := h.cfg().Nginx
-	for _, rows := range [][]dashboard.CookieReuseRow{cpReuse, powReuse} {
+	for _, rows := range [][]dashboard.CookieReuseRow{cpReuse, powReuse, rebindReuse} {
 		for i := range rows {
 			verdict, action := matchJA4(rows[i].JA4, reuseNginxCfg)
 			rows[i].Verdict = verdict
@@ -1819,6 +1825,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"CaptchaReport":      captchaReport,
 		"CaptchaReuse":       cpReuse,
 		"PowReuse":           powReuse,
+		"RebindReuse":        rebindReuse,
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"AITrafficDetail":    aiTrafficDetail,

@@ -834,13 +834,21 @@ const cookieIPUAMax = 255
 // every value $bv_kind can take: "challenge_served" is a challenge being shown
 // (which does write an unmask_event row, so hunt already sees it) and "" is no
 // cookie at all -- neither is a cookie being reused.
-func cookieIPKinds(kind string) bool { return kind == "captcha" || kind == "pow" }
+func cookieIPKinds(kind string) bool {
+	return kind == "captcha" || kind == "pow" || kind == "rebind"
+}
 
 // bumpCookieIP: record one cookie-reuse request into the per-(minute, site, ip,
-// kind) bucket.  Only a presented valid _bv cookie counts ("captcha" / "pow");
-// every other kind is a no-op, so the hot path adds at most two string compares
+// kind) bucket.  Only a presented valid _bv cookie counts ("captcha" / "pow" /
+// "rebind"); every other kind is a no-op, so the hot path adds at most two string compares
 // per log line.  ja4 / ua keep the latest value seen for the IP within the
 // minute bucket.
+//
+// "rebind" joined the list when the plugin learned to name that kind: those
+// requests used to arrive labelled "captcha" and were ranked with the rest, so
+// leaving them out would have quietly removed a re-binding client from the one
+// ranking that shows its per-address volume -- a blind spot created by making
+// the classification more honest, which is the worst way to acquire one.
 //
 // This runs on the log-reader goroutine, never on a request path: nginx already
 // emits ip= and kind= on every line (log_format unmask_minimal) and the DB is
