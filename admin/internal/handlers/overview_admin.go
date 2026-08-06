@@ -281,6 +281,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// being reported on the abandon tile as a problem at the same moment this
 	// card was counting them as fine.
 	rHuman := comp.Passed + kpiPoWPass + kpiCaptchaPass
+	// Requests that arrived on a credential re-bound onto this address after a
+	// solve somewhere else.  Held apart from the human share, because "solved
+	// once, then roamed" is the shape a distributed crawler has and a person
+	// rarely does: measured on a production install, a crawler passing purely
+	// by roaming ran at a steady handful of requests per five minutes for days
+	// while the proof-of-work counters it never touched read zero.  Folded into
+	// the human share it was invisible; broken out it is a line an operator can
+	// look at and act on.  Real roaming people (a phone leaving wifi) land here
+	// too, which is why this is an observation and not a block.
+	rRebound := comp.Rebound
 	// ...which leaves a residue, and it gets its own segment rather than being
 	// hidden in a neighbour.  Two things are in it, both real and neither
 	// belonging to a named share:
@@ -296,7 +306,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// where that is visible instead of a named segment quietly absorbing it --
 	// so the unknown case lives HERE now, and the human share always renders a
 	// real measurement.
-	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman
+	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman - rRebound
 	rOtherKnown := rOther >= 0
 	if !rOtherKnown {
 		rOther = 0
@@ -375,6 +385,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// Requests holding a pass cookie plus the challenges cleared inside the
 		// window: a count, not a remainder, so the label means what it says.
 		"KPIReqHuman":    rHuman,
+		"KPIReqRebound":  rRebound,
 		"KPIReqBypassed": comp.Bypassed,
 		// The residue, with the two things in it named for the popover.
 		"KPIReqOther":        rOther,
