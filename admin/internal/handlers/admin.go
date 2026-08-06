@@ -1304,6 +1304,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		cpReuse                 []dashboard.CookieReuseRow
 		powReuse                []dashboard.CookieReuseRow
 		rebindReuse             []dashboard.CookieReuseRow
+		rebindLineages          []events.RebindLineageRow
 		aiTraffic               []dashboard.AITrafficRow
 		aiTrafficAll            []AITrafficRow
 		aiTrafficDetail         map[string][]AICrawlerRow
@@ -1454,6 +1455,15 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	run("CaptchaReuse", func() error {
 		var e error
 		cpReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "captcha", hosts, hours, 30)
+		return e
+	})
+	// Lineage travel: one solve, and how many addresses it has been carried
+	// to.  Sits with the reuse rankings because it is the same question along
+	// the other axis -- they are read together or not at all.  20 rows: a
+	// "does anything look wrong" list, not a census.
+	run("RebindLineages", func() error {
+		var e error
+		rebindLineages, e = events.RankByRebindLineage(ctx, h.DB, hours*60, 20)
 		return e
 	})
 	run("RebindReuse", func() error {
@@ -1826,6 +1836,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"CaptchaReuse":       cpReuse,
 		"PowReuse":           powReuse,
 		"RebindReuse":        rebindReuse,
+		"RebindLineages":     rebindLineageRows(ctx, h, rebindLineages),
 		"AITrafficServed":    aiTraffic,
 		"AITraffic":          aiTrafficAll,
 		"AITrafficDetail":    aiTrafficDetail,

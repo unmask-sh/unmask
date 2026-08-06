@@ -273,10 +273,6 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Three ranking tables (= filters are not applied.  Top entries within
 	// the tab's sinceMin window).
-	// Lineage travel: one solve, and how many addresses it has been carried
-	// to.  Read from the same window as the rankings beside it, and asked for
-	// only 20 rows -- this is a "does anything look wrong" list, not a census.
-	rebindLineages, _ := events.RankByRebindLineage(huntCtx, h.DB, sinceMin, 20)
 	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30)
 	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30)
 	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30)
@@ -573,19 +569,18 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
 		// UABotNote: per listed-crawler UA, which reading its badge note
 		// carries (address check failed / configured target / generic).
-		"UABotNote":      uaBotNoteByUA(rowUAList, cur),
-		"Rows":           enriched,
-		"RebindLineages": rebindLineageRows(huntCtx, h, rebindLineages),
-		"IPRank":         ipRank,
-		"JA4Rank":        ja4Rank,
-		"UARank":         uaRank,
-		"ASNRank":        asnRank,
-		"Offset":         offset,
-		"PageSize":       pageSize,
-		"NextOffset":     offset + pageSize,
-		"PrevOffset":     maxInt(offset-pageSize, 0),
-		"HasMore":        hasMore,
-		"HasPrev":        offset > 0,
+		"UABotNote":  uaBotNoteByUA(rowUAList, cur),
+		"Rows":       enriched,
+		"IPRank":     ipRank,
+		"JA4Rank":    ja4Rank,
+		"UARank":     uaRank,
+		"ASNRank":    asnRank,
+		"Offset":     offset,
+		"PageSize":   pageSize,
+		"NextOffset": offset + pageSize,
+		"PrevOffset": maxInt(offset-pageSize, 0),
+		"HasMore":    hasMore,
+		"HasPrev":    offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
