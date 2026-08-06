@@ -37,7 +37,11 @@ func TestHuntRebindLineageTable(t *testing.T) {
 		Total: 900, Window: 4, CapKnown: true, AtCap: true,
 		HourLimit: 4, CapLimit: 50, LastSeen: "2026-08-06 13:00:00",
 	}})
-	for _, want := range []string{"abcdef01", "419", "at-cap", "4/4"} {
+	// The purpose line and the column help are part of the contract, not
+	// decoration: the first cut of this card led with the mechanism and the
+	// operator's first question was "what is this for".
+	for _, want := range []string{"abcdef01", "419", "at-cap", "4/4",
+		"lineage-purpose", "info-tip"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered table is missing %q", want)
 		}
