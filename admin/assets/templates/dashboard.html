@@ -83,6 +83,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .cp-count{display:inline-block;margin-left:.3rem;padding:.02rem .4rem;border-radius:.7rem;background:#e2e8f0;color:#475569;font-size:.7rem;font-weight:700;vertical-align:middle}
 .cp-row-extra{display:none}
 table.cp-expanded tr.cp-row-extra{display:table-row}
+/* Host badge in a path cell.  Muted and small: the path is what the operator
+   is reading, the host is what tells them where it lives. */
+.cp-site{display:inline-block;margin-right:.4rem;padding:0 .3em;border-radius:.2rem;background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:600;vertical-align:1px}
 .cp-more{margin:.4rem 0 0;padding:.25rem .8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;color:#334155;font-size:.78rem;font-weight:600;cursor:pointer}
 .cp-more:hover{background:#e2e8f0}
 /* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
@@ -423,12 +426,17 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th><span class="help-dotted" data-help-key="phase.force_reason">{{ t $.Lang "th.force_reason" }}</span></th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th></tr></thead>
     <tbody>
       {{ range .Recent }}
-      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }}>
+      <tr{{ if .IsBot }} class="cp-bot-row"{{ end }} data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
         <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{ .ForceReason }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="bcd-mono bcd-clip cellpop">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        {{/* The site rides with the path: this table's default view spans
+             every site (site="default" means "no filter"), so a bare
+             "/article/detail/1" names a path on nobody's server.  The badge
+             is dropped when the page is already narrowed to one site -- there
+             it would repeat the heading on every row. */}}
+        <td class="bcd-mono bcd-clip cellpop url"{{ if .Path }} data-path="{{ .Path }}"{{ end }}>{{ if .Path }}{{ if and .Site (eq $.Site "default") }}<span class="cp-site">{{ .Site }}</span>{{ end }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
       </tr>
       {{ end }}
@@ -695,7 +703,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <tbody>
           {{range $i, $r := .RLPaths}}
           <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
-            <td class="bcd-mono rl-path-cell" data-path="{{$r.Path}}">{{$r.Path}}</td>
+            <td class="bcd-mono rl-path-cell cellpop url" data-path="{{$r.Path}}" data-site="{{$r.Site}}" data-scheme="{{$r.Scheme}}" data-port="{{$r.Port}}">{{ if and $r.Site (eq $.Site "default") }}<span class="cp-site">{{$r.Site}}</span>{{ end }}{{$r.Path}}</td>
             <td class="bcd-num">{{comma $r.Count}}</td>
           </tr>
           {{else}}
@@ -1616,13 +1624,69 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
     });
   }
-  function popHtml(val){
-    return '<div class="cellpop-pop"><code class="cellpop-val">' + esc(val) +
-      '</code></div>';
+  // fullURL: "<scheme>://<site>[:port]<path>", from the row's data-* attrs.
+  // Same construction as the hunt table -- scheme and port were captured
+  // server-side at ingest (X-Forwarded-Proto / -Port, pinned by the rendered
+  // nginx config), so the client cannot poison them; rows older than those
+  // columns fall back to https with no port, which is right for the common
+  // case.  Returns "" when the row cannot name a host, and the popover then
+  // shows the bare value exactly as it did before.
+  function fullURL(el, val){
+    if (!val || val[0] !== '/') return '';
+    var tr = el.closest('tr');
+    var site = (el.getAttribute('data-site') || (tr && tr.getAttribute('data-site')) || '').trim();
+    if (!site) return '';
+    var scheme = ((el.getAttribute('data-scheme') || (tr && tr.getAttribute('data-scheme')) || '')).toLowerCase();
+    if (scheme !== 'http' && scheme !== 'https') scheme = 'https';
+    var port = parseInt(el.getAttribute('data-port') || (tr && tr.getAttribute('data-port')) || '0', 10);
+    // 80 and 443 are both "default" whichever the scheme: behind a terminating
+    // LB the backend's port is 80 while the visitor's scheme is https, and
+    // "https://host:80/..." is a link that does not work.
+    var portStr = (port > 0 && port !== 80 && port !== 443) ? ':' + port : '';
+    return scheme + '://' + site + portStr + val;
   }
+  function popHtml(val, url){
+    // For a path cell the full address is the more useful thing to show and
+    // copy -- a path alone cannot be opened, and on the all-sites view it
+    // cannot even be attributed.
+    var body = '<code class="cellpop-val">' + esc(url || val) + '</code>';
+    if (url){
+      body += '<div class="cellpop-actions">' +
+        '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
+        '{{ t .Lang "cellpop.open_new_tab" }} ↗</a>' +
+        '<button type="button" class="cellpop-btn cellpop-copy" data-url="' + esc(url) + '">' +
+        '{{ t .Lang "cellpop.copy_url" }}</button>' +
+        '</div>';
+    }
+    return '<div class="cellpop-pop">' + body + '</div>';
+  }
+  // Delegated, because the popover body is re-rendered on every show.
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest && e.target.closest('.cellpop-copy');
+    if (!btn) return;
+    e.preventDefault();
+    var url = btn.getAttribute('data-url') || '';
+    if (!url) return;
+    var done = function(){
+      var orig = btn.textContent;
+      btn.textContent = {{ t .Lang "cellpop.copied" }};
+      setTimeout(function(){ btn.textContent = orig; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(done, function(){
+        var ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch(_) {}
+        document.body.removeChild(ta);
+      });
+    }
+  });
   document.querySelectorAll('.cellpop').forEach(function(el){
     var full = el.getAttribute('data-full-value');
-    var val = (full && full.length) ? full : el.textContent.trim();
+    // A path cell renders a host badge beside the path, so its textContent is
+    // "host/path" -- read the path from data-path when present.
+    var val = (full && full.length) ? full
+            : (el.getAttribute('data-path') || el.textContent.trim());
     if (!val) return;
     // Re-check clip status at hover/click time, NOT once at load.  A cell can
     // sit in a table that is visibility:hidden (= the .bcd-ready gate),
@@ -1630,7 +1694,10 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
     // yet when this runs, so a one-shot scrollWidth check misses cells that are
     // in fact truncated and never wires their popover (= why the cookie-err /
     // reload-loop UA popovers went missing).  By hover time layout is settled.
-    function clipped(){ return (full && full.length) || (el.scrollWidth - el.clientWidth > 1); }
+    var isURL = el.classList.contains('url');
+    // A path cell opens whether or not it is visually clipped: it carries the
+    // Open / Copy actions and the host, which the cell itself cannot show.
+    function clipped(){ return isURL || (full && full.length) || (el.scrollWidth - el.clientWidth > 1); }
     if (clipped()) el.classList.add('cellpop-active');
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
@@ -1638,7 +1705,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       el.classList.add('cellpop-active');
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val), x, y, el); }, 200);
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, fullURL(el, val)), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -1646,7 +1713,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(popHtml(val), e.pageX, e.pageY, el, val);
+      pin.handleClick(popHtml(val, fullURL(el, val)), e.pageX, e.pageY, el, val);
     });
   });
 })();
