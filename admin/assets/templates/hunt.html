@@ -79,6 +79,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .rank-grid:has(.folded) .rank-card-ip:not(.folded),
 .rank-grid:has(.folded) .rank-card-ja4:not(.folded){flex-grow:1;max-width:32rem}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
+/* Full width and below the four-card row: this table has six columns and would
+   have squeezed the row that is already tuned to the pixel. */
+.lineage-card{flex:1 1 100%;margin-bottom:1.25rem}
+.lineage-table{width:100%}
+.lineage-table code{font-size:.8rem}
+.at-cap{color:#b45309}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
 /* Folding.  The four cards share one row and the widest data decides what is
    left for the others, so an operator who does not need a card right now can
@@ -540,6 +546,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   </div>
 
 </div>
+
+{{ template "rebind_lineage_table" . }}
+
 {{ end }}{{/* if not .Filtering (= hide rankings while a filter search is active) */}}
 {{ end }}{{/* if not .Offset (= hide live tail + rank cards on paginated views) */}}
 

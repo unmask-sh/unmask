@@ -273,6 +273,10 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Three ranking tables (= filters are not applied.  Top entries within
 	// the tab's sinceMin window).
+	// Lineage travel: one solve, and how many addresses it has been carried
+	// to.  Read from the same window as the rankings beside it, and asked for
+	// only 20 rows -- this is a "does anything look wrong" list, not a census.
+	rebindLineages, _ := events.RankByRebindLineage(huntCtx, h.DB, sinceMin, 20)
 	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30)
 	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30)
 	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30)
@@ -569,18 +573,19 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
 		// UABotNote: per listed-crawler UA, which reading its badge note
 		// carries (address check failed / configured target / generic).
-		"UABotNote":  uaBotNoteByUA(rowUAList, cur),
-		"Rows":       enriched,
-		"IPRank":     ipRank,
-		"JA4Rank":    ja4Rank,
-		"UARank":     uaRank,
-		"ASNRank":    asnRank,
-		"Offset":     offset,
-		"PageSize":   pageSize,
-		"NextOffset": offset + pageSize,
-		"PrevOffset": maxInt(offset-pageSize, 0),
-		"HasMore":    hasMore,
-		"HasPrev":    offset > 0,
+		"UABotNote":      uaBotNoteByUA(rowUAList, cur),
+		"Rows":           enriched,
+		"RebindLineages": rebindLineageRows(huntCtx, h, rebindLineages),
+		"IPRank":         ipRank,
+		"JA4Rank":        ja4Rank,
+		"UARank":         uaRank,
+		"ASNRank":        asnRank,
+		"Offset":         offset,
+		"PageSize":       pageSize,
+		"NextOffset":     offset + pageSize,
+		"PrevOffset":     maxInt(offset-pageSize, 0),
+		"HasMore":        hasMore,
+		"HasPrev":        offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
@@ -1281,4 +1286,56 @@ func dropFoldIfAllFolded(folded map[string]bool, rendered []string) map[string]b
 func cookieIsSet(r *http.Request, name string) bool {
 	c, err := r.Cookie(name)
 	return err == nil && decodeCookieValue(c.Value) == "1"
+}
+
+// rebindLineageRow is one line of the lineage-travel table: what the events
+// recorded, plus how much of the operator's cap the lineage has spent.
+type rebindLineageRow struct {
+	Lineage   string
+	Short     string // first 8 chars -- the id is opaque, and the full 24 buys nothing
+	IPs       int
+	Rebinds   int
+	Rejects   int
+	Total     int  // lifetime re-binds, from the cap table
+	Window    int  // re-binds inside the current hour
+	CapKnown  bool // false when the cap row is gone (pruned / never written)
+	AtCap     bool // the hourly budget is spent
+	LastSeen  string
+	CapLimit  int
+	HourLimit int
+}
+
+// rebindLineageRows merges the event-side ranking with the cap counters, which
+// live in their own table so they survive event retention.  A lineage whose
+// cap row has gone reports "unknown" rather than zero: zero would read as "has
+// never re-bound", which is the opposite of what a listed lineage means.
+func rebindLineageRows(ctx context.Context, h *Handler, rows []events.RebindLineageRow) []rebindLineageRow {
+	if len(rows) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(rows))
+	for _, r := range rows {
+		ids = append(ids, r.Lineage)
+	}
+	caps := events.RebindLineageCaps(ctx, h.DB, ids)
+	cfg := h.cfg()
+	lifetime := cfg.Rebind.MaxRebindsResolved()
+	hourly := cfg.Rebind.MaxRebindsPerHourResolved()
+	out := make([]rebindLineageRow, 0, len(rows))
+	for _, r := range rows {
+		row := rebindLineageRow{
+			Lineage: r.Lineage, Short: r.Lineage, IPs: r.IPs, Rebinds: r.Rebinds,
+			Rejects: r.Rejects, LastSeen: r.LastSeen,
+			CapLimit: lifetime, HourLimit: hourly,
+		}
+		if len(row.Short) > 8 {
+			row.Short = row.Short[:8]
+		}
+		if c, ok := caps[r.Lineage]; ok {
+			row.Total, row.Window, row.CapKnown = c[0], c[1], true
+			row.AtCap = (hourly > 0 && c[1] >= hourly) || (lifetime > 0 && c[0] >= lifetime)
+		}
+		out = append(out, row)
+	}
+	return out
 }
