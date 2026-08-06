@@ -40,7 +40,11 @@ func TestStatsPathCellsCarryTheirHost(t *testing.T) {
 		return buf.String()
 	}
 
-	out := render("default")
+	// "" is the site picker's "all sites", which is what the stats page
+	// actually passes -- the "default" in the URL path is not the value the
+	// template sees, and comparing against it silently hid the badge on every
+	// row of the view that needs it most.
+	out := render("")
 	for _, want := range []string{
 		`data-site="codezine.jp"`,       // the host the request was made on
 		`data-scheme="https"`,           // and how to reach it
