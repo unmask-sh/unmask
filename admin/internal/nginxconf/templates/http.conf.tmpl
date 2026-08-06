@@ -319,10 +319,17 @@ map $unmatched_chain_action $unmatched_should_challenge {
 # bv (bot-verified) cookie classification aliases
 # -----------------------------------------------------------------------------
 # Provide short aliases for the 3 variables the plugin exposes.
-#   $bv_kind          : "captcha" (3-seg HMAC OK) / "pow" (4-seg SHA-256 OK) / ""
+#   $bv_kind          : "captcha" / "rebind" (3-seg HMAC OK, told apart by the
+#                       signed kind segment) / "pow" (4-seg SHA-256 OK) / ""
 #   $bv_captcha_valid : 1 if $bv_kind == "captcha", else 0
 #   $bv_pow_valid     : 1 if $bv_kind == "pow", else 0
-#   $bv_any_valid     : 1 if any of the above, else 0  ("repeater" check)
+#   $bv_any_valid     : 1 if ANY kind verified, else 0  ("repeater" check)
+#
+# "rebind" is a pass earned by roaming a solved credential onto a new address,
+# so $bv_any_valid counts it (nothing about who gets challenged changes) while
+# the two named aliases stay literal.  It is broken out because a crawler that
+# passes purely by re-binding is invisible in the PoW figures and used to be
+# indistinguishable from real CAPTCHA passes.
 #
 # Extension: if the plugin adds new kinds (signature / webauthn / passkey etc.)
 # a new value appears in $bv_kind -> the admin cookie_minute table (kind/cnt
@@ -1280,10 +1287,10 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 # admin binds `{{ .NginxLogSocket }}` and the nginx worker sends datagrams.
 # If admin is not running, nginx only emits a warning — no behavior impact.
 #
-# kind=$bv_kind is the cookie validation result string ("captcha" / "pow" /
-# empty).  admin aggregates per kind (the kind column of unmask_cookie_minute),
-# so when the plugin adds new kinds (e.g. "signature") they're auto-ingested
-# without schema changes.
+# kind=$bv_kind is the cookie validation result string ("captcha" / "rebind" /
+# "pow" / empty).  admin aggregates per kind (the kind column of
+# unmask_cookie_minute), so when the plugin adds new kinds (e.g. "signature")
+# they're auto-ingested without schema changes.
 #
 # ua=$http_user_agent MUST stay last (it contains spaces).  admin classifies it
 # into crawler categories for the overview "crawler traffic" funnel — this is
