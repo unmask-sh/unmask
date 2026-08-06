@@ -282,14 +282,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// card was counting them as fine.
 	rHuman := comp.Passed + kpiPoWPass + kpiCaptchaPass
 	// Requests that arrived on a credential re-bound onto this address after a
-	// solve somewhere else.  Held apart from the human share, because "solved
-	// once, then roamed" is the shape a distributed crawler has and a person
-	// rarely does: measured on a production install, a crawler passing purely
-	// by roaming ran at a steady handful of requests per five minutes for days
-	// while the proof-of-work counters it never touched read zero.  Folded into
-	// the human share it was invisible; broken out it is a line an operator can
-	// look at and act on.  Real roaming people (a phone leaving wifi) land here
-	// too, which is why this is an observation and not a block.
+	// solve somewhere else.  Kept OUT of the human share -- "solved once, then
+	// roamed" is the shape a distributed crawler has and a person rarely does,
+	// and folding it in there is what hid one for months -- but not given a
+	// segment of its own either: measured across the fleet it is 3.3% of a
+	// day on the busiest node and 0.0% on three others, and a bar segment
+	// that is invisible everywhere teaches the eye to skip the card.  It
+	// lands in the residue with a line of its own in the breakdown, so the
+	// number is still one hover away and still not claimed as people.
+	//
+	// The signal itself lives in hunt's lineage table, which answers the
+	// question this share cannot: not how many such requests there were, but
+	// how many addresses ONE solve reached.
 	rRebound := comp.Rebound
 	// ...which leaves a residue, and it gets its own segment rather than being
 	// hidden in a neighbour.  Two things are in it, both real and neither
@@ -306,7 +310,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// where that is visible instead of a named segment quietly absorbing it --
 	// so the unknown case lives HERE now, and the human share always renders a
 	// real measurement.
-	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman - rRebound
+	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman
 	rOtherKnown := rOther >= 0
 	if !rOtherKnown {
 		rOther = 0
@@ -319,7 +323,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// whole, which is worth more than the line's absence, and a skew worth
 	// noticing is exactly what an operator should see rather than a tidied
 	// number.
-	rOtherSkew := rOther - abandon - comp.Unchallenged - comp.Passthrough
+	rOtherSkew := rOther - abandon - comp.Unchallenged - comp.Passthrough - rRebound
 
 	// Which denominator the share is taken against.  Bypassed requests are the
 	// ones the operator exempted from judgement -- package managers, monitors,
