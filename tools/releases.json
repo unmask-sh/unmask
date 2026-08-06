@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.20",
+  "latest": "0.1.23",
   "releases": [
+    {
+      "version": "0.1.23",
+      "date": "2026-08-06",
+      "notes": "The dashboard's abandonment rate now counts only ordinary visitors: anything an operator's rule deliberately sends to a challenge is expected to leave without solving, and dividing those departures into the same rate made a bot-heavy site read 99% abandonment while the 34 real visitors underneath were invisible - the same window reads 4.8% now, and rule-targeted departures stay under the blocked figure where they belong. A schema migration can no longer wedge an install that already carries part of its work: a duplicate column used to abort the file before its index was created, permanently, with one log line per restart as the only symptom. Rendering the nginx conf now leaves unchanged files untouched, so their timestamps mean \"when the config last changed\" rather than \"when a render ran\", and doctor uses that to warn when a saved change was rendered but nginx was never reloaded - previously that gap read as healthy on every check. A leftover challenge_targets.all in config.yml gets a warning that names the real cost (being challenged is not being blocked; use an explicit UA row with action deny) instead of a generic unrecognized-key line. unmask version prints the commit it was built from. Release-side, publishing now verifies what is actually served from the client's URLs per format, and the stable index refuses to ship an artifact that differs from what the testing channel confirmed under the same name. Note: 0.1.22 was a testing-channel pre-release only; everything it carried ships in this release."
+    },
     {
       "version": "0.1.21",
       "date": "2026-08-06",
