@@ -58,10 +58,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-seg.comp-bad,i.comp-bad{background:#dc2626}
 .comp-seg.comp-bypass,i.comp-bypass{background:#c7d2fe}
 .comp-seg.comp-human,i.comp-human{background:#94a3b8}
-/* A lighter shade of the human colour, not a colour of its own: these
-   requests hold a real pass cookie and sit right beside the human share --
-   the eye should read them as a variant of it, not as a fifth category. */
-.comp-seg.comp-rebind,i.comp-rebind{background:#cbd5e1}
 /* Hatched rather than a fifth flat colour: this segment is the traffic the
    other four could not claim, and a solid swatch would read as one more
    category of its own. */
@@ -288,7 +284,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <span class="comp-seg comp-bad"    style="width:{{ pctOf $.KPIReqBlocked $t }}%"></span>
       {{ if not $judged }}<span class="comp-seg comp-bypass" style="width:{{ pctOf $.KPIReqBypassed $t }}%"></span>{{ end }}
       <span class="comp-seg comp-human"  style="width:{{ pctOf $.KPIReqHuman $t }}%"></span>
-      {{ if $.KPIReqRebound }}<span class="comp-seg comp-rebind" style="width:{{ pctOf $.KPIReqRebound $t }}%"></span>{{ end }}
       {{ if $.KPIReqOtherKnown }}<span class="comp-seg comp-other" style="width:{{ pctOf $.KPIReqOther $t }}%"></span>{{ end }}
     </div>
     <div class="comp-legend">
@@ -299,14 +294,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
            reads as "there is none". */}}
       {{ if $.KPIReqBypassed }}<span{{ if $judged }} class="comp-out"{{ end }}><i class="comp-bypass"></i>{{ tf $.Lang "overview.kpi.nonhuman_bypass" (comma $.KPIReqBypassed) }}<b class="comp-share">{{ if $judged }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ else }}{{ pctLabel $.KPIReqBypassed $t }}{{ end }}</b></span>{{ end }}
       <span><i class="comp-human"></i>{{ tf $.Lang "overview.kpi.nonhuman_human" (comma $.KPIReqHuman) }}<b class="comp-share">{{ pctLabel $.KPIReqHuman $t }}</b></span>
-      {{/* Only when it happened: on an install with no roaming clients this is
-           structurally zero, and a permanent 0 line teaches the eye to skip the
-           row it needs to notice on the day it is not zero. */}}
-      {{ if $.KPIReqRebound }}<span><i class="comp-rebind"></i>{{ tf $.Lang "overview.kpi.nonhuman_rebind" (comma $.KPIReqRebound) }}<b class="comp-share">{{ pctLabel $.KPIReqRebound $t }}</b><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ t $.Lang "overview.kpi.rebind_pop" }}</span></span></span>{{ end }}
       {{/* The residue, named.  It carries a breakdown rather than a label
            claiming more than the number can carry -- and an operator who sees
            it grow can tell which of the two halves grew. */}}
-      <span><i class="comp-other"></i>{{ if $.KPIReqOtherKnown }}{{ tf $.Lang "overview.kpi.nonhuman_other" (comma $.KPIReqOther) }}<b class="comp-share">{{ pctLabel $.KPIReqOther $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>{{ end }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><br>{{ tf $.Lang "overview.kpi.other_abandon" (comma $.KPIReqOtherAbandon) }}<br>{{ tf $.Lang "overview.kpi.other_unchallenged" (comma $.KPIReqOtherUnchall) }}<br>{{ if $.KPIReqPassthrough }}{{ tf $.Lang "overview.kpi.other_passthrough" (comma $.KPIReqPassthrough) }}<br>{{ end }}{{ tf $.Lang "overview.kpi.other_skew" (comma $.KPIReqOtherSkew) }}{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span></span>
+      <span><i class="comp-other"></i>{{ if $.KPIReqOtherKnown }}{{ tf $.Lang "overview.kpi.nonhuman_other" (comma $.KPIReqOther) }}<b class="comp-share">{{ pctLabel $.KPIReqOther $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>{{ end }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><br>{{ tf $.Lang "overview.kpi.other_abandon" (comma $.KPIReqOtherAbandon) }}<br>{{ tf $.Lang "overview.kpi.other_unchallenged" (comma $.KPIReqOtherUnchall) }}<br>{{ if $.KPIReqRebound }}{{ tf $.Lang "overview.kpi.other_rebind" (comma $.KPIReqRebound) }}<br>{{ end }}{{ if $.KPIReqPassthrough }}{{ tf $.Lang "overview.kpi.other_passthrough" (comma $.KPIReqPassthrough) }}<br>{{ end }}{{ tf $.Lang "overview.kpi.other_skew" (comma $.KPIReqOtherSkew) }}{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span></span>
     </div>
   </div>
   {{ end }}
