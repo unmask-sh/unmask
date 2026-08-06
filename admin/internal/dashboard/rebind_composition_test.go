@@ -41,6 +41,7 @@ func TestTrafficRequestsSplitsRebindFromHuman(t *testing.T) {
 		{"pow", 30},
 		{"captcha", 5},
 		{"rebind", 25},
+		{"passthrough", 3},
 	} {
 		if _, err := d.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt)
 			VALUES (?, 'default', ?, ?)`, minute, r.kind, r.cnt); err != nil {
@@ -61,11 +62,15 @@ func TestTrafficRequestsSplitsRebindFromHuman(t *testing.T) {
 	// The segments are shares of one total, and this is the invariant that
 	// breaks first when a new kind is added without being placed: the residue
 	// silently absorbs it, or goes negative.
-	sum := c.Benign + c.Bypassed + c.Challenged + c.Passed + c.Rebound + c.Unchallenged
+	sum := c.Benign + c.Bypassed + c.Challenged + c.Passed + c.Rebound + c.Passthrough + c.Unchallenged
 	if sum != c.Total {
 		t.Fatalf("parts %d != total %d (rebind unplaced in the composition)", sum, c.Total)
 	}
-	if c.Unchallenged != 5 {
-		t.Errorf("residue = %d, want 5", c.Unchallenged)
+	if c.Passthrough != 3 {
+		t.Errorf("passthrough = %d, want 3 (a cookie handed out while enforcement was off "+
+			"is not a solve and not an exemption)", c.Passthrough)
+	}
+	if c.Unchallenged != 2 {
+		t.Errorf("residue = %d, want 2", c.Unchallenged)
 	}
 }

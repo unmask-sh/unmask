@@ -3979,6 +3979,7 @@ type TrafficComposition struct {
 	Challenged   int
 	Passed       int
 	Rebound      int
+	Passthrough  int
 	Unchallenged int
 	OK           bool
 }
@@ -4001,10 +4002,11 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
                COALESCE(SUM(CASE WHEN kind = 'bypass_pass'      THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0)
+               COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'passthrough'      THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
         WHERE bucket_min >= ?`+cond, args...).
-		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed, &c.Rebound)
+		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed, &c.Rebound, &c.Passthrough)
 	if err != nil {
 		return TrafficComposition{}, err
 	}
@@ -4030,7 +4032,14 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
 	// it is the same solve, carried to a new IP.  Folding the two together is
 	// what let a crawler passing entirely by roaming read as steady CAPTCHA
 	// traffic while the PoW figures it never touched sat at zero.
-	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound
+	// Passthrough passes are subtracted too, and named in the residue's
+	// breakdown rather than folded into a segment: they are requests that
+	// carried a cookie handed out while enforcement was suspended, so they
+	// belong neither with people who solved something nor with traffic a rule
+	// exempted on purpose.  Left unsubtracted they would surface as "window
+	// skew", which is a label for arithmetic noise, not for a monitoring
+	// window the operator opened.
+	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound - c.Passthrough
 	if c.Unchallenged < 0 {
 		c.Unchallenged = 0
 	}
