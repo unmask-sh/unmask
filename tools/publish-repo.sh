@@ -115,13 +115,27 @@ rsync -avhz $DRY \
     "$SRC_DIR/" "$USER@$HOST:$DEST_DIR"
 
 echo
-echo "==> publish complete."
-echo "Verify (= single-path layout, in effect since 2026-05-10):"
-echo "  curl -I https://$HOST/dl/keys/RPM-GPG-KEY-unmask"
-echo "  curl -I https://$HOST/dl/rpm/x86_64/repodata/repomd.xml"
-echo "  curl -I https://$HOST/dl/deb/dists/stable/InRelease"
-echo "  curl -I https://$HOST/dl/apk/main/x86_64/APKINDEX.tar.gz"
-echo "  # one-shot bootstrap URLs the README install commands fetch directly:"
-echo "  curl -I https://$HOST/dl/rpm/unmask-release-latest.noarch.rpm"
-echo "  curl -I https://$HOST/dl/deb/unmask-release-latest.deb"
-echo "  curl -I https://$HOST/dl/keys/oss@unmask.sh-260509.rsa.pub"
+echo "==> rsync complete."
+
+if [ -n "$DRY" ]; then
+    exit 0
+fi
+
+# Verify what is now being served.  A publish has broken the repository twice
+# (an apk index that lost its signature; a stale version left in dist/), and
+# both times every pre-publish check had passed -- they ran against the build
+# tree, not against the URLs users fetch.  So the publish checks itself.
+if [ "${UNMASK_SKIP_VERIFY:-0}" = "1" ]; then
+    echo "==> UNMASK_SKIP_VERIFY=1 -> not verifying the published channel"
+    echo "    run tools/verify-published.sh $CHANNEL by hand before telling anyone it is up"
+    exit 0
+fi
+echo
+if "$(dirname "$0")/verify-published.sh" "$CHANNEL" "https://$HOST/dl"; then
+    echo "==> publish complete."
+else
+    rc=$?
+    echo
+    echo "==> PUBLISH IS LIVE BUT BROKEN -- users see the failure above, right now."
+    exit "$rc"
+fi
