@@ -478,6 +478,7 @@ func cmdDoctor(args []string) error {
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxStaleLibs(addWarn)
+	checkNginxReloadLag(s, addOK, addWarn)
 	checkNginxProtectScope(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
 	checkHTTPSRedirectHealthCheck(s, addOK, addWarn)
