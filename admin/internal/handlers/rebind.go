@@ -269,6 +269,19 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 		h.logRebindReject(r, site, ip, ja4, "ua_mismatch", claims.Lineage, bt, claims.ASN, 0)
 		return false
 	}
+	// A rule that ends in a CAPTCHA is not satisfied by silently carrying a
+	// proof-of-work solve onto another address.  Without this the gate and the
+	// re-bind disagree: the gate refuses the roamed credential, the challenge
+	// route re-binds it again, and the client loops between them forever --
+	// so the two halves of this policy only make sense together.
+	//
+	// A lineage born of a real CAPTCHA still roams silently, which is the
+	// point: the person who solved it keeps their pass across a network
+	// change, and the fleet that solved a proof-of-work does not.
+	if uaRequiresCaptchaGrade(r.Header.Get("User-Agent"), *cfg) && !gradeSatisfies(claims.Kind) {
+		h.logRebindReject(r, site, ip, ja4, "grade", claims.Lineage, bt, claims.ASN, 0)
+		return false
+	}
 	asnVeto := cfg.Rebind.ASNVetoResolved() == "auto" && h.IPGeo != nil && h.IPGeo.ASNLoaded()
 	var curASN uint
 	if asnVeto {
@@ -359,7 +372,8 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 // indistinguishable from a fresh visitor.  reason is one of: asn_mismatch (new
 // IP's ASN != solve ASN), bvj_invalid (_bvj sent but failed to verify), no_bvj
 // (carries a stale _bv but no _bvj at all), ja4_mismatch, ua_mismatch, cap
-// (per-lineage rebind budget exhausted).  Kept off PhaseBVRebind so it never
+// (per-lineage rebind budget exhausted), grade (the UA's rule requires a
+// CAPTCHA and this lineage was born of a lesser solve).  Kept off PhaseBVRebind so it never
 // inflates the "successfully re-bound" count.  Best-effort: an unpackable IP
 // skips the row (the refusal already happened at the call site).
 func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineage, bt string, solveASN, curASN uint) {

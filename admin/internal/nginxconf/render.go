@@ -474,9 +474,14 @@ type renderData struct {
 	// past by clearing one challenge.  Empty on every install that denies
 	// nothing by UA, which is most of them, and the map is then not emitted at
 	// all (no rendered-config diff).
-	HardDenyUAPatterns  []string
-	HTTPSRedirect       bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
-	HTTPSRedirectExempt []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
+	HardDenyUAPatterns []string
+	// CaptchaGradeUAPatterns: the subset of challenge-target UAs whose chain
+	// ends in a CAPTCHA.  For those, holding SOME pass cookie is not enough --
+	// the cookie has to be a CAPTCHA-grade one.  Empty (and the maps then not
+	// emitted at all) on an install that puts no UA on a captcha chain.
+	CaptchaGradeUAPatterns []string
+	HTTPSRedirect          bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	HTTPSRedirectExempt    []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -877,6 +882,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// of the pass cookie (see $unmask_deny_now), so it cannot wait for the
 		// daemon to resolve the chain the way an ordinary challenge does.
 		d.HardDenyUAPatterns = hardDenyUAPatterns(s, seenVer, upstreamGroupBlackPatterns)
+		d.CaptchaGradeUAPatterns = captchaGradeUAPatterns(s, seenVer, upstreamGroupBlackPatterns)
 	}
 
 	// JA4 verdicts: enabled presets + extras.
@@ -1680,14 +1686,43 @@ func toSet(xs []string) map[string]bool {
 // on a technicality that the daemon would then have denied, and this axis
 // exists precisely because "let past on a technicality" is the bug.
 func hardDenyUAPatterns(s settings.Settings, seenVer string, upstreamBlack []string) []string {
+	return uaPatternsWhereAction(s, seenVer, upstreamBlack, func(act string) bool {
+		return act == settings.RateChallengeDeny
+	})
+}
+
+// captchaGradeUAPatterns: the listed UAs whose resolved chain ends in a
+// CAPTCHA.  Rendered into $unmask_ua_needs_captcha, which narrows the pass
+// cookie's exemption for exactly those UAs -- see the map in http.inc.
+//
+// A blank action resolves to the install's default chain, which out of the box
+// is pow_then_captcha, so a plain "list this UA" row lands here.  That is the
+// operator's own statement that the UA must clear a CAPTCHA, and completing
+// such a chain issues a CAPTCHA-grade cookie (the proof-of-work leg issues
+// none), so an ordinary visitor on the rule is unaffected.
+func captchaGradeUAPatterns(s settings.Settings, seenVer string, upstreamBlack []string) []string {
+	return uaPatternsWhereAction(s, seenVer, upstreamBlack, func(act string) bool {
+		return act == settings.RateChallengeCaptchaOnly || act == settings.RateChallengePoWThenCaptcha
+	})
+}
+
+// uaPatternsWhereAction walks every source of challenge-target UA patterns
+// (presets, the operator's own rows, upstream rescue groups turned black) and
+// returns those whose RESOLVED action satisfies want.  One walk shared by the
+// callers above: two copies of this traversal would drift the moment a fourth
+// pattern source appears, and each caller would be wrong in its own way.
+func uaPatternsWhereAction(s settings.Settings, seenVer string, upstreamBlack []string, want func(act string) bool) []string {
 	ct := s.Nginx.ChallengeTargets
 	def := strings.TrimSpace(ct.DefaultAction)
+	if def == "" {
+		def = s.RateLimit.Default.ResolvedChallengeMode()
+	}
 	denies := func(act string) bool {
 		act = strings.TrimSpace(act)
 		if act == "" {
 			act = def
 		}
-		return act == settings.RateChallengeDeny
+		return want(act)
 	}
 	out := []string{}
 	seen := map[string]bool{}

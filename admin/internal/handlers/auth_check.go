@@ -405,7 +405,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// Attested real client (Privacy Pass / PAT): an origin-bound token
 			// from a trusted issuer.  Reason carries the issuer for dashboards.
 			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
-		case bvOK:
+		case bvOK && !(uaRequiresCaptchaGrade(ua, cfg) && !gradeSatisfies(bvCookieKind)):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
 			// address after a solve elsewhere.

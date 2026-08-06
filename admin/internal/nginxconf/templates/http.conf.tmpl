@@ -338,6 +338,49 @@ map $unmask_bv_kind $bv_kind          { default $unmask_bv_kind; }
 map $unmask_bv_kind $bv_captcha_valid { default 0;  "captcha" 1; }
 map $unmask_bv_kind $bv_pow_valid     { default 0;  "pow"     1; }
 map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
+{{- if .CaptchaGradeUAPatterns }}
+
+# -----------------------------------------------------------------------------
+# Grade requirement: which pass cookie counts, for the UAs the operator put on
+# a chain that ends in a CAPTCHA
+# -----------------------------------------------------------------------------
+# For those UAs, holding SOME valid cookie is not the question the rule asked.
+# Clearing a captcha chain issues a CAPTCHA-grade cookie -- its proof-of-work
+# leg issues none and hands off -- so an ordinary visitor on the rule already
+# carries one and nothing about their experience changes.  What does change is
+# a client holding a proof-of-work cookie obtained some other way, which is a
+# measured thing rather than a hypothetical: a crawler read the challenge page,
+# solved the 16-bit proof-of-work in its own code (never running challenge.js,
+# which is why the load counter stayed at 1 for a week), minted the cookie
+# itself, and served itself 137,051 requests in a day through a rule that said
+# CAPTCHA.
+#
+# Keyed on the UA alone, and consumed through the SAME $bv_kind the decision
+# map already builds -- so this adds one string map lookup per request and no
+# second cookie verification.  (Reading $bv_captcha_valid here instead would
+# have made the plugin verify the cookie twice: its variables are
+# non-cacheable, so each one that touches it pays the HMAC again.)
+map $http_user_agent $unmask_ua_needs_captcha {
+    default 0;
+{{- range .CaptchaGradeUAPatterns }}
+    "~*{{ rx . }}" 1;
+{{- end }}
+}
+# "<needs captcha>:<kind the cookie verified as>" -> is this request holding a
+# pass that satisfies its rule?
+#
+# A re-bound credential does NOT satisfy a CAPTCHA requirement even though it
+# descends from a solve: the re-bind is what carries one solve onto addresses
+# that never solved anything, and honouring it here would leave exactly the
+# hole this closes.  The rebind path checks the LINEAGE's own grade instead, so
+# a person who really did clear a CAPTCHA still roams silently.
+map "$unmask_ua_needs_captcha:$bv_kind" $bv_pass_ok {
+    default     1;   # no requirement + some verified kind -> a pass, as before
+    "0:"        0;   # no requirement, no cookie
+    "~^1:"      0;   # requirement unmet by anything except...
+    "1:captcha" 1;   # ...a genuine CAPTCHA pass (exact match beats the regex)
+}
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # $unmask_chmode — challenge-mode hint
@@ -851,7 +894,8 @@ map $unmask_bp_global $is_bypass_path {
 # $final_challenge — final decision on whether to trigger challenge
 # -----------------------------------------------------------------------------
 # 9 input signals:
-#   bv_any_valid : is_search_bot : is_bypass_ip : is_bypass_path : is_net_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
+#   bv_pass_ok (= bv_any_valid, narrowed to CAPTCHA grade for the UAs whose
+#                rule ends in one) : is_search_bot : is_bypass_ip : is_bypass_path : is_net_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
 #
 # Decision priority:
 #   1. bv_any_valid=1                 -> exempt (already carries CAPTCHA / PoW pass cookie)
@@ -871,7 +915,7 @@ map $unmask_bp_global $is_bypass_path {
 #   8. everything else                -> the Global axis's call
 #                                        ($unmatched_should_challenge: the
 #                                        known/unknown-UA bucket actions)
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "{{ if .CaptchaGradeUAPatterns }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
     "~^0:1:"                    0;  # search bot UA -> exempt

@@ -154,10 +154,16 @@ nginx:
     # Scenario 53 (= hard deny outranks the pass cookie).  One row pinned to
     # deny, so the scenario can prove the difference between "denied" and
     # "challenged" with the SAME valid cookie on both requests.
+    # Scenario 56 (= a chain that ends in a CAPTCHA is not satisfied by a
+    # proof-of-work cookie).  Pinned to captcha_only rather than relying on the
+    # list default, which is pow_only here so the headless scenarios can clear
+    # their challenges without a human.
     extra:
       - "contains:UnmaskDenyProbe"
+      - "contains:UnmaskGradeProbe"
     extra_action:
       - deny
+      - captcha_only
   # Scenario 12 (= max-severity composition) needs both axes wired:
   #   - geo: JP rule action=pow_only / CN rule action=deny
   #   - ja4: a known fingerprint classified as bot
