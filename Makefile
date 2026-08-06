@@ -67,7 +67,12 @@ MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 # toolchain via go.mod (= GOTOOLCHAIN=local), two builds from the same commit
 # produce byte-identical binaries.  Builds run under nfpm pick up SOURCE_DATE_EPOCH
 # via env so the rpm / deb / apk content hashes are stable too.
-GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_VERSION)"
+# UNMASK_COMMIT: the revision this binary is built from, stamped into it so a
+# running node can be identified.  Not from -buildvcs (which is off for
+# reproducibility and would also mark the build dirty); resolved here so a build
+# from a tarball with no git simply leaves it empty.
+UNMASK_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_VERSION) -X main.Commit=$(UNMASK_COMMIT)"
 
 # SOURCE_DATE_EPOCH: pin file mtime + Go's "build info" timestamp.  Default to
 # the commit timestamp so reproducible builds work without an explicit override.
