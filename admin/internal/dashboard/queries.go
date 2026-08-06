@@ -3978,6 +3978,7 @@ type TrafficComposition struct {
 	Bypassed     int
 	Challenged   int
 	Passed       int
+	Rebound      int
 	Unchallenged int
 	OK           bool
 }
@@ -3999,10 +4000,11 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
                COALESCE(SUM(CASE WHEN kind = 'crawler_pass'     THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'bypass_pass'      THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0)
+               COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
         WHERE bucket_min >= ?`+cond, args...).
-		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed)
+		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed, &c.Rebound)
 	if err != nil {
 		return TrafficComposition{}, err
 	}
@@ -4022,7 +4024,13 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
 	// carried no kind at all.  Floored anyway: a negative here would mean the
 	// exclusivity broke again, and the card's "other" share is where that shows
 	// up rather than silently skewing a named segment.
-	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed
+	// Rebound is kept OUT of Passed on purpose.  Both are requests that
+	// arrived holding a valid cookie, but "passed" is read as "solved
+	// something", and a re-bound credential solved nothing on this address --
+	// it is the same solve, carried to a new IP.  Folding the two together is
+	// what let a crawler passing entirely by roaming read as steady CAPTCHA
+	// traffic while the PoW figures it never touched sat at zero.
+	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound
 	if c.Unchallenged < 0 {
 		c.Unchallenged = 0
 	}
