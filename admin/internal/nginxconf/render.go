@@ -19,8 +19,10 @@
 package nginxconf
 
 import (
+	"bytes"
 	"embed"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -83,10 +85,19 @@ func Render(s settings.Settings, outDir, version string) error {
 		log.Printf("unmask: WARNING: %s", data.mapHashWarning)
 	}
 
+	// Each render* call reports whether it actually changed the file; the
+	// marker below records the moment any of them did.  Accumulated through a
+	// closure so adding a file cannot silently forget to feed it.
+	changed := false
+	render := func(outName, tmplPath string, perm os.FileMode) error {
+		ch, err := renderToFile(outDir, outName, tmplPath, data, perm)
+		changed = changed || ch
+		return err
+	}
+
 	// http scope: JA4 maps / log_format / rate-zone.  The postinstall
 	// drops a symlink to /etc/nginx/conf.d/00-unmask.conf to auto-load it.
-	if err := renderToFile(outDir, "http.inc",
-		"templates/http.conf.tmpl", data, 0o640); err != nil { // 0640: carries bv_secret
+	if err := render("http.inc", "templates/http.conf.tmpl", 0o640); err != nil { // 0640: carries bv_secret
 		return err
 	}
 	// upstream.conf was retired -- the `upstream unmask { ... }` block
@@ -97,13 +108,11 @@ func Render(s settings.Settings, outDir, version string) error {
 	// `include /var/lib/unmask/nginx/server.inc;` on each vhost where the
 	// challenge should fire OR the admin UI should be reachable.  Per-host
 	// gating of /admin/* is done at the HTTP layer (= AdminAllowedHosts).
-	if err := renderToFile(outDir, "server.inc",
-		"templates/server.inc.tmpl", data, 0o644); err != nil {
+	if err := render("server.inc", "templates/server.inc.tmpl", 0o644); err != nil {
 		return err
 	}
 	// location/server scope: protection trigger (= rate-limit + final_challenge rewrite).
-	if err := renderToFile(outDir, "protect.inc",
-		"templates/protect.inc.tmpl", data, 0o644); err != nil {
+	if err := render("protect.inc", "templates/protect.inc.tmpl", 0o644); err != nil {
 		return err
 	}
 	// http scope (forward-auth): defines $unmask_fa_ja4 = the LB-forwarded client
@@ -111,8 +120,7 @@ func Render(s settings.Settings, outDir, version string) error {
 	// Always emitted (a no-op `default ""` when no LB is configured) so the
 	// variable resolves and `nginx -t` passes; the unmask-web-nginx postinstall
 	// symlinks it into conf.d/.  Plugin-var-free, so it loads without the module.
-	if err := renderToFile(outDir, "forward-auth-lbtrust.conf",
-		"templates/forward-auth-lbtrust.conf.tmpl", data, 0o644); err != nil {
+	if err := render("forward-auth-lbtrust.conf", "templates/forward-auth-lbtrust.conf.tmpl", 0o644); err != nil {
 		return err
 	}
 	// The daemon upstream both deploy modes proxy to (`upstream
@@ -121,8 +129,7 @@ func Render(s settings.Settings, outDir, version string) error {
 	// it).  The unmask-web-nginx postinstall symlinks it into conf.d/.
 	// Rendered (not just postinstall-generated) so it tracks server.bind /
 	// port on every save.
-	if err := renderToFile(outDir, "upstream.conf",
-		"templates/upstream.conf.tmpl", data, 0o644); err != nil {
+	if err := render("upstream.conf", "templates/upstream.conf.tmpl", 0o644); err != nil {
 		return err
 	}
 	// The http.inc just written `include`s the community-bans map files when
@@ -136,6 +143,13 @@ func Render(s settings.Settings, outDir, version string) error {
 	// Populated maps are never clobbered (O_EXCL).
 	if data.CommunityBansMapDir != "" {
 		ensureCommunityBanMapPlaceholders(data.CommunityBansMapDir)
+	}
+	// Record WHEN the config last actually changed.  Best-effort: a marker we
+	// could not write makes doctor's reload check stay silent, which is the
+	// right failure -- it never reports a stale nginx it cannot prove.
+	if changed {
+		_ = os.WriteFile(filepath.Join(outDir, SubstantiveRenderMarker),
+			[]byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
 	}
 	return nil
 }
@@ -199,14 +213,45 @@ func buildUpstreamServer(s settings.Settings) string {
 	return fmt.Sprintf("%s:%d", host, port)
 }
 
-func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) error {
+// StripRenderStamps drops the per-render header lines (generated_at,
+// unmask_version) so two renders can be compared on what they actually tell
+// nginx to do.  Every render rewrites those two lines whether or not anything
+// else moved, so any "did this change?" question has to ignore them.
+func StripRenderStamps(b []byte) string {
+	lines := strings.Split(string(b), "\n")
+	out := lines[:0]
+	for _, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if strings.HasPrefix(t, "#  generated_at:") || strings.HasPrefix(t, "#  unmask_version:") ||
+			strings.HasPrefix(t, "# generated_at:") || strings.HasPrefix(t, "# unmask_version:") {
+			continue
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
+}
+
+// SubstantiveRenderMarker is touched by Render whenever a rendered file's
+// content actually changed.  It exists so "when was this config last actually
+// different?" has an answer: every render rewrites every file, so the .inc
+// mtimes say when a render RAN, which is not the same question and is usually
+// a package upgrade.  doctor's reload check reads this to decide whether the
+// running nginx is behind -- against the mtimes it reported all seven fleet
+// nodes stale after an upgrade that changed nothing.
+const SubstantiveRenderMarker = ".substantive-render"
+
+// renderToFile writes the template output to outDir/outName and reports
+// whether that changed anything beyond the render stamps.  An unchanged file
+// is left completely alone -- not rewritten with identical bytes -- so its
+// mtime keeps meaning "when this config last changed".
+func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) (bool, error) {
 	body, err := fs.ReadFile(templatesFS, tmplPath)
 	if err != nil {
-		return fmt.Errorf("read template %s: %w", tmplPath, err)
+		return false, fmt.Errorf("read template %s: %w", tmplPath, err)
 	}
 	t, err := template.New(outName).Funcs(tmplFuncs).Parse(string(body))
 	if err != nil {
-		return fmt.Errorf("parse template %s: %w", tmplPath, err)
+		return false, fmt.Errorf("parse template %s: %w", tmplPath, err)
 	}
 	dst := filepath.Join(outDir, outName)
 	// CreateTemp uses a random name + O_EXCL, so a pre-planted symlink at a
@@ -214,34 +259,48 @@ func renderToFile(outDir, outName, tmplPath string, data any, perm os.FileMode) 
 	// to an attacker-chosen target.
 	f, err := os.CreateTemp(outDir, outName+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create temp in %s: %w", outDir, err)
+		return false, fmt.Errorf("create temp in %s: %w", outDir, err)
 	}
 	tmp := f.Name()
-	if err := t.Execute(f, data); err != nil {
+	var buf bytes.Buffer
+	if err := t.Execute(io.MultiWriter(f, &buf), data); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
-		return fmt.Errorf("exec template: %w", err)
+		return false, fmt.Errorf("exec template: %w", err)
 	}
 	if err := f.Sync(); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
-		return fmt.Errorf("fsync: %w", err)
+		return false, fmt.Errorf("fsync: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("close: %w", err)
+		return false, fmt.Errorf("close: %w", err)
+	}
+	// Nothing but the stamps moved: drop the temp and leave the live file
+	// untouched, mtime included.  Publishing an identical file would still be
+	// correct config -- this is about the mtime staying honest.  Permissions
+	// are still asserted, since a wrong mode is a real difference (http.inc
+	// carries bv_secret) that identical content must not mask.
+	if prev, rerr := os.ReadFile(dst); rerr == nil &&
+		StripRenderStamps(prev) == StripRenderStamps(buf.Bytes()) {
+		_ = os.Remove(tmp)
+		if fi, serr := os.Stat(dst); serr == nil && fi.Mode().Perm() != perm {
+			_ = os.Chmod(dst, perm)
+		}
+		return false, nil
 	}
 	// CreateTemp makes the file 0600; set the intended perm before publishing.
 	// http.inc carries bv_secret, so it must not be world-readable.
 	if err := os.Chmod(tmp, perm); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("chmod: %w", err)
+		return false, fmt.Errorf("chmod: %w", err)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("rename: %w", err)
+		return false, fmt.Errorf("rename: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // renderToString: same template execute as renderToFile, returns the output
