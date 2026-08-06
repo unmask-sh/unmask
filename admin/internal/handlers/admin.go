@@ -1459,11 +1459,11 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	})
 	// Lineage travel: one solve, and how many addresses it has been carried
 	// to.  Sits with the reuse rankings because it is the same question along
-	// the other axis -- they are read together or not at all.  20 rows: a
-	// "does anything look wrong" list, not a census.
+	// the other axis -- they are read together or not at all.  30 rows to
+	// match the rankings beside it: ten shown, the rest behind "show more".
 	run("RebindLineages", func() error {
 		var e error
-		rebindLineages, e = events.RankByRebindLineage(ctx, h.DB, hours*60, 20)
+		rebindLineages, e = events.RankByRebindLineage(ctx, h.DB, hours*60, 30)
 		return e
 	})
 	run("RebindReuse", func() error {
