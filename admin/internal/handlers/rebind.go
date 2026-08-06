@@ -68,8 +68,17 @@ const maxBVJJA4Hashes = 3
 
 // writeBVJ signs and sets the _bvj cookie.  ja4Set is the "~"-joined fingerprint
 // set (see cookies.JClaims); a single hash is the common case.
-func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set, uaHash, lineage string, asn uint) {
-	val := cookies.IssueJValue(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, "captcha")
+func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set, uaHash, lineage string, asn uint, grade string) {
+	// grade records HOW the solve that owns this lineage was earned.  It used
+	// to be hardcoded "captcha" for every path, including a transparent
+	// proof-of-work -- so the credential could not say what it had actually
+	// proven, and a policy that wants "a CAPTCHA or nothing" had nothing to
+	// read.  Nothing consumes it yet; stamping it truthfully is what makes
+	// such a policy possible without re-challenging everyone first.
+	if grade == "" {
+		grade = "captcha"
+	}
+	val := cookies.IssueJValue(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, grade)
 	http.SetCookie(w, &http.Cookie{
 		Name:   "_bvj",
 		Value:  val,
@@ -88,7 +97,7 @@ func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set,
 // is a fresh rebind budget, so it must always be paid for by a real solve.  The
 // stored JA4 set starts as the single fingerprint seen at this solve; a re-solve
 // under a new transport extends it via remintBVJAppend (keeping the lineage).
-func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host string) {
+func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grade string) {
 	lineage, err := cookies.NewLineage()
 	if err != nil {
 		return // no entropy; the solve itself already passed, just skip the rebind credential
@@ -99,7 +108,7 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host strin
 	}
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	h.writeBVJ(w, r, host, cookies.FingerprintHash(ja4),
-		cookies.FingerprintHash(r.Header.Get("User-Agent")), lineage, asn)
+		cookies.FingerprintHash(r.Header.Get("User-Agent")), lineage, asn, grade)
 }
 
 // remintBVJAppend re-issues the _bvj for the SAME lineage as prior, adding this
@@ -108,7 +117,7 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host strin
 // (h2 vs h3 produce different JA4s) keeps every fingerprint it has proven AND
 // its existing rebind budget, instead of spawning a fresh lineage each time its
 // JA4 changes.
-func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, host string, prior cookies.JClaims) {
+func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, host string, prior cookies.JClaims, grade string) {
 	var asn uint
 	if h.IPGeo != nil {
 		asn = h.IPGeo.LookupInfo(ip).ASN
@@ -116,7 +125,22 @@ func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, ho
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	set := cookies.AppendJA4Hash(prior.JA4Hash, cookies.FingerprintHash(ja4), maxBVJJA4Hashes)
 	h.writeBVJ(w, r, host, set,
-		cookies.FingerprintHash(r.Header.Get("User-Agent")), prior.Lineage, asn)
+		cookies.FingerprintHash(r.Header.Get("User-Agent")), prior.Lineage, asn,
+		strongerGrade(prior.Kind, grade))
+}
+
+// strongerGrade keeps the best thing a lineage has ever proven.  A device that
+// solved the proof-of-work and later cleared a CAPTCHA has proven more, and a
+// re-solve must not quietly demote it; a CAPTCHA holder re-solving the
+// transparent challenge on a new transport must not be demoted either.
+func strongerGrade(a, b string) string {
+	if a == "captcha" || b == "captcha" {
+		return "captcha"
+	}
+	if b != "" {
+		return b
+	}
+	return a
 }
 
 // IssueBVJ: POST {base}/api/bvj
@@ -175,11 +199,11 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 0, "skip": "present"})
 			return
 		}
-		h.remintBVJAppend(w, r, ip, host, claims)
+		h.remintBVJAppend(w, r, ip, host, claims, normalizeBVKind(kind))
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
 	}
-	h.mintBVJ(w, r, ip, host)
+	h.mintBVJ(w, r, ip, host, normalizeBVKind(kind))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
