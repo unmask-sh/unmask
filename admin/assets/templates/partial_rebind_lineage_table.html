@@ -28,7 +28,7 @@
        meanings move into a "?" popover so the card stays short. */}}
   <h3>{{ t .Lang "hunt.rebind.head" }} ({{ len .RebindLineages }})<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup lineage-help">{{ safeHTML (t .Lang "hunt.rebind.col_help") }}</span></span></h3>
   <p class="lineage-purpose">{{ safeHTML (t .Lang "hunt.rebind.purpose") }}</p>
-  <table class="rank lineage-table">
+  <table class="rank lineage-table cp-rankable">
     <thead><tr>
       <th>{{ t .Lang "hunt.rebind.lineage" }}</th>
       <th class="num">{{ t .Lang "hunt.rebind.ips" }}</th>
@@ -38,22 +38,26 @@
       <th>{{ t .Lang "hunt.rebind.last" }}</th>
     </tr></thead>
     <tbody>
-    {{ range .RebindLineages }}
-    <tr>
-      <td><code>{{ .Short }}</code></td>
+    {{/* Ten rows, then the rest on request -- the same shape as the rankings
+         above it.  A row past the tenth is still worth having: the table is
+         ordered by spread, so the tail is where a second crawler hides. */}}
+    {{ range $i, $r := .RebindLineages }}
+    <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
+      <td><code>{{ $r.Short }}</code></td>
       {{/* The number this table exists for: a credential on many addresses is
            the crawler shape, at any volume. */}}
-      <td class="num"><b>{{ .IPs }}</b></td>
-      <td class="num">{{ .Rebinds }}</td>
-      <td class="num">{{ if .Rejects }}{{ .Rejects }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+      <td class="num"><b>{{ $r.IPs }}</b></td>
+      <td class="num">{{ $r.Rebinds }}</td>
+      <td class="num">{{ if $r.Rejects }}{{ $r.Rejects }}{{ else }}<span class="muted">0</span>{{ end }}</td>
       {{/* "—" rather than 0 when the cap row is gone: zero would read as
            "never re-bound", the opposite of what a listed lineage means. */}}
-      <td class="num">{{ if .CapKnown }}{{ if .AtCap }}<b class="at-cap">{{ .Window }}/{{ .HourLimit }}</b>{{ else }}{{ .Window }}/{{ .HourLimit }}{{ end }}{{ else }}<span class="muted">—</span>{{ end }}</td>
-      <td><time data-ts="{{ .LastSeen }}">{{ .LastSeen }}</time></td>
+      <td class="num">{{ if $r.CapKnown }}{{ if $r.AtCap }}<b class="at-cap">{{ $r.Window }}/{{ $r.HourLimit }}</b>{{ else }}{{ $r.Window }}/{{ $r.HourLimit }}{{ end }}{{ else }}<span class="muted">—</span>{{ end }}</td>
+      <td><time data-ts="{{ $r.LastSeen }}">{{ $r.LastSeen }}</time></td>
     </tr>
     {{ end }}
     </tbody>
   </table>
+  {{ if gt (len .RebindLineages) 10 }}<button type="button" class="cp-more" data-more="{{ t .Lang "common.show_more" }} (+{{ sub (len .RebindLineages) 10 }})" data-less="{{ t .Lang "common.show_less" }}">{{ t .Lang "common.show_more" }} (+{{ sub (len .RebindLineages) 10 }})</button>{{ end }}
   <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rebind.normal") }}</p>
 </div>
 {{ end }}
