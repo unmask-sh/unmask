@@ -319,7 +319,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// whole, which is worth more than the line's absence, and a skew worth
 	// noticing is exactly what an operator should see rather than a tidied
 	// number.
-	rOtherSkew := rOther - abandon - comp.Unchallenged
+	rOtherSkew := rOther - abandon - comp.Unchallenged - comp.Passthrough
 
 	// Which denominator the share is taken against.  Bypassed requests are the
 	// ones the operator exempted from judgement -- package managers, monitors,
@@ -389,6 +389,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIReqBypassed": comp.Bypassed,
 		// The residue, with the two things in it named for the popover.
 		"KPIReqOther":        rOther,
+		"KPIReqPassthrough":  comp.Passthrough,
 		"KPIReqOtherKnown":   rOtherKnown,
 		"KPIReqOtherAbandon": abandon,
 		"KPIReqOtherUnchall": comp.Unchallenged,
