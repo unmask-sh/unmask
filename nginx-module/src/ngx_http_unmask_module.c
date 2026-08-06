@@ -909,7 +909,11 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
 /* bv_kind: cookie-form determination plus verification result.
  *   UNMASK_BV_KIND_NONE    : not presented / malformed / verification failed
  *   UNMASK_BV_KIND_CAPTCHA : 3-segment HMAC OK, kind segment "captcha" (= solved one)
- *   UNMASK_BV_KIND_REBIND  : 3-segment HMAC OK, kind segment "rebind"  (= roamed onto a new IP)
+ *   UNMASK_BV_KIND_REBIND  : 3-segment HMAC OK, kind "rebind"      (= roamed onto a new IP)
+ *   UNMASK_BV_KIND_PASSTHROUGH : 3-segment HMAC OK, kind "passthrough" (= handed out while
+ *                            monitoring mode / the over-block breaker suspended enforcement;
+ *                            nobody proved anything for it)
+ *   UNMASK_BV_KIND_OTHER   : 3-segment HMAC OK, a kind this plugin does not know
  *   UNMASK_BV_KIND_POW     : 4-segment djb2 verification OK (= PoW-passed repeat visitor)
  *
  * The 3-segment forms are told apart by the kind segment the admin signed
@@ -932,11 +936,20 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
  * and the dashboard aggregation will automatically treat the new kind
  * as one row (= unmask_cookie_minute is normalized on kind/cnt). */
 typedef enum {
-    UNMASK_BV_KIND_NONE    = 0,
-    UNMASK_BV_KIND_CAPTCHA = 1,
-    UNMASK_BV_KIND_POW     = 2,
-    UNMASK_BV_KIND_REBIND  = 3,
+    UNMASK_BV_KIND_NONE        = 0,
+    UNMASK_BV_KIND_CAPTCHA     = 1,
+    UNMASK_BV_KIND_POW         = 2,
+    UNMASK_BV_KIND_REBIND      = 3,
+    UNMASK_BV_KIND_PASSTHROUGH = 4,
+    UNMASK_BV_KIND_OTHER       = 5,
 } ngx_unmask_bv_kind_t;
+
+/* Compare the parsed kind segment against a literal.  The segment is bounded
+ * to 32 bytes by the parser and covered by the HMAC verified above, so this
+ * only ever reads server-authored bytes. */
+#define UNMASK_TAIL_IS(f, c, lit)                                       \
+    ((f).tail_len == sizeof(lit) - 1 &&                                 \
+     ngx_strncmp((c).data + (f).tail_off, lit, sizeof(lit) - 1) == 0)
 
 /* Yield the next `_bv=value` pair in `header` starting at `*off`.  Used by
  * bv_kind_compute to iterate duplicate cookies — `ngx_http_parse_multi_header_lines`
@@ -1096,14 +1109,19 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
          * input above, so by the time we are here it is the admin's own word
          * for how this entry was earned -- a client cannot rewrite it without
          * invalidating the signature.  Read it rather than assuming CAPTCHA;
-         * see the enum for what that assumption cost.  Anything unrecognized
-         * stays CAPTCHA so a future admin-side kind keeps passing on an older
-         * plugin instead of being refused. */
-        if (fields.tail_len == sizeof("rebind") - 1 &&
-            ngx_strncmp(cookie.data + fields.tail_off, "rebind", sizeof("rebind") - 1) == 0) {
-            return UNMASK_BV_KIND_REBIND;
-        }
-        return UNMASK_BV_KIND_CAPTCHA;
+         * see the enum for what that assumption cost.
+         *
+         * A kind this plugin does not know reads as "other", never as
+         * "captcha".  That is the whole lesson of the previous shape: treating
+         * an unrecognized kind as a CAPTCHA pass is what made "rebind"
+         * invisible, and it fails in the unsafe direction every time the admin
+         * gains a kind the plugin has not learned yet.  "other" is honest
+         * (something verified, we cannot say what) and it satisfies no
+         * grade requirement. */
+        if (UNMASK_TAIL_IS(fields, cookie, "rebind"))      return UNMASK_BV_KIND_REBIND;
+        if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) return UNMASK_BV_KIND_PASSTHROUGH;
+        if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     return UNMASK_BV_KIND_CAPTCHA;
+        return UNMASK_BV_KIND_OTHER;
     }
     return UNMASK_BV_KIND_NONE;
 }
@@ -1191,6 +1209,8 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     static const u_char captcha[] = "captcha";
     static const u_char pow[]     = "pow";
     static const u_char rebind[]  = "rebind";
+    static const u_char passth[]  = "passthrough";
+    static const u_char other[]   = "other";
     static const u_char empty[]   = "";
 
     v->valid = 1;
@@ -1209,6 +1229,14 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     case UNMASK_BV_KIND_REBIND:
         v->data = (u_char *)rebind;
         v->len  = sizeof(rebind) - 1;
+        break;
+    case UNMASK_BV_KIND_PASSTHROUGH:
+        v->data = (u_char *)passth;
+        v->len  = sizeof(passth) - 1;
+        break;
+    case UNMASK_BV_KIND_OTHER:
+        v->data = (u_char *)other;
+        v->len  = sizeof(other) - 1;
         break;
     default:
         v->data = (u_char *)empty;

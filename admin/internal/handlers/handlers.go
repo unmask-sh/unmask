@@ -1313,7 +1313,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// + host the plugin folds into its HMAC, so the cookie verifies.  Skipped
 		// when ?_force= is set so the operator's test endpoint can still preview
 		// the page in passthrough mode.
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, clientIP(r), requestHost(r), "captcha")
+		// Minted as its own kind, not as a CAPTCHA.  Nobody proved anything
+		// for this cookie -- enforcement was suspended -- and calling it a
+		// CAPTCHA pass outlives the suspension: on one install a 20-minute
+		// monitoring window handed out cookies that stayed valid, and
+		// CAPTCHA-graded, for a fortnight.  A rule that requires a real
+		// CAPTCHA must not be satisfied by the moment enforcement was off.
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, clientIP(r), requestHost(r), "passthrough")
 		h.setBVCookie(w, r, val)
 		target := "/"
 		if rlOrigURI != "" {
