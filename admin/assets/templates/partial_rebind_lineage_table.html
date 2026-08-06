@@ -22,7 +22,12 @@
      it learns to skip. */}}
 
 <div class="rank-card lineage-card">
-  <h3>{{ t .Lang "hunt.rebind.head" }} ({{ len .RebindLineages }})</h3>
+  {{/* Purpose first, then the numbers.  The first cut led with the mechanism
+       ("lineage travel") and left the operator asking what it was for -- a
+       table nobody knows how to read is a table nobody reads.  The column
+       meanings move into a "?" popover so the card stays short. */}}
+  <h3>{{ t .Lang "hunt.rebind.head" }} ({{ len .RebindLineages }})<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup lineage-help">{{ safeHTML (t .Lang "hunt.rebind.col_help") }}</span></span></h3>
+  <p class="lineage-purpose">{{ safeHTML (t .Lang "hunt.rebind.purpose") }}</p>
   <table class="rank lineage-table">
     <thead><tr>
       <th>{{ t .Lang "hunt.rebind.lineage" }}</th>
@@ -49,7 +54,7 @@
     {{ end }}
     </tbody>
   </table>
-  <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rebind.note") }}</p>
+  <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rebind.normal") }}</p>
 </div>
 {{ end }}
 {{ end }}
