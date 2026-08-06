@@ -162,6 +162,16 @@ and check what the tools say.
 
 ### Things that bite
 
+- **Reindexing stable re-copies `dist/`, not the promoted files.**  Every stage
+  regenerates its subtree from `dist/`, so after a promotion the artifacts that
+  actually land in stable come from `dist/` -- and a rebuilt `dist/` (same
+  version, different file: the binary embeds build ids) would ship something
+  nobody confirmed, under the exact NVR the reporter quoted, without tripping
+  `promote-repo.sh`'s collision check.  `build-repo.sh` therefore compares
+  `dist/` against the testing tree before touching anything -- payload digest
+  for rpm (indexing re-signs them, so bytes never match twice), bytes for deb
+  and apk -- and refuses on a mismatch.  Replacing a confirmed build on
+  purpose requires saying so: `UNMASK_ALLOW_TESTING_MISMATCH=1`.
 - **`publish-repo.sh` runs `--delete-after`.**  Publishing stable excludes
   `testing/` explicitly; without that it deletes the remote testing tree out
   from under whoever is confirming a fix.  Each channel syncs only its own
