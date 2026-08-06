@@ -136,3 +136,33 @@ printf '%s' "$resp" | grep -qi '^x-unmask-mode: rebind' \
     || log_pass "5th rebind refused by the per-lineage hourly cap"
 assert_eq 403 "$(printf '%s' "$resp" | head -1 | grep -oE '[0-9]{3}' | head -1)" \
     "capped client falls back to the real challenge (403)"
+
+# 7. The plugin must call a re-bound pass what it is.
+#
+#    Both wires used to read the cookie's SHAPE: three segments meant CAPTCHA,
+#    four meant PoW, and a re-bound entry has three -- so every request passing
+#    on a roamed credential was filed as a CAPTCHA pass.  On a production
+#    install that made a crawler passing entirely by re-binding look like a
+#    steady trickle of CAPTCHA traffic while the proof-of-work counters it
+#    never touched read zero.  The kind is signed into the cookie; this asserts
+#    the plugin reads it.
+#
+#    Asserted on the access-log line rather than on the admin's counters: the
+#    counters are flushed on a 60s tick, so reading them proves the plugin's
+#    output only after a wait longer than this whole suite.  The log line IS
+#    the plugin's output, and the aggregation from it is covered by unit tests.
+COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
+MARK_PATH="/rebind-kind-probe-$$"
+curl -sk -A "$UA_SOLVER" -H "X-Forwarded-For: $IP_B" -H "Cookie: _bv=$bvB" \
+    -o /dev/null "${BASE_URL}${MARK_PATH}"
+logline=$(docker compose -f "$COMPOSE" exec -T nginx \
+    sh -c "grep -h -- '$MARK_PATH' /var/log/nginx/unmask-decisions.log 2>/dev/null | tail -1" 2>/dev/null | tr -d '\r')
+if [ -z "$logline" ]; then
+    log_skip "rebind kind check: the probe request left no access-log line"
+else
+    case "$logline" in
+        *bv_kind=rebind*) log_pass "the plugin reports bv_kind=rebind for a re-bound pass";;
+        *bv_kind=captcha*) log_fail "a re-bound pass is being reported as bv_kind=captcha (the shape-based reading is back): $logline";;
+        *) log_fail "expected bv_kind=rebind, got: $logline";;
+    esac
+fi

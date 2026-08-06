@@ -908,8 +908,24 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
 
 /* bv_kind: cookie-form determination plus verification result.
  *   UNMASK_BV_KIND_NONE    : not presented / malformed / verification failed
- *   UNMASK_BV_KIND_CAPTCHA : 3-segment HMAC verification OK (= CAPTCHA-passed repeat visitor)
+ *   UNMASK_BV_KIND_CAPTCHA : 3-segment HMAC OK, kind segment "captcha" (= solved one)
+ *   UNMASK_BV_KIND_REBIND  : 3-segment HMAC OK, kind segment "rebind"  (= roamed onto a new IP)
  *   UNMASK_BV_KIND_POW     : 4-segment djb2 verification OK (= PoW-passed repeat visitor)
+ *
+ * The 3-segment forms are told apart by the kind segment the admin signed
+ * into the cookie, because the difference is not cosmetic: a rebind entry
+ * means "this client solved once and has since been silently re-bound onto
+ * another address", which is exactly the population an operator hunting a
+ * distributed crawler is looking for.  Reporting both as "captcha" hid it --
+ * measured on a production install, a crawler passing entirely by re-binding
+ * showed up as CAPTCHA passes (1-3 per five minutes, steady) while the
+ * proof-of-work figures it never touched read zero, so the dashboard said the
+ * challenge was unbroken while 137k requests a day walked through it.
+ *
+ * Both still pass: the kind is an observation, not a gate.  $bv_any_valid
+ * treats every non-empty kind as a valid pass exactly as before, so nothing
+ * about who gets challenged changes here.  $bv_captcha_valid narrows to a
+ * genuine CAPTCHA pass, which is what its name always claimed.
  *
  * Extending: when a future cookie path (= signature / webauthn / passkey
  * etc.) is added, just add an enum + decision branch + variable expose
@@ -919,6 +935,7 @@ typedef enum {
     UNMASK_BV_KIND_NONE    = 0,
     UNMASK_BV_KIND_CAPTCHA = 1,
     UNMASK_BV_KIND_POW     = 2,
+    UNMASK_BV_KIND_REBIND  = 3,
 } ngx_unmask_bv_kind_t;
 
 /* Yield the next `_bv=value` pair in `header` starting at `*off`.  Used by
@@ -1075,6 +1092,17 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     ngx_unmask_hex(expected, mac, 20);
     /* Compare first 16 hex chars (= 8 bytes of mac, but we compare hex). */
     if (ngx_unmask_ct_memcmp(expected, cookie.data + fields.sig_off, 16) == 0) {
+        /* Which 3-segment form is it?  The kind segment is inside the HMAC
+         * input above, so by the time we are here it is the admin's own word
+         * for how this entry was earned -- a client cannot rewrite it without
+         * invalidating the signature.  Read it rather than assuming CAPTCHA;
+         * see the enum for what that assumption cost.  Anything unrecognized
+         * stays CAPTCHA so a future admin-side kind keeps passing on an older
+         * plugin instead of being refused. */
+        if (fields.tail_len == sizeof("rebind") - 1 &&
+            ngx_strncmp(cookie.data + fields.tail_off, "rebind", sizeof("rebind") - 1) == 0) {
+            return UNMASK_BV_KIND_REBIND;
+        }
         return UNMASK_BV_KIND_CAPTCHA;
     }
     return UNMASK_BV_KIND_NONE;
@@ -1162,6 +1190,7 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     (void)data;
     static const u_char captcha[] = "captcha";
     static const u_char pow[]     = "pow";
+    static const u_char rebind[]  = "rebind";
     static const u_char empty[]   = "";
 
     v->valid = 1;
@@ -1176,6 +1205,10 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     case UNMASK_BV_KIND_POW:
         v->data = (u_char *)pow;
         v->len  = sizeof(pow) - 1;
+        break;
+    case UNMASK_BV_KIND_REBIND:
+        v->data = (u_char *)rebind;
+        v->len  = sizeof(rebind) - 1;
         break;
     default:
         v->data = (u_char *)empty;

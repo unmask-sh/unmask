@@ -311,7 +311,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	// depth": if both geo says pow_only and ja4 says captcha_only, the
 	// visitor gets captcha_only).  Side-effects (= honeypot's BAN add) fire
 	// inside each axis regardless of whether it wins the max.
-	bvCookie := pickValidBV(r, cfg, ip, site)
+	bvCookie, bvCookieKind := pickValidBV(r, cfg, ip, site)
 	bvOK := bvCookie != ""
 	// honeypotChMode: chain to surface to the challenge JS when the
 	// honeypot case takes the challenge branch.  Set by honeypotDecide
@@ -406,12 +406,10 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// from a trusted issuer.  Reason carries the issuer for dashboards.
 			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
 		case bvOK:
-			// 4 seg (= 3 dots) → PoW, 3 seg (= 2 dots) → CAPTCHA.
-			if strings.Count(bvCookie, ".") == 3 {
-				action, reason, status = "pass", "bv-pow", http.StatusOK
-			} else {
-				action, reason, status = "pass", "bv-captcha", http.StatusOK
-			}
+			// Named after the entry that verified (see pickValidBV): a PoW
+			// solve, a CAPTCHA solve, or a credential re-bound onto this
+			// address after a solve elsewhere.
+			action, reason, status = "pass", "bv-"+bvCookieKind, http.StatusOK
 		case isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA):
 			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
 			// honeypot exactly like native's is_search_bot exemption, else
@@ -658,7 +656,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 
 	// Bump the cookie-pass-rate chart (= unmask_cookie_minute, kind/cnt normalized) by 1.
 	// kind values:
-	//   "captcha"          : reason="bv-captcha" (= 3-seg _bv HMAC OK)
+	//   "captcha"          : reason="bv-captcha" (= 3-seg _bv HMAC OK, solved)
+	//   "rebind"           : reason="bv-rebind"  (= 3-seg _bv HMAC OK, roamed)
 	//   "pow"              : reason="bv-pow"     (= 4-seg _bv SHA-256 OK)
 	//   "challenge_served" : action=challenge or block
 	//   ""                 : no signals tripped, total only +1
@@ -667,11 +666,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// challenge_served alias -- the HLL pass bucket counts only a genuine
 		// cookie, so it must not see the alias.
 		bvKind := ""
-		switch reason {
-		case "bv-captcha":
-			bvKind = "captcha"
-		case "bv-pow":
-			bvKind = "pow"
+		if action == "pass" && strings.HasPrefix(reason, "bv-") {
+			bvKind = bvCookieKind
 		}
 		kind := bvKind
 		if kind == "" && (action == "challenge" || action == "block") {
@@ -2043,7 +2039,19 @@ func hardDenyUA(ua string, n settings.Nginx) bool {
 // the stale cookie sorts ahead of the new one in the Cookie header.  The
 // matching nginx C plugin does the same iteration in
 // ngx_unmask_bv_kind_compute.
-func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string {
+// pickValidBV returns the first _bv that verifies for this ip+host, together
+// with the kind of the ENTRY that actually verified -- "captcha", "rebind" or
+// "pow".
+//
+// The kind has to come from the matching entry, not from the cookie as a
+// whole.  A _bv carries one signed entry per address the client has been seen
+// on, joined by "~", so counting dots across the whole value answers a
+// different question: a real cookie observed in production reads
+// "<3-seg>.rebind~<4-seg>.pow2" -- five dots, neither form -- and the caller
+// used to read that as a CAPTCHA pass no matter which half let the request
+// through.  MatchingEntryKind runs the same any-match the gate does and
+// reports the entry that won.
+func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) (string, string) {
 	ch := cfg.Challenge.Resolve(site)
 	host := requestHost(r) // must match the host the cookie was issued for
 	for _, c := range r.Cookies() {
@@ -2051,16 +2059,29 @@ func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) string
 			continue
 		}
 		// Upper bound generous enough for a full 16-entry "~"-list of per-IP
-		// signatures (~35 bytes each); cookies.Verify any-matches the entries.
+		// signatures (~35 bytes each); MatchingEntryKind any-matches the entries.
 		if c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
-		if cookies.Verify(c.Value, cfg.Secret.BVSecret, ip, host,
+		if kind, ok := cookies.MatchingEntryKind(c.Value, cfg.Secret.BVSecret, ip, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
-			ch.ResolvedPowDifficulty()) {
-			return c.Value
+			ch.ResolvedPowDifficulty()); ok {
+			return c.Value, normalizeBVKind(kind)
 		}
 	}
-	return ""
+	return "", ""
+}
+
+// normalizeBVKind maps the cookie package's wire words onto the counter names
+// the dashboard aggregates on: the 4-segment form signs itself "pow2" (the
+// marker that distinguishes it from a retired scheme) but has always been
+// counted as "pow".  An unrecognized kind passes through rather than being
+// flattened -- a newer admin minting a kind this build has not heard of should
+// show up as itself in the counters, not as a wrong one.
+func normalizeBVKind(kind string) string {
+	if kind == "pow2" {
+		return "pow"
+	}
+	return kind
 }
