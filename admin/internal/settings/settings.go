@@ -3854,6 +3854,7 @@ func Load(path string) (Settings, error) {
 		// Files written before the challenge page's appearance moved to the
 		// branding record still carry theme / colors / credit under challenge.
 		relocateLegacyAppearance(&s, raw)
+		warnRemovedChallengeAll(resolved, raw)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process
