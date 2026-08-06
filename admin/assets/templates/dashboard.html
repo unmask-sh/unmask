@@ -509,6 +509,14 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
        "Heading" (t .Lang "captcha_reuse.rank_heading") "Empty" (t .Lang "captcha_reuse.empty") }}
   {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PowReuse "ShowJA4N" true
        "Heading" (t .Lang "pow_reuse.rank_heading") "Empty" (t .Lang "pow_reuse.empty") }}
+  {{/* Re-bound passes are their own way of holding a cookie, so they get their
+       own section rather than being counted with the CAPTCHA solves they used
+       to be labelled as.  Only when there are any: on an install with no
+       roaming clients this is structurally empty. */}}
+  {{ if .RebindReuse }}
+  {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .RebindReuse "ShowJA4N" true
+       "Heading" (t .Lang "rebind_reuse.rank_heading") "Empty" (t .Lang "rebind_reuse.empty") }}
+  {{ end }}
   <p class="muted cr-note">{{ safeHTML (t .Lang "pow_reuse.note") }}</p>
 </div>
 <style>
