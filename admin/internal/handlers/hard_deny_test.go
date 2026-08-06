@@ -205,7 +205,12 @@ func TestHardDenyHasTheSamePlaceOnBothWires(t *testing.T) {
 	fDeny := strings.Index(src, "case hardDenyUA(ua, cfg.Nginx) &&")
 	fWBA := strings.Index(src, "case wbaResult.OK &&")
 	fPAT := strings.Index(src, "case patResult.OK:")
-	fBV := strings.Index(src, "case bvOK:")
+	// Anchored on the indented case statement, not the bare words: the case
+	// carries a guard now (the CAPTCHA-grade requirement) so the trailing
+	// colon is gone, and the prose above it says "case bvOK below" -- which a
+	// looser match finds first, inside a comment, and reports the cases in the
+	// wrong order.
+	fBV := strings.Index(src, "\n\t\tcase bvOK")
 	if fDeny < 0 || fWBA < 0 || fPAT < 0 || fBV < 0 {
 		t.Fatal("the forward-auth decision switch lost one of its cases")
 	}
