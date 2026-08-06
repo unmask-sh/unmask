@@ -2550,7 +2550,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
-			h.mintBVJ(w, r, ip, host)
+			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
 			return
 		}
@@ -2586,7 +2586,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		if score >= minScore {
 			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 			h.setBVCookie(w, r, val)
-			h.mintBVJ(w, r, ip, host)
+			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
 			return
 		}
@@ -2624,7 +2624,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
 		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
 		h.setBVCookie(w, r, val)
-		h.mintBVJ(w, r, ip, host)
+		h.mintBVJ(w, r, ip, host, kind)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
 	}
