@@ -58,6 +58,16 @@ import (
 // `unmask version` and the startup log stuck at the default forever.
 var Version = "0.1.20"
 
+// Commit: the git revision this binary was built from, injected the same way.
+// Empty in a plain `go build`.
+//
+// It exists because a version string stops being an answer the moment builds
+// circulate that are not releases: a pre-release on the testing channel, or a
+// binary handed to a node directly.  "0.1.22" identifies five different builds
+// during one afternoon of iterating on a fix with whoever reported it, and the
+// operator asking a machine what it is running has no way to tell them apart.
+var Commit = ""
+
 func main() {
 	// Resolve the init-system-specific restart command once, so every UI string
 	// that tells the operator to restart unmask shows the command that actually
@@ -113,7 +123,11 @@ func main() {
 	case "install-ipgeo":
 		err = cmdInstallIPGeo(args)
 	case "version", "-v", "--version":
-		fmt.Println("unmask", Version)
+		if Commit != "" {
+			fmt.Println("unmask", Version, "("+Commit+")")
+		} else {
+			fmt.Println("unmask", Version)
+		}
 	case "help", "-h", "--help":
 		usage()
 	default:
