@@ -1,0 +1,55 @@
+{{/*
+  rebind_lineage_table -- one solved challenge (a _bvj lineage) and how many
+  addresses it has been re-bound onto.
+
+  Its own partial rather than markup inside hunt.html so it can be rendered --
+  and tested -- on its own: executing the whole hunt page needs every key the
+  page has, and a test that has to supply forty of them to check six stops
+  being run.
+
+  The caller exposes:
+    .Lang            current locale
+    .RebindLineages  []handlers.rebindLineageRow  (empty / nil renders nothing)
+*/}}
+{{ define "rebind_lineage_table" }}
+{{ if .RebindLineages }}
+{{/* Lineage travel.  One solved challenge can be silently re-bound onto other
+     addresses, which is a phone leaving wifi and also how a distributed
+     crawler works: solve once, walk the credential across the fleet.  Every
+     per-request view shows those as ordinary passes -- only this aggregate,
+     how many addresses ONE solve reached, tells the two apart.  Rendered only
+     when something re-bound, so a quiet install never carries an empty table
+     it learns to skip. */}}
+
+<div class="rank-card lineage-card">
+  <h3>{{ t .Lang "hunt.rebind.head" }} ({{ len .RebindLineages }})</h3>
+  <table class="rank lineage-table">
+    <thead><tr>
+      <th>{{ t .Lang "hunt.rebind.lineage" }}</th>
+      <th class="num">{{ t .Lang "hunt.rebind.ips" }}</th>
+      <th class="num">{{ t .Lang "hunt.rebind.rebinds" }}</th>
+      <th class="num">{{ t .Lang "hunt.rebind.rejects" }}</th>
+      <th class="num">{{ t .Lang "hunt.rebind.cap" }}</th>
+      <th>{{ t .Lang "hunt.rebind.last" }}</th>
+    </tr></thead>
+    <tbody>
+    {{ range .RebindLineages }}
+    <tr>
+      <td><code>{{ .Short }}</code></td>
+      {{/* The number this table exists for: a credential on many addresses is
+           the crawler shape, at any volume. */}}
+      <td class="num"><b>{{ .IPs }}</b></td>
+      <td class="num">{{ .Rebinds }}</td>
+      <td class="num">{{ if .Rejects }}{{ .Rejects }}{{ else }}<span class="muted">0</span>{{ end }}</td>
+      {{/* "—" rather than 0 when the cap row is gone: zero would read as
+           "never re-bound", the opposite of what a listed lineage means. */}}
+      <td class="num">{{ if .CapKnown }}{{ if .AtCap }}<b class="at-cap">{{ .Window }}/{{ .HourLimit }}</b>{{ else }}{{ .Window }}/{{ .HourLimit }}{{ end }}{{ else }}<span class="muted">—</span>{{ end }}</td>
+      <td><time data-ts="{{ .LastSeen }}">{{ .LastSeen }}</time></td>
+    </tr>
+    {{ end }}
+    </tbody>
+  </table>
+  <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rebind.note") }}</p>
+</div>
+{{ end }}
+{{ end }}
