@@ -97,6 +97,18 @@ stage_active() {
     [ "$STAGE" = "all" ] || [ "$STAGE" = "$1" ]
 }
 
+# nfpm writes `<name>_<ver>_<arch>.apk`; the repository serves the apk-tools
+# standard `<name>-<ver>.apk` (= APKINDEX carries no F: field, so apk fetches
+# by the name it derives from P:/V:).  One definition, used by both the apk
+# stage's rename and the testing-mismatch guard below -- two copies of this
+# sed would drift apart silently.
+apk_repo_name() { # <dist .apk path> -> repository basename on stdout
+    _arn_base=$(basename "$1" .apk)
+    _arn_name=$(echo "$_arn_base" | sed -E 's/_[0-9].*//')
+    _arn_ver=$(echo "$_arn_base" | sed -E "s/^${_arn_name}_//; s/_(x86_64|aarch64|noarch)$//")
+    printf '%s-%s.apk' "$_arn_name" "$_arn_ver"
+}
+
 # ---- GnuPG keyring + agent passphrase preset ----
 # Project-local GNUPGHOME (= the unmask release keyring lives outside ~/.gnupg
 # so user keyrings stay unaffected and CI runs are deterministic).
@@ -177,6 +189,70 @@ if [ "${UNMASK_ALLOW_MIXED_VERSIONS:-0}" != "1" ]; then
         echo "     Every stage copies all of it into the channel and clients take the" >&2
         echo "     newest, so this would publish the highest one.  Clear the versions you" >&2
         echo "     are not publishing, or set UNMASK_ALLOW_MIXED_VERSIONS=1." >&2
+        exit 1
+    fi
+fi
+
+# The stable tree must not disagree with testing about what a version IS.
+# Every stage regenerates its subtree by copying $DIST, so nothing above
+# prevents this sequence: build 0.1.22, publish it to testing, have the
+# reporter confirm it, rebuild 0.1.22 (same source, different file -- the
+# binary embeds build ids), then reindex stable.  Stable now serves an
+# artifact nobody confirmed, under the exact NVR the reporter quoted -- and
+# promote-repo.sh's collision check never sees it, because the copy that
+# lands in stable comes from $DIST, not from the testing tree.
+#
+# So, before touching anything: for every format this run will regenerate,
+# any $DIST artifact whose name testing already serves must BE the artifact
+# testing serves.  rpm compares payload digests (indexing re-signs rpms with
+# a timestamped signature, so bytes never match twice); deb and apk compare
+# bytes.  Names only in one tree are fine -- that is an ordinary new version.
+if [ "$CHANNEL" = "stable" ] && [ -d "$OUT/testing" ] \
+        && [ "${UNMASK_ALLOW_TESTING_MISMATCH:-0}" != "1" ]; then
+    _mism=0
+    _tm_check() { # <dist file> <same-named file in testing>
+        case "$1" in
+            *.rpm)
+                _pa=$(rpm -qp --qf '%{PAYLOADDIGEST}' "$1" 2>/dev/null)
+                _pb=$(rpm -qp --qf '%{PAYLOADDIGEST}' "$2" 2>/dev/null)
+                if [ -n "$_pa" ] && [ "$_pa" = "$_pb" ]; then return 0; fi ;;
+            *)
+                if cmp -s "$1" "$2"; then return 0; fi ;;
+        esac
+        echo "ERR: $(basename "$1") in $DIST is NOT the build testing is serving." >&2
+        _mism=$((_mism + 1))
+    }
+    if stage_active rpm && [ "$HAVE_CREATEREPO" = 1 ]; then
+        # createrepo_c without the rpm tool does not occur, but if it ever
+        # does, refusing beats silently skipping the one comparison that
+        # protects the confirmed build.
+        have rpm || { echo "ERR: no rpm tool -- cannot compare $DIST against testing before indexing stable." >&2; exit 1; }
+        for f in "$DIST"/*.rpm; do
+            [ -f "$f" ] || continue
+            _t=$(find "$OUT/testing/rpm" -type f -name "$(basename "$f")" 2>/dev/null | head -n1)
+            [ -n "$_t" ] && _tm_check "$f" "$_t"
+        done
+    fi
+    if stage_active deb && [ "$HAVE_APT" = 1 ]; then
+        for f in "$DIST"/*.deb; do
+            [ -f "$f" ] || continue
+            _t=$(find "$OUT/testing/deb/pool" -type f -name "$(basename "$f")" 2>/dev/null | head -n1)
+            [ -n "$_t" ] && _tm_check "$f" "$_t"
+        done
+    fi
+    if stage_active apk && [ "$HAVE_APK" = 1 ]; then
+        for f in "$DIST"/*.apk; do
+            [ -f "$f" ] || continue
+            _t=$(find "$OUT/testing/apk" -type f -name "$(apk_repo_name "$f")" 2>/dev/null | head -n1)
+            [ -n "$_t" ] && _tm_check "$f" "$_t"
+        done
+    fi
+    if [ "$_mism" -gt 0 ]; then
+        echo "     A version identifies one build forever: whoever confirmed it in testing" >&2
+        echo "     confirmed THAT file, and indexing this $DIST into stable would ship" >&2
+        echo "     something else under the same name.  Bump the release and rebuild -- or," >&2
+        echo "     if replacing the confirmed build is genuinely the intent, say it out" >&2
+        echo "     loud with UNMASK_ALLOW_TESTING_MISMATCH=1." >&2
         exit 1
     fi
 fi
@@ -365,17 +441,9 @@ elif [ "$HAVE_APK" = 1 ]; then
         # per-arch apks + noarch (= unmask-release)
         for f in "$DIST"/*_"$arch".apk "$DIST"/*_noarch.apk; do
             [ -f "$f" ] || continue
-            # Rename nfpm output `<name>_<ver>_<arch>.apk` to the apk-tools
-            # standard `<name>-<ver>-r0.apk` (= without F: fields in
-            # APKINDEX, apk-tools fetches by the standard name).
-            base=$(basename "$f" .apk)
-            # name = strip the trailing '_<ver>_<arch>' portion
-            name=$(echo "$base" | sed -E 's/_[0-9].*//')
-            ver=$(echo "$base" | sed -E "s/^${name}_//; s/_(x86_64|aarch64|noarch)$//")
-            # apk-tools uses APKINDEX's V: field as the filename suffix.
-            # nfpm output pkgver is "0.1.0" (= no -r0), so the filename
-            # also has no `-r0`.
-            newname="${name}-${ver}.apk"
+            # Rename nfpm output to the apk-tools standard name -- shared
+            # helper, see apk_repo_name near the top.
+            newname=$(apk_repo_name "$f")
             cp "$f" "$d/$newname"
         done
         # skip if no apks to index
