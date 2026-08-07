@@ -371,10 +371,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIServes":      kpiFired,
 		"KPIPoWPass":     kpiPoWPass,
 		"KPICaptchaPass": kpiCaptchaPass,
-		"KPIBlocked":     kpiBlocked,
-		"ObserveOnly":    observeOnly,
-		"KPIWouldBlock":  kpiWouldBlock,
-		"KPILoaded":      kpiLoaded,
+		// The pass cards' quiet second line: requests admitted on a cookie of
+		// that kind.  The headline counts solves; one solve then admits every
+		// request its cookie covers, so the two figures answer different
+		// questions and the card names both to keep them apart.  From the same
+		// counters as the non-human card, so "no feed" renders the same dash.
+		"KPIPoWCookie":     comp.PowPass,
+		"KPICaptchaCookie": comp.CaptchaPass,
+		"KPICookieKnown":   comp.OK,
+		"KPIBlocked":       kpiBlocked,
+		"ObserveOnly":      observeOnly,
+		"KPIWouldBlock":    kpiWouldBlock,
+		"KPILoaded":        kpiLoaded,
 		// The abandon tile's own denominator: ordinary visitors who ran the
 		// transparent PoW.  Deliberately NOT kpiLoaded -- showing "N / <every
 		// load>" beside a rate computed over a narrower population is two

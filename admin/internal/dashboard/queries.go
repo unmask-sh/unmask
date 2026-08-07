@@ -4033,9 +4033,11 @@ type TrafficComposition struct {
 	Benign       int
 	Bypassed     int
 	Challenged   int
-	Passed       int
-	Rebound      int
-	Passthrough  int
+	Passed       int // = PowPass + CaptchaPass
+	PowPass      int // Passed split by what the cookie's holder solved: the
+	CaptchaPass  int // PoW share and the CAPTCHA share.  The landing KPIs show
+	Rebound      int // these beside the solve counts, which count solves, not
+	Passthrough  int // the requests a solve's cookie then admits.
 	Unchallenged int
 	OK           bool
 }
@@ -4057,15 +4059,17 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
                COALESCE(SUM(CASE WHEN kind = 'crawler_pass'     THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'bypass_pass'      THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind IN ('pow','captcha') THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'passthrough'      THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
         WHERE bucket_min >= ?`+cond, args...).
-		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.Passed, &c.Rebound, &c.Passthrough)
+		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.PowPass, &c.CaptchaPass, &c.Rebound, &c.Passthrough)
 	if err != nil {
 		return TrafficComposition{}, err
 	}
+	c.Passed = c.PowPass + c.CaptchaPass
 	// All four figures come from the one table above, deliberately.  The
 	// install-wide view used to take the benign half from the crawler table
 	// instead, on the reasoning that it predates this counter and so answers

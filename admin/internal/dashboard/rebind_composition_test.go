@@ -56,6 +56,13 @@ func TestTrafficRequestsSplitsRebindFromHuman(t *testing.T) {
 	if c.Passed != 35 {
 		t.Errorf("human share must count only solved passes (pow+captcha): got %d, want 35", c.Passed)
 	}
+	// The landing KPIs print the two kinds separately, next to solve counts
+	// that they are NOT: a solve is counted once, a cookie is counted every
+	// request it admits.  Folding the kinds together here would put one number
+	// under both cards.
+	if c.PowPass != 30 || c.CaptchaPass != 5 {
+		t.Errorf("per-kind split: pow=%d captcha=%d, want 30/5", c.PowPass, c.CaptchaPass)
+	}
 	if c.Rebound != 25 {
 		t.Errorf("re-bound passes = %d, want 25", c.Rebound)
 	}
