@@ -8,6 +8,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.24] - 2026-08-07
+
+> One production report drove most of this release: a distributed crawler that
+> solved a single challenge and walked the credential across hundreds of
+> addresses -- the same crawler whose deny fix shipped in 0.1.21.  Passing by
+> re-binding was invisible, because every individual request was a legitimate
+> pass, and it was cheap, because one solve priced the whole fleet.  This
+> release makes it visible everywhere it shows up, and makes a CAPTCHA posture
+> actually cost a CAPTCHA.
+
+### Fixed
+- (2026-08-07) **The overview page slowed with the size of the event log, to tens of seconds on a grown install.**  Its 24h counters were computed by scanning the raw event table on every load -- the last page still doing that after the stats page moved to the hourly rollup -- and once the database outgrew the host's memory the scan stopped coming from cache: measured on the largest fleet node, 20 seconds cold against 1.5 warm, for identical queries that were all index-backed already.  The counters now read the rollup, which answers from a few hundred rows however large the install grows.  The raw scans remain as the definition: a host-filtered view, and an install whose aggregator has not finished its first pass, still compute from the events, and two tests hold the two paths equal on the same data.  The figures are unchanged; the window is hour-aligned now, as the stats page's always was.
+- (2026-08-06) **A pass earned by re-binding a credential onto a new address was reported as a CAPTCHA solve.**  The plugin classified the cookie by its shape rather than by the kind the admin signed into it, and a re-bound entry has the same three-segment shape as a solved CAPTCHA -- so a crawler passing entirely by roaming read as a quiet trickle of CAPTCHA passes while the proof-of-work counters it never touched read zero, and the challenge looked unbroken while it was being walked through.  Both wires now report the signed kind: re-bound passes are named in the traffic composition (inside the residue breakdown, not folded into the human share), they appear in the per-address reuse ranking, and a kind the plugin does not recognize reads "other" rather than the nearest familiar one.
+
+### Changed
+- (2026-08-06) **A rule whose chain ends in a CAPTCHA is now satisfied only by a CAPTCHA-grade pass.**  The pass-cookie exemption asked "does this client hold any valid pass", so a UA the operator had deliberately put behind a CAPTCHA walked through on a proof-of-work cookie -- solvable by any headless runtime -- and a silent re-bind extended that pass to new addresses without ever facing the CAPTCHA either.  Each solve now records the grade it actually proved into the credential (a later CAPTCHA solve upgrades it), the exemption for a CAPTCHA-chained UA requires that grade on both the native and forward-auth wires, and a re-bind checks the lineage's grade before extending it.  The built-in challenge-target presets (curl, python-requests, headless browsers) carry the default chain, so an ordinary install arms this without writing a rule.
+- (2026-08-06) **A cookie minted while enforcement was off no longer reads as a solve.**  While a site runs in monitoring mode the challenge hands out passes without asking anything, and those cookies were indistinguishable from solved CAPTCHAs: they inflated the pass counts during the window, and satisfied the pass exemption after enforcement was turned on.  They are their own kind now -- counted separately in the composition, and never sufficient for a grade requirement.
+
+### Added
+- (2026-08-07) **Paths on the stats page say which host they belong to.**  Path rankings carried the path alone, which on a multi-site install answers less than it seems; each row now names the site and carries the same popover as hunt, with the full URL ready to open.
+- (2026-08-07) **The pass KPIs name the requests an existing cookie admitted.**  "PoW passed" counts solves, and nothing said whether the traffic those solves let through was ten requests or ten thousand.  Each pass card now carries a second line counting the requests admitted by cookies of that kind in the same window, stated in its own units -- requests, not passes.
+- (2026-08-06) **How far one solved challenge has travelled is now visible.**  The stats page ranks credential lineages by the number of distinct addresses a single solve has been re-bound onto -- placed beside the per-address reuse ranking, because the two answer opposite halves of the same question -- with the re-binds that succeeded, the ones the cap or the ASN veto refused, and whether the lineage sits at its cap.  Ranked by spread rather than volume on purpose: the case worth finding runs at a handful of requests per five minutes and never surfaces in a volume ranking.
+
 ## [0.1.23] - 2026-08-06
 
 > 0.1.22 was published to the pre-release (testing) channel only and never
