@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.23",
+  "latest": "0.1.24",
   "releases": [
+    {
+      "version": "0.1.24",
+      "date": "2026-08-07",
+      "notes": "A challenge posture now costs what it names: a rule whose chain ends in a CAPTCHA is satisfied only by a CAPTCHA-grade pass. Until now any valid pass cookie exempted its holder, so a UA deliberately put behind a CAPTCHA walked through on a proof-of-work cookie - solvable by any headless runtime - and a silent re-bind extended that pass to new addresses without ever facing the CAPTCHA. Solves now record the grade they actually proved (a later CAPTCHA solve upgrades it), re-binds check it before extending a credential, and the built-in challenge-target presets arm the requirement on an ordinary install without writing a rule. The other half of the same production report is visibility: a pass earned by re-binding was counted as a CAPTCHA solve, because the plugin read the cookie's shape rather than the kind signed into it - so a crawler passing entirely by roaming looked like a quiet trickle of CAPTCHA passes while the challenge was being walked through. Re-bound passes are now named on both wires, and the stats page ranks how many distinct addresses one solved challenge has been re-bound onto - the one view in which distributed crawling is visible at all, since every individual request is a legitimate pass - beside the per-address reuse ranking, with cap and veto refusals alongside. Cookies minted while a site ran in monitoring mode are no longer mistakable for solves, and never satisfy a grade requirement. Also: the overview page reads its 24h counters from the hourly rollup instead of scanning the raw event log, which on a grown install took it from tens of seconds to instant with identical figures; paths on the stats page name their host and link there; and each pass KPI carries the requests existing cookies admitted beside the solves that minted them."
+    },
     {
       "version": "0.1.23",
       "date": "2026-08-06",
