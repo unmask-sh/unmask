@@ -687,6 +687,13 @@ func sparkPoints(series []int) string {
 // something already found suspicious, so an abandon there is not evidence
 // about ordinary visitors either.
 func countUnruledPoW(ctx context.Context, h *Handler, minutes int, phase, site string, hosts []string) int {
+	// The hourly rollup answers this in ~24 rows.  It declines when a site or
+	// host filter is on (the rollup is install-wide) or when the aggregator
+	// has not finished its first pass, and the scan below then runs -- that
+	// scan is the definition of the number, this is only where it is read.
+	if n, ok := dashboard.UnruledPoWCount(ctx, h.DB, phase, site, hosts, minutes/60); ok {
+		return n
+	}
 	reasonExpr := `json_extract(payload_json, '$.force_reason')`
 	modeExpr := `json_extract(payload_json, '$.chmode')`
 	if h.DB.Driver != "sqlite" {
@@ -718,6 +725,11 @@ func countUnruledPoW(ctx context.Context, h *Handler, minutes int, phase, site s
 }
 
 func countEvents(ctx context.Context, h *Handler, minutes int, phase, site string, hosts []string) int {
+	if phase != "" {
+		if n, ok := dashboard.PhaseCount(ctx, h.DB, []string{phase}, site, hosts, minutes/60); ok {
+			return n
+		}
+	}
 	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
 	args := []any{}
 	if phase != "" {
@@ -749,6 +761,9 @@ func countEvents(ctx context.Context, h *Handler, minutes int, phase, site strin
 // (phase IN (...)).  Used for the "passed" KPIs, which span multiple terminal
 // bv_* phases.  Best-effort (= on error, return 0 and just log).
 func countEventsPhases(ctx context.Context, h *Handler, minutes int, phases []string, site string, hosts []string) int {
+	if n, ok := dashboard.PhaseCount(ctx, h.DB, phases, site, hosts, minutes/60); ok {
+		return n
+	}
 	stmt := `SELECT COUNT(*) FROM unmask_event WHERE date_created > ` + h.DB.NowMinusMinutes(minutes)
 	args := []any{}
 	if len(phases) > 0 {

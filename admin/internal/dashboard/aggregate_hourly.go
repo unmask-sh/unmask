@@ -29,19 +29,36 @@ var hourlyReady atomic.Bool
 // distinct-IP argument no longer holds, and we add per-reason count + HLL
 // for CaptchaForceBreakdown below (= hkCaptchaForce / hkCaptchaForceIP).
 const (
-	hkFunnel       = "fnl"  // key '<vid>|<verdict>|<phase>'
-	hkForceFunnel  = "frf"  // key '<force_reason>|<phase>'  force_reason in (header,asn,geo) -- the by-axis funnel twin of hkFunnel
-	hkLoadF0       = "lf0"  // key '<vid>|<verdict>'   phase=load, flags=0
-	hkServeRL      = "srl"  // key '<vid>|<verdict>'   phase=serve, payload rl=1
-	hkCountry      = "cc"   // key '<country>'         phase=serve
-	hkSiteAll      = "sa"   // key '<site>'            all phases (Sites total events)
-	hkSiteServe    = "ss"   // key '<site>'            phase=serve (Sites serve count)
-	hkSiteBV       = "sb"   // key '<site>'            phase starts with 'bv_' (Sites passed count)
-	hkServeKind    = "svk"  // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
-	hkCaptchaForce = "cf"   // key '<force_reason>'    phase=load (CaptchaForceBreakdown count)
-	hkFlags        = "fl"   // key '<flags>' (decimal) phase=load (FlagsDistribution count)
-	hkAITag        = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
-	hkAITagSite    = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
+	hkFunnel       = "fnl" // key '<vid>|<verdict>|<phase>'
+	hkForceFunnel  = "frf" // key '<force_reason>|<phase>'  force_reason in (header,asn,geo) -- the by-axis funnel twin of hkFunnel
+	hkLoadF0       = "lf0" // key '<vid>|<verdict>'   phase=load, flags=0
+	hkServeRL      = "srl" // key '<vid>|<verdict>'   phase=serve, payload rl=1
+	hkCountry      = "cc"  // key '<country>'         phase=serve
+	hkSiteAll      = "sa"  // key '<site>'            all phases (Sites total events)
+	hkSiteServe    = "ss"  // key '<site>'            phase=serve (Sites serve count)
+	hkSiteBV       = "sb"  // key '<site>'            phase starts with 'bv_' (Sites passed count)
+	hkServeKind    = "svk" // key '<classifyCategory>' phase=serve, payload rl != 1 (DailyServeByKind stack count)
+	hkCaptchaForce = "cf"  // key '<force_reason>'    phase=load (CaptchaForceBreakdown count)
+	hkFlags        = "fl"  // key '<flags>' (decimal) phase=load (FlagsDistribution count)
+	// hkPhase / hkUnruledPoW exist for the landing page, which until now
+	// counted its 24h KPIs by scanning raw unmask_event on every load -- the
+	// one dashboard left doing that after the stats page moved to this table.
+	// On a node whose database outgrew its page cache (measured: 9.4GB against
+	// 7GB of RAM, 9.2M events) that scan cost 20s cold and made the page look
+	// hung.  Nothing about the numbers changes; only where they are read from.
+	//
+	// hkPhase is deliberately its own kind rather than a sum over hkFunnel's
+	// '<vid>|<verdict>|<phase>' keys: that sum is right only while every event
+	// carries a verdict row, and a KPI that quietly drifts when a verdict is
+	// renamed or merged is worse than one extra counter per hour.
+	hkPhase = "ph" // key '<phase>'  every event, by phase (landing-page KPI counts)
+	// hkUnruledPoW: the abandon rate's two halves -- visitors who reached the
+	// transparent proof-of-work without a rule pointing at them.  Same filter
+	// as countUnruledPoW: no force_reason, chain pow_only.  Keyed by phase so
+	// 'load' and 'abandon' share one kind.
+	hkUnruledPoW = "upw"  // key '<phase>'  phase in (load, abandon), no force_reason, chmode=pow_only
+	hkAITag      = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
+	hkAITagSite  = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
 	// hkCookiePass is NOT written by AggregateHourly (which reads unmask_event);
 	// it is folded from the nginx-log unmask_cookie_minute table by
 	// RollupInstallWideHourly on its own cursor. key '<cookie kind>'
@@ -184,6 +201,16 @@ func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
 // HourlyAggReady reports whether the hourly aggregate is safe to read — i.e.
 // AggregateHourly has finished at least one full pass in this process.
 func HourlyAggReady() bool { return hourlyReady.Load() }
+
+// ResetHourlyAggReadyForTest clears the "a full pass has completed" flag.
+//
+// Exported only so a test in another package that drives AggregateHourly can
+// leave the process as it found it.  The flag is global to the binary, so a
+// test that sets it and walks away silently switches every later test onto the
+// aggregate path -- which is how two unrelated settings tests started failing
+// in the full run and passing alone.  Tests inside this package reset
+// hourlyReady directly; this is the same thing for everyone else.
+func ResetHourlyAggReadyForTest() { hourlyReady.Store(false) }
 
 // PruneHourly drops buckets past the retention window. The aggregate tables
 // only need to serve the stats page's longest (30-day) range.
@@ -333,6 +360,15 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		frRaw := payloadForceReason(payload.String)
 		if forceReasonFunnelKindSet[frRaw] {
 			batch.counts[hourlyKey{hour, hkForceFunnel, frRaw + "|" + phase}]++
+		}
+		// ph: per-phase count, every event.  The landing page's KPI counts.
+		batch.counts[hourlyKey{hour, hkPhase, phase}]++
+		// upw: the abandon rate's population -- an ORDINARY visitor at the
+		// transparent challenge.  Both halves (arrived / left) key off phase.
+		if phase == "load" || phase == "abandon" {
+			if isUnruled(frRaw) && payloadChMode(payload.String) == "pow_only" {
+				batch.counts[hourlyKey{hour, hkUnruledPoW, phase}]++
+			}
 		}
 		// vdip: distinct IP per verdict, all phases (VerdictDistribution).
 		batch.sketch(hllKey{hour, hkVerdictIP, v}).add(ip)
@@ -550,6 +586,27 @@ func splitVVKey(key string) (vid int, verdict string, ok bool) {
 // payloadForceReason extracts payload_json.force_reason.  Returns "" when
 // payload is empty, malformed, or missing the key.  normalizeForceReason
 // folds the value into the seven known buckets (or "unknown").
+// isUnruled mirrors countUnruledPoW's SQL test
+// `force_reason IS NULL OR force_reason IN (”, 'none')`: the visitor reached
+// the challenge because of the site's posture, not because a rule named them.
+func isUnruled(forceReason string) bool {
+	return forceReason == "" || forceReason == "none"
+}
+
+// payloadChMode reads the chain the challenge page was served with, mirroring
+// json_extract(payload_json, '$.chmode').
+func payloadChMode(payload string) string {
+	if payload == "" {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil {
+		return ""
+	}
+	s, _ := m["chmode"].(string)
+	return s
+}
+
 func payloadForceReason(payload string) string {
 	if payload == "" {
 		return ""
