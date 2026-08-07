@@ -31,9 +31,13 @@ func TestMigrationRecoversFromPredatingColumn(t *testing.T) {
 		t.Fatalf("initial migrate: %v", err)
 	}
 
-	// Reproduce the wedged fleet state exactly: version 24, ref_id column
-	// present, its index absent.
-	if _, err := d.Exec(`DELETE FROM schema_migrations WHERE version = 25`); err != nil {
+	// Reproduce the wedged fleet state: the migration that adds the index is
+	// pending again while the column it also adds is already there.
+	//
+	// Everything from 25 up is removed, not just 25: the runner tracks one
+	// current version (the max), so leaving a later row in place would make 25
+	// look applied and this test would silently stop exercising anything.
+	if _, err := d.Exec(`DELETE FROM schema_migrations WHERE version >= 25`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Exec(`DROP INDEX idx_unmask_event_ref`); err != nil {
