@@ -243,7 +243,19 @@ if [ "$CHANNEL" = "stable" ] && [ -d "$OUT/testing" ] \
     if stage_active apk && [ "$HAVE_APK" = 1 ]; then
         for f in "$DIST"/*.apk; do
             [ -f "$f" ] || continue
-            _t=$(find "$OUT/testing/apk" -type f -name "$(apk_repo_name "$f")" 2>/dev/null | head -n1)
+            # The repository rename (apk_repo_name) drops the arch suffix; the
+            # arch lives in the directory.  An arch-blind find can hand back
+            # the OTHER architecture's byte-different copy under the same
+            # repository name -- which reads as "testing serves a different
+            # build" for every aarch64 package whose x86_64 twin sorts first.
+            # Search only the directory this file's arch actually owns, the
+            # same rule the apk stage uses to place it.
+            case "$f" in
+                *_x86_64.apk)  _tadir="$OUT/testing/apk/main/x86_64" ;;
+                *_aarch64.apk) _tadir="$OUT/testing/apk/main/aarch64" ;;
+                *)             _tadir="$OUT/testing/apk" ;;
+            esac
+            _t=$(find "$_tadir" -type f -name "$(apk_repo_name "$f")" 2>/dev/null | head -n1)
             [ -n "$_t" ] && _tm_check "$f" "$_t"
         done
     fi
