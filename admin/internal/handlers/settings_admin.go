@@ -119,7 +119,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// deletes it -- so a later plain visit is unaffected.  The tab name is the
 	// section name for every tab that carries rule-lists.
 	var netDraft netDraftView
-	if _, ok := ruleListSections[tab]; ok {
+	if _, ok := ruleListRegistry[tab]; ok {
 		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
 			netDraft = overlaySectionDraft(&full, tab, raw)
 		}
@@ -1315,6 +1315,25 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
+	// sectionErr is the shared rejected-save handler for a rule-list section:
+	// stash the submitted rows (so the input survives), record which rows were
+	// changed (so only those open) and where the error is (so it highlights),
+	// then redirect back.  Returns true when it handled an error, so the caller
+	// returns.  stored maps each list's value field to its pre-save values.
+	sectionErr := func(section string, stored map[string][]string, err error) bool {
+		if err == nil {
+			return false
+		}
+		var lfe *listFieldError
+		field, value := "", ""
+		if errors.As(err, &lfe) {
+			field, value = lfe.Field, lfe.Value
+		}
+		setSectionDraft(w, r, base, section, r.Form, changedListValues(stored, r.Form), field, value, err.Error())
+		redirBack(err.Error())
+		return true
+	}
+	_ = sectionErr
 
 	// fresh load (= stays consistent even if another process touches the file)
 	cur, err := settings.Load(h.ConfigPath)
@@ -1481,8 +1500,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "honeypot":
-		if err := applyHoneypotForm(&cur.Nginx, r, lang); err != nil {
-			redirBack(err.Error())
+		if sectionErr("honeypot", map[string][]string{"honeypot_url_path": pathsOfHoneypot(cur.Nginx.Honeypot.URLs)}, applyHoneypotForm(&cur.Nginx, r, lang)) {
 			return
 		}
 	case "bypass-ips":
@@ -1501,13 +1519,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "protected":
-		if err := applyProtectedForm(&cur.Nginx, r, lang); err != nil {
-			redirBack(err.Error())
+		if sectionErr("protected", map[string][]string{"protected_path": pathsOfProtected(cur.Nginx.ProtectedPaths.Paths)}, applyProtectedForm(&cur.Nginx, r, lang)) {
 			return
 		}
 	case "bypass-paths":
-		if err := applyBypassPathsForm(&cur.Nginx, r, lang); err != nil {
-			redirBack(err.Error())
+		if sectionErr("bypass-paths", map[string][]string{"bp_path": pathsOfBypass(cur.Nginx.BypassPaths.Paths)}, applyBypassPathsForm(&cur.Nginx, r, lang)) {
 			return
 		}
 	case "captcha":
@@ -1552,8 +1568,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
-		if err := applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang); err != nil {
-			redirBack(err.Error())
+		if sectionErr("geo", map[string][]string{"gx_path": pathsOfBypass(cur.Nginx.Geo.ExemptPaths)}, applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang)) {
 			return
 		}
 	case "asn":
@@ -1562,8 +1577,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
-		if err := applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang); err != nil {
-			redirBack(err.Error())
+		if sectionErr("asn", map[string][]string{"ax_path": pathsOfBypass(cur.Nginx.Asn.ExemptPaths)}, applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang)) {
 			return
 		}
 	case "theme":
@@ -2117,8 +2131,43 @@ func (e *listFieldError) Error() string { return e.Msg }
 // listRows is one rule-list's submitted rows as the form sends them (parallel
 // arrays).  The generic draft carries these so the error page can re-render a
 // rejected save's input regardless of which tab or widget it came from.
+// Actions / Sites are carried for the widgets that have those columns
+// (challenge chains, per-site path rules); simple lists leave them empty.
 type listRows struct {
-	Values, Titles, Enabled []string
+	Values, Titles, Enabled, Actions, Sites []string
+}
+
+// pathRow is one structured path/URL row rebuilt from a draft, in the shape the
+// path-list overlays share (honeypot / protected / bypass-paths).
+type pathRow struct {
+	Path, Title, Action, Site string
+	Disabled                  bool
+}
+
+// draftPathRows zips a listRows into aligned path rows, dropping blank paths --
+// the shared shape the structured path-list overlays map onto their own struct.
+func draftPathRows(rows listRows) []pathRow {
+	out := []pathRow{}
+	for i, v := range rows.Values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		get := func(a []string) string {
+			if i < len(a) {
+				return strings.TrimSpace(a[i])
+			}
+			return ""
+		}
+		out = append(out, pathRow{
+			Path:     v,
+			Title:    get(rows.Titles),
+			Action:   get(rows.Actions),
+			Site:     get(rows.Sites),
+			Disabled: i < len(rows.Enabled) && rows.Enabled[i] == "0",
+		})
+	}
+	return out
 }
 
 // sectionListDraft is the section-agnostic draft carried across a rejected
@@ -2136,43 +2185,152 @@ type sectionListDraft struct {
 
 const netListDraftFlash = "netdraft"
 
-// ruleListSections maps a save section to the rule-list form names it carries,
-// so a rejected save on that section can stash exactly those lists.  Adding a
-// tab to the "keep my input + highlight the error" behaviour is an entry here
-// plus its overlay closures in ruleListOverlays.
-var ruleListSections = map[string][]string{
-	"network":    {"admin_allowed_ips", "admin_allowed_hosts", "metrics_allow_from"},
-	"bypass-ips": {"bypass_ip", "stats_exclude_ips"},
-	"ua-filter":  {"white_extra", "black_extra"},
+// ruleListSpec describes one rule-list widget for the error-preserve mechanism:
+// the form field names it submits (the value field doubles as the list's
+// data-rule-name and the ErrField the template matches on) and the closure that
+// writes a restored draft back into cur.  Title/Enabled/Action/Site are left
+// empty for lists that lack that column.  A per-list spec rather than a
+// name+"_suffix" convention because the field names are NOT uniform -- honeypot
+// submits its value as honeypot_url_path but its title as honeypot_url_title.
+type ruleListSpec struct {
+	Name                         string // value field == data-rule-name == ErrField
+	Title, Enabled, Action, Site string // parallel form field names ("" if absent)
+	Overlay                      func(c *settings.Settings, rows listRows)
 }
 
-// ruleListOverlays writes one list's submitted rows back into cur so the
-// existing per-tab render rebuilds them in its native shape.  Invoked only on
-// the error-GET path (never on save), so a mistake here can only mis-render a
-// recoverable error page, not corrupt stored config.
-var ruleListOverlays = map[string]func(c *settings.Settings, rows listRows){
-	"admin_allowed_ips": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.AdminAllowedIPs, &c.Nginx.AdminAllowedIPsTitle, &c.Nginx.AdminAllowedIPsDisabled, &c.Nginx.AdminAllowedIPsCreatedAt, &c.Nginx.AdminAllowedIPsUpdatedAt)
+// simpleFields fills a spec's parallel field names from the value/data-rule
+// name via the common "<name>_title / _enabled" convention (network, bypass,
+// ua-filter).  Structured lists set their fields explicitly instead.
+func simpleFields(name string, overlay func(*settings.Settings, listRows)) ruleListSpec {
+	return ruleListSpec{Name: name, Title: name + "_title", Enabled: name + "_enabled", Overlay: overlay}
+}
+
+// ruleListRegistry maps a save section to the rule-list widgets on it.  Adding a
+// tab to the "keep my input + highlight the error" behaviour is one entry here.
+var ruleListRegistry = map[string][]ruleListSpec{
+	"network": {
+		simpleFields("admin_allowed_ips", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.AdminAllowedIPs, &c.Nginx.AdminAllowedIPsTitle, &c.Nginx.AdminAllowedIPsDisabled, &c.Nginx.AdminAllowedIPsCreatedAt, &c.Nginx.AdminAllowedIPsUpdatedAt)
+		}),
+		simpleFields("admin_allowed_hosts", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.AdminAllowedHosts, &c.Nginx.AdminAllowedHostsTitle, &c.Nginx.AdminAllowedHostsDisabled, &c.Nginx.AdminAllowedHostsCreatedAt, &c.Nginx.AdminAllowedHostsUpdatedAt)
+		}),
+		simpleFields("metrics_allow_from", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.MetricsAllowFrom, &c.Nginx.MetricsAllowFromTitle, &c.Nginx.MetricsAllowFromDisabled, &c.Nginx.MetricsAllowFromCreatedAt, &c.Nginx.MetricsAllowFromUpdatedAt)
+		}),
 	},
-	"admin_allowed_hosts": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.AdminAllowedHosts, &c.Nginx.AdminAllowedHostsTitle, &c.Nginx.AdminAllowedHostsDisabled, &c.Nginx.AdminAllowedHostsCreatedAt, &c.Nginx.AdminAllowedHostsUpdatedAt)
+	"bypass-ips": {
+		simpleFields("bypass_ip", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.BypassIPs, &c.Nginx.BypassIPsTitle, &c.Nginx.BypassIPsDisabled, &c.Nginx.BypassIPsCreatedAt, &c.Nginx.BypassIPsUpdatedAt)
+		}),
+		simpleFields("stats_exclude_ips", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
+		}),
 	},
-	"metrics_allow_from": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.MetricsAllowFrom, &c.Nginx.MetricsAllowFromTitle, &c.Nginx.MetricsAllowFromDisabled, &c.Nginx.MetricsAllowFromCreatedAt, &c.Nginx.MetricsAllowFromUpdatedAt)
+	"ua-filter": {
+		simpleFields("white_extra", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.SearchBots.Extra, &c.Nginx.SearchBots.ExtraTitle, &c.Nginx.SearchBots.ExtraDisabled, &c.Nginx.SearchBots.ExtraCreatedAt, &c.Nginx.SearchBots.ExtraUpdatedAt)
+		}),
+		simpleFields("black_extra", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Nginx.ChallengeTargets.Extra, &c.Nginx.ChallengeTargets.ExtraTitle, &c.Nginx.ChallengeTargets.ExtraDisabled, &c.Nginx.ChallengeTargets.ExtraCreatedAt, &c.Nginx.ChallengeTargets.ExtraUpdatedAt)
+		}),
 	},
-	"bypass_ip": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.BypassIPs, &c.Nginx.BypassIPsTitle, &c.Nginx.BypassIPsDisabled, &c.Nginx.BypassIPsCreatedAt, &c.Nginx.BypassIPsUpdatedAt)
+	"honeypot": {
+		{Name: "honeypot_url_path", Title: "honeypot_url_title", Enabled: "honeypot_url_enabled", Action: "honeypot_url_action", Site: "honeypot_url_site",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.Honeypot.URLs = overlayHoneypot(rows)
+			}},
 	},
-	"stats_exclude_ips": func(c *settings.Settings, rows listRows) {
-		// Value + title only; this list has no enable/timestamp columns.
-		overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
+	"protected": {
+		{Name: "protected_path", Title: "protected_title", Enabled: "protected_enabled", Action: "protected_action", Site: "protected_site",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.ProtectedPaths.Paths = overlayProtected(rows)
+			}},
 	},
-	"white_extra": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.SearchBots.Extra, &c.Nginx.SearchBots.ExtraTitle, &c.Nginx.SearchBots.ExtraDisabled, &c.Nginx.SearchBots.ExtraCreatedAt, &c.Nginx.SearchBots.ExtraUpdatedAt)
+	"bypass-paths": {
+		{Name: "bp_path", Title: "bp_title", Enabled: "bp_enabled", Site: "bp_site",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.BypassPaths.Paths = overlayBypassPaths(rows)
+			}},
 	},
-	"black_extra": func(c *settings.Settings, rows listRows) {
-		overlayStrList(rows, &c.Nginx.ChallengeTargets.Extra, &c.Nginx.ChallengeTargets.ExtraTitle, &c.Nginx.ChallengeTargets.ExtraDisabled, &c.Nginx.ChallengeTargets.ExtraCreatedAt, &c.Nginx.ChallengeTargets.ExtraUpdatedAt)
+	// geo / asn carry a country/ASN list (own validation, banner-only) plus an
+	// exempt-path list that shares the BypassPath shape -- the exempt list gets
+	// the full treatment here.
+	"geo": {
+		{Name: "gx_path", Title: "gx_title", Enabled: "gx_enabled", Site: "gx_site",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.Geo.ExemptPaths = overlayBypassPaths(rows)
+			}},
 	},
+	"asn": {
+		{Name: "ax_path", Title: "ax_title", Enabled: "ax_enabled", Site: "ax_site",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.Asn.ExemptPaths = overlayBypassPaths(rows)
+			}},
+	},
+}
+
+// overlayHoneypot / overlayProtected / overlayBypassPaths rebuild a structured
+// path list from a restored draft, mapping the shared pathRow shape onto each
+// list's own struct (the render then rebuilds the rows natively).
+func overlayHoneypot(rows listRows) []settings.HoneypotURL {
+	out := []settings.HoneypotURL{}
+	for _, p := range draftPathRows(rows) {
+		out = append(out, settings.HoneypotURL{Path: p.Path, Title: p.Title, Action: p.Action, Site: p.Site, Disabled: p.Disabled})
+	}
+	return out
+}
+
+func overlayProtected(rows listRows) []settings.ProtectedPath {
+	out := []settings.ProtectedPath{}
+	for _, p := range draftPathRows(rows) {
+		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Action: p.Action, Site: p.Site, Disabled: p.Disabled})
+	}
+	return out
+}
+
+func overlayBypassPaths(rows listRows) []settings.BypassPath {
+	out := []settings.BypassPath{}
+	for _, p := range draftPathRows(rows) {
+		out = append(out, settings.BypassPath{Path: p.Path, Title: p.Title, Site: p.Site, Disabled: p.Disabled})
+	}
+	return out
+}
+
+// pathsOfHoneypot / pathsOfProtected / pathsOfBypass extract the stored value
+// column of a structured path list, for the changed-row diff.
+func pathsOfHoneypot(u []settings.HoneypotURL) []string {
+	out := make([]string, len(u))
+	for i, x := range u {
+		out[i] = x.Path
+	}
+	return out
+}
+
+func pathsOfProtected(u []settings.ProtectedPath) []string {
+	out := make([]string, len(u))
+	for i, x := range u {
+		out[i] = x.Path
+	}
+	return out
+}
+
+func pathsOfBypass(u []settings.BypassPath) []string {
+	out := make([]string, len(u))
+	for i, x := range u {
+		out[i] = x.Path
+	}
+	return out
+}
+
+// ruleListSpecFor finds a section's spec for a value/data-rule name.
+func ruleListSpecFor(section, name string) (ruleListSpec, bool) {
+	for _, sp := range ruleListRegistry[section] {
+		if sp.Name == name {
+			return sp, true
+		}
+	}
+	return ruleListSpec{}, false
 }
 
 // overlayStrList writes submitted rows into a value slice and its parallel
@@ -2255,11 +2413,19 @@ func setSectionDraft(w http.ResponseWriter, r *http.Request, base, section strin
 		Focus:    focus,
 		ErrField: errField, ErrValue: errValue, ErrMsg: errMsg,
 	}
-	for _, name := range ruleListSections[section] {
-		d.Lists[name] = listRows{
-			Values:  form[name],
-			Titles:  form[name+"_title"],
-			Enabled: form[name+"_enabled"],
+	pick := func(field string) []string {
+		if field == "" {
+			return nil
+		}
+		return form[field]
+	}
+	for _, sp := range ruleListRegistry[section] {
+		d.Lists[sp.Name] = listRows{
+			Values:  form[sp.Name],
+			Titles:  pick(sp.Title),
+			Enabled: pick(sp.Enabled),
+			Actions: pick(sp.Action),
+			Sites:   pick(sp.Site),
 		}
 	}
 	b, err := json.Marshal(d)
@@ -2286,8 +2452,8 @@ func overlaySectionDraft(c *settings.Settings, section, raw string) netDraftView
 		return netDraftView{}
 	}
 	for name, rows := range d.Lists {
-		if fn := ruleListOverlays[name]; fn != nil {
-			fn(c, rows)
+		if sp, ok := ruleListSpecFor(section, name); ok {
+			sp.Overlay(c, rows)
 		}
 	}
 	focus := map[string]bool{}
@@ -3169,7 +3335,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.honeypot_regex", p, err))
+			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_regex", p, err)}
 		}
 		if ts <= 0 {
 			ts = now
@@ -3579,7 +3745,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.protected_regex", p, err))
+			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.protected_regex", p, err)}
 		}
 		if ts <= 0 {
 			ts = now
@@ -3827,7 +3993,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_path_regex", p, err))
+			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
 			ts = now
@@ -3892,7 +4058,7 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 			continue
 		}
 		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_path_regex", p, err))
+			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
 			ts = now
