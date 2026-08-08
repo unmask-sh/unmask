@@ -29,7 +29,8 @@
   {{ $d := false }}{{ if $dis }}{{ if lt $i (len $dis) }}{{ $d = index $dis $i }}{{ end }}{{ end }}
   {{ $cr := 0 }}{{ if $created }}{{ if lt $i (len $created) }}{{ $cr = index $created $i }}{{ end }}{{ end }}
   {{ $up := 0 }}{{ if $updated }}{{ if lt $i (len $updated) }}{{ $up = index $updated $i }}{{ end }}{{ end }}
-  <div class="rule-row{{ if $d }} disabled-row{{ end }}{{ if $.FocusSet }}{{ if index $.FocusSet $v }} editing{{ end }}{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
+  {{ $isErr := false }}{{ if $.ErrMsg }}{{ if eq $.Name $.ErrField }}{{ if $.ErrValue }}{{ if eq $v $.ErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.FocusSet }}{{ if index $.FocusSet $v }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}{{ end }}
+  <div class="rule-row{{ if $d }} disabled-row{{ end }}{{ if $.FocusSet }}{{ if index $.FocusSet $v }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
     <input type="checkbox" class="rule-toggle" {{ if not $d }}checked{{ end }}>
     <input type="hidden" name="{{ $.Name }}_enabled" value="{{ if $d }}0{{ else }}1{{ end }}">
     <input type="hidden" name="{{ $.Name }}_created_at" value="{{ $cr }}">
@@ -48,6 +49,7 @@
     <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
     <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
   </div>
+  {{ if $isErr }}<div class="rule-err">{{ $.ErrMsg }}</div>{{ end }}
   {{ end }}
   <template class="rule-row-template">
     <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -248,6 +250,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-list{display:flex;flex-direction:column;gap:.5rem}
 .rule-row{display:flex;align-items:flex-start;gap:.6rem;padding:.55rem .7rem;background:#fff;border:1px solid #e2e8f0;border-radius:.3rem;transition:background .12s,border-color .12s}
 .rule-row.editing{background:#f0f9ff;border-color:#93c5fd;align-items:center}
+/* The row a rejected save pointed at: red frame beats the editing tint so the
+   operator's eye lands on the value to fix, with the reason right beneath. */
+.rule-row.rule-row-error{background:#fef2f2;border-color:#dc2626;box-shadow:0 0 0 1px #dc2626}
+.rule-err{margin:.15rem 0 .6rem;padding:.4rem .6rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.3rem;color:#7f1d1d;font-size:.82rem;line-height:1.5}
 .rule-row.disabled-row .rule-view{opacity:.5}
 .rule-row .rule-toggle{margin-top:.25rem}
 /* view mode: title (= large) + pattern (= small mono) stacked vertically (= same shape as preset) */
@@ -873,7 +879,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if eq .AdminIPsActive 0 }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" .AdminIPsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "FocusSet" .NetFocusSet "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
     </div>
   </div>
 
@@ -883,7 +889,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if eq .AdminHostsActive 0 }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" .AdminHostsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "FocusSet" .NetFocusSet "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
     </div>
   </div>
   <style>
@@ -896,7 +902,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "FocusSet" .NetFocusSet "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
     </div>
   </div>
 

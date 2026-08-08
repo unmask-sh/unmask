@@ -117,10 +117,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// operator typed; render those (over this local copy only, never saved)
 	// so the error page shows their input, not the last-saved list.  Consumed
 	// once -- readFlash deletes it -- so a later plain visit is unaffected.
-	var netFocusSet map[string]bool
+	var netDraft netDraftView
 	if tab == "network" {
 		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
-			netFocusSet = overlayNetListDraft(&cur, raw)
+			netDraft = overlayNetListDraft(&cur, raw)
 		}
 	}
 	seenVer := cur.SeenVersion
@@ -632,7 +632,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// changed (matched by value), so they land on the input they were
 		// fixing while the already-saved rows stay confirmed.  nil on a normal
 		// load, so nothing auto-opens.
-		"NetFocusSet": netFocusSet,
+		"NetFocusSet": netDraft.Focus,
+		// Locate the validation failure so the field's rows highlight the exact
+		// one and print the message beside it.  ErrValue "" = the whole field
+		// is at fault (a self-lockout owns no single row).
+		"NetErrField": netDraft.ErrField,
+		"NetErrValue": netDraft.ErrValue,
+		"NetErrMsg":   netDraft.ErrMsg,
 		"Global":      h.snapshotSettings().Global,
 		// Monitor mode is stored on the challenge record but presented on the
 		// operating-mode tab, so the template needs it alongside Global.
@@ -1372,27 +1378,34 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			"admin_allowed_ips":   cur.Nginx.AdminAllowedIPs,
 			"metrics_allow_from":  cur.Nginx.MetricsAllowFrom,
 		}, r.Form)
-		netErr := func(msg string) {
-			setNetListDraft(w, r, base, r.Form, netFocus)
-			redirBack(msg)
+		netErr := func(err error) {
+			// A typed field error points the UI at the exact row; anything else
+			// (listen/ipgeo/redirect validation) still shows in the top banner.
+			var lfe *listFieldError
+			field, value := "", ""
+			if errors.As(err, &lfe) {
+				field, value = lfe.Field, lfe.Value
+			}
+			setNetListDraft(w, r, base, r.Form, netFocus, field, value, err.Error())
+			redirBack(err.Error())
 		}
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
-			netErr(err.Error())
+			netErr(err)
 			return
 		}
 		if err := applyServerListenForm(&cur.Server, r, lang); err != nil {
-			netErr(err.Error())
+			netErr(err)
 			return
 		}
 		if err := applyIPGeoForm(&cur.IPGeo, r, lang); err != nil {
-			netErr(err.Error())
+			netErr(err)
 			return
 		}
 		applyTrustedLBForm(&cur.Nginx, r)
 		// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
 		cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
 		if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
-			netErr(err.Error())
+			netErr(err)
 			return
 		}
 	case "ua-filter":
@@ -2000,7 +2013,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	allow, allowNotes, allowDis, allowCr, allowUp := formListWithNotesEnabled(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"], r.Form["admin_allowed_ips_enabled"], r.Form["admin_allowed_ips_created_at"], r.Form["admin_allowed_ips_updated_at"])
 	for _, a := range allow {
 		if !ipOrCIDRRE.MatchString(a) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_allow_invalid", a))
+			return &listFieldError{Field: "admin_allowed_ips", Value: a, Msg: i18n.Tf(lang, "err.admin_allow_invalid", a)}
 		}
 	}
 	// The gate only enforces enabled rows, so the lockout check must judge the
@@ -2008,7 +2021,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// as much a lockout as deleting it -- unless the list goes effectively
 	// empty, which (like an empty list) means "no restriction".
 	if act := settings.EnabledValues(allow, allowDis); len(act) > 0 && !ipAllowed(curIP, act) {
-		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_ip", curIP))
+		return &listFieldError{Field: "admin_allowed_ips", Msg: i18n.Tf(lang, "err.admin_lockout_ip", curIP)}
 	}
 	n.AdminAllowedIPs = allow
 	n.AdminAllowedIPsTitle = allowNotes
@@ -2025,7 +2038,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 		return hostErr
 	}
 	if act := settings.EnabledValues(hosts, hostDis); len(act) > 0 && !hostAllowed(curHost, act) {
-		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
+		return &listFieldError{Field: "admin_allowed_hosts", Msg: i18n.Tf(lang, "err.admin_lockout_host", curHost)}
 	}
 	n.AdminAllowedHosts = hosts
 	n.AdminAllowedHostsTitle = hostNotes
@@ -2036,7 +2049,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	mallow, mallowNotes, mallowDis, mallowCr, mallowUp := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"], r.Form["metrics_allow_from_created_at"], r.Form["metrics_allow_from_updated_at"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.metrics_allow_invalid", a))
+			return &listFieldError{Field: "metrics_allow_from", Value: a, Msg: i18n.Tf(lang, "err.metrics_allow_invalid", a)}
 		}
 	}
 	n.MetricsAllowFrom = mallow
@@ -2058,6 +2071,19 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 // would break the YAML the config is written as.  disabled comes back nil
 // when every surviving row is enabled, keeping untouched configs in their
 // old yml shape.
+// listFieldError is a validation failure the UI can point at: which allowlist
+// field failed, the offending row value (empty for a whole-field failure like a
+// self-lockout, which no single row owns), and the message.  The save handler
+// carries these into the draft so the error page can highlight the exact row
+// and print the message beside it, not only in the page-top banner.
+type listFieldError struct {
+	Field string // form field name (admin_allowed_hosts / admin_allowed_ips / metrics_allow_from)
+	Value string // offending row value; "" when the whole field is at fault
+	Msg   string
+}
+
+func (e *listFieldError) Error() string { return e.Msg }
+
 // netListDraft carries the three network-tab allowlist fields' submitted rows
 // across the error redirect, so a rejected save re-renders what the operator
 // typed instead of the last-saved list.  Only the fields the widget edits are
@@ -2070,6 +2096,10 @@ type netListDraft struct {
 	// Focus: the values the operator added or changed this save -- the rows
 	// that open for editing on the error page (the rest stay confirmed).
 	Focus []string
+	// ErrField / ErrValue / ErrMsg locate the validation failure so the error
+	// page can highlight the exact row (ErrValue, "" = the whole field) and
+	// print the message beside it.
+	ErrField, ErrValue, ErrMsg string
 }
 
 const netListDraftFlash = "netdraft"
@@ -2103,12 +2133,13 @@ func changedListValues(stored map[string][]string, form url.Values) []string {
 // silently does nothing if the payload would be too large for a cookie -- the
 // draft is a convenience, and its absence just falls back to the old
 // reload-from-stored behaviour rather than breaking the redirect.
-func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values, focus []string) {
+func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values, focus []string, errField, errValue, errMsg string) {
 	d := netListDraft{
 		Hosts: form["admin_allowed_hosts"], HostsTitle: form["admin_allowed_hosts_title"], HostsEnabled: form["admin_allowed_hosts_enabled"],
 		IPs: form["admin_allowed_ips"], IPsTitle: form["admin_allowed_ips_title"], IPsEnabled: form["admin_allowed_ips_enabled"],
 		Metrics: form["metrics_allow_from"], MetricsTitle: form["metrics_allow_from_title"], MetricsEnabled: form["metrics_allow_from_enabled"],
-		Focus: focus,
+		Focus:    focus,
+		ErrField: errField, ErrValue: errValue, ErrMsg: errMsg,
 	}
 	b, err := json.Marshal(d)
 	if err != nil || len(b) > 3500 {
@@ -2117,16 +2148,23 @@ func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form u
 	setFlash(w, r, base, netListDraftFlash, string(b))
 }
 
+// netDraftView is what the render needs from a restored draft: which rows to
+// open (focus), and where the validation error is (field / value / message).
+type netDraftView struct {
+	Focus                      map[string]bool
+	ErrField, ErrValue, ErrMsg string
+}
+
 // overlayNetListDraft applies a stored draft onto the Nginx view being
 // rendered.  Values are shown verbatim (including the invalid one the error
 // names), so the operator edits their own input rather than re-typing it.
 // Timestamps are left unset -- they are cosmetic badges and a draft row has no
-// meaningful save time yet.  Returns the focus set: the values whose rows
-// should open for editing (the ones the operator added or changed).
-func overlayNetListDraft(n *settings.Nginx, raw string) map[string]bool {
+// meaningful save time yet.  Returns the focus set (rows to open) and the
+// located error.
+func overlayNetListDraft(n *settings.Nginx, raw string) netDraftView {
 	var d netListDraft
 	if json.Unmarshal([]byte(raw), &d) != nil {
-		return nil
+		return netDraftView{}
 	}
 	disabledOf := func(enabled []string, n int) []bool {
 		if len(enabled) == 0 {
@@ -2178,7 +2216,7 @@ func overlayNetListDraft(n *settings.Nginx, raw string) map[string]bool {
 	for _, v := range d.Focus {
 		focus[v] = true
 	}
-	return focus
+	return netDraftView{Focus: focus, ErrField: d.ErrField, ErrValue: d.ErrValue, ErrMsg: d.ErrMsg}
 }
 
 // formHostListValidated parses the admin_allowed_hosts list.  It differs from
@@ -2212,7 +2250,7 @@ func formHostListValidated(vals, notes, enabled, created, updated []string, lang
 			continue
 		}
 		if strings.ContainsAny(v, "\x00\r\n") {
-			return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_invalid", v))
+			return nil, nil, nil, nil, nil, &listFieldError{Field: "admin_allowed_hosts", Value: v, Msg: i18n.Tf(lang, "err.admin_host_invalid", v)}
 		}
 		// Validate the entry the same way it will be read at match time: a
 		// regex-mode value must compile in its anchored form, or it would
@@ -2221,7 +2259,7 @@ func formHostListValidated(vals, notes, enabled, created, updated []string, lang
 			if _, e := regexp.Compile("(?i)^(?:" + v + ")$"); e != nil {
 				// Two %s: the offending value, and the exact: suggestion that
 				// echoes it back.
-				return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_bad_regex", v, v))
+				return nil, nil, nil, nil, nil, &listFieldError{Field: "admin_allowed_hosts", Value: v, Msg: i18n.Tf(lang, "err.admin_host_bad_regex", v, v)}
 			}
 		}
 		seen[v] = true
