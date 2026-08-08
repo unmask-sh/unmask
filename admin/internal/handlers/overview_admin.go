@@ -341,30 +341,64 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// languages, the drift this codebase keeps paying for -- while costing
 	// nothing: the two views come from counts already in hand, so switching
 	// needs no request at all, let alone a navigation.
-	compScope := resolveCompScope(r)
-	compViews := make([]map[string]any, 0, 2)
-	for _, v := range []struct {
-		scope string
-		denom int
-	}{
-		{compScopeAll, comp.Total},
-		{compScopeJudged, comp.Total - comp.Bypassed},
-	} {
-		if v.denom < 0 {
-			v.denom = 0
-		}
-		pct := 0.0
-		if comp.OK && v.denom > 0 {
-			pct = float64(rNonHuman) / float64(v.denom) * 100
-		}
-		compViews = append(compViews, map[string]any{
-			"Scope": v.scope, "Denom": v.denom, "Pct": pct,
-			"Active": v.scope == compScope,
-		})
-		if v.scope == compScope {
-			nonHumanPct = pct
+	// The two named denominators generalised: every legend segment is a
+	// toggle, and the denominator is whatever remains switched on.  "All" and
+	// "judged" survive as presets over the same state -- one rule instead of
+	// two mechanisms, and the operator can also ask the questions the presets
+	// could not ("of the bot traffic alone, how much is malicious?").
+	//
+	// The selected view is still rendered SERVER-side from the cookie/query,
+	// so the page is truthful without JS and never flashes a default; the
+	// script below mirrors the arithmetic only for the in-place toggle.
+	enabledSegs := resolveCompSegs(r)
+	segCounts := []compSegDef{
+		{compSegBenign, comp.Benign, true},
+		{compSegBad, tileBlocked, true},
+		{compSegBypass, comp.Bypassed, false},
+		{compSegHuman, rHuman, false},
+		{compSegOther, rOther, false},
+	}
+	// Denominator by subtraction, not by summing the enabled parts: with every
+	// segment on it must equal comp.Total even while the residue is "unknown"
+	// (parts that do not sum), exactly as the old all-view did.
+	selDenom := comp.Total
+	for _, sg := range segCounts {
+		if !enabledSegs[sg.key] {
+			selDenom -= sg.count
 		}
 	}
+	if selDenom < 0 {
+		selDenom = 0
+	}
+	if comp.OK && selDenom > 0 {
+		num := 0
+		for _, sg := range segCounts {
+			if sg.nonHuman && enabledSegs[sg.key] {
+				num += sg.count
+			}
+		}
+		nonHumanPct = float64(num) / float64(selDenom) * 100
+	}
+	compSegs := make([]map[string]any, 0, len(segCounts))
+	for _, sg := range segCounts {
+		toggled := make(map[string]bool, len(enabledSegs))
+		for k, v := range enabledSegs {
+			toggled[k] = v
+		}
+		toggled[sg.key] = !toggled[sg.key]
+		target := compSegsParam(toggled)
+		// The last enabled segment cannot be switched off (a share of nothing
+		// answers nothing), and an unknown residue cannot leave the
+		// denominator (its count is not a number that can be subtracted).
+		if target == "" || (sg.key == compSegOther && !rOtherKnown) {
+			target = ""
+		}
+		compSegs = append(compSegs, map[string]any{
+			"Key": sg.key, "Count": sg.count, "NonHuman": sg.nonHuman,
+			"On": enabledSegs[sg.key], "ToggleParam": target,
+		})
+	}
+	compState := compSegsParam(enabledSegs)
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
@@ -406,12 +440,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIReqOtherAbandon": abandon,
 		"KPIReqOtherUnchall": comp.Unchallenged,
 		"KPIReqOtherSkew":    rOtherSkew,
-		// CompScope is the view shown first; CompViews carries both, each with
+		// CompState is the canonical name of the enabled-segment set; CompSegs
 		// the denominator its own headline, bar and legend shares are taken
 		// against -- so a card can never show a percentage of one total beside
 		// a caption naming another.
-		"CompScope":        compScope,
-		"CompViews":        compViews,
+		"CompState":        compState,
+		"CompSegs":         compSegs,
+		"CompDenom":        selDenom,
+		"CompPct":          nonHumanPct,
 		"KPIReqBlocked":    tileBlocked,
 		"KPIUniqueBlocked": uBlocked,
 		"KPIUniqueKnown":   uKnown,
@@ -443,11 +479,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// explicit ?comp= (never on a plain load) so a bookmarked URL cannot
 	// silently repin someone else's session, and Lax/HttpOnly-free because the
 	// value is a view preference the template reads back, not a credential.
-	if v := r.URL.Query().Get("comp"); v == compScopeAll || v == compScopeJudged {
-		http.SetCookie(w, &http.Cookie{
-			Name: compScopeCookieName, Value: v, Path: h.basePath(),
-			MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode,
-		})
+	if v := r.URL.Query().Get("comp"); v != "" {
+		if on, ok := parseCompSegs(v); ok {
+			http.SetCookie(w, &http.Cookie{
+				Name: compSegCookieName, Value: compSegsParam(on), Path: h.basePath(),
+				MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode,
+			})
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -946,31 +984,110 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 //	compScopeJudged — minus the requests a bypass rule exempted, i.e. the
 //	                  traffic unmask actually evaluated
 const (
-	compScopeAll        = "all"
-	compScopeJudged     = "judged"
-	compScopeCookieName = "unmask_comp_scope"
+	compScopeAll      = "all"
+	compScopeJudged   = "judged"
+	compSegCookieName = "unmask_comp_seg"
+	compSegBenign     = "benign"
+	compSegBad        = "bad"
+	compSegBypass     = "bypass"
+	compSegHuman      = "human"
+	compSegOther      = "other"
 )
 
-// resolveCompScope reads the operator's saved denominator choice.  Anything
-// unrecognised (absent cookie, hand-edited value) falls back to the default
-// rather than erroring: this selects a view, and a malformed one is not worth
-// a broken page.
-func resolveCompScope(r *http.Request) string {
-	if r == nil {
+// compSegDef: one legend segment as the state model sees it -- its canonical
+// key, its request count, and whether it sits on the non-human side of the
+// headline figure.
+type compSegDef struct {
+	key      string
+	count    int
+	nonHuman bool
+}
+
+// compSegOrder is the canonical rendering and serialisation order.
+var compSegOrder = []string{compSegBenign, compSegBad, compSegBypass, compSegHuman, compSegOther}
+
+// compSegsParam names an enabled-set: the two presets keep their historical
+// names ("all", "judged") so bookmarks and the preset links stay readable, and
+// anything else serialises as the enabled keys in canonical order.  Empty set
+// -> "" (the caller treats that as "not a state").
+func compSegsParam(on map[string]bool) string {
+	n := 0
+	for _, k := range compSegOrder {
+		if on[k] {
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	if n == len(compSegOrder) {
 		return compScopeAll
 	}
-	// The query parameter is how the toggle links switch; the cookie is what
-	// makes the choice stick.  Query wins so a link works on the first click,
-	// before the cookie it sets has been read back.
-	if v := r.URL.Query().Get("comp"); v == compScopeJudged || v == compScopeAll {
-		return v
-	}
-	c, err := r.Cookie(compScopeCookieName)
-	if err != nil || c == nil {
-		return compScopeAll
-	}
-	if v := decodeCookieValue(c.Value); v == compScopeJudged {
+	if n == len(compSegOrder)-1 && !on[compSegBypass] {
 		return compScopeJudged
 	}
-	return compScopeAll
+	// Joined with "-": unreserved in URLs, so the ?comp= link and the cookie
+	// carry the state name literally instead of as %2c soup.
+	out := ""
+	for _, k := range compSegOrder {
+		if on[k] {
+			if out != "" {
+				out += "-"
+			}
+			out += k
+		}
+	}
+	return out
+}
+
+// parseCompSegs reads a state name back.  Unknown tokens are dropped rather
+// than erroring -- this selects a view, and a malformed value is not worth a
+// broken page; a value with nothing recognisable in it reports !ok so the
+// caller can fall back to the default.
+func parseCompSegs(v string) (map[string]bool, bool) {
+	on := make(map[string]bool, len(compSegOrder))
+	switch v {
+	case compScopeAll:
+		for _, k := range compSegOrder {
+			on[k] = true
+		}
+		return on, true
+	case compScopeJudged:
+		for _, k := range compSegOrder {
+			on[k] = k != compSegBypass
+		}
+		return on, true
+	}
+	valid := map[string]bool{}
+	for _, k := range compSegOrder {
+		valid[k] = true
+	}
+	any := false
+	for _, tok := range strings.FieldsFunc(v, func(r rune) bool { return r == '-' || r == ',' }) {
+		tok = strings.TrimSpace(tok)
+		if valid[tok] {
+			on[tok] = true
+			any = true
+		}
+	}
+	return on, any
+}
+
+// resolveCompSegs reads the operator's saved segment selection.  The query
+// parameter is how the toggle links switch; the cookie is what makes the
+// choice stick.  Query wins so a link works on the first click, before the
+// cookie it sets has been read back.
+func resolveCompSegs(r *http.Request) map[string]bool {
+	if r != nil {
+		if on, ok := parseCompSegs(r.URL.Query().Get("comp")); ok {
+			return on
+		}
+		if c, err := r.Cookie(compSegCookieName); err == nil && c != nil {
+			if on, ok := parseCompSegs(decodeCookieValue(c.Value)); ok {
+				return on
+			}
+		}
+	}
+	on, _ := parseCompSegs(compScopeAll)
+	return on
 }

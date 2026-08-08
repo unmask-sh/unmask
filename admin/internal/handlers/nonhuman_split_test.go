@@ -409,13 +409,14 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	}
 
 	// The bar's segments are shares of one total, so they have to be driven by
-	// the same total the percentage is.  ($. because the card renders inside a
-	// range over the two denominators -- both views exist in the DOM so the
-	// toggle is a visibility flip rather than a page load.)
-	for _, f := range []string{"pctOf $.KPIReqBenign $t", "pctOf $.KPIReqBlocked $t", "pctOf $.KPIReqHuman $t", "pctOf $.KPIReqOther $t"} {
-		if !strings.Contains(tpl, f) {
-			t.Errorf("the bar segment %q is not sized against the shared total", f)
-		}
+	// the same selected denominator the headline is -- one range over the
+	// segment state, every width against $t, never a hand-picked KPI field
+	// that could disagree with the caption.
+	if !strings.Contains(tpl, "{{ range .CompSegs }}") {
+		t.Error("the bar is not rendered from the segment state")
+	}
+	if !strings.Contains(tpl, "pctOf .Count $t") {
+		t.Error("the bar segments are not sized against the shared selected denominator")
 	}
 }
 
@@ -453,10 +454,14 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 		t.Fatal(err)
 	}
 	tpl := string(b)
-	for _, f := range []string{"pctLabel $.KPIReqBenign $t", "pctLabel $.KPIReqBlocked $t", "pctLabel $.KPIReqHuman $t", "pctLabel $.KPIReqOther $t"} {
-		if !strings.Contains(tpl, f) {
-			t.Errorf("the legend entry %q has no share", f)
-		}
+	if !strings.Contains(tpl, "pctLabel .Count $t") {
+		t.Error("the legend chips carry no share against the selected denominator")
+	}
+	// An excluded chip trades its share for the exclusion label -- the count
+	// stays, the percentage goes, because a share of a denominator the segment
+	// is not in would be a lie.
+	if !strings.Contains(tpl, `overview.kpi.scope_excluded`) {
+		t.Error("an excluded chip has no exclusion label")
 	}
 }
 
