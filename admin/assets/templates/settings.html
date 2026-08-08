@@ -879,7 +879,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if eq .AdminIPsActive 0 }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" .AdminIPsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
     </div>
   </div>
 
@@ -889,7 +889,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if eq .AdminHostsActive 0 }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" .AdminHostsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
     </div>
   </div>
   <style>
@@ -902,7 +902,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "FocusSet" .NetFocusSet "Lang" .Lang "ErrField" .NetErrField "ErrValue" .NetErrValue "ErrMsg" .NetErrMsg) }}
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
     </div>
   </div>
 
@@ -1612,7 +1612,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc">{{ safeHTML (t .Lang "settings.bypass.desc") }}</p>
     <div class="rule-list" data-rule-name="bypass_ip">
       {{ range .BypassIPsRules }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "bypass_ip") }}{{ if $.SecErrValue }}{{ if eq .IP $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bypass_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="bypass_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="bypass_updated_at" value="{{ .UpdatedAt }}">
@@ -1630,6 +1631,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
+      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -1678,7 +1680,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
         <div class="rule-list" data-rule-name="stats_exclude_ips">
           {{ range .StatsExcludeRules }}
-          <div class="rule-row" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+          {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "stats_exclude_ips") }}{{ if $.SecErrValue }}{{ if eq .IP $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+          <div class="rule-row{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
             <span class="rule-view">
               <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
               <div class="pat{{ if not .IP }} empty{{ end }}" data-empty="{{ t $.Lang "settings.network.empty_ip" }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
@@ -1690,6 +1693,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <button type="button" class="rule-del" aria-label="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
             <button type="button" class="rule-add" aria-label="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
           </div>
+          {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
           {{ end }}
           <template class="rule-row-template">
             <div class="rule-row editing" data-orig-pat="" data-orig-title="">

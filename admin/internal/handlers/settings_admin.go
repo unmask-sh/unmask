@@ -112,17 +112,19 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 // settingsViewData: passes the per-tab data needed by the template.
 // Takes w so flash cookies can be cleared (= readFlash drops them via Set-Cookie).
 func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab string) map[string]any {
-	cur := h.snapshotSettings().Nginx
-	// A rejected network-tab save leaves a draft of the allowlist rows the
-	// operator typed; render those (over this local copy only, never saved)
-	// so the error page shows their input, not the last-saved list.  Consumed
-	// once -- readFlash deletes it -- so a later plain visit is unaffected.
+	full := h.snapshotSettings()
+	// A rejected save leaves a draft of the rule-list rows the operator typed;
+	// render those (over this local copy only, never saved) so the error page
+	// shows their input, not the last-saved list.  Consumed once -- readFlash
+	// deletes it -- so a later plain visit is unaffected.  The tab name is the
+	// section name for every tab that carries rule-lists.
 	var netDraft netDraftView
-	if tab == "network" {
+	if _, ok := ruleListSections[tab]; ok {
 		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
-			netDraft = overlayNetListDraft(&cur, raw)
+			netDraft = overlaySectionDraft(&full, tab, raw)
 		}
 	}
+	cur := full.Nginx
 	seenVer := cur.SeenVersion
 	// Operator's cookie TZ -- the `Format("...MST")` strings inside this view
 	// (mtime / oldest event / oldest cookie minute) shift to it.  Falls back
@@ -632,13 +634,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// changed (matched by value), so they land on the input they were
 		// fixing while the already-saved rows stay confirmed.  nil on a normal
 		// load, so nothing auto-opens.
-		"NetFocusSet": netDraft.Focus,
+		"SecFocusSet": netDraft.Focus,
 		// Locate the validation failure so the field's rows highlight the exact
 		// one and print the message beside it.  ErrValue "" = the whole field
 		// is at fault (a self-lockout owns no single row).
-		"NetErrField": netDraft.ErrField,
-		"NetErrValue": netDraft.ErrValue,
-		"NetErrMsg":   netDraft.ErrMsg,
+		"SecErrField": netDraft.ErrField,
+		"SecErrValue": netDraft.ErrValue,
+		"SecErrMsg":   netDraft.ErrMsg,
 		"Global":      h.snapshotSettings().Global,
 		// Monitor mode is stored on the challenge record but presented on the
 		// operating-mode tab, so the template needs it alongside Global.
@@ -1386,7 +1388,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			if errors.As(err, &lfe) {
 				field, value = lfe.Field, lfe.Value
 			}
-			setNetListDraft(w, r, base, r.Form, netFocus, field, value, err.Error())
+			setSectionDraft(w, r, base, "network", r.Form, netFocus, field, value, err.Error())
 			redirBack(err.Error())
 		}
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
@@ -1471,7 +1473,17 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "bypass-ips":
+		bypFocus := changedListValues(map[string][]string{
+			"bypass_ip":         cur.Nginx.BypassIPs,
+			"stats_exclude_ips": cur.Nginx.StatsExcludeIPs,
+		}, r.Form)
 		if err := applyBypassIPsForm(&cur.Nginx, r, lang); err != nil {
+			var lfe *listFieldError
+			field, value := "", ""
+			if errors.As(err, &lfe) {
+				field, value = lfe.Field, lfe.Value
+			}
+			setSectionDraft(w, r, base, "bypass-ips", r.Form, bypFocus, field, value, err.Error())
 			redirBack(err.Error())
 			return
 		}
@@ -2089,20 +2101,103 @@ func (e *listFieldError) Error() string { return e.Msg }
 // typed instead of the last-saved list.  Only the fields the widget edits are
 // carried (value / title / enabled per row); everything else on the tab is
 // re-read from stored config, which a failed save never changed.
-type netListDraft struct {
-	Hosts, HostsTitle, HostsEnabled       []string
-	IPs, IPsTitle, IPsEnabled             []string
-	Metrics, MetricsTitle, MetricsEnabled []string
-	// Focus: the values the operator added or changed this save -- the rows
-	// that open for editing on the error page (the rest stay confirmed).
-	Focus []string
+// listRows is one rule-list's submitted rows as the form sends them (parallel
+// arrays).  The generic draft carries these so the error page can re-render a
+// rejected save's input regardless of which tab or widget it came from.
+type listRows struct {
+	Values, Titles, Enabled []string
+}
+
+// sectionListDraft is the section-agnostic draft carried across a rejected
+// save's redirect: the submitted rows of every rule-list on that section, which
+// rows to open (Focus), and where the validation error is.
+type sectionListDraft struct {
+	Section string
+	Lists   map[string]listRows // keyed by the rule-list's form field name
+	Focus   []string
 	// ErrField / ErrValue / ErrMsg locate the validation failure so the error
-	// page can highlight the exact row (ErrValue, "" = the whole field) and
+	// page can highlight the exact row (ErrValue "" = the whole field) and
 	// print the message beside it.
 	ErrField, ErrValue, ErrMsg string
 }
 
 const netListDraftFlash = "netdraft"
+
+// ruleListSections maps a save section to the rule-list form names it carries,
+// so a rejected save on that section can stash exactly those lists.  Adding a
+// tab to the "keep my input + highlight the error" behaviour is an entry here
+// plus its overlay closures in ruleListOverlays.
+var ruleListSections = map[string][]string{
+	"network":    {"admin_allowed_ips", "admin_allowed_hosts", "metrics_allow_from"},
+	"bypass-ips": {"bypass_ip", "stats_exclude_ips"},
+}
+
+// ruleListOverlays writes one list's submitted rows back into cur so the
+// existing per-tab render rebuilds them in its native shape.  Invoked only on
+// the error-GET path (never on save), so a mistake here can only mis-render a
+// recoverable error page, not corrupt stored config.
+var ruleListOverlays = map[string]func(c *settings.Settings, rows listRows){
+	"admin_allowed_ips": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.AdminAllowedIPs, &c.Nginx.AdminAllowedIPsTitle, &c.Nginx.AdminAllowedIPsDisabled, &c.Nginx.AdminAllowedIPsCreatedAt, &c.Nginx.AdminAllowedIPsUpdatedAt)
+	},
+	"admin_allowed_hosts": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.AdminAllowedHosts, &c.Nginx.AdminAllowedHostsTitle, &c.Nginx.AdminAllowedHostsDisabled, &c.Nginx.AdminAllowedHostsCreatedAt, &c.Nginx.AdminAllowedHostsUpdatedAt)
+	},
+	"metrics_allow_from": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.MetricsAllowFrom, &c.Nginx.MetricsAllowFromTitle, &c.Nginx.MetricsAllowFromDisabled, &c.Nginx.MetricsAllowFromCreatedAt, &c.Nginx.MetricsAllowFromUpdatedAt)
+	},
+	"bypass_ip": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.BypassIPs, &c.Nginx.BypassIPsTitle, &c.Nginx.BypassIPsDisabled, &c.Nginx.BypassIPsCreatedAt, &c.Nginx.BypassIPsUpdatedAt)
+	},
+	"stats_exclude_ips": func(c *settings.Settings, rows listRows) {
+		// Value + title only; this list has no enable/timestamp columns.
+		overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
+	},
+}
+
+// overlayStrList writes submitted rows into a value slice and its parallel
+// title / disabled / timestamp slices (nil pointers are skipped for lists that
+// lack that column).  Values render verbatim, including the invalid one the
+// error names; timestamps are cleared because a draft row has no save time yet.
+func overlayStrList(rows listRows, val, title *[]string, dis *[]bool, cr, up *[]int64) {
+	clean := rows.Values[:0:0]
+	for _, v := range rows.Values {
+		if strings.TrimSpace(v) != "" {
+			clean = append(clean, v)
+		}
+	}
+	if len(clean) == 0 && rows.Values == nil {
+		return
+	}
+	*val = clean
+	if title != nil {
+		*title = rows.Titles
+	}
+	if dis != nil {
+		if len(rows.Enabled) == 0 {
+			*dis = nil
+		} else {
+			out := make([]bool, len(clean))
+			any := false
+			for i := range out {
+				off := i < len(rows.Enabled) && rows.Enabled[i] == "0"
+				out[i] = off
+				any = any || off
+			}
+			if any {
+				*dis = out
+			} else {
+				*dis = nil
+			}
+		}
+	}
+	if cr != nil {
+		*cr = nil
+	}
+	if up != nil {
+		*up = nil
+	}
+}
 
 // changedListValues returns the submitted values, across the given fields, that
 // are not already in the stored list -- i.e. the rows the operator added or
@@ -2129,17 +2224,23 @@ func changedListValues(stored map[string][]string, form url.Values) []string {
 	return out
 }
 
-// setNetListDraft stashes the submitted allowlist rows in a flash cookie.  It
-// silently does nothing if the payload would be too large for a cookie -- the
-// draft is a convenience, and its absence just falls back to the old
-// reload-from-stored behaviour rather than breaking the redirect.
-func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values, focus []string, errField, errValue, errMsg string) {
-	d := netListDraft{
-		Hosts: form["admin_allowed_hosts"], HostsTitle: form["admin_allowed_hosts_title"], HostsEnabled: form["admin_allowed_hosts_enabled"],
-		IPs: form["admin_allowed_ips"], IPsTitle: form["admin_allowed_ips_title"], IPsEnabled: form["admin_allowed_ips_enabled"],
-		Metrics: form["metrics_allow_from"], MetricsTitle: form["metrics_allow_from_title"], MetricsEnabled: form["metrics_allow_from_enabled"],
+// setSectionDraft stashes the submitted rows of every rule-list on a section in
+// a flash cookie.  It silently does nothing if the payload would be too large
+// for a cookie -- the draft is a convenience, and its absence just falls back
+// to reload-from-stored rather than breaking the redirect.
+func setSectionDraft(w http.ResponseWriter, r *http.Request, base, section string, form url.Values, focus []string, errField, errValue, errMsg string) {
+	d := sectionListDraft{
+		Section:  section,
+		Lists:    map[string]listRows{},
 		Focus:    focus,
 		ErrField: errField, ErrValue: errValue, ErrMsg: errMsg,
+	}
+	for _, name := range ruleListSections[section] {
+		d.Lists[name] = listRows{
+			Values:  form[name],
+			Titles:  form[name+"_title"],
+			Enabled: form[name+"_enabled"],
+		}
 	}
 	b, err := json.Marshal(d)
 	if err != nil || len(b) > 3500 {
@@ -2155,62 +2256,19 @@ type netDraftView struct {
 	ErrField, ErrValue, ErrMsg string
 }
 
-// overlayNetListDraft applies a stored draft onto the Nginx view being
-// rendered.  Values are shown verbatim (including the invalid one the error
-// names), so the operator edits their own input rather than re-typing it.
-// Timestamps are left unset -- they are cosmetic badges and a draft row has no
-// meaningful save time yet.  Returns the focus set (rows to open) and the
-// located error.
-func overlayNetListDraft(n *settings.Nginx, raw string) netDraftView {
-	var d netListDraft
-	if json.Unmarshal([]byte(raw), &d) != nil {
+// overlaySectionDraft applies a stored draft onto the settings view being
+// rendered, but only when its section matches the tab in view (a stale draft
+// from another tab is ignored).  Returns the focus set and located error for
+// the template to highlight.
+func overlaySectionDraft(c *settings.Settings, section, raw string) netDraftView {
+	var d sectionListDraft
+	if json.Unmarshal([]byte(raw), &d) != nil || d.Section != section {
 		return netDraftView{}
 	}
-	disabledOf := func(enabled []string, n int) []bool {
-		if len(enabled) == 0 {
-			return nil
+	for name, rows := range d.Lists {
+		if fn := ruleListOverlays[name]; fn != nil {
+			fn(c, rows)
 		}
-		out := make([]bool, n)
-		any := false
-		for i := 0; i < n; i++ {
-			off := i < len(enabled) && enabled[i] == "0"
-			out[i] = off
-			any = any || off
-		}
-		if !any {
-			return nil
-		}
-		return out
-	}
-	clean := func(vals []string) []string {
-		out := vals[:0:0]
-		for _, v := range vals {
-			if strings.TrimSpace(v) != "" {
-				out = append(out, v)
-			}
-		}
-		return out
-	}
-	if v := clean(d.Hosts); len(v) > 0 || d.Hosts != nil {
-		n.AdminAllowedHosts = v
-		n.AdminAllowedHostsTitle = d.HostsTitle
-		n.AdminAllowedHostsDisabled = disabledOf(d.HostsEnabled, len(v))
-		n.AdminAllowedHostsCreatedAt = nil
-		n.AdminAllowedHostsUpdatedAt = nil
-	}
-	if v := clean(d.IPs); len(v) > 0 || d.IPs != nil {
-		n.AdminAllowedIPs = v
-		n.AdminAllowedIPsTitle = d.IPsTitle
-		n.AdminAllowedIPsDisabled = disabledOf(d.IPsEnabled, len(v))
-		n.AdminAllowedIPsCreatedAt = nil
-		n.AdminAllowedIPsUpdatedAt = nil
-	}
-	if v := clean(d.Metrics); len(v) > 0 || d.Metrics != nil {
-		n.MetricsAllowFrom = v
-		n.MetricsAllowFromTitle = d.MetricsTitle
-		n.MetricsAllowFromDisabled = disabledOf(d.MetricsEnabled, len(v))
-		n.MetricsAllowFromCreatedAt = nil
-		n.MetricsAllowFromUpdatedAt = nil
 	}
 	focus := map[string]bool{}
 	for _, v := range d.Focus {
@@ -2902,7 +2960,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			continue
 		}
 		if !ipOrCIDRRE.MatchString(ip) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_invalid", ip))
+			return &listFieldError{Field: "bypass_ip", Value: ip, Msg: i18n.Tf(lang, "err.bypass_invalid", ip)}
 		}
 		if ts <= 0 {
 			ts = now
@@ -2952,7 +3010,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			continue
 		}
 		if !ipOrCIDRRE.MatchString(ip) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.bypass_invalid", ip))
+			return &listFieldError{Field: "stats_exclude_ips", Value: ip, Msg: i18n.Tf(lang, "err.bypass_invalid", ip)}
 		}
 		var t string
 		if i < len(stxTitles) {
