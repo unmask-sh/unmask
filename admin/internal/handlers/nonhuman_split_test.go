@@ -373,8 +373,11 @@ func compositionPopup(t *testing.T, body string) string {
 	if m == nil {
 		t.Fatal("the other segment carries no breakdown")
 	}
+	// Tags carry the row layout, so stripping them naively runs label, figure
+	// and description together; a space at each tag boundary keeps them as the
+	// separate words a reader sees.
 	return strings.Join(strings.Fields(stripTags(
-		strings.ReplaceAll(m[1], "<br>", " | "))), " ")
+		strings.ReplaceAll(strings.ReplaceAll(m[1], "<br>", " | "), "<", " <"))), " ")
 }
 
 // The composition figure sits in its own full-width card rather than in the KPI
@@ -608,9 +611,14 @@ func TestOtherSegmentBreaksDownIntoItsParts(t *testing.T) {
 		}
 	}
 	pop := compositionPopup(t, body)
+	// Label and figure sit apart in the markup but adjacent once tags are
+	// stripped, so "label figure" is the readable contract; each row's
+	// explanation follows on its own quiet line and is asserted separately.
 	for _, want := range []string{
-		i18n.Tf(i18n.LangEN, "overview.kpi.other_abandon", "50"),
-		i18n.Tf(i18n.LangEN, "overview.kpi.other_unchallenged", "3,000"),
+		i18n.T(i18n.LangEN, "overview.kpi.other_abandon_label") + " 50",
+		i18n.T(i18n.LangEN, "overview.kpi.other_abandon_desc"),
+		i18n.T(i18n.LangEN, "overview.kpi.other_unchallenged_label") + " 3,000",
+		i18n.T(i18n.LangEN, "overview.kpi.other_unchallenged_desc"),
 	} {
 		if !strings.Contains(pop, want) {
 			t.Errorf("the breakdown does not name %q: %q", want, pop)
@@ -619,7 +627,7 @@ func TestOtherSegmentBreaksDownIntoItsParts(t *testing.T) {
 	// 50 + 3,000 is the whole 3,050, and the balance says so.  Rendered at zero
 	// rather than dropped: "0" is the statement that the parts explain the
 	// whole, and a reader cannot tell an absent line from an unwritten one.
-	if !strings.Contains(pop, i18n.Tf(i18n.LangEN, "overview.kpi.other_skew", "0")) {
+	if !strings.Contains(pop, i18n.T(i18n.LangEN, "overview.kpi.other_skew_label")+" 0") {
 		t.Errorf("the breakdown does not close: no balance line reading 0: %q", pop)
 	}
 }
