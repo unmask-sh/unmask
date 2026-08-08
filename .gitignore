@@ -45,3 +45,4 @@ dist/
 
 # demo state (= a sandbox kept running on a test host: cert / sqlite / logs etc.)
 demo/
+e2e/ui/node_modules/

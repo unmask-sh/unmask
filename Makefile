@@ -889,6 +889,12 @@ test-mariadb:
 e2e:
 	./e2e/run.sh
 
+## e2e-ui        - browser-level admin UI checks (puppeteer against a throwaway
+##                 admin instance; needs node + a Chromium and `npm ci` in e2e/ui).
+.PHONY: e2e-ui
+e2e-ui:
+	cd e2e/ui && ./run.sh
+
 ## e2e-docker    - bring nginx + admin up via docker-compose and run run.sh (for CI / other hosts).
 # Details in e2e/docker/README.md.  docker (or podman-compose) required.
 e2e-docker:
