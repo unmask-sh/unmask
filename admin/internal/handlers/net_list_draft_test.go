@@ -194,3 +194,43 @@ func TestSectionDraftBypassIPs(t *testing.T) {
 		t.Errorf("a bypass draft was applied to the network tab: %#v", v)
 	}
 }
+
+// The structured path lists (honeypot / protected / bypass-paths and the
+// geo/asn exempt lists) carry Action + Site columns and store []struct, not
+// []string.  A rejected save must round-trip all of that through the shared
+// draft so the error page rebuilds the rows -- invalid value included.
+func TestSectionDraftStructuredPaths(t *testing.T) {
+	form := url.Values{}
+	form["honeypot_url_path"] = []string{"/trap", "bad("}
+	form["honeypot_url_title"] = []string{"a", "b"}
+	form["honeypot_url_enabled"] = []string{"1", "0"}
+	form["honeypot_url_action"] = []string{"deny", ""}
+	form["honeypot_url_site"] = []string{"", "shop.example"}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/x?section=honeypot", nil)
+	setSectionDraft(w, r, "/unmask", "honeypot", form, []string{"bad("}, "honeypot_url_path", "bad(", "boom")
+	var raw string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == flashCookiePrefix+netListDraftFlash {
+			raw, _ = url.QueryUnescape(c.Value)
+		}
+	}
+	full := &settings.Settings{}
+	full.Nginx.Honeypot.URLs = []settings.HoneypotURL{{Path: "/stale"}}
+	view := overlaySectionDraft(full, "honeypot", raw)
+
+	u := full.Nginx.Honeypot.URLs
+	if len(u) != 2 || u[0].Path != "/trap" || u[1].Path != "bad(" {
+		t.Fatalf("honeypot rows not rebuilt (invalid value must survive): %#v", u)
+	}
+	if u[0].Action != "deny" || u[1].Site != "shop.example" {
+		t.Errorf("action/site columns not preserved: %#v", u)
+	}
+	if !u[1].Disabled || u[0].Disabled {
+		t.Errorf("per-row enabled not preserved: %#v", u)
+	}
+	if view.ErrField != "honeypot_url_path" || view.ErrValue != "bad(" || !view.Focus["bad("] {
+		t.Errorf("error location / focus not carried: %#v", view)
+	}
+}
