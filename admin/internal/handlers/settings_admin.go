@@ -117,9 +117,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// operator typed; render those (over this local copy only, never saved)
 	// so the error page shows their input, not the last-saved list.  Consumed
 	// once -- readFlash deletes it -- so a later plain visit is unaffected.
+	var netDraft netDraftActive
 	if tab == "network" {
 		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
-			overlayNetListDraft(&cur, raw)
+			netDraft = overlayNetListDraft(&cur, raw)
 		}
 	}
 	seenVer := cur.SeenVersion
@@ -627,7 +628,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"SavedRestart": r.URL.Query().Get("restart") == "1",
 		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":          cur,
-		"Global":       h.snapshotSettings().Global,
+		// Open exactly the allowlist fields a rejected save restored, so the
+		// operator lands on an editable input holding their value rather than a
+		// confirmed row they must click to edit.
+		"NetDraftHosts":   netDraft.Hosts,
+		"NetDraftIPs":     netDraft.IPs,
+		"NetDraftMetrics": netDraft.Metrics,
+		"Global":          h.snapshotSettings().Global,
 		// Monitor mode is stored on the challenge record but presented on the
 		// operating-mode tab, so the template needs it alongside Global.
 		"ObserveOnly": h.snapshotSettings().Challenge.Default.IsObserveOnly(),
@@ -2071,15 +2078,20 @@ func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form u
 	setFlash(w, r, base, netListDraftFlash, string(b))
 }
 
+// netDraftActive reports which of the three fields a draft overlay actually
+// replaced, so the view can open exactly those in edit mode.
+type netDraftActive struct{ Hosts, IPs, Metrics bool }
+
 // overlayNetListDraft applies a stored draft onto the Nginx view being
 // rendered.  Values are shown verbatim (including the invalid one the error
 // names), so the operator edits their own input rather than re-typing it.
 // Timestamps are left unset -- they are cosmetic badges and a draft row has no
-// meaningful save time yet.
-func overlayNetListDraft(n *settings.Nginx, raw string) {
+// meaningful save time yet.  Returns which fields were overlaid.
+func overlayNetListDraft(n *settings.Nginx, raw string) netDraftActive {
+	var active netDraftActive
 	var d netListDraft
 	if json.Unmarshal([]byte(raw), &d) != nil {
-		return
+		return active
 	}
 	disabledOf := func(enabled []string, n int) []bool {
 		if len(enabled) == 0 {
@@ -2112,6 +2124,7 @@ func overlayNetListDraft(n *settings.Nginx, raw string) {
 		n.AdminAllowedHostsDisabled = disabledOf(d.HostsEnabled, len(v))
 		n.AdminAllowedHostsCreatedAt = nil
 		n.AdminAllowedHostsUpdatedAt = nil
+		active.Hosts = true
 	}
 	if v := clean(d.IPs); len(v) > 0 || d.IPs != nil {
 		n.AdminAllowedIPs = v
@@ -2119,6 +2132,7 @@ func overlayNetListDraft(n *settings.Nginx, raw string) {
 		n.AdminAllowedIPsDisabled = disabledOf(d.IPsEnabled, len(v))
 		n.AdminAllowedIPsCreatedAt = nil
 		n.AdminAllowedIPsUpdatedAt = nil
+		active.IPs = true
 	}
 	if v := clean(d.Metrics); len(v) > 0 || d.Metrics != nil {
 		n.MetricsAllowFrom = v
@@ -2126,7 +2140,9 @@ func overlayNetListDraft(n *settings.Nginx, raw string) {
 		n.MetricsAllowFromDisabled = disabledOf(d.MetricsEnabled, len(v))
 		n.MetricsAllowFromCreatedAt = nil
 		n.MetricsAllowFromUpdatedAt = nil
+		active.Metrics = true
 	}
+	return active
 }
 
 // formHostListValidated parses the admin_allowed_hosts list.  It differs from
