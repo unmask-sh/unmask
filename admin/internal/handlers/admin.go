@@ -242,6 +242,33 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// pctLabel: the same share, rounded for reading.  A share that is
 			// present but rounds to 0.0 shows as "<0.1%" -- a legend entry
 			// reading 0.0% beside a non-zero count looks like a broken figure.
+			// ruleRowState centralises the rejected-save row decoration every
+			// rule-list template needs: whether this row opens for editing
+			// (it was changed) and whether it is the one the error points at.
+			// Before this the same nested {{ if }} chain was pasted into a
+			// dozen inline blocks; one tested helper replaces all of them.
+			"ruleRowState": func(value, field, errField, errValue, errMsg string, focus map[string]bool) ruleRowSt {
+				st := ruleRowSt{}
+				if focus[value] {
+					st.editing = true
+				}
+				if errMsg != "" && field == errField {
+					if errValue != "" {
+						st.Err = value == errValue
+					} else {
+						st.Err = focus[value] // whole-field error: mark the changed rows
+					}
+				}
+				var cls string
+				if st.editing {
+					cls += " editing"
+				}
+				if st.Err {
+					cls += " rule-row-error"
+				}
+				st.Class = cls
+				return st
+			},
 			"pctLabel": func(n, total int) string {
 				if total <= 0 || n <= 0 {
 					return "0%"
@@ -731,6 +758,15 @@ func adminHostForbidden(w http.ResponseWriter, host string) {
 	http.Error(w, "Forbidden: this Host ("+host+") is not allowed to reach the admin UI.\n"+
 		"If you locked yourself out, add this Host to admin_allowed_hosts in /etc/unmask/config.yml and "+
 		"restart unmask -- or edit it under Settings -> Network from an already-allowed Host.", http.StatusForbidden)
+}
+
+// ruleRowSt is what ruleRowState hands a rule-list template for one row:
+// Class is the space-prefixed extra classes for the row div (" editing",
+// " rule-row-error"), Err says whether to print the inline message beneath it.
+type ruleRowSt struct {
+	Class   string
+	Err     bool
+	editing bool
 }
 
 // hostAllowed reports whether the Host header matches any entry in allowList.
