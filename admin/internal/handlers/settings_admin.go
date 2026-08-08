@@ -1980,9 +1980,13 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	n.AdminAllowedIPsDisabled = allowDis
 
 	// Host allowlist (= which domains may reach /admin/* when one nginx serves
-	// many vhosts).  Matched in-app, never written to nginx config, so no
-	// injection guard is needed beyond the self-lockout check.
-	hosts, hostNotes, hostDis, hostsCr, hostsUp := formListWithNotesEnabled(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"], r.Form["admin_allowed_hosts_enabled"], r.Form["admin_allowed_hosts_created_at"], r.Form["admin_allowed_hosts_updated_at"])
+	// many vhosts).  Matched in-app, never written to nginx config -- so unlike
+	// the IP lists it keeps backslashes (regex mode) and rejects a broken
+	// pattern by name instead of dropping it into an empty, wide-open list.
+	hosts, hostNotes, hostDis, hostsCr, hostsUp, hostErr := formHostListValidated(r.Form["admin_allowed_hosts"], r.Form["admin_allowed_hosts_title"], r.Form["admin_allowed_hosts_enabled"], r.Form["admin_allowed_hosts_created_at"], r.Form["admin_allowed_hosts_updated_at"], lang)
+	if hostErr != nil {
+		return hostErr
+	}
 	if act := settings.EnabledValues(hosts, hostDis); len(act) > 0 && !hostAllowed(curHost, act) {
 		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_lockout_host", curHost))
 	}
@@ -2017,6 +2021,81 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 // would break the YAML the config is written as.  disabled comes back nil
 // when every surviving row is enabled, keeping untouched configs in their
 // old yml shape.
+// formHostListValidated parses the admin_allowed_hosts list.  It differs from
+// formListWithNotesEnabled in two ways that matter for this field specifically:
+//
+//   - Backslashes are kept.  The shared parser drops any value containing one,
+//     which is right for lists that end up in the nginx config but wrong here:
+//     this list is matched in-app (see hostMatchesPattern), so a regex like
+//     "tool\d+-[a-z]+" is both safe and the whole point of the mode toggle.
+//     The old behaviour dropped such a value silently, leaving an empty list
+//     that then saved as "no restriction" under a green "saved" banner.
+//
+//   - A value that cannot work is REJECTED, not dropped.  A regex that does
+//     not compile is named in an error so the operator can fix it, rather than
+//     vanishing.  Only NUL/CR/LF are refused outright (they cannot occur in a
+//     real Host header and would corrupt the stored list).
+//
+// Returns a non-nil error on the first unusable entry; the caller surfaces it
+// and does not save, so a bad pattern never empties the list.
+func formHostListValidated(vals, notes, enabled, created, updated []string, lang i18n.Lang) (
+	outVals, outNotes []string, outDisabled []bool, outCreated, outUpdated []int64, err error,
+) {
+	noteClean := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/")
+	seen := map[string]bool{}
+	anyOff := false
+	anyDate := false
+	now := time.Now().Unix()
+	for i, v := range vals {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		if strings.ContainsAny(v, "\x00\r\n") {
+			return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_invalid", v))
+		}
+		// Validate the entry the same way it will be read at match time: a
+		// regex-mode value must compile in its anchored form, or it would
+		// silently match nothing.
+		if settings.PatternModeOf(v) == settings.ModeRegex {
+			if _, e := regexp.Compile("(?i)^(?:" + v + ")$"); e != nil {
+				return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_bad_regex", v))
+			}
+		}
+		seen[v] = true
+		note := ""
+		if i < len(notes) {
+			note = noteClean.Replace(strings.TrimSpace(notes[i]))
+		}
+		off := i < len(enabled) && enabled[i] == "0"
+		var cr, up int64
+		if i < len(created) {
+			cr, _ = strconv.ParseInt(strings.TrimSpace(created[i]), 10, 64)
+		}
+		if i < len(updated) {
+			up, _ = strconv.ParseInt(strings.TrimSpace(updated[i]), 10, 64)
+		}
+		if cr <= 0 {
+			cr = now
+		}
+		up = clampUpdatedAt(up, cr, now)
+		outVals = append(outVals, v)
+		outNotes = append(outNotes, note)
+		outDisabled = append(outDisabled, off)
+		outCreated = append(outCreated, cr)
+		outUpdated = append(outUpdated, up)
+		anyOff = anyOff || off
+		anyDate = anyDate || up > 0
+	}
+	if !anyDate {
+		outUpdated = nil
+	}
+	if !anyOff {
+		outDisabled = nil
+	}
+	return outVals, outNotes, outDisabled, outCreated, outUpdated, nil
+}
+
 func formListWithNotesEnabled(vals, notes, enabled, created, updated []string) (
 	outVals, outNotes []string, outDisabled []bool, outCreated, outUpdated []int64,
 ) {
