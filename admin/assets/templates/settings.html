@@ -29,7 +29,7 @@
   {{ $d := false }}{{ if $dis }}{{ if lt $i (len $dis) }}{{ $d = index $dis $i }}{{ end }}{{ end }}
   {{ $cr := 0 }}{{ if $created }}{{ if lt $i (len $created) }}{{ $cr = index $created $i }}{{ end }}{{ end }}
   {{ $up := 0 }}{{ if $updated }}{{ if lt $i (len $updated) }}{{ $up = index $updated $i }}{{ end }}{{ end }}
-  <div class="rule-row{{ if $d }} disabled-row{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
+  <div class="rule-row{{ if $d }} disabled-row{{ end }}{{ if $.Editing }} editing{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
     <input type="checkbox" class="rule-toggle" {{ if not $d }}checked{{ end }}>
     <input type="hidden" name="{{ $.Name }}_enabled" value="{{ if $d }}0{{ else }}1{{ end }}">
     <input type="hidden" name="{{ $.Name }}_created_at" value="{{ $cr }}">
@@ -873,7 +873,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state{{ if .AdminIPsAllowAll }} admin-acl-warn{{ end }}">{{ if eq .AdminIPsActive 0 }}{{ t .Lang "settings.network.admin_ips_state_open" }}{{ else if .AdminIPsAllowAll }}{{ safeHTML (t .Lang "settings.network.admin_ips_state_all") }}{{ else }}{{ tf .Lang "settings.network.admin_ips_state_n" .AdminIPsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_ips_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_ips" "Values" .Cur.AdminAllowedIPs "Titles" .Cur.AdminAllowedIPsTitle "Disabled" .Cur.AdminAllowedIPsDisabled "Created" .Cur.AdminAllowedIPsCreatedAt "Updated" .Cur.AdminAllowedIPsUpdatedAt "Placeholder" "203.0.113.0/24" "Editing" .NetDraftIPs "Lang" .Lang) }}
     </div>
   </div>
 
@@ -883,7 +883,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if eq .AdminHostsActive 0 }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" .AdminHostsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "Editing" .NetDraftHosts "Lang" .Lang) }}
     </div>
   </div>
   <style>
@@ -896,7 +896,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.metrics" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.metrics_desc") }}</span></span></h2>
     <div class="field">
       <label>{{ t .Lang "settings.network.metrics_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "Lang" .Lang) }}
+      {{ template "valueRuleList" (dict "Name" "metrics_allow_from" "Values" .Cur.MetricsAllowFrom "Titles" .Cur.MetricsAllowFromTitle "Disabled" .Cur.MetricsAllowFromDisabled "Created" .Cur.MetricsAllowFromCreatedAt "Updated" .Cur.MetricsAllowFromUpdatedAt "Placeholder" "10.0.0.0/8" "Editing" .NetDraftMetrics "Lang" .Lang) }}
     </div>
   </div>
 
