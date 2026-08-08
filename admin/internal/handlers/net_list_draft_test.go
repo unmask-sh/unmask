@@ -23,7 +23,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	// Stash, then read the flash back the way the GET render would.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=network", nil)
-	setNetListDraft(w, r, "/unmask", form)
+	setNetListDraft(w, r, "/unmask", form, []string{`tool\d+\-[a-z]`})
 
 	var cookie string
 	for _, c := range w.Result().Cookies() {
@@ -44,8 +44,13 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 		// merged with it.
 		AdminAllowedHosts: []string{"stale.example.com"},
 	}
-	overlayNetListDraft(n, raw)
-
+	focus := overlayNetListDraft(n, raw)
+	if !focus[`tool\d+\-[a-z]`] {
+		t.Errorf("the changed value is not in the focus set: %#v", focus)
+	}
+	if focus["admin.example.com"] {
+		t.Errorf("an unchanged, pre-existing-looking row must not be focused")
+	}
 	if len(n.AdminAllowedHosts) != 2 || n.AdminAllowedHosts[0] != `tool\d+\-[a-z]` {
 		t.Fatalf("the invalid value the operator typed was not preserved: %#v", n.AdminAllowedHosts)
 	}
@@ -72,7 +77,7 @@ func TestNetListDraftSkipsOversized(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form)
+	setNetListDraft(w, r, "/unmask", form, nil)
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
 			t.Fatal("an oversized draft was written to a cookie instead of being skipped")
@@ -89,7 +94,7 @@ func TestNetListDraftPreservesCleared(t *testing.T) {
 	form["admin_allowed_ips"] = []string{"not-an-ip"}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form)
+	setNetListDraft(w, r, "/unmask", form, nil)
 	var raw string
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
@@ -97,8 +102,43 @@ func TestNetListDraftPreservesCleared(t *testing.T) {
 		}
 	}
 	n := &settings.Nginx{AdminAllowedHosts: []string{"stale.example.com"}}
-	overlayNetListDraft(n, raw)
+	_ = overlayNetListDraft(n, raw)
 	if len(n.AdminAllowedHosts) != 0 {
 		t.Errorf("a cleared field fell back to the stored list: %#v", n.AdminAllowedHosts)
+	}
+}
+
+// Only the rows the operator added or changed become the focus set -- the
+// point of "open only the error row, not the whole list".  A value already in
+// the stored list is not focused even when resubmitted.
+func TestChangedListValues(t *testing.T) {
+	stored := map[string][]string{
+		"admin_allowed_hosts": {"admin.example.com", `exact:keep.example.com`},
+		"admin_allowed_ips":   {"10.0.0.0/8"},
+		"metrics_allow_from":  nil,
+	}
+	form := url.Values{}
+	// One unchanged host, one brand-new host; the IP list resubmitted as-is;
+	// a new metrics entry.
+	form["admin_allowed_hosts"] = []string{"admin.example.com", `tool\d+-[a-z]+`}
+	form["admin_allowed_ips"] = []string{"10.0.0.0/8"}
+	form["metrics_allow_from"] = []string{"192.0.2.1"}
+
+	got := changedListValues(stored, form)
+	set := map[string]bool{}
+	for _, v := range got {
+		set[v] = true
+	}
+	if !set[`tool\d+-[a-z]+`] {
+		t.Errorf("the newly-added host is not in the changed set: %v", got)
+	}
+	if !set["192.0.2.1"] {
+		t.Errorf("the newly-added metrics entry is not in the changed set: %v", got)
+	}
+	if set["admin.example.com"] {
+		t.Errorf("an unchanged, already-stored host must not be flagged as changed: %v", got)
+	}
+	if set["10.0.0.0/8"] {
+		t.Errorf("a resubmitted, unchanged IP must not be flagged as changed: %v", got)
 	}
 }
