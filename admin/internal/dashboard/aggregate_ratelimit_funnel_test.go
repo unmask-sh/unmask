@@ -174,6 +174,13 @@ func TestRateLimitFunnel_NullVerdict(t *testing.T) {
 	seed("serve", 1, nil) // rate-limited serve, no verdict recorded
 	seed("load", 0, nil)  // the stealth-count row whose group name is NULL
 
+	// Capture the hour just before the rollup: RollupRateLimitFunnel reads its
+	// own time.Now() to place the settle cursor, so comparing against a second
+	// time.Now() at assertion time flaked whenever an hour boundary fell
+	// between the two (seen in CI, where the run is slow enough to straddle
+	// :00).  The cursor is that hour or -- if the rollup's clock had already
+	// ticked into the next hour -- one past it.
+	hourBefore := time.Now().Unix()/3600 - trafficSettleHours
 	if err := RollupRateLimitFunnel(ctx, d); err != nil {
 		t.Fatalf("rollup errored on a NULL ja4_verdict group: %v", err)
 	}
@@ -181,8 +188,8 @@ func TestRateLimitFunnel_NullVerdict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := time.Now().Unix()/3600 - trafficSettleHours; cur != want {
-		t.Fatalf("cursor did not settle past the NULL-verdict hour: cur=%d want=%d", cur, want)
+	if cur != hourBefore && cur != hourBefore+1 {
+		t.Fatalf("cursor did not settle past the NULL-verdict hour: cur=%d want=%d or %d", cur, hourBefore, hourBefore+1)
 	}
 	row, rolled, err := rateLimitFunnelRowAgg(ctx, d, 200, []string{"bot_x"})
 	if err != nil || !rolled {
