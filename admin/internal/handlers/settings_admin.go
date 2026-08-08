@@ -1495,8 +1495,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			cur.Nginx.ChallengeTargets.DefaultAction = ""
 		}
 	case "ja4-verdicts":
-		if err := applyJA4VerdictsForm(&cur.Nginx, r, lang); err != nil {
-			redirBack(err.Error())
+		ja4Patterns := make([]string, len(cur.Nginx.JA4Verdicts.Extra))
+		for i, e := range cur.Nginx.JA4Verdicts.Extra {
+			ja4Patterns[i] = e.Pattern
+		}
+		if sectionErr("ja4-verdicts", map[string][]string{"ja4_extra_pat": ja4Patterns}, applyJA4VerdictsForm(&cur.Nginx, r, lang)) {
 			return
 		}
 	case "honeypot":
@@ -2135,6 +2138,9 @@ func (e *listFieldError) Error() string { return e.Msg }
 // (challenge chains, per-site path rules); simple lists leave them empty.
 type listRows struct {
 	Values, Titles, Enabled, Actions, Sites []string
+	// Verdicts: the JA4 list's second value column (pattern -> verdict); empty
+	// for every other list.
+	Verdicts []string
 }
 
 // pathRow is one structured path/URL row rebuilt from a draft, in the shape the
@@ -2195,6 +2201,7 @@ const netListDraftFlash = "netdraft"
 type ruleListSpec struct {
 	Name                         string // value field == data-rule-name == ErrField
 	Title, Enabled, Action, Site string // parallel form field names ("" if absent)
+	Verdict                      string // JA4's second value column ("" for the rest)
 	Overlay                      func(c *settings.Settings, rows listRows)
 }
 
@@ -2268,6 +2275,56 @@ var ruleListRegistry = map[string][]ruleListSpec{
 				c.Nginx.Asn.ExemptPaths = overlayBypassPaths(rows)
 			}},
 	},
+	"ja4-verdicts": {
+		{Name: "ja4_extra_pat", Title: "ja4_extra_title", Enabled: "ja4_extra_enabled", Action: "ja4_extra_action", Verdict: "ja4_extra_verd",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.JA4Verdicts.Extra = overlayJA4(rows)
+				// The parallel columns the render reads alongside Extra.
+				c.Nginx.JA4Verdicts.ExtraTitle = rows.Titles
+				c.Nginx.JA4Verdicts.ExtraDisabled = draftDisabled(rows)
+				c.Nginx.JA4Verdicts.ExtraCreatedAt = nil
+				c.Nginx.JA4Verdicts.ExtraUpdatedAt = nil
+			}},
+	},
+}
+
+// overlayJA4 rebuilds the JA4 verdict list from a restored draft: pattern +
+// verdict + action per row, blanks dropped.
+func overlayJA4(rows listRows) []settings.JA4VerdictExtraRule {
+	out := []settings.JA4VerdictExtraRule{}
+	for i, p := range rows.Values {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		col := func(a []string) string {
+			if i < len(a) {
+				return strings.TrimSpace(a[i])
+			}
+			return ""
+		}
+		out = append(out, settings.JA4VerdictExtraRule{Pattern: p, Verdict: col(rows.Verdicts), Action: col(rows.Actions)})
+	}
+	return out
+}
+
+// draftDisabled builds the parallel disabled slice for a restored list, aligned
+// to its non-empty values (nil when nothing is disabled).
+func draftDisabled(rows listRows) []bool {
+	out := []bool{}
+	any := false
+	for i, v := range rows.Values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		off := i < len(rows.Enabled) && rows.Enabled[i] == "0"
+		out = append(out, off)
+		any = any || off
+	}
+	if !any {
+		return nil
+	}
+	return out
 }
 
 // overlayHoneypot / overlayProtected / overlayBypassPaths rebuild a structured
@@ -2421,11 +2478,12 @@ func setSectionDraft(w http.ResponseWriter, r *http.Request, base, section strin
 	}
 	for _, sp := range ruleListRegistry[section] {
 		d.Lists[sp.Name] = listRows{
-			Values:  form[sp.Name],
-			Titles:  pick(sp.Title),
-			Enabled: pick(sp.Enabled),
-			Actions: pick(sp.Action),
-			Sites:   pick(sp.Site),
+			Values:   form[sp.Name],
+			Titles:   pick(sp.Title),
+			Enabled:  pick(sp.Enabled),
+			Actions:  pick(sp.Action),
+			Sites:    pick(sp.Site),
+			Verdicts: pick(sp.Verdict),
 		}
 	}
 	b, err := json.Marshal(d)
@@ -3569,24 +3627,24 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 			continue
 		}
 		if p == "" {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.verdict_2tokens", v))
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_2tokens", v)}
 		}
 		if v == "" {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.verdict_2tokens", p))
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_2tokens", p)}
 		}
 		if strings.ContainsAny(p, "\"\\\x00\r\n") {
-			continue
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 		}
 		// The verdict is emitted into a quoted nginx map value, so it needs the
 		// same character reject as the pattern or a '"' would break the quote.
 		if strings.ContainsAny(v, "\"\\\x00\r\n") {
-			continue
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", v)}
 		}
 		if _, err := regexp.Compile(p); err != nil {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.verdict_regex", p, err))
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_regex", p, err)}
 		}
 		if !nginxconf.IsValidJA4Action(a) {
-			return fmt.Errorf("%s", i18n.Tf(lang, "err.verdict_action", v, a))
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_action", v, a)}
 		}
 		if ts <= 0 {
 			ts = now
