@@ -135,6 +135,39 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 			{ID: 10, Pattern: "t13d[0-9]+h1_", Verdict: "h1_lax", Action: JA4ActionSuspect},
 		},
 	},
+	{
+		// Log-derived (jp fleet access logs, 2026-08).  These fingerprints send
+		// NO ALPN yet the request carries a Chrome / Firefox UA -- impossible for
+		// a real browser, which always offers ALPN -- and each cipher hash
+		// differs from genuine Chrome (8daaf6152771) / Firefox (5b57614c22b0),
+		// so the UA is spoofed.  Unlike the serve-only scrapers, these run the
+		// challenge JS and solve the light djb2 PoW (load rate 68-100%, heavy
+		// cookie-rebind), so they were slipping through as ordinary PoW passers;
+		// "bot" routes them straight to CAPTCHA.  No-ALPN keeps this clear of
+		// corporate TLS-inspection middleboxes (they proxy h2 and still offer
+		// ALPN, presenting their own cipher with a real user's Chrome UA) -- the
+		// h2-ALPN spoof variants were deliberately left out for that reason, and
+		// Amazonbot's fingerprint (f57a46bbacb6) is excluded as a real crawler.
+		ID:      "noalpn_spoof",
+		Label:   "No-ALPN TLS with a spoofed browser UA that solves the PoW (log-derived)",
+		AddedIn: "v0.1.25",
+		Rules: []JA4VerdictRule{
+			{ID: 11, Pattern: "t13d[0-9]+00_6d1bcf7a4624_", Verdict: "noalpn_6d1bcf", Action: JA4ActionBot},
+			{ID: 12, Pattern: "t13d[0-9]+00_83827b3d1fa1_", Verdict: "noalpn_83827b", Action: JA4ActionBot},
+			{ID: 13, Pattern: "t13d[0-9]+00_4b1b1e8ff355_", Verdict: "noalpn_4b1b1e", Action: JA4ActionBot},
+			{ID: 14, Pattern: "t13d[0-9]+00_0968ec391e9e_", Verdict: "noalpn_0968ec", Action: JA4ActionBot},
+			{ID: 15, Pattern: "t13d[0-9]+00_832bd7ce3ea2_", Verdict: "noalpn_832bd7", Action: JA4ActionBot},
+			{ID: 16, Pattern: "t13d[0-9]+00_98f6b5ae8975_", Verdict: "noalpn_98f6b5", Action: JA4ActionBot},
+			{ID: 17, Pattern: "t13d[0-9]+00_469e1a1906ea_", Verdict: "noalpn_469e1a", Action: JA4ActionBot},
+			{ID: 18, Pattern: "t13d[0-9]+00_ee6d613a0e2f_", Verdict: "noalpn_ee6d61", Action: JA4ActionBot},
+			{ID: 19, Pattern: "t13d[0-9]+00_eccc6c8938fa_", Verdict: "noalpn_eccc6c", Action: JA4ActionBot},
+			{ID: 20, Pattern: "t13d[0-9]+00_4545bafe73dc_", Verdict: "noalpn_4545ba", Action: JA4ActionBot},
+			{ID: 21, Pattern: "t12d[0-9]+00_b2d131b8446a_", Verdict: "tls12_noalpn_b2d131", Action: JA4ActionBot},
+			{ID: 22, Pattern: "t12d[0-9]+00_bb5b78ed287c_", Verdict: "tls12_noalpn_bb5b78", Action: JA4ActionBot},
+			{ID: 23, Pattern: "t12d[0-9]+00_8256d93fd366_", Verdict: "tls12_noalpn_8256d9", Action: JA4ActionBot},
+			{ID: 24, Pattern: "t12d[0-9]+00_c903b3b6e441_", Verdict: "tls12_noalpn_c903b3", Action: JA4ActionBot},
+		},
+	},
 }
 
 // ChallengeTargetGroup: presets for UA categories that should receive
