@@ -255,59 +255,62 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <div class="bcd-card comp-card" id="comp-card">
   <div class="comp-hd">
     <h2>{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></h2>
-    {{/* Both denominators are rendered; the toggle only changes which is on
-         screen.  Every number inside one .comp-view -- headline, caption, bar
-         widths, legend shares -- is taken against that view's own Denom, so a
-         percentage can never sit beside a caption naming a different total.
-         Nothing is recomputed in the page: the formula stays in Go, once. */}}
-    {{ range .CompViews }}
-    <div class="comp-view" data-scope="{{ .Scope }}"{{ if not .Active }} hidden{{ end }}>
-      <div class="comp-pct">{{ if $.KPINonHumanKnown }}{{ printf "%.1f" .Pct }}<span class="comp-pct-u">%</span>{{ else }}—{{ end }}</div>
-      <div class="comp-of">{{ if $.KPINonHumanKnown }}{{ if eq .Scope "judged" }}{{ tf $.Lang "overview.kpi.nonhuman_of_judged" (comma .Denom) }}{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_of_card" (comma .Denom) }}{{ end }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+    {{/* One view, rendered server-side against the selected denominator, so
+         the page is truthful without JS and never flashes a default.  The
+         script below mirrors the same arithmetic only for in-place toggles;
+         the no-JS path stays the ?comp= links. */}}
+    <div class="comp-view" data-total="{{ .KPIReqTotal }}"
+         data-cap-all="{{ tf .Lang "overview.kpi.nonhuman_of_card" "%s" }}"
+         data-cap-judged="{{ tf .Lang "overview.kpi.nonhuman_of_judged" "%s" }}"
+         data-cap-selected="{{ tf .Lang "overview.kpi.nonhuman_of_selected" "%s" }}">
+      <div class="comp-pct">{{ if $.KPINonHumanKnown }}{{ printf "%.1f" .CompPct }}<span class="comp-pct-u">%</span>{{ else }}—{{ end }}</div>
+      <div class="comp-of">{{ if $.KPINonHumanKnown }}{{ if eq .CompState "judged" }}{{ tf $.Lang "overview.kpi.nonhuman_of_judged" (comma .CompDenom) }}{{ else if eq .CompState "all" }}{{ tf $.Lang "overview.kpi.nonhuman_of_card" (comma .CompDenom) }}{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_of_selected" (comma .CompDenom) }}{{ end }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
     </div>
-    {{ end }}
   </div>
   {{ if .KPINonHumanKnown }}
-  {{/* Denominator switch.  Bypassed requests are the ones the operator exempted
-       from judgement; leaving them in answers "what is this server serving?",
-       taking them out answers "of what unmask judged, how much was not a
-       person?".  On a real install the two differ by about 2x, so the card
-       offers both rather than picking one silently.  Real links, so the choice
-       works without JS and can be bookmarked; the script below upgrades them to
-       an in-place swap of the already-rendered views. */}}
+  {{/* Presets over the same segment state the chips below edit: "all" keeps
+       every segment in the denominator, "judged" drops the requests a bypass
+       rule exempted.  Real links, so the choice works without JS and can be
+       bookmarked; the script below upgrades every toggle to an in-place
+       recompute. */}}
   {{ if .KPIReqBypassed }}
   <div class="comp-scope">
-    {{ range .CompViews }}
-    <a href="?comp={{ .Scope }}" data-scope="{{ .Scope }}"{{ if .Active }} class="on" aria-current="true"{{ end }}>{{ if eq .Scope "judged" }}{{ t $.Lang "overview.kpi.scope_judged" }}{{ else }}{{ t $.Lang "overview.kpi.scope_all" }}{{ end }}</a>
-    {{ end }}
+    <a href="?comp=all" data-preset="all"{{ if eq .CompState "all" }} class="on" aria-current="true"{{ end }}>{{ t $.Lang "overview.kpi.scope_all" }}</a>
+    <a href="?comp=judged" data-preset="judged"{{ if eq .CompState "judged" }} class="on" aria-current="true"{{ end }}>{{ t $.Lang "overview.kpi.scope_judged" }}</a>
   </div>
   {{ end }}
-  {{ range .CompViews }}
-  {{ $t := .Denom }}
-  {{ $judged := eq .Scope "judged" }}
-  <div class="comp-view" data-scope="{{ .Scope }}"{{ if not .Active }} hidden{{ end }}>
+  {{ $t := .CompDenom }}
+  <div class="comp-body" data-state="{{ .CompState }}" data-excluded="{{ t .Lang "overview.kpi.scope_excluded" }}">
     <div class="comp-bar" role="img" aria-label="{{ t $.Lang "overview.kpi.nonhuman" }}">
-      <span class="comp-seg comp-benign" style="width:{{ pctOf $.KPIReqBenign $t }}%"></span>
-      <span class="comp-seg comp-bad"    style="width:{{ pctOf $.KPIReqBlocked $t }}%"></span>
-      {{ if not $judged }}<span class="comp-seg comp-bypass" style="width:{{ pctOf $.KPIReqBypassed $t }}%"></span>{{ end }}
-      <span class="comp-seg comp-human"  style="width:{{ pctOf $.KPIReqHuman $t }}%"></span>
-      {{ if $.KPIReqOtherKnown }}<span class="comp-seg comp-other" style="width:{{ pctOf $.KPIReqOther $t }}%"></span>{{ end }}
+      {{ range .CompSegs }}<span class="comp-seg comp-{{ .Key }}" data-key="{{ .Key }}" style="width:{{ if .On }}{{ pctOf .Count $t }}{{ else }}0{{ end }}%{{ if not .On }};display:none{{ end }}"></span>{{ end }}
     </div>
+    {{/* Every segment is a chip: click toggles it out of (or back into) the
+         denominator.  An excluded segment stays visible, greyed and struck
+         through with its count intact -- the traffic did not vanish, it left
+         the denominator, and a segment that disappears reads as "there is
+         none".  Same interaction as the stats charts' legend.  The chip is a
+         real link to the resulting state, so it works without JS; the last
+         enabled segment renders unlinked, because a share of nothing answers
+         nothing. */}}
     <div class="comp-legend">
-      <span><i class="comp-benign"></i>{{ tf $.Lang "overview.kpi.nonhuman_benign" (comma $.KPIReqBenign) }}<b class="comp-share">{{ pctLabel $.KPIReqBenign $t }}</b></span>
-      <span><i class="comp-bad"></i>{{ tf $.Lang "overview.kpi.nonhuman_bad" (comma $.KPIReqBlocked) }}<b class="comp-share">{{ pctLabel $.KPIReqBlocked $t }}</b></span>
-      {{/* Kept visible when excluded, greyed and without a share: the traffic did
-           not vanish, it left the denominator, and a segment that disappears
-           reads as "there is none". */}}
-      {{ if $.KPIReqBypassed }}<span{{ if $judged }} class="comp-out"{{ end }}><i class="comp-bypass"></i>{{ tf $.Lang "overview.kpi.nonhuman_bypass" (comma $.KPIReqBypassed) }}<b class="comp-share">{{ if $judged }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ else }}{{ pctLabel $.KPIReqBypassed $t }}{{ end }}</b></span>{{ end }}
-      <span><i class="comp-human"></i>{{ tf $.Lang "overview.kpi.nonhuman_human" (comma $.KPIReqHuman) }}<b class="comp-share">{{ pctLabel $.KPIReqHuman $t }}</b></span>
-      {{/* The residue, named.  It carries a breakdown rather than a label
-           claiming more than the number can carry -- and an operator who sees
-           it grow can tell which of the two halves grew. */}}
-      <span><i class="comp-other"></i>{{ if $.KPIReqOtherKnown }}{{ tf $.Lang "overview.kpi.nonhuman_other" (comma $.KPIReqOther) }}<b class="comp-share">{{ pctLabel $.KPIReqOther $t }}</b>{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>{{ end }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_skew_desc" }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span></span>
+      {{ range .CompSegs }}
+      {{ $seg := . }}
+      <span class="comp-chip{{ if not .On }} comp-out{{ end }}" data-key="{{ .Key }}" data-count="{{ .Count }}" data-nonhuman="{{ .NonHuman }}">
+        {{- /* Pinned (= the last enabled segment, or an unknown residue) is an
+               anchor WITHOUT href: same element either way, so the script can
+               pin and unpin by toggling the attribute and the server and the
+               page never disagree about what a pinned chip looks like. */ -}}
+        {{- if .ToggleParam }}<a class="comp-tgl" href="?comp={{ .ToggleParam }}" role="switch" aria-checked="{{ .On }}">{{ else }}<a class="comp-tgl comp-tgl-pinned" role="switch" aria-checked="{{ .On }}" aria-disabled="true">{{ end -}}
+        <i class="comp-{{ .Key }}"></i>
+        {{- if and (eq .Key "other") (not $.KPIReqOtherKnown) }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>
+        {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ else }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ end }}</b>
+        {{- end }}
+        </a>
+        {{- if eq .Key "other" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_skew_desc" }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span>{{ end -}}
+      </span>
+      {{ end }}
     </div>
   </div>
-  {{ end }}
   {{ end }}
 </div>
 
@@ -315,40 +318,146 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 /* Colocated with the script below: a hidden view must stay hidden even though
    .comp-view sits inside a flex header, where display:flex would beat [hidden].
    (The same trap the rule-dialog choices hit.) */
-.comp-view[hidden]{display:none}
+/* Segment chips: the same visual grammar as the stats charts' legend --
+   clickable, and an excluded segment goes grey with its label struck through
+   while its count stays readable. */
+.comp-chip .comp-tgl{color:inherit;text-decoration:none;cursor:pointer;user-select:none}
+.comp-chip.comp-out .comp-tgl{text-decoration:line-through}
+.comp-chip .comp-tgl-pinned{cursor:default}
 </style>
 <script>
-// Denominator toggle: both views are already in the DOM, rendered by the server
-// against their own totals, so switching is a visibility flip -- no request, no
-// navigation, and no arithmetic repeated here.  The links keep working without
-// JS; this only intercepts them.
+// Segment toggles.  The server renders the selected view (cookie/?comp=), so
+// the page is truthful without JS; this script mirrors the same arithmetic to
+// make a toggle instant -- share labels, bar widths, headline and caption are
+// all recomputed against the new denominator, exactly as Go would render them
+// (pctLabel's "<0.1%" floor included, so the two paths cannot disagree).
 (function(){
   var card = document.getElementById('comp-card');
   if (!card) return;
-  var nav = card.querySelector('.comp-scope');
-  if (!nav) return;
-  nav.addEventListener('click', function(e){
-    var a = e.target.closest('a[data-scope]');
-    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
-    e.preventDefault();
-    var want = a.getAttribute('data-scope');
-    card.querySelectorAll('.comp-view').forEach(function(v){
-      v.hidden = v.getAttribute('data-scope') !== want;
+  var body = card.querySelector('.comp-body');
+  var view = card.querySelector('.comp-view');
+  if (!body || !view) return;
+  var ORDER = ['benign','bad','bypass','human','other'];
+  var chips = {};
+  card.querySelectorAll('.comp-chip').forEach(function(c){ chips[c.dataset.key] = c; });
+  var total = parseInt(view.dataset.total, 10) || 0;
+  var excludedLabel = body.dataset.excluded || '';
+  var fmt = new Intl.NumberFormat('en-US');
+
+  function state(){
+    var on = {};
+    ORDER.forEach(function(k){ if (chips[k]) on[k] = !chips[k].classList.contains('comp-out'); });
+    return on;
+  }
+  function param(on){
+    var keys = ORDER.filter(function(k){ return chips[k] && on[k]; });
+    if (!keys.length) return '';
+    var present = ORDER.filter(function(k){ return chips[k]; });
+    if (keys.length === present.length) return 'all';
+    if (keys.length === present.length - 1 && !on['bypass'] && chips['bypass']) return 'judged';
+    return keys.join('-');
+  }
+  function pctLabel(n, t){
+    if (t <= 0 || n <= 0) return '0%';
+    var p = n / t * 100;
+    if (p < 0.05) return '<0.1%';
+    return p.toFixed(1) + '%';
+  }
+  function apply(on){
+    var denom = total;
+    var nonhuman = 0;
+    ORDER.forEach(function(k){
+      var c = chips[k];
+      if (!c) return;
+      var n = parseInt(c.dataset.count, 10) || 0;
+      if (!on[k]) denom -= n;
+      else if (c.dataset.nonhuman === 'true') nonhuman += n;
     });
-    nav.querySelectorAll('a[data-scope]').forEach(function(link){
-      var on = link.getAttribute('data-scope') === want;
-      link.classList.toggle('on', on);
-      if (on) link.setAttribute('aria-current', 'true'); else link.removeAttribute('aria-current');
+    if (denom < 0) denom = 0;
+    // Headline + caption.  The dash state (no feed) never reaches here: the
+    // card renders no chips without data.
+    var pctEl = view.querySelector('.comp-pct');
+    if (pctEl && pctEl.textContent.indexOf('—') === -1) {
+      var pct = denom > 0 ? (nonhuman / denom * 100) : 0;
+      pctEl.innerHTML = pct.toFixed(1) + '<span class="comp-pct-u">%</span>';
+    }
+    var st = param(on);
+    var capTpl = st === 'all' ? view.dataset.capAll : (st === 'judged' ? view.dataset.capJudged : view.dataset.capSelected);
+    var ofEl = view.querySelector('.comp-of');
+    if (ofEl && capTpl) ofEl.textContent = capTpl.replace('%s', fmt.format(denom));
+    // Bar + chips.
+    ORDER.forEach(function(k){
+      var c = chips[k];
+      if (!c) return;
+      var n = parseInt(c.dataset.count, 10) || 0;
+      var seg = body.querySelector('.comp-seg[data-key="' + k + '"]');
+      if (seg) {
+        seg.style.display = on[k] ? '' : 'none';
+        seg.style.width = (on[k] && denom > 0 && n > 0 ? (n / denom * 100).toFixed(4) : '0') + '%';
+      }
+      c.classList.toggle('comp-out', !on[k]);
+      var share = c.querySelector('.comp-share');
+      if (share && share.textContent !== '?') {
+        share.textContent = on[k] ? pctLabel(n, denom) : excludedLabel;
+      }
+      var tgl = c.querySelector('a.comp-tgl');
+      if (tgl && !c.classList.contains('comp-tgl-static')) {
+        tgl.setAttribute('aria-checked', on[k] ? 'true' : 'false');
+        var t2 = {};
+        ORDER.forEach(function(kk){ t2[kk] = on[kk]; });
+        t2[k] = !t2[k];
+        var tp = param(t2);
+        // Pinned = no href: the last enabled segment cannot be switched off.
+        if (tp) {
+          tgl.setAttribute('href', '?comp=' + tp);
+          tgl.classList.remove('comp-tgl-pinned');
+          tgl.removeAttribute('aria-disabled');
+        } else {
+          tgl.removeAttribute('href');
+          tgl.classList.add('comp-tgl-pinned');
+          tgl.setAttribute('aria-disabled', 'true');
+        }
+      }
     });
-    // Remember it the same way the server would have, and put the choice in the
-    // URL so a reload or a shared link opens on the view being looked at.
+    // Presets highlight when the state matches them.
+    card.querySelectorAll('.comp-scope a[data-preset]').forEach(function(a){
+      var hit = a.dataset.preset === st;
+      a.classList.toggle('on', hit);
+      if (hit) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+    });
+    body.dataset.state = st;
+    // Remember it the same way the server would have, and put the choice in
+    // the URL so a reload or a shared link opens on the view being looked at.
     try {
-      document.cookie = 'unmask_comp_scope=' + encodeURIComponent(want) +
+      document.cookie = 'unmask_comp_seg=' + encodeURIComponent(st) +
         ';path=' + (window.UNMASK_BASE || '/unmask') + ';max-age=' + (365*24*3600) + ';SameSite=Lax';
       var u = new URL(window.location.href);
-      u.searchParams.set('comp', want);
+      u.searchParams.set('comp', st);
       history.replaceState(null, '', u);
     } catch (_) {}
+  }
+  card.addEventListener('click', function(e){
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    // The other chip's help tip sits beside the toggle link, never inside it,
+    // so opening the popover cannot flip the segment.
+    var preset = e.target.closest('.comp-scope a[data-preset]');
+    if (preset) {
+      e.preventDefault();
+      var on = {};
+      ORDER.forEach(function(k){ on[k] = preset.dataset.preset === 'all' ? true : k !== 'bypass'; });
+      apply(on);
+      return;
+    }
+    var tgl = e.target.closest('a.comp-tgl');
+    if (!tgl || !tgl.getAttribute('href')) return;
+    e.preventDefault();
+    var chip = tgl.closest('.comp-chip');
+    var on = state();
+    var k = chip.dataset.key;
+    on[k] = !on[k];
+    // The last enabled segment stays: a share of nothing answers nothing.
+    if (!ORDER.some(function(kk){ return chips[kk] && on[kk]; })) return;
+    apply(on);
   });
 })();
 </script>
