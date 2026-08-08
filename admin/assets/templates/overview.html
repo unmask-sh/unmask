@@ -283,7 +283,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
   {{ end }}
   {{ $t := .CompDenom }}
-  <div class="comp-body" data-state="{{ .CompState }}" data-excluded="{{ t .Lang "overview.kpi.scope_excluded" }}">
+  <div class="comp-body" data-state="{{ .CompState }}">
     <div class="comp-bar" role="img" aria-label="{{ t $.Lang "overview.kpi.nonhuman" }}">
       {{ range .CompSegs }}<span class="comp-seg comp-{{ .Key }}" data-key="{{ .Key }}" style="width:{{ if .On }}{{ pctOf .Count $t }}{{ else }}0{{ end }}%{{ if not .On }};display:none{{ end }}"></span>{{ end }}
     </div>
@@ -306,7 +306,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         {{- if .ToggleParam }}<a class="comp-tgl" href="?comp={{ .ToggleParam }}" role="switch" aria-checked="{{ .On }}">{{ else }}<a class="comp-tgl comp-tgl-pinned" role="switch" aria-checked="{{ .On }}" aria-disabled="true">{{ end -}}
         <i class="comp-{{ .Key }}"></i>
         {{- if and (eq .Key "other") (not $.KPIReqOtherKnown) }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>
-        {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ else }}{{ t $.Lang "overview.kpi.scope_excluded" }}{{ end }}</b>
+        {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ end }}</b>
         {{- end }}
         </a>
         {{- if eq .Key "other" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_skew_desc" }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span>{{ end -}}
@@ -344,7 +344,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   var chips = {};
   card.querySelectorAll('.comp-chip').forEach(function(c){ chips[c.dataset.key] = c; });
   var total = parseInt(view.dataset.total, 10) || 0;
-  var excludedLabel = body.dataset.excluded || '';
   var fmt = new Intl.NumberFormat('en-US');
 
   function state(){
@@ -401,7 +400,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       c.classList.toggle('comp-out', !on[k]);
       var share = c.querySelector('.comp-share');
       if (share && share.textContent !== '?') {
-        share.textContent = on[k] ? pctLabel(n, denom) : excludedLabel;
+        // The strike-through and the grey already say "excluded"; swapping a
+        // wide label in and out made the whole legend reflow on every click.
+        share.textContent = on[k] ? pctLabel(n, denom) : '';
       }
       var tgl = c.querySelector('a.comp-tgl');
       if (tgl && !c.classList.contains('comp-tgl-static')) {

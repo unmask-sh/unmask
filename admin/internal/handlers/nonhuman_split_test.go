@@ -457,11 +457,12 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 	if !strings.Contains(tpl, "pctLabel .Count $t") {
 		t.Error("the legend chips carry no share against the selected denominator")
 	}
-	// An excluded chip trades its share for the exclusion label -- the count
-	// stays, the percentage goes, because a share of a denominator the segment
-	// is not in would be a lie.
-	if !strings.Contains(tpl, `overview.kpi.scope_excluded`) {
-		t.Error("an excluded chip has no exclusion label")
+	// An excluded chip keeps its count and loses its share -- a percentage of
+	// a denominator the segment is not in would be a lie, and the exclusion
+	// itself is already said by the strike-through (a wide label swapping in
+	// and out made the legend reflow on every click).
+	if !strings.Contains(tpl, "{{ if .On }}{{ pctLabel .Count $t }}{{ end }}") {
+		t.Error("an excluded chip should render an empty share, an enabled one its percentage")
 	}
 }
 
