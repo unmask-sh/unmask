@@ -23,7 +23,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	// Stash, then read the flash back the way the GET render would.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=network", nil)
-	setNetListDraft(w, r, "/unmask", form, []string{`tool\d+\-[a-z]`})
+	setNetListDraft(w, r, "/unmask", form, []string{`tool\d+\-[a-z]`}, "admin_allowed_hosts", "", "boom")
 
 	var cookie string
 	for _, c := range w.Result().Cookies() {
@@ -44,12 +44,16 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 		// merged with it.
 		AdminAllowedHosts: []string{"stale.example.com"},
 	}
-	focus := overlayNetListDraft(n, raw)
-	if !focus[`tool\d+\-[a-z]`] {
-		t.Errorf("the changed value is not in the focus set: %#v", focus)
+	view := overlayNetListDraft(n, raw)
+	if !view.Focus[`tool\d+\-[a-z]`] {
+		t.Errorf("the changed value is not in the focus set: %#v", view.Focus)
 	}
-	if focus["admin.example.com"] {
+	if view.Focus["admin.example.com"] {
 		t.Errorf("an unchanged, pre-existing-looking row must not be focused")
+	}
+	// The located error round-trips too, so the render can point at the row.
+	if view.ErrField != "admin_allowed_hosts" || view.ErrMsg != "boom" {
+		t.Errorf("the located error did not survive the round-trip: %#v", view)
 	}
 	if len(n.AdminAllowedHosts) != 2 || n.AdminAllowedHosts[0] != `tool\d+\-[a-z]` {
 		t.Fatalf("the invalid value the operator typed was not preserved: %#v", n.AdminAllowedHosts)
@@ -77,7 +81,7 @@ func TestNetListDraftSkipsOversized(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form, nil)
+	setNetListDraft(w, r, "/unmask", form, nil, "", "", "")
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
 			t.Fatal("an oversized draft was written to a cookie instead of being skipped")
@@ -94,7 +98,7 @@ func TestNetListDraftPreservesCleared(t *testing.T) {
 	form["admin_allowed_ips"] = []string{"not-an-ip"}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form, nil)
+	setNetListDraft(w, r, "/unmask", form, nil, "", "", "")
 	var raw string
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
