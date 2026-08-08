@@ -4077,7 +4077,8 @@ function secToHuman(s){
       {{ range $i, $r := .Nginx.Geo.Rules }}
       {{ $c := index $.GeoCountryMap $r.Country }}
       {{ $rs := rateStr $r.RatePerMin }}
-      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
+      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "geo_country") }}{{ if $.SecErrValue }}{{ if eq $r.Country $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Country }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Country }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="geo_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
@@ -4104,6 +4105,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
+      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -4362,7 +4364,8 @@ function secToHuman(s){
     <div class="rule-list" data-rule-name="asn_number">
       <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.asn.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.asn.col_target" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
       {{ range $i, $r := .AsnCustomRules }}
-      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
+      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "asn_number") }}{{ if $.SecErrValue }}{{ if eq $r.Value $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Value }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Value }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="asn_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="asn_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
@@ -4389,6 +4392,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
+      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">

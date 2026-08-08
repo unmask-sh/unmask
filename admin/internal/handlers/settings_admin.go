@@ -825,7 +825,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"RateLimit": h.snapshotSettings().RateLimit,
 		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
 		// Nginx struct so the geo template can reference .Nginx.Geo.* directly.
-		"Nginx": h.snapshotSettings().Nginx,
+		// This is the same overlaid copy as Cur (not a fresh snapshot), so a
+		// rejected geo save re-renders the operator's typed country rows.
+		"Nginx": cur,
 		// Country master for the geo tab.  Sorted slice powers the datalist
 		// + JS validator; the map gives per-row name lookup without scanning
 		// the slice each row.
@@ -1566,21 +1568,27 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "geo":
-		if err := applyGeoForm(&cur.Nginx.Geo, r); err != nil {
-			redirBack(err.Error())
+		geoStored := map[string][]string{
+			"geo_country": countriesOfGeo(cur.Nginx.Geo.Rules),
+			"gx_path":     pathsOfBypass(cur.Nginx.Geo.ExemptPaths),
+		}
+		if sectionErr("geo", geoStored, applyGeoForm(&cur.Nginx.Geo, r)) {
 			return
 		}
 		// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
-		if sectionErr("geo", map[string][]string{"gx_path": pathsOfBypass(cur.Nginx.Geo.ExemptPaths)}, applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang)) {
+		if sectionErr("geo", geoStored, applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang)) {
 			return
 		}
 	case "asn":
-		if err := applyAsnForm(&cur.Nginx.Asn, r); err != nil {
-			redirBack(err.Error())
+		asnStored := map[string][]string{
+			"asn_number": valuesOfAsn(cur.Nginx.Asn.Rules),
+			"ax_path":    pathsOfBypass(cur.Nginx.Asn.ExemptPaths),
+		}
+		if sectionErr("asn", asnStored, applyAsnForm(&cur.Nginx.Asn, r)) {
 			return
 		}
 		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
-		if sectionErr("asn", map[string][]string{"ax_path": pathsOfBypass(cur.Nginx.Asn.ExemptPaths)}, applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang)) {
+		if sectionErr("asn", asnStored, applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang)) {
 			return
 		}
 	case "theme":
@@ -2138,9 +2146,9 @@ func (e *listFieldError) Error() string { return e.Msg }
 // (challenge chains, per-site path rules); simple lists leave them empty.
 type listRows struct {
 	Values, Titles, Enabled, Actions, Sites []string
-	// Verdicts: the JA4 list's second value column (pattern -> verdict); empty
-	// for every other list.
-	Verdicts []string
+	// Verdicts / Rates: extra value columns some lists carry -- JA4's verdict,
+	// the geo/asn rate-rule tables' per-row rate.  Empty for lists without them.
+	Verdicts, Rates []string
 }
 
 // pathRow is one structured path/URL row rebuilt from a draft, in the shape the
@@ -2202,6 +2210,7 @@ type ruleListSpec struct {
 	Name                         string // value field == data-rule-name == ErrField
 	Title, Enabled, Action, Site string // parallel form field names ("" if absent)
 	Verdict                      string // JA4's second value column ("" for the rest)
+	Rate                         string // geo/asn per-row rate column ("" for the rest)
 	Overlay                      func(c *settings.Settings, rows listRows)
 }
 
@@ -2264,12 +2273,20 @@ var ruleListRegistry = map[string][]ruleListSpec{
 	// exempt-path list that shares the BypassPath shape -- the exempt list gets
 	// the full treatment here.
 	"geo": {
+		{Name: "geo_country", Title: "geo_label", Enabled: "geo_enabled", Action: "geo_action", Rate: "geo_rate",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.Geo.Rules = overlayGeoRules(rows)
+			}},
 		{Name: "gx_path", Title: "gx_title", Enabled: "gx_enabled", Site: "gx_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Geo.ExemptPaths = overlayBypassPaths(rows)
 			}},
 	},
 	"asn": {
+		{Name: "asn_number", Title: "asn_label", Enabled: "asn_enabled", Action: "asn_action", Rate: "asn_rate",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				c.Nginx.Asn.Rules = overlayAsnRules(rows)
+			}},
 		{Name: "ax_path", Title: "ax_title", Enabled: "ax_enabled", Site: "ax_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Asn.ExemptPaths = overlayBypassPaths(rows)
@@ -2304,6 +2321,79 @@ func overlayJA4(rows listRows) []settings.JA4VerdictExtraRule {
 			return ""
 		}
 		out = append(out, settings.JA4VerdictExtraRule{Pattern: p, Verdict: col(rows.Verdicts), Action: col(rows.Actions)})
+	}
+	return out
+}
+
+// draftRatePtr is the inverse of rateStr: "" -> nil (inherit the default), a
+// number -> that cap.  Junk parses as nil rather than erroring; this only feeds
+// the redisplay of a rejected save, and the real validation already ran.
+func draftRatePtr(s string) *int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if v, err := strconv.Atoi(s); err == nil {
+		return &v
+	}
+	return nil
+}
+
+// overlayGeoRules rebuilds the country rule table from a restored draft so the
+// error page shows the typed country / label / action / rate back.
+func overlayGeoRules(rows listRows) []settings.GeoRule {
+	out := []settings.GeoRule{}
+	for i, v := range rows.Values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		col := func(a []string) string {
+			if i < len(a) {
+				return strings.TrimSpace(a[i])
+			}
+			return ""
+		}
+		out = append(out, settings.GeoRule{
+			Country:    v,
+			Label:      col(rows.Titles),
+			Action:     col(rows.Actions),
+			RatePerMin: draftRatePtr(col(rows.Rates)),
+			Enabled:    !(i < len(rows.Enabled) && rows.Enabled[i] == "0"),
+		})
+	}
+	return out
+}
+
+// overlayAsnRules rebuilds the ASN rule table from a restored draft.  The value
+// column round-trips through asnCustomRuleView: "AS<n>" / a bare number becomes
+// an ASN rule, anything else an org rule -- the same shape the view reads back.
+func overlayAsnRules(rows listRows) []settings.AsnRule {
+	out := []settings.AsnRule{}
+	for i, v := range rows.Values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		col := func(a []string) string {
+			if i < len(a) {
+				return strings.TrimSpace(a[i])
+			}
+			return ""
+		}
+		rule := settings.AsnRule{
+			Label:      col(rows.Titles),
+			Action:     col(rows.Actions),
+			RatePerMin: draftRatePtr(col(rows.Rates)),
+			Enabled:    !(i < len(rows.Enabled) && rows.Enabled[i] == "0"),
+		}
+		num := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(v, "AS"), "as"))
+		if n, err := strconv.ParseUint(num, 10, 32); err == nil && n != 0 {
+			rule.ASN = uint(n)
+		} else {
+			rule.Org = v
+		}
+		out = append(out, rule)
 	}
 	return out
 }
@@ -2376,6 +2466,28 @@ func pathsOfBypass(u []settings.BypassPath) []string {
 	out := make([]string, len(u))
 	for i, x := range u {
 		out[i] = x.Path
+	}
+	return out
+}
+
+func countriesOfGeo(u []settings.GeoRule) []string {
+	out := make([]string, len(u))
+	for i, x := range u {
+		out[i] = x.Country
+	}
+	return out
+}
+
+// valuesOfAsn mirrors asnCustomRuleView's value column ("AS<n>" or the org
+// string), so the changed-row diff compares like against like.
+func valuesOfAsn(u []settings.AsnRule) []string {
+	out := make([]string, len(u))
+	for i, x := range u {
+		if x.ASN != 0 {
+			out[i] = "AS" + strconv.FormatUint(uint64(x.ASN), 10)
+		} else {
+			out[i] = x.Org
+		}
 	}
 	return out
 }
@@ -2484,6 +2596,7 @@ func setSectionDraft(w http.ResponseWriter, r *http.Request, base, section strin
 			Actions:  pick(sp.Action),
 			Sites:    pick(sp.Site),
 			Verdicts: pick(sp.Verdict),
+			Rates:    pick(sp.Rate),
 		}
 	}
 	b, err := json.Marshal(d)
@@ -4797,13 +4910,13 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			continue
 		}
 		if len(code) != 2 {
-			return fmt.Errorf("country code %q: must be ISO 3166-1 alpha-2 (2 letters)", code)
+			return &listFieldError{Field: "geo_country", Value: code, Msg: fmt.Sprintf("country code %q: must be ISO 3166-1 alpha-2 (2 letters)", code)}
 		}
 		if !ipgeo.IsValidCountry(code) {
-			return fmt.Errorf("unknown country code %q", code)
+			return &listFieldError{Field: "geo_country", Value: code, Msg: fmt.Sprintf("unknown country code %q", code)}
 		}
 		if seen[code] {
-			return fmt.Errorf("duplicate country code %q", code)
+			return &listFieldError{Field: "geo_country", Value: code, Msg: fmt.Sprintf("duplicate country code %q", code)}
 		}
 		seen[code] = true
 
@@ -4812,7 +4925,7 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 			action = strings.TrimSpace(actions[i])
 		}
 		if action != "" && !settings.IsValidGeoAction(action) {
-			return fmt.Errorf("country %s: action invalid (got %q)", code, action)
+			return &listFieldError{Field: "geo_country", Value: code, Msg: fmt.Sprintf("country %s: action invalid (got %q)", code, action)}
 		}
 
 		enVal := r.FormValue(fmt.Sprintf("geo_enabled_%d", i))
@@ -5063,7 +5176,7 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 			action = strings.TrimSpace(actions[i])
 		}
 		if action != "" && !settings.IsValidGeoAction(action) {
-			return fmt.Errorf("rule %q: action invalid (got %q)", s, action)
+			return &listFieldError{Field: "asn_number", Value: s, Msg: fmt.Sprintf("rule %q: action invalid (got %q)", s, action)}
 		}
 		var label string
 		if i < len(labels) {
@@ -5111,7 +5224,7 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		numStr := strings.TrimPrefix(strings.TrimPrefix(s, "AS"), "as")
 		if n, err := strconv.ParseUint(numStr, 10, 32); err == nil && n != 0 {
 			if seenNum[uint(n)] {
-				return fmt.Errorf("duplicate ASN %d", n)
+				return &listFieldError{Field: "asn_number", Value: s, Msg: fmt.Sprintf("duplicate ASN %d", n)}
 			}
 			seenNum[uint(n)] = true
 			rule.ASN = uint(n)
@@ -5122,7 +5235,7 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 			}
 			key := strings.ToLower(org)
 			if seenOrg[key] {
-				return fmt.Errorf("duplicate org rule %q", org)
+				return &listFieldError{Field: "asn_number", Value: s, Msg: fmt.Sprintf("duplicate org rule %q", org)}
 			}
 			seenOrg[key] = true
 			rule.Org = org
