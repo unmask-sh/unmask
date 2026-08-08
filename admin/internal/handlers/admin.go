@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -757,15 +758,46 @@ func hostAllowed(host string, allowList []string) bool {
 	}
 	host = strings.ToLower(host)
 	for _, entry := range allowList {
-		entry = strings.ToLower(strings.TrimSpace(entry))
-		if entry == "" {
-			continue
-		}
-		if host == entry {
+		if hostMatchesPattern(host, strings.TrimSpace(entry)) {
 			return true
 		}
 	}
 	return false
+}
+
+// hostMatchesPattern matches one allowlist entry against an already-normalised
+// (lower-cased, port-stripped) host, honouring the same exact/contains/regex
+// convention the rest of the settings lists use (settings.PatternModeOf): a
+// bare value is a regex, "exact:" and "contains:" change the reading.  The
+// widget that edits this field shows a mode toggle, so an entry saved as a
+// regex has to be read as one here -- until this existed the toggle was inert
+// and only a plain literal ever matched.
+//
+// The one deliberate difference from the shared convention: a regex here is
+// FULLY ANCHORED.  Everywhere else the lists are challenge / deny targets,
+// where matching more traffic only means more scrutiny; this list is an ALLOW
+// list guarding the admin UI, where matching more means granting more access.
+// An unanchored "tool\d+-[a-z]+" would admit "tool1-jp.attacker.com"; anchored,
+// it admits exactly the hostnames it spells out.
+func hostMatchesPattern(host, entry string) bool {
+	if entry == "" {
+		return false
+	}
+	switch settings.PatternModeOf(entry) {
+	case settings.ModeExact:
+		return strings.EqualFold(host, settings.PatternText(entry))
+	case settings.ModeContains:
+		return strings.Contains(host, strings.ToLower(settings.PatternText(entry)))
+	default: // regex
+		re, err := regexp.Compile("(?i)^(?:" + entry + ")$")
+		if err != nil {
+			// A pattern that does not compile matches nothing -- an allow list
+			// fails closed.  Save-time validation rejects these, so a stored
+			// one is only reachable via a hand-edited config.
+			return false
+		}
+		return re.MatchString(host)
+	}
 }
 
 // ipAllowed reports whether ip matches any entry in allowList.  Supports both
