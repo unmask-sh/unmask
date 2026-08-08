@@ -10,6 +10,21 @@
      line they no longer recognise.  Callers that want notes pass Titles;
      the field renders either way so the two inputs stay index-aligned on
      submit.  Same shape as the bypass-IP rows. */}}
+{{/* ruleButtons: the shared per-row action buttons for every rule-list.  One
+     definition instead of the copy in each block; icon-only, so aria-label and
+     never title -- a hover tooltip on an icon button is exactly what
+     feedback_icon_tooltips rules out.  Reorder omits up/down for lists whose
+     order is not even organisational. */}}
+{{ define "ruleButtons" }}
+{{- if .Reorder }}<button type="button" class="rule-up" aria-label="{{ t .Lang "settings.ua.move_up" }}">↑</button>
+<button type="button" class="rule-down" aria-label="{{ t .Lang "settings.ua.move_down" }}">↓</button>
+{{ end -}}
+<button type="button" class="rule-edit" aria-label="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
+<button type="button" class="rule-save" aria-label="{{ t .Lang "settings.ua.save_row" }}">✓</button>
+<button type="button" class="rule-del" aria-label="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
+<button type="button" class="rule-add" aria-label="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+{{ end }}
+
 {{ define "valueRuleList" }}
 {{/* Shared view/edit row list for plain value+note settings (admin allowed
      IPs / Hosts, metrics allowlist, defined sites).  Rows render CONFIRMED
@@ -42,12 +57,7 @@
     </span>
     <input type="text" name="{{ $.Name }}_title" value="{{ $t }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-title">
     <span class="rule-pat-wrap"><input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-    <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-    <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-    <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-    <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-    <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-    <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+    {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
   </div>
   {{ if $rrs.Err }}<div class="rule-err">{{ $.ErrMsg }}</div>{{ end }}
   {{ end }}
@@ -63,12 +73,7 @@
       </span>
       <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-title">
       <span class="rule-pat-wrap"><input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-      <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-      <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-      <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-      <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-      <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-      <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+      {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
     </div>
   </template>
 </div>
@@ -1263,12 +1268,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <span class="rule-pat-wrap"><input type="text" name="lb_extra_id" value="{{ .ID }}" placeholder="{{ t $.Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="lb_extra_cidrs" value="{{ .CIDRs }}" placeholder="{{ t $.Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
           <input type="text" name="lb_extra_header" value="{{ .Header }}" placeholder="{{ t $.Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
-          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
         </div>
         {{ end }}
         <template class="rule-row-template">
@@ -1283,12 +1283,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <input type="text" name="lb_extra_id" placeholder="{{ t .Lang "settings.network.lb_extra_id_ph" }}" class="rule-pat">
             <input type="text" name="lb_extra_cidrs" placeholder="{{ t .Lang "settings.network.lb_extra_cidrs_ph" }}" class="rule-verd">
             <input type="text" name="lb_extra_header" placeholder="{{ t .Lang "settings.network.lb_extra_header_ph" }}" class="rule-action">
-            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+            {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
           </div>
         </template>
       </div>
@@ -1346,12 +1341,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="text" name="re_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <select name="re_type" class="rule-action" style="width:5rem"><option value="path" {{ if ne .Type "ua" }}selected{{ end }}>path</option><option value="ua" {{ if eq .Type "ua" }}selected{{ end }}>UA</option></select>
           <span class="rule-pat-wrap"><input type="text" name="re_pattern" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
         </div>
         {{ end }}
         <template class="rule-row-template">
@@ -1367,12 +1357,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <input type="text" name="re_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
             <select name="re_type" class="rule-action" style="width:5rem"><option value="path" selected>path</option><option value="ua">UA</option></select>
             <span class="rule-pat-wrap"><input type="text" name="re_pattern" value="" placeholder="{{ t .Lang "settings.network.redirect_exempt_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+            {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
           </div>
         </template>
       </div><!-- /.rule-list -->
@@ -1624,12 +1609,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </span>
         <input type="text" name="bypass_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="bypass_ip" value="{{ .IP }}" placeholder="{{ t $.Lang "settings.network.bypass_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -1644,12 +1624,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="bypass_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="bypass_ip" value="" placeholder="{{ t .Lang "settings.network.bypass_placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
@@ -1688,10 +1663,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             </span>
             <input type="text" name="stats_exclude_ips_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
             <span class="rule-pat-wrap"><input type="text" name="stats_exclude_ips" value="{{ .IP }}" placeholder="10.8.100.1" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-            <button type="button" class="rule-edit" aria-label="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-            <button type="button" class="rule-save" aria-label="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-            <button type="button" class="rule-del" aria-label="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-            <button type="button" class="rule-add" aria-label="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+            {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" false) }}
           </div>
           {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
           {{ end }}
@@ -1703,10 +1675,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               </span>
               <input type="text" name="stats_exclude_ips_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
               <span class="rule-pat-wrap"><input type="text" name="stats_exclude_ips" value="" placeholder="10.8.100.1" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-              <button type="button" class="rule-edit" aria-label="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-              <button type="button" class="rule-save" aria-label="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-              <button type="button" class="rule-del" aria-label="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-              <button type="button" class="rule-add" aria-label="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+              {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" false) }}
             </div>
           </template>
         </div>
@@ -1805,12 +1774,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -1826,12 +1790,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
@@ -2053,12 +2012,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         </span>
         <input type="text" name="white_extra_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="white_extra" value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.ua.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -2074,12 +2028,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </span>
           <input type="text" name="white_extra_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="white_extra" value="" placeholder="{{ t .Lang "settings.ua.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
       </div><!-- /.rule-list -->
@@ -2193,12 +2142,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <option value="pow_then_captcha" {{ if eq .Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
         </select>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -2220,12 +2164,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <option value="pow_then_captcha">pow_then_captcha</option>
             <option value="deny">deny</option>
           </select>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
       </div><!-- /.rule-list -->
@@ -2758,12 +2697,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <option value="captcha_only"     {{ if eq $jea "captcha_only" }}selected{{ end }}>captcha_only</option>
             <option value="deny"             {{ if eq $jea "deny" }}selected{{ end }}>deny</option>
           </select>
-          <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
         </div>
         {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
         {{ end }}
@@ -2792,12 +2726,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <option value="captcha_only">captcha_only</option>
               <option value="deny">deny</option>
             </select>
-            <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-            <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-            <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-            <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-            <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-            <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+            {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
           </div>
         </template>
       </div>
@@ -2914,12 +2843,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
           <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
         </select>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -2942,12 +2866,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <option value="captcha_only">captcha_only</option>
             <option value="deny">deny</option>
           </select>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
       </div>
@@ -3064,12 +2983,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
           <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
         </select>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -3093,12 +3007,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <option value="captcha_only">captcha_only</option>
             <option value="deny">deny</option>
           </select>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
       </div>
@@ -4098,12 +4007,7 @@ function secToHuman(s){
           <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
         </select>
         <input type="number" name="geo_rate" min="0" value="{{ $rs }}" placeholder="{{ if gt $.GeoDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.GeoDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -4127,12 +4031,7 @@ function secToHuman(s){
             <option value="deny">deny</option>
           </select>
           <input type="number" name="geo_rate" min="0" value="" placeholder="{{ if gt .GeoDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .GeoDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
@@ -4168,12 +4067,7 @@ function secToHuman(s){
         <input type="text" name="gx_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="gx_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.geo.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="gx_site" list="gx-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -4189,12 +4083,7 @@ function secToHuman(s){
           <input type="text" name="gx_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="gx_path"  value="" placeholder="{{ t .Lang "settings.geo.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="gx_site" list="gx-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
@@ -4385,12 +4274,7 @@ function secToHuman(s){
           <option value="deny"             {{ if eq $r.Action "deny"             }}selected{{ end }}>deny</option>
         </select>
         <input type="number" name="asn_rate" min="0" value="{{ $r.RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span>
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -4414,12 +4298,7 @@ function secToHuman(s){
             <option value="deny">deny</option>
           </select>
           <input type="number" name="asn_rate" min="0" value="" placeholder="{{ if gt .AsnDefaultRate 0 }}{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRate }}{{ else }}{{ tf .Lang "settings.asn.rate_inherit_ph" (t .Lang "settings.asn.rate_ph") }}{{ end }}" class="rule-action" style="width:5.5rem"><span class="rate-unit rule-edit-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
@@ -4453,12 +4332,7 @@ function secToHuman(s){
         <input type="text" name="ax_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="ax_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.asn.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="ax_site" list="ax-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-        <button type="button" class="rule-up" title="{{ t $.Lang "settings.ua.move_up" }}">↑</button>
-        <button type="button" class="rule-down" title="{{ t $.Lang "settings.ua.move_down" }}">↓</button>
-        <button type="button" class="rule-edit" title="{{ t $.Lang "settings.ua.edit_row" }}">✏️</button>
-        <button type="button" class="rule-save" title="{{ t $.Lang "settings.ua.save_row" }}">✓</button>
-        <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
-        <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
+        {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
@@ -4474,12 +4348,7 @@ function secToHuman(s){
           <input type="text" name="ax_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="ax_path"  value="" placeholder="{{ t .Lang "settings.asn.exempt.placeholder" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="ax_site" list="ax-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
-          <button type="button" class="rule-up" title="{{ t .Lang "settings.ua.move_up" }}">↑</button>
-          <button type="button" class="rule-down" title="{{ t .Lang "settings.ua.move_down" }}">↓</button>
-          <button type="button" class="rule-edit" title="{{ t .Lang "settings.ua.edit_row" }}">✏️</button>
-          <button type="button" class="rule-save" title="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="rule-del" title="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-          <button type="button" class="rule-add" title="{{ t .Lang "settings.ua.add_row_below" }}">＋</button>
+          {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
     </div>
