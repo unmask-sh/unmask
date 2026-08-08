@@ -1,0 +1,8 @@
+{
+  "name": "unmask-ui-e2e",
+  "private": true,
+  "description": "Browser-level checks for the admin UI, driven against a throwaway admin instance by run.sh",
+  "dependencies": {
+    "puppeteer-core": "25.5.0"
+  }
+}
