@@ -117,10 +117,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// operator typed; render those (over this local copy only, never saved)
 	// so the error page shows their input, not the last-saved list.  Consumed
 	// once -- readFlash deletes it -- so a later plain visit is unaffected.
-	var netDraft netDraftActive
+	var netFocusSet map[string]bool
 	if tab == "network" {
 		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
-			netDraft = overlayNetListDraft(&cur, raw)
+			netFocusSet = overlayNetListDraft(&cur, raw)
 		}
 	}
 	seenVer := cur.SeenVersion
@@ -628,13 +628,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"SavedRestart": r.URL.Query().Get("restart") == "1",
 		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":          cur,
-		// Open exactly the allowlist fields a rejected save restored, so the
-		// operator lands on an editable input holding their value rather than a
-		// confirmed row they must click to edit.
-		"NetDraftHosts":   netDraft.Hosts,
-		"NetDraftIPs":     netDraft.IPs,
-		"NetDraftMetrics": netDraft.Metrics,
-		"Global":          h.snapshotSettings().Global,
+		// After a rejected save, open exactly the rows the operator added or
+		// changed (matched by value), so they land on the input they were
+		// fixing while the already-saved rows stay confirmed.  nil on a normal
+		// load, so nothing auto-opens.
+		"NetFocusSet": netFocusSet,
+		"Global":      h.snapshotSettings().Global,
 		// Monitor mode is stored on the challenge record but presented on the
 		// operating-mode tab, so the template needs it alongside Global.
 		"ObserveOnly": h.snapshotSettings().Challenge.Default.IsObserveOnly(),
@@ -1362,8 +1361,19 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// how a five-entry list gets rebuilt from memory.  Stash the submitted
 		// values so the GET the redirect lands on can render them back with the
 		// error, instead of reloading the last-saved list.
+		//
+		// Focus = the rows the operator actually added or changed (submitted
+		// values absent from the stored list, captured here before any apply
+		// mutates cur).  Only those open for editing on the error page; the
+		// rows that were already saved stay confirmed, so a rejected save opens
+		// the one row being worked on, not the whole list.
+		netFocus := changedListValues(map[string][]string{
+			"admin_allowed_hosts": cur.Nginx.AdminAllowedHosts,
+			"admin_allowed_ips":   cur.Nginx.AdminAllowedIPs,
+			"metrics_allow_from":  cur.Nginx.MetricsAllowFrom,
+		}, r.Form)
 		netErr := func(msg string) {
-			setNetListDraft(w, r, base, r.Form)
+			setNetListDraft(w, r, base, r.Form, netFocus)
 			redirBack(msg)
 		}
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
@@ -2057,19 +2067,48 @@ type netListDraft struct {
 	Hosts, HostsTitle, HostsEnabled       []string
 	IPs, IPsTitle, IPsEnabled             []string
 	Metrics, MetricsTitle, MetricsEnabled []string
+	// Focus: the values the operator added or changed this save -- the rows
+	// that open for editing on the error page (the rest stay confirmed).
+	Focus []string
 }
 
 const netListDraftFlash = "netdraft"
+
+// changedListValues returns the submitted values, across the given fields, that
+// are not already in the stored list -- i.e. the rows the operator added or
+// edited.  stored maps a form field name to its pre-save values; form is the
+// POST.  Comparison is on the raw stored form (markers and all), which is what
+// both sides carry.
+func changedListValues(stored map[string][]string, form url.Values) []string {
+	var out []string
+	seen := map[string]bool{}
+	for field, prev := range stored {
+		was := map[string]bool{}
+		for _, v := range prev {
+			was[strings.TrimSpace(v)] = true
+		}
+		for _, v := range form[field] {
+			v = strings.TrimSpace(v)
+			if v == "" || was[v] || seen[v] {
+				continue
+			}
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
 
 // setNetListDraft stashes the submitted allowlist rows in a flash cookie.  It
 // silently does nothing if the payload would be too large for a cookie -- the
 // draft is a convenience, and its absence just falls back to the old
 // reload-from-stored behaviour rather than breaking the redirect.
-func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values) {
+func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values, focus []string) {
 	d := netListDraft{
 		Hosts: form["admin_allowed_hosts"], HostsTitle: form["admin_allowed_hosts_title"], HostsEnabled: form["admin_allowed_hosts_enabled"],
 		IPs: form["admin_allowed_ips"], IPsTitle: form["admin_allowed_ips_title"], IPsEnabled: form["admin_allowed_ips_enabled"],
 		Metrics: form["metrics_allow_from"], MetricsTitle: form["metrics_allow_from_title"], MetricsEnabled: form["metrics_allow_from_enabled"],
+		Focus: focus,
 	}
 	b, err := json.Marshal(d)
 	if err != nil || len(b) > 3500 {
@@ -2078,20 +2117,16 @@ func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form u
 	setFlash(w, r, base, netListDraftFlash, string(b))
 }
 
-// netDraftActive reports which of the three fields a draft overlay actually
-// replaced, so the view can open exactly those in edit mode.
-type netDraftActive struct{ Hosts, IPs, Metrics bool }
-
 // overlayNetListDraft applies a stored draft onto the Nginx view being
 // rendered.  Values are shown verbatim (including the invalid one the error
 // names), so the operator edits their own input rather than re-typing it.
 // Timestamps are left unset -- they are cosmetic badges and a draft row has no
-// meaningful save time yet.  Returns which fields were overlaid.
-func overlayNetListDraft(n *settings.Nginx, raw string) netDraftActive {
-	var active netDraftActive
+// meaningful save time yet.  Returns the focus set: the values whose rows
+// should open for editing (the ones the operator added or changed).
+func overlayNetListDraft(n *settings.Nginx, raw string) map[string]bool {
 	var d netListDraft
 	if json.Unmarshal([]byte(raw), &d) != nil {
-		return active
+		return nil
 	}
 	disabledOf := func(enabled []string, n int) []bool {
 		if len(enabled) == 0 {
@@ -2124,7 +2159,6 @@ func overlayNetListDraft(n *settings.Nginx, raw string) netDraftActive {
 		n.AdminAllowedHostsDisabled = disabledOf(d.HostsEnabled, len(v))
 		n.AdminAllowedHostsCreatedAt = nil
 		n.AdminAllowedHostsUpdatedAt = nil
-		active.Hosts = true
 	}
 	if v := clean(d.IPs); len(v) > 0 || d.IPs != nil {
 		n.AdminAllowedIPs = v
@@ -2132,7 +2166,6 @@ func overlayNetListDraft(n *settings.Nginx, raw string) netDraftActive {
 		n.AdminAllowedIPsDisabled = disabledOf(d.IPsEnabled, len(v))
 		n.AdminAllowedIPsCreatedAt = nil
 		n.AdminAllowedIPsUpdatedAt = nil
-		active.IPs = true
 	}
 	if v := clean(d.Metrics); len(v) > 0 || d.Metrics != nil {
 		n.MetricsAllowFrom = v
@@ -2140,9 +2173,12 @@ func overlayNetListDraft(n *settings.Nginx, raw string) netDraftActive {
 		n.MetricsAllowFromDisabled = disabledOf(d.MetricsEnabled, len(v))
 		n.MetricsAllowFromCreatedAt = nil
 		n.MetricsAllowFromUpdatedAt = nil
-		active.Metrics = true
 	}
-	return active
+	focus := map[string]bool{}
+	for _, v := range d.Focus {
+		focus[v] = true
+	}
+	return focus
 }
 
 // formHostListValidated parses the admin_allowed_hosts list.  It differs from
@@ -2183,7 +2219,9 @@ func formHostListValidated(vals, notes, enabled, created, updated []string, lang
 		// silently match nothing.
 		if settings.PatternModeOf(v) == settings.ModeRegex {
 			if _, e := regexp.Compile("(?i)^(?:" + v + ")$"); e != nil {
-				return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_bad_regex", v))
+				// Two %s: the offending value, and the exact: suggestion that
+				// echoes it back.
+				return nil, nil, nil, nil, nil, fmt.Errorf("%s", i18n.Tf(lang, "err.admin_host_bad_regex", v, v))
 			}
 		}
 		seen[v] = true

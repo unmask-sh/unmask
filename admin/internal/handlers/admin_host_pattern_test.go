@@ -105,5 +105,10 @@ func TestApplyNetworkFormAdminHosts(t *testing.T) {
 		if !strings.Contains(err.Error(), "tool(") {
 			t.Errorf("the error should name the offending value, got: %v", err)
 		}
+		// The message has two %s (the value, and the exact: suggestion echoing
+		// it); both must be filled -- a MISSING marker reached the UI once.
+		if strings.Contains(err.Error(), "MISSING") || strings.Contains(err.Error(), "%!") {
+			t.Errorf("the error message has an unfilled format verb: %v", err)
+		}
 	})
 }
