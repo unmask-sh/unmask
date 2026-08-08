@@ -84,7 +84,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-legend .info-popup{display:none}
 .comp-legend i{width:.6rem;height:.6rem;border-radius:.15rem;display:inline-block}
 /* The share is the point of the bar; the count is the detail behind it. */
-.comp-share{margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
+/* The share box keeps its width whether it holds "5.9%", "100.0%" or nothing
+   at all (an excluded chip) -- 6.5ch fits the widest possible reading, so a
+   toggle never changes any chip's width and the legend never reflows. */
+.comp-share{display:inline-block;min-width:6.5ch;margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
 /* Denominator switch.  Segmented-control shape so the two read as one choice
    rather than two links. */
 .comp-scope{display:flex;gap:0;margin:0 0 .5rem;font-size:.72rem}
