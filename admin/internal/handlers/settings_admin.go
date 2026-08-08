@@ -1411,7 +1411,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case "ua-filter":
-		applyUAFilterForm(&cur.Nginx, r)
+		uaFocus := changedListValues(map[string][]string{
+			"white_extra": cur.Nginx.SearchBots.Extra,
+			"black_extra": cur.Nginx.ChallengeTargets.Extra,
+		}, r.Form)
+		if err := applyUAFilterForm(&cur.Nginx, r, lang); err != nil {
+			var lfe *listFieldError
+			field, value := "", ""
+			if errors.As(err, &lfe) {
+				field, value = lfe.Field, lfe.Value
+			}
+			setSectionDraft(w, r, base, "ua-filter", r.Form, uaFocus, field, value, err.Error())
+			redirBack(err.Error())
+			return
+		}
 		// Stale-browser tier (lives on the UA-filter tab: it is a UA-string rule
 		// — old Chrome version → challenge — a sibling to the challenge-target
 		// blacklist).  The fields persist in Global; the tab is only a UI home.
@@ -2130,6 +2143,7 @@ const netListDraftFlash = "netdraft"
 var ruleListSections = map[string][]string{
 	"network":    {"admin_allowed_ips", "admin_allowed_hosts", "metrics_allow_from"},
 	"bypass-ips": {"bypass_ip", "stats_exclude_ips"},
+	"ua-filter":  {"white_extra", "black_extra"},
 }
 
 // ruleListOverlays writes one list's submitted rows back into cur so the
@@ -2152,6 +2166,12 @@ var ruleListOverlays = map[string]func(c *settings.Settings, rows listRows){
 	"stats_exclude_ips": func(c *settings.Settings, rows listRows) {
 		// Value + title only; this list has no enable/timestamp columns.
 		overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
+	},
+	"white_extra": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.SearchBots.Extra, &c.Nginx.SearchBots.ExtraTitle, &c.Nginx.SearchBots.ExtraDisabled, &c.Nginx.SearchBots.ExtraCreatedAt, &c.Nginx.SearchBots.ExtraUpdatedAt)
+	},
+	"black_extra": func(c *settings.Settings, rows listRows) {
+		overlayStrList(rows, &c.Nginx.ChallengeTargets.Extra, &c.Nginx.ChallengeTargets.ExtraTitle, &c.Nginx.ChallengeTargets.ExtraDisabled, &c.Nginx.ChallengeTargets.ExtraCreatedAt, &c.Nginx.ChallengeTargets.ExtraUpdatedAt)
 	},
 }
 
@@ -2744,13 +2764,17 @@ func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
 // white_presets / white_extra / black_presets / black_extra / black_all.
 // Internally writes into the legacy SearchBots / ChallengeTargets structs
 // (= preserves the YAML schema so no migration is needed).
-func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
+func applyUAFilterForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// ── allowlist (= operator-added extra UA patterns) ───
 	// The built-in whitelist presets were removed; only the operator's own
 	// extra rules persist here.  Upstream auto-rescue (below) is the managed
 	// search/AI bypass path.
-	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt, _ = pairExtras(
+	whiteP, whiteT, whiteD, whiteC, whiteU, _, err := pairExtras("white_extra", lang,
 		r.Form["white_extra"], r.Form["white_extra_title"], r.Form["white_extra_enabled"], r.Form["white_extra_created_at"], r.Form["white_extra_updated_at"], nil)
+	if err != nil {
+		return err
+	}
+	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt = whiteP, whiteT, whiteD, whiteC, whiteU
 
 	// upstream auto-rescue per-pattern disable list (= modal popup form).
 	// Dedup + strip empty so the YAML stays tidy.
@@ -2893,8 +2917,13 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request) {
 	} else {
 		n.ChallengeTargets.PresetAction = presetActOverrides
 	}
-	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraCreatedAt, n.ChallengeTargets.ExtraUpdatedAt, n.ChallengeTargets.ExtraAction = pairExtras(
+	blackP, blackT, blackD, blackC, blackU, blackA, err := pairExtras("black_extra", lang,
 		r.Form["black_extra"], r.Form["black_extra_title"], r.Form["black_extra_enabled"], r.Form["black_extra_created_at"], r.Form["black_extra_updated_at"], r.Form["black_extra_action"])
+	if err != nil {
+		return err
+	}
+	n.ChallengeTargets.Extra, n.ChallengeTargets.ExtraTitle, n.ChallengeTargets.ExtraDisabled, n.ChallengeTargets.ExtraCreatedAt, n.ChallengeTargets.ExtraUpdatedAt, n.ChallengeTargets.ExtraAction = blackP, blackT, blackD, blackC, blackU, blackA
+	return nil
 }
 
 // crawlerVerifyRow is one rDNS-verifiable crawler for the settings card: its
@@ -3205,7 +3234,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 //
 // actions is nil for the lists whose rows carry no chain of their own (the
 // allowlist: a rescued UA is not challenged, so there is nothing to pick).
-func pairExtras(patterns, titles, enabled, createdAt, updatedAt, actions []string) ([]string, []string, []bool, []int64, []int64, []string) {
+func pairExtras(field string, lang i18n.Lang, patterns, titles, enabled, createdAt, updatedAt, actions []string) ([]string, []string, []bool, []int64, []int64, []string, error) {
 	maxLen := len(patterns)
 	if len(titles) > maxLen {
 		maxLen = len(titles)
@@ -3248,17 +3277,19 @@ func pairExtras(patterns, titles, enabled, createdAt, updatedAt, actions []strin
 		}
 		// A literal pattern is escaped at render time, so the regex rules
 		// below do not apply to it -- only the characters that would break
-		// the config file itself.
+		// the config file itself.  An unusable value is rejected by name, not
+		// dropped: silently swallowing it is exactly the bug that let a bad
+		// pattern vanish under a green "saved" banner.
 		if settings.IsLiteralPattern(p) {
 			if strings.ContainsAny(p, "\x00\r\n") {
-				continue
+				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 			}
 		} else {
 			if strings.ContainsAny(p, "\"\\\x00\r\n") {
-				continue
+				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 			}
 			if _, err := regexp.Compile(p); err != nil {
-				continue
+				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_regex", p, err)}
 			}
 		}
 		if ts <= 0 {
@@ -3292,7 +3323,7 @@ func pairExtras(patterns, titles, enabled, createdAt, updatedAt, actions []strin
 	if allEmpty {
 		outA = nil
 	}
-	return outP, outT, outD, outU, outC, outA
+	return outP, outT, outD, outU, outC, outA, nil
 }
 
 // clampUpdatedAt keeps an edit timestamp inside [added, now].  The value is
