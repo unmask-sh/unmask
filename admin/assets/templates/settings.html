@@ -29,8 +29,8 @@
   {{ $d := false }}{{ if $dis }}{{ if lt $i (len $dis) }}{{ $d = index $dis $i }}{{ end }}{{ end }}
   {{ $cr := 0 }}{{ if $created }}{{ if lt $i (len $created) }}{{ $cr = index $created $i }}{{ end }}{{ end }}
   {{ $up := 0 }}{{ if $updated }}{{ if lt $i (len $updated) }}{{ $up = index $updated $i }}{{ end }}{{ end }}
-  {{ $isErr := false }}{{ if $.ErrMsg }}{{ if eq $.Name $.ErrField }}{{ if $.ErrValue }}{{ if eq $v $.ErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.FocusSet }}{{ if index $.FocusSet $v }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}{{ end }}
-  <div class="rule-row{{ if $d }} disabled-row{{ end }}{{ if $.FocusSet }}{{ if index $.FocusSet $v }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
+  {{ $rrs := ruleRowState $v $.Name $.ErrField $.ErrValue $.ErrMsg $.FocusSet }}
+  <div class="rule-row{{ if $d }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $v }}" data-orig-title="{{ $t }}">
     <input type="checkbox" class="rule-toggle" {{ if not $d }}checked{{ end }}>
     <input type="hidden" name="{{ $.Name }}_enabled" value="{{ if $d }}0{{ else }}1{{ end }}">
     <input type="hidden" name="{{ $.Name }}_created_at" value="{{ $cr }}">
@@ -49,7 +49,7 @@
     <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
     <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
   </div>
-  {{ if $isErr }}<div class="rule-err">{{ $.ErrMsg }}</div>{{ end }}
+  {{ if $rrs.Err }}<div class="rule-err">{{ $.ErrMsg }}</div>{{ end }}
   {{ end }}
   <template class="rule-row-template">
     <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -1612,8 +1612,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc">{{ safeHTML (t .Lang "settings.bypass.desc") }}</p>
     <div class="rule-list" data-rule-name="bypass_ip">
       {{ range .BypassIPsRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "bypass_ip") }}{{ if $.SecErrValue }}{{ if eq .IP $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .IP "bypass_ip" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bypass_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="bypass_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="bypass_updated_at" value="{{ .UpdatedAt }}">
@@ -1631,7 +1631,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -1680,8 +1680,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label>{{ t .Lang "settings.stats_exclude.label" }}</label>
         <div class="rule-list" data-rule-name="stats_exclude_ips">
           {{ range .StatsExcludeRules }}
-          {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "stats_exclude_ips") }}{{ if $.SecErrValue }}{{ if eq .IP $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-          <div class="rule-row{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .IP }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
+          {{ $rrs := ruleRowState .IP "stats_exclude_ips" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+          <div class="rule-row{{ $rrs.Class }}" data-orig-pat="{{ .IP }}" data-orig-title="{{ .Title }}">
             <span class="rule-view">
               <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
               <div class="pat{{ if not .IP }} empty{{ end }}" data-empty="{{ t $.Lang "settings.network.empty_ip" }}">{{ if .IP }}{{ .IP }}{{ else }}{{ t $.Lang "settings.network.empty_ip" }}{{ end }}</div>
@@ -1693,7 +1693,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <button type="button" class="rule-del" aria-label="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
             <button type="button" class="rule-add" aria-label="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
           </div>
-          {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+          {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
           {{ end }}
           <template class="rule-row-template">
             <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -1792,8 +1792,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </h2>
     <div class="rule-list" data-rule-name="bp_path">
       {{ range .BypassPathsRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "bp_path") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .Pattern "bp_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="bp_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="bp_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
@@ -1812,7 +1812,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -2041,8 +2041,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc">{{ safeHTML (t .Lang "settings.ua.white_extra_desc") }}</p>
       <div class="rule-list" data-rule-name="white_extra">
       {{ range .SearchBotsRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "white_extra") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .Pattern "white_extra" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="white_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="white_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}">
@@ -2060,7 +2060,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <!-- empty row template (= cloned by JS at runtime. inert until cloned) -->
       <template class="rule-row-template">
@@ -2172,8 +2172,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc">{{ safeHTML (t .Lang "settings.ua.black_extra_desc") }}</p>
       <div class="rule-list" data-rule-name="black_extra">
       {{ range .ChallengeRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "black_extra") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .Pattern "black_extra" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="black_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="black_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}">
@@ -2200,7 +2200,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -2732,8 +2732,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="rule-list" data-rule-name="ja4_extra">
         {{ range $i, $r := .JA4Rules }}
         {{ $jea := index $.JA4ExtraAction $i }}
-        {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "ja4_extra_pat") }}{{ if $.SecErrValue }}{{ if eq $r.Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-        <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
+        {{ $rrs := ruleRowState $r.Pattern "ja4_extra_pat" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+        <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
           <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
           <input type="hidden" name="ja4_extra_id" value="{{ $r.ID }}">
           <input type="hidden" name="ja4_extra_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
@@ -2765,7 +2765,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
           <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
         </div>
-        {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+        {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
         {{ end }}
         <template class="rule-row-template">
           <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -2894,8 +2894,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc">{{ safeHTML (t .Lang "settings.honeypot.extra_desc") }}</p>
       <div class="rule-list" data-rule-name="honeypot_url_path">
       {{ range $i, $r := .HoneypotRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "honeypot_url_path") }}{{ if $.SecErrValue }}{{ if eq $r.Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
+      {{ $rrs := ruleRowState $r.Pattern "honeypot_url_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="honeypot_url_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="honeypot_url_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="honeypot_url_updated_at" value="{{ $r.UpdatedAt }}">
@@ -2921,7 +2921,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -3043,8 +3043,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
       <div class="rule-list" data-rule-name="protected_path">
       {{ range $i, $r := .ProtectedRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "protected_path") }}{{ if $.SecErrValue }}{{ if eq $r.Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
+      {{ $rrs := ruleRowState $r.Pattern "protected_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $r.Pattern }}" data-orig-title="{{ $r.Title }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="protected_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
@@ -3071,7 +3071,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -4077,8 +4077,8 @@ function secToHuman(s){
       {{ range $i, $r := .Nginx.Geo.Rules }}
       {{ $c := index $.GeoCountryMap $r.Country }}
       {{ $rs := rateStr $r.RatePerMin }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "geo_country") }}{{ if $.SecErrValue }}{{ if eq $r.Country $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Country }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Country }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
+      {{ $rrs := ruleRowState $r.Country "geo_country" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $r.Country }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="geo_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="geo_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="geo_updated_at" value="{{ $r.UpdatedAt }}">
@@ -4105,7 +4105,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -4155,8 +4155,8 @@ function secToHuman(s){
     </h2>
     <div class="rule-list" data-rule-name="gx_path">
       {{ range .GeoExemptRows }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "gx_path") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .Pattern "gx_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="gx_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="gx_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="gx_updated_at" value="{{ .UpdatedAt }}">
@@ -4175,7 +4175,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -4364,8 +4364,8 @@ function secToHuman(s){
     <div class="rule-list" data-rule-name="asn_number">
       <div class="rule-edit-header" aria-hidden="true"><span class="reh-toggle"></span><span class="reh-title">{{ t .Lang "settings.asn.col_label" }}</span><span class="reh-pat">{{ t .Lang "settings.asn.col_target" }}</span><span class="reh-action">{{ t .Lang "settings.geo.col_action" }}</span><span class="reh-rate">{{ t .Lang "settings.asn.col_rate" }}</span></div>
       {{ range $i, $r := .AsnCustomRules }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "asn_number") }}{{ if $.SecErrValue }}{{ if eq $r.Value $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Value }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet $r.Value }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
+      {{ $rrs := ruleRowState $r.Value "asn_number" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+            <div class="rule-row{{ if not $r.Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ $r.Value }}" data-orig-title="{{ $r.Label }}">
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="asn_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="asn_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="asn_updated_at" value="{{ $r.UpdatedAt }}">
@@ -4392,7 +4392,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -4440,8 +4440,8 @@ function secToHuman(s){
     </h2>
     <div class="rule-list" data-rule-name="ax_path">
       {{ range .AsnExemptRows }}
-      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "ax_path") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $rrs := ruleRowState .Pattern "ax_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ $rrs.Class }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="ax_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="ax_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="ax_updated_at" value="{{ .UpdatedAt }}">
@@ -4460,7 +4460,7 @@ function secToHuman(s){
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
-      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
+      {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
@@ -6352,7 +6352,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 <div class="bcd-card">
   <h2>{{ t .Lang "settings.sites.defined_h" }}</h2>
   <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.sites.defined_desc") }}</div>
-  {{ template "valueRuleList" (dict "Name" "site_defined" "Values" .SitesConfig.Defined "Titles" .SitesConfig.DefinedTitle "Disabled" .SitesConfig.DefinedDisabled "Created" .SitesConfig.DefinedCreatedAt "Updated" .SitesConfig.DefinedUpdatedAt "Placeholder" "shop.example.com" "Lang" .Lang) }}
+  {{ template "valueRuleList" (dict "Name" "site_defined" "Values" .SitesConfig.Defined "Titles" .SitesConfig.DefinedTitle "Disabled" .SitesConfig.DefinedDisabled "Created" .SitesConfig.DefinedCreatedAt "Updated" .SitesConfig.DefinedUpdatedAt "Placeholder" "shop.example.com" "FocusSet" .SecFocusSet "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg "Lang" .Lang) }}
 </div>
 
 <div class="bcd-card">
