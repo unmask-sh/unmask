@@ -23,7 +23,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	// Stash, then read the flash back the way the GET render would.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=network", nil)
-	setNetListDraft(w, r, "/unmask", form, []string{`tool\d+\-[a-z]`}, "admin_allowed_hosts", "", "boom")
+	setSectionDraft(w, r, "/unmask", "network", form, []string{`tool\d+\-[a-z]`}, "admin_allowed_hosts", "", "boom")
 
 	var cookie string
 	for _, c := range w.Result().Cookies() {
@@ -39,12 +39,11 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	n := &settings.Nginx{
-		// Pre-existing stored state that must be overwritten by the draft, not
-		// merged with it.
-		AdminAllowedHosts: []string{"stale.example.com"},
-	}
-	view := overlayNetListDraft(n, raw)
+	full := &settings.Settings{}
+	// Pre-existing stored state that must be overwritten by the draft.
+	full.Nginx.AdminAllowedHosts = []string{"stale.example.com"}
+	view := overlaySectionDraft(full, "network", raw)
+	n := &full.Nginx
 	if !view.Focus[`tool\d+\-[a-z]`] {
 		t.Errorf("the changed value is not in the focus set: %#v", view.Focus)
 	}
@@ -81,7 +80,7 @@ func TestNetListDraftSkipsOversized(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form, nil, "", "", "")
+	setSectionDraft(w, r, "/unmask", "network", form, nil, "", "", "")
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
 			t.Fatal("an oversized draft was written to a cookie instead of being skipped")
@@ -98,15 +97,17 @@ func TestNetListDraftPreservesCleared(t *testing.T) {
 	form["admin_allowed_ips"] = []string{"not-an-ip"}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
-	setNetListDraft(w, r, "/unmask", form, nil, "", "", "")
+	setSectionDraft(w, r, "/unmask", "network", form, nil, "", "", "")
 	var raw string
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
 			raw, _ = url.QueryUnescape(c.Value)
 		}
 	}
-	n := &settings.Nginx{AdminAllowedHosts: []string{"stale.example.com"}}
-	_ = overlayNetListDraft(n, raw)
+	full := &settings.Settings{}
+	full.Nginx.AdminAllowedHosts = []string{"stale.example.com"}
+	_ = overlaySectionDraft(full, "network", raw)
+	n := &full.Nginx
 	if len(n.AdminAllowedHosts) != 0 {
 		t.Errorf("a cleared field fell back to the stored list: %#v", n.AdminAllowedHosts)
 	}
@@ -144,5 +145,52 @@ func TestChangedListValues(t *testing.T) {
 	}
 	if set["10.0.0.0/8"] {
 		t.Errorf("a resubmitted, unchanged IP must not be flagged as changed: %v", got)
+	}
+}
+
+// The generalisation must carry to another section unchanged: a rejected
+// bypass-ips save preserves its rows and locates its error the same way the
+// network tab does, through the shared registry.
+func TestSectionDraftBypassIPs(t *testing.T) {
+	form := url.Values{}
+	form["bypass_ip"] = []string{"10.0.0.0/8", "not-an-ip"}
+	form["bypass_ip_enabled"] = []string{"1", "1"}
+	form["stats_exclude_ips"] = []string{"192.0.2.5"}
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=bypass-ips", nil)
+	setSectionDraft(w, r, "/unmask", "bypass-ips", form, []string{"not-an-ip", "192.0.2.5"}, "bypass_ip", "not-an-ip", "bad ip")
+	var raw string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == flashCookiePrefix+netListDraftFlash {
+			raw, _ = url.QueryUnescape(c.Value)
+		}
+	}
+	if raw == "" {
+		t.Fatal("no bypass draft cookie set")
+	}
+
+	full := &settings.Settings{}
+	full.Nginx.BypassIPs = []string{"203.0.113.9"} // stale, must be replaced
+	view := overlaySectionDraft(full, "bypass-ips", raw)
+
+	if len(full.Nginx.BypassIPs) != 2 || full.Nginx.BypassIPs[1] != "not-an-ip" {
+		t.Fatalf("bypass rows not preserved (invalid value included): %#v", full.Nginx.BypassIPs)
+	}
+	if len(full.Nginx.StatsExcludeIPs) != 1 || full.Nginx.StatsExcludeIPs[0] != "192.0.2.5" {
+		t.Errorf("stats-exclude rows not preserved: %#v", full.Nginx.StatsExcludeIPs)
+	}
+	if view.ErrField != "bypass_ip" || view.ErrValue != "not-an-ip" {
+		t.Errorf("bypass error not located: %#v", view)
+	}
+	if !view.Focus["not-an-ip"] {
+		t.Errorf("the bad bypass row is not focused: %#v", view.Focus)
+	}
+
+	// A draft from another section must be ignored (stale-tab safety).
+	fresh := &settings.Settings{}
+	fresh.Nginx.BypassIPs = []string{"203.0.113.9"}
+	if v := overlaySectionDraft(fresh, "network", raw); v.ErrField != "" || len(fresh.Nginx.BypassIPs) != 1 {
+		t.Errorf("a bypass draft was applied to the network tab: %#v", v)
 	}
 }
