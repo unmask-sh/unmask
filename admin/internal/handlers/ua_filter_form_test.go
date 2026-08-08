@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -29,7 +30,9 @@ func TestApplyUAFilterFormUAEnabled(t *testing.T) {
 	}
 
 	var n settings.Nginx
-	applyUAFilterForm(&n, r)
+	if err := applyUAFilterForm(&n, r, i18n.LangEN); err != nil {
+		t.Fatalf("applyUAFilterForm: %v", err)
+	}
 
 	if got := n.SearchBots.UpstreamUAEnabled; len(got) != 1 || got[0] != `Googlebot\/` {
 		t.Errorf("UpstreamUAEnabled = %q, want [Googlebot\\/]", got)

@@ -2039,7 +2039,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc">{{ safeHTML (t .Lang "settings.ua.white_extra_desc") }}</p>
       <div class="rule-list" data-rule-name="white_extra">
       {{ range .SearchBotsRules }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "white_extra") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="white_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="white_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="white_extra_updated_at" value="{{ .UpdatedAt }}">
@@ -2057,6 +2058,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
+      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <!-- empty row template (= cloned by JS at runtime. inert until cloned) -->
       <template class="rule-row-template">
@@ -2168,7 +2170,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p class="desc">{{ safeHTML (t .Lang "settings.ua.black_extra_desc") }}</p>
       <div class="rule-list" data-rule-name="black_extra">
       {{ range .ChallengeRules }}
-      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
+      {{ $isErr := false }}{{ if and $.SecErrMsg (eq $.SecErrField "black_extra") }}{{ if $.SecErrValue }}{{ if eq .Pattern $.SecErrValue }}{{ $isErr = true }}{{ end }}{{ else if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }}{{ $isErr = true }}{{ end }}{{ end }}{{ end }}
+      <div class="rule-row{{ if not .Enabled }} disabled-row{{ end }}{{ if $.SecFocusSet }}{{ if index $.SecFocusSet .Pattern }} editing{{ end }}{{ end }}{{ if $isErr }} rule-row-error{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
         <input type="checkbox" class="rule-toggle" {{ if .Enabled }}checked{{ end }}>
         <input type="hidden" name="black_extra_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="black_extra_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="black_extra_updated_at" value="{{ .UpdatedAt }}">
@@ -2195,6 +2198,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="rule-del" title="{{ t $.Lang "settings.ua.delete_row" }}">🗑</button>
         <button type="button" class="rule-add" title="{{ t $.Lang "settings.ua.add_row_below" }}">＋</button>
       </div>
+      {{ if $isErr }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
       {{ end }}
       <template class="rule-row-template">
         <div class="rule-row editing" data-orig-pat="" data-orig-title="">
