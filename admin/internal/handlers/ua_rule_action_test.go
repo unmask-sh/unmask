@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -109,7 +110,9 @@ func TestUARowActionRoundTripsAndRejectsUnknown(t *testing.T) {
 		t.Fatal(err)
 	}
 	n := base.Nginx
-	applyUAFilterForm(&n, req)
+	if err := applyUAFilterForm(&n, req, i18n.LangEN); err != nil {
+		t.Fatalf("applyUAFilterForm: %v", err)
+	}
 
 	if got := n.ChallengeTargets.Extra; len(got) != 3 {
 		t.Fatalf("patterns = %v, want 3", got)
