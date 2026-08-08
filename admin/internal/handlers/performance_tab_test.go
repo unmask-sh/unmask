@@ -29,6 +29,7 @@ var perfCardRE = regexp.MustCompile(`(?s)value="(conservative|standard|generous)
 func TestPerformanceTabProfiles(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -162,6 +163,7 @@ func TestSettingsTabsFullyWired(t *testing.T) {
 	h := newTestHandler(t)
 	get := func(tab string) string {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.SetPathValue("tab", tab)
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		if rr.Code != http.StatusOK {
@@ -171,8 +173,8 @@ func TestSettingsTabsFullyWired(t *testing.T) {
 	}
 	// The landing page carries both the nav and the tab cards.
 	top := get("top")
-	navRE := regexp.MustCompile(`<li><a href="\?tab=([a-z-]+)"`)
-	cardRE := regexp.MustCompile(`class="sti" href="\?tab=([a-z-]+)"`)
+	navRE := regexp.MustCompile(`<li><a href="[^"]*/admin/settings/([a-z-]+)/"`)
+	cardRE := regexp.MustCompile(`class="sti" href="[^"]*/admin/settings/([a-z-]+)/"`)
 
 	nav := map[string]bool{}
 	for _, m := range navRE.FindAllStringSubmatch(top, -1) {

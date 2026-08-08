@@ -25,6 +25,7 @@ func TestSettingsPrivacyPassTabRenders(t *testing.T) {
 		}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=privacy-pass", nil)
+	req.SetPathValue("tab", "privacy-pass")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

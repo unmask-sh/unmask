@@ -99,6 +99,7 @@ func TestValueRuleListRendersWithAndWithoutNotes(t *testing.T) {
 	h := newTestHandler(t)
 	for _, tab := range []string{"network", "sites"} {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.SetPathValue("tab", tab)
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		if rr.Code != http.StatusOK {
@@ -113,6 +114,7 @@ func TestValueRuleListRendersWithAndWithoutNotes(t *testing.T) {
 	}
 	// The network tab must actually offer the note inputs.
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil)
+	req.SetPathValue("tab", "network")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	for _, want := range []string{`name="admin_allowed_ips_title"`, `name="metrics_allow_from_title"`, `name="admin_allowed_hosts_title"`} {

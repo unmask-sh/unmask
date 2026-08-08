@@ -24,6 +24,7 @@ func TestSettingsUAFilterTabRendersStaleCard(t *testing.T) {
 		// override and the card must render the built-in baseline placeholder.
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	req.SetPathValue("tab", "ua-filter")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -71,6 +72,7 @@ func TestSettingsUAFilterStaleManualRadio(t *testing.T) {
 		s.Global.CurrentChromeMajor = 148
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	req.SetPathValue("tab", "ua-filter")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()

@@ -19,6 +19,7 @@ func TestSettingsChallengeTabRoaming(t *testing.T) {
 		s.Rebind.SetRebindMode("asn")
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=challenge", nil)
+	req.SetPathValue("tab", "challenge")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -39,7 +40,7 @@ func TestSettingsChallengeTabRoaming(t *testing.T) {
 	}
 	// asn is selected but the test handler has no ASN db, so the "degrades to
 	// any" warning must show, linking to the network tab to install one.
-	if !strings.Contains(body, `?tab=network`) {
+	if !strings.Contains(body, `/admin/settings/network/`) {
 		t.Errorf("asn mode without an ASN db must render the degrade warning (network-tab link)")
 	}
 }

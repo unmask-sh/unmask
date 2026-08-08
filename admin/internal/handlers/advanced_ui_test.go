@@ -16,6 +16,7 @@ import (
 func TestAdvancedTabRevealGate(t *testing.T) {
 	get := func(h *Handler, tab string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.SetPathValue("tab", tab)
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		return rr
@@ -35,7 +36,7 @@ func TestAdvancedTabRevealGate(t *testing.T) {
 		if strings.Contains(body, `name="advanced_enabled" value="1" checked`) {
 			t.Error("toggle must be unchecked when advanced is off")
 		}
-		if strings.Contains(body, `href="?tab=web-bot-auth"`) || strings.Contains(body, `href="?tab=privacy-pass"`) {
+		if strings.Contains(body, `/admin/settings/web-bot-auth/`) || strings.Contains(body, `/admin/settings/privacy-pass/`) {
 			t.Error("feature tabs must be hidden from nav while advanced is off")
 		}
 		// Direct hit on a gated tab redirects to About (where the toggle lives).
@@ -44,8 +45,8 @@ func TestAdvancedTabRevealGate(t *testing.T) {
 			if rr.Code != http.StatusSeeOther {
 				t.Errorf("%s while off: want 303 redirect, got %d", tab, rr.Code)
 			}
-			if loc := rr.Header().Get("Location"); !strings.HasSuffix(loc, "?tab=about") {
-				t.Errorf("%s redirect Location = %q, want ...?tab=about", tab, loc)
+			if loc := rr.Header().Get("Location"); !strings.HasSuffix(loc, "/admin/settings/about/") {
+				t.Errorf("%s redirect Location = %q, want .../admin/settings/about/", tab, loc)
 			}
 		}
 	})
@@ -61,7 +62,7 @@ func TestAdvancedTabRevealGate(t *testing.T) {
 		if !strings.Contains(body, `name="advanced_enabled" value="1" checked`) {
 			t.Error("toggle must be checked when advanced is on")
 		}
-		if !strings.Contains(body, `href="?tab=web-bot-auth"`) || !strings.Contains(body, `href="?tab=privacy-pass"`) {
+		if !strings.Contains(body, `/admin/settings/web-bot-auth/`) || !strings.Contains(body, `/admin/settings/privacy-pass/`) {
 			t.Error("feature tabs must appear in nav once advanced is on")
 		}
 		// And the gated tabs now render instead of redirecting.

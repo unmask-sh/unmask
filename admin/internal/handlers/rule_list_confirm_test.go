@@ -236,6 +236,7 @@ func TestNetworkTabRendersConfirmedRows(t *testing.T) {
 	h.SetSettings(s)
 
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil)
+	r.SetPathValue("tab", "network")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {
