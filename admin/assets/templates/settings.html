@@ -632,60 +632,60 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <div class="settings-shell">
 <aside class="settings-nav">
   <ul>
-    <li><a href="?tab=top" {{ if eq .Tab "top" }}class="active"{{ end }}>{{ t .Lang "settings.tab.top" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/top/" {{ if eq .Tab "top" }}class="active"{{ end }}>{{ t .Lang "settings.tab.top" }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
   <ul>
-    <li><a href="?tab=network"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
-    <li><a href="?tab=sites"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/network/"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/sites/"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
     {{/* SMTP / notifications tabs hidden until post-v0.1 (= feature still ships but the UI entry point is closed). */}}
-    <li><a href="?tab=retention"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
-    <li><a href="?tab=performance"   {{ if eq .Tab "performance"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.performance"   }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/retention/"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/performance/"   {{ if eq .Tab "performance"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.performance"   }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
   <ul>
-    <li><a href="?tab=bypass-ips"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}</a></li>
-    <li><a href="?tab=bypass-paths" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/bypass-ips/"   {{ if eq .Tab "bypass-ips"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_ips"   }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/bypass-paths/" {{ if eq .Tab "bypass-paths" }}class="active"{{ end }}>{{ t .Lang "settings.tab.bypass_paths" }}</a></li>
     {{/* Web Bot Auth + Privacy Pass are revealed only when the advanced master
          switch is on (the toggle lives on the About tab).  A default install
          isn't cluttered with features almost no client emits yet. */}}
     {{ if .AdvancedEnabled }}
-    <li><a href="?tab=web-bot-auth" {{ if eq .Tab "web-bot-auth" }}class="active"{{ end }}>{{ t .Lang "settings.tab.web_bot_auth" }}</a></li>
-    <li><a href="?tab=privacy-pass" {{ if eq .Tab "privacy-pass" }}class="active"{{ end }}>{{ t .Lang "settings.tab.privacy_pass" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/web-bot-auth/" {{ if eq .Tab "web-bot-auth" }}class="active"{{ end }}>{{ t .Lang "settings.tab.web_bot_auth" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/privacy-pass/" {{ if eq .Tab "privacy-pass" }}class="active"{{ end }}>{{ t .Lang "settings.tab.privacy_pass" }}</a></li>
     {{ end }}
   </ul>
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
   <ul>
-    <li><a href="?tab=ja4-verdicts" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
-    <li><a href="?tab=ua-filter"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
-    <li><a href="?tab=rate-limit"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
-    <li><a href="?tab=protected"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
-    <li><a href="?tab=geo"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
-    <li><a href="?tab=asn"          {{ if eq .Tab "asn"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.asn"          }}</a></li>
-    <li><a href="?tab=honeypot"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/ja4-verdicts/" {{ if eq .Tab "ja4-verdicts" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ja4_verdicts" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/ua-filter/"    {{ if eq .Tab "ua-filter"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.ua_filter"    }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/rate-limit/"   {{ if eq .Tab "rate-limit"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.rate_limit"   }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/protected/"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/geo/"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/asn/"          {{ if eq .Tab "asn"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.asn"          }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/honeypot/"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
     {{/* Last in the group on purpose: this is the fallback for requests no
          other axis matched, so it is the least-touched screen here -- and
          reading it first, before the axes it backstops, gives no context. */}}
-    <li><a href="?tab=global"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/global/"       {{ if eq .Tab "global"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.global"       }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
   <ul>
-    <li><a href="?tab=captcha"    {{ if eq .Tab "captcha"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.captcha"    }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/captcha/"    {{ if eq .Tab "captcha"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.captcha"    }}</a></li>
     {{/* Side-menu nav drops ?scope= intentionally: the operator picks a
          tab from the menu when they want to start an editing pass and
          that pass should begin on the Default record (= the safe view).
          Within the tab the scope picker still preserves scope across
          saves and across tab flips done via the picker itself. */}}
-    <li><a href="?tab=challenge"  {{ if eq .Tab "challenge"  }}class="active"{{ end }}>{{ t .Lang "settings.tab.challenge"  }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/challenge/"  {{ if eq .Tab "challenge"  }}class="active"{{ end }}>{{ t .Lang "settings.tab.challenge"  }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.design" }}</h3>
   <ul>
-    <li><a href="?tab=theme"       {{ if eq .Tab "theme"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.theme"       }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/theme/"       {{ if eq .Tab "theme"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.theme"       }}</a></li>
   </ul>
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <ul>
-    <li><a href="?tab=community-bans" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
-    <li><a href="?tab=about" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/community-bans/" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/about/" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
   </ul>
 </aside>
 <section class="settings-content">
@@ -722,49 +722,49 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
-  <a class="sti" href="?tab=network"><b>{{ t .Lang "settings.tab.network" }}</b><span>{{ t .Lang "settings.top.desc.network" }}</span></a>
-  <a class="sti" href="?tab=sites"><b>{{ t .Lang "settings.tab.sites" }}</b><span>{{ t .Lang "settings.top.desc.sites" }}</span></a>
-  <a class="sti" href="?tab=retention"><b>{{ t .Lang "settings.tab.retention" }}</b><span>{{ t .Lang "settings.top.desc.retention" }}</span></a>
-  <a class="sti" href="?tab=performance"><b>{{ t .Lang "settings.tab.performance" }}</b><span>{{ t .Lang "settings.top.desc.performance" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/network/"><b>{{ t .Lang "settings.tab.network" }}</b><span>{{ t .Lang "settings.top.desc.network" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/sites/"><b>{{ t .Lang "settings.tab.sites" }}</b><span>{{ t .Lang "settings.top.desc.sites" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/retention/"><b>{{ t .Lang "settings.tab.retention" }}</b><span>{{ t .Lang "settings.top.desc.retention" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/performance/"><b>{{ t .Lang "settings.tab.performance" }}</b><span>{{ t .Lang "settings.top.desc.performance" }}</span></a>
 </div>
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
-  <a class="sti" href="?tab=bypass-ips"><b>{{ t .Lang "settings.tab.bypass_ips" }}</b><span>{{ t .Lang "settings.top.desc.bypass_ips" }}</span></a>
-  <a class="sti" href="?tab=bypass-paths"><b>{{ t .Lang "settings.tab.bypass_paths" }}</b><span>{{ t .Lang "settings.top.desc.bypass_paths" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/bypass-ips/"><b>{{ t .Lang "settings.tab.bypass_ips" }}</b><span>{{ t .Lang "settings.top.desc.bypass_ips" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/bypass-paths/"><b>{{ t .Lang "settings.tab.bypass_paths" }}</b><span>{{ t .Lang "settings.top.desc.bypass_paths" }}</span></a>
   {{ if .AdvancedEnabled }}
-  <a class="sti" href="?tab=web-bot-auth"><b>{{ t .Lang "settings.tab.web_bot_auth" }}</b><span>{{ t .Lang "settings.top.desc.web_bot_auth" }}</span></a>
-  <a class="sti" href="?tab=privacy-pass"><b>{{ t .Lang "settings.tab.privacy_pass" }}</b><span>{{ t .Lang "settings.top.desc.privacy_pass" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/web-bot-auth/"><b>{{ t .Lang "settings.tab.web_bot_auth" }}</b><span>{{ t .Lang "settings.top.desc.web_bot_auth" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/privacy-pass/"><b>{{ t .Lang "settings.tab.privacy_pass" }}</b><span>{{ t .Lang "settings.top.desc.privacy_pass" }}</span></a>
   {{ end }}
 </div>
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.bot_judge" }}</h3>
-  <a class="sti" href="?tab=ja4-verdicts"><b>{{ t .Lang "settings.tab.ja4_verdicts" }}</b><span>{{ t .Lang "settings.top.desc.ja4_verdicts" }}</span></a>
-  <a class="sti" href="?tab=ua-filter"><b>{{ t .Lang "settings.tab.ua_filter" }}</b><span>{{ t .Lang "settings.top.desc.ua_filter" }}</span></a>
-  <a class="sti" href="?tab=rate-limit"><b>{{ t .Lang "settings.tab.rate_limit" }}</b><span>{{ t .Lang "settings.top.desc.rate_limit" }}</span></a>
-  <a class="sti" href="?tab=protected"><b>{{ t .Lang "settings.tab.protected" }}</b><span>{{ t .Lang "settings.top.desc.protected" }}</span></a>
-  <a class="sti" href="?tab=geo"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
-  <a class="sti" href="?tab=asn"><b>{{ t .Lang "settings.tab.asn" }}</b><span>{{ t .Lang "settings.top.desc.asn" }}</span></a>
-  <a class="sti" href="?tab=honeypot"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
-  <a class="sti" href="?tab=global"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/ja4-verdicts/"><b>{{ t .Lang "settings.tab.ja4_verdicts" }}</b><span>{{ t .Lang "settings.top.desc.ja4_verdicts" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/ua-filter/"><b>{{ t .Lang "settings.tab.ua_filter" }}</b><span>{{ t .Lang "settings.top.desc.ua_filter" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/rate-limit/"><b>{{ t .Lang "settings.tab.rate_limit" }}</b><span>{{ t .Lang "settings.top.desc.rate_limit" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/protected/"><b>{{ t .Lang "settings.tab.protected" }}</b><span>{{ t .Lang "settings.top.desc.protected" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/geo/"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/asn/"><b>{{ t .Lang "settings.tab.asn" }}</b><span>{{ t .Lang "settings.top.desc.asn" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/honeypot/"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/global/"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
 </div>
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.challenge" }}</h3>
-  <a class="sti" href="?tab=captcha"><b>{{ t .Lang "settings.tab.captcha" }}</b><span>{{ t .Lang "settings.top.desc.captcha" }}</span></a>
-  <a class="sti" href="?tab=challenge"><b>{{ t .Lang "settings.tab.challenge" }}</b><span>{{ t .Lang "settings.top.desc.challenge" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/captcha/"><b>{{ t .Lang "settings.tab.captcha" }}</b><span>{{ t .Lang "settings.top.desc.captcha" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/challenge/"><b>{{ t .Lang "settings.tab.challenge" }}</b><span>{{ t .Lang "settings.top.desc.challenge" }}</span></a>
 </div>
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.design" }}</h3>
-  <a class="sti" href="?tab=theme"><b>{{ t .Lang "settings.tab.theme" }}</b><span>{{ t .Lang "settings.top.desc.theme" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/theme/"><b>{{ t .Lang "settings.tab.theme" }}</b><span>{{ t .Lang "settings.top.desc.theme" }}</span></a>
 </div>
 
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.community" }}</h3>
-  <a class="sti" href="?tab=community-bans"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
-  <a class="sti" href="?tab=about"><b>{{ t .Lang "settings.tab.about" }}</b><span>{{ t .Lang "settings.top.desc.about" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/community-bans/"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/about/"><b>{{ t .Lang "settings.tab.about" }}</b><span>{{ t .Lang "settings.top.desc.about" }}</span></a>
 </div>
 {{ end }}
 
@@ -3109,7 +3109,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      Toggles which ChallengeValues record the form reads + writes:
        - "default" → cur.Challenge.Default (= /admin/settings/save?section=challenge)
        - "<host>"  → cur.Challenge.Sites[host] (= /admin/settings/challenge/site/save?site=<host>)
-     Switching the dropdown navigates to `?tab=challenge&scope=<value>`
+     Switching the dropdown navigates to `settings/challenge/?scope=<value>`
      which discards any unsaved edits.  The "+ Add new host..." option
      opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
@@ -3121,7 +3121,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-challenge" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=challenge&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=challenge&scope='+encodeURIComponent(v):'?tab=challenge';})(this)">
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(h);return;}location.href=v?'{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/challenge/';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.ChallengeOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
@@ -4576,7 +4576,7 @@ function secToHuman(s){
      reads + writes:
        - "default" → cur.Branding.Default + cur.Challenge.Default (= /admin/settings/save?section=appearance)
        - "<host>"  → cur.Branding.Sites[host] + cur.Challenge.Sites[host] (= /admin/settings/branding/site/save?site=<host>)
-     Switching the dropdown navigates to `?tab=theme&scope=<value>` which
+     Switching the dropdown navigates to `settings/theme/?scope=<value>` which
      discards any unsaved edits (= same behavior as switching tabs).  The
      "+ Add new host..." entry opens a prompt for a fresh host name. */}}
 {{ $scopeDefault := or (eq .Scope "") (eq .Scope "default") }}
@@ -4588,7 +4588,7 @@ function secToHuman(s){
   </div>
   <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-theme" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='?tab=theme&scope='+encodeURIComponent(h);return;}location.href=v?'?tab=theme&scope='+encodeURIComponent(v):'?tab=theme';})(this)">
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(h);return;}location.href=v?'{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/theme/';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.BrandingOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>

@@ -85,6 +85,7 @@ func TestSettingsSitesTabRender(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=sites", nil)
+	req.SetPathValue("tab", "sites")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

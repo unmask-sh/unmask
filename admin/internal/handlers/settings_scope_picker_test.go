@@ -46,6 +46,12 @@ func scopeTestHandler(t *testing.T) *Handler {
 func renderSettings(t *testing.T, h *Handler, query string) string {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/"+query, nil)
+	// The tab now rides in the path (the router fills PathValue); these
+	// call-sites still pass the legacy ?tab= form, so lift it across here.
+	// Any ?scope= stays in the query where the handler reads it.
+	if tab := r.URL.Query().Get("tab"); tab != "" {
+		r.SetPathValue("tab", tab)
+	}
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {

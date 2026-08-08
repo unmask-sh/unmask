@@ -15,6 +15,7 @@ func TestDumpChallengeHTMLForMeasurement(t *testing.T) {
 	}
 	h := newTestHandler(t)
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=challenge", nil)
+	r.SetPathValue("tab", "challenge")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {

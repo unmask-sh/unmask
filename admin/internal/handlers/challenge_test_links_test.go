@@ -14,6 +14,7 @@ import (
 func TestChallengeTabLeadsWithThePublicTestLink(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=challenge", nil)
+	req.SetPathValue("tab", "challenge")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -50,6 +51,7 @@ func TestChallengeTabLeadsWithThePublicTestLink(t *testing.T) {
 func TestPublicTestLinkIsMarkedWhenDisabled(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=challenge", nil)
+	req.SetPathValue("tab", "challenge")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()

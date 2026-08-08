@@ -77,6 +77,7 @@ func TestRetentionWriteProbe(t *testing.T) {
 	t.Run("retention_tab_renders_probe_row", func(t *testing.T) {
 		h := newTestHandler(t)
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=retention", nil)
+		req.SetPathValue("tab", "retention")
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		if rr.Code != http.StatusOK {

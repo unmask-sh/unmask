@@ -17,6 +17,7 @@ func TestSettingsThemeTabLogoPreviewWiring(t *testing.T) {
 	h.SetSettings(s)
 
 	req := httptest.NewRequest("GET", "/unmask/admin/settings/?tab=theme", nil)
+	req.SetPathValue("tab", "theme")
 	rec := httptest.NewRecorder()
 	h.AdminSettingsIndex(rec, req)
 	if rec.Code != 200 {

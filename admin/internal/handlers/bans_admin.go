@@ -8,8 +8,8 @@
 //	op=delete           : unban by id
 //	op=subscribe-toggle : turn the community bans subscribe (= pull) ON/OFF.  Top-right toggle only
 //
-// The honeypot-derived default TTL (= ban_duration) has been moved to settings/?tab=honeypot.
-// Detailed community-bans settings (terms / submit / URL override etc.) live in settings/?tab=community-bans.
+// The honeypot-derived default TTL (= ban_duration) has been moved to settings/honeypot/.
+// Detailed community-bans settings (terms / submit / URL override etc.) live in settings/community-bans/.
 // The bans page is intentionally a shortcut UX that triggers only **subscribe (= receive)**.
 package handlers
 
@@ -871,7 +871,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		// operator can adjust the deny / captcha_only knob from the same
 		// page that lists active BANs and exposes the add form.  The
 		// shared-bans fallback lives on the "共有 BAN" settings tab now
-		// (= /admin/settings/?tab=community-bans) to keep all shared-bans
+		// (= /admin/settings/community-bans/) to keep all shared-bans
 		// preferences in one place.
 		manualAct := strings.TrimSpace(r.FormValue("bans_manual_default_action"))
 		cur, err := settings.Load(h.ConfigPath)
@@ -900,7 +900,7 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 
 	case "subscribe-toggle":
 		// Set the community-bans subscribe mode (off / fetch / fetch_apply).
-		// terms / submit / URL override etc. live in settings/?tab=community-bans.
+		// terms / submit / URL override etc. live in settings/community-bans/.
 		modeVal := strings.TrimSpace(r.FormValue("subscribe_mode"))
 		switch modeVal {
 		case settings.SubscribeOff, settings.SubscribeFetch, settings.SubscribeFetchApply:
