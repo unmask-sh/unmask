@@ -1142,7 +1142,14 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHostToggle)))
 
 	// settings (web editing UI).  GET: viewer or above; POST: admin or above.
+	// The tab lives in the path (/admin/settings/sites/), mirroring the stats
+	// convention (/admin/stats/{site}/).  Bare /admin/settings/ renders the
+	// default (overview) tab.  {tab} never collides with the literal sub-routes
+	// below: asn/suggest is two segments and save/export/snapshot are POST or
+	// carry no trailing slash, so ServeMux routes them by specificity.
 	mux.HandleFunc("GET "+base+"/admin/settings/{$}",
+		h.AuthMiddleware(h.AdminSettingsIndex))
+	mux.HandleFunc("GET "+base+"/admin/settings/{tab}/{$}",
 		h.AuthMiddleware(h.AdminSettingsIndex))
 	mux.HandleFunc("POST "+base+"/admin/settings/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))

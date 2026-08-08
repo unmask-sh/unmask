@@ -29,7 +29,9 @@ func TestRedirectExemptRowsCarryTheirDates(t *testing.T) {
 	h.ConfigPath = cfg
 	h.SetSettings(s)
 	rr := httptest.NewRecorder()
-	h.AdminSettingsIndex(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil))
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil)
+	req.SetPathValue("tab", "network")
+	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()
 	if !strings.Contains(body, `name="re_created_at" value="1740000000"`) {
 		t.Errorf("the re row does not carry its add date back into the form")
@@ -42,7 +44,7 @@ func TestRedirectExemptRowsCarryTheirDates(t *testing.T) {
 	f["re_enabled"] = []string{"1"}
 	f["re_created_at"] = []string{"1740000000"}
 	f["re_updated_at"] = []string{"0"}
-	req := httptest.NewRequest(http.MethodPost,
+	req = httptest.NewRequest(http.MethodPost,
 		"/unmask/admin/settings/save?section=network", strings.NewReader(f.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	h.AdminSettingsSave(httptest.NewRecorder(), req)

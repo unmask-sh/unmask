@@ -322,6 +322,7 @@ func TestSettingsTabsNoOpSave(t *testing.T) {
 	var forms []htmlForm
 	for _, tab := range tabs {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.SetPathValue("tab", tab)
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		if rr.Code != http.StatusOK {

@@ -15,6 +15,7 @@ func TestDumpPerformanceHTMLForMeasurement(t *testing.T) {
 	}
 	h := newTestHandler(t)
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	r.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {

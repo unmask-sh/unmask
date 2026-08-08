@@ -86,6 +86,7 @@ func TestRetentionStatsRowEstimate(t *testing.T) {
 func TestRetentionTabRendersUnknownAsQQ(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=retention", nil)
+	req.SetPathValue("tab", "retention")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

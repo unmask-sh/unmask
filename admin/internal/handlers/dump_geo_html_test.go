@@ -23,6 +23,7 @@ func TestDumpGeoHTMLForMeasurement(t *testing.T) {
 	h := newTestHandler(t)
 	h.SetSettings(base)
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=geo", nil)
+	r.SetPathValue("tab", "geo")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {

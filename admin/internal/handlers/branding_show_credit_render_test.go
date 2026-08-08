@@ -25,6 +25,7 @@ func settingsPage(t *testing.T, h *Handler, tab, scope string) string {
 		url += "&scope=" + scope
 	}
 	req := httptest.NewRequest(http.MethodGet, url, nil)
+	req.SetPathValue("tab", tab)
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

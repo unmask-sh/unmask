@@ -156,9 +156,9 @@ func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
-		dst := base + "/admin/settings/?tab=sites"
+		dst := base + "/admin/settings/sites/"
 		if msg == "" {
-			dst += "&saved=1"
+			dst += "?saved=1"
 		} else {
 			setFlash(w, r, base, "err", msg)
 		}
@@ -231,9 +231,9 @@ func (h *Handler) AdminSitePromote(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AdminHostToggle(w http.ResponseWriter, r *http.Request) {
 	base := h.cfg().Server.BasePath
 	redir := func(msg string) {
-		dst := base + "/admin/settings/?tab=sites"
+		dst := base + "/admin/settings/sites/"
 		if msg == "" {
-			dst += "&saved=1"
+			dst += "?saved=1"
 		} else {
 			setFlash(w, r, base, "err", msg)
 		}

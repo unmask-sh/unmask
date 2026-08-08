@@ -28,6 +28,7 @@ func TestDumpRateLimitHTMLForMeasurement(t *testing.T) {
 	h := newTestHandler(t)
 	h.SetSettings(base)
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=rate-limit", nil)
+	r.SetPathValue("tab", "rate-limit")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, r)
 	if rr.Code != http.StatusOK {

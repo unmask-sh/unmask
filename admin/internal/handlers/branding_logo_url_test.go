@@ -53,6 +53,7 @@ func TestBrandingLogoURLScoped(t *testing.T) {
 			u += "&scope=" + scope
 		}
 		r := httptest.NewRequest(http.MethodGet, u, nil)
+		r.SetPathValue("tab", "theme")
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, r)
 		if rr.Code != http.StatusOK {

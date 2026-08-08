@@ -14,6 +14,7 @@ import (
 func TestPerfEstimateRendersBelowEveryControlThatMovesIt(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -64,6 +65,7 @@ func TestPerfEstimateRendersBelowEveryControlThatMovesIt(t *testing.T) {
 func TestCustomProfileEstimatesTheAutoCase(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -93,6 +95,7 @@ func TestCustomProfileEstimatesTheAutoCase(t *testing.T) {
 func TestAutoPlaceholderNamesTheResolvedValue(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()
@@ -121,6 +124,7 @@ func TestAutoPlaceholderNamesTheResolvedValue(t *testing.T) {
 func TestMemoryCardSaysTheFigureIsNotACap(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()
@@ -135,6 +139,7 @@ func TestMemoryCardSaysTheFigureIsNotACap(t *testing.T) {
 func TestHostLineLabelsTheMemoryFigure(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()
@@ -167,6 +172,7 @@ func TestHostLineLabelsTheMemoryFigure(t *testing.T) {
 func TestMemoryCardExplainsTheCPUCount(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()

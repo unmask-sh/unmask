@@ -17,6 +17,7 @@ import (
 func TestRateLimitModeIsASelectWithTheProseInThePopover(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=rate-limit", nil)
+	req.SetPathValue("tab", "rate-limit")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -81,6 +82,7 @@ func TestZoneRowsRenderViewFirstWithReorderAndWarning(t *testing.T) {
 	h := newTestHandler(t)
 	h.SetSettings(base)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=rate-limit", nil)
+	req.SetPathValue("tab", "rate-limit")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

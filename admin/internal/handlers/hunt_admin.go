@@ -601,7 +601,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// ≥ 20 times in the current page.
 		"ShowStaticAssetsTip": showStaticAssetsTip,
 		"StaticAssetsTipHits": staticAssetsTipHits,
-		"StaticAssetsTipHref": h.cfg().Server.BasePath + "/admin/settings/?tab=bypass-paths",
+		"StaticAssetsTipHref": h.cfg().Server.BasePath + "/admin/settings/bypass-paths/",
 		// Hosts / HostSelected / SelfHostID are injected commonly by addMeToData.
 		// CommunityBansActive: whether to show the shared row in the BAN
 		// confirmation dialog.  true only when submit_enabled=true AND the

@@ -31,6 +31,7 @@ func TestSettingsAsnTabRenders(t *testing.T) {
 		}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=asn", nil)
+	req.SetPathValue("tab", "asn")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -106,6 +107,7 @@ func TestSettingsGeoTabRendersExemptPaths(t *testing.T) {
 		s.Nginx.Geo.Rules = []settings.GeoRule{{Country: "JP", Label: "home", Action: settings.GeoActionSkip, Enabled: true, UpdatedAt: 1}}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=geo", nil)
+	req.SetPathValue("tab", "geo")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

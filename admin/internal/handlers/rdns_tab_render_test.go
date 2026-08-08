@@ -18,6 +18,7 @@ func TestBypassIPsTabRendersRDNS(t *testing.T) {
 		s.Nginx.CrawlerVerify = settings.CrawlerVerifyConfig{Enabled: true, ForgedAction: settings.GeoActionDeny}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=bypass-ips", nil)
+	req.SetPathValue("tab", "bypass-ips")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

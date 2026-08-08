@@ -28,6 +28,7 @@ func TestSettingsWebBotAuthTabRenders(t *testing.T) {
 		}
 	})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=web-bot-auth", nil)
+	req.SetPathValue("tab", "web-bot-auth")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

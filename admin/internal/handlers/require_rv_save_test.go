@@ -31,6 +31,7 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 
 	page := func() string {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+		req.SetPathValue("tab", "ua-filter")
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
 		if rr.Code != http.StatusOK {
@@ -117,6 +118,7 @@ func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 	h.SetSettings(s)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	req.SetPathValue("tab", "ua-filter")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if rr.Code != http.StatusOK {

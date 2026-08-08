@@ -72,9 +72,10 @@ func humanSize(n int64) string {
 // via Handler.cfg() and get a race-free, consistent snapshot.
 var settingsMu sync.Mutex
 
-// AdminSettingsIndex: GET {base}/admin/settings/ — renders the tabbed UI.
+// AdminSettingsIndex: GET {base}/admin/settings/{tab}/ — renders the tabbed UI.
 //
-// The "tab" query selects one of network / search-bots / ja4-verdicts / sites.
+// The "tab" path segment selects one of network / search-bots / ja4-verdicts /
+// sites; bare /admin/settings/ (no segment) lands on the overview tab.
 // A "saved" query shows a banner telling the user to run "nginx -s reload".
 func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := loadDashboardTemplate()
@@ -82,7 +83,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	tab := r.URL.Query().Get("tab")
+	tab := r.PathValue("tab")
 	switch tab {
 	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "performance", "community-bans", "sites", "about":
 		// ok
@@ -97,7 +98,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	// nav, so a direct URL hit lands the operator on the About tab (where the
 	// master toggle lives) instead of an inert-looking form.
 	if (tab == "web-bot-auth" || tab == "privacy-pass") && !h.snapshotSettings().Nginx.AdvancedEnabled {
-		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/settings/?tab=about", http.StatusSeeOther)
+		http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/settings/about/", http.StatusSeeOther)
 		return
 	}
 
@@ -1299,11 +1300,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// browse list now instead of waiting for the next hourly tick).
 	communityPullNeeded := false
 	redirBack := func(msg string) {
-		dst := base + "/admin/settings/?tab=" + tabForSection(section)
+		dst := base + "/admin/settings/" + tabForSection(section) + "/"
 		if msg == "" {
 			// Pass the section name through to the saved banner; reload=1 tells
 			// the banner the conf changed and native mode needs nginx -s reload.
-			dst += "&saved=1&section=" + url.QueryEscape(section)
+			dst += "?saved=1&section=" + url.QueryEscape(section)
 			if nginxReloadNeeded {
 				dst += "&reload=1"
 			}
@@ -6234,9 +6235,11 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 	// because the entry the operator just dropped no longer has a form.
 	site := normalizeSite(strings.TrimSpace(r.FormValue("site")))
 	redirBack := func(msg string, scopeHost string) {
-		dst := base + "/admin/settings/?tab=" + tab
+		dst := base + "/admin/settings/" + tab + "/"
+		sep := "?"
 		if scopeHost != "" {
-			dst += "&scope=" + url.QueryEscape(scopeHost)
+			dst += sep + "scope=" + url.QueryEscape(scopeHost)
+			sep = "&"
 		}
 		if msg == "" {
 			// Per-site branding / challenge / theme are admin-only (= never
@@ -6244,7 +6247,7 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 			// banner shows "applies immediately".  If a per-site setting ever
 			// reaches the conf, add the same RenderSignature diff used by the
 			// main save handler here.
-			dst += "&saved=1&section=" + url.QueryEscape(tab)
+			dst += sep + "saved=1&section=" + url.QueryEscape(tab)
 		} else {
 			setFlash(w, r, base, "err", msg)
 		}

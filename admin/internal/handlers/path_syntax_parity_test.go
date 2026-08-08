@@ -156,6 +156,7 @@ func TestEveryPathHelpStatesItsSyntax(t *testing.T) {
 		{"network", "Pattern syntax: regular expression"},
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+c.tab, nil)
+		req.SetPathValue("tab", c.tab)
 		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
@@ -185,6 +186,7 @@ func TestNoPathHelpAdvertisesTheRetiredLiteralMatcher(t *testing.T) {
 
 	body := func(tab string) string {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req.SetPathValue("tab", tab)
 		req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)
@@ -220,6 +222,7 @@ func TestIPGeoAutoUpdateSwitchesSitInTheManagedModeBlock(t *testing.T) {
 	h.SetSettings(s)
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=network", nil)
+	req.SetPathValue("tab", "network")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	body := rr.Body.String()
