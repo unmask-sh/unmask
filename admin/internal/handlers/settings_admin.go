@@ -15,6 +15,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -112,6 +113,15 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 // Takes w so flash cookies can be cleared (= readFlash drops them via Set-Cookie).
 func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab string) map[string]any {
 	cur := h.snapshotSettings().Nginx
+	// A rejected network-tab save leaves a draft of the allowlist rows the
+	// operator typed; render those (over this local copy only, never saved)
+	// so the error page shows their input, not the last-saved list.  Consumed
+	// once -- readFlash deletes it -- so a later plain visit is unaffected.
+	if tab == "network" {
+		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
+			overlayNetListDraft(&cur, raw)
+		}
+	}
 	seenVer := cur.SeenVersion
 	// Operator's cookie TZ -- the `Format("...MST")` strings inside this view
 	// (mtime / oldest event / oldest cookie minute) shift to it.  Falls back
@@ -1339,23 +1349,33 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
 		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
 	case "network":
+		// A rejected save on this tab must not throw away what the operator
+		// typed: the allowlist widgets are the ones that error (a bad regex, a
+		// self-lockout), and losing the row you were fixing on every mistake is
+		// how a five-entry list gets rebuilt from memory.  Stash the submitted
+		// values so the GET the redirect lands on can render them back with the
+		// error, instead of reloading the last-saved list.
+		netErr := func(msg string) {
+			setNetListDraft(w, r, base, r.Form)
+			redirBack(msg)
+		}
 		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
-			redirBack(err.Error())
+			netErr(err.Error())
 			return
 		}
 		if err := applyServerListenForm(&cur.Server, r, lang); err != nil {
-			redirBack(err.Error())
+			netErr(err.Error())
 			return
 		}
 		if err := applyIPGeoForm(&cur.IPGeo, r, lang); err != nil {
-			redirBack(err.Error())
+			netErr(err.Error())
 			return
 		}
 		applyTrustedLBForm(&cur.Nginx, r)
 		// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
 		cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
 		if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
-			redirBack(err.Error())
+			netErr(err.Error())
 			return
 		}
 	case "ua-filter":
@@ -2021,6 +2041,94 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 // would break the YAML the config is written as.  disabled comes back nil
 // when every surviving row is enabled, keeping untouched configs in their
 // old yml shape.
+// netListDraft carries the three network-tab allowlist fields' submitted rows
+// across the error redirect, so a rejected save re-renders what the operator
+// typed instead of the last-saved list.  Only the fields the widget edits are
+// carried (value / title / enabled per row); everything else on the tab is
+// re-read from stored config, which a failed save never changed.
+type netListDraft struct {
+	Hosts, HostsTitle, HostsEnabled       []string
+	IPs, IPsTitle, IPsEnabled             []string
+	Metrics, MetricsTitle, MetricsEnabled []string
+}
+
+const netListDraftFlash = "netdraft"
+
+// setNetListDraft stashes the submitted allowlist rows in a flash cookie.  It
+// silently does nothing if the payload would be too large for a cookie -- the
+// draft is a convenience, and its absence just falls back to the old
+// reload-from-stored behaviour rather than breaking the redirect.
+func setNetListDraft(w http.ResponseWriter, r *http.Request, base string, form url.Values) {
+	d := netListDraft{
+		Hosts: form["admin_allowed_hosts"], HostsTitle: form["admin_allowed_hosts_title"], HostsEnabled: form["admin_allowed_hosts_enabled"],
+		IPs: form["admin_allowed_ips"], IPsTitle: form["admin_allowed_ips_title"], IPsEnabled: form["admin_allowed_ips_enabled"],
+		Metrics: form["metrics_allow_from"], MetricsTitle: form["metrics_allow_from_title"], MetricsEnabled: form["metrics_allow_from_enabled"],
+	}
+	b, err := json.Marshal(d)
+	if err != nil || len(b) > 3500 {
+		return
+	}
+	setFlash(w, r, base, netListDraftFlash, string(b))
+}
+
+// overlayNetListDraft applies a stored draft onto the Nginx view being
+// rendered.  Values are shown verbatim (including the invalid one the error
+// names), so the operator edits their own input rather than re-typing it.
+// Timestamps are left unset -- they are cosmetic badges and a draft row has no
+// meaningful save time yet.
+func overlayNetListDraft(n *settings.Nginx, raw string) {
+	var d netListDraft
+	if json.Unmarshal([]byte(raw), &d) != nil {
+		return
+	}
+	disabledOf := func(enabled []string, n int) []bool {
+		if len(enabled) == 0 {
+			return nil
+		}
+		out := make([]bool, n)
+		any := false
+		for i := 0; i < n; i++ {
+			off := i < len(enabled) && enabled[i] == "0"
+			out[i] = off
+			any = any || off
+		}
+		if !any {
+			return nil
+		}
+		return out
+	}
+	clean := func(vals []string) []string {
+		out := vals[:0:0]
+		for _, v := range vals {
+			if strings.TrimSpace(v) != "" {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	if v := clean(d.Hosts); len(v) > 0 || d.Hosts != nil {
+		n.AdminAllowedHosts = v
+		n.AdminAllowedHostsTitle = d.HostsTitle
+		n.AdminAllowedHostsDisabled = disabledOf(d.HostsEnabled, len(v))
+		n.AdminAllowedHostsCreatedAt = nil
+		n.AdminAllowedHostsUpdatedAt = nil
+	}
+	if v := clean(d.IPs); len(v) > 0 || d.IPs != nil {
+		n.AdminAllowedIPs = v
+		n.AdminAllowedIPsTitle = d.IPsTitle
+		n.AdminAllowedIPsDisabled = disabledOf(d.IPsEnabled, len(v))
+		n.AdminAllowedIPsCreatedAt = nil
+		n.AdminAllowedIPsUpdatedAt = nil
+	}
+	if v := clean(d.Metrics); len(v) > 0 || d.Metrics != nil {
+		n.MetricsAllowFrom = v
+		n.MetricsAllowFromTitle = d.MetricsTitle
+		n.MetricsAllowFromDisabled = disabledOf(d.MetricsEnabled, len(v))
+		n.MetricsAllowFromCreatedAt = nil
+		n.MetricsAllowFromUpdatedAt = nil
+	}
+}
+
 // formHostListValidated parses the admin_allowed_hosts list.  It differs from
 // formListWithNotesEnabled in two ways that matter for this field specifically:
 //
