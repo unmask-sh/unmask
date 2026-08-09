@@ -35,6 +35,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -1007,6 +1008,19 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	cur.DB = s.DB
+	// Completing the wizard means the operator is looking at THIS release, so
+	// stamp it as seen: presets shipped with it become active, and the NEW gate
+	// starts protecting only against what later releases add.  This is the
+	// backstop for installs that never ran config-init (docker, dev shells) —
+	// without it their seen_version stays at the v0.1 epoch: post-v0.1.0
+	// path / honeypot / target / verdict presets ship genuinely inert, and
+	// the crawler IP-range presets show OFF in the UI while their ranges are
+	// live.  Guarded so a dev build ("vdev", unparseable)
+	// cannot overwrite a real recorded version with a string the gate treats
+	// as "nothing is ever new".
+	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
+		cur.Nginx.SeenVersion = v
+	}
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		if conn != h.DB {
 			_ = conn.Close()
