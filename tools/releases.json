@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.24",
+  "latest": "0.1.25",
   "releases": [
+    {
+      "version": "0.1.25",
+      "date": "2026-08-09",
+      "notes": "This release is mostly the settings surface. Text you type into a rule now survives a rejected save: across every settings tab, a save turned back for a self-lockout or an invalid pattern keeps your input, opens only the rows you changed, and marks the offending row with the reason - previously the page returned the last-saved list and the entry you were fixing was gone. The admin-host allowlist now speaks in hosts rather than a generic regex/contains/exact toggle: exact, subdomain (example.com and any *.example.com, end-anchored), and a regex that is labelled and documented as the full-string match it always was; the old contains mode is gone, because a substring match on an allowlist would have admitted example.com.attacker.com. Each settings tab now has its own URL (/admin/settings/network/ rather than ?tab=network), matching the stats and per-site pages. And every segment of the overview's composition card can be clicked in or out of the denominator, so the headline percentage reads against exactly the slice you want, with the selection kept in a cookie. Also fixed: the admin-host allowlist now honours its mode toggle and rejects a pattern it cannot compile instead of dropping it silently, and the composition breakdown popover separates its labels from its figures and stays put when pinned."
+    },
     {
       "version": "0.1.24",
       "date": "2026-08-07",
