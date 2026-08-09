@@ -93,6 +93,13 @@ func cmdDoctor(args []string) error {
 	}
 	addOK("config load", resolved)
 
+	// Upgrade review: surface enforcement presets a later release added that are
+	// held inert on the "review" policy, so they are not silently off forever.
+	// Empty under the "apply" policy or when nothing is held.
+	if held := nginxconf.HeldEnforcementPresets(s); len(held) > 0 {
+		addWarn("upgrade review", fmt.Sprintf("%d enforcement preset(s) held pending review (inert until acknowledged) — run `unmask upgrade-review` to list and apply them", len(held)))
+	}
+
 	// Probe nginx so the render dry-run below (and the daemon) resolve the same
 	// rate-compose flow, and flag when a deny zone can't compose on this nginx.
 	dryOK, ngxVer, ngxDetected := nginxconf.DetectDryRunSupport()

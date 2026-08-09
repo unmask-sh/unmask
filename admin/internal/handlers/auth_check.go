@@ -1723,6 +1723,9 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		} else if disabledHP[g.ID] {
 			continue
 		}
+		if !g.OptIn && nginxconf.EnforcementHeld(n, g.AddedIn) {
+			continue // held pending upgrade review -- match native render
+		}
 		act := strings.TrimSpace(n.Honeypot.PresetAction[g.ID])
 		for _, p := range g.Patterns {
 			if re := compileCachedRe("(?i)" + p); re != nil {
@@ -1812,7 +1815,7 @@ func lookupJA4Verdict(ja4 string, n settings.Nginx) (verdict, action, source str
 		disabled[strings.TrimSpace(id)] = true
 	}
 	for _, g := range nginxconf.JA4VerdictGroups {
-		if disabled[g.ID] {
+		if disabled[g.ID] || nginxconf.EnforcementHeld(n, g.AddedIn) {
 			continue
 		}
 		for _, rule := range g.Rules {
@@ -1864,7 +1867,7 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category, action strin
 		disabledCT[strings.TrimSpace(id)] = true
 	}
 	for _, g := range nginxconf.ChallengeTargetGroups {
-		if disabledCT[g.ID] {
+		if disabledCT[g.ID] || nginxconf.EnforcementHeld(n, g.AddedIn) {
 			continue
 		}
 		for _, p := range g.Patterns {
