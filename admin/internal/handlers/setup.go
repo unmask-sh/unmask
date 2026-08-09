@@ -1016,6 +1016,15 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	// unparseable) cannot overwrite a real recorded version.
 	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
 		cur.Nginx.SeenVersion = v
+		// Baseline the upgrade-review protection to this release: a fresh install
+		// ships nothing held (only LATER additions wait for review), and an unset
+		// policy defaults to "review" so a growing operator base is not surprised
+		// by a tightened ruleset on a later `dnf upgrade`.  An operator who set
+		// "apply" in config.yml is left as-is.
+		cur.Nginx.EnforcementReviewedVersion = v
+		if cur.Nginx.UpgradeReviewPolicy == "" {
+			cur.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
+		}
 	}
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		if conn != h.DB {
