@@ -201,9 +201,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.JA4VerdictGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledV[g.ID]
-		if isNew {
-			enabled = false
-		}
 		ja4Groups = append(ja4Groups, map[string]any{
 			"ID":      g.ID,
 			"Label":   g.Label,
@@ -228,9 +225,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.ChallengeTargetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledTgt[g.ID]
-		if isNew {
-			enabled = false
-		}
 		tgtGroups = append(tgtGroups, map[string]any{
 			"ID":       g.ID,
 			"Label":    g.Label,
@@ -247,9 +241,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.HoneypotPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledHP[g.ID]
-		if isNew {
-			enabled = false
-		}
 		honeypotGroups = append(honeypotGroups, map[string]any{
 			"ID":       g.ID,
 			"Label":    g.Label,
@@ -273,9 +264,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledBPath[g.ID]
-		if isNew {
-			enabled = false
-		}
 		bypassPathGroups = append(bypassPathGroups, map[string]any{
 			"ID":        g.ID,
 			"Label":     g.Label,
@@ -288,9 +276,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	}
 
 	// HTTPS-redirect exemption presets.  Checked = the effective state
-	// (per-preset DefaultOn + deviations).  No SeenVersion gate: a missing
-	// exemption is the dangerous state, so default-on exemptions apply on
-	// upgrade (a 301'd health check drops the node from the LB).
+	// (per-preset DefaultOn + deviations).  A missing exemption is the
+	// dangerous state, so default-on exemptions apply on upgrade (a 301'd
+	// health check drops the node from the LB).
 	enabledRE := nginxconf.EffectiveRedirectExemptPresets(cur.HTTPSRedirectExempt.EnabledPresets, cur.HTTPSRedirectExempt.DisabledPresets)
 	redirectExemptGroups := make([]map[string]any, 0, len(nginxconf.RedirectExemptPresetGroups))
 	for _, g := range nginxconf.RedirectExemptPresetGroups {
@@ -327,9 +315,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledPP[g.ID]
-		if isNew {
-			enabled = false
-		}
 		protectedPresetGroups = append(protectedPresetGroups, map[string]any{
 			"ID":      g.ID,
 			"Label":   g.Label,
@@ -354,9 +339,6 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		g := &nginxconf.BypassIPGroups[i]
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledBP[g.ID]
-		if isNew {
-			enabled = false
-		}
 		ts := g.CreationTime().Unix()
 		if ts < 0 {
 			ts = 0
@@ -4092,28 +4074,14 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	// checked-but-default-OFF lands in EnabledPresets, unchecked-but-default-ON
 	// in DisabledPresets, a match with the default stores nothing.  That way a
 	// preset added in a later version follows its own code-declared default on
-	// this install too.  A NEW preset (added after this operator's last save)
-	// is absent from the form (its checkbox renders disabled), so its recorded
-	// deviations — normally none — are carried over untouched rather than
-	// misread as "explicitly turned off".  Unknown IDs (= form tampering) drop
-	// silently since only known groups are consulted.
+	// this install too.  Unknown IDs (= form tampering) drop silently since only
+	// known groups are consulted.
 	checked := map[string]bool{}
 	for _, id := range r.Form["bypass_path_preset_enabled"] {
 		checked[strings.TrimSpace(id)] = true
 	}
-	prevEnabled := toSet(n.BypassPaths.EnabledPresets)
-	prevDisabled := toSet(n.BypassPaths.DisabledPresets)
 	enabled, disabled := []string{}, []string{}
 	for _, g := range nginxconf.BypassPathPresetGroups {
-		if nginxconf.PresetIsNew(n.SeenVersion, g.AddedIn) {
-			if prevEnabled[g.ID] {
-				enabled = append(enabled, g.ID)
-			}
-			if prevDisabled[g.ID] {
-				disabled = append(disabled, g.ID)
-			}
-			continue
-		}
 		switch on := checked[g.ID]; {
 		case on && !g.DefaultOn:
 			enabled = append(enabled, g.ID)
@@ -4250,9 +4218,8 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 
 // applyRedirectExemptForm parses the HTTPS-redirect exemption UI: preset
 // checkboxes (redirect_exempt_preset_enabled) + custom rows (re_type / re_pattern
-// / re_title / re_enabled).  Same deviation model as bypass paths, minus the
-// SeenVersion gate (exemptions have no AddedIn — a missing exemption is the
-// unsafe state, so a default-on preset always applies).
+// / re_title / re_enabled).  Same deviation model as bypass paths (a missing
+// exemption is the unsafe state, so a default-on preset always applies).
 func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	checked := map[string]bool{}
 	for _, id := range r.Form["redirect_exempt_preset_enabled"] {

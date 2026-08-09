@@ -62,32 +62,31 @@ func TestBypassPresetSaveStoresDeviationsOnly(t *testing.T) {
 	}
 }
 
-// A NEW preset (AddedIn newer than SeenVersion) is absent from the form, so
-// the save must carry its recorded deviations over instead of misreading the
-// missing checkbox as "explicitly turned off".
-func TestBypassPresetSaveKeepsNewPresetDeviations(t *testing.T) {
-	n := settings.Nginx{SeenVersion: "v0.0"} // everything AddedIn v0.1+ is NEW
-	n.BypassPaths.EnabledPresets = []string{"api-paths"}
-	n.BypassPaths.DisabledPresets = []string{"well-known"}
-	bypassPresetForm(t, &n) // form carries no preset checkboxes at all
-	if got := n.BypassPaths.EnabledPresets; len(got) != 1 || got[0] != "api-paths" {
-		t.Fatalf("NEW preset enabled deviation lost: %v", got)
+// SeenVersion no longer affects the save: the opt-in gate was removed, so every
+// preset's checkbox is live in the form and the form is authoritative.  An old
+// SeenVersion neither preserves deviations behind the operator's back nor
+// changes which deviations the form records.
+func TestBypassPresetSaveIgnoresSeenVersion(t *testing.T) {
+	// Old SeenVersion, form checks exactly the factory-default set -> no
+	// deviations recorded, identical to a current save.
+	n := settings.Nginx{SeenVersion: "v0.0"}
+	bypassPresetForm(t, &n, "static-assets", "well-known", "browser-metadata", "health")
+	if len(n.BypassPaths.EnabledPresets) != 0 || len(n.BypassPaths.DisabledPresets) != 0 {
+		t.Fatalf("old SeenVersion changed the save: enabled=%v disabled=%v",
+			n.BypassPaths.EnabledPresets, n.BypassPaths.DisabledPresets)
 	}
-	if got := n.BypassPaths.DisabledPresets; len(got) != 1 || got[0] != "well-known" {
-		t.Fatalf("NEW preset disabled deviation lost: %v", got)
-	}
-	// And crucially: no default-ON preset got recorded as disabled just
-	// because its checkbox was missing while NEW.
-	for _, id := range n.BypassPaths.DisabledPresets {
-		if id == "static-assets" || id == "browser-metadata" || id == "health" {
-			t.Fatalf("NEW preset %s misrecorded as explicitly disabled", id)
-		}
+
+	// Checking a default-OFF preset records it even on an old SeenVersion.
+	n2 := settings.Nginx{SeenVersion: "v0.0"}
+	bypassPresetForm(t, &n2, "static-assets", "well-known", "browser-metadata", "health", "api-paths")
+	if got := n2.BypassPaths.EnabledPresets; len(got) != 1 || got[0] != "api-paths" {
+		t.Fatalf("enabled = %v, want [api-paths] regardless of SeenVersion", got)
 	}
 }
 
 // The forward-auth in-memory matcher applies the same defaults: an empty
-// config bypasses /.well-known/ but not /api/, and the NEW gate keeps a
-// not-yet-reviewed preset inert.
+// config bypasses /.well-known/ but not /api/, and (with the opt-in gate
+// removed) a default-ON preset is active regardless of SeenVersion.
 func TestBypassMatchersApplyPresetDefaults(t *testing.T) {
 	h := newTestHandler(t)
 
@@ -118,8 +117,8 @@ func TestBypassMatchersApplyPresetDefaults(t *testing.T) {
 		t.Errorf("disabled_presets should remove well-known from the matcher")
 	}
 
-	n3 := settings.Nginx{SeenVersion: "v0.0"} // all presets NEW -> inert
-	if match(n3, "/robots.txt") {
-		t.Errorf("NEW-gated preset must stay inert in the matcher")
+	n3 := settings.Nginx{SeenVersion: "v0.0"} // gate removed: SeenVersion no longer holds presets back
+	if !match(n3, "/robots.txt") {
+		t.Errorf("default-ON preset must be active in the matcher regardless of SeenVersion (gate removed)")
 	}
 }

@@ -36,8 +36,8 @@ func hpCompile(pattern string) *regexp.Regexp {
 
 // ResolveHoneypotAction returns the per-preset / per-URL action override for the
 // FIRST honeypot rule that uri matches, mirroring render.go's active-set logic
-// (OptIn / DisabledPresets / EnabledPresets / SeenVersion) so the resolved rule
-// agrees with what nginx actually rendered as a honeypot.  Preset patterns are
+// (OptIn / DisabledPresets / EnabledPresets) so the resolved rule agrees with
+// what nginx actually rendered as a honeypot.  Preset patterns are
 // global; custom URLs honor their per-row Site (site="" considers only global
 // URLs, which is all the native callback -- it carries no host -- can resolve).
 //
@@ -49,7 +49,6 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 	if strings.TrimSpace(uri) == "" {
 		return "", false
 	}
-	seenVer := n.SeenVersion
 	disabledHP := toSet(n.Honeypot.DisabledPresets)
 	enabledHP := toSet(n.Honeypot.EnabledPresets)
 	for _, g := range HoneypotPresetGroups {
@@ -58,9 +57,6 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 				continue
 			}
 		} else if disabledHP[g.ID] {
-			continue
-		}
-		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		for _, p := range g.Patterns {

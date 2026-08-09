@@ -565,7 +565,7 @@ type AICrawlerRow struct {
 	Spark   string
 	// RangeVerified is true when this crawler's UA-only rescue has been
 	// replaced by IP-range verification (its vendor publishes ranges AND every
-	// backing preset is enabled + past the NEW gate).  For such a crawler the
+	// backing preset is enabled).  For such a crawler the
 	// genuine bot arrives from a published range and is bypassed before it can
 	// be served, so Served counts only requests from OUTSIDE the range -- i.e.
 	// spoofed traffic carrying the crawler's UA.  The card reads it that way.

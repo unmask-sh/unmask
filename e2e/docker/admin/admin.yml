@@ -133,10 +133,9 @@ nginx:
     - 0.0.0.0/0
   metrics_allow_from:
     - 0.0.0.0/0
-  # seen_version: marks "this config has been reviewed up to v0.1.0".  Without
-  # it preset groups added in v0.1+ are silently skipped on render to avoid
-  # surprising activation in pre-existing installs.  The e2e suite is a fresh
-  # config, so opt in explicitly.
+  # seen_version: baselines the settings UI's "NEW since your last save" badge.
+  # It no longer gates rendering (a preset is active from the release that ships
+  # it); kept here because scenario 51 anchors its config injection on this line.
   seen_version: v0.1.0
   sites:
     - id: default

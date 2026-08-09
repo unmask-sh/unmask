@@ -17,10 +17,10 @@
 //  1. listed in SearchBots.UpstreamDisabled  -> UA rescue OFF (explicit)
 //  2. listed in SearchBots.UpstreamUAEnabled -> UA rescue ON  (explicit;
 //     the operator accepts that a spoofed UA passes too)
-//  3. neither (auto) -> OFF while every backing preset is enabled and past
-//     the SeenVersion NEW gate, ON otherwise.  The auto rule keeps two
-//     installs safe without a config migration: a pre-v0.1.7 upgrade (and a
-//     preset an operator keeps off) stays on UA-only rescue -- never "UA
+//  3. neither (auto) -> OFF while every backing preset is enabled, ON
+//     otherwise.  The auto rule keeps an install safe without a config
+//     migration: a preset an operator keeps off stays on UA-only rescue --
+//     never "UA
 //     dropped AND range off = genuine crawler challenged" -- and a current
 //     install gets IP-verification by default.  Saving the UA-filter tab
 //     writes the shown state into the explicit lists, after which the IP
@@ -118,10 +118,9 @@ var UARangePresets = map[string][]string{
 	`Amazonbot`: {"amazonbot"},
 }
 
-// RangePresetsActive reports whether every preset backing pattern is enabled
-// and past the SeenVersion NEW gate — i.e. the vendor's published ranges are
-// actually wired into geo $is_bypass_ip / the forward-auth matcher right now.
-// False for patterns with no published range.
+// RangePresetsActive reports whether every preset backing pattern is enabled —
+// i.e. the vendor's published ranges are actually wired into geo $is_bypass_ip /
+// the forward-auth matcher right now.  False for patterns with no published range.
 func RangePresetsActive(n settings.Nginx, pattern string) bool {
 	ids := UARangePresets[pattern]
 	if len(ids) == 0 {
@@ -133,7 +132,7 @@ func RangePresetsActive(n settings.Nginx, pattern string) bool {
 	}
 	for _, id := range ids {
 		g := bypassIPGroupByID(id)
-		if g == nil || !enabled[id] || PresetIsNew(n.SeenVersion, g.AddedIn) {
+		if g == nil || !enabled[id] {
 			return false
 		}
 	}
@@ -176,8 +175,8 @@ func EffectiveUpstreamUAOff(n settings.Nginx) map[string]bool {
 		//
 		// RangePresetsActive is required, not incidental.  The policy says
 		// "verify a rescued crawler by address rather than by name", so it
-		// has nothing to act on until the addresses are loaded (preset off,
-		// or still behind the NEW gate) -- the name stands until then.
+		// has nothing to act on until the addresses are loaded (preset off)
+		// -- the name stands until then.
 		//
 		// Not rescuing a crawler at all is a separate, legitimate choice,
 		// and it has its own control: the per-pattern checkbox

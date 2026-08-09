@@ -125,7 +125,7 @@ func TestCaptchaGradeUAPatternsPredicate(t *testing.T) {
 		{settings.RateChallengeDeny, false, "deny is enforced ahead of the cookie; it is not a grade question"},
 	}
 	for _, c := range cases {
-		got := len(captchaGradeUAPatterns(base(c.action), "", nil)) > 0
+		got := len(captchaGradeUAPatterns(base(c.action), nil)) > 0
 		if got != c.want {
 			t.Errorf("action %q -> armed=%v, want %v (%s)", c.action, got, c.want, c.why)
 		}

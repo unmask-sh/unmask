@@ -37,16 +37,17 @@ func VersionParseable(v string) bool {
 	return ok
 }
 
-// PresetIsNew: should the preset added in addedIn be treated as
-// not-yet-reviewed (= NEW badge, forced-OFF checkbox, skipped by renders) for
-// an operator whose last settings save recorded seenVer?
+// PresetIsNew: was the preset added in addedIn introduced AFTER the operator's
+// last settings save (recorded as seenVer)?  Purely informational -- it drives
+// the "NEW" badge in the settings UI so a freshly-added preset is easy to spot.
+// It does NOT gate rendering or force a checkbox off: a preset is active from
+// the release that ships it (the back-compat opt-in gate was removed), applying
+// at its code-declared default without waiting for the operator to review it.
 //
 // A seenVer that does not parse is NOT "very old": settings save stamps
-// "v"+Version, so a dev / source build writes "v<git-hash>" here.  Mapping
-// that to v0.0 would flag every preset as new and silently drop
-// operator-enabled presets from the rendered conf (JA4 verdicts, honeypot,
-// bypass paths).  Treat an unparseable seenVer as "runs tip" instead:
-// nothing is new.
+// "v"+Version, so a dev / source build writes "v<git-hash>" here.  Mapping that
+// to v0.0 would badge every preset as new.  Treat an unparseable seenVer as
+// "runs tip" instead: nothing is new.
 func PresetIsNew(seenVer, addedIn string) bool {
 	if !VersionParseable(seenVer) {
 		return false

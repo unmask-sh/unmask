@@ -75,17 +75,19 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		t.Error("google-special off: bingbot must stay inverted")
 	}
 
-	// Upgrade safety: presets enabled but the operator's last save predates
-	// the v0.1.7 additions -> the new-vendor patterns stay on UA rescue.
+	// SeenVersion no longer affects rendering: the opt-in gate was removed, so an
+	// operator whose last save predates the Amazonbot preset additions still gets
+	// them active -- the range-verified UA is inverted exactly as on a current
+	// save, not held back on UA-only rescue.
 	stale := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.BypassIPEnabledPresets = allOn
 		s.Nginx.SeenVersion = "v0.1.6"
 	})
-	if !strings.Contains(stale, `"~*Amazonbot" 1;`) {
-		t.Error("seenVer v0.1.6: Amazonbot must stay on UA rescue (preset NEW)")
+	if strings.Contains(stale, `"~*Amazonbot" 1;`) {
+		t.Error("seenVer v0.1.6: Amazonbot must be inverted like any active preset (gate removed)")
 	}
 	if strings.Contains(stale, `"~*Googlebot\/" 1;`) {
-		t.Error("seenVer v0.1.6: Googlebot (v0.1-era presets) must be inverted")
+		t.Error("seenVer v0.1.6: Googlebot must be inverted")
 	}
 
 	// Explicit lists beat the auto default in both directions and decouple

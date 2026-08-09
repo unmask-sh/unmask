@@ -76,20 +76,18 @@ func TestEffectiveUpstreamUAOffAuto(t *testing.T) {
 		t.Errorf("all presets on: got %d UA-off patterns, want %d", len(set), len(UARangePresets))
 	}
 
-	// SeenVersion gate: an operator still on v0.1.6 has not reviewed the
-	// v0.1.7 presets — patterns backed by them stay on UA-only rescue,
-	// while v0.1-era vendors are UA-off.
+	// SeenVersion no longer gates: the opt-in gate was removed, so an operator
+	// still on v0.1.6 gets the newer presets active exactly like a current save —
+	// every backing pattern is UA-off, nothing held back on UA-only rescue.
 	n.SeenVersion = "v0.1.6"
 	set = EffectiveUpstreamUAOff(n)
-	for _, pat := range []string{`Amazonbot`, `Applebot`, `DuckAssistBot`, `Perplexity-User`, `PerplexityUser`} {
-		if set[pat] {
-			t.Errorf("seenVer v0.1.6: expected %q on UA rescue (preset still NEW)", pat)
+	for _, pat := range []string{`Amazonbot`, `Applebot`, `DuckAssistBot`, `Perplexity-User`, `Googlebot\/`, `bingbot`} {
+		if !set[pat] {
+			t.Errorf("seenVer v0.1.6: expected %q UA-off (gate removed, preset active)", pat)
 		}
 	}
-	for _, pat := range []string{`Googlebot\/`, `bingbot`, `DuckDuckBot`, `PerplexityBot\/`} {
-		if !set[pat] {
-			t.Errorf("seenVer v0.1.6: expected %q UA-off", pat)
-		}
+	if len(set) != len(UARangePresets) {
+		t.Errorf("seenVer v0.1.6: got %d UA-off patterns, want %d (SeenVersion must not gate)", len(set), len(UARangePresets))
 	}
 
 	// Union fallback: disabling ONE Google range preset reverts every Google
@@ -113,10 +111,11 @@ func TestEffectiveUpstreamUAOffAuto(t *testing.T) {
 		t.Error("google-special off: unrelated vendors must stay UA-off")
 	}
 
-	// Dev/source build (unparseable SeenVersion) runs tip: nothing is NEW.
+	// SeenVersion is irrelevant to the effective set now (gate removed); an
+	// unparseable dev/source build is no exception -- presets stay effective.
 	n = settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v6f94983"}
 	if set = EffectiveUpstreamUAOff(n); !set[`Amazonbot`] {
-		t.Error("dev build seenVer: expected v0.1.7 presets effective")
+		t.Error("dev build seenVer: expected presets effective")
 	}
 
 	// No presets enabled: nothing UA-off.
