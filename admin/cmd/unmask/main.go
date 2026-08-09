@@ -1563,12 +1563,23 @@ global:
   # so no other setting is required; set current_chrome_major to override.
   stale_browser_challenge: false
 
+nginx:
+  # The release this install started on.  Presets that ship WITH this release
+  # (crawler IP ranges, honeypots, ...) are active out of the box; a preset a
+  # LATER release adds arrives with a NEW badge and stays off until reviewed
+  # in the UI, so an upgrade never silently changes what passes.  Without this
+  # line the gate treats every post-v0.1.0 preset as "new": path / honeypot /
+  # challenge-target / JA4 presets from later releases stay genuinely inert,
+  # and the crawler IP-range presets show OFF in the UI while their ranges
+  # are in fact live — the display contradicting the enforcement.
+  seen_version: v%s
+
 # Authentication is the internal user DB.  Create the first admin through the
 # setup wizard (= open /unmask/admin/ after install; the one-time token printed
 # by the package install / found in /etc/unmask/.setup-token guards it), or
 # from the shell: unmask user create.
 # CLI management: unmask user create / reset-password / set-role / delete
-`, bv, cb)
+`, bv, cb, Version)
 
 	if *out == "-" {
 		fmt.Print(body)

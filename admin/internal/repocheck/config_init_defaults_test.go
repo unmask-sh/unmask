@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -38,8 +39,10 @@ func configInitTemplate(t *testing.T) string {
 	if start < 0 || end < 0 {
 		t.Fatal("config-init template is not a raw string literal any more")
 	}
-	// The two %q are the generated secrets; any valid quoted string will do.
-	return regexp.MustCompile(`%q`).ReplaceAllString(s[start+1:i+end], `"deadbeef"`)
+	// The two %q are the generated secrets and the %s is the release version;
+	// substitute stand-ins the way fmt.Sprintf would.
+	body := regexp.MustCompile(`%q`).ReplaceAllString(s[start+1:i+end], `"deadbeef"`)
+	return strings.ReplaceAll(body, "%s", mainVersion(t))
 }
 
 func loadYAML(t *testing.T, body string) settings.Settings {
@@ -80,5 +83,46 @@ func TestConfigInitGlobalMatchesDefaults(t *testing.T) {
 		t.Errorf("global.%s differs: fresh install %v, upgrade %v — a fresh install "+
 			"would enforce differently from an upgraded one",
 			fv.Type().Field(i).Name, fmt.Sprint(a.Interface()), fmt.Sprint(b.Interface()))
+	}
+}
+
+// mainVersion lifts `var Version = "..."` out of cmd/unmask/main.go, so the
+// checks below compare against the release the binary will actually report.
+func mainVersion(t *testing.T) string {
+	t.Helper()
+	_, self, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	src, err := os.ReadFile(filepath.Join(filepath.Dir(self), "..", "..", "cmd", "unmask", "main.go"))
+	if err != nil {
+		t.Skipf("cmd/unmask/main.go not readable (%v)", err)
+	}
+	m := regexp.MustCompile(`var Version = "([0-9.]+)"`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("var Version not found in cmd/unmask/main.go")
+	}
+	return string(m[1])
+}
+
+// TestConfigInitActivatesEveryShippedPreset: a fresh install writes its own
+// release as nginx.seen_version, and every preset shipped in that release must
+// clear the NEW gate against it.  This pins two failure modes at once: the
+// template losing the seen_version line again (fresh installs regress to the
+// v0.1 epoch, with its UI-vs-enforcement contradictions), and a
+// preset added with an AddedIn beyond the current release (which would ship
+// gated off for everyone, including fresh installs, until the next version
+// bump catches up).
+func TestConfigInitActivatesEveryShippedPreset(t *testing.T) {
+	s := loadYAML(t, configInitTemplate(t))
+	want := "v" + mainVersion(t)
+	if s.Nginx.SeenVersion != want {
+		t.Fatalf("config-init seen_version = %q, want %q", s.Nginx.SeenVersion, want)
+	}
+	for _, g := range nginxconf.BypassIPGroups {
+		if nginxconf.PresetIsNew(s.Nginx.SeenVersion, g.AddedIn) {
+			t.Errorf("preset %q (added %s) ships gated OFF on a fresh %s install",
+				g.ID, g.AddedIn, want)
+		}
 	}
 }
