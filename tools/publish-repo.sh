@@ -131,7 +131,26 @@ if [ "${UNMASK_SKIP_VERIFY:-0}" = "1" ]; then
     exit 0
 fi
 echo
-if "$(dirname "$0")/verify-published.sh" "$CHANNEL" "https://$HOST/dl"; then
+# Which URL to verify.  Production (unmask.sh) serves the repo at
+# https://<host>/dl, so the check reflects what users actually fetch.  A test
+# host (= hv1, UNMASK_DL_HOST=10.8.29.1) serves the same tree over
+# http://<host>:8080 with no /dl prefix -- checking https://<host>/dl there
+# false-failed with "PUBLISH IS LIVE BUT BROKEN" although the repo was fine (the
+# install matrix installs from it and passes).  Verify production automatically,
+# honor an explicit override, and skip a non-production host with a note.
+VERIFY_URL="${UNMASK_DL_VERIFY_URL:-}"
+if [ -z "$VERIFY_URL" ]; then
+    case "$HOST" in
+        unmask.sh | *.unmask.sh) VERIFY_URL="https://$HOST/dl" ;;
+        *)
+            echo "==> non-production host ($HOST): skipping the served-URL verify"
+            echo "    (a test repo is served differently, e.g. http://$HOST:8080 with no /dl;"
+            echo "     the install matrix validates it directly.  Set UNMASK_DL_VERIFY_URL=<url> to force a check.)"
+            echo "==> publish complete."
+            exit 0 ;;
+    esac
+fi
+if "$(dirname "$0")/verify-published.sh" "$CHANNEL" "$VERIFY_URL"; then
     echo "==> publish complete."
 else
     rc=$?
