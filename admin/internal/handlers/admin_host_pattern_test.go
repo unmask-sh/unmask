@@ -27,8 +27,19 @@ func TestHostAllowedHonorsPatternModes(t *testing.T) {
 		{"plain literal is case-insensitive", "Tool1-JP", "tool1-jp", true},
 		{"exact marker matches its value", "exact:tool1-jp", "tool1-jp", true},
 		{"exact marker does not substring-match", "exact:tool1", "tool1-jp", false},
-		{"contains matches a substring", "contains:tool1", "tool1-jp", true},
-		{"contains rejects a non-substring", "contains:tool2", "tool1-jp", false},
+		// A legacy "contains:" entry (the mode is no longer offered in the UI)
+		// is read as exact, not substring: a substring allowlist would admit
+		// uic.jp.attacker.com, so it fails closed.
+		{"legacy contains is read as exact", "contains:tool1", "tool1-jp", false},
+		{"legacy contains matches only the whole value", "contains:tool1-jp", "tool1-jp", true},
+		// Subdomain: the apex host and any child, end-anchored so a suffix
+		// cannot be smuggled in.
+		{"subdomain matches the apex", "subdomain:example.com", "example.com", true},
+		{"subdomain matches a child", "subdomain:example.com", "admin.example.com", true},
+		{"subdomain matches a deep child", "subdomain:example.com", "a.b.example.com", true},
+		{"subdomain is case-insensitive", "subdomain:Example.COM", "admin.example.com", true},
+		{"subdomain does NOT match an appended domain", "subdomain:example.com", "example.com.attacker.com", false},
+		{"subdomain does NOT match a lookalike apex", "subdomain:example.com", "notexample.com", false},
 		{"regex matches the fleet", `tool\d+-[a-z]+`, "tool1-jp", true},
 		{"regex matches another fleet node", `tool\d+-[a-z]+`, "tool2-us", true},
 		// The security property: an allow-list regex is anchored, so it cannot

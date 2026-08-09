@@ -301,6 +301,8 @@ func loadDashboardTemplate() (*template.Template, error) {
 					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_contains"), "\n", "")
 				case settings.ModeExact:
 					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_exact"), "\n", "")
+				case settings.ModeSubdomain:
+					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_subdomain"), "\n", "")
 				}
 				return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_regex"), "\n", "")
 			},
@@ -820,10 +822,17 @@ func hostMatchesPattern(host, entry string) bool {
 		return false
 	}
 	switch settings.PatternModeOf(entry) {
-	case settings.ModeExact:
+	case settings.ModeExact, settings.ModeContains:
+		// Exact host.  A legacy "contains:" entry is read as exact rather than
+		// substring: the UI no longer offers contains here because a substring
+		// match on an allowlist admits uic.jp.attacker.com, so we fail closed.
 		return strings.EqualFold(host, settings.PatternText(entry))
-	case settings.ModeContains:
-		return strings.Contains(host, strings.ToLower(settings.PatternText(entry)))
+	case settings.ModeSubdomain:
+		// The host itself or any subdomain of it, anchored: example.com matches
+		// example.com and x.example.com, never example.com.attacker.com.
+		d := strings.ToLower(settings.PatternText(entry))
+		h := strings.ToLower(host)
+		return h == d || strings.HasSuffix(h, "."+d)
 	default: // regex
 		re, err := regexp.Compile("(?i)^(?:" + entry + ")$")
 		if err != nil {

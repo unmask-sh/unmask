@@ -56,7 +56,7 @@
       {{ if gt $cr 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $cr }}">{{ $cr }}</time>{{ if gt $up 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $up }}">{{ $up }}</time>{{ end }}</div>{{ end }}
     </span>
     <input type="text" name="{{ $.Name }}_title" value="{{ $t }}" placeholder="{{ t $.Lang "settings.rule.note_placeholder" }}" class="rule-title">
-    <span class="rule-pat-wrap"><input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
+    <span class="rule-pat-wrap"><input type="text" name="{{ $.Name }}" value="{{ $v }}" placeholder="{{ $.Placeholder }}" class="rule-pat"{{ if $.ModeSet }} data-modeset="{{ $.ModeSet }}"{{ end }}><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
     {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
   </div>
   {{ if $rrs.Err }}<div class="rule-err">{{ $.ErrMsg }}</div>{{ end }}
@@ -72,7 +72,7 @@
         <div class="pat empty"></div>
       </span>
       <input type="text" name="{{ .Name }}_title" value="" placeholder="{{ t .Lang "settings.rule.note_placeholder" }}" class="rule-title">
-      <span class="rule-pat-wrap"><input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
+      <span class="rule-pat-wrap"><input type="text" name="{{ .Name }}" value="" placeholder="{{ .Placeholder }}" class="rule-pat"{{ if .ModeSet }} data-modeset="{{ .ModeSet }}"{{ end }}><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
       {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
     </div>
   </template>
@@ -318,12 +318,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .rule-pat-mode[data-mode="regex"]{background:#ede9fe;border-color:#a78bfa;color:#5b21b6}
 .rule-pat-mode[data-mode="contains"]{background:#dcfce7;border-color:#4ade80;color:#166534}
 .rule-pat-mode[data-mode="exact"]{background:#dbeafe;border-color:#60a5fa;color:#1e40af}
+.rule-pat-mode[data-mode="subdomain"]:hover{background:#fde68a;border-color:#f59e0b}
+.rule-pat-mode[data-mode="subdomain"]{background:#fef3c7;border-color:#fbbf24;color:#92400e}
 .rule-row:not(.editing) .rule-pat-wrap{display:none}
 /* The committed row says which reading a pattern has, so a list can be read
    without opening every row. */
 .pat .pat-lit{margin-left:.35rem;padding:0 .3rem;border-radius:.2rem;font-size:.66rem;font-family:system-ui,sans-serif}
 .pat .pat-lit[data-mode="contains"]{background:#dcfce7;color:#166534}
 .pat .pat-lit[data-mode="exact"]{background:#dbeafe;color:#1e40af}
+.pat .pat-lit[data-mode="subdomain"]{background:#fef3c7;color:#92400e}
 .pat .pat-lit[data-mode="regex"]{background:#ede9fe;color:#5b21b6}
 .rule-row input.rule-verd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:#92400e}
 /* Free-text note beside a bare value (IP / host).  Narrower than the value it
@@ -894,7 +897,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <p class="desc admin-acl-state">{{ if eq .AdminHostsActive 0 }}{{ t .Lang "settings.network.admin_hosts_state_open" }}{{ else }}{{ tf .Lang "settings.network.admin_hosts_state_n" .AdminHostsActive }}{{ end }}</p>
     <div class="field">
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
-      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
+      {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "ModeSet" "host" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
     </div>
   </div>
   <style>
@@ -7049,17 +7052,31 @@ document.addEventListener('DOMContentLoaded', function(){
 // marker (one string, one meaning) and the chip in the field shows and cycles
 // it; the input always shows the bare text, so what the operator pasted is
 // what they keep seeing.
-var MODES = [
-  {id: 'regex',    marker: '',          label: {{ t .Lang "settings.rule.pat_regex" }},    ph: ''},
-  {id: 'contains', marker: 'contains:', label: {{ t .Lang "settings.rule.pat_contains" }}, ph: {{ t .Lang "settings.rule.pat_ph_contains" }}},
-  {id: 'exact',    marker: 'exact:',    label: {{ t .Lang "settings.rule.pat_exact" }},    ph: {{ t .Lang "settings.rule.pat_ph_exact" }}}
-];
-function modeIndexOf(v) {
-  for (var i = 1; i < MODES.length; i++) if (v.indexOf(MODES[i].marker) === 0) return i;
+var MODESETS = {
+  'default': [
+    {id: 'regex',    marker: '',          label: {{ t .Lang "settings.rule.pat_regex" }},    ph: ''},
+    {id: 'contains', marker: 'contains:', label: {{ t .Lang "settings.rule.pat_contains" }}, ph: {{ t .Lang "settings.rule.pat_ph_contains" }}},
+    {id: 'exact',    marker: 'exact:',    label: {{ t .Lang "settings.rule.pat_exact" }},    ph: {{ t .Lang "settings.rule.pat_ph_exact" }}}
+  ],
+  // The admin-host allowlist has no "contains" (substring on an allowlist would
+  // admit sub.attacker.com), and its regex is labelled full-match because it is
+  // anchored ^(?:...)$.  New rows default to exact (index 1).
+  'host': [
+    {id: 'regex',     marker: '',           label: {{ t .Lang "settings.rule.pat_regex" }},     ph: {{ t .Lang "settings.rule.pat_ph_regex_host" }}},
+    {id: 'exact',     marker: 'exact:',     label: {{ t .Lang "settings.rule.pat_exact" }},     ph: {{ t .Lang "settings.rule.pat_ph_exact" }}},
+    {id: 'subdomain', marker: 'subdomain:', label: {{ t .Lang "settings.rule.pat_subdomain" }}, ph: {{ t .Lang "settings.rule.pat_ph_subdomain" }}}
+  ]
+};
+function modesFor(input) {
+  var k = (input && input.dataset && input.dataset.modeset) || 'default';
+  return MODESETS[k] || MODESETS['default'];
+}
+function modeIndexOf(v, modes) {
+  for (var i = 1; i < modes.length; i++) if (v.indexOf(modes[i].marker) === 0) return i;
   return 0;
 }
 function applyMode(input, btn, i) {
-  var m = MODES[i];
+  var m = modesFor(input)[i];
   btn.dataset.mode = m.id;
   btn.textContent = m.label;
   // Each list ships its own regex placeholder (it shows that list's syntax);
@@ -7083,8 +7100,9 @@ function initPatMode(wrap) {
   if (!input || !btn || btn.dataset.wired === '1') return;
   btn.dataset.wired = '1';
   if (input.dataset.phRegex === undefined) input.dataset.phRegex = input.placeholder || '';
-  var i = modeIndexOf(input.value);
-  if (i > 0) input.value = input.value.slice(MODES[i].marker.length);
+  var modes = modesFor(input);
+  var i = modeIndexOf(input.value, modes);
+  if (i > 0) input.value = input.value.slice(modes[i].marker.length);
   // A blank row is a new one, and the safe reading is the one that needs no
   // escaping.  A row that already holds a pattern keeps its own reading: an
   // existing unmarked value IS a regex.
@@ -7092,8 +7110,8 @@ function initPatMode(wrap) {
   applyMode(input, btn, i);
   btn.addEventListener('click', function(){
     var cur = 0;
-    for (var k = 0; k < MODES.length; k++) if (MODES[k].id === btn.dataset.mode) cur = k;
-    applyMode(input, btn, (cur + 1) % MODES.length);
+    for (var k = 0; k < modes.length; k++) if (modes[k].id === btn.dataset.mode) cur = k;
+    applyMode(input, btn, (cur + 1) % modes.length);
     input.dispatchEvent(new Event('input', {bubbles: true}));
   });
 }
@@ -7131,8 +7149,9 @@ document.querySelectorAll('form').forEach(function(f){
       if (!input || !btn) return;
       var v = input.value.trim();
       if (v === '') return;
-      for (var k = 1; k < MODES.length; k++) {
-        if (MODES[k].id === btn.dataset.mode) { input.value = MODES[k].marker + v; return; }
+      var modes = modesFor(input);
+      for (var k = 1; k < modes.length; k++) {
+        if (modes[k].id === btn.dataset.mode) { input.value = modes[k].marker + v; return; }
       }
     });
   });

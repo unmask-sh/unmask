@@ -28,15 +28,21 @@ const (
 	ContainsMarker = "contains:"
 	// ExactMarker: the value is this text and nothing else.
 	ExactMarker = "exact:"
+	// SubdomainMarker: the value is this host or any subdomain of it
+	// (example.com matches example.com and *.example.com, anchored so it can
+	// never reach example.com.attacker.com).  Used by the admin-host allowlist,
+	// where "contains" would be a subdomain-injection footgun.
+	SubdomainMarker = "subdomain:"
 )
 
 // PatternMode: how a stored pattern is read.
 type PatternMode string
 
 const (
-	ModeRegex    PatternMode = "regex"
-	ModeContains PatternMode = "contains"
-	ModeExact    PatternMode = "exact"
+	ModeRegex     PatternMode = "regex"
+	ModeContains  PatternMode = "contains"
+	ModeExact     PatternMode = "exact"
+	ModeSubdomain PatternMode = "subdomain"
 )
 
 // PatternModeOf: which reading a stored pattern declares.
@@ -46,6 +52,8 @@ func PatternModeOf(p string) PatternMode {
 		return ModeContains
 	case strings.HasPrefix(p, ExactMarker):
 		return ModeExact
+	case strings.HasPrefix(p, SubdomainMarker):
+		return ModeSubdomain
 	}
 	return ModeRegex
 }
@@ -57,7 +65,8 @@ func IsLiteralPattern(p string) bool { return PatternModeOf(p) != ModeRegex }
 // for editing -- the UI shows the string they pasted, not its escaped form.
 func PatternText(p string) string {
 	p = strings.TrimPrefix(p, ContainsMarker)
-	return strings.TrimPrefix(p, ExactMarker)
+	p = strings.TrimPrefix(p, ExactMarker)
+	return strings.TrimPrefix(p, SubdomainMarker)
 }
 
 // PatternRegex: the expression to match with, in the one form both engines
@@ -78,6 +87,13 @@ func PatternRegex(p string) string {
 	if mode == ModeExact {
 		return "^" + q + "$"
 	}
+	if mode == ModeSubdomain {
+		// The host itself or any subdomain of it, both ends anchored: a leading
+		// label sequence must end in a dot, so example.com.attacker.com cannot
+		// match.  (The admin-host allowlist matches this in Go, not nginx; this
+		// keeps the rendered form correct should a host field ever use nginx.)
+		return "^(?:.+\\.)?" + q + "$"
+	}
 	return q
 }
 
@@ -90,6 +106,8 @@ func MakePatternWithMode(text string, mode PatternMode) string {
 		return ContainsMarker + text
 	case ModeExact:
 		return ExactMarker + text
+	case ModeSubdomain:
+		return SubdomainMarker + text
 	}
 	return text
 }
