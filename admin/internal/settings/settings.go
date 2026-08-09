@@ -301,6 +301,20 @@ const (
 	ChallengeDisplayInvisible = "invisible"
 )
 
+// UpgradeReviewPolicy values (see Nginx.UpgradeReviewPolicy).
+const (
+	UpgradeReviewApply  = "apply"  // a new default-on enforcement preset is active immediately
+	UpgradeReviewReview = "review" // ...is held inert until the operator acknowledges the upgrade
+)
+
+// ResolvedUpgradeReviewPolicy maps the empty default to "apply".
+func (n Nginx) ResolvedUpgradeReviewPolicy() string {
+	if n.UpgradeReviewPolicy == UpgradeReviewReview {
+		return UpgradeReviewReview
+	}
+	return UpgradeReviewApply
+}
+
 // ResolvedDisplayStyle: "invisible" only when set exactly; everything else is
 // the visible default.
 func (c ChallengeValues) ResolvedDisplayStyle() string {
@@ -709,10 +723,38 @@ type Nginx struct {
 	RateComposeMode string `yaml:"rate_compose_mode,omitempty"`
 
 	// SeenVersion: admin version at the last time the user saved the settings page.
-	// Preset groups with an AddedIn newer than this are treated as
-	// "added by a version bump" → default OFF + NEW badge shown. Prevents
-	// silent activation. Overwritten with the current version on each save.
+	// Drives ONLY the settings UI's informational "NEW since your last save"
+	// badge (nginxconf.PresetIsNew); it no longer gates rendering.  Overwritten
+	// with the current version on each save.  The upgrade "don't silently change
+	// enforcement" protection is a separate, ack-only value (see below).
 	SeenVersion string `yaml:"seen_version,omitempty"`
+
+	// UpgradeReviewPolicy governs what happens to a NEW default-on ENFORCEMENT
+	// preset (one that adds a challenge/deny/honeypot -- i.e. tightens what is
+	// blocked) that a version bump introduces:
+	//
+	//   "" / "apply"  -- active immediately, like any shipped default (the
+	//                    default for existing installs; preserves the behavior
+	//                    after the opt-in gate was removed).
+	//   "review"      -- held inert until the operator acknowledges the upgrade
+	//                    (see EnforcementReviewedVersion).  config-init writes
+	//                    this for fresh installs so a growing operator base is
+	//                    not surprised by a tightened ruleset on `dnf upgrade`.
+	//
+	// RESCUE / bypass presets are never held under either policy: loosening what
+	// passes must not wait on a review (CLAUDE.md: search bots always get
+	// through).  An OPT-IN preset is never held either -- turning it on is the
+	// consent.
+	UpgradeReviewPolicy string `yaml:"upgrade_review_policy,omitempty"`
+
+	// EnforcementReviewedVersion: the admin version whose enforcement changes the
+	// operator has acknowledged.  Unlike SeenVersion it advances ONLY on an
+	// explicit acknowledge (settings "apply upgrade" / `unmask upgrade-review
+	// --apply`), never on an incidental save -- so it does not drift the way the
+	// old seen_version gate did.  Under the "review" policy, a tightening preset
+	// with an AddedIn newer than this stays inert.  Empty/unparseable = "runs
+	// tip" (nothing held), so an existing config that never set it is unaffected.
+	EnforcementReviewedVersion string `yaml:"enforcement_reviewed_version,omitempty"`
 
 	// ── runtime ───────────────────────────────────────────
 	// Allowlist (IP / CIDR) that passes through challenge / rate_limit (= 4 parallel arrays for the row UI).
