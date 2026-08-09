@@ -487,6 +487,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 	}
+	// Enforcement presets held for upgrade review (empty under the "apply"
+	// policy); drives the dashboard banner.  Computed from the live config, not a
+	// query, so it reflects the current held state on every load.
+	data["UpgradeHeld"] = nginxconf.HeldEnforcementPresets(*h.cfg())
+	if r.URL.Query().Get("upgrade_applied") != "" {
+		data["UpgradeApplied"] = true
+		data["UpgradeReloadNeeded"] = r.URL.Query().Get("reload") == "1"
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
 	if err := tmpl.ExecuteTemplate(w, "overview.html", data); err != nil {
