@@ -1703,8 +1703,8 @@ type BypassPathsConfig struct {
 	//
 	// A preset in neither list follows its code-declared default, so a preset
 	// added in a later version brings its own default to existing installs
-	// (behind the SeenVersion NEW gate) without any config migration.
-	// Resolution lives in nginxconf.EffectiveBypassPathPresets; the settings
+	// without any config migration.  Resolution lives in
+	// nginxconf.EffectiveBypassPathPresets; the settings
 	// save writes only deviations (a choice that matches the default is stored
 	// as nothing).  Unknown IDs on either list are ignored.
 	EnabledPresets  []string `yaml:"enabled_presets,omitempty"`
@@ -1759,9 +1759,8 @@ func filterExemptPaths(rows []BypassPath, site string) []BypassPath {
 // deviation model as BypassPathsConfig — EnabledPresets/DisabledPresets record
 // only departures from each preset's factory default (nginxconf
 // RedirectExemptGroup.DefaultOn), and Rules holds custom per-row exemptions.
-// Unlike bypass presets there is no SeenVersion gate: a missing exemption is
-// the dangerous state (a 301'd health check drops the node), so a default-on
-// exemption applies immediately on upgrade.
+// A missing exemption is the dangerous state (a 301'd health check drops the
+// node), so a default-on exemption applies immediately on upgrade.
 type HTTPSRedirectExemptConfig struct {
 	EnabledPresets  []string                  `yaml:"enabled_presets,omitempty"`
 	DisabledPresets []string                  `yaml:"disabled_presets,omitempty"`
@@ -3726,9 +3725,10 @@ func defaults() Settings {
 			// All shipped crawler IP-range presets are ON by default -- this is
 			// the "search bot rescue" safety net required by the CLAUDE.md
 			// design principle: always let search bots through.  Operators uncheck a row
-			// in the UI to drop its ID from this list.  When a new preset is
-			// added in a later release it ships with isNew=true and stays OFF
-			// until the operator opts in (= SeenVersion gate).
+			// in the UI to drop its ID from this list.  A preset added in a
+			// later release is opt-in for existing installs (absent from their
+			// saved list until they check it); it is ON only in this
+			// fresh-install default.
 			BypassIPEnabledPresets: []string{
 				"google-common", "google-special", "google-user-triggered",
 				"bing", "duckduckbot", "duckassistbot",

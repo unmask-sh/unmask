@@ -785,9 +785,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// were removed: every operator they covered is already rescued via the
 	// crawler-user-agents.json upstream path (see classify), and keeping a
 	// second, UI-hidden source meant turning a category off in the UI did not
-	// actually stop the rescue.  seenVer is still used by the challenge-target
-	// / JA4 NEW-badge gating below.
-	seenVer := s.Nginx.SeenVersion
+	// actually stop the rescue.
 	for i, p := range s.Nginx.SearchBots.Extra {
 		// ExtraDisabled[i]=true means temporarily OFF.  Don't emit into rendered conf.
 		if i < len(s.Nginx.SearchBots.ExtraDisabled) && s.Nginx.SearchBots.ExtraDisabled[i] {
@@ -851,9 +849,6 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			if disabledTgt[g.ID] {
 				continue
 			}
-			if PresetIsNew(seenVer, g.AddedIn) {
-				continue
-			}
 			for _, p := range g.Patterns {
 				if !seen[p] {
 					seen[p] = true
@@ -881,17 +876,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// needs to name on its own: a deny is dispatched from server.inc ahead
 		// of the pass cookie (see $unmask_deny_now), so it cannot wait for the
 		// daemon to resolve the chain the way an ordinary challenge does.
-		d.HardDenyUAPatterns = hardDenyUAPatterns(s, seenVer, upstreamGroupBlackPatterns)
-		d.CaptchaGradeUAPatterns = captchaGradeUAPatterns(s, seenVer, upstreamGroupBlackPatterns)
+		d.HardDenyUAPatterns = hardDenyUAPatterns(s, upstreamGroupBlackPatterns)
+		d.CaptchaGradeUAPatterns = captchaGradeUAPatterns(s, upstreamGroupBlackPatterns)
 	}
 
 	// JA4 verdicts: enabled presets + extras.
 	disabledV := toSet(s.Nginx.JA4Verdicts.DisabledPresets)
 	for _, g := range JA4VerdictGroups {
 		if disabledV[g.ID] {
-			continue
-		}
-		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		d.JA4Verdicts = append(d.JA4Verdicts, g.Rules...)
@@ -937,9 +929,6 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				continue
 			}
 		} else if disabledHP[g.ID] {
-			continue
-		}
-		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		for _, p := range g.Patterns {
@@ -996,16 +985,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// Preset resolution: each preset's DefaultOn + the operator's recorded
 	// deviations (enabled_presets / disabled_presets), via the shared
 	// EffectiveBypassPathPresets so this render agrees with the forward-auth
-	// matcher and the settings UI.  The SeenVersion NEW gate below still
-	// excludes presets the operator hasn't reviewed yet.
+	// matcher and the settings UI.
 	bp := []BypassPathRule{}
 	bpSeen := map[string]bool{}
 	enabledBPath := EffectiveBypassPathPresets(s.Nginx.BypassPaths.EnabledPresets, s.Nginx.BypassPaths.DisabledPresets)
 	for _, g := range BypassPathPresetGroups {
 		if !enabledBPath[g.ID] {
-			continue
-		}
-		if PresetIsNew(seenVer, g.AddedIn) {
 			continue
 		}
 		for _, r := range g.Rules {
@@ -1685,8 +1670,8 @@ func toSet(xs []string) map[string]bool {
 // says deny.  That is deliberate: the alternative is a request nginx lets past
 // on a technicality that the daemon would then have denied, and this axis
 // exists precisely because "let past on a technicality" is the bug.
-func hardDenyUAPatterns(s settings.Settings, seenVer string, upstreamBlack []string) []string {
-	return uaPatternsWhereAction(s, seenVer, upstreamBlack, func(act string) bool {
+func hardDenyUAPatterns(s settings.Settings, upstreamBlack []string) []string {
+	return uaPatternsWhereAction(s, upstreamBlack, func(act string) bool {
 		return act == settings.RateChallengeDeny
 	})
 }
@@ -1700,8 +1685,8 @@ func hardDenyUAPatterns(s settings.Settings, seenVer string, upstreamBlack []str
 // operator's own statement that the UA must clear a CAPTCHA, and completing
 // such a chain issues a CAPTCHA-grade cookie (the proof-of-work leg issues
 // none), so an ordinary visitor on the rule is unaffected.
-func captchaGradeUAPatterns(s settings.Settings, seenVer string, upstreamBlack []string) []string {
-	return uaPatternsWhereAction(s, seenVer, upstreamBlack, func(act string) bool {
+func captchaGradeUAPatterns(s settings.Settings, upstreamBlack []string) []string {
+	return uaPatternsWhereAction(s, upstreamBlack, func(act string) bool {
 		return act == settings.RateChallengeCaptchaOnly || act == settings.RateChallengePoWThenCaptcha
 	})
 }
@@ -1711,7 +1696,7 @@ func captchaGradeUAPatterns(s settings.Settings, seenVer string, upstreamBlack [
 // returns those whose RESOLVED action satisfies want.  One walk shared by the
 // callers above: two copies of this traversal would drift the moment a fourth
 // pattern source appears, and each caller would be wrong in its own way.
-func uaPatternsWhereAction(s settings.Settings, seenVer string, upstreamBlack []string, want func(act string) bool) []string {
+func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want func(act string) bool) []string {
 	ct := s.Nginx.ChallengeTargets
 	def := strings.TrimSpace(ct.DefaultAction)
 	if def == "" {
@@ -1734,7 +1719,7 @@ func uaPatternsWhereAction(s settings.Settings, seenVer string, upstreamBlack []
 	}
 	disabled := toSet(ct.DisabledPresets)
 	for _, g := range ChallengeTargetGroups {
-		if disabled[g.ID] || PresetIsNew(seenVer, g.AddedIn) {
+		if disabled[g.ID] {
 			continue
 		}
 		if denies(ct.PresetAction[g.ID]) {
@@ -2012,5 +1997,5 @@ func trimSpaceAndQuotes(s string) string {
 func HardDenyUAPatternsForTest(s settings.Settings) []string {
 	_, black, _ := collectUpstreamPatternsByMode(
 		s.Nginx.SearchBots.UpstreamGroupMode, toSet(s.Nginx.SearchBots.UpstreamDisabled), map[string]bool{})
-	return hardDenyUAPatterns(s, "", black)
+	return hardDenyUAPatterns(s, black)
 }

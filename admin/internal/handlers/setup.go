@@ -1009,15 +1009,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	cur.DB = s.DB
 	// Completing the wizard means the operator is looking at THIS release, so
-	// stamp it as seen: presets shipped with it become active, and the NEW gate
-	// starts protecting only against what later releases add.  This is the
-	// backstop for installs that never ran config-init (docker, dev shells) —
-	// without it their seen_version stays at the v0.1 epoch: post-v0.1.0
-	// path / honeypot / target / verdict presets ship genuinely inert, and
-	// the crawler IP-range presets show OFF in the UI while their ranges are
-	// live.  Guarded so a dev build ("vdev", unparseable)
-	// cannot overwrite a real recorded version with a string the gate treats
-	// as "nothing is ever new".
+	// stamp it as seen: this baselines the settings UI's "NEW since your last
+	// save" badge to this version, so only what later releases add is badged.
+	// (Presets themselves are active from the release that ships them; the
+	// stamp no longer gates rendering.)  Guarded so a dev build ("vdev",
+	// unparseable) cannot overwrite a real recorded version.
 	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
 		cur.Nginx.SeenVersion = v
 	}

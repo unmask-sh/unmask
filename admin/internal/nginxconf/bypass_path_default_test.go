@@ -123,15 +123,16 @@ func TestRenderAppliesPresetDefaults(t *testing.T) {
 		t.Errorf("disabled_presets did not remove well-known from render")
 	}
 
-	// A preset added AFTER the operator's last-seen version stays inert even
-	// though DefaultOn (the NEW gate) -- simulate with an old SeenVersion.
+	// A default-ON preset renders regardless of SeenVersion: the back-compat
+	// opt-in gate was removed, so a preset is active from the release that ships
+	// it and an old SeenVersion no longer holds it back.
 	s3 := settings.Settings{}
 	s3.Nginx.SeenVersion = "v0.0"
 	d3, err := buildRenderData(s3, "", "0.1.0")
 	if err != nil {
 		t.Fatalf("buildRenderData: %v", err)
 	}
-	if strings.Contains(joined(d3), `^/robots\.txt$`) {
-		t.Errorf("NEW-gated preset rendered despite SeenVersion older than AddedIn")
+	if !strings.Contains(joined(d3), `^/robots\.txt$`) {
+		t.Errorf("default-ON preset should render even with an old SeenVersion (opt-in gate removed)")
 	}
 }

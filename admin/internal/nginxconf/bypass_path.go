@@ -32,7 +32,7 @@ type BypassPathGroup struct {
 	// anything that could plausibly be a protection target (API paths) stays
 	// OFF.  Every future preset declares its own default here — the config only
 	// stores deviations, so a new preset's default reaches existing installs
-	// too (behind the SeenVersion NEW gate).
+	// too.
 	DefaultOn bool
 }
 
@@ -139,10 +139,9 @@ var BypassPathPresetGroups = []BypassPathGroup{
 // forward-auth in-memory matcher, and the settings UI — the three must agree
 // on what "enabled" means or the admin would lie about the conf it rendered.
 //
-// The SeenVersion NEW gate is intentionally NOT applied here: callers that
-// render or match must additionally skip groups where PresetIsNew(seenVer,
-// g.AddedIn), so a preset added by an upgrade never changes behavior before
-// the operator has seen it — regardless of its DefaultOn.
+// A preset is active from the release that ships it: there is no version gate
+// here or in the callers (render / forward-auth match / settings UI), so a
+// preset added by an upgrade takes effect at its DefaultOn immediately.
 func EffectiveBypassPathPresets(enabled, disabled []string) map[string]bool {
 	on := map[string]bool{}
 	en := map[string]bool{}
