@@ -1394,7 +1394,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if act := strings.TrimSpace(h.cfg().Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
-		if pAct := resolveJA4PresetAction(verdict, h.cfg().Nginx.JA4Verdicts); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
+		if pAct := resolveJA4PresetAction(verdict, h.cfg().Nginx); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
 			chMode = pAct
 		}
 		if eAct := resolveJA4ExtraAction(verdict, h.cfg().Nginx.JA4Verdicts); eAct != "" && settings.IsValidRateChallengeMode(eAct) {
@@ -1441,6 +1441,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			disabledTgt := map[string]bool{}
 			for _, id := range h.cfg().Nginx.ChallengeTargets.DisabledPresets {
 				disabledTgt[id] = true
+			}
+			// A preset held for upgrade review is inert: it must not steer the
+			// challenge chain mode either, matching the decision wires
+			// (render.go / auth_check.go).  Without this a held target's
+			// per-preset action would still upgrade pow -> captcha/deny for a
+			// visitor challenged by another axis.
+			for _, g := range nginxconf.ChallengeTargetGroups {
+				if nginxconf.EnforcementHeld(h.cfg().Nginx, g.AddedIn) {
+					disabledTgt[g.ID] = true
+				}
 			}
 			if preAct := classify.ResolvePresetActionForUA(ua, specs,
 				h.cfg().Nginx.ChallengeTargets.PresetAction,
@@ -2990,7 +3000,8 @@ func MethodOnly(method string, h http.HandlerFunc) http.HandlerFunc {
 // preset that owns the given verdict name.  Empty = no override (caller
 // should keep the previous chMode value).  Disabled presets are skipped to
 // mirror the nginx render's exclusion.
-func resolveJA4PresetAction(verdict string, c settings.JA4VerdictsConfig) string {
+func resolveJA4PresetAction(verdict string, n settings.Nginx) string {
+	c := n.JA4Verdicts
 	if verdict == "" || len(c.PresetAction) == 0 {
 		return ""
 	}
@@ -2999,7 +3010,10 @@ func resolveJA4PresetAction(verdict string, c settings.JA4VerdictsConfig) string
 		disabled[id] = true
 	}
 	for _, g := range nginxconf.JA4VerdictGroups {
-		if disabled[g.ID] {
+		// A held JA4 verdict never reaches here today (the verdict source is
+		// hold-aware), but honor the hold anyway so every serve-path preset
+		// resolution treats a held preset as inert, uniformly.
+		if disabled[g.ID] || nginxconf.EnforcementHeld(n, g.AddedIn) {
 			continue
 		}
 		for _, r := range g.Rules {
