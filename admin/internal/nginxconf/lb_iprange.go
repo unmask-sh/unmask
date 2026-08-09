@@ -196,6 +196,10 @@ type LBIPRange struct {
 	Source string   // distribution URL (= the snapshot's origin.  for the user to look up an updated list)
 	Header string   // the nginx variable this vendor puts JA4 in (= "$http_x_client_ja4" / "$http_cf_ja4" etc.)
 	CIDRs  []string // mixed IPv4 / IPv6.  goes directly into a geo directive.
+	// AddedIn: release this vendor joined the catalog (v-form).  Drives the
+	// settings UI "since vX.Y.Z" label + NEW badge, like every other preset.
+	// Empty is defaulted to "v0.1.0" in data.go's init().
+	AddedIn string
 }
 
 // LBIPRanges: per-vendor IP range snapshots.  Add to this list by appending.

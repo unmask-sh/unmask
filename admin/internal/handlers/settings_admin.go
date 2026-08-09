@@ -288,6 +288,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"MatchType": g.MatchType,
 			"Enabled":   enabledRE[g.ID],
 			"DefaultOn": g.DefaultOn,
+			"AddedIn":   g.AddedIn,
+			"IsNew":     nginxconf.PresetIsNew(seenVer, g.AddedIn),
 		})
 	}
 	redirectExemptRules := make([]map[string]any, 0, len(cur.HTTPSRedirectExempt.Rules))
@@ -2875,6 +2877,8 @@ type LBPresetView struct {
 	Source    string   // distribution URL
 	Header    string
 	Enabled   bool
+	AddedIn   string // "since vX.Y.Z" label
+	IsNew     bool   // added after the operator's last save
 }
 
 // LBExtraView: display struct for custom (= user-added) LBs. CIDRs are joined
@@ -2907,6 +2911,8 @@ func buildLBPresetView(n settings.Nginx) []LBPresetView {
 			Source:    p.Source,
 			Header:    nginxconf.HeaderFromNginxVar(p.Header),
 			Enabled:   enabled[p.ID],
+			AddedIn:   p.AddedIn,
+			IsNew:     nginxconf.PresetIsNew(n.SeenVersion, p.AddedIn),
 		})
 	}
 	return out

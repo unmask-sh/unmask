@@ -1242,10 +1242,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
       <p class="desc" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.network.lb_preset_hint" }}</p>
       {{ range .LBPresets }}
-      <div class="preset lb-preset">
+      <div class="preset lb-preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="trusted_lb_preset" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="lb-{{ .ID }}">
         <label for="lb-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
             <details class="lb-cidrs"><summary>{{ .CIDRCount }} CIDRs</summary><div class="lb-cidrs-body">{{ range .CIDRs }}<div>{{ . }}</div>{{ end }}{{ if .Source }}<div class="lb-cidrs-src"><a href="{{ .Source }}" target="_blank" rel="noopener">source ↗</a></div>{{ end }}</div></details>
             · header: <code>{{ .Header }}</code>
@@ -1310,10 +1310,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
         <p class="desc" style="font-size:.78rem;color:#64748b">{{ t .Lang "settings.network.redirect_exempt_preset_hint" }}</p>
         {{ range .RedirectExemptGroups }}
-        <div class="preset">
+        <div class="preset{{ if .IsNew }} is-new{{ end }}">
           <input type="checkbox" name="redirect_exempt_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="re-{{ .ID }}">
           <label for="re-{{ .ID }}" class="lbl">
-            <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}<span class="added">{{ if eq .MatchType "ua" }}UA{{ else }}path{{ end }}</span></div>
+            <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}<span class="added">{{ if eq .MatchType "ua" }}UA{{ else }}path{{ end }}</span>{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           </label>
         </div>
         {{ end }}
