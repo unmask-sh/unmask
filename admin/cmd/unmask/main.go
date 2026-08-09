@@ -56,7 +56,7 @@ import (
 // inject it: `go build -ldflags "-X main.Version=$(UNMASK_VERSION)"` (the
 // Makefile does this).  A const would silently ignore the -X flag, leaving
 // `unmask version` and the startup log stuck at the default forever.
-var Version = "0.1.25"
+var Version = "0.1.26"
 
 // Commit: the git revision this binary was built from, injected the same way.
 // Empty in a plain `go build`.

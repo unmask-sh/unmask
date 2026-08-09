@@ -8,13 +8,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
-## [Unreleased]
+## [0.1.26] - 2026-08-09
 
 ### Added
 - (2026-08-09) **Upgrade review: an upgrade never silently tightens what you block.**  On the `review` policy — the default for fresh installs — a *new default-on enforcement* preset (a challenge, deny or honeypot that a later release adds) stays inert until you acknowledge the upgrade, so a plain `dnf upgrade` cannot change what your site blocks behind your back.  Rescue presets (search-bot IP ranges, bypass paths) are never held: loosening what passes must not wait on a review.  When something is held, the dashboard shows a banner naming each held preset with one button to review and apply them all; the same is available headless with `unmask upgrade-review` (list / `--apply` / `--policy`), and `unmask doctor` flags a pending review.  Existing installs default to `apply` — behavior is unchanged unless you opt in.
+- (2026-08-09) **A GCP load-balancer health-check stats-exclude preset.**  Behind a Google Cloud load balancer, the health-check probes (35.191.0.0/16 + 130.211.0.0/22) are dashboard noise and must never be challenged (a failed check drops the node).  A new opt-in toggle in the stats-exclude card drops them from statistics and bypasses the challenge in one click, instead of hand-typing the ranges.  Off by default (only relevant behind a GCP LB).
 
 ### Changed
 - (2026-08-09) **A shipped preset is active from the release that ships it.**  The old opt-in gate held every new preset inert on an existing install until the operator re-saved settings, keyed on a per-install `seen_version` that drifted with each save — so different nodes silently ran different rulesets, each missing presets a later release had added.  Presets now apply at their code-declared default on every install; `seen_version` remains only as the settings UI's "NEW since your last save" badge.  (Where you want an upgrade held for review instead of applied, see the new upgrade-review policy above.)
+- (2026-08-09) **Every preset in the settings UI carries a version.**  A few presets — the trusted-LB and HTTPS-redirect-exempt groups, and the stats-exclude toggles — rendered without the "since vX.Y.Z" label the other presets show; they now carry it (and a NEW badge when added after your last save), so a preset a later release adds is always identifiable.
+
+### Fixed
+- (2026-08-09) **A client disconnect no longer logs as an insert error.**  On a busy node a client often drops before the async `unmask_event` (or audit) insert finishes, cancelling the request context; that abort was logged as an error — noise, not a fault.  It is now logged only when the context is still live.
 
 ## [0.1.25] - 2026-08-09
 
