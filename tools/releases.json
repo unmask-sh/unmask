@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.25",
+  "latest": "0.1.26",
   "releases": [
+    {
+      "version": "0.1.26",
+      "date": "2026-08-09",
+      "notes": "This release adds an upgrade safety net for a growing operator base. On the review policy - the default for fresh installs - a new default-on enforcement preset that a later release adds (a challenge, deny or honeypot) stays inert until you acknowledge the upgrade, so a plain package upgrade never silently tightens what your site blocks: the dashboard shows a banner naming each held preset with one button to review and apply them, the same is available headless with unmask upgrade-review, and unmask doctor flags a pending review. Rescue presets (search-bot IP ranges, bypass paths) are never held. This replaces the old per-install seen_version gate, which held every new preset inert until the settings page was re-saved and drifted between nodes - a shipped preset is now active from the release that ships it on every install, with seen_version kept only for the settings UI's 'new since your last save' badge; existing installs default to apply, so their behavior is unchanged. Also: an opt-in GCP load-balancer health-check stats-exclude preset drops Google Cloud's health probes from the dashboard and bypasses the challenge in one toggle, and every preset in the settings UI now carries a 'since vX.Y.Z' version label. Fixed: a request context cancelled by a client disconnect no longer logs an event or audit insert as an error."
+    },
     {
       "version": "0.1.25",
       "date": "2026-08-09",
