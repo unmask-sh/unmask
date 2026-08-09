@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -9,8 +12,8 @@ import (
 )
 
 // The dashboard banner must appear (listing the held preset) under the review
-// policy when an upgrade holds a preset, and stay absent under apply -- the
-// handler->template wiring, end to end.
+// policy when an upgrade holds a preset, and stay absent under apply.  The apply
+// form is admin-only: a viewer sees the banner but not the button.
 func TestOverviewUpgradeReviewBanner(t *testing.T) {
 	saved := nginxconf.JA4VerdictGroups
 	nginxconf.JA4VerdictGroups = append(append([]nginxconf.JA4VerdictGroup{}, saved...),
@@ -24,29 +27,52 @@ func TestOverviewUpgradeReviewBanner(t *testing.T) {
 
 	h := newTestHandler(t)
 
+	// render the dashboard as the given role (session injected into the context,
+	// the way the auth middleware does in production).
+	render := func(role string) string {
+		r := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
+		r = r.WithContext(context.WithValue(r.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: role}))
+		rr := httptest.NewRecorder()
+		h.AdminTopOverview(rr, r)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("overview status %d (role %s)", rr.Code, role)
+		}
+		return rr.Body.String()
+	}
+
 	s := *h.cfg()
 	s.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
 	s.Nginx.EnforcementReviewedVersion = "v0.1.0" // older than the synthetic preset
 	h.SetSettings(s)
-	html := renderOverview(t, h)
-	if !strings.Contains(html, "test_future_verdict") {
+
+	// admin sees the banner, its i18n resolved, and the apply form.
+	admin := render("superadmin")
+	if !strings.Contains(admin, "test_future_verdict") {
 		t.Error("review + held preset: the dashboard must show the upgrade-review banner listing it")
 	}
-	// The banner's i18n keys must resolve (a missing key renders the raw key),
-	// and the apply form must carry its action and the CSRF field.
-	if strings.Contains(html, "overview.upgrade_review") {
+	if strings.Contains(admin, "overview.upgrade_review") {
 		t.Error("banner shows a raw i18n key -- a translation is missing")
 	}
-	if !strings.Contains(html, "/admin/upgrade-review/apply") {
-		t.Error("banner is missing the apply form action")
+	if !strings.Contains(admin, "/admin/upgrade-review/apply") {
+		t.Error("admin: the apply form action is missing")
 	}
-	if !strings.Contains(html, `name="_csrf"`) {
-		t.Error("banner apply form is missing the CSRF field")
+	if !strings.Contains(admin, `name="_csrf"`) {
+		t.Error("admin: the apply form is missing the CSRF field")
 	}
 
+	// viewer sees the banner (informational) but not the apply form.
+	viewer := render("viewer")
+	if !strings.Contains(viewer, "test_future_verdict") {
+		t.Error("viewer: the banner should still list the held preset")
+	}
+	if strings.Contains(viewer, "/admin/upgrade-review/apply") {
+		t.Error("viewer: the apply form must be hidden (a viewer cannot apply)")
+	}
+
+	// apply policy: no banner at all.
 	s.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewApply
 	h.SetSettings(s)
-	if html := renderOverview(t, h); strings.Contains(html, "test_future_verdict") {
+	if strings.Contains(render("superadmin"), "test_future_verdict") {
 		t.Error("apply policy: the dashboard must not show the upgrade-review banner")
 	}
 }
