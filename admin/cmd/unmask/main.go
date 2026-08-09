@@ -1156,6 +1156,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminSettingsIndex))
 	mux.HandleFunc("POST "+base+"/admin/settings/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))
+	// Acknowledge held enforcement presets (dashboard upgrade-review banner).
+	mux.HandleFunc("POST "+base+"/admin/upgrade-review/apply",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminUpgradeReviewApply)))
 	// ASN custom-rule autocomplete: searches the installed ASN mmdb (org name /
 	// AS number).  Read-only, so viewer-and-above (plain AuthMiddleware).
 	mux.HandleFunc("GET "+base+"/admin/settings/asn/suggest",
