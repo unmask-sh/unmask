@@ -8,6 +8,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.25] - 2026-08-09
+
+> Mostly the settings surface this release: text you typed into a rule survives a
+> rejected save instead of vanishing, every tab lives at its own URL, the
+> admin-host allowlist speaks in hosts rather than raw regex, and the overview's
+> composition card is yours to slice.
+
+### Changed
+- (2026-08-09) **The admin-host allowlist speaks in hosts, not generic patterns.**  Its rows carried the same regex / contains / exact toggle as every other list, but two of those readings are wrong for an allowlist: the regex was silently anchored at both ends here (unlike the prefix-by-default regex on the other tabs, which read as an inconsistency), and "contains" was a substring match -- `contains:example.com` would have admitted `example.com.attacker.com`.  The field now offers host modes instead: **exact** (that hostname), **subdomain** (`example.com` and any `*.example.com`, end-anchored), and **regex** (labelled and documented as the full-string match it always was).  A legacy contains entry is read as exact -- fail closed.  Every other list keeps its own modes unchanged.
+- (2026-08-08) **Each settings tab has its own URL.**  The tab was a query parameter (`?tab=network`); it is now a path segment (`/admin/settings/network/`), matching the stats and per-site pages, so a tab can be linked, bookmarked and opened in a new window as itself.
+- (2026-08-08) **Every segment of the overview's composition card is a filter.**  The segments of the traffic-composition bar can each be clicked in or out of the denominator, so the headline percentage recomputes against exactly the slice you want to read; the selection persists in a cookie, and the card now shares the legend behaviour the stats charts already had.
+
+### Fixed
+- (2026-08-08) **A rejected rule-list save no longer discards what you typed.**  Across every settings tab, when a save is rejected -- a self-lockout, an invalid pattern -- the page came back showing the last-saved list, so the entry you were fixing was gone.  It now keeps your input, opens only the rows you changed, and marks the offending row with the reason beside it.
+- (2026-08-07) **The admin-host allowlist honours its own mode toggle, and rejects a pattern it cannot use.**  A regex host was read literally regardless of the toggle, and an invalid one was silently dropped -- the list saved short, the gate fell open, and a green "saved" banner claimed success.  The toggle is now applied at match time, and a value that will not compile is rejected at save with the reason, rather than stored to match nothing.
+- (2026-08-08) **The composition breakdown reads as figures and stays put when pinned.**  Its popover rows now separate their label from their number, keep their styling when the popover is pinned to the page, and reserve the room a toggled-off segment needs so the legend no longer reflows as you click.
+
 ## [0.1.24] - 2026-08-07
 
 > One production report drove most of this release: a distributed crawler that
