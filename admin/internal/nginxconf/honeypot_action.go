@@ -59,6 +59,9 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 		} else if disabledHP[g.ID] {
 			continue
 		}
+		if !g.OptIn && EnforcementHeld(n, g.AddedIn) {
+			continue // held pending upgrade review -- match native render
+		}
 		for _, p := range g.Patterns {
 			if re := hpCompile("(?i)" + p); re != nil && re.MatchString(uri) {
 				return strings.TrimSpace(n.Honeypot.PresetAction[g.ID]), true
