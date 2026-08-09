@@ -846,7 +846,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		disabledTgt := toSet(s.Nginx.ChallengeTargets.DisabledPresets)
 		seen := map[string]bool{}
 		for _, g := range ChallengeTargetGroups {
-			if disabledTgt[g.ID] {
+			if disabledTgt[g.ID] || EnforcementHeld(s.Nginx, g.AddedIn) {
 				continue
 			}
 			for _, p := range g.Patterns {
@@ -883,7 +883,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// JA4 verdicts: enabled presets + extras.
 	disabledV := toSet(s.Nginx.JA4Verdicts.DisabledPresets)
 	for _, g := range JA4VerdictGroups {
-		if disabledV[g.ID] {
+		if disabledV[g.ID] || EnforcementHeld(s.Nginx, g.AddedIn) {
 			continue
 		}
 		d.JA4Verdicts = append(d.JA4Verdicts, g.Rules...)
@@ -929,6 +929,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 				continue
 			}
 		} else if disabledHP[g.ID] {
+			continue
+		}
+		if !g.OptIn && EnforcementHeld(s.Nginx, g.AddedIn) {
 			continue
 		}
 		for _, p := range g.Patterns {
@@ -1719,7 +1722,7 @@ func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want fun
 	}
 	disabled := toSet(ct.DisabledPresets)
 	for _, g := range ChallengeTargetGroups {
-		if disabled[g.ID] {
+		if disabled[g.ID] || EnforcementHeld(s.Nginx, g.AddedIn) {
 			continue
 		}
 		if denies(ct.PresetAction[g.ID]) {

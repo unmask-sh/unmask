@@ -120,6 +120,8 @@ func main() {
 		err = cmdUser(args)
 	case "doctor":
 		err = cmdDoctor(args)
+	case "upgrade-review":
+		err = cmdUpgradeReview(args)
 	case "install-ipgeo":
 		err = cmdInstallIPGeo(args)
 	case "version", "-v", "--version":
@@ -160,6 +162,7 @@ usage:
   unmask user set-role <username> <role>
   unmask user delete <username>
   unmask doctor [-config PATH]
+  unmask upgrade-review [-config PATH] [--apply] [--policy review|apply]
   unmask install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
   unmask version
 
@@ -1564,22 +1567,30 @@ global:
   stale_browser_challenge: false
 
 nginx:
-  # The release this install started on.  Presets that ship WITH this release
-  # (crawler IP ranges, honeypots, ...) are active out of the box; a preset a
-  # LATER release adds arrives with a NEW badge and stays off until reviewed
-  # in the UI, so an upgrade never silently changes what passes.  Without this
-  # line the gate treats every post-v0.1.0 preset as "new": path / honeypot /
-  # challenge-target / JA4 presets from later releases stay genuinely inert,
-  # and the crawler IP-range presets show OFF in the UI while their ranges
-  # are in fact live — the display contradicting the enforcement.
+  # seen_version drives ONLY the settings UI's "NEW since your last save" badge
+  # (which presets a later release added); it does not gate anything.
   seen_version: v%s
+
+  # Upgrade-review policy.  "review" (the fresh-install default) holds a NEW
+  # default-on ENFORCEMENT preset -- a challenge / deny / honeypot that a LATER
+  # release adds -- inert until you acknowledge the upgrade, so a plain
+  # "dnf upgrade" never silently tightens what your site blocks.  RESCUE /
+  # bypass presets (search-bot rescue) are never held.  Review and apply held
+  # presets in the settings UI or with "unmask upgrade-review".  Set "apply" to
+  # activate new presets immediately on upgrade (no review step).
+  upgrade_review_policy: review
+  # Enforcement acknowledged up to this version.  Advances only when you apply an
+  # upgrade (settings "apply" / "unmask upgrade-review --apply"), never on an
+  # ordinary save.  Seeded to the install version so nothing ships held on day
+  # one -- only presets a LATER release adds wait for review.
+  enforcement_reviewed_version: v%s
 
 # Authentication is the internal user DB.  Create the first admin through the
 # setup wizard (= open /unmask/admin/ after install; the one-time token printed
 # by the package install / found in /etc/unmask/.setup-token guards it), or
 # from the shell: unmask user create.
 # CLI management: unmask user create / reset-password / set-role / delete
-`, bv, cb, Version)
+`, bv, cb, Version, Version)
 
 	if *out == "-" {
 		fmt.Print(body)
