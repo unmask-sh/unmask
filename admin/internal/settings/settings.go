@@ -795,6 +795,12 @@ type Nginx struct {
 	// stop protecting them.  The operator opts in only on an internet-facing
 	// site where private-source traffic is genuinely internal.
 	StatsExcludePrivateNetworks bool `yaml:"stats_exclude_private_networks,omitempty"`
+	// StatsExcludeGCPLBHC, when on, appends nginxconf.GCPLBHealthCheckCIDRs
+	// (Google Cloud's fixed LB health-check ranges) to StatsExcludeIPs at render
+	// time -- a convenience preset for a GCP-LB-fronted deployment, where health
+	// checks are dashboard noise and must not be challenged (a failed check drops
+	// the node).  Off by default: only relevant behind a GCP load balancer.
+	StatsExcludeGCPLBHC bool `yaml:"stats_exclude_gcp_lb_hc,omitempty"`
 	// AdminAllowedIPs: source-IP allowlist for /admin/* (= the admin UI),
 	// enforced at the admin handler layer (AdminIPAllowMiddleware).  Empty =
 	// no IP restriction (login + CSRF + login rate-limit still apply).

@@ -1887,10 +1887,17 @@ func sanitizeBypassIPs(ips []string, disabled []bool) []string {
 // network CIDRs when the preset is on (appended, not stored — the config keeps
 // only the toggle + the custom list).
 func statsExcludeList(n settings.Nginx) []string {
-	if !n.StatsExcludePrivateNetworks {
+	if !n.StatsExcludePrivateNetworks && !n.StatsExcludeGCPLBHC {
 		return n.StatsExcludeIPs
 	}
-	return append(append([]string{}, n.StatsExcludeIPs...), PrivateNetworkCIDRs...)
+	out := append([]string{}, n.StatsExcludeIPs...)
+	if n.StatsExcludePrivateNetworks {
+		out = append(out, PrivateNetworkCIDRs...)
+	}
+	if n.StatsExcludeGCPLBHC {
+		out = append(out, GCPLBHealthCheckCIDRs...)
+	}
+	return out
 }
 
 func sanitizeIPs(xs []string) []string {
