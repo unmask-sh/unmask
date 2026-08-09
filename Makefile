@@ -832,7 +832,7 @@ release-github:
 	gh release create v$(UNMASK_VERSION) \
 		--repo unmask-sh/unmask \
 		--draft \
-		--title "unmask v$(UNMASK_VERSION)" \
+		--title "v$(UNMASK_VERSION)" \
 		--notes 'rpm / deb / apk packages for this release. Recommended install is the unmask.sh apt/dnf/apk repository (https://unmask.sh/install/) — it configures GPG-verified automatic updates. The packages attached here are an immutable per-version archive; a directly-installed package does not configure the repository and will not auto-update. Verify downloads against checksums.txt (GPG: gpg --verify checksums.txt.asc checksums.txt).' \
 		$(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk $(DIST)/checksums.txt*
 	@echo ">>> draft release created — review the assets, then publish at:"
