@@ -1641,12 +1641,21 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="ua-section">
       <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
       <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.stats_exclude.preset_hint") }}</p>
-      <div class="preset lb-preset">
+      <div class="preset lb-preset{{ if .StatsExcludePrivNetIsNew }} is-new{{ end }}">
         <input type="checkbox" name="stats_exclude_private_networks" value="1" {{ if .Cur.StatsExcludePrivateNetworks }}checked{{ end }} id="stx-private">
         <label for="stx-private" class="lbl">
-          <div class="ttl">{{ t $.Lang "settings.stats_exclude.private_label" }}<span class="added">{{ t $.Lang "settings.stats_exclude.default_off" }}</span></div>
+          <div class="ttl">{{ t $.Lang "settings.stats_exclude.private_label" }}<span class="added">{{ t $.Lang "settings.stats_exclude.default_off" }}</span><span class="added">{{ tf $.Lang "settings.ua.added_in" .StatsExcludePrivNetAddedIn }}</span>{{ if .StatsExcludePrivNetIsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
             <details class="lb-cidrs"><summary>{{ len .PrivateNetworkCIDRs }} CIDRs</summary><div class="lb-cidrs-body">{{ range .PrivateNetworkCIDRs }}<div>{{ . }}</div>{{ end }}</div></details>
+          </div>
+        </label>
+      </div>
+      <div class="preset lb-preset{{ if .StatsExcludeGCPHCIsNew }} is-new{{ end }}">
+        <input type="checkbox" name="stats_exclude_gcp_lb_hc" value="1" {{ if .Cur.StatsExcludeGCPLBHC }}checked{{ end }} id="stx-gcphc">
+        <label for="stx-gcphc" class="lbl">
+          <div class="ttl">{{ t $.Lang "settings.stats_exclude.gcp_lb_hc_label" }}<span class="added">{{ t $.Lang "settings.stats_exclude.default_off" }}</span><span class="added">{{ tf $.Lang "settings.ua.added_in" .StatsExcludeGCPHCAddedIn }}</span>{{ if .StatsExcludeGCPHCIsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
+            <details class="lb-cidrs"><summary>{{ len .GCPLBHealthCheckCIDRs }} CIDRs</summary><div class="lb-cidrs-body">{{ range .GCPLBHealthCheckCIDRs }}<div>{{ . }}</div>{{ end }}</div></details>
           </div>
         </label>
       </div>

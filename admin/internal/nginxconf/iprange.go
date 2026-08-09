@@ -41,6 +41,27 @@ var PrivateNetworkCIDRs = []string{
 	"fc00::/7",       // IPv6 unique-local (ULA)
 }
 
+// GCPLBHealthCheckCIDRs is the stats-exclude "GCP LB health checks" preset:
+// Google Cloud's published, fixed source ranges for load-balancer health checks
+// (cloud.google.com/load-balancing/docs/health-check-concepts).  A health check
+// hitting the site is dashboard noise and must never be challenged (a failed
+// check drops the node from rotation), so this preset both stats-excludes and
+// bypasses them -- statsExcludeList feeds $is_bypass_ip too.  Off by default:
+// only a GCP-LB-fronted deployment sees traffic from these ranges.
+var GCPLBHealthCheckCIDRs = []string{
+	"35.191.0.0/16",  // current GCP health-check range
+	"130.211.0.0/22", // legacy GCP health-check range
+}
+
+// AddedIn versions for the stats-exclude toggles.  They drive the settings UI's
+// "since vX.Y.Z" label + NEW badge only: these toggles fold into
+// stats-exclude/bypass (a loosening), which upgrade-review never holds, so the
+// value is informational, not load-bearing.
+const (
+	PrivateNetworkStatsExcludeAddedIn   = "v0.1.4"  // 3f70cfb
+	GCPLBHealthCheckStatsExcludeAddedIn = "v0.1.26" // set to the release this ships in
+)
+
 // BypassIPGroup: one source of an official IP range.
 //
 // Enabled per-group via config.yml's nginx.bypass_ip_enabled_presets (= list

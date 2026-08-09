@@ -747,6 +747,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ProtectedRules":              protectedPathRows(cur.ProtectedPaths.Paths),
 		"BypassPathGroups":            bypassPathGroups,
 		"PrivateNetworkCIDRs":         nginxconf.PrivateNetworkCIDRs,
+		"GCPLBHealthCheckCIDRs":       nginxconf.GCPLBHealthCheckCIDRs,
+		"StatsExcludePrivNetAddedIn":  nginxconf.PrivateNetworkStatsExcludeAddedIn,
+		"StatsExcludePrivNetIsNew":    nginxconf.PresetIsNew(seenVer, nginxconf.PrivateNetworkStatsExcludeAddedIn),
+		"StatsExcludeGCPHCAddedIn":    nginxconf.GCPLBHealthCheckStatsExcludeAddedIn,
+		"StatsExcludeGCPHCIsNew":      nginxconf.PresetIsNew(seenVer, nginxconf.GCPLBHealthCheckStatsExcludeAddedIn),
 		"RedirectExemptGroups":        redirectExemptGroups,
 		"RedirectExemptRules":         redirectExemptRules,
 		// AdvancedEnabled: master reveal-gate for the Web Bot Auth + Privacy Pass
@@ -3373,6 +3378,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	n.StatsExcludeIPs = outStx
 	n.StatsExcludeIPsTitle = outStxTitle
 	n.StatsExcludePrivateNetworks = r.FormValue("stats_exclude_private_networks") == "1"
+	n.StatsExcludeGCPLBHC = r.FormValue("stats_exclude_gcp_lb_hc") == "1"
 
 	// Reverse-DNS crawler verification (rDNS): the DNS-based sibling of the
 	// IP-range presets above -- verify a crawler-claiming UA against its vendor's
