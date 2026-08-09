@@ -46,3 +46,33 @@ func TestForwardAuthHoldsNewHoneypotUnderReview(t *testing.T) {
 		t.Error("review + acknowledged: forward-auth must match once reviewed up to the preset version")
 	}
 }
+
+// hardDenyUA (the forward-auth hard-deny derivation) must honor the hold too, or
+// a held deny-action challenge-target would still deny on a forward-auth node
+// while native holds it.
+func TestForwardAuthHoldsNewDenyTargetUnderReview(t *testing.T) {
+	saved := nginxconf.ChallengeTargetGroups
+	nginxconf.ChallengeTargetGroups = append(append([]nginxconf.ChallengeTargetGroup{}, saved...),
+		nginxconf.ChallengeTargetGroup{
+			ID:       "test_future_ct",
+			Label:    "synthetic future deny target",
+			AddedIn:  "v9.9.9",
+			Patterns: []string{"TestFutureBot"},
+		})
+	t.Cleanup(func() { nginxconf.ChallengeTargetGroups = saved })
+
+	mk := func(policy, reviewed string) settings.Nginx {
+		var n settings.Nginx
+		n.UpgradeReviewPolicy = policy
+		n.EnforcementReviewedVersion = reviewed
+		n.ChallengeTargets.PresetAction = map[string]string{"test_future_ct": settings.RateChallengeDeny}
+		return n
+	}
+
+	if !hardDenyUA("TestFutureBot", mk(settings.UpgradeReviewApply, "v0.1.0")) {
+		t.Error("apply: a new deny challenge-target must deny in forward-auth")
+	}
+	if hardDenyUA("TestFutureBot", mk(settings.UpgradeReviewReview, "v0.1.0")) {
+		t.Error("review + old reviewed: a held deny challenge-target must NOT deny (native parity)")
+	}
+}
