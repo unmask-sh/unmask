@@ -11,9 +11,16 @@ package nginxconf
 
 // init: when AddedIn is empty on a preset group, default it to "v0.1.0".
 //
-// New presets that explicitly set AddedIn: "v0.5.0" etc. get a
-// "since v0.5.0" label in the UI.  Existing groups keep their initial
-// release.
+// New presets that explicitly set AddedIn: "v0.5.0" etc. get a "since v0.5.0"
+// label in the UI.  Existing (v0.1.0-era) groups keep their initial release.
+//
+// ⚠ A preset that a LATER release adds MUST set AddedIn to that release's
+// version.  AddedIn feeds nginxconf.EnforcementHeld: the empty->"v0.1.0"
+// default here makes a preset look like it always existed, so an operator on
+// the "review" upgrade policy would NEVER see it held for review -- it would
+// activate silently on `dnf upgrade`, exactly what upgrade-review exists to
+// prevent.  This matters most for ENFORCEMENT presets (JA4 verdict / challenge
+// target / honeypot); rescue presets are never held regardless.
 func init() {
 	for i := range ChallengeTargetGroups {
 		if ChallengeTargetGroups[i].AddedIn == "" {
