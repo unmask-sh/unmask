@@ -47,6 +47,16 @@ func init() {
 			ProtectedPathPresetGroups[i].AddedIn = "v0.1.0"
 		}
 	}
+	for i := range RedirectExemptPresetGroups {
+		if RedirectExemptPresetGroups[i].AddedIn == "" {
+			RedirectExemptPresetGroups[i].AddedIn = "v0.1.0"
+		}
+	}
+	for i := range LBIPRanges {
+		if LBIPRanges[i].AddedIn == "" {
+			LBIPRanges[i].AddedIn = "v0.1.0"
+		}
+	}
 }
 
 // JA4VerdictGroup: preset group mapping a JA4 fingerprint pattern ->
