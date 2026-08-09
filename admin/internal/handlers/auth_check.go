@@ -1653,16 +1653,11 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 	// what the nginx renderer feeds into `map $request_uri ...`.
 	//
 	// Preset resolution: per-preset DefaultOn + operator deviations via the
-	// shared EffectiveBypassPathPresets, and the same SeenVersion NEW gate the
-	// renderer applies — so admin's in-memory check agrees with the nginx
-	// config it produced (a preset added by an upgrade stays inert on both
-	// paths until the operator has seen it).
+	// shared EffectiveBypassPathPresets — so admin's in-memory check agrees with
+	// the nginx config it produced.
 	enabledBP := nginxconf.EffectiveBypassPathPresets(n.BypassPaths.EnabledPresets, n.BypassPaths.DisabledPresets)
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		if !enabledBP[g.ID] {
-			continue
-		}
-		if nginxconf.PresetIsNew(n.SeenVersion, g.AddedIn) {
 			continue
 		}
 		for _, r := range g.Rules {
@@ -1714,11 +1709,10 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 	// honeypot: enabled presets + per-site URLs.  Each rule carries its
 	// per-preset (PresetAction[g.ID]) / per-row (u.Action) action override so
 	// honeypotDecide can apply + persist it ("" = inherit DefaultAction).  The
-	// active-set logic (OptIn / Disabled / Enabled / SeenVersion) mirrors
-	// render.go + nginxconf.ResolveHoneypotAction so all three modes agree on
-	// which presets are live -- previously this scan honored only
-	// DisabledPresets, silently activating OptIn presets (e.g. sql-injection)
-	// the operator never enabled.
+	// active-set logic (OptIn / Disabled / Enabled) mirrors render.go +
+	// nginxconf.ResolveHoneypotAction so all three modes agree on which presets
+	// are live -- previously this scan honored only DisabledPresets, silently
+	// activating OptIn presets (e.g. sql-injection) the operator never enabled.
 	disabledHP := toSet(n.Honeypot.DisabledPresets)
 	enabledHP := toSet(n.Honeypot.EnabledPresets)
 	for _, g := range nginxconf.HoneypotPresetGroups {
@@ -1727,9 +1721,6 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 				continue
 			}
 		} else if disabledHP[g.ID] {
-			continue
-		}
-		if nginxconf.PresetIsNew(n.SeenVersion, g.AddedIn) {
 			continue
 		}
 		act := strings.TrimSpace(n.Honeypot.PresetAction[g.ID])

@@ -15,9 +15,8 @@
 //     health-check path is operator-configured and varies), so this axis
 //     matches $http_user_agent rather than $request_uri.
 //
-// Same preset/deviation model as bypass paths, minus the SeenVersion gate: a
-// missing exemption is the dangerous state, so a default-on exemption applies
-// immediately on upgrade.
+// Same preset/deviation model as bypass paths: a missing exemption is the
+// dangerous state, so a default-on exemption applies immediately on upgrade.
 package nginxconf
 
 // RedirectExemptGroup: a preset group of redirect exemptions.  MatchType picks
@@ -63,8 +62,7 @@ var RedirectExemptPresetGroups = []RedirectExemptGroup{
 
 // EffectiveRedirectExemptPresets resolves which preset groups are active from
 // the operator's recorded deviations.  A group is active when explicitly
-// enabled, or DefaultOn and not explicitly disabled.  No SeenVersion gate (see
-// the file comment).  Unknown IDs are ignored.
+// enabled, or DefaultOn and not explicitly disabled.  Unknown IDs are ignored.
 func EffectiveRedirectExemptPresets(enabled, disabled []string) map[string]bool {
 	en := toSet(enabled)
 	dis := toSet(disabled)
