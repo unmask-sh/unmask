@@ -334,7 +334,15 @@ func Insert(ctx context.Context, d *db.DB, e *Event) error {
 		return errors.New("invalid event")
 	}
 	if _, err := d.ExecContext(ctx, insertStmt, args...); err != nil {
-		log.Printf("unmask_event insert failed: %v", err)
+		// A canceled / expired request context -- the client disconnected before
+		// this async insert finished, or the daemon is shutting down -- is
+		// expected on a busy node and aborts the insert ("context canceled" or
+		// the SQLite "interrupted" it maps to).  That is not an error worth a log
+		// line (it was ~0.05% of inserts on the busiest fleet node); real insert
+		// failures, where the context is still live, still log.
+		if ctx.Err() == nil {
+			log.Printf("unmask_event insert failed: %v", err)
+		}
 		return err
 	}
 	return nil
