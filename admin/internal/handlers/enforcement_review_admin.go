@@ -55,6 +55,10 @@ func (h *Handler) AdminUpgradeReviewApply(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, dash, http.StatusFound)
 		return
 	}
+	// Publish to the running config, exactly as AdminSettingsSave does -- without
+	// this the in-memory snapshot stays stale, so the banner would persist and
+	// the forward-auth matcher would keep holding the presets until a restart.
+	h.SetSettings(cur)
 
 	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
 		username := ""

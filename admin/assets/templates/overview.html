@@ -231,11 +231,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <ul style="margin:.4rem 0 .7rem 1.2rem;font-size:.88rem">
     {{ range .UpgradeHeld }}<li><code>{{ .ID }}</code> &mdash; {{ .Label }} <span style="opacity:.65">({{ .Category }} &middot; {{ .AddedIn }})</span></li>{{ end }}
   </ul>
+  {{ if or (eq .Me.Role "superadmin") (eq .Me.Role "admin") }}
   <form method="post" action="{{ .BasePath }}/admin/upgrade-review/apply" style="display:inline">
     <input type="hidden" name="_csrf" value="{{ .CSRFToken }}">
     <button type="submit" style="padding:.4rem .9rem;border:1px solid #92400e;background:#92400e;color:#fff;border-radius:.3rem;cursor:pointer;font-weight:600">{{ t .Lang "overview.upgrade_review.apply" }}</button>
   </form>
   <span style="margin-left:.7rem;font-size:.83rem;opacity:.8">{{ t .Lang "overview.upgrade_review.cli_hint" }}</span>
+  {{ end }}
 </div>
 {{ end }}
 <p class="meta">{{ t .Lang "overview.subtitle" }}</p>

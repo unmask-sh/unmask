@@ -1982,8 +1982,8 @@ func hardDenyUA(ua string, n settings.Nginx) bool {
 		disabled[strings.TrimSpace(id)] = true
 	}
 	for _, g := range nginxconf.ChallengeTargetGroups {
-		if disabled[g.ID] || !denies(ct.PresetAction[g.ID]) {
-			continue
+		if disabled[g.ID] || nginxconf.EnforcementHeld(n, g.AddedIn) || !denies(ct.PresetAction[g.ID]) {
+			continue // held pending upgrade review -- match native uaPatternsWhereAction
 		}
 		for _, p := range g.Patterns {
 			if matchedRegex(p, ua) {

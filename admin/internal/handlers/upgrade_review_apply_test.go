@@ -55,9 +55,18 @@ func TestUpgradeReviewApplyAdvancesReviewedVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := loaded.Nginx.EnforcementReviewedVersion; got != "v9.9.9" {
-		t.Errorf("reviewed version = %q, want v9.9.9", got)
+		t.Errorf("reviewed version on disk = %q, want v9.9.9", got)
 	}
 	if n := len(nginxconf.HeldEnforcementPresets(loaded)); n != 0 {
-		t.Errorf("after apply: %d preset(s) still held, want 0", n)
+		t.Errorf("after apply: %d preset(s) still held on disk, want 0", n)
+	}
+
+	// The in-memory snapshot must be updated too, or the banner would persist and
+	// the forward-auth matcher would keep holding until a restart.
+	if got := h.cfg().Nginx.EnforcementReviewedVersion; got != "v9.9.9" {
+		t.Errorf("in-memory reviewed version = %q, want v9.9.9 (SetSettings not called?)", got)
+	}
+	if n := len(nginxconf.HeldEnforcementPresets(*h.cfg())); n != 0 {
+		t.Errorf("after apply: %d preset(s) still held in-memory, want 0", n)
 	}
 }
