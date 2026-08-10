@@ -32,9 +32,9 @@ func TestPruneHourlyPrunesCrawlerDetailAtFixedWindow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	ins(1, "recent")                    // 1h ago            -> keep
-	ins(24*(hourlyKeep-2), "inside")    // ~30d ago (inside) -> keep
-	ins(24*(hourlyKeep+5), "old")       // ~37d ago (past)   -> prune
+	ins(1, "recent")                 // 1h ago            -> keep
+	ins(24*(hourlyKeep-2), "inside") // ~30d ago (inside) -> keep
+	ins(24*(hourlyKeep+5), "old")    // ~37d ago (past)   -> prune
 
 	if err := PruneHourly(context.Background(), d); err != nil {
 		t.Fatal(err)
