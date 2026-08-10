@@ -458,7 +458,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := ja4Decide(ja4Action, ja4Verdict); ok {
+			if d, ok := ja4Decide(ja4Action, ja4Verdict, cfg.Nginx); ok {
 				decisions = append(decisions, d)
 			}
 			// Header integrity is listed BEFORE the UA axis.  pickStrongest
@@ -1156,14 +1156,29 @@ func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) string {
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
 // Severity is captcha_only (= JA4 bot is a strong signal so the chain
 // skips PoW and goes straight to CAPTCHA, matching the legacy semantics).
-func ja4Decide(ja4Action, ja4Verdict string) (axisDecision, bool) {
+func ja4Decide(ja4Action, ja4Verdict string, n settings.Nginx) (axisDecision, bool) {
 	if ja4Action != "bot" {
 		return axisDecision{}, false
 	}
+	// The operator's configured chain (tab default -> preset -> row), the same
+	// resolver the native serve path uses.  This axis used to hardcode
+	// captcha_only and never read settings at all, so every JA4 action picked in
+	// the UI applied on native and did nothing behind a load balancer.
+	act := nginxconf.ResolveJA4VerdictAction(ja4Verdict, n)
+	if act == "" {
+		act = settings.RateChallengeCaptchaOnly // historical default for this axis
+	}
+	if act == settings.RateChallengeDeny {
+		// deny is terminal: no chain to serve.  The rescues (search bot, bypass
+		// IP / path) sit above this in the decision switch, so a JA4 deny cannot
+		// take out a crawler the operator meant to let through.
+		return axisDecision{sev: sevDeny, reason: "ja4:" + ja4Verdict + ":deny"}, true
+	}
+	s := severityFromAction(act)
 	return axisDecision{
-		sev:    sevCaptchaOnly,
+		sev:    s,
 		reason: "ja4:" + ja4Verdict,
-		chMode: settings.RateChallengeCaptchaOnly,
+		chMode: chModeFromSeverity(s),
 	}, true
 }
 
@@ -1901,7 +1916,14 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category, action strin
 		}
 		for _, p := range g.Patterns {
 			if matchedRegex(p, ua) {
-				return g.ID, "challenge", ""
+				// The preset's own chain, when the operator pinned one.  Dropping
+				// it here (as this used to) left forward-auth resolving only
+				// DefaultAction while the native render honoured
+				// ChallengeTargets.PresetAction -- so a preset pinned to a
+				// captcha chain was enforced on one wire and not the other, and
+				// the CAPTCHA-grade gate (which reads this action) let a
+				// proof-of-work cookie through in forward-auth.
+				return g.ID, "challenge", strings.TrimSpace(n.ChallengeTargets.PresetAction[g.ID])
 			}
 		}
 	}
@@ -1939,7 +1961,10 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category, action strin
 				continue
 			}
 			if matchedRegex(e.Pattern, ua) {
-				return cat, "challenge", ""
+				// Same for a rescue group the operator flipped to black and
+				// pinned a chain on: the native render applies
+				// SearchBots.UpstreamGroupAction, so forward-auth must too.
+				return cat, "challenge", strings.TrimSpace(n.SearchBots.UpstreamGroupAction[cat])
 			}
 		}
 	}

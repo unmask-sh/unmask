@@ -223,33 +223,60 @@ func TestBanDecideFromSource(t *testing.T) {
 	}
 }
 
-// TestJA4Decide: bot verdict -> captcha; non-bot -> silent.
+// TestJA4Decide: the axis runs the operator's configured chain, resolved the
+// same way the native serve path resolves it (tab default -> preset -> row).
+// It used to hardcode captcha_only and never take settings at all, so every
+// action picked in the JA4 tab applied on native and did nothing behind a load
+// balancer -- and `deny`, which the UI offers, could not be reached on either
+// wire.  The old test pinned that hardcoding, which is why it never caught it.
 func TestJA4Decide(t *testing.T) {
+	cfg := func(def string, extraVerdict, extraAct string) settings.Nginx {
+		var n settings.Nginx
+		n.JA4Verdicts.DefaultAction = def
+		if extraVerdict != "" {
+			n.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{Verdict: extraVerdict}}
+			n.JA4Verdicts.ExtraAction = []string{extraAct}
+		}
+		return n
+	}
+	const v = "t13d3515h2_bfa"
 	cases := []struct {
 		name    string
 		action  string
 		verdict string
+		n       settings.Nginx
 		wantOK  bool
 		wantSev axisSeverity
-		wantR   string
 		wantChM string
 	}{
-		{"bot -> captcha", "bot", "t13d3515h2_bfa", true, sevCaptchaOnly, "ja4:t13d3515h2_bfa", settings.RateChallengeCaptchaOnly},
-		{"ok -> silent", "ok", "t13d1516h2_abc", false, 0, "", ""},
-		{"empty action -> silent", "", "", false, 0, "", ""},
+		{"unconfigured keeps the historical captcha_only", "bot", v, cfg("", "", ""),
+			true, sevCaptchaOnly, settings.RateChallengeCaptchaOnly},
+		{"tab default applies", "bot", v, cfg(settings.RateChallengePoWOnly, "", ""),
+			true, sevPoWOnly, settings.RateChallengePoWOnly},
+		{"a row override beats the tab default", "bot", v,
+			cfg(settings.RateChallengePoWOnly, v, settings.RateChallengePoWThenCaptcha),
+			true, sevPoWThenCaptcha, settings.RateChallengePoWThenCaptcha},
+		{"deny is terminal, with no chain to serve", "bot", v, cfg(settings.RateChallengeDeny, "", ""),
+			true, sevDeny, ""},
+		{"a row can deny on its own", "bot", v, cfg("", v, settings.RateChallengeDeny),
+			true, sevDeny, ""},
+		{"ok -> silent", "ok", "t13d1516h2_abc", cfg(settings.RateChallengeDeny, "", ""), false, 0, ""},
+		{"empty action -> silent", "", "", cfg("", "", ""), false, 0, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			d, ok := ja4Decide(c.action, c.verdict)
+			d, ok := ja4Decide(c.action, c.verdict, c.n)
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v", ok, c.wantOK)
 			}
 			if !ok {
 				return
 			}
-			if d.sev != c.wantSev || d.reason != c.wantR || d.chMode != c.wantChM {
-				t.Errorf("decision=%+v, want sev=%d reason=%q chMode=%q",
-					d, c.wantSev, c.wantR, c.wantChM)
+			if d.sev != c.wantSev || d.chMode != c.wantChM {
+				t.Errorf("decision=%+v, want sev=%d chMode=%q", d, c.wantSev, c.wantChM)
+			}
+			if !strings.Contains(d.reason, c.verdict) {
+				t.Errorf("reason %q should name the verdict", d.reason)
 			}
 		})
 	}

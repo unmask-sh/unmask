@@ -475,6 +475,15 @@ type renderData struct {
 	// nothing by UA, which is most of them, and the map is then not emitted at
 	// all (no rendered-config diff).
 	HardDenyUAPatterns []string
+	// HardDenyJA4Patterns: JA4 patterns whose verdict resolves to action=deny
+	// (the JA4 tab's default, a preset override, or the row's own).  Emitted as
+	// $unmask_ja4_deny and folded into $unmask_axis_deny, so a JA4 deny is a 403
+	// like the UA / geo / ASN ones -- it used to be a UI option that reached no
+	// deny path on either wire.  The rescues still sit above it
+	// ($unmask_deny_unrescued): a search bot or bypassed address is never denied
+	// by a fingerprint, which matters because a JA4 is far easier to share
+	// between a crawler and a real browser than a UA string is.
+	HardDenyJA4Patterns []string
 	// CaptchaGradeUAPatterns: the subset of challenge-target UAs whose chain
 	// ends in a CAPTCHA.  For those, holding SOME pass cookie is not enough --
 	// the cookie has to be a CAPTCHA-grade one.  Empty (and the maps then not
@@ -918,6 +927,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.JA4Verdicts = append(d.JA4Verdicts, JA4VerdictRule{
 			Pattern: r.Pattern, Verdict: r.Verdict, Action: action,
 		})
+	}
+	// Which of those verdicts the operator set to deny.  Resolved per verdict
+	// name with the same precedence the daemon uses (tab default -> preset ->
+	// row), so both wires agree on which fingerprints are denied outright.
+	for _, r := range d.JA4Verdicts {
+		if r.Action != JA4ActionBot {
+			continue // only a bot verdict can escalate to deny
+		}
+		if ResolveJA4VerdictAction(r.Verdict, s.Nginx) == settings.RateChallengeDeny {
+			d.HardDenyJA4Patterns = append(d.HardDenyJA4Patterns, r.Pattern)
+		}
 	}
 
 	// honeypot: enabled preset groups + custom URLs (= skip Disabled rows).
@@ -1418,6 +1438,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// answer is no, the whole deny block is left out of both files -- see
 	// HardDenyActive for why that is a cost decision rather than a cosmetic one.
 	d.HardDenyActive = len(d.HardDenyUAPatterns) > 0 ||
+		len(d.HardDenyJA4Patterns) > 0 ||
 		d.GeoDefaultAction == settings.RateChallengeDeny ||
 		d.AsnDefaultAction == settings.RateChallengeDeny
 	for _, r := range d.GeoRules {

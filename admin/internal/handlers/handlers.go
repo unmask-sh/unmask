@@ -1368,9 +1368,25 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// redesign) -- the mode the operator picked is exactly what gets served.
 		chMode = nginxconf.ChModeForProtectedMode(ppMode)
 	} else if forceReason == "honeypot" {
-		// Honeypot trip default (= preset/custom path-based override
-		// wiring is a follow-up).
+		// The trap's own action (its row, or its preset group), then the tab
+		// default -- the same order forward-auth's honeypotDecide resolves, via
+		// the same resolver.  This branch used to read only the tab default, so
+		// a trap row pinned to captcha_only or deny was honoured behind a load
+		// balancer and ignored on native: the per-row picker was decorative on
+		// one wire, which is the shape the protected-path redesign removed.
 		if act := strings.TrimSpace(h.cfg().Nginx.Honeypot.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+			chMode = act
+		}
+		// The trapped URI reaches the serve the same way the protected axis
+		// resolves its path: the _orig query (apache's lua redirect), else the
+		// URI the native rewrite preserved.
+		hpURI := strings.TrimSpace(r.URL.Query().Get("_orig"))
+		if hpURI == "" {
+			hpURI = banProbedOrigPath(r, h.basePath())
+		}
+		if act, matched := nginxconf.ResolveHoneypotAction(hpURI,
+			siteFromRequest(r, h.snapshotSettings()), h.cfg().Nginx); matched &&
+			settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
 	} else if forceReason == "rate_limit" {
@@ -1384,15 +1400,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {
-		// JA4 default → preset / custom override (per verdict name).
-		if act := strings.TrimSpace(h.cfg().Nginx.JA4Verdicts.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
+		if act := nginxconf.ResolveJA4VerdictAction(verdict, h.cfg().Nginx); act != "" {
 			chMode = act
-		}
-		if pAct := resolveJA4PresetAction(verdict, h.cfg().Nginx); pAct != "" && settings.IsValidRateChallengeMode(pAct) {
-			chMode = pAct
-		}
-		if eAct := resolveJA4ExtraAction(verdict, h.cfg().Nginx.JA4Verdicts); eAct != "" && settings.IsValidRateChallengeMode(eAct) {
-			chMode = eAct
 		}
 	} else if forceReason != "rate_limit" {
 		// ChallengeTargets.DefaultAction is the black-list chain (ua-filter
@@ -3022,52 +3031,13 @@ func MethodOnly(method string, h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// resolveJA4PresetAction returns the per-preset chMode override for the
-// preset that owns the given verdict name.  Empty = no override (caller
-// should keep the previous chMode value).  Disabled presets are skipped to
-// mirror the nginx render's exclusion.
-func resolveJA4PresetAction(verdict string, n settings.Nginx) string {
-	c := n.JA4Verdicts
-	if verdict == "" || len(c.PresetAction) == 0 {
-		return ""
-	}
-	disabled := map[string]bool{}
-	for _, id := range c.DisabledPresets {
-		disabled[id] = true
-	}
-	for _, g := range nginxconf.JA4VerdictGroups {
-		// A held JA4 verdict never reaches here today (the verdict source is
-		// hold-aware), but honor the hold anyway so every serve-path preset
-		// resolution treats a held preset as inert, uniformly.
-		if disabled[g.ID] || nginxconf.EnforcementHeld(n, g.AddedIn) {
-			continue
-		}
-		for _, r := range g.Rules {
-			if r.Verdict == verdict {
-				return c.PresetAction[g.ID]
-			}
-		}
-	}
-	return ""
-}
-
-// resolveJA4ExtraAction walks the user-defined Extra rules and returns the
-// per-row chMode override aligned by index with the matching verdict name.
-// Disabled rows are ignored.  Empty = no override.
-func resolveJA4ExtraAction(verdict string, c settings.JA4VerdictsConfig) string {
-	if verdict == "" || len(c.Extra) == 0 || len(c.ExtraAction) == 0 {
-		return ""
-	}
-	for i, e := range c.Extra {
-		if e.Verdict != verdict {
-			continue
-		}
-		if i < len(c.ExtraDisabled) && c.ExtraDisabled[i] {
-			continue
-		}
-		if i < len(c.ExtraAction) {
-			return strings.TrimSpace(c.ExtraAction[i])
-		}
-	}
-	return ""
-}
+// resolveJA4Action resolves what a JA4 verdict of action="bot" actually runs:
+// the tab default, then a per-preset override, then a per-row one, each winning
+// over the last.  Returns "" when the operator configured nothing, leaving the
+// caller's own base in place.
+//
+// THE single resolver for this axis.  It used to live inline in ServeChallenge
+// while the forward-auth wire had no resolution at all -- ja4Decide hardcoded
+// captcha_only and never saw settings -- so every JA4 action the operator
+// picked (including deny) applied on native and silently did nothing behind a
+// load balancer.  Both wires call this now.

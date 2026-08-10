@@ -2814,10 +2814,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
         </label>
-        {{/* No per-preset action selector for honeypot: a matched trap's action
-             comes from the section's honeypot DefaultAction (per-preset override
-             is not wired through the decision + native render yet).  The control
-             was removed rather than shipped as a no-op. */}}
+        {{/* Per-preset action.  This control was once removed as a no-op, but the
+             override IS wired on both wires (honeypotDecide and the native
+             ResolveHoneypotAction) -- so with no control the save handler read no
+             values and blanked the map, wiping a hand-edited config on every
+             save of this tab.  Same shape as the ja4 / ua-filter preset pickers. */}}
+        {{ $hpa := index $.HoneypotPresetAction .ID }}
+        <select name="honeypot_preset_action__{{ .ID }}" class="preset-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="inherit" {{ if eq $hpa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only"         {{ if eq $hpa "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $hpa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $hpa "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $hpa "deny" }}selected{{ end }}>deny</option>
+        </select>
         <button type="button" class="rule-up-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↑</button>
         <button type="button" class="rule-down-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">↓</button>
         <button type="button" class="rule-edit-disabled" disabled title="{{ t $.Lang "settings.ua.preset_locked" }}">✏️</button>
