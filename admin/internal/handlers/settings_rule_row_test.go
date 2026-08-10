@@ -64,7 +64,9 @@ func TestCommittedRowsShowTheirChainAction(t *testing.T) {
 	}
 	tpl := string(b)
 	for _, tc := range []struct{ name, marker, action string }{
-		{"protected", `settings.protected.empty_pattern`, `{{ with $r.Action }}`},
+		// Protected paths are mode == action: the row summary shows the mode pill
+		// (there is no separate chain-action override to lose).
+		{"protected", `settings.protected.empty_pattern`, `data-pill="mode"`},
 		{"honeypot", `settings.honeypot.empty_pattern`, `{{ with $r.Action }}`},
 		// Anchor inside the editable row: the same key also renders the
 		// collapsed all-rules summary further up the page.
@@ -115,7 +117,7 @@ func TestConfirmingARowKeepsItsPills(t *testing.T) {
 	pills = pills[:strings.Index(pills, "\n  }\n")]
 	// Each pill has to be created, updated or removed -- a row added in this
 	// session starts with none, and clearing a value has to drop its pill.
-	for _, src := range []string{`input[name$="_mode"]`, `select.extra-action-sel`, `input.rule-action[name$="_site"]`} {
+	for _, src := range []string{`[name$="_mode"]`, `select.extra-action-sel`, `input.rule-action[name$="_site"]`} {
 		if !strings.Contains(pills, src) {
 			t.Errorf("the pill sync does not read %s, so that value disappears from a confirmed row", src)
 		}

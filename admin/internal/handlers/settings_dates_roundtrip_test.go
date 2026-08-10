@@ -31,9 +31,8 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 	form["protected_path"] = []string{"^/wp-admin", "^/login"}
 	form["protected_title"] = []string{"WP", "login"}
 	form["protected_enabled"] = []string{"1", "1"}
-	form["protected_mode"] = []string{"strict", "captcha"}
+	form["protected_mode"] = []string{"pow_then_captcha", "captcha"}
 	form["protected_site"] = []string{"a.example", ""}
-	form["protected_action"] = []string{"deny", "inherit"}
 	form["protected_created_at"] = []string{"1740000000", "1740000000"}
 	form["protected_updated_at"] = []string{"0", "1753000000"}
 
@@ -58,7 +57,7 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 		t.Fatalf("saved %d rules, want 2: the save path lost rows", len(got))
 	}
 	want := []settings.ProtectedPath{
-		{Path: "^/wp-admin", Title: "WP", Mode: "strict", Action: "deny", Site: "a.example",
+		{Path: "^/wp-admin", Title: "WP", Mode: "pow_then_captcha", Site: "a.example",
 			CreatedAt: 1740000000, UpdatedAt: 0},
 		{Path: "^/login", Title: "login", Mode: "captcha",
 			CreatedAt: 1740000000, UpdatedAt: 1753000000},
@@ -66,7 +65,7 @@ func TestSavingCustomRulesKeepsRulesAndDates(t *testing.T) {
 	for i, w := range want {
 		g := got[i]
 		if g.Path != w.Path || g.Title != w.Title || g.Mode != w.Mode ||
-			g.Action != w.Action || g.Site != w.Site {
+			g.Site != w.Site {
 			t.Errorf("rule %d: %+v, want %+v", i, g, w)
 		}
 		if g.CreatedAt != w.CreatedAt {

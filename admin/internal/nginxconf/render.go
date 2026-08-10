@@ -480,7 +480,14 @@ type renderData struct {
 	// the cookie has to be a CAPTCHA-grade one.  Empty (and the maps then not
 	// emitted at all) on an install that puts no UA on a captcha chain.
 	CaptchaGradeUAPatterns []string
-	HTTPSRedirect          bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	// ProtectedNeedsCaptchaGrade: some request can be put on a CAPTCHA-grade
+	// requirement by the PROTECTED-PATH axis (a rule / preset whose mode ends
+	// in a CAPTCHA) or by a community-bans subscription (a hit forces CAPTCHA).
+	// When true the grade maps ($unmask_needs_captcha_grade / $bv_pass_ok) must
+	// be emitted even with no captcha-chain UA patterns, so a PoW cookie cannot
+	// satisfy a captcha-graded protected path.
+	ProtectedNeedsCaptchaGrade bool
+	HTTPSRedirect              bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
 	HTTPSRedirectExempt    []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
@@ -976,6 +983,16 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	pp := EffectiveProtectedPathRules(s)
 	d.ProtectedPaths = pp
 	d.ProtectedPathsGlobal, d.ProtectedPathsPerHost = splitProtectedPathsForRender(pp)
+	// A captcha-ending protected mode (or a community-bans subscription, which
+	// forces CAPTCHA on a hit) puts a CAPTCHA-grade requirement on some request
+	// -> emit the grade maps even if no UA sits on a captcha chain.
+	d.ProtectedNeedsCaptchaGrade = s.CommunityBans.ApplyActive()
+	for _, r := range pp {
+		if ModeEndsInCaptcha(r.Mode) {
+			d.ProtectedNeedsCaptchaGrade = true
+			break
+		}
+	}
 
 	// Whitelist paths: enabled presets + extras (= skip ExtraDisabled[i]=true).
 	//
