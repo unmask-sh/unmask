@@ -2053,7 +2053,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $bcm := .ChallengeTargets.DefaultAction }}
       <select name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
+        {{/* Unset inherits the install's default chain (rate-limit tab), which
+             is what every wire and every other label on this page resolves to.
+             It used to claim captcha_only -- a value only the forward-auth
+             axis implemented, and one the rows right below contradicted. */}}
+        <option value=""                 {{ if eq $bcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .UABlacklistFallback }}</option>
         <option value="pow_only"         {{ if eq $bcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $bcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $bcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2589,6 +2593,26 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   });
 })();
 </script>
+<script>
+(function(){
+  // The black-list chain the rows inherit tracks the tab's own picker live:
+  // the "inherit" option on every custom row (and on the scaffold a new row is
+  // cloned from) and the view rows' inherit pills re-resolve as the operator
+  // changes it, instead of naming what the page was rendered with.  Same
+  // refresh the geo / asn / protected tabs run.
+  var d = document.querySelector('select[name="ua_black_action"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}';  // e.g. "inherit (%v)"
+  var FALLBACK = '{{ .UABlacklistFallback }}';               // what an unset picker resolves to
+  function refresh(){
+    var lbl = PAT.replace('%v', d.value || FALLBACK);
+    unmaskInheritNodes('select[name="black_extra_action"] option[value=""]')
+      .forEach(function(o){ o.textContent = lbl; });
+    unmaskInheritNodes('.ua-act-pill.inherit').forEach(function(p){ p.textContent = lbl; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
 {{ end }}
 
 {{ if eq .Tab "ja4-verdicts" }}
@@ -3027,24 +3051,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     var lbl = PAT.replace('%v', mode);
     // Preset pickers + custom row pickers, and the scaffold a new row is
     // cloned from (so a row added after the change is not born stale).
-    var sels = [];
-    Array.prototype.push.apply(sels, Array.prototype.slice.call(
-      document.querySelectorAll('select[name^="protected_preset_mode__"], select[name="protected_mode"]')));
-    var tpl = document.querySelector('.rule-list[data-rule-name="protected_path"] template.rule-row-template');
-    if (tpl && tpl.content) {
-      Array.prototype.push.apply(sels, Array.prototype.slice.call(
-        tpl.content.querySelectorAll('select[name="protected_mode"]')));
-    }
-    sels.forEach(function(s){
-      var o = s.querySelector('option[value=""]');
-      if (o) o.textContent = lbl;
-    });
+    unmaskInheritNodes('select[name^="protected_preset_mode__"] option[value=""], select[name="protected_mode"] option[value=""]')
+      .forEach(function(o){ o.textContent = lbl; });
     // View pills on rows that inherit.  The pill names the mode alone (the
     // full "(unset = ...)" sentence does not fit a pill), and the inherit
     // class is what marks it as borrowed.
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.rule-list[data-rule-name="protected_path"] [data-pill="mode"].inherit'),
-      function(p){ p.textContent = mode; });
+    unmaskInheritNodes('.rule-list[data-rule-name="protected_path"] [data-pill="mode"].inherit')
+      .forEach(function(p){ p.textContent = mode; });
   }
   d.addEventListener('change', refresh);
 })();
@@ -4136,16 +4149,29 @@ function secToHuman(s){
   var d = document.querySelector('select[name="geo_default_rule_action"]');
   if (!d) return;
   var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}'; // e.g. "inherit (%v)"
+  var RATE_PH_NONE = '{{ t .Lang "settings.asn.rate_ph" }}';  // e.g. "none"
+  var RATE_UNIT    = '{{ t .Lang "settings.asn.rate_unit" }}';
   function refresh(){
     var lbl = PAT.replace('%v', d.value);
-    Array.prototype.forEach.call(
-      document.querySelectorAll('select[name="geo_action"] option[value=""]'),
-      function(o){ o.textContent = lbl; });
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.geo-act-pill.inherit'),
-      function(p){ p.textContent = lbl; });
+    unmaskInheritNodes('select[name="geo_action"] option[value=""]')
+      .forEach(function(o){ o.textContent = lbl; });
+    unmaskInheritNodes('.geo-act-pill.inherit')
+      .forEach(function(p){ p.textContent = lbl; });
   }
   d.addEventListener('change', refresh);
+
+  // The default RATE is inherited the same way the action is, and was the one
+  // half left behind: a blank rate field kept advertising the old default.
+  // Mirrors the asn tab, which already tracks both.
+  var defRate = document.querySelector('input[name="geo_default_rate"]');
+  function refreshRate(){
+    var v = parseInt(defRate && defRate.value, 10);
+    var ph = PAT.replace('%v', (v > 0) ? String(v) : RATE_PH_NONE);
+    unmaskInheritNodes('input[name="geo_rate"]').forEach(function(i){ i.placeholder = ph; });
+    unmaskInheritNodes('.asn-rate-pill.inherit')
+      .forEach(function(p){ p.textContent = (v > 0) ? ph + ' ' + RATE_UNIT : ph; });
+  }
+  if (defRate) defRate.addEventListener('input', refreshRate);
 })();
 </script>
 
@@ -4414,16 +4440,13 @@ function secToHuman(s){
   }
   function refreshRatePh(){
     var ph = ratePh();
-    Array.prototype.forEach.call(
-      document.querySelectorAll('input[name="asn_rate"], input[name^="asn_provider_rate_"]'),
-      function(i){ i.placeholder = ph; });
+    unmaskInheritNodes('input[name="asn_rate"], input[name^="asn_provider_rate_"]')
+      .forEach(function(i){ i.placeholder = ph; });
     // The view rows' inherited-rate pills track the default too, so the list
     // always reads what will actually apply.
     var v = parseInt(defRate && defRate.value, 10);
     var pill = (v > 0) ? ph + ' ' + RATE_UNIT : ph;
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.asn-rate-pill.inherit'),
-      function(p){ p.textContent = pill; });
+    unmaskInheritNodes('.asn-rate-pill.inherit').forEach(function(p){ p.textContent = pill; });
   }
   if (defRate) defRate.addEventListener('input', refreshRatePh);
 
@@ -4434,12 +4457,9 @@ function secToHuman(s){
   function refreshActInherit(){
     if (!defRuleAct) return;
     var lbl = RATE_PH_PAT.replace('%v', defRuleAct.value);
-    Array.prototype.forEach.call(
-      document.querySelectorAll('select[name="asn_action"] option[value=""], select[name^="asn_provider_action_"] option[value=""]'),
-      function(o){ o.textContent = lbl; });
-    Array.prototype.forEach.call(
-      document.querySelectorAll('.asn-act-pill.inherit'),
-      function(p){ p.textContent = lbl; });
+    unmaskInheritNodes('select[name="asn_action"] option[value=""], select[name^="asn_provider_action_"] option[value=""]')
+      .forEach(function(o){ o.textContent = lbl; });
+    unmaskInheritNodes('.asn-act-pill.inherit').forEach(function(p){ p.textContent = lbl; });
   }
   if (defRuleAct) defRuleAct.addEventListener('change', refreshActInherit);
 
@@ -6621,6 +6641,21 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 // Assumes edits are infrequent, so default is read-only view (= matches preset look).
 // Persistence is the Save button at the bottom of the form (= submitted in one go).
 document.addEventListener('DOMContentLoaded', function(){
+  // inheritNodes: every node matching sel, INCLUDING the ones inside the
+  // scaffolds a new rule row is cloned from.  document.querySelectorAll does
+  // not descend into <template> content, so a tab that refreshes its
+  // inherit labels without this leaves the scaffold naming the default the
+  // operator has just changed away from -- and the next row added is born
+  // stating a mode it will not run.  Shared by every tab's refresh so the
+  // omission cannot come back one tab at a time.
+  window.unmaskInheritNodes = function(sel) {
+    const out = Array.prototype.slice.call(document.querySelectorAll(sel));
+    Array.prototype.forEach.call(document.querySelectorAll('template.rule-row-template'), function(t){
+      if (t.content) Array.prototype.push.apply(out, Array.prototype.slice.call(t.content.querySelectorAll(sel)));
+    });
+    return out;
+  };
+
   document.querySelectorAll('.rule-list').forEach(function(list){
     list.addEventListener('click', function(e){
   // syncPatValue: put the edited value back into the view cell without
