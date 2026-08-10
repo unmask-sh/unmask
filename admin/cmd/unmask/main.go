@@ -688,19 +688,17 @@ func cmdServe(args []string) error {
 				// One consistent snapshot for this run (settingsPtr is unexported;
 				// SnapshotSettings hot-picks up web UI saves on the next tick).
 				cfg := h.SnapshotSettings()
-				// Raw traffic events.
+				// Raw traffic events.  (The per-hour, per-crawler drill-down that
+				// backs the AI-card trend sparkline is NOT pruned here anymore --
+				// it moved to PruneHourly's fixed 32-day aggregate window so that
+				// lowering events_retention_days for disk does not shorten the
+				// crawler trend.  events_retention_days now governs only raw events:
+				// the bot-hunt log, --ref lookups, rankings and analyze.)
 				if retention := cfg.EventsRetentionDays; retention > 0 {
 					if n, err := events.PruneOldEvents(ctx, conn, retention); err != nil {
 						log.Printf("events prune: %v", err)
 					} else if n > 0 {
 						log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
-					}
-					// Per-hour, per-crawler drill-down: same retention as raw
-					// events (it's derived history that backs the trend sparkline).
-					if n, err := dashboard.PruneCrawlerDetailHourly(ctx, conn, retention); err != nil {
-						log.Printf("crawler-detail prune: %v", err)
-					} else if n > 0 {
-						log.Printf("crawler-detail prune: deleted %d row(s) older than %d days", n, retention)
 					}
 				}
 				// Admin-action audit log (independent retention; checked
@@ -739,6 +737,13 @@ func cmdServe(args []string) error {
 	// PruneHourly trims buckets past the 32-day window roughly hourly.  Fully
 	// in-process: no external cron required.
 	if conn != nil {
+		// Per-site funnel aggregates are written only for operator-declared
+		// sites ("defined" mode) -- the same gate the reader (Funnel's
+		// siteAggregated) uses.  Read live so a newly declared site starts
+		// accumulating on the next pass (older events are not backfilled).
+		dashboard.DefinedSitesFn = func() map[string]bool {
+			return h.SnapshotSettings().Sites.DefinedSet()
+		}
 		go func() {
 			runAgg := func() {
 				defer safe.Recover("hourly-aggregate") // panic must not kill the daemon

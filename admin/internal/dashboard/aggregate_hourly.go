@@ -21,6 +21,15 @@ import (
 // a half-filled aggregate.
 var hourlyReady atomic.Bool
 
+// DefinedSitesFn, when set, returns the operator-declared sites (Settings.Sites
+// .ActiveDefined in "defined" mode) that get per-site funnel aggregates.  The
+// daemon wires it to the live settings snapshot; tests and the default (nil)
+// leave it unset, so no per-site funnel twins are written -- a site-filtered
+// funnel then scans raw events exactly as before.  Read once per aggregation
+// chunk so a settings change takes effect on the next pass (no backfill: the
+// twins accumulate from when a site is declared).
+var DefinedSitesFn func() map[string]bool
+
 // unmask_aggregate_hourly bucket_kind values (plain counts). See migration
 // 0006. Initially only the funnel + per-country serve count rolled up here;
 // the original commit dismissed captcha-force / flags as "dominated by
@@ -59,6 +68,17 @@ const (
 	hkUnruledPoW = "upw"  // key '<phase>'  phase in (load, abandon), no force_reason, chmode=pow_only
 	hkAITag      = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
 	hkAITagSite  = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
+	// Per-site funnel twins, written ONLY for operator-declared sites
+	// (Settings.Sites.ActiveDefined in "defined" mode; resolved via DefinedSitesFn).
+	// They let a site-filtered funnel read the fixed 32-day aggregate instead of
+	// scanning raw unmask_event (which is bounded by events_retention).  The
+	// generic per-site funnel was left to raw scans precisely because an
+	// unbounded observed-host set would blow up key cardinality here; gating on
+	// the operator's declared list keeps it bounded.
+	hkFunnelSite      = "fnls" // key '<site>|<vid>|<verdict>|<phase>'  per-site twin of hkFunnel
+	hkLoadF0Site      = "lf0s" // key '<site>|<vid>|<verdict>'          phase=load flags=0 (per-site stealth)
+	hkServeRLSite     = "srls" // key '<site>|<vid>|<verdict>'          phase=serve rl=1 (per-site ServeRL)
+	hkForceFunnelSite = "frfs" // key '<site>|<force_reason>|<phase>'   per-site twin of hkForceFunnel
 	// hkCookiePass is NOT written by AggregateHourly (which reads unmask_event);
 	// it is folded from the nginx-log unmask_cookie_minute table by
 	// RollupInstallWideHourly on its own cursor. key '<cookie kind>'
@@ -96,6 +116,7 @@ const (
 	hkFlagsIP        = "flip"   // hourly bucket, key '<flags>' (decimal) distinct IP, phase=load (FlagsDistribution)
 	hkAITagIP        = "atip"   // hourly bucket, key '<crawler-tag>' distinct IP, phase=serve / rl != 1 (AI traffic)
 	hkAITagSiteIP    = "atsip"  // hourly bucket, key '<site>|<crawler-tag>' distinct IP, phase=serve / rl != 1 (per-site)
+	hkLoadVerdictIPSite = "lvips" // hourly bucket, key '<site>|<verdict>' distinct IP, phase=load (per-site Funnel; declared sites only)
 	hkTrafficIP      = "tip"    // hourly bucket, key '<site>' distinct IP, ALL traffic — rolled up from unmask_traffic_hll(kind='ip') per-minute rows by RollupTrafficHLL (DailyUniqueIPs per-site view)
 	hkTrafficIPAll   = "tipall" // hourly bucket, key '' — union of every site's tip sketch for the hour, folded by RollupInstallWideHourly (DailyUniqueIPs default/unfiltered view; avoids the ~300-site read fan-out)
 	// hkTrafficBlockedAll: install-wide hourly union of the nginx-log
@@ -235,8 +256,7 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// the AI/crawler card's "all" tab, whose window never exceeds the stats
 	// page's 30-day range — so cap it at the same 32-day window as the other
 	// minute/hour aggregates.  (The per-hour, per-crawler drill-down table is
-	// pruned separately on the operator's events-retention setting, since the
-	// trend sparkline wants deeper history.)
+	// pruned at the SAME fixed window, just below — see PruneCrawlerDetailHourly.)
 	if _, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
 		return err
@@ -262,6 +282,14 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		time.Now().Unix()/60-cookieIPPowKeepDays*1440); err != nil {
 		return err
 	}
+	// Per-hour, per-crawler drill-down that backs the AI-card trend sparkline.
+	// Kept on the SAME fixed 32-day window as the other dashboard aggregates,
+	// decoupled from events_retention_days: a high-volume node can lower raw-
+	// event retention (for disk) without shortening the crawler trend, which now
+	// tracks the dashboard's 30-day range like every other aggregate.
+	if _, err := PruneCrawlerDetailHourly(ctx, d, hourlyKeep); err != nil {
+		return err
+	}
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The solve windows are operator-tunable; 8 days comfortably exceeds the
 	// 3-day default, and an expired _bvj never consults its row again, so a
@@ -273,10 +301,12 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 }
 
 // PruneCrawlerDetailHourly drops per-hour, per-crawler rows older than keepDays.
-// This is the source for the drill-down trend sparkline, so its retention is the
-// operator's events-retention setting (not the fixed 32-day aggregate window) --
-// the trend can then reach back as far as raw events do.  keepDays <= 0 is a
-// no-op (= keep forever), mirroring events_retention_days=0.
+// This is the source for the AI-card drill-down trend sparkline.  It is called
+// from PruneHourly with the fixed 32-day aggregate window (`hourlyKeep`), NOT the
+// operator's events-retention setting: the trend is derived dashboard history and
+// belongs with the other aggregates, so lowering events_retention_days to reclaim
+// disk on a high-volume node does not shorten it.  keepDays <= 0 is a no-op
+// (= keep forever).
 func PruneCrawlerDetailHourly(ctx context.Context, d *db.DB, keepDays int) (int64, error) {
 	if d == nil || keepDays <= 0 {
 		return 0, nil
@@ -319,6 +349,12 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 	// tagCache mirrors classifyCache for crawler-tag lookups.  Same access
 	// pattern (= 80-char truncated UA → "" when no tag matches).
 	tagCache := make(map[string]string, 256)
+	// Operator-declared sites that get per-site funnel twins (fnls/lf0s/frfs +
+	// lvips).  Resolved once per chunk; nil / empty => write no twins.
+	var definedSites map[string]bool
+	if DefinedSitesFn != nil {
+		definedSites = DefinedSitesFn()
+	}
 	var n int
 	var maxID int64
 	for rows.Next() {
@@ -352,6 +388,13 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		}
 		vv := strconv.FormatInt(vid.Int64, 10) + "|" + v
 		batch.counts[hourlyKey{hour, hkFunnel, vv + "|" + phase}]++
+		// Per-site funnel twin, declared sites only (bounded cardinality): lets a
+		// site-filtered 30d funnel read this fixed-window aggregate instead of
+		// scanning raw events, so it survives a shortened events_retention.
+		siteDefined := site != "" && definedSites[site]
+		if siteDefined {
+			batch.counts[hourlyKey{hour, hkFunnelSite, site + "|" + vv + "|" + phase}]++
+		}
 		// frf: per-force_reason funnel (header/asn/geo only).  The challenge JS
 		// beacons force_reason on every phase, so this twin of hkFunnel lets the
 		// funnel show the pass-through of a header-integrity / ASN / country
@@ -360,6 +403,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		frRaw := payloadForceReason(payload.String)
 		if forceReasonFunnelKindSet[frRaw] {
 			batch.counts[hourlyKey{hour, hkForceFunnel, frRaw + "|" + phase}]++
+			if siteDefined {
+				batch.counts[hourlyKey{hour, hkForceFunnelSite, site + "|" + frRaw + "|" + phase}]++
+			}
 		}
 		// ph: per-phase count, every event.  The landing page's KPI counts.
 		batch.counts[hourlyKey{hour, hkPhase, phase}]++
@@ -384,11 +430,17 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 		case "load":
 			if flags == 0 {
 				batch.counts[hourlyKey{hour, hkLoadF0, vv}]++
+				if siteDefined {
+					batch.counts[hourlyKey{hour, hkLoadF0Site, site + "|" + vv}]++
+				}
 			}
 			// lvip: phase=load distinct IP per verdict.  Funnel needs both the
 			// per-verdict count and the total (= union of sketches), so we
 			// store only per-verdict and let the read side merge across keys.
 			batch.sketch(hllKey{hour, hkLoadVerdictIP, v}).add(ip)
+			if siteDefined {
+				batch.sketch(hllKey{hour, hkLoadVerdictIPSite, site + "|" + v}).add(ip)
+			}
 			// CaptchaForceBreakdown: per-reason count + distinct IP.  Matches
 			// the raw query's CASE-fold: any value outside the known seven
 			// reasons (or no force_reason key at all) collapses to 'unknown'.
@@ -409,6 +461,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			rl := payloadRL(payload.String)
 			if rl {
 				batch.counts[hourlyKey{hour, hkServeRL, vv}]++
+				if siteDefined {
+					batch.counts[hourlyKey{hour, hkServeRLSite, site + "|" + vv}]++
+				}
 			} else {
 				// DailyServeByKind reads svk + svip.  Drop rate-limited
 				// serves on the rl path (they have their own dashboard card)

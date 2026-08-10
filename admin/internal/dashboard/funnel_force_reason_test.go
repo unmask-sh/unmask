@@ -62,7 +62,7 @@ func TestForceReasonFunnel_ScanMatchesAgg(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer hourlyReady.Store(false)
-	agg, err := forceReasonFunnelRowsAgg(ctx, d, 100)
+	agg, err := forceReasonFunnelRowsAgg(ctx, d, "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -645,12 +645,13 @@ func canonVerdict(reg *nginxconf.VerdictRegistry, id int64, raw string) string {
 }
 
 // Funnel returns the challenge funnel for the window. The default view (no
-// site / no host filter) reads the hourly aggregate (unmask_aggregate_hourly);
-// site/host-filtered views and the brief pre-backfill window after a restart
-// fall back to scanning raw events.
-func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
-	if site == "" && len(hosts) == 0 && HourlyAggReady() {
-		return funnelAgg(ctx, d, hours, botVerdicts, reg)
+// site / no host filter) reads the hourly aggregate (unmask_aggregate_hourly).
+// A declared site (siteAggregated=true) reads its per-site aggregate twins.
+// Undeclared-site or host-filtered views, and the brief pre-backfill window
+// after a restart, fall back to scanning raw events (bounded by events_retention).
+func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry, siteAggregated bool) ([]FunnelRow, error) {
+	if len(hosts) == 0 && HourlyAggReady() && (site == "" || siteAggregated) {
+		return funnelAgg(ctx, d, site, hours, botVerdicts, reg)
 	}
 	return funnelScan(ctx, d, site, hosts, hours, botVerdicts, reg)
 }
@@ -752,7 +753,7 @@ func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hour
 // buckets; only the per-verdict distinct-IP figures (not summable across
 // buckets) are read raw — cheap, as they are phase=load filtered. Used for the
 // default no-filter view.
-func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
+func funnelAgg(ctx context.Context, d *db.DB, site string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
 	// bot test mirrors funnelScan's botFilter: id-based when a registry is
 	// present, else name-based.
 	botID := map[int]bool{}
@@ -770,6 +771,13 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 			return botID[vid]
 		}
 		return botName[verdict]
+	}
+
+	// A declared site reads its per-site funnel twins (fnls/lf0s/frfs + lvips),
+	// which are written on the same fixed 32-day window as every other aggregate.
+	// The install-wide path below is left exactly as it was.
+	if site != "" {
+		return funnelAggSite(ctx, d, site, hours, botVerdicts, reg, isBot)
 	}
 
 	byVP := map[funnelVP]int{}
@@ -884,7 +892,7 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 		}
 		// header/asn/geo pseudo-rows from the frf aggregate (skipRateLimitRow=true
 		// above meant buildFunnelRowsWithUniq did not add the scan-path ones).
-		if frRows, err := forceReasonFunnelRowsAgg(ctx, d, hours); err == nil {
+		if frRows, err := forceReasonFunnelRowsAgg(ctx, d, "", hours); err == nil {
 			rows = append(frRows, rows...)
 		}
 		if rolled && rlTotal > 0 {
@@ -894,6 +902,131 @@ func funnelAgg(ctx context.Context, d *db.DB, hours int, botVerdicts []string, r
 	}
 	// Not rolled yet and there are rate-limited serves: raw scan (pre-rollup only).
 	return buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, false)
+}
+
+// funnelAggSite builds a declared site's funnel from the per-site aggregate
+// twins (fnls/lf0s/srls + lvips HLL + frfs), so a site-filtered 30-day funnel
+// reads the fixed 32-day aggregate instead of scanning raw unmask_event (which
+// events_retention bounds).  The verdict rows, stealth, ServeRL, per-verdict
+// distinct-IP and force-reason pseudo-rows all come from the aggregate; only
+// the rate_limit pseudo-row is still built from raw (it needs a per-IP window
+// self-join that is not aggregated), so that one row is bounded by
+// events_retention exactly as it was under the raw scan path -- and it is
+// skipped entirely when the srls aggregate shows zero rate-limited serves,
+// mirroring the install-wide agg path's skip gate.
+func funnelAggSite(ctx context.Context, d *db.DB, site string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry, isBot func(int, string) bool) ([]FunnelRow, error) {
+	byVP := map[funnelVP]int{}
+	loadByV := map[string]funnelLoad{}
+	rlByV := map[string]int{}
+	lo, hi := site+"|", site+"}" // '|' (0x7C) is excluded from site names, '}' (0x7D) caps the prefix
+
+	rows, err := d.QueryContext(ctx, `
+        SELECT bucket_kind, bucket_key, cnt FROM unmask_aggregate_hourly
+        WHERE `+hourWindow(ctx, hours, "bucket_hour")+`
+          AND bucket_kind IN ('`+hkFunnelSite+`', '`+hkLoadF0Site+`', '`+hkServeRLSite+`')
+          AND bucket_key >= ? AND bucket_key < ?`, lo, hi)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var kind, key string
+		var cnt int
+		if err := rows.Scan(&kind, &key, &cnt); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		key = key[len(site)+1:] // strip "<site>|" (the range guarantees the prefix)
+		switch kind {
+		case hkFunnelSite:
+			if vid, verdict, phase, ok := splitFnlKey(key); ok {
+				byVP[funnelVP{canonVerdict(reg, int64(vid), verdict), phase}] += cnt
+			}
+		case hkLoadF0Site:
+			if vid, verdict, ok := splitVVKey(key); ok && isBot(vid, verdict) {
+				k := canonVerdict(reg, int64(vid), verdict)
+				e := loadByV[k]
+				e.stealth += cnt
+				loadByV[k] = e
+			}
+		case hkServeRLSite:
+			if vid, verdict, ok := splitVVKey(key); ok {
+				rlByV[canonVerdict(reg, int64(vid), verdict)] += cnt
+			}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	// per-verdict load distinct IP: HLL merge across the site's hour buckets.
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
+          AND bucket_kind = '`+hkLoadVerdictIPSite+`'
+          AND bucket_key >= ? AND bucket_key < ?`, lo, hi)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var key string
+		var blob []byte
+		if err := sRows.Scan(&key, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		verdict := key[len(site)+1:] // strip "<site>|"
+		h := loadHLL(blob)
+		if existing, ok := sketches[verdict]; ok {
+			existing.merge(h)
+		} else {
+			sketches[verdict] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	totalSketch := &hll{}
+	for v, h := range sketches {
+		k := canonVerdict(reg, 0, v)
+		e := loadByV[k]
+		e.uniq += int(h.estimate())
+		loadByV[k] = e
+		totalSketch.merge(h)
+	}
+	totalUniq := int(totalSketch.estimate())
+
+	// force-reason pseudo-rows from the per-site frfs aggregate (30d).
+	frRows, err := forceReasonFunnelRowsAgg(ctx, d, site, hours)
+	if err != nil {
+		return nil, err
+	}
+	// Verdict rows + TOTAL from the aggregate.  skipRateLimitRow=true: with
+	// skip=false the builder would attach its own RAW-scan fr rows on top of the
+	// aggregate ones above (double rows) and always pay the per-IP rl self-join.
+	since := "date_created > " + hourAgoTimestamp(d, hours)
+	vRows, err := buildFunnelRowsWithUniq(ctx, d, site, nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, true)
+	if err != nil {
+		return nil, err
+	}
+	out := append(frRows, vRows...)
+	// rate_limit pseudo-row: raw per-IP self-join scoped to this site (bounded
+	// by events_retention), prepended on top like the scan path -- but only when
+	// the srls aggregate saw any rate-limited serve in the window.
+	rlTotal := 0
+	for _, n := range rlByV {
+		rlTotal += n
+	}
+	if rlTotal > 0 {
+		if rlRow, err := rateLimitFunnelRow(ctx, d, site, nil, since, botVerdicts); err == nil {
+			out = append([]FunnelRow{rlRow}, out...)
+		}
+	}
+	return out, nil
 }
 
 // forceReasonFunnelRowsScan builds the header/asn/geo funnel pseudo-rows by
@@ -935,11 +1068,26 @@ func forceReasonFunnelRowsScan(ctx context.Context, d *db.DB, site string, hosts
 
 // forceReasonFunnelRowsAgg builds the header/asn/geo funnel rows from the hourly
 // frf aggregate (install-wide default view).  key = '<reason>|<phase>'.
-func forceReasonFunnelRowsAgg(ctx context.Context, d *db.DB, hours int) ([]FunnelRow, error) {
-	rows, err := d.QueryContext(ctx, `
+func forceReasonFunnelRowsAgg(ctx context.Context, d *db.DB, site string, hours int) ([]FunnelRow, error) {
+	// Declared site: read the per-site twin (frfs, key '<site>|<reason>|<phase>')
+	// with a prefix range; install-wide reads frf ('<reason>|<phase>').
+	kind := hkForceFunnel
+	q := `
         SELECT bucket_key, cnt FROM unmask_aggregate_hourly
-        WHERE `+hourWindow(ctx, hours, "bucket_hour")+`
-          AND bucket_kind = '`+hkForceFunnel+`'`)
+        WHERE ` + hourWindow(ctx, hours, "bucket_hour") + `
+          AND bucket_kind = '` + kind + `'`
+	var rows *sql.Rows
+	var err error
+	if site != "" {
+		q = `
+        SELECT bucket_key, cnt FROM unmask_aggregate_hourly
+        WHERE ` + hourWindow(ctx, hours, "bucket_hour") + `
+          AND bucket_kind = '` + hkForceFunnelSite + `'
+          AND bucket_key >= ? AND bucket_key < ?`
+		rows, err = d.QueryContext(ctx, q, site+"|", site+"}")
+	} else {
+		rows, err = d.QueryContext(ctx, q)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -950,6 +1098,9 @@ func forceReasonFunnelRowsAgg(ctx context.Context, d *db.DB, hours int) ([]Funne
 		var cnt int
 		if err := rows.Scan(&key, &cnt); err != nil {
 			return nil, err
+		}
+		if site != "" {
+			key = key[len(site)+1:] // strip "<site>|" (query guarantees the prefix)
 		}
 		i := strings.IndexByte(key, '|')
 		if i < 0 {
