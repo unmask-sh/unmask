@@ -804,11 +804,30 @@ map "$is_asn_exempt_path:$unmask_asn_action" $asn_deny_eff {
     "~^0:deny$" 1;
 }
 
-map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny" $unmask_axis_deny {
-    default    0;
-    "~^1:"     1;  # country rule
-    "~^0:1:"   1;  # ASN rule
-    "~^0:0:1$" 1;  # UA black-list row / preset / upstream group
+{{- if .HardDenyJA4Patterns }}
+# JA4 fingerprints the operator set to deny (JA4 tab default / preset / row).
+# Rendered only when some verdict actually resolves to deny -- an install that
+# denies nothing by fingerprint pays nothing for this map.
+map $effective_ja4 $unmask_ja4_deny {
+    default 0;
+{{- range .HardDenyJA4Patterns }}
+    "~^{{ rx . }}" 1;
+{{- end }}
+}
+{{- else }}
+# No verdict resolves to deny: define the variable as a constant so the deny key
+# below stays a plain string.  A one-entry map costs nothing (nginx never looks
+# at $effective_ja4 for it), and keeping the key free of template conditionals
+# is what lets the undefined-variable guard read this file.
+map "" $unmask_ja4_deny { default 0; }
+{{- end }}
+
+map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny" $unmask_axis_deny {
+    default      0;
+    "~^1:"       1;  # country rule
+    "~^0:1:"     1;  # ASN rule
+    "~^0:0:1:"   1;  # UA black-list row / preset / upstream group
+    "~^0:0:0:1$" 1;  # JA4 verdict set to deny
 }
 
 # The rescues are consulted through a map VALUE, not folded into a key, so they
