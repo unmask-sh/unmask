@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.26",
+  "latest": "0.1.27",
   "releases": [
+    {
+      "version": "0.1.27",
+      "date": "2026-08-10",
+      "notes": "A protected path that asks for a CAPTCHA now gets one. The 'unmask itself' preset ships on by default and puts a challenge in front of /unmask/admin/, but the pass-cookie exemption asked for a CAPTCHA-grade cookie only when the user-agent sat on a captcha-ending rule - it never consulted the protected path. A client holding a proof-of-work cookie, which a headless solver mints for itself, therefore walked through a captcha-graded protected path under an ordinary browser user-agent; both deployment modes now enforce the grade on the protected axis too. A protected path's mode is also the challenge it runs now: pow, captcha, or the new default pow_then_captcha, replacing a mode that only chose the match while the served chain came from a separate default action, a per-preset override, and failing those the rate-limit tab - so the admin gate could change because an unrelated tab was edited. The strict mode, documented as 'behaves like captcha for now' since 0.1, is gone with those inheritance layers. The rest is retention: raw events are the only thing the retention window still governs (the bot-hunt log, --ref lookups, rankings, analyze), so its default drops from 30 days to 7 - measured on a high-volume install that is ~8 GB against ~33 GB, and a full disk is a hard failure a default must not cause. Existing installs keep their stored value. The two things that still followed the raw window no longer do: the per-crawler trend sparkline moved to the same fixed 32-day aggregate as every other chart, and sites you declare in Site settings get their own funnel aggregates, so a declared site's 30-day funnel is independent of retention. The retention tab now projects the database's growth against the free space on its volume and warns when the disk is on course to fill. Also: hunt records the Referer of a challenged request, so you can see whether someone navigating in from your own pages hit a challenge."
+    },
     {
       "version": "0.1.26",
       "date": "2026-08-09",
