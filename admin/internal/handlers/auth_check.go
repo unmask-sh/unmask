@@ -650,6 +650,11 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		if refr := refererForEvent(r); refr != "" {
 			payload["referer"] = refr
 		}
+		// local_port: only when an LB made the client-facing port an inference
+		// (see localPortNote).  Absent on every unproxied install.
+		if lp := localPortNote(r, portFromRequest(r)); lp > 0 {
+			payload["local_port"] = lp
+		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
@@ -1356,6 +1361,28 @@ func schemeFromRequest(r *http.Request) string {
 // server-side by the nginx-rendered admin upstream so the client cannot
 // influence it).  Falls back to the Host header's :port for direct-to-admin
 // requests.  0 = unknown.
+// localPortNote returns the port THIS nginx accepted on (X-Unmask-Local-Port)
+// when it disagrees with the client-facing port recorded for the event, else 0.
+//
+// They disagree exactly when a load balancer forwarded the request: it sends
+// X-Forwarded-Proto but commonly no X-Forwarded-Port (GCP's does not), so the
+// client-facing port is inferred from the scheme.  Carrying the accepted port
+// only in that case keeps the payload unchanged for everyone not behind an LB,
+// and lets the hunt popover show the inference beside the fact it was inferred
+// from -- an LB terminating on a non-standard port is visible instead of
+// silently recorded as 443.
+func localPortNote(r *http.Request, reportedPort int) int {
+	v := strings.TrimSpace(r.Header.Get("X-Unmask-Local-Port"))
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 || n > 65535 || n == reportedPort {
+		return 0
+	}
+	return n
+}
+
 func portFromRequest(r *http.Request) int {
 	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-Port")); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 65535 {

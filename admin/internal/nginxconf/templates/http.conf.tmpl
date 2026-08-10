@@ -73,8 +73,29 @@ map $http_x_forwarded_proto $unmask_forwarded_proto {
     https   https;
     http    http;
 }
+# The port needs one more step than the scheme.  An LB that terminates TLS
+# commonly forwards X-Forwarded-Proto but NOT X-Forwarded-Port (GCP's HTTP(S)
+# load balancer is exactly this), and then $server_port is the port the LB used
+# to reach THIS nginx -- 80 -- not the port the visitor connected to.  Recording
+# that produced "80 (https)", a combination no visitor ever used, on 3.1M events
+# of one fleet node.  So: the LB's own header wins; failing that, a request the
+# LB forwarded (= X-Forwarded-Proto present) takes the default port for the
+# forwarded scheme; only a request nobody forwarded keeps $server_port, which is
+# the true listener there.  The scheme-derived value is an inference -- an LB
+# terminating on :8443 would be recorded as 443 -- so the port nginx actually
+# accepted on is forwarded alongside it (X-Unmask-Local-Port) and the hunt
+# popover shows both whenever they disagree, which is what makes the inference
+# auditable instead of merely plausible.
+map $unmask_forwarded_proto $unmask_default_port {
+    default 80;
+    https   443;
+}
+map $http_x_forwarded_proto $unmask_port_fallback {
+    default       $server_port;   # nobody forwarded this: our listener is the truth
+    "~."          $unmask_default_port;
+}
 map $http_x_forwarded_port $unmask_forwarded_port {
-    default       $server_port;
+    default       $unmask_port_fallback;
     "~^[1-9][0-9]{0,4}$" $http_x_forwarded_port;
 }
 

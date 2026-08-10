@@ -269,7 +269,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -614,6 +614,14 @@ document.addEventListener('DOMContentLoaded', function(){
         for (var fi = 0; fi < grp.length; fi++){
           var fv = grp[fi].getAttribute('data-referer');
           if (fv){ rep.setAttribute('data-referer', fv); break; }
+        }
+      }
+      // Same for the accepted port: it rides the serve / check row, not the
+      // beacons the rep row is drawn from.
+      if (!rep.getAttribute('data-local-port')){
+        for (var li = 0; li < grp.length; li++){
+          var lv = grp[li].getAttribute('data-local-port');
+          if (lv){ rep.setAttribute('data-local-port', lv); break; }
         }
       }
     }
@@ -1051,6 +1059,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // on the <time> element specifically so it never collides with the host /
   // site cellpop badges that share the 'at' cell.
   var REFERER_LABEL = {{ t .Lang "hunt.referer_label" }};
+  var LOCAL_PORT_LABEL = {{ t .Lang "hunt.local_port_label" }};
   function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
   function fmtAt(ms, tz){
     var d = new Date(ms);
@@ -1100,6 +1109,16 @@ document.addEventListener('DOMContentLoaded', function(){
     if (portNum > 0){
       var scheme = (tr.getAttribute('data-scheme') || '').trim();
       var portTxt = scheme ? (portNum + ' (' + scheme + ')') : String(portNum);
+      // Second tier, only when a load balancer sits in front: the port above is
+      // then inferred from the forwarded scheme (an LB commonly forwards the
+      // proto and not the port), and this is the port nginx actually accepted
+      // on.  Showing both is what makes the inference checkable -- and their
+      // disagreement is itself the signal that a hop is there.  Identical
+      // values are never recorded, so an unproxied install shows one line.
+      var lp = parseInt(tr.getAttribute('data-local-port') || '0', 10);
+      if (lp > 0){
+        portTxt += ' · ' + LOCAL_PORT_LABEL + ' :' + lp;
+      }
       body += '<div class="dtpop-row"><span class="dtpop-k">Port</span>' +
         '<span class="dtpop-v">' + esc(portTxt) + '</span></div>';
     }
