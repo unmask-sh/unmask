@@ -338,11 +338,12 @@ map $unmask_bv_kind $bv_kind          { default $unmask_bv_kind; }
 map $unmask_bv_kind $bv_captcha_valid { default 0;  "captcha" 1; }
 map $unmask_bv_kind $bv_pow_valid     { default 0;  "pow"     1; }
 map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
-{{- if .CaptchaGradeUAPatterns }}
+{{- if or .CaptchaGradeUAPatterns .ProtectedNeedsCaptchaGrade }}
 
 # -----------------------------------------------------------------------------
-# Grade requirement: which pass cookie counts, for the UAs the operator put on
-# a chain that ends in a CAPTCHA
+# Grade requirement: which pass cookie counts, for a request whose rule ends in
+# a CAPTCHA -- either its UA is on a captcha chain, or it hit a protected path
+# whose mode ends in a CAPTCHA (captcha / pow_then_captcha)
 # -----------------------------------------------------------------------------
 # For those UAs, holding SOME valid cookie is not the question the rule asked.
 # Clearing a captcha chain issues a CAPTCHA-grade cookie -- its proof-of-work
@@ -366,15 +367,28 @@ map $http_user_agent $unmask_ua_needs_captcha {
     "~*{{ rx . }}" 1;
 {{- end }}
 }
-# "<needs captcha>:<kind the cookie verified as>" -> is this request holding a
-# pass that satisfies its rule?
+# Fold the two independent sources of a CAPTCHA-grade requirement into one
+# signal: the UA is on a captcha chain ($unmask_ua_needs_captcha), OR the URI hit
+# a protected path whose effective mode ends in a CAPTCHA ($protected_mode_eff =
+# captcha | pow_then_captcha; a community-bans hit also lands here as "captcha").
+# "pow" and "" (no protected match) impose nothing.  ($protected_mode_eff is a
+# map defined further down; nginx resolves map cross-references at request time,
+# so the order of the two map blocks does not matter.)
+map "$unmask_ua_needs_captcha:$protected_mode_eff" $unmask_needs_captcha_grade {
+    default              0;
+    "~^1:"               1;   # UA on a captcha-ending chain (any protected mode)
+    "0:captcha"          1;   # protected path: straight CAPTCHA
+    "0:pow_then_captcha" 1;   # protected path: PoW -> CAPTCHA
+}
+# "<needs captcha grade>:<kind the cookie verified as>" -> is this request
+# holding a pass that satisfies its rule?
 #
 # A re-bound credential does NOT satisfy a CAPTCHA requirement even though it
 # descends from a solve: the re-bind is what carries one solve onto addresses
 # that never solved anything, and honouring it here would leave exactly the
 # hole this closes.  The rebind path checks the LINEAGE's own grade instead, so
 # a person who really did clear a CAPTCHA still roams silently.
-map "$unmask_ua_needs_captcha:$bv_kind" $bv_pass_ok {
+map "$unmask_needs_captcha_grade:$bv_kind" $bv_pass_ok {
     default     1;   # no requirement + some verified kind -> a pass, as before
     "0:"        0;   # no requirement, no cookie
     "~^1:"      0;   # requirement unmet by anything except...
@@ -484,12 +498,14 @@ map $serve_bot_challenge $unmask_hp_uri {
 # -----------------------------------------------------------------------------
 # Protected paths ($protected_mode)
 # -----------------------------------------------------------------------------
-# Force CAPTCHA / PoW / strict on specific paths (admin panel / critical form /
-# API key entry etc.).  Difference from honeypot: "visitors reaching this path
-# are confirmed human".  Affects only that path, no spillover.
-#   - captcha : skip PoW -> CAPTCHA directly -> _bv (default; medium UX)
-#   - pow     : issue _bv with PoW only (lightweight)
-#   - strict  : PoW -> CAPTCHA chain (in v0.1 equivalent to captcha; chained in v0.2)
+# Force a challenge on specific paths (admin panel / critical form / API key
+# entry etc.).  Difference from honeypot: "visitors reaching this path are
+# confirmed human".  Affects only that path, no spillover.  Mode == action:
+#   - pow              : issue _bv with PoW only (lightweight)
+#   - captcha          : skip PoW -> CAPTCHA directly -> _bv (medium UX)
+#   - pow_then_captcha : PoW -> CAPTCHA chain -> _bv (strongest; the default)
+# A captcha-ending mode is grade-enforced: a PoW cookie does not satisfy it
+# (see $unmask_needs_captcha_grade above).
 #
 # Per-host rules go through the same four-stage pattern as Bypass paths:
 # stage A emits the global path map, stage B emits one path map per unique
@@ -531,18 +547,18 @@ map $host $unmask_pp_per_host {
 # Stage D: per-host wins.  Empty per-host result -> use global.
 map $unmask_pp_per_host $protected_mode {
     default $unmask_pp_global;
-    "captcha" "captcha";
-    "pow"     "pow";
-    "strict"  "strict";
+    "captcha"          "captcha";
+    "pow"              "pow";
+    "pow_then_captcha" "pow_then_captcha";
 }
 {{- else }}
 
 # No per-host rules configured -- global map is the canonical signal directly.
 map $unmask_pp_global $protected_mode {
     default "";
-    "captcha" "captcha";
-    "pow"     "pow";
-    "strict"  "strict";
+    "captcha"          "captcha";
+    "pow"              "pow";
+    "pow_then_captcha" "pow_then_captcha";
 }
 {{- end }}
 
@@ -915,16 +931,16 @@ map $unmask_bp_global $is_bypass_path {
 #   8. everything else                -> the Global axis's call
 #                                        ($unmatched_should_challenge: the
 #                                        known/unknown-UA bucket actions)
-map "{{ if .CaptchaGradeUAPatterns }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "{{ if or .CaptchaGradeUAPatterns .ProtectedNeedsCaptchaGrade }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
-    "~^1:"                      0;  # _bv valid (CAPTCHA or PoW pass) -> exempt
-    "~^0:1:"                    0;  # search bot UA -> exempt
-    "~^0:0:1:"                  0;  # bypass IP -> exempt
-    "~^0:0:0:1:"                0;  # bypass path -> exempt
-    "~^0:0:0:0:1:"              1;  # country rule (deny / chain) -> challenge
-    "~^0:0:0:0:0:captcha:"      1;  # protected path (UA-agnostic)
-    "~^0:0:0:0:0:pow:"          1;
-    "~^0:0:0:0:0:strict:"       1;
+    "~^1:"                          0;  # _bv valid (CAPTCHA or PoW pass, grade-checked) -> exempt
+    "~^0:1:"                        0;  # search bot UA -> exempt
+    "~^0:0:1:"                      0;  # bypass IP -> exempt
+    "~^0:0:0:1:"                    0;  # bypass path -> exempt
+    "~^0:0:0:0:1:"                  1;  # country rule (deny / chain) -> challenge
+    "~^0:0:0:0:0:captcha:"          1;  # protected path (UA-agnostic)
+    "~^0:0:0:0:0:pow:"              1;
+    "~^0:0:0:0:0:pow_then_captcha:" 1;
     "~^0:0:0:0:0::1:"           1;  # target UA -> always challenge (regardless of ja4 / honeypot)
     "~^0:0:0:0:0::0:[^:]*:1$"   1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
     "~^0:0:0:0:0::0:"           $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)

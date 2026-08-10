@@ -255,35 +255,45 @@ func TestJA4Decide(t *testing.T) {
 	}
 }
 
-// TestProtectedDecide: URI matches the protected regex slice -> challenge
-// with the rate-limit default chMode.
+// TestProtectedDecide: URI matches the protected regex slice -> challenge with
+// the matched path's OWN mode (mode == action), never the rate-limit default
+// and never a deny (protected mode is pow / captcha / pow_then_captcha only).
 func TestProtectedDecide(t *testing.T) {
 	matchers := pathMatchers{
-		protected: []*regexp.Regexp{regexp.MustCompile(`^/admin/`)},
+		protected: []*regexp.Regexp{
+			regexp.MustCompile(`^/pow/`),
+			regexp.MustCompile(`^/cap/`),
+			regexp.MustCompile(`^/chain/`),
+		},
 	}
-	cfgCaptcha := settings.Settings{RateLimit: settings.RateLimitConfig{
-		Default: settings.RateLimitValues{ChallengeMode: settings.RateChallengeCaptchaOnly},
-	}}
-	cfgDeny := settings.Settings{RateLimit: settings.RateLimitConfig{
-		Default: settings.RateLimitValues{ChallengeMode: settings.RateChallengeDeny},
-	}}
+	var cfg settings.Settings
+	cfg.Nginx.ProtectedPaths.Paths = []settings.ProtectedPath{
+		{Path: `^/pow/`, Mode: "pow"},
+		{Path: `^/cap/`, Mode: "captcha"},
+		{Path: `^/chain/`, Mode: "pow_then_captcha"},
+	}
 
 	t.Run("non-matching uri -> silent", func(t *testing.T) {
-		_, ok := protectedDecide("/public/", matchers, cfgCaptcha, "")
-		if ok {
+		if _, ok := protectedDecide("/public/", matchers, cfg, ""); ok {
 			t.Error("expected silent for non-matching uri")
 		}
 	})
-	t.Run("/admin/ + chMode=captcha", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgCaptcha, "")
-		if !ok || d.sev != sevCaptchaOnly || d.chMode != settings.RateChallengeCaptchaOnly {
-			t.Errorf("got %+v ok=%v, want captcha", d, ok)
+	t.Run("pow mode -> pow_only", func(t *testing.T) {
+		d, ok := protectedDecide("/pow/x", matchers, cfg, "")
+		if !ok || d.sev != sevPoWOnly || d.chMode != settings.RateChallengePoWOnly {
+			t.Errorf("got %+v ok=%v, want pow_only", d, ok)
 		}
 	})
-	t.Run("/admin/ + chMode=deny -> deny severity", func(t *testing.T) {
-		d, ok := protectedDecide("/admin/dashboard", matchers, cfgDeny, "")
-		if !ok || d.sev != sevDeny {
-			t.Errorf("got %+v ok=%v, want deny", d, ok)
+	t.Run("captcha mode -> captcha_only", func(t *testing.T) {
+		d, ok := protectedDecide("/cap/x", matchers, cfg, "")
+		if !ok || d.sev != sevCaptchaOnly || d.chMode != settings.RateChallengeCaptchaOnly {
+			t.Errorf("got %+v ok=%v, want captcha_only", d, ok)
+		}
+	})
+	t.Run("pow_then_captcha mode -> the chain", func(t *testing.T) {
+		d, ok := protectedDecide("/chain/x", matchers, cfg, "")
+		if !ok || d.sev != sevPoWThenCaptcha || d.chMode != settings.RateChallengePoWThenCaptcha {
+			t.Errorf("got %+v ok=%v, want pow_then_captcha", d, ok)
 		}
 	})
 }

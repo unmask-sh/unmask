@@ -405,10 +405,13 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// Attested real client (Privacy Pass / PAT): an origin-bound token
 			// from a trusted issuer.  Reason carries the issuer for dashboards.
 			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
-		case bvOK && !(uaRequiresCaptchaGrade(ua, cfg) && !gradeSatisfies(bvCookieKind)):
+		case bvOK && !(requestNeedsCaptchaGrade(ua, uri, site, cfg) && !gradeSatisfies(bvCookieKind)):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
-			// address after a solve elsewhere.
+			// address after a solve elsewhere.  A PoW cookie does NOT pass here
+			// when the UA's chain or the protected path it hit ends in a CAPTCHA
+			// (requestNeedsCaptchaGrade) — it falls through to the gating axes,
+			// where protectedDecide / the UA axis re-issues the right challenge.
 			action, reason, status = "pass", "bv-"+bvCookieKind, http.StatusOK
 		case isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA):
 			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
@@ -640,6 +643,12 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		}
 		if lbWarn := detectLBHeaderWarning(r, cfg); lbWarn != "" {
 			payload["lb_warning"] = lbWarn
+		}
+		// referer of the original request (forward-auth sees it per-request, so a
+		// PASS carries where the human came from -- the native wire's pass never
+		// reaches the daemon).  Display-only; often empty.
+		if refr := refererForEvent(r); refr != "" {
+			payload["referer"] = refr
 		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
@@ -1006,25 +1015,18 @@ func banDecideFromSource(rowAction, src string, cfg settings.Settings) (axisDeci
 	return axisDecision{sev: s, reason: "ban:" + src + ":" + act, chMode: chModeFromSeverity(s)}, true
 }
 
-// protectedDecide fires when the URI matches a protected-paths regex.
-// The chain is the rate-limit challenge mode default (= "pow_then_captcha"
-// fallback when unset).  site selects the per-site rate-limit record so a
-// site that overrides ChallengeMode is honored.
+// protectedDecide fires when the URI matches a protected-paths regex.  Mode ==
+// action: the matched path's own mode (pow / captcha / pow_then_captcha, with a
+// preset-level override honored) picks the chain directly — no rate-limit
+// linkage.  A captcha-ending mode also drives the grade requirement in the
+// pass-cookie veto above (requestNeedsCaptchaGrade), so this axis only has to
+// state the chain to serve; it never denies.
 func protectedDecide(uri string, matchers pathMatchers, cfg settings.Settings, site string) (axisDecision, bool) {
 	if !matchPath(uri, matchers.protected) {
 		return axisDecision{}, false
 	}
-	// Reuse the rate-limit chain mode as the protected-path default since
-	// the protected tab does not yet expose its own chMode picker.
-	act := strings.TrimSpace(cfg.RateLimit.Default.ChallengeMode)
-	if !settings.IsValidRateChallengeMode(act) {
-		act = settings.RateChallengePoWThenCaptcha
-	}
-	if act == settings.RateChallengeDeny {
-		return axisDecision{sev: sevDeny, reason: "protected-path:deny"}, true
-	}
-	s := severityFromAction(act)
-	return axisDecision{sev: s, reason: "protected-path", chMode: chModeFromSeverity(s)}, true
+	chMode := nginxconf.ChModeForProtectedMode(protectedModeForOrig(cfg.Nginx, site, uri))
+	return axisDecision{sev: severityFromAction(chMode), reason: "protected-path", chMode: chMode}, true
 }
 
 // headerDecide fires the header-integrity axis: a UA advertising a

@@ -46,6 +46,43 @@ func TestUARequiresCaptchaGrade(t *testing.T) {
 	}
 }
 
+// requestNeedsCaptchaGrade folds the UA-chain requirement AND the protected-path
+// requirement.  Regression: only the UA axis was consulted on the forward-auth
+// wire, so a captcha-graded protected path (the /unmask/admin gate) let a
+// PoW-only cookie through -- the hole this closes.
+func TestRequestNeedsCaptchaGrade(t *testing.T) {
+	protectedCfg := func(mode string) settings.Settings {
+		var s settings.Settings
+		s.Nginx.ProtectedPaths.Paths = []settings.ProtectedPath{{Path: `^/gate/`, Mode: mode}}
+		return s
+	}
+	// An unlisted UA imposes nothing on its own -> isolates the protected axis.
+	const ua = "Mozilla/5.0 (Macintosh) Safari/605"
+
+	for _, c := range []struct {
+		mode string
+		uri  string
+		want bool
+	}{
+		{"captcha", "/gate/x", true},           // captcha gate -> grade required
+		{"pow_then_captcha", "/gate/x", true},  // chain gate   -> grade required
+		{"pow", "/gate/x", false},              // pow gate     -> a PoW cookie is enough
+		{"captcha", "/public/x", false},        // outside the gate -> no requirement
+	} {
+		if got := requestNeedsCaptchaGrade(ua, c.uri, "", protectedCfg(c.mode)); got != c.want {
+			t.Errorf("mode %q uri %q -> %v, want %v", c.mode, c.uri, got, c.want)
+		}
+	}
+
+	// The UA axis still contributes independently of the path.
+	var uaCfg settings.Settings
+	uaCfg.Nginx.ChallengeTargets.Extra = []string{"contains:SomeBot"}
+	uaCfg.Nginx.ChallengeTargets.ExtraAction = []string{settings.RateChallengeCaptchaOnly}
+	if !requestNeedsCaptchaGrade("Mozilla/5.0 (compatible; SomeBot/1.0)", "/anything", "", uaCfg) {
+		t.Error("a captcha-chain UA must require a CAPTCHA grade on any path")
+	}
+}
+
 // Only a genuine CAPTCHA solve satisfies a CAPTCHA requirement.
 //
 // A re-bound credential is excluded even though it descends from a solve: the

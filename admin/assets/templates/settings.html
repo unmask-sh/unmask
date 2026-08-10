@@ -421,9 +421,18 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .action-bot{background:#fee2e2;color:#991b1b}
 .action-suspect{background:#fef3c7;color:#92400e}
 .action-ok{background:#dcfce7;color:#166534}
+/* protected-path mode pills (pow -> captcha -> pow_then_captcha, lightest to strongest) */
+.action-pow{background:#fef3c7;color:#92400e}
+.action-captcha{background:#dbeafe;color:#1e40af}
+.action-pow_then_captcha{background:#e0e7ff;color:#3730a3}
 /* edit mode dropdown */
 .rule-row .rule-action{display:none;padding:.25rem .4rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
 .rule-row.editing .rule-action{display:inline-block}
+/* protected-paths per-row mode picker: hidden (pill shows) until the row is
+   edited, like the action dropdowns.  Kept off the .extra-action-sel class on
+   purpose so the pill sync treats it as a MODE pill, not an action pill. */
+.rule-row .rule-mode-sel{display:none;padding:.25rem .4rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
+.rule-row.editing .rule-mode-sel{display:inline-block}
 /* ? helper right after the h2 title.  Popover shows on hover / focus.  CSS only */
 .bcd-card h2{display:flex;align-items:center;gap:.4rem}
 .info-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#cbd5e1;color:#fff;font-size:.7rem;font-weight:700;cursor:help;position:relative;flex:none;outline:none;user-select:none}
@@ -2902,76 +2911,42 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=protected">
   <div class="bcd-card">
     <h2 style="display:flex;align-items:center;gap:.6rem">
-      {{ t .Lang "settings.protected.preset.title" }}
-      <button type="button" class="ua-help-trigger" data-help-target="protected-preset-help" aria-label="?">?</button></h2>
-    <script type="text/html" id="protected-preset-help">{{ safeHTML (t .Lang "settings.protected.preset.desc") }}</script>
-
-    <!-- protected default action -->
-    <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
-      <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.protected.action_h" }}
-        <button type="button" class="ua-help-trigger" data-help-target="protected-action-help" aria-label="?">?</button>
-      </div>
-      {{ $pcm := .ProtectedPaths.DefaultAction }}
-      <select name="protected_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $pcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
-        <option value="pow_only"         {{ if eq $pcm "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $pcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $pcm "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $pcm "deny" }}selected{{ end }}>deny</option>
-      </select>
-    </div>
-    <script type="text/html" id="protected-action-help">
-      <div><strong>{{ t .Lang "settings.protected.action_h" }}</strong></div>
-      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.protected.action_help") }}</p>
+      {{ t .Lang "settings.tab.protected" }}
+      <button type="button" class="ua-help-trigger" data-help-target="protected-help" aria-label="?">?</button></h2>
+    <script type="text/html" id="protected-help">
+      <div><strong>{{ t .Lang "settings.protected.card_h" }}</strong></div>
+      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.protected.desc") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
-        <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
-        <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
-        <li><strong>captcha_only</strong> — {{ t .Lang "settings.rate_limit.mode_captcha_only_desc" }}</li>
-        <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
+        <li><strong>pow</strong> — {{ t .Lang "settings.protected.mode_pow_desc" }}</li>
+        <li><strong>captcha</strong> — {{ t .Lang "settings.protected.mode_captcha_desc" }}</li>
+        <li><strong>pow_then_captcha</strong> — {{ t .Lang "settings.protected.mode_pow_then_captcha_desc" }}</li>
       </ul>
-    
-      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
+      <p style="margin:.5rem 0 0">{{ safeHTML (t .Lang "settings.protected.grade_note") }}</p>
     </script>
 
     <div class="ua-section">
+      <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
+      <p class="desc" style="font-size:.78rem;color:#64748b;margin:.2rem 0 .5rem">{{ safeHTML (t .Lang "settings.protected.preset.desc") }}</p>
       {{ range .ProtectedPresetGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}">
         <label for="pp-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }} <span class="action-pill action-{{ $r.Mode }}">{{ $r.Mode }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
         </label>
-        {{/* No per-preset action selector for protected paths: each rule shows
-             its own mode (the action-pill above) and the chain comes from the
-             rate-limit default; a per-preset override is not wired through the
-             decision + native render yet, so the no-op control was removed. */}}
+        <select name="protected_preset_mode__{{ .ID }}" title="{{ t $.Lang "settings.protected.mode_title" }}" style="padding:.3rem .5rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
+          <option value="pow_then_captcha" {{ if eq .Mode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="pow"              {{ if eq .Mode "pow" }}selected{{ end }}>pow</option>
+          <option value="captcha"          {{ if eq .Mode "captcha" }}selected{{ end }}>captcha</option>
+        </select>
       </div>
       {{ end }}
     </div>
-    <script>
-    (function(){
-      document.querySelectorAll('input[name="protected_preset_enabled"]').forEach(function(cb){
-        cb.addEventListener('change', function(){
-          var row = cb.closest('.preset');
-          if (!row) return;
-          var sel = row.querySelector('.preset-action-sel');
-          if (sel) sel.disabled = !cb.checked;
-        });
-      });
-    })();
-    </script>
-  </div>
-
-  <div class="bcd-card">
-    <h2 style="display:flex;align-items:center;gap:.6rem">
-      {{ t .Lang "settings.protected.h" }}
-      <button type="button" class="ua-help-trigger" data-help-target="protected-custom-help" aria-label="?">?</button>
-    </h2>
-    <script type="text/html" id="protected-custom-help">{{ safeHTML (t .Lang "settings.protected.desc") }}</script>
 
     <div class="ua-section">
-      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
+      <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="protected-custom-help" aria-label="?">?</button></h3>
+      <script type="text/html" id="protected-custom-help">{{ safeHTML (t .Lang "settings.protected.desc") }}</script>
       <div class="rule-list" data-rule-name="protected_path">
       {{ range $i, $r := .ProtectedRules }}
       {{ $rrs := ruleRowState $r.Pattern "protected_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
@@ -2979,21 +2954,18 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="checkbox" class="rule-toggle" {{ if $r.Enabled }}checked{{ end }}>
         <input type="hidden" name="protected_enabled" value="{{ if $r.Enabled }}1{{ else }}0{{ end }}">
         <input type="hidden" name="protected_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
-        <input type="hidden" name="protected_mode" value="{{ $r.Mode }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.protected.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }} <span class="action-pill action-{{ $r.Mode }}" data-pill="mode">{{ $r.Mode }}</span>{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.protected.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }} <span class="action-pill action-{{ $r.Mode }}" data-pill="mode">{{ $r.Mode }}</span>{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="protected_site" list="protected-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
-        <select name="protected_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-          <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
-          <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-          <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
-          <option value="deny"             {{ if eq $r.Action "deny" }}selected{{ end }}>deny</option>
+        <select name="protected_mode" class="rule-mode-sel" title="{{ t $.Lang "settings.protected.mode_title" }}">
+          <option value="pow_then_captcha" {{ if eq $r.Mode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="pow"              {{ if eq $r.Mode "pow" }}selected{{ end }}>pow</option>
+          <option value="captcha"          {{ if eq $r.Mode "captcha" }}selected{{ end }}>captcha</option>
         </select>
         {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
@@ -3004,7 +2976,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="checkbox" class="rule-toggle" checked>
           <input type="hidden" name="protected_enabled" value="1">
           <input type="hidden" name="protected_created_at" value="">
-          <input type="hidden" name="protected_mode" value="captcha">
           <span class="rule-view">
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.protected.empty_pattern" }}</div>
@@ -3012,12 +2983,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="text" name="protected_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="protected_path" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="protected_site" list="protected-site-candidates" value="" placeholder="{{ t .Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
-          <select name="protected_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
-            <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
-            <option value="pow_only">pow_only</option>
-            <option value="pow_then_captcha">pow_then_captcha</option>
-            <option value="captcha_only">captcha_only</option>
-            <option value="deny">deny</option>
+          <select name="protected_mode" class="rule-mode-sel" title="{{ t .Lang "settings.protected.mode_title" }}">
+            <option value="pow_then_captcha" selected>pow_then_captcha</option>
+            <option value="pow">pow</option>
+            <option value="captcha">captcha</option>
           </select>
           {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
@@ -6616,7 +6585,9 @@ document.addEventListener('DOMContentLoaded', function(){
       pill.className = 'action-pill ' + cls;
       pill.textContent = text;
     };
-    const mode = row.querySelector('input[name$="_mode"]');
+    // Matches an <input> (legacy) or a <select> (protected paths' visible mode
+    // picker) whose name ends in "_mode" -- both expose .value.
+    const mode = row.querySelector('[name$="_mode"]');
     if (mode) upsert('mode', mode.value, 'action-' + (mode.value || 'ok'));
     const act = row.querySelector('select.extra-action-sel');
     if (act) {

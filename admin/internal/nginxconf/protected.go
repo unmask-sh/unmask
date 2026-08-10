@@ -1,14 +1,17 @@
-// Protected paths feature (= transparent CAPTCHA / PoW / strict gate).
+// Protected paths feature (= transparent PoW / CAPTCHA gate on chosen paths).
 //
 // Difference from honeypot:
 //   - honeypot: "step on the trap → persistent BAN on that IP → affects all subsequent paths"
 //   - protected paths: "a visitor reaching here is human-verified.  affects only that path"
 //
-// Meaning of each mode:
-//   - "captcha" : skip PoW → straight to CAPTCHA → issue _bv.  standard.  medium UX cost
-//   - "pow"     : PoW only → issue _bv.  lightweight protection that only charges CPU cost
-//   - "strict"  : PoW → CAPTCHA chain → _bv.  In v0.1 behaves like captcha
-//     (= the chain JS state machine ships in v0.2).  The yml schema carries all 3 from the start.
+// Meaning of each mode.  The mode IS the action: it maps 1:1 to a challenge
+// chain, with no separate chMode / default-action / rate-limit-linkage layer on
+// top (removed in the mode==action redesign).  A mode ending in a CAPTCHA is
+// grade-enforced on both wires: a proof-of-work cookie does not satisfy it (see
+// $unmask_needs_captcha_grade in http.conf.tmpl and requestNeedsCaptchaGrade).
+//   - "pow"              : PoW only → issue _bv.  lightweight; only charges CPU cost
+//   - "captcha"          : skip PoW → straight to CAPTCHA → issue _bv.  medium UX cost
+//   - "pow_then_captcha" : PoW → CAPTCHA chain → _bv.  strongest; the default
 package nginxconf
 
 import (
@@ -19,14 +22,40 @@ import (
 )
 
 const (
-	ProtectedModeCaptcha = "captcha"
-	ProtectedModePoW     = "pow"
-	ProtectedModeStrict  = "strict"
+	ProtectedModePoW            = "pow"
+	ProtectedModeCaptcha        = "captcha"
+	ProtectedModePoWThenCaptcha = "pow_then_captcha"
+
+	// ProtectedModeDefault is the mode a protected path takes when none is
+	// stored on the row / preset: the strongest chain (PoW → CAPTCHA).  A
+	// protected path is an operator-chosen gate on a sensitive path, so the
+	// default leans to maximum protection rather than the lightest option.
+	ProtectedModeDefault = ProtectedModePoWThenCaptcha
 )
 
 // IsValidProtectedMode: validate a value coming from form / yml.
 func IsValidProtectedMode(m string) bool {
-	return m == ProtectedModeCaptcha || m == ProtectedModePoW || m == ProtectedModeStrict
+	return m == ProtectedModePoW || m == ProtectedModeCaptcha || m == ProtectedModePoWThenCaptcha
+}
+
+// ModeEndsInCaptcha reports whether a protected mode terminates in a CAPTCHA
+// (captcha / pow_then_captcha).  Such a mode is grade-enforced: only a
+// CAPTCHA-grade _bv cookie satisfies it.  "pow" (and any unknown value) do not.
+func ModeEndsInCaptcha(mode string) bool {
+	return mode == ProtectedModeCaptcha || mode == ProtectedModePoWThenCaptcha
+}
+
+// ChModeForProtectedMode maps a protected-path mode to the challenge chain the
+// serve path runs for it.  Single source of truth now that mode == action.
+func ChModeForProtectedMode(mode string) string {
+	switch mode {
+	case ProtectedModePoW:
+		return settings.RateChallengePoWOnly
+	case ProtectedModePoWThenCaptcha:
+		return settings.RateChallengePoWThenCaptcha
+	default: // captcha + any unexpected value -> a real CAPTCHA (safe floor)
+		return settings.RateChallengeCaptchaOnly
+	}
 }
 
 // ProtectedPathRule: render-time struct that maps to one row in the UI.
@@ -38,7 +67,7 @@ func IsValidProtectedMode(m string) bool {
 // pattern as BypassPath).
 type ProtectedPathRule struct {
 	Pattern string // nginx regex (= without ~^)
-	Mode    string // "captcha" | "pow" | "strict"
+	Mode    string // "pow" | "captcha" | "pow_then_captcha"
 	Site    string // empty = global; non-empty = exact $host match
 }
 
@@ -62,27 +91,28 @@ type ProtectedPathPresetGroup struct {
 // enabling it without checking the layout would silently CAPTCHA legitimate
 // users.
 //
-// Mode is fixed by the preset.  Admin login forms expect a human, so
-// "captcha" is appropriate (= blocks bots, while a real operator gets through
-// after a single CAPTCHA).
+// Each preset ships a per-rule default Mode; the operator can override a whole
+// preset's mode via ProtectedPaths.PresetMode[id].  Admin login forms expect a
+// human, so the strongest chain (pow_then_captcha) is the default — a real
+// operator clears it once, while a headless PoW-solver hits the CAPTCHA wall.
 var ProtectedPathPresetGroups = []ProtectedPathPresetGroup{
 	{
 		ID:    "unmask",
-		Label: "unmask itself (cover the /unmask/admin/ login page with CAPTCHA)",
+		Label: "unmask itself (gate the /unmask/admin/ login page)",
 		Rules: []ProtectedPathRule{
-			{Pattern: `^/unmask/admin/`, Mode: ProtectedModeCaptcha},
+			{Pattern: `^/unmask/admin/`, Mode: ProtectedModeDefault},
 		},
 	},
 	{
 		ID:    "common-admin",
 		Label: "Common admin / CMS paths (/wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
 		Rules: []ProtectedPathRule{
-			{Pattern: `^/wp-admin/`, Mode: ProtectedModeCaptcha},
-			{Pattern: `^/wp-login\.php`, Mode: ProtectedModeCaptcha},
-			{Pattern: `^/phpmyadmin/`, Mode: ProtectedModeCaptcha},
-			{Pattern: `^/admin/`, Mode: ProtectedModeCaptcha},
-			{Pattern: `^/administrator/`, Mode: ProtectedModeCaptcha},
-			{Pattern: `^/manager/html`, Mode: ProtectedModeCaptcha},
+			{Pattern: `^/wp-admin/`, Mode: ProtectedModeDefault},
+			{Pattern: `^/wp-login\.php`, Mode: ProtectedModeDefault},
+			{Pattern: `^/phpmyadmin/`, Mode: ProtectedModeDefault},
+			{Pattern: `^/admin/`, Mode: ProtectedModeDefault},
+			{Pattern: `^/administrator/`, Mode: ProtectedModeDefault},
+			{Pattern: `^/manager/html`, Mode: ProtectedModeDefault},
 		},
 	},
 }
@@ -104,6 +134,12 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 		if !enabledPP[g.ID] {
 			continue
 		}
+		// A preset-level mode override applies to every rule in the group
+		// (the UI exposes one mode picker per preset, not per rule).
+		override := ""
+		if m, ok := s.Nginx.ProtectedPaths.PresetMode[g.ID]; ok && IsValidProtectedMode(m) {
+			override = m
+		}
 		for _, r := range g.Rules {
 			pat := trimSpaceAndQuotes(r.Pattern)
 			if pat == "" {
@@ -115,8 +151,11 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			}
 			ppSeen[key] = true
 			mode := r.Mode
+			if override != "" {
+				mode = override
+			}
 			if !IsValidProtectedMode(mode) {
-				mode = ProtectedModeCaptcha
+				mode = ProtectedModeDefault
 			}
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
@@ -134,7 +173,7 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			continue
 		}
 		ppSeen[key] = true
-		mode := ProtectedModeCaptcha
+		mode := ProtectedModeDefault
 		if IsValidProtectedMode(r.Mode) {
 			mode = r.Mode
 		}

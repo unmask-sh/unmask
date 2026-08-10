@@ -1839,35 +1839,33 @@ type HTTPSRedirectExemptRule struct {
 //	                 path is affected"
 //
 // Designed for real human admins to pass via CAPTCHA (= transparent admin
-// gate / important-path protection).  v2 stores rows as a flat struct slice
-// with a per-row Site filter; Mode / chMode override stay on the row.
+// gate / important-path protection).  Rows are a flat struct slice with a
+// per-row Site filter.  Mode == action: a row's / preset's Mode maps 1:1 to a
+// challenge chain (pow / captcha / pow_then_captcha) with no separate chMode,
+// default-action, or rate-limit-linkage layer (removed in the redesign).
 type ProtectedPathsConfig struct {
 	// EnabledPresets: explicit opt-in list of preset group IDs to enable.
 	// Absent / nil / [] all mean "no preset enabled".  Protected-paths
 	// presets (= unmask / common-admin etc.) are off by default because
-	// turning them on inserts a CAPTCHA before admin login -- always a
+	// turning them on inserts a challenge before admin login -- always a
 	// deliberate operator choice, never a default.
 	EnabledPresets []string `yaml:"enabled_presets,omitempty"`
 	// Paths: per-row custom protected entries.  See ProtectedPath for the
 	// per-row fields.
 	Paths []ProtectedPath `yaml:"paths,omitempty"`
-	// DefaultAction: chain to run when a request hits a protected path and
-	// challenge fires (= chMode used by challenge.html JS).  Empty =
-	// inherit ChallengeTargets.DefaultAction → RateLimit.Default.
-	DefaultAction string `yaml:"default_action,omitempty"`
-	// PresetAction: per-preset chMode override (preset ID → chain).  Stored
-	// now; path-based dispatch wiring is a follow-up.
-	PresetAction map[string]string `yaml:"preset_action,omitempty"`
+	// PresetMode: per-preset mode override (preset ID → "pow" | "captcha" |
+	// "pow_then_captcha").  Absent / empty for a preset = use the preset's own
+	// default mode.  Applied to every rule in the group by EffectiveProtectedPathRules.
+	PresetMode map[string]string `yaml:"preset_mode,omitempty"`
 }
 
-// ProtectedPath: one custom protected-path row.  Mode is the rule's match
-// mode ("captcha" / "pow" / "strict").  Action is the chain override (= same
-// chMode strings as RateChallenge*); empty -> inherit DefaultAction.
+// ProtectedPath: one custom protected-path row.  Mode is both the match mode
+// and the action: "pow" / "captcha" / "pow_then_captcha" maps directly to the
+// challenge chain served for the path.
 type ProtectedPath struct {
 	Path      string `yaml:"path"`
 	Title     string `yaml:"title,omitempty"`
 	Mode      string `yaml:"mode,omitempty"`
-	Action    string `yaml:"action,omitempty"`
 	Disabled  bool   `yaml:"disabled,omitempty"`
 	CreatedAt int64  `yaml:"created_at,omitempty"`
 	// UpdatedAt: unix sec of the last edit, 0 while the row is untouched since
@@ -3816,9 +3814,9 @@ func defaults() Settings {
 				BanDurationSec: 86400, // 24h
 			},
 			ProtectedPaths: ProtectedPathsConfig{
-				// "unmask" preset enabled by default: covers /unmask/admin/
-				// with a CAPTCHA gate layered on top of the IP allow-list.
-				// Path is fixed by unmask itself, no site-layout risk.
+				// "unmask" preset enabled by default: gates /unmask/admin/
+				// (default mode pow_then_captcha) layered on top of the IP
+				// allow-list.  Path is fixed by unmask itself, no site-layout risk.
 				// "common-admin" stays opt-in because its patterns (= /wp-admin/
 				// etc.) depend on what the protected site actually serves.
 				EnabledPresets: []string{"unmask"},

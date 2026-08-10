@@ -8,11 +8,10 @@ import (
 )
 
 // The per-path protected mode must drive the served challenge screen on both
-// axes.  Regression: the daemon recognized only "captcha"/"strict" in
-// X-Protected-Mode (a "pow" path fell through to the Operating-mode pick), and
-// the forward-auth axis (no nginx maps, so no header at all) never resolved
-// the protected rule -- both were masked until 0.1.7 by the black-list
-// default-action leak, and surfaced the moment the leak was scoped.
+// axes.  Mode == action: pow -> pow_only, captcha -> captcha_only,
+// pow_then_captcha -> the chain.  No default-action / rate-limit-linkage layer
+// on top (removed in the redesign), so the mode the operator picked is exactly
+// what gets served.
 func servedChModeReq(t *testing.T, h *Handler, target string, hdr map[string]string) string {
 	t.Helper()
 	req := httptest.NewRequest("GET", target, nil)
@@ -37,6 +36,7 @@ func TestServeChallengeProtectedPathMode(t *testing.T) {
 	s.Nginx.ProtectedPaths.Paths = []settings.ProtectedPath{
 		{Path: "^/pow-gate/", Mode: "pow"},
 		{Path: "^/members/", Mode: "captcha"},
+		{Path: "^/vault/", Mode: "pow_then_captcha"},
 	}
 	h.SetSettings(s)
 
@@ -47,9 +47,8 @@ func TestServeChallengeProtectedPathMode(t *testing.T) {
 	if got := servedChModeReq(t, h, "/unmask/challenge/", map[string]string{"X-Protected-Mode": "captcha"}); got != settings.RateChallengeCaptchaOnly {
 		t.Errorf("header captcha: want captcha_only, got %s", got)
 	}
-	// strict behaves like captcha in v0.1 (the chain is the v0.2 flip).
-	if got := servedChModeReq(t, h, "/unmask/challenge/", map[string]string{"X-Protected-Mode": "strict"}); got != settings.RateChallengeCaptchaOnly {
-		t.Errorf("header strict: want captcha_only, got %s", got)
+	if got := servedChModeReq(t, h, "/unmask/challenge/", map[string]string{"X-Protected-Mode": "pow_then_captcha"}); got != settings.RateChallengePoWThenCaptcha {
+		t.Errorf("header pow_then_captcha: want pow_then_captcha, got %s", got)
 	}
 
 	// Forward-auth axis: no header; the _orig query resolves the rule + mode.
@@ -59,18 +58,14 @@ func TestServeChallengeProtectedPathMode(t *testing.T) {
 	if got := servedChModeReq(t, h, "/unmask/challenge/?_orig=%2Fmembers%2F", nil); got != settings.RateChallengeCaptchaOnly {
 		t.Errorf("_orig members: want captcha_only, got %s", got)
 	}
+	if got := servedChModeReq(t, h, "/unmask/challenge/?_orig=%2Fvault%2Fkeys", nil); got != settings.RateChallengePoWThenCaptcha {
+		t.Errorf("_orig vault: want pow_then_captcha, got %s", got)
+	}
 
 	// An _orig outside every protected rule stays on the Operating-mode path
 	// (known browser + pass -> the base rate-limit default), not "protected".
 	base := s.RateLimit.Default.ResolvedChallengeMode()
 	if got := servedChModeReq(t, h, "/unmask/challenge/?_orig=%2Fplain%2F", nil); got != base {
 		t.Errorf("_orig plain: want base %s, got %s", base, got)
-	}
-
-	// An explicit protected-paths default action still overrides the mode.
-	s.Nginx.ProtectedPaths.DefaultAction = settings.RateChallengePoWThenCaptcha
-	h.SetSettings(s)
-	if got := servedChModeReq(t, h, "/unmask/challenge/", map[string]string{"X-Protected-Mode": "pow"}); got != settings.RateChallengePoWThenCaptcha {
-		t.Errorf("explicit default action: want pow_then_captcha, got %s", got)
 	}
 }
