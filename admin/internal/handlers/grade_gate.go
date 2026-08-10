@@ -3,6 +3,7 @@ package handlers
 import (
 	"strings"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -41,6 +42,27 @@ func uaRequiresCaptchaGrade(ua string, cfg settings.Settings) bool {
 		act = cfg.RateLimit.Default.ResolvedChallengeMode()
 	}
 	return act == settings.RateChallengeCaptchaOnly || act == settings.RateChallengePoWThenCaptcha
+}
+
+// requestNeedsCaptchaGrade reports whether THIS request must be backed by a
+// CAPTCHA-grade cookie to pass, folding the two independent sources of a CAPTCHA
+// requirement:
+//
+//   - the UA sits on a challenge-target chain that ends in a CAPTCHA
+//     (uaRequiresCaptchaGrade), and/or
+//   - the URI hits a protected path whose mode ends in a CAPTCHA
+//     (captcha / pow_then_captcha).
+//
+// This is the forward-auth twin of native's $unmask_needs_captcha_grade map: a
+// proof-of-work cookie must not satisfy a CAPTCHA gate on EITHER wire.  Before
+// this, the forward-auth pass-cookie veto only consulted the UA source, so a
+// PoW cookie sailed through a captcha-graded protected path (e.g. the admin
+// login gate) — the hole this closes.
+func requestNeedsCaptchaGrade(ua, uri, site string, cfg settings.Settings) bool {
+	if uaRequiresCaptchaGrade(ua, cfg) {
+		return true
+	}
+	return nginxconf.ModeEndsInCaptcha(protectedModeForOrig(cfg.Nginx, site, uri))
 }
 
 // gradeSatisfies reports whether a credential of grade `have` meets a CAPTCHA

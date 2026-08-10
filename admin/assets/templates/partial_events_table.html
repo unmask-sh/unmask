@@ -287,7 +287,11 @@
            every phase row of a visit (challenge.js propagates force_reason),
            so the session-collapse rep row shows it too, unmodified. */}}
       <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* referer (where the visitor came from) rides the URL cell's popover as
+           a note line -- present only on serve / check rows that carried a
+           Referer header, so most rows stay unchanged.  cellpop opens the
+           popover when either the path or a referer is there. */}}
+      <td class="url mono{{ if or .Path .Referer }} cellpop{{ end }}"{{ with .Referer }} data-note="{{ tf $.Lang "hunt.referer_note" . }}"{{ end }}>{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
            is ~740px wide and every human visitor's opens with the same
            "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like Gecko)" run, so

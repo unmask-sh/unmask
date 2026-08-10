@@ -317,6 +317,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledPP[g.ID]
+		// Resolved mode for the preset's dropdown: the operator's override if
+		// set, else the preset's own default mode.
+		mode := nginxconf.ProtectedModeDefault
+		if len(g.Rules) > 0 && nginxconf.IsValidProtectedMode(g.Rules[0].Mode) {
+			mode = g.Rules[0].Mode
+		}
+		if m, ok := cur.ProtectedPaths.PresetMode[g.ID]; ok && nginxconf.IsValidProtectedMode(m) {
+			mode = m
+		}
 		protectedPresetGroups = append(protectedPresetGroups, map[string]any{
 			"ID":      g.ID,
 			"Label":   g.Label,
@@ -324,6 +333,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"Enabled": enabled,
 			"AddedIn": g.AddedIn,
 			"IsNew":   isNew,
+			"Mode":    mode,
 		})
 	}
 
@@ -777,7 +787,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ProtectedPresetGroups": protectedPresetGroups,
 		"AdminCaptchaGate":      adminCaptchaGate,
 		"ProtectedPaths":        cur.ProtectedPaths,
-		"ProtectedPresetAction": cur.ProtectedPaths.PresetAction,
+		"ProtectedPresetMode":   cur.ProtectedPaths.PresetMode,
 		"BypassPathsRules":      bypassPathRows(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
@@ -2248,7 +2258,9 @@ var ruleListRegistry = map[string][]ruleListSpec{
 			}},
 	},
 	"protected": {
-		{Name: "protected_path", Title: "protected_title", Enabled: "protected_enabled", Action: "protected_action", Site: "protected_site",
+		// Mode == action for protected paths, so the shared "Action" slot of the
+		// draft carries the row's mode (the protected_mode field).
+		{Name: "protected_path", Title: "protected_title", Enabled: "protected_enabled", Action: "protected_mode", Site: "protected_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.ProtectedPaths.Paths = overlayProtected(rows)
 			}},
@@ -2421,7 +2433,13 @@ func overlayHoneypot(rows listRows) []settings.HoneypotURL {
 func overlayProtected(rows listRows) []settings.ProtectedPath {
 	out := []settings.ProtectedPath{}
 	for _, p := range draftPathRows(rows) {
-		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Action: p.Action, Site: p.Site, Disabled: p.Disabled})
+		// p.Action carries the protected_mode field (mode == action); an
+		// invalid / empty value resolves to the default in the render layer.
+		mode := p.Action
+		if !nginxconf.IsValidProtectedMode(mode) {
+			mode = nginxconf.ProtectedModeDefault
+		}
+		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Mode: mode, Site: p.Site, Disabled: p.Disabled})
 	}
 	return out
 }
@@ -3847,14 +3865,13 @@ func toSet(xs []string) map[string]bool {
 	return m
 }
 
-// applyProtectedForm: receive the protected-paths tab form. Zip 4 parallel
-// arrays (= path / title / disabled / updated_at) and save them. The old
-// `mode` column (= captcha/pow/strict) was retired in favor of the
-// per-axis chain action (= pow_only / pow_then_captcha / captcha_only /
-// deny) wired through protected_default_action + protected_extra_action;
-// applyProtectedForm receives the protected-paths tab form (v2 = flat
-// ProtectedPath slice).  Form fields: protected_path / _title / _enabled /
-// _updated_at / _mode / _site / _action -- zipped into ProtectedPath.
+// applyProtectedForm receives the protected-paths tab form.  Mode == action:
+// each row / preset carries a single mode (pow / captcha / pow_then_captcha)
+// that maps 1:1 to the served chain -- no separate chain-action, default-action
+// or rate-limit-linkage layer (all removed in the redesign).  Custom rows zip
+// the parallel arrays protected_path / _title / _enabled / _created_at /
+// _updated_at / _mode / _site into a flat ProtectedPath slice; presets carry
+// protected_preset_enabled + a per-preset protected_preset_mode__<id> override.
 func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	pats := r.Form["protected_path"]
 	titles := r.Form["protected_title"]
@@ -3863,9 +3880,8 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	updatedAtArr := r.Form["protected_updated_at"]
 	modes := r.Form["protected_mode"]
 	sites := r.Form["protected_site"]
-	actions := r.Form["protected_action"]
 	maxLen := len(pats)
-	for _, l := range []int{len(titles), len(enabledArr), len(createdAtArr), len(modes), len(sites), len(actions)} {
+	for _, l := range []int{len(titles), len(enabledArr), len(createdAtArr), len(modes), len(sites)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -3873,7 +3889,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	rows := make([]settings.ProtectedPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t, mode, site, action string
+		var p, t, mode, site string
 		isEnabled := true
 		var ts, cs int64
 		if i < len(pats) {
@@ -3896,16 +3912,10 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			mode = strings.TrimSpace(modes[i])
 		}
 		if !nginxconf.IsValidProtectedMode(mode) {
-			mode = nginxconf.ProtectedModeCaptcha
+			mode = nginxconf.ProtectedModeDefault
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
-		}
-		if i < len(actions) {
-			v := strings.TrimSpace(actions[i])
-			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
-				action = v
-			}
 		}
 		if p == "" {
 			continue
@@ -3920,7 +3930,6 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			Path:      p,
 			Title:     t,
 			Mode:      mode,
-			Action:    action,
 			Disabled:  !isEnabled,
 			CreatedAt: ts,
 			UpdatedAt: clampUpdatedAt(cs, ts, now),
@@ -3945,44 +3954,39 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	}
 	n.ProtectedPaths.EnabledPresets = enabled
 
-	// Protected default action.
-	// Blank/invalid resets to unset (= the picker's "(unset)" option) so a
-	// no-op tab save cannot pin the displayed fallback.
-	if v := strings.TrimSpace(r.FormValue("protected_default_action")); settings.IsValidRateChallengeMode(v) {
-		n.ProtectedPaths.DefaultAction = v
-	} else {
-		n.ProtectedPaths.DefaultAction = ""
+	// Per-preset mode override (mode == action).  Store ONLY a value that
+	// deviates from the preset's own default mode: a picker left on the default
+	// carries no meaning, and storing it would make a no-op save rewrite the
+	// config (and pin the default against a future change to it).  Empty map ->
+	// nil so the yaml stays clean.
+	presetModes := map[string]string{}
+	for _, g := range nginxconf.ProtectedPathPresetGroups {
+		v := strings.TrimSpace(r.FormValue("protected_preset_mode__" + g.ID))
+		if !nginxconf.IsValidProtectedMode(v) {
+			continue
+		}
+		def := nginxconf.ProtectedModeDefault
+		if len(g.Rules) > 0 && nginxconf.IsValidProtectedMode(g.Rules[0].Mode) {
+			def = g.Rules[0].Mode
+		}
+		if v != def {
+			presetModes[g.ID] = v
+		}
 	}
-	// per-preset action override.
-	presetActions := map[string]string{}
-	for k, vals := range r.Form {
-		if !strings.HasPrefix(k, "protected_preset_action__") {
-			continue
-		}
-		id := strings.TrimPrefix(k, "protected_preset_action__")
-		if id == "" || len(vals) == 0 {
-			continue
-		}
-		v := strings.TrimSpace(vals[0])
-		if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
-			continue
-		}
-		presetActions[id] = v
-	}
-	if len(presetActions) == 0 {
-		n.ProtectedPaths.PresetAction = nil
+	if len(presetModes) == 0 {
+		n.ProtectedPaths.PresetMode = nil
 	} else {
-		n.ProtectedPaths.PresetAction = presetActions
+		n.ProtectedPaths.PresetMode = presetModes
 	}
 	return nil
 }
 
-// protectedExtraRule: row-UI struct for the protected-paths tab.
+// protectedExtraRule: row-UI struct for the protected-paths tab.  Mode is both
+// the match mode and the action (pow / captcha / pow_then_captcha).
 type protectedExtraRule struct {
 	Pattern   string
 	Title     string
 	Mode      string
-	Action    string
 	Site      string
 	Enabled   bool
 	CreatedAt int64
@@ -4014,13 +4018,12 @@ func protectedPathRows(rows []settings.ProtectedPath) []protectedExtraRule {
 	for i, r := range rows {
 		mode := r.Mode
 		if !nginxconf.IsValidProtectedMode(mode) {
-			mode = nginxconf.ProtectedModeCaptcha
+			mode = nginxconf.ProtectedModeDefault
 		}
 		out[i] = protectedExtraRule{
 			Pattern:   r.Path,
 			Title:     r.Title,
 			Mode:      mode,
-			Action:    r.Action,
 			Site:      r.Site,
 			Enabled:   !r.Disabled,
 			CreatedAt: r.CreatedAt,

@@ -385,6 +385,12 @@ type Row struct {
 	// auth_request origin URI).  Query string included.  Shown in the URL
 	// column of the raw hunt log table.
 	Path string `json:"path,omitempty"`
+	// Referer: the page the visitor came from, captured server-side from the
+	// Referer header at challenge-serve / forward-auth-check time.  Display-only
+	// context for the hunt log ("did a human navigating from our own pages get
+	// challenged?"); empty on most rows (bots omit it, and native passes never
+	// reach the daemon).  Sourced from payload_json "referer".
+	Referer string `json:"referer,omitempty"`
 	// BeaconToken: identifier minted per challenge HTML serve and echoed by
 	// every subsequent beacon from that challenge session.  Used by the hunt
 	// UI's "session view" to collapse 3-5 rows of one challenge fire into a
@@ -502,6 +508,7 @@ func extractReason(payload string) string {
 // challenge-flow phase and is absent on phase=check.
 func decorateRowFromPayload(row *Row, payload string) {
 	row.Path = extractPath(payload)
+	row.Referer = extractStringField(payload, "referer", 300)
 	row.BeaconToken = extractBeaconToken(payload)
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)

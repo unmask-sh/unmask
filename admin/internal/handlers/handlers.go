@@ -930,12 +930,12 @@ func banProbedOrigPath(r *http.Request, basePath string) string {
 }
 
 // protectedModeForOrig resolves the protected-path mode ("pow" / "captcha" /
-// "strict") for the original URI a challenge is being served for, scanning the
-// enabled preset groups and then the per-site custom rows the same way the
-// rendered $protected_mode map does (case-insensitive, first match wins).
-// Returns "" when the URI hits no protected rule.  Used when the challenge
-// request carries no X-Protected-Mode header: the forward-auth axis (a plain
-// proxy with no nginx maps) only hands the daemon the _orig query.
+// "pow_then_captcha") for the original URI a challenge is being served for,
+// scanning the enabled preset groups (honoring a preset-level mode override)
+// and then the per-site custom rows the same way the rendered $protected_mode
+// map does (case-insensitive, first match wins).  Returns "" when the URI hits
+// no protected rule.  Used on the forward-auth axis (a plain proxy with no
+// nginx maps): both to serve the right chain and to enforce the CAPTCHA grade.
 func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 	if orig == "" {
 		return ""
@@ -947,7 +947,7 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 		if nginxconf.IsValidProtectedMode(m) {
 			return m
 		}
-		return nginxconf.ProtectedModeCaptcha // rows default to the standard gate
+		return nginxconf.ProtectedModeDefault
 	}
 	enabled := make(map[string]bool, len(n.ProtectedPaths.EnabledPresets))
 	for _, id := range n.ProtectedPaths.EnabledPresets {
@@ -957,8 +957,17 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 		if !enabled[g.ID] {
 			continue
 		}
+		// A preset-level override replaces the rule's own mode (matches
+		// EffectiveProtectedPathRules so both wires agree).
+		override := ""
+		if m, ok := n.ProtectedPaths.PresetMode[g.ID]; ok && nginxconf.IsValidProtectedMode(m) {
+			override = m
+		}
 		for _, rule := range g.Rules {
 			if re := compileCachedRe("(?i)" + rule.Pattern); re != nil && re.MatchString(orig) {
+				if override != "" {
+					return override
+				}
 				return modeOr(rule.Mode)
 			}
 		}
@@ -1041,7 +1050,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	ppMode := ""
 	switch m := strings.TrimSpace(r.Header.Get("X-Protected-Mode")); m {
-	case nginxconf.ProtectedModePoW, nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModeStrict:
+	case nginxconf.ProtectedModePoW, nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModePoWThenCaptcha:
 		forceReason = "protected"
 		ppMode = m
 	}
@@ -1354,25 +1363,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if forceReason == "protected" {
-		// The per-path mode is the operator's screen pick for this path (the
-		// rendered $protected_mode map value / the row's mode):
-		//   pow -> PoW only; captcha -> straight CAPTCHA; strict -> captcha
-		//   in v0.1 (the PoW->CAPTCHA chain is the documented v0.2 flip).
-		// Until 0.1.7 this branch leaked the black-list chain
-		// (ChallengeTargets.DefaultAction) onto every protected serve and the
-		// per-path mode never reached the screen; the mode now drives it.
-		switch ppMode {
-		case nginxconf.ProtectedModePoW:
-			chMode = settings.RateChallengePoWOnly
-		case nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModeStrict:
-			chMode = settings.RateChallengeCaptchaOnly
-		}
-		// An explicit tab-level default action still overrides -- it has been
-		// the operator's "what do protected hits get" dropdown since it
-		// shipped, so a value set there keeps winning.
-		if act := strings.TrimSpace(h.cfg().Nginx.ProtectedPaths.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
-			chMode = act
-		}
+		// Mode == action: the per-path mode maps 1:1 to the served chain
+		//   pow -> PoW only; captcha -> straight CAPTCHA; pow_then_captcha -> chain.
+		// No default-action / rate-limit-linkage override on top (removed in the
+		// redesign) -- the mode the operator picked is exactly what gets served.
+		chMode = nginxconf.ChModeForProtectedMode(ppMode)
 	} else if forceReason == "honeypot" {
 		// Honeypot trip default (= preset/custom path-based override
 		// wiring is a follow-up).
@@ -1665,6 +1660,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
+		}
+		// referer: the page the visitor came from when they hit the challenged
+		// URL (server-side from the Referer header of the original request -- a
+		// native in-place serve carries it verbatim).  Used to tell "a human
+		// navigating from our own pages got challenged" from a cold direct hit.
+		// Often empty (bots omit it; some browsers strip cross-origin).
+		if refr := refererForEvent(r); refr != "" {
+			payload["referer"] = refr
 		}
 		// Note: we record every serve hit verbatim, including the cases where
 		// a client (= Chrome prerender / double-click / LB retry) reaches us
@@ -2917,6 +2920,25 @@ func truncateAt(s string, n int) string {
 		return s[:n]
 	}
 	return s
+}
+
+// refererForEvent returns a sanitized Referer header for the hunt event payload:
+// trimmed, control chars (CR/LF/tabs that could smuggle into logs) stripped, and
+// capped to a sane length.  Empty when the header is absent -- the common case,
+// since bots omit it and browsers strip cross-origin referers.  The value is
+// display-only context (never a decision input), and the hunt UI escapes it.
+func refererForEvent(r *http.Request) string {
+	ref := strings.TrimSpace(r.Header.Get("Referer"))
+	if ref == "" {
+		return ""
+	}
+	ref = strings.Map(func(c rune) rune {
+		if c < 0x20 || c == 0x7f {
+			return -1
+		}
+		return c
+	}, ref)
+	return truncateAt(ref, 300)
 }
 
 var safeJA4RE = regexp.MustCompile(`^[a-zA-Z0-9_]{8,40}$`)
