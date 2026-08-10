@@ -66,7 +66,7 @@ func TestDumpHuntRefererHTML(t *testing.T) {
 	if _, err := h.DB.Exec(`INSERT INTO unmask_event
 		(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
 		VALUES ('s','','https',443,?,'UA','t13d','ok',0,'serve',0,0,'','',?,datetime('now'))`,
-		[]byte{192, 0, 2, 9}, `{"bt":"s1","orig_path":"/members/","referer":"https://news.example.com/thread/42"}`); err != nil {
+		[]byte{192, 0, 2, 9}, `{"bt":"s1","orig_path":"/members/","referer":"https://news.example.com/thread/42","local_port":80}`); err != nil {
 		t.Fatal(err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
@@ -74,5 +74,41 @@ func TestDumpHuntRefererHTML(t *testing.T) {
 	h.AdminHuntIndex(rr, req)
 	if err := os.WriteFile(out, rr.Body.Bytes(), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Behind a load balancer the client-facing port is inferred from the forwarded
+// scheme, so the port nginx actually accepted on is carried alongside it and
+// shown as a second tier -- only when the two disagree, which is exactly when
+// a hop exists.  An unproxied install records nothing extra and keeps one line.
+func TestHuntLocalPortSecondTier(t *testing.T) {
+	h := newTestHandler(t)
+	for _, s := range []struct{ phase, payload string }{
+		// serve carries the accepted port (LB hop); the beacon does not.
+		{"serve", `{"bt":"s2","orig_path":"/x/","local_port":80}`},
+		{"bv_pow_only", `{"bt":"s2","url":"https://site.example/x/"}`},
+	} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('s','','https',443,?,'UA','t13d','ok',0,?,0,0,'','',?,datetime('now'))`,
+			[]byte{192, 0, 2, 10}, s.phase, s.payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	rr := httptest.NewRecorder()
+	h.AdminHuntIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("hunt: %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `data-local-port="80"`) {
+		t.Error("the accepted port must ride the row as data-local-port")
+	}
+	if !strings.Contains(body, `tr.getAttribute('data-local-port')`) || !strings.Contains(body, "LOCAL_PORT_LABEL") {
+		t.Error("the Port row must render the accepted port as a second tier")
+	}
+	if !strings.Contains(body, `rep.setAttribute('data-local-port', lv)`) {
+		t.Error("the session collapse must promote the accepted port, else a collapsed session loses it")
 	}
 }
