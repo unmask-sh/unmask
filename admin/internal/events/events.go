@@ -220,9 +220,38 @@ func InsertAsync(d *db.DB, e *Event) {
 	}()
 }
 
+// Prune batch knobs.  Vars rather than consts so the multi-batch loop is
+// testable with small numbers; the values here are what ships.
+var (
+	// pruneBatchRows: rows deleted per transaction.  Small enough that one
+	// batch commits in a second or two on a grown install, so the write lock
+	// is only ever held that long.
+	pruneBatchRows = 50000
+	// pruneBatchPause: yield between batches so the hot path (event inserts,
+	// BAN lookups) acquires the lock promptly instead of queueing behind a
+	// back-to-back train of delete transactions.
+	pruneBatchPause = 50 * time.Millisecond
+	// pruneCheckpointRows: a mass delete writes every freed page into the WAL,
+	// and the WAL FILE never shrinks on its own -- auto-checkpoints recycle its
+	// pages but the size is a high-water mark (measured: 14 GB left behind by a
+	// 7.2M-row drain, on a 200 GB volume that was 91% full before anyone
+	// looked).  After deleting at least this many rows in one run, issue a
+	// TRUNCATE checkpoint to reset the file.
+	pruneCheckpointRows int64 = 100000
+)
+
 // PruneOldEvents deletes rows from unmask_event where date_created < (now - retentionDays).
 // Aggregates (unmask_aggregate) are not touched.  No-op if retentionDays <= 0.
 // Intended to be called every 24h from a goroutine in main.go.
+//
+// The delete runs in bounded batches, not one statement.  A single DELETE over
+// millions of rows holds the write lock for its whole run and cannot finish
+// inside the caller's deadline -- measured when an operator dropped retention
+// 30d -> 7d on a 10M-row install: the 7.2M-row DELETE hit the deadline every
+// run, rolled back every run (so it never made progress), and while it ran the
+// lock starved the hot path -- BAN lookups timed out and failed open.  Each
+// batch here is its own transaction: a deadline mid-run keeps everything
+// already deleted, and the next daily run continues where this one stopped.
 func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, error) {
 	if retentionDays <= 0 || d == nil {
 		return 0, nil
@@ -236,13 +265,52 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 	// formats the bind in the value's own zone -- a host-local cutoff would
 	// skew the retention boundary by the host TZ offset.
 	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-	res, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_event WHERE date_created < ?`, cutoff)
-	if err != nil {
-		return 0, err
+	// Each driver gets the batched form it supports: SQLite cannot LIMIT a bare
+	// DELETE (not compiled in) but allows the limited subquery, and the hint
+	// pins the subquery to the date index so a missing sqlite_stat1 cannot turn
+	// every batch into a table scan; MariaDB is the opposite -- DELETE..LIMIT
+	// is native, while a subquery on the delete's own table is refused
+	// (ER_UPDATE_TABLE_USED).
+	stmt := `DELETE FROM unmask_event WHERE date_created < ? LIMIT ?`
+	if d.Driver == db.DriverSQLite {
+		stmt = `DELETE FROM unmask_event WHERE id IN
+	        (SELECT id FROM unmask_event` + d.EventDateIndexHint() + ` WHERE date_created < ? LIMIT ?)`
 	}
-	n, _ := res.RowsAffected()
-	return n, nil
+	var total int64
+	for {
+		res, err := d.ExecContext(ctx, stmt, cutoff, pruneBatchRows)
+		if err != nil {
+			return total, err // batches so far are committed
+		}
+		n, _ := res.RowsAffected()
+		total += n
+		if n < int64(pruneBatchRows) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		case <-time.After(pruneBatchPause):
+		}
+	}
+	if d.Driver == db.DriverSQLite && total >= pruneCheckpointRows {
+		pruneCheckpointWAL(ctx, d, total)
+	}
+	return total, nil
+}
+
+// pruneCheckpointWAL resets the WAL file after a mass delete (see
+// pruneCheckpointRows).  Best-effort: a busy checkpoint is only logged -- the
+// WAL is correct either way, just not shrunk, and the next big prune retries.
+func pruneCheckpointWAL(ctx context.Context, d *db.DB, deleted int64) {
+	var busy, logPages, moved int
+	if err := d.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &moved); err != nil {
+		log.Printf("events prune: wal_checkpoint after %d deleted rows: %v", deleted, err)
+		return
+	}
+	if busy != 0 {
+		log.Printf("events prune: wal_checkpoint busy after %d deleted rows (kept; retried on the next mass prune)", deleted)
+	}
 }
 
 // insertStmt is shared between batch and single-row inserts.
