@@ -8,6 +8,31 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.28] - 2026-08-11
+
+> The community feed now enforces on every deployment.  It shipped enforced by
+> a set of nginx map lookups, which meant a forward-auth install -- Apache, or
+> nginx without the module -- pulled the shared list, showed it in the admin,
+> and blocked nothing with it.  The same release settles what a feed hit and a
+> black-listed user-agent actually cost, in one place each, so both deployment
+> modes answer the same way.
+
+### Fixed
+- (2026-08-11) **The community feed enforced nothing on forward-auth deployments.**  Enforcement was the three `community-bans-*.map` files nginx includes, so a deployment that has no unmask nginx module -- Apache, or stock nginx behind the forward-auth check -- read them never.  Such an install pulled the feed on schedule, listed every entry in the "共有 BAN" tab and marked them as enforced, while every listed client walked straight through.  The daemon now builds its matcher by reading back those same map files, so the two wires answer from the same bytes, and a hit is enforced in-process the moment the pull lands.  Native installs are unaffected in what they block.
+- (2026-08-11) **A community-feed hit was reported as nothing at all.**  A hit was folded into the protected-path variable, so it reached the visitor disguised as a protected path: the daemon resolves that mode by URI, the URI was not protected, and the challenge arrived with `force_reason=none` on whatever chain the install defaults to.  An operator could not tell a shared-list hit from ordinary traffic.  It is now its own axis end to end, reported as `community_bans` with the match kind that caught the client.
+- (2026-08-11) **A community-feed hit could re-challenge forever on a PoW-only install.**  The hit raised the CAPTCHA-grade requirement but never chose the screen, so on an install whose default chain is `pow_only` the visitor solved a proof of work, was issued a PoW cookie, and had it refused by the grade check on the next request.  The action now drives the requirement and the screen from one value, so the two cannot disagree.
+- (2026-08-11) **A black-listed user-agent met a different challenge depending on the deployment mode.**  "What chain does a black-listed UA walk into when no rule pinned one?" had three answers: the native serve path and the CAPTCHA-grade calculation inherited the install's default chain, the admin displayed that same value on every row, and the forward-auth axis alone kept a fixed `captcha_only` from before the ua-filter picker existed.  The tab contradicted itself too -- its picker read "unset = captcha_only" directly above rows reading "inherit (pow_then_captcha)".  All of them now resolve through one function.  On forward-auth with the picker unset, a black-listed UA gets the install's default chain instead of a straight CAPTCHA.
+- (2026-08-11) **Deleting old events could starve the ban lookup.**  Retention pruning issued one unbounded `DELETE`; on a table with millions of expired rows it exceeded its budget, rolled back the entire statement, and did so again on every run -- so nothing was ever deleted, while the transaction held locks the BAN lookup needs and left it failing open.  Pruning now runs in bounded batches that keep what they have committed, checkpoints the write-ahead log after a large delete, and reports progress.
+- (2026-08-11) **Port 80 (https) behind a load balancer.**  Hunt read the port from the connection to nginx, which behind a TLS-terminating load balancer is the backend hop, not the visitor's.  It now records the forwarded port and shows the accepted one beside it when they differ.
+- (2026-08-11) **Inherited labels went stale while you were editing.**  Changing a tab's default left every label that inherits from it -- each row's "unset" option, the scaffold a new row is cloned from, and the view pills -- naming the old value until a save reloaded the page, so the page contradicted the control being used and the next row added stated a chain it would not run.  Fixed on the protected-paths, ua-filter, country and ASN tabs.  The country tab also tracks its default rate now, which only the ASN tab did.
+
+### Changed
+- (2026-08-11) **The community feed's action is yours to pick.**  A hit was hardcoded to a CAPTCHA.  It now takes an action in the same vocabulary as every other axis -- `pow_only`, `captcha_only`, `pow_then_captcha` or `deny` -- set on the Community Bans tab, and applied identically on the nginx module and forward-auth.  The default is `captcha_only`: the feed is other people's evidence, so a hit should stop a solver-equipped bot while still letting a mis-reported human through under their own power.  The rescues that must outrank it -- verified search bots, bypass IPs, bypass paths, a valid pass cookie -- are all still consulted first.
+- (2026-08-11) **Protected paths take a default mode.**  A row or preset left unset follows a tab-level default instead of a fixed value, the same way the country and ASN tabs already work.
+
+### Removed
+- (2026-08-11) **`bans.community_bans_default_action`.**  It looked like the knob for what a feed hit costs, but community entries are never written to the local ban list, so nothing ever read it.  The setting on the Community Bans tab replaces it.
+
 ## [0.1.27] - 2026-08-10
 
 > A protected path that asks for a CAPTCHA now gets one.  The gate that guards

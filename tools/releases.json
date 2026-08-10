@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.27",
+  "latest": "0.1.28",
   "releases": [
+    {
+      "version": "0.1.28",
+      "date": "2026-08-11",
+      "notes": "The community feed now enforces on every deployment. It shipped enforced by the three nginx map files the module includes, so a forward-auth install - Apache, or stock nginx behind the check - read them never: it pulled the shared list on schedule, listed every entry in the admin and marked them enforced, while every listed client walked straight through. The daemon now builds its matcher by reading back those same map files, so both wires answer from the same bytes and a hit is enforced in-process the moment the pull lands. A hit was also reported as nothing at all: it was folded into the protected-path variable, so it reached the visitor disguised as a protected path and arrived with force_reason=none on whatever chain the install defaults to - it is now its own axis, reported as community_bans with the match kind that caught the client. On an install whose default chain is pow_only a hit could re-challenge forever, because it raised the CAPTCHA-grade requirement without choosing the screen; the action now drives both. And that action is yours to pick - pow_only, captcha_only, pow_then_captcha or deny, defaulting to captcha_only, applied identically on the module and forward-auth. The rescues that must outrank it (verified search bots, bypass IPs and paths, a valid pass cookie) are still consulted first. Also fixed: a black-listed user-agent met a different challenge depending on deployment mode, because the forward-auth axis kept a fixed captcha_only from before the ua-filter picker existed while every other path and every screen inherited the install default; retention pruning issued one unbounded DELETE that rolled back on large tables, so nothing was ever deleted while the transaction left the ban lookup failing open; hunt showed the backend port behind a TLS-terminating load balancer instead of the visitor's; and a tab's inherited labels went stale while you were editing, naming the old default until a save reloaded the page."
+    },
     {
       "version": "0.1.27",
       "date": "2026-08-10",
