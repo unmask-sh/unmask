@@ -488,7 +488,7 @@ type renderData struct {
 	// satisfy a captcha-graded protected path.
 	ProtectedNeedsCaptchaGrade bool
 	HTTPSRedirect              bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
-	HTTPSRedirectExempt    []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
+	HTTPSRedirectExempt        []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own

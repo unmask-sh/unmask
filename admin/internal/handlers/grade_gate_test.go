@@ -64,10 +64,10 @@ func TestRequestNeedsCaptchaGrade(t *testing.T) {
 		uri  string
 		want bool
 	}{
-		{"captcha", "/gate/x", true},           // captcha gate -> grade required
-		{"pow_then_captcha", "/gate/x", true},  // chain gate   -> grade required
-		{"pow", "/gate/x", false},              // pow gate     -> a PoW cookie is enough
-		{"captcha", "/public/x", false},        // outside the gate -> no requirement
+		{"captcha", "/gate/x", true},          // captcha gate -> grade required
+		{"pow_then_captcha", "/gate/x", true}, // chain gate   -> grade required
+		{"pow", "/gate/x", false},             // pow gate     -> a PoW cookie is enough
+		{"captcha", "/public/x", false},       // outside the gate -> no requirement
 	} {
 		if got := requestNeedsCaptchaGrade(ua, c.uri, "", protectedCfg(c.mode)); got != c.want {
 			t.Errorf("mode %q uri %q -> %v, want %v", c.mode, c.uri, got, c.want)
