@@ -2665,6 +2665,26 @@ func (c SiteAcceptanceConfig) ActiveDefined() []string {
 	return EnabledValues(c.Defined, c.DefinedDisabled)
 }
 
+// DefinedSet returns the active declared sites as a set, but ONLY in "defined"
+// mode; "auto" mode returns nil (an unbounded observed-Host set must not drive
+// per-site aggregation).  This is the single gate both the aggregate writer
+// (dashboard.DefinedSitesFn) and the funnel reader (Funnel's siteAggregated)
+// consult, so a site reads its per-site aggregate exactly when one is written.
+func (c SiteAcceptanceConfig) DefinedSet() map[string]bool {
+	if c.Mode != SiteModeDefined {
+		return nil
+	}
+	act := c.ActiveDefined()
+	if len(act) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(act))
+	for _, v := range act {
+		m[v] = true
+	}
+	return m
+}
+
 // EnabledValues filters vals by a parallel disabled-flag slice (rule-list
 // convention: flags may be shorter than vals; a missing flag means enabled).
 // Returns vals itself when nothing is disabled, so hot-path callers only
@@ -2759,15 +2779,19 @@ type Settings struct {
 	// VersionCheckDisabled: opt out of the update check entirely (no outbound
 	// call at all).  Default false = the check runs.  Toggled from the About tab.
 	VersionCheckDisabled bool `yaml:"version_check_disabled,omitempty"`
-	// EventsRetentionDays: retention days for raw unmask_event rows. Default 30
-	// (hunt is 24h, dashboard keeps its own aggregate up to 30d, so raw events
-	// past 30d only serve --ref lookups / audit).
-	// 0 = retain forever (= prune disabled). Aggregates (= unmask_aggregate)
-	// are not affected and persist forever. On admin server startup, a
+	// EventsRetentionDays: retention days for raw unmask_event rows. Default 7.
+	// Raw events only back the bot-hunt log, --ref lookups, rankings, analyze
+	// and undeclared-site views; everything long-range reads the fixed 32-day
+	// aggregates (install-wide dashboard, crawler trend, declared-site funnel),
+	// which this setting does NOT touch.  7 keeps a high-volume install's DB
+	// bounded (~1.3M events/day measured ≈ 8 GB at 7d vs ~33 GB at 30d) — a
+	// disk-full is a hard failure the default must not be able to cause, while
+	// an operator who wants deeper raw history raises this knowingly.
+	// 0 = retain forever (= prune disabled). On admin server startup, a
 	// goroutine runs `DELETE FROM unmask_event WHERE date_created < now - N days`
 	// idempotently every 24h.  No omitempty: 0 is the zero value, so omitempty
-	// would drop it on Save and Load would re-default it to 90 -- silently
-	// deleting the history the operator chose to keep forever.
+	// would drop it on Save and Load would re-default it -- silently deleting
+	// the history the operator chose to keep forever.
 	EventsRetentionDays int `yaml:"events_retention_days"`
 	// AuditRetentionDays: retention days for the admin-action log
 	// (unmask_user_audit: login / settings save / user + ban mutations).
@@ -3618,7 +3642,7 @@ func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 
 func defaults() Settings {
 	return Settings{
-		EventsRetentionDays:   30,
+		EventsRetentionDays:   7,
 		AuditRetentionDays:    90,
 		EventsBatchSize:       100,
 		EventsBatchIntervalMs: 1000,

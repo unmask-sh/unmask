@@ -6050,6 +6050,16 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div style="font-size:.85rem;color:#334155;line-height:1.8">
       <div>{{ t .Lang "settings.retention.db_driver_label" }}: <strong>{{ if eq .Retention.DBDriver "mariadb" }}MariaDB{{ else }}SQLite{{ end }}</strong>{{ if .Retention.DBSizeStr }} · {{ t .Lang "settings.retention.size_label" }} <strong>{{ .Retention.DBSizeStr }}</strong>{{ end }}</div>
       {{ if .Retention.DBDetail }}<div style="font-size:.75rem;color:#94a3b8;margin-top:.15rem">{{ .Retention.DBDetail }}</div>{{ end }}
+      {{/* Disk-fill projection: observed growth/day + the steady-state size the
+           current retention converges to + the volume's free space, with a red
+           banner when the projection says the volume fills.  ProjShow needs a
+           day of history; DiskFreeStr is sqlite-only (local file). */}}
+      {{ if .Retention.ProjShow }}
+      <div style="margin-top:.2rem">{{ t .Lang "settings.retention.proj_growth_label" }}: <strong>{{ .Retention.ProjPerDayStr }}/{{ t .Lang "settings.retention.proj_day_unit" }}</strong>{{ if .Retention.ProjSizeStr }} · {{ tf .Lang "settings.retention.proj_size_label" .Retention.ProjRetention }}: <strong>~{{ .Retention.ProjSizeStr }}</strong>{{ end }}{{ if .Retention.DiskFreeStr }} · {{ t .Lang "settings.retention.disk_free_label" }}: <strong>{{ .Retention.DiskFreeStr }}</strong>{{ end }}</div>
+      {{ if .Retention.ProjFillRisk }}
+      <div class="banner bad" style="margin-top:.5rem">{{ if .Retention.ProjSizeStr }}{{ safeHTML (tf .Lang "settings.retention.proj_fill_warn" .Retention.ProjDaysToFull) }}{{ else }}{{ safeHTML (tf .Lang "settings.retention.proj_fill_warn_forever" .Retention.ProjDaysToFull) }}{{ end }}</div>
+      {{ end }}
+      {{ end }}
       {{ if .Retention.WriteChecked }}
       <div style="margin-top:.2rem">{{ t .Lang "settings.retention.write_label" }}:
         {{ if .Retention.WriteOK }}<strong style="color:#15803d">✓ {{ t .Lang "settings.retention.write_ok" }}</strong>

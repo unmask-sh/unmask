@@ -1433,7 +1433,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	run("funnel", func() error {
 		fctx, fcancel := queryCtx(5 * time.Second)
 		defer fcancel()
-		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry())
+		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry(), site != "" && h.cfg().Sites.DefinedSet()[site])
 		return funnelErr
 	})
 	run("CookieStatus", func() error {
@@ -2055,7 +2055,7 @@ func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 	hosts := h.dashboardHosts(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
-	rows, err := dashboard.Funnel(ctx, h.DB, site, hosts, dashboard.RangeHours(rng), dashboard.BotVerdictNames(h.cfg().Nginx), h.VerdictRegistry())
+	rows, err := dashboard.Funnel(ctx, h.DB, site, hosts, dashboard.RangeHours(rng), dashboard.BotVerdictNames(h.cfg().Nginx), h.VerdictRegistry(), site != "" && h.cfg().Sites.DefinedSet()[site])
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": 0, "error": err.Error()})
 		return

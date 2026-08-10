@@ -5506,6 +5506,16 @@ type retentionStatsView struct {
 	EventsOldestOK       bool
 	CookieMinuteRowsOK   bool
 	CookieMinuteOldestOK bool
+	// Disk-fill projection (projectRetentionDisk): what the DB grows to at the
+	// current retention setting, against the DB volume's free space.  ProjShow
+	// gates the whole block (needs >=1 day of history + a known size).
+	ProjShow       bool
+	ProjRetention  int    // retention days the projection used (0 = forever)
+	ProjSizeStr    string // steady-state size at ProjRetention ("" when forever)
+	ProjPerDayStr  string // observed growth per day
+	DiskFreeStr    string // free space on the DB volume ("" = unknown / mariadb)
+	ProjFillRisk   bool   // the volume is projected to fill
+	ProjDaysToFull int    // rough days until full (0 = n/a)
 	// Write-health probe: a real (no-op) write statement executed by THIS
 	// daemon process.  A DB the daemon can read but not write is invisible from
 	// the outside — challenges keep serving (config/HMAC only) while every
@@ -5661,6 +5671,31 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 			if st, err := os.Stat(dbc.SQLitePath); err == nil {
 				v.DBSize = st.Size()
 				v.DBSizeStr = humanBytes(v.DBSize)
+			}
+		}
+	}
+
+	// Disk-fill projection: DB growth at the current retention vs the volume's
+	// free space.  Free space only for sqlite (the file is local); a MariaDB
+	// install still gets the size projection, just no fill check.
+	var free int64
+	if v.DBDriver != "mariadb" && dbc.SQLitePath != "" {
+		free = diskFreeBytes(filepath.Dir(dbc.SQLitePath))
+	}
+	if v.EventsOldestOK {
+		proj := projectRetentionDisk(v.DBSize, v.EventsOldestTS, time.Now().Unix(),
+			h.cfg().EventsRetentionDays, free)
+		v.ProjShow = proj.Show
+		v.ProjRetention = proj.Retention
+		v.ProjFillRisk = proj.FillRisk
+		v.ProjDaysToFull = proj.DaysToFull
+		if proj.Show {
+			v.ProjPerDayStr = humanBytes(proj.PerDay)
+			if proj.Projected > 0 {
+				v.ProjSizeStr = humanBytes(proj.Projected)
+			}
+			if proj.DiskFree > 0 {
+				v.DiskFreeStr = humanBytes(proj.DiskFree)
 			}
 		}
 	}
