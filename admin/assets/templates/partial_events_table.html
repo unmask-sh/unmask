@@ -269,7 +269,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -287,11 +287,7 @@
            every phase row of a visit (challenge.js propagates force_reason),
            so the session-collapse rep row shows it too, unmodified. */}}
       <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-      {{/* referer (where the visitor came from) rides the URL cell's popover as
-           a note line -- present only on serve / check rows that carried a
-           Referer header, so most rows stay unchanged.  cellpop opens the
-           popover when either the path or a referer is there. */}}
-      <td class="url mono{{ if or .Path .Referer }} cellpop{{ end }}"{{ with .Referer }} data-note="{{ tf $.Lang "hunt.referer_note" . }}"{{ end }}>{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
            is ~740px wide and every human visitor's opens with the same
            "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like Gecko)" run, so
@@ -377,6 +373,11 @@
 .dtpop-ref{user-select:all;-webkit-user-select:all;font-size:.92rem;color:#0f172a}
 .dtpop-time{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;letter-spacing:.01em}
 .dtpop-utc{color:#64748b;font-size:.78rem;margin-top:.15rem}
+/* Referer row: a URL can be long, so it wraps inside the popover instead of
+   widening it; the "-" (no referer sent) is muted so a populated row reads
+   first when scanning several open popovers. */
+.dtpop-referer{font-size:.78rem;color:#0f172a;word-break:break-all}
+.dtpop-none{color:#94a3b8}
 .events td.at time.js-datetime.dtpop-trigger{cursor:help}
 .events td.at time.js-datetime.dtpop-trigger:hover{text-decoration:underline dotted rgba(100,116,139,.6);text-underline-offset:2px}
 /* Ban-reason popover (= WHY an "already BANned" IP is on the list). */
@@ -604,6 +605,17 @@ document.addEventListener('DOMContentLoaded', function(){
       }
       var oms = oldest.getAttribute('data-ts-ms');
       if (oms) rep.setAttribute('data-ts-ms', oms);
+      // The referer rides the request that was actually challenged (the serve,
+      // or the folded forward-auth check) -- the rep row is the latest phase, a
+      // beacon, which carries none.  Promote it like the ref id above so the
+      // collapsed row's datetime popover still names where the visitor came
+      // from; without this a session reads as "no referer" for every visitor.
+      if (!rep.getAttribute('data-referer')){
+        for (var fi = 0; fi < grp.length; fi++){
+          var fv = grp[fi].getAttribute('data-referer');
+          if (fv){ rep.setAttribute('data-referer', fv); break; }
+        }
+      }
     }
     var phaseCell = rep.querySelector('td:nth-child(5)');
     if (!phaseCell) return;
@@ -1038,6 +1050,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // and the UTC equivalent (= what raw server logs are stamped in).  Anchored
   // on the <time> element specifically so it never collides with the host /
   // site cellpop badges that share the 'at' cell.
+  var REFERER_LABEL = {{ t .Lang "hunt.referer_label" }};
   function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
   function fmtAt(ms, tz){
     var d = new Date(ms);
@@ -1090,6 +1103,14 @@ document.addEventListener('DOMContentLoaded', function(){
       body += '<div class="dtpop-row"><span class="dtpop-k">Port</span>' +
         '<span class="dtpop-v">' + esc(portTxt) + '</span></div>';
     }
+    // Where the visitor came from.  Shown ALWAYS, "-" when the request carried
+    // no Referer: a row that simply omits the line reads as "this build does
+    // not record it", and the empty case is itself the answer most of the time
+    // (bots rarely send one, and browsers strip it cross-origin).
+    var refr = (tr.getAttribute('data-referer') || '').trim();
+    body += '<div class="dtpop-row"><span class="dtpop-k">' + esc(REFERER_LABEL) + '</span>' +
+      (refr ? '<span class="dtpop-v dtpop-referer">' + esc(refr) + '</span>'
+            : '<span class="dtpop-v dtpop-none">-</span>') + '</div>';
     // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
     // are self-labelling -- no locale-specific "Local" / "Time" caption needed.
     if (local) body += '<div class="dtpop-time">' + esc(local) + '</div>';
