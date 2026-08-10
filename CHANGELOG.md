@@ -8,6 +8,27 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.27] - 2026-08-10
+
+> A protected path that asks for a CAPTCHA now gets one.  The gate that guards
+> unmask's own admin login shipped on by default and could be satisfied by a
+> proof-of-work cookie -- the exact credential a headless solver mints for
+> itself.  The rest of the release is retention: raw events are the only thing
+> the retention window still governs, so its default drops to a week and a busy
+> install stops growing toward tens of gigabytes.
+
+### Fixed
+- (2026-08-10) **A protected path whose mode ends in a CAPTCHA was satisfied by a proof-of-work cookie.**  The `unmask itself` preset ships on by default and puts a challenge in front of `/unmask/admin/`, so this is the gate on the product's own login page.  The pass-cookie exemption asked for a CAPTCHA-grade cookie only when the *user-agent* sat on a captcha-ending rule; it never consulted the protected path.  A client holding a proof-of-work cookie -- which a headless solver mints for itself, measured on a production install at 137,051 requests a day through a rule that said CAPTCHA -- therefore walked through a captcha-graded protected path under an ordinary browser user-agent.  Both deployment modes now fold the protected axis into the same grade requirement, so `captcha` and `pow_then_captcha` paths accept only a genuine CAPTCHA pass.  A `pow` path is unchanged, and nobody who actually cleared the gate is affected: clearing a captcha-ending chain issues a CAPTCHA-grade cookie.
+
+### Changed
+- (2026-08-10) **A protected path's mode is the challenge it runs.**  The mode (`captcha` / `pow`) was only half the story: the chain actually served came from a separate per-tab default action, a per-preset override, and failing those the rate-limit tab's default -- so the admin gate's behaviour could change because an unrelated tab was edited, and the settings screen said "unset = follows the rate-limit default" while the code did something else.  A path now carries one value that is both the match mode and the action: **`pow`**, **`captcha`**, or **`pow_then_captcha`** (new, and the default).  `strict` -- documented as "behaves like captcha for now" since 0.1 -- is gone, and so are the three inheritance layers.  The settings tab is one card with a mode picker on every preset and every custom row.
+- (2026-08-10) **Raw-event retention defaults to 7 days.**  It is the only knob that shortens raw events, and raw events back only the bot-hunt log, `--ref` support lookups, rankings, `analyze` and undeclared-site views; every long-range chart reads fixed 32-day aggregates that this setting does not touch.  Measured on a high-volume install (~1.3M events/day) 30 days is ~33 GB against ~8 GB at 7 -- and a full disk is a hard failure a default must not be able to cause.  Existing installs are unaffected: the value is stored explicitly, so only fresh installs take the new default.
+
+### Added
+- (2026-08-10) **The crawler trend and declared sites' funnels survive a short retention.**  Two things still followed the raw-event window: the per-crawler trend sparkline in the AI-traffic card, and any funnel filtered to a single site (the funnel aggregate has no site dimension, so a site filter fell back to scanning raw events).  The crawler trend now uses the same fixed 32-day window as every other aggregate.  Sites you declare in Site settings get their own funnel aggregates -- written only for the declared set, which is what keeps the key count bounded -- so a declared site's 30-day funnel no longer depends on how long raw events are kept.  Undeclared sites still read raw.  No backfill: the per-site history accumulates from the moment a site is declared.
+- (2026-08-10) **The retention tab projects the disk.**  It shows the database's observed growth per day, the size the current retention setting converges to, and the free space on its volume, with a warning when the projection says the disk fills -- so "is 7 days right for this box" is answered on the page instead of by arithmetic.  On a very busy site even a week runs to gigabytes, and the field's help now names 1 day as a legitimate choice.
+- (2026-08-10) **Hunt shows where a visitor came from.**  The `Referer` of the request that was challenged (and, on forward-auth, of one that passed) is recorded and shown in the URL cell's popover -- context for reading whether a person navigating in from your own pages hit a challenge.  Empty on most rows, since bots rarely send one.
+
 ## [0.1.26] - 2026-08-09
 
 ### Added
