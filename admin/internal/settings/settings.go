@@ -1854,9 +1854,23 @@ type ProtectedPathsConfig struct {
 	// per-row fields.
 	Paths []ProtectedPath `yaml:"paths,omitempty"`
 	// PresetMode: per-preset mode override (preset ID → "pow" | "captcha" |
-	// "pow_then_captcha").  Absent / empty for a preset = use the preset's own
-	// default mode.  Applied to every rule in the group by EffectiveProtectedPathRules.
+	// "pow_then_captcha").  Absent / empty for a preset = inherit DefaultMode.
+	// Applied to every rule in the group by EffectiveProtectedPathRules.
 	PresetMode map[string]string `yaml:"preset_mode,omitempty"`
+	// DefaultMode: what a row or preset whose own mode is blank runs -- the
+	// same "registered rule with a blank action inherits this" knob the geo and
+	// ASN tabs call DefaultRuleAction, so the protected tab is no longer the one
+	// axis without a settable default.  Empty resolves to ProtectedModeDefault
+	// (pow_then_captcha), which is what a blank row ran before this existed, so
+	// an install that never sets it is unchanged.
+	//
+	// Deliberately NOT the old default_action this replaces: that one OVERRODE
+	// each path's mode (making the per-row picker decorative) and, when itself
+	// unset, inherited from the unrelated rate-limit tab -- so the admin gate's
+	// behaviour could change because another tab was edited.  This only fills in
+	// a blank; an explicit mode on the row or preset always wins, and nothing
+	// outside this tab feeds it.
+	DefaultMode string `yaml:"default_mode,omitempty"`
 }
 
 // ProtectedPath: one custom protected-path row.  Mode is both the match mode
