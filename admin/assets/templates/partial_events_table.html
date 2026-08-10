@@ -280,7 +280,7 @@
            the group's real verdict onto the rep row so a bot session still shows
            its verdict rather than this "ok" fallback. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if eq .Phase "abandon" }} {{ if gt .Returned 0 }}<span class="ret-badge ret-stayed" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_stayed" }}</span>{{ else }}<span class="ret-badge ret-gone" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_gone" }}</span>{{ end }}{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if eq .Phase "abandon" }} {{ if gt .Returned 0 }}<span class="ret-badge ret-stayed" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_stayed" }}</span>{{ else }}<span class="ret-badge ret-gone" title="{{ t $.Lang "hunt.returned_title" }}">{{ t $.Lang "hunt.returned_gone" }}</span>{{ end }}{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       {{/* Escalation axis in its own cell (= not a phase): the phase cell was
            getting crowded and the dashboard cards already give 昇格理由 a
            dedicated column -- keep the two views consistent.  Same value on
@@ -624,7 +624,24 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     var phaseCell = rep.querySelector('td:nth-child(5)');
     if (!phaseCell) return;
-    var rlBadge = phaseCell.querySelector('.rl-badge');
+    // The badges hanging off the phase cell survive the rebuild below, and are
+    // taken from ANY row of the session rather than the representative one.
+    // They are minted where they are detected -- the rate limit and the
+    // LB-misconfiguration warning on the serve / check that starts the session,
+    // the returned badge and the reload count on the abandon that ends it --
+    // while the representative row is the LAST phase.  Reading only the
+    // representative therefore dropped the rl badge in the ordinary
+    // serve -> load -> bv_* case, and the LB warning was lost unconditionally
+    // because nothing re-attached it at all: a warning that the forwarded
+    // client address is spoofable disappeared the moment a session had a
+    // second row.
+    var keptBadges = [];
+    ['.rl-badge', '.lb-warn-badge', '.ret-badge', '.reload-badge'].forEach(function(sel){
+      for (var bi = 0; bi < grp.length; bi++){
+        var b = grp[bi].querySelector('td:nth-child(5) ' + sel);
+        if (b){ keptBadges.push(b); break; }
+      }
+    });
     phaseCell.innerHTML = '';
     var chain = document.createElement('span');
     chain.className = 'session-chain';
@@ -662,10 +679,10 @@ document.addEventListener('DOMContentLoaded', function(){
       chain.appendChild(pill);
     });
     phaseCell.appendChild(chain);
-    if (rlBadge){
+    keptBadges.forEach(function(b){
       phaseCell.appendChild(document.createTextNode(' '));
-      phaseCell.appendChild(rlBadge);
-    }
+      phaseCell.appendChild(b);
+    });
     function tlEsc(s){
       return String(s).replace(/[&<>"']/g, function(c){
         return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];

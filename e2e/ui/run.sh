@@ -82,6 +82,37 @@ for kind, n in [("total", 100000), ("bypass_pass", 20000), ("crawler_pass", 8000
                 ("rebind", 1500), ("passthrough", 300)]:
     c.execute("INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt) VALUES (?,?,?,?)",
               (m, "", kind, n))
+
+# One hunt session for the collapse check: the rate-limit zone and the
+# LB-misconfiguration warning are recorded on the SERVE (where they are
+# detected), and two more phases follow -- so the row the collapse picks as the
+# representative is the last one, which carries neither.  The abandon row
+# carries the returned badge and a reload count for the same reason.
+c.execute("""CREATE TABLE IF NOT EXISTS unmask_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, site TEXT NOT NULL DEFAULT '',
+    host TEXT NOT NULL DEFAULT '', scheme TEXT NOT NULL DEFAULT '',
+    port INTEGER NOT NULL DEFAULT 0, ip_address BLOB NOT NULL,
+    user_agent TEXT, ja4 TEXT, ja4_verdict TEXT, ja4_verdict_id INTEGER,
+    phase TEXT NOT NULL, flags INTEGER NOT NULL DEFAULT 0,
+    reload_count INTEGER NOT NULL DEFAULT 0, cookie_bv TEXT, cookie_br TEXT,
+    payload_json TEXT, date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)""")
+# (the rate-limit zone and the LB warning are surfaced on phase=check only --
+#  they are what the forward-auth check reports -- so the session starts there,
+#  which is also the real shape: check -> serve -> load -> abandon.)
+# Distinct timestamps: the collapse orders the chain by time, and rows sharing
+# one second leave the representative pick ambiguous.
+for phase, payload, reloads, ago in [
+        ("check", '{"bt":"uiCollapse","action":"block","rl_zone":"perip",'
+                  '"lb_warning":"X-Client-JA4 from an untrusted peer"}', 0, 40),
+        ("serve", '{"bt":"uiCollapse","force_reason":"rate_limit"}', 0, 39),
+        ("load", '{"bt":"uiCollapse"}', 0, 35),
+        ("abandon", '{"bt":"uiCollapse","abandon_phase":"pow","returned":1}', 2, 20)]:
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','',0,x'7f000001','UI-E2E','','',0,?,0,?,'','',?,
+                datetime('now', '-' || ? || ' seconds'))""",
+        (phase, reloads, payload, ago))
 c.commit()
 PY
 
