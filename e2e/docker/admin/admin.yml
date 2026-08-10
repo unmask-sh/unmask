@@ -308,7 +308,14 @@ nginx:
         title: "scenario 21 per-site bypass (shop only)"
         site: "shop.example.com"
 
-# Keep the e2e self-contained: with subscribe_mode defaulting to fetch_apply,
-# the daemon would otherwise register with + pull from the production hub.
+# Community feed: enforcement ON so the maps are rendered and the daemon builds
+# its matcher, but every hub URL points at a dead local port so the suite never
+# touches the production hub.  A failed pull leaves the map files alone, which
+# is exactly the cold-start path scenario 58 drives: the daemon seeds its
+# matcher from the files on disk before it ever reaches the hub.
 community_bans:
-  subscribe_mode: "off"
+  subscribe_mode: fetch_apply
+  register_url: "http://127.0.0.1:9/register"
+  submit_url: "http://127.0.0.1:9/submit"
+  feed_url: "http://127.0.0.1:9/list.json"
+  aggregate_url: "http://127.0.0.1:9/aggregate"
