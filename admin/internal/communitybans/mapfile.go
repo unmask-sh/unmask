@@ -24,7 +24,7 @@ func ensureMapPlaceholders(dir string) {
 	if dir == "" {
 		return
 	}
-	if _, err := os.Stat(filepath.Join(dir, "community-bans-ipja4.map")); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dir, MapFileIPJA4)); os.IsNotExist(err) {
 		_ = WriteMapFiles(FeedDocument{GeneratedAt: time.Now().Unix(), Version: 2}, dir)
 	}
 }
@@ -88,13 +88,13 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 	sort.Strings(ja4)
 	sort.Strings(ip)
 
-	if err := atomicWriteLines(filepath.Join(dir, "community-bans-ipja4.map"), ipja4); err != nil {
+	if err := atomicWriteLines(filepath.Join(dir, MapFileIPJA4), ipja4); err != nil {
 		return err
 	}
-	if err := atomicWriteLines(filepath.Join(dir, "community-bans-ja4.map"), ja4); err != nil {
+	if err := atomicWriteLines(filepath.Join(dir, MapFileJA4), ja4); err != nil {
 		return err
 	}
-	if err := atomicWriteLines(filepath.Join(dir, "community-bans-ip.map"), ip); err != nil {
+	if err := atomicWriteLines(filepath.Join(dir, MapFileIP), ip); err != nil {
 		return err
 	}
 	return nil

@@ -1072,6 +1072,26 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			ppMode = m
 		}
 	}
+	// Community feed hit.  Native nginx decides only THAT this request is
+	// challenged (its map lookup has no way to say why); the daemon holds the
+	// same map files in memory, so the reason and the chain are resolved here
+	// from the same bytes nginx matched on.  Before this, a feed hit reached
+	// the visitor as force_reason="none" on an unremarkable default chain: the
+	// operator could not tell a shared-list hit from ordinary traffic, and on
+	// an install whose default chain is pow_only the visitor solved a PoW that
+	// the CAPTCHA-grade requirement then refused, re-challenging forever.
+	//
+	// Listed after protected so a feed hit is the story when both apply: it is
+	// the rarer and more actionable signal.  A deny action never arrives here
+	// (nginx / auth_check block the request outright), so this only ever picks
+	// a challenge chain.
+	cbHitKind := ""
+	if h.CommunityBans != nil && h.cfg().CommunityBans.ApplyActive() {
+		if kind, ok := h.CommunityBans.Matcher().Hit(clientIP(r), ja4); ok {
+			cbHitKind = kind
+			forceReason = "community_bans"
+		}
+	}
 
 	// Rate-limit path detection: "/_rl/" prefix in URL.Path -> rl=1.
 	// Reconstruct the original URI from the path remainder + RawQuery
@@ -1461,6 +1481,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 				chMode = preAct
 			}
 		}
+	}
+	// Community-feed chain: the operator's action for a shared-list hit, from
+	// the same resolver render.go bakes into the nginx conf and auth_check
+	// reads live.  Placed after the per-axis chain so it replaces whatever the
+	// base picked -- the action was chosen for exactly this population.
+	if cbHitKind != "" {
+		chMode = h.cfg().CommunityBans.ResolvedAction()
 	}
 	// Stale-browser escalation.  A UA whose Chromium-family major is far behind
 	// current stable is a headless-scraper tell (2026-07-15 uic.io incident);

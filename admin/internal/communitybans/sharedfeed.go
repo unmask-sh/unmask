@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -43,6 +44,44 @@ type Client struct {
 	// by GetCachedDoc().  RWMutex so concurrent UI reads don't serialise.
 	docMu     sync.RWMutex
 	cachedDoc FeedDocument
+
+	// matcher: the enforceable feed, as the daemon sees it.  Loaded from the
+	// map files nginx includes (see matcher.go) so the forward-auth decision
+	// and ServeChallenge enforce exactly what the native path enforces.
+	// Refreshed whenever those files are rewritten, and once at Run() start
+	// so a cold boot with an unreachable hub still enforces the last pull.
+	matcher atomic.Pointer[Matcher]
+}
+
+// resolveMapDir returns the directory holding community-bans-*.map for this
+// install: the client override first (= tests), then the operator setting,
+// then the nginx output dir, then the packaged default.  One resolver so the
+// placeholder writer, the pull writer and the matcher loader can never look at
+// different directories.
+func (c *Client) resolveMapDir(cur settings.Settings) string {
+	for _, d := range []string{c.MapDir, cur.CommunityBans.MapDir, cur.Nginx.OutputDir} {
+		if d != "" {
+			return d
+		}
+	}
+	return "/var/lib/unmask/nginx"
+}
+
+// Matcher returns the current enforceable-feed matcher.  Never nil-unsafe:
+// the zero value reads as an empty matcher that never hits.
+func (c *Client) Matcher() *Matcher { return c.matcher.Load() }
+
+// reloadMatcher re-reads the map files in dir into the in-memory matcher.
+// Called right after the files are (re)written and once at startup -- the
+// files are the single enforcement artifact, so this is the only way the
+// daemon's view can be anything other than nginx's view.
+func (c *Client) reloadMatcher(dir string) {
+	m, err := LoadMatcher(dir)
+	if err != nil {
+		c.logf("communitybans: load matcher from %s: %v", dir, err)
+		return
+	}
+	c.matcher.Store(m)
 }
 
 // GetCachedDoc returns a copy of the last feed pulled from the hub.  Empty

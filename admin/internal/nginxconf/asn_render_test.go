@@ -19,7 +19,7 @@ func TestAsnRenderBlocks(t *testing.T) {
 	if !strings.Contains(off, "map \"$geo_challenge_eff:$asn_challenge_eff\" $is_net_challenge") {
 		t.Error("no rules: is_net_challenge combining map missing (must combine the per-axis effective verdicts)")
 	}
-	if !strings.Contains(off, "$is_net_challenge:$protected_mode_eff") {
+	if !strings.Contains(off, "$is_net_challenge:$protected_mode") {
 		t.Error("composite final-challenge key must route on is_net_challenge")
 	}
 

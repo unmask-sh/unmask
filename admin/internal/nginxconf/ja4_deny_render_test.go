@@ -26,8 +26,8 @@ func TestJA4DenyRendersIntoTheDenyDecision(t *testing.T) {
 	})
 	for _, want := range []string{
 		"map $effective_ja4 $unmask_ja4_deny {",
-		`$unmask_ua_deny:$unmask_ja4_deny" $unmask_axis_deny {`,
-		`"~^0:0:0:1$" 1;`,                          // the JA4 slot denies
+		`$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_deny" $unmask_axis_deny {`,
+		`"~^0:0:0:1:"   1;`,                        // the JA4 slot denies
 		"map $unmask_axis_deny $unmask_deny_raw {", // still routed through the rescue gate
 	} {
 		if !strings.Contains(on, want) {

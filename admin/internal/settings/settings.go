@@ -1168,15 +1168,17 @@ func (c PrivacyPassConfig) IssuerConfigs() []privacypass.IssuerConfig {
 
 // BansConfig: per-source default action for entries on the ban list.  The
 // "honeypot" source defers to HoneypotConfig.DefaultAction (= keeps the
-// existing knob untouched).  Other sources (= "manual" / "community_bans")
-// consult this struct.  Values follow the rate-limit chain modes:
-// deny / pow_only / pow_then_captcha / captcha_only.  Empty fields fall
-// back to "captcha_only" -- false positives on a manual entry or a
-// foreign-feed import recover when the visitor is actually human; the
-// operator can pick "deny" per row when certainty is high.
+// existing knob untouched); "manual" consults this struct.  Values follow the
+// rate-limit chain modes: deny / pow_only / pow_then_captcha / captcha_only.
+// An empty field falls back to "captcha_only" -- a false positive on a manual
+// entry recovers when the visitor is actually human; the operator can pick
+// "deny" per row when certainty is high.
+//
+// The community feed is NOT a ban source here: its entries are never copied
+// into unmask_ban (map-only enforcement, and ban.Manager.Start deletes any
+// legacy rows), so its action lives on CommunityBans.Action instead.
 type BansConfig struct {
-	ManualDefaultAction        string `yaml:"manual_default_action,omitempty"`
-	CommunityBansDefaultAction string `yaml:"community_bans_default_action,omitempty"`
+	ManualDefaultAction string `yaml:"manual_default_action,omitempty"`
 	// Deny-page design (theme / copy preset / colors) moved to BrandingValues
 	// (DenyBan*) so it follows the per-site appearance record like the logo.
 }
@@ -1184,8 +1186,8 @@ type BansConfig struct {
 // ResolveAction returns the effective action for a given ban source.
 // "honeypot" defers to honeypotDefault (= HoneypotConfig.DefaultAction)
 // so the operator's pick on the honeypot tab keeps working.
-// manual / community_bans fall back to "captcha_only" so a human still
-// recovers from a mis-identified ban; unknown sources hard-deny.
+// manual falls back to "captcha_only" so a human still recovers from a
+// mis-identified ban; unknown sources hard-deny.
 func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 	resolve := func(v, fallback string) string {
 		v = strings.TrimSpace(v)
@@ -1199,8 +1201,6 @@ func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 		return resolve(honeypotDefault, RateChallengePoWThenCaptcha)
 	case "manual":
 		return resolve(b.ManualDefaultAction, RateChallengeCaptchaOnly)
-	case "community_bans":
-		return resolve(b.CommunityBansDefaultAction, RateChallengeCaptchaOnly)
 	}
 	return RateChallengeDeny
 }
@@ -2897,6 +2897,16 @@ type CommunityBans struct {
 	// MapDir: output dir for community-bans-{ipja4,ja4,ip}.map. Empty = Nginx.OutputDir.
 	MapDir string `yaml:"map_dir,omitempty"`
 
+	// Action: what a feed hit does, in the same vocabulary every other axis
+	// uses (pow_only / captcha_only / pow_then_captcha / deny).  Empty =
+	// DefaultCommunityBansAction.
+	//
+	// captcha_only is the default because the feed is other people's evidence:
+	// a hit is strong enough to stop a solver-equipped bot, and a CAPTCHA
+	// still lets a mis-reported human through under their own power.  "deny"
+	// is available for operators who trust the feed enough to close the door.
+	Action string `yaml:"action,omitempty"`
+
 	// LocalMutes: install-local opt-out list.  Each entry mutes one hub feed
 	// row so it is dropped before WriteMapFiles, even when subscribe_mode =
 	// fetch_apply.  Key shape mirrors community_bans entry identity:
@@ -2947,6 +2957,25 @@ func (s Settings) VersionCheckURLResolved() string {
 		return DefaultVersionCheckURL
 	}
 	return strings.TrimSpace(s.VersionCheckURL)
+}
+
+// DefaultCommunityBansAction: what a community-feed hit does when the
+// operator has not picked an action.  CAPTCHA-only -- see CommunityBans.Action.
+const DefaultCommunityBansAction = RateChallengeCaptchaOnly
+
+// ResolvedAction returns the effective action for a feed hit: the operator's
+// pick when it is a valid chain mode, else DefaultCommunityBansAction.
+//
+// This is the single resolver both enforcement wires call -- render.go bakes
+// it into the nginx conf for the native path, and the forward-auth decision /
+// ServeChallenge read it live -- so the two can never disagree about what a
+// hit costs the visitor.
+func (c CommunityBans) ResolvedAction() string {
+	a := strings.TrimSpace(c.Action)
+	if a == "" || !IsValidRateChallengeMode(a) {
+		return DefaultCommunityBansAction
+	}
+	return a
 }
 
 // Subscribe mode values.

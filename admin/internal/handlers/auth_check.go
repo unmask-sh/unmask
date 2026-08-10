@@ -41,6 +41,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -438,7 +439,14 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			action, reason, status = "pass", "bypass:path", http.StatusOK
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
-			decisions := make([]axisDecision, 0, 6)
+			decisions := make([]axisDecision, 0, 7)
+			// Community feed first: on a severity tie its reason is the most
+			// specific one an operator can act on ("this client is on the
+			// shared list"), so it should be the story the event tells rather
+			// than a generic geo / UA label.
+			if d, ok := communityBansDecide(h.communityBansMatcher(), ip, ja4, cfg); ok {
+				decisions = append(decisions, d)
+			}
 			// Per-axis exempt paths (RSS/Atom feeds etc.): each skips ONLY its
 			// own axis; honeypot / protected / ja4 / ua below still run.  (A
 			// full pass is bypass:path, in the veto switch before this case.)
@@ -1156,6 +1164,46 @@ func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) string {
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
 // Severity is captcha_only (= JA4 bot is a strong signal so the chain
 // skips PoW and goes straight to CAPTCHA, matching the legacy semantics).
+// communityBansMatcher returns the enforceable shared feed, or nil when this
+// install has no client wired (= tests, or submit/subscribe never configured).
+// A nil *Matcher never hits, so callers need no guard of their own.
+func (h *Handler) communityBansMatcher() *communitybans.Matcher {
+	if h == nil || h.CommunityBans == nil {
+		return nil
+	}
+	return h.CommunityBans.Matcher()
+}
+
+// communityBansDecide: the unmask.sh shared feed as a first-class axis.
+//
+// Native mode enforces the feed through nginx map lookups against
+// community-bans-{ipja4,ja4,ip}.map.  A forward-auth node -- Apache, or nginx
+// without the module -- has no such maps, so before this axis existed those
+// deployments pulled the feed, listed it in the UI, and enforced none of it:
+// the subscription was decorative on exactly the deploy mode that cannot see
+// the maps.  The daemon now loads those same files into memory
+// (communitybans.Matcher), so both wires answer from the same bytes.
+//
+// The rescues a feed entry must never override (search bot, bypass IP, bypass
+// path, valid _bv) sit in the veto switch above this axis, matching the native
+// map's ordering.
+func communityBansDecide(m *communitybans.Matcher, ip, ja4 string, cfg settings.Settings) (axisDecision, bool) {
+	if !cfg.CommunityBans.ApplyActive() {
+		return axisDecision{}, false
+	}
+	kind, ok := m.Hit(ip, ja4)
+	if !ok {
+		return axisDecision{}, false
+	}
+	act := cfg.CommunityBans.ResolvedAction()
+	reason := "community_bans:" + kind
+	if act == settings.RateChallengeDeny {
+		return axisDecision{sev: sevDeny, reason: reason}, true
+	}
+	s := severityFromAction(act)
+	return axisDecision{sev: s, reason: reason, chMode: chModeFromSeverity(s)}, true
+}
+
 func ja4Decide(ja4Action, ja4Verdict string, n settings.Nginx) (axisDecision, bool) {
 	if ja4Action != "bot" {
 		return axisDecision{}, false
