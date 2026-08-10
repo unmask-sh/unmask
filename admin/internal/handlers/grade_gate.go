@@ -34,12 +34,9 @@ func uaRequiresCaptchaGrade(ua string, cfg settings.Settings) bool {
 	}
 	act := strings.TrimSpace(action)
 	if act == "" {
-		act = strings.TrimSpace(cfg.Nginx.ChallengeTargets.DefaultAction)
-	}
-	if act == "" {
-		// A listed row with no action anywhere inherits the install's default
-		// chain, which is what the serve path uses for it.
-		act = cfg.RateLimit.Default.ResolvedChallengeMode()
+		// A listed row with no action of its own inherits the black-list
+		// chain, through the resolver both wires decide with.
+		act = cfg.UABlacklistChain()
 	}
 	return act == settings.RateChallengeCaptchaOnly || act == settings.RateChallengePoWThenCaptcha
 }

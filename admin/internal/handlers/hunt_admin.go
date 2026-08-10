@@ -922,14 +922,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 // rather than a picker because the config has one action for the whole black
 // list, not one per pattern.
 func (h *Handler) resolvedUABlacklistAction() string {
-	cur := h.snapshotSettings()
-	if act := strings.TrimSpace(cur.Nginx.ChallengeTargets.DefaultAction); act != "" && settings.IsValidRateChallengeMode(act) {
-		return act
-	}
-	if act := strings.TrimSpace(cur.RateLimit.Default.ChallengeMode); act != "" {
-		return act
-	}
-	return "pow_then_captcha"
+	return h.snapshotSettings().UABlacklistChain()
 }
 
 // validUAPattern: the rule the settings-tab form applies to a UA pattern

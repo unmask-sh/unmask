@@ -1248,13 +1248,13 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 		}
 	}
 	if listed, category, rowAct := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
-		// The black-list chain is the operator's ChallengeTargets.DefaultAction
-		// (ua-filter tab picker), keeping this axis in sync with native
-		// ServeChallenge.  Unset keeps the historical fixed captcha_only.
-		act := strings.TrimSpace(cfg.Nginx.ChallengeTargets.DefaultAction)
-		if !settings.IsValidRateChallengeMode(act) {
-			act = settings.RateChallengeCaptchaOnly
-		}
+		// The black-list chain, through the one resolver the native serve
+		// path, the CAPTCHA-grade calculation and the admin UI all read.
+		// This used to fall back to a hardcoded captcha_only when the picker
+		// was unset -- predating the picker -- so an unset install challenged
+		// the same UA harder here than on the module, and harder than every
+		// screen in the admin said it would.
+		act := cfg.UABlacklistChain()
 		// A row that pinned its own chain wins over the list default, the
 		// same way a preset's PresetAction override does on the native side.
 		if settings.IsValidRateChallengeMode(rowAct) {

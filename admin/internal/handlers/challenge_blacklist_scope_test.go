@@ -72,10 +72,26 @@ func TestUaDecideBlacklistDefaultAction(t *testing.T) {
 	cfg.Global.KnownBrowserAction = "pass"
 	cfg.Nginx.ChallengeTargets.Extra = []string{"BadBot"}
 
-	// Unset: historical captcha_only.
+	// Unset: inherit the install's default chain -- the same answer the native
+	// serve path, the CAPTCHA-grade calculation and every label in the admin
+	// give.  This axis used to hardcode captcha_only here, from before the
+	// ua-filter picker existed, so a black-listed UA met a harder challenge
+	// behind a load balancer than on the module.
+	want := cfg.UABlacklistChain()
+	if want != settings.RateChallengePoWThenCaptcha {
+		t.Fatalf("precondition: an unset install should resolve to pow_then_captcha, got %q", want)
+	}
 	d, ok := uaDecide(bot, "", cfg, nil)
-	if !ok || d.sev != sevCaptchaOnly || d.chMode != settings.RateChallengeCaptchaOnly {
-		t.Fatalf("unset DefaultAction: sev=%v chMode=%q ok=%v, want captcha_only", d.sev, d.chMode, ok)
+	if !ok || d.sev != sevPoWThenCaptcha || d.chMode != want {
+		t.Fatalf("unset DefaultAction: sev=%v chMode=%q ok=%v, want %s", d.sev, d.chMode, ok, want)
+	}
+
+	// And it follows the install default rather than a constant: an operator
+	// who set the rate-limit default to pow_only gets pow_only here too.
+	powCfg := cfg
+	powCfg.RateLimit.Default.ChallengeMode = settings.RateChallengePoWOnly
+	if d, ok := uaDecide(bot, "", powCfg, nil); !ok || d.chMode != settings.RateChallengePoWOnly {
+		t.Fatalf("install default pow_only: chMode=%q ok=%v, want pow_only", d.chMode, ok)
 	}
 
 	// Operator picked a chain: honour it.
