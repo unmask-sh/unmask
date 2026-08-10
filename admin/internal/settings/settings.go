@@ -2949,6 +2949,24 @@ const DefaultVersionCheckURL = "https://unmask.sh/api/version"
 // VersionCheckURLResolved returns the effective update-check URL: the default
 // when the field is empty, "" when explicitly turned off (so the admin makes no
 // outbound call), else the operator's override.
+// UABlacklistChain: the chain a black-listed UA actually walks into when the
+// matched row / preset pinned none of its own -- the ua-filter tab's picker,
+// and failing that the install's default chain.
+//
+// One resolver because there were three answers.  The native serve path and
+// the CAPTCHA-grade calculation both fell through to the install default,
+// the admin UI displayed that same value on every row, and the forward-auth
+// axis alone kept a hardcoded captcha_only from before the picker existed --
+// so the same black-listed visitor met a straight CAPTCHA behind a load
+// balancer and a PoW-then-CAPTCHA on the module, with the UI describing only
+// the latter.
+func (s Settings) UABlacklistChain() string {
+	if act := strings.TrimSpace(s.Nginx.ChallengeTargets.DefaultAction); IsValidRateChallengeMode(act) {
+		return act
+	}
+	return s.RateLimit.Default.ResolvedChallengeMode()
+}
+
 func (s Settings) VersionCheckURLResolved() string {
 	if s.VersionCheckDisabled {
 		return ""

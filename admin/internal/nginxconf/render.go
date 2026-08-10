@@ -1776,10 +1776,7 @@ func captchaGradeUAPatterns(s settings.Settings, upstreamBlack []string) []strin
 // pattern source appears, and each caller would be wrong in its own way.
 func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want func(act string) bool) []string {
 	ct := s.Nginx.ChallengeTargets
-	def := strings.TrimSpace(ct.DefaultAction)
-	if def == "" {
-		def = s.RateLimit.Default.ResolvedChallengeMode()
-	}
+	def := s.UABlacklistChain()
 	denies := func(act string) bool {
 		act = strings.TrimSpace(act)
 		if act == "" {
