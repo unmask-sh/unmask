@@ -788,7 +788,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ProtectedDefaultMode":  cur.ProtectedPaths.DefaultMode,
 		// What a blank row/preset actually runs, for the "(default: X)" labels.
 		"ProtectedResolvedDefault": nginxconf.ResolveProtectedMode("", cur.ProtectedPaths),
-		"BypassPathsRules":         bypassPathRows(cur.BypassPaths.Paths),
+		// What a blank TAB DEFAULT resolves to (= the shipped floor).  The tab's
+		// live label refresh needs it to answer "unset" without a round-trip:
+		// picking "unset" in the default picker has to name the same mode the
+		// server would, and only this constant knows it.
+		"ProtectedShippedDefault": nginxconf.ProtectedModeDefault,
+		"BypassPathsRules":        bypassPathRows(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --

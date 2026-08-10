@@ -119,6 +119,70 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(piled === 'captcha',
      `mode pill should track the select value on confirm (want "captcha"), got ${JSON.stringify(piled)}`);
 
+  // ---- an UNSET row keeps an inherit pill after being confirmed ----
+  // syncRowPills rebuilds the view from the row's inputs; for a blank mode it
+  // used to drop the pill entirely, so a row that inherits looked like a row
+  // with no mode at all the moment it was edited.
+  const inheritPill = await page.evaluate(() => {
+    const list = document.querySelector('.rule-list[data-rule-name="protected_path"]');
+    const btn = document.querySelector('.rule-add-bottom[data-target-list="protected_path"]');
+    btn.click();
+    const row = list.querySelectorAll('.rule-row')[list.querySelectorAll('.rule-row').length - 1];
+    row.querySelector('input[name="protected_path"]').value = '^/inherits/';
+    row.querySelector('select[name="protected_mode"]').value = '';   // follow the tab default
+    row.querySelector('.rule-save').click();
+    const pill = row.querySelector('[data-pill="mode"]');
+    return { text: pill ? pill.textContent.trim() : null, cls: pill ? pill.className : null };
+  });
+  ok(inheritPill.text === 'pow_then_captcha',
+     `a confirmed unset row should keep a pill naming the inherited mode, got ${JSON.stringify(inheritPill.text)}`);
+  ok((inheritPill.cls || '').includes('inherit'),
+     `the inherited pill must be marked as borrowed, got ${JSON.stringify(inheritPill.cls)}`);
+
+  // ---- changing the tab default re-labels everything that inherits, live ----
+  // The operator picks a new default and the rows that follow it must say so
+  // immediately; before this they kept naming the mode the page was rendered
+  // with until a save reloaded it.
+  const live = await page.evaluate(() => {
+    const d = document.querySelector('select[name="protected_default_mode"]');
+    const readUnset = () => {
+      const preset = document.querySelector('select[name="protected_preset_mode__unmask"]');
+      const row = document.querySelector('.rule-list[data-rule-name="protected_path"] select[name="protected_mode"]');
+      const tpl = document.querySelector('.rule-list[data-rule-name="protected_path"] template.rule-row-template');
+      const pill = document.querySelector('.rule-list[data-rule-name="protected_path"] [data-pill="mode"].inherit');
+      return {
+        preset: preset ? preset.querySelector('option[value=""]').textContent.trim() : null,
+        row: row ? row.querySelector('option[value=""]').textContent.trim() : null,
+        tpl: tpl && tpl.content.querySelector('select[name="protected_mode"] option[value=""]')
+             ? tpl.content.querySelector('select[name="protected_mode"] option[value=""]').textContent.trim() : null,
+        pill: pill ? pill.textContent.trim() : null,
+      };
+    };
+    const before = readUnset();
+    d.value = 'pow';
+    d.dispatchEvent(new Event('change', { bubbles: true }));
+    const after = readUnset();
+    // Back to unset: the labels must fall back to the shipped floor, not stay
+    // on the last pick.
+    d.value = '';
+    d.dispatchEvent(new Event('change', { bubbles: true }));
+    const cleared = readUnset();
+    return { before, after, cleared };
+  });
+  ok(live.before.preset && live.before.preset.includes('pow_then_captcha'),
+     `preset unset label should start at pow_then_captcha, got ${JSON.stringify(live.before.preset)}`);
+  for (const k of ['preset', 'row', 'tpl']) {
+    ok(live.after[k] && live.after[k].includes('pow') && !live.after[k].includes('pow_then_captcha'),
+       `${k} unset label should follow the new default (pow), got ${JSON.stringify(live.after[k])}`);
+    ok(live.cleared[k] && live.cleared[k].includes('pow_then_captcha'),
+       `${k} unset label should fall back to the shipped default, got ${JSON.stringify(live.cleared[k])}`);
+  }
+  // The pill exists only when a row inherits; skip if this install has none.
+  if (live.before.pill !== null) {
+    ok(live.after.pill === 'pow',
+       `the inherit pill should follow the new default, got ${JSON.stringify(live.after.pill)}`);
+  }
+
   await browser.close();
   if (fails.length) {
     console.error('FAIL\n- ' + fails.join('\n- '));
