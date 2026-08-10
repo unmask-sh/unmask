@@ -2920,7 +2920,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <button type="button" class="ua-help-trigger" data-help-target="protected-default-help" aria-label="?">?</button>
       </div>
       {{ $pdm := .ProtectedDefaultMode }}
-      <select name="protected_default_mode" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select name="protected_default_mode" data-shipped-default="{{ .ProtectedShippedDefault }}" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         {{/* Unset is its own option, so a no-op save cannot pin today's shipped
              floor into the config (and freeze it against a later change). */}}
         <option value=""                 {{ if eq $pdm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
@@ -3010,6 +3010,45 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+<script>
+(function(){
+  // The inherited mode tracks the tab default live: every "unset" option and
+  // every inherit pill re-resolves as the operator changes the picker, instead
+  // of naming whatever the default was when the page was rendered.  Without
+  // this the operator sets the default to "pow", and the rows that follow it
+  // keep claiming they run pow_then_captcha until the save reloads the page.
+  // Mirrors the geo tab's inherit-label refresh.
+  var d = document.querySelector('select[name="protected_default_mode"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.select.unset_as" }}';       // e.g. "(unset = acts as %v)"
+  var FLOOR = '{{ .ProtectedShippedDefault }}';               // what an unset default itself resolves to
+  function refresh(){
+    var mode = d.value || FLOOR;
+    var lbl = PAT.replace('%v', mode);
+    // Preset pickers + custom row pickers, and the scaffold a new row is
+    // cloned from (so a row added after the change is not born stale).
+    var sels = [];
+    Array.prototype.push.apply(sels, Array.prototype.slice.call(
+      document.querySelectorAll('select[name^="protected_preset_mode__"], select[name="protected_mode"]')));
+    var tpl = document.querySelector('.rule-list[data-rule-name="protected_path"] template.rule-row-template');
+    if (tpl && tpl.content) {
+      Array.prototype.push.apply(sels, Array.prototype.slice.call(
+        tpl.content.querySelectorAll('select[name="protected_mode"]')));
+    }
+    sels.forEach(function(s){
+      var o = s.querySelector('option[value=""]');
+      if (o) o.textContent = lbl;
+    });
+    // View pills on rows that inherit.  The pill names the mode alone (the
+    // full "(unset = ...)" sentence does not fit a pill), and the inherit
+    // class is what marks it as borrowed.
+    Array.prototype.forEach.call(
+      document.querySelectorAll('.rule-list[data-rule-name="protected_path"] [data-pill="mode"].inherit'),
+      function(p){ p.textContent = mode; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
 {{ end }}
 
 {{ if eq .Tab "captcha" }}
@@ -6632,7 +6671,22 @@ document.addEventListener('DOMContentLoaded', function(){
     // Matches an <input> (legacy) or a <select> (protected paths' visible mode
     // picker) whose name ends in "_mode" -- both expose .value.
     const mode = row.querySelector('[name$="_mode"]');
-    if (mode) upsert('mode', mode.value, 'action-' + (mode.value || 'ok'));
+    if (mode) {
+      // An unset row runs the tab default.  Where the list marks its blank
+      // option as inheriting (data-inherit-pill), keep a pill naming the mode
+      // that will actually run -- the server renders one, so dropping it on
+      // the first edit made a row look like it had lost its mode.  Read the
+      // default picker at call time so the pill follows an unsaved change.
+      const mopt = mode.options ? mode.options[mode.selectedIndex] : null;
+      const inherits = !mode.value && mopt && mopt.hasAttribute('data-inherit-pill');
+      if (inherits) {
+        const dsel = document.querySelector('select[name="protected_default_mode"]');
+        const shipped = dsel ? (dsel.getAttribute('data-shipped-default') || '') : '';
+        upsert('mode', (dsel && dsel.value) || shipped, 'action-suspect inherit');
+      } else {
+        upsert('mode', mode.value, 'action-' + (mode.value || 'ok'));
+      }
+    }
     const act = row.querySelector('select.extra-action-sel');
     if (act) {
       // An empty value is "inherit".  Where the list renders a pill for that
