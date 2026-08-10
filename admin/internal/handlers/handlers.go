@@ -943,11 +943,10 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 	if i := strings.IndexByte(orig, '?'); i >= 0 {
 		orig = orig[:i]
 	}
+	// Same resolver the render uses, so a blank mode cannot become one thing in
+	// the nginx map and another in the served challenge / grade requirement.
 	modeOr := func(m string) string {
-		if nginxconf.IsValidProtectedMode(m) {
-			return m
-		}
-		return nginxconf.ProtectedModeDefault
+		return nginxconf.ResolveProtectedMode(m, n.ProtectedPaths)
 	}
 	enabled := make(map[string]bool, len(n.ProtectedPaths.EnabledPresets))
 	for _, id := range n.ProtectedPaths.EnabledPresets {

@@ -45,6 +45,25 @@ func ModeEndsInCaptcha(mode string) bool {
 	return mode == ProtectedModeCaptcha || mode == ProtectedModePoWThenCaptcha
 }
 
+// ResolveProtectedMode fills in a blank mode from the operator's tab-level
+// default, and the tab default from the shipped floor.  THE single place a
+// blank becomes concrete: both wires (the nginx render via
+// EffectiveProtectedPathRules, and the daemon via protectedModeForOrig) call
+// it, so a path cannot resolve one way for the challenge it is served and
+// another for the CAPTCHA grade its cookie must carry.
+//
+// An explicit mode always wins -- the default only fills a blank.  That is the
+// difference from the default_action this replaces, which overrode the row.
+func ResolveProtectedMode(mode string, s settings.ProtectedPathsConfig) string {
+	if IsValidProtectedMode(mode) {
+		return mode
+	}
+	if IsValidProtectedMode(s.DefaultMode) {
+		return s.DefaultMode
+	}
+	return ProtectedModeDefault
+}
+
 // ChModeForProtectedMode maps a protected-path mode to the challenge chain the
 // serve path runs for it.  Single source of truth now that mode == action.
 func ChModeForProtectedMode(mode string) string {
@@ -91,28 +110,31 @@ type ProtectedPathPresetGroup struct {
 // enabling it without checking the layout would silently CAPTCHA legitimate
 // users.
 //
-// Each preset ships a per-rule default Mode; the operator can override a whole
-// preset's mode via ProtectedPaths.PresetMode[id].  Admin login forms expect a
-// human, so the strongest chain (pow_then_captcha) is the default — a real
-// operator clears it once, while a headless PoW-solver hits the CAPTCHA wall.
+// Preset rules ship with a BLANK mode: they follow the tab's DefaultMode (and,
+// when that is unset too, ProtectedModeDefault), so an operator who sets one
+// default moves the presets with it instead of having to re-pick per preset.
+// A preset can still be pinned via ProtectedPaths.PresetMode[id], which wins.
+// The floor stays the strongest chain (pow_then_captcha): admin login forms
+// expect a human, who clears it once, while a headless PoW-solver hits the
+// CAPTCHA wall.
 var ProtectedPathPresetGroups = []ProtectedPathPresetGroup{
 	{
 		ID:    "unmask",
 		Label: "unmask itself (gate the /unmask/admin/ login page)",
 		Rules: []ProtectedPathRule{
-			{Pattern: `^/unmask/admin/`, Mode: ProtectedModeDefault},
+			{Pattern: `^/unmask/admin/`},
 		},
 	},
 	{
 		ID:    "common-admin",
 		Label: "Common admin / CMS paths (/wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
 		Rules: []ProtectedPathRule{
-			{Pattern: `^/wp-admin/`, Mode: ProtectedModeDefault},
-			{Pattern: `^/wp-login\.php`, Mode: ProtectedModeDefault},
-			{Pattern: `^/phpmyadmin/`, Mode: ProtectedModeDefault},
-			{Pattern: `^/admin/`, Mode: ProtectedModeDefault},
-			{Pattern: `^/administrator/`, Mode: ProtectedModeDefault},
-			{Pattern: `^/manager/html`, Mode: ProtectedModeDefault},
+			{Pattern: `^/wp-admin/`},
+			{Pattern: `^/wp-login\.php`},
+			{Pattern: `^/phpmyadmin/`},
+			{Pattern: `^/admin/`},
+			{Pattern: `^/administrator/`},
+			{Pattern: `^/manager/html`},
 		},
 	},
 }
@@ -154,9 +176,9 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			if override != "" {
 				mode = override
 			}
-			if !IsValidProtectedMode(mode) {
-				mode = ProtectedModeDefault
-			}
+			// A preset with no override, or one whose shipped rule carries no
+			// mode, falls to the operator's tab default (then the floor).
+			mode = ResolveProtectedMode(mode, s.Nginx.ProtectedPaths)
 			pp = append(pp, ProtectedPathRule{Pattern: pat, Mode: mode})
 		}
 	}
@@ -173,10 +195,7 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			continue
 		}
 		ppSeen[key] = true
-		mode := ProtectedModeDefault
-		if IsValidProtectedMode(r.Mode) {
-			mode = r.Mode
-		}
+		mode := ResolveProtectedMode(r.Mode, s.Nginx.ProtectedPaths)
 		pp = append(pp, ProtectedPathRule{Pattern: p, Mode: mode, Site: site})
 	}
 	sort.Slice(pp, func(i, j int) bool {

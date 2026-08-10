@@ -317,12 +317,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledPP[g.ID]
-		// Resolved mode for the preset's dropdown: the operator's override if
-		// set, else the preset's own default mode.
-		mode := nginxconf.ProtectedModeDefault
-		if len(g.Rules) > 0 && nginxconf.IsValidProtectedMode(g.Rules[0].Mode) {
-			mode = g.Rules[0].Mode
-		}
+		// The preset's dropdown shows the operator's pin, or "" for "follow the
+		// tab default" -- which is what a shipped preset carries.
+		mode := ""
 		if m, ok := cur.ProtectedPaths.PresetMode[g.ID]; ok && nginxconf.IsValidProtectedMode(m) {
 			mode = m
 		}
@@ -788,7 +785,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AdminCaptchaGate":      adminCaptchaGate,
 		"ProtectedPaths":        cur.ProtectedPaths,
 		"ProtectedPresetMode":   cur.ProtectedPaths.PresetMode,
-		"BypassPathsRules":      bypassPathRows(cur.BypassPaths.Paths),
+		"ProtectedDefaultMode":  cur.ProtectedPaths.DefaultMode,
+		// What a blank row/preset actually runs, for the "(default: X)" labels.
+		"ProtectedResolvedDefault": nginxconf.ResolveProtectedMode("", cur.ProtectedPaths),
+		"BypassPathsRules":         bypassPathRows(cur.BypassPaths.Paths),
 		// Dropdown options come from sites already observed in unmask_event
 		// (= auto-complete).  Under "defined" mode, ghost sites are stripped so
 		// the picker only suggests names the operator has already declared --
@@ -2437,7 +2437,7 @@ func overlayProtected(rows listRows) []settings.ProtectedPath {
 		// invalid / empty value resolves to the default in the render layer.
 		mode := p.Action
 		if !nginxconf.IsValidProtectedMode(mode) {
-			mode = nginxconf.ProtectedModeDefault
+			mode = "" // blank = follow the tab default
 		}
 		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Mode: mode, Site: p.Site, Disabled: p.Disabled})
 	}
@@ -3912,7 +3912,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 			mode = strings.TrimSpace(modes[i])
 		}
 		if !nginxconf.IsValidProtectedMode(mode) {
-			mode = nginxconf.ProtectedModeDefault
+			mode = "" // blank = follow the tab default (resolved at read time)
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
@@ -3961,15 +3961,9 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	// nil so the yaml stays clean.
 	presetModes := map[string]string{}
 	for _, g := range nginxconf.ProtectedPathPresetGroups {
-		v := strings.TrimSpace(r.FormValue("protected_preset_mode__" + g.ID))
-		if !nginxconf.IsValidProtectedMode(v) {
-			continue
-		}
-		def := nginxconf.ProtectedModeDefault
-		if len(g.Rules) > 0 && nginxconf.IsValidProtectedMode(g.Rules[0].Mode) {
-			def = g.Rules[0].Mode
-		}
-		if v != def {
+		// A blank pick means "follow the tab default" -- store nothing, so the
+		// preset keeps tracking the default rather than freezing today's value.
+		if v := strings.TrimSpace(r.FormValue("protected_preset_mode__" + g.ID)); nginxconf.IsValidProtectedMode(v) {
 			presetModes[g.ID] = v
 		}
 	}
@@ -3977,6 +3971,13 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		n.ProtectedPaths.PresetMode = nil
 	} else {
 		n.ProtectedPaths.PresetMode = presetModes
+	}
+	// Tab-level default a blank row / preset inherits.  Blank or invalid stores
+	// nothing, which resolves to the shipped floor.
+	if v := strings.TrimSpace(r.FormValue("protected_default_mode")); nginxconf.IsValidProtectedMode(v) {
+		n.ProtectedPaths.DefaultMode = v
+	} else {
+		n.ProtectedPaths.DefaultMode = ""
 	}
 	return nil
 }
@@ -4018,7 +4019,7 @@ func protectedPathRows(rows []settings.ProtectedPath) []protectedExtraRule {
 	for i, r := range rows {
 		mode := r.Mode
 		if !nginxconf.IsValidProtectedMode(mode) {
-			mode = nginxconf.ProtectedModeDefault
+			mode = "" // blank = follow the tab default
 		}
 		out[i] = protectedExtraRule{
 			Pattern:   r.Path,
