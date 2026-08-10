@@ -26,16 +26,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	// and active (= write) paths.  c.MapDir wins; else settings fall-backs.
 	// Default = Nginx.OutputDir (= /var/lib/unmask/nginx/), which is already
 	// the nginx-specific dir; no further sub-directory is needed.
-	mapDir := c.MapDir
-	if mapDir == "" {
-		mapDir = cur.CommunityBans.MapDir
-	}
-	if mapDir == "" {
-		mapDir = cur.Nginx.OutputDir
-		if mapDir == "" {
-			mapDir = "/var/lib/unmask/nginx"
-		}
-	}
+	mapDir := c.resolveMapDir(cur)
 
 	// off: stop pulling AND clear the map + in-memory doc cache so stale
 	// entries don't keep enforcing / showing.  Empty map files keep nginx's
@@ -43,6 +34,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	if mode == settings.SubscribeOff {
 		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: 2}
 		_ = WriteMapFiles(empty, mapDir)
+		c.reloadMatcher(mapDir)
 		c.setCachedDoc(empty)
 		return FeedDocument{}, nil
 	}
@@ -112,11 +104,13 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		if err := WriteMapFiles(enforce, mapDir); err != nil {
 			return doc, fmt.Errorf("write map files: %w", err)
 		}
+		c.reloadMatcher(mapDir)
 	} else {
 		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: doc.Version}
 		if err := WriteMapFiles(empty, mapDir); err != nil {
 			return doc, fmt.Errorf("clear map files: %w", err)
 		}
+		c.reloadMatcher(mapDir)
 	}
 
 	now := time.Now().Unix()

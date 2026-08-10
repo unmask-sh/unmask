@@ -26,19 +26,17 @@ func (c *Client) Run(ctx context.Context, interval time.Duration) {
 	// on a dangling community-bans-*.map include while the first fetch is slow or
 	// failing (hub unreachable / offline).  http.inc includes the maps only when
 	// subscribe is active; placeholders are skipped when the maps already exist.
+	mapDir := c.resolveMapDir(cur)
 	if cur.CommunityBans.SubscribeActive() {
-		md := c.MapDir
-		if md == "" {
-			md = cur.CommunityBans.MapDir
-		}
-		if md == "" {
-			md = cur.Nginx.OutputDir
-		}
-		if md == "" {
-			md = "/var/lib/unmask/nginx"
-		}
-		ensureMapPlaceholders(md)
+		ensureMapPlaceholders(mapDir)
 	}
+	// Seed the matcher from the map files already on disk, BEFORE the first
+	// pull.  Those files are the last successful pull's enforcement state and
+	// nginx is already serving from them; without this the forward-auth path
+	// would enforce nothing between daemon start and the first reachable hub
+	// -- an hour-long hole on every restart, and permanent while the hub is
+	// down.  The pull below overwrites this the moment it succeeds.
+	c.reloadMatcher(mapDir)
 	// register only when either submit or subscribe is ON
 	if cur.CommunityBans.SubmitEnabled || cur.CommunityBans.SubscribeActive() {
 		if err := c.Register(ctx); err != nil {

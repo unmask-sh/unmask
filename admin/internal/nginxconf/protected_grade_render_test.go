@@ -37,14 +37,23 @@ func TestProtectedGradeRender(t *testing.T) {
 		}
 	}
 
-	// A community-bans subscription forces CAPTCHA on a hit -> it too must flip
-	// the flag so a PoW cookie cannot satisfy a bans-forced captcha.
+	// The community feed is its own grade source, not a protected path wearing
+	// its clothes: a subscription whose action ends in a CAPTCHA must flip the
+	// feed's flag (and the shared gate) while leaving the protected flag alone.
 	var sb settings.Settings
 	sb.CommunityBans.SubscribeMode = "fetch_apply"
 	if d, err := buildRenderData(sb, t.TempDir(), "t"); err != nil {
 		t.Fatal(err)
-	} else if !d.ProtectedNeedsCaptchaGrade {
-		t.Error("a community-bans subscription should require the CAPTCHA-grade maps")
+	} else {
+		if !d.CommunityBansNeedsCaptchaGrade {
+			t.Error("a community-feed subscription should require the CAPTCHA-grade maps")
+		}
+		if d.ProtectedNeedsCaptchaGrade {
+			t.Error("a community-feed subscription must not masquerade as a protected path")
+		}
+		if !d.GradeCheckedPass {
+			t.Error("the shared grade gate must be on when any source requires a grade")
+		}
 	}
 
 	// The rendered grade signal folds BOTH the UA axis and the protected axis,
@@ -58,15 +67,15 @@ func TestProtectedGradeRender(t *testing.T) {
 		}
 	})
 	for _, want := range []string{
-		`map "$unmask_ua_needs_captcha:$protected_mode_eff" $unmask_needs_captcha_grade`,
-		`"0:captcha"`,          // protected captcha -> needs a CAPTCHA-grade cookie
-		`"0:pow_then_captcha"`, // protected chain   -> needs a CAPTCHA-grade cookie
+		`map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha" $unmask_needs_captcha_grade`,
+		`"~^0:captcha:"`,          // protected captcha -> needs a CAPTCHA-grade cookie
+		`"~^0:pow_then_captcha:"`, // protected chain   -> needs a CAPTCHA-grade cookie
 		`map "$unmask_needs_captcha_grade:$bv_kind" $bv_pass_ok`,
 		`map "$bv_pass_ok:$is_search_bot:`,       // pass gate reads the grade-aware var
 		`"pow_then_captcha" "pow_then_captcha";`, // $protected_mode map value
-		`"~^0:0:0:0:0:pow_then_captcha:"`,        // final_challenge_base rows
-		`"~^0:0:0:0:0:captcha:"`,
-		`"~^0:0:0:0:0:pow:"`,
+		`"~^0:0:0:0:0:0:pow_then_captcha:"`,      // final_challenge_base rows
+		`"~^0:0:0:0:0:0:captcha:"`,
+		`"~^0:0:0:0:0:0:pow:"`,
 	} {
 		if !strings.Contains(inc, want) {
 			t.Errorf("expected %q in http.inc", want)

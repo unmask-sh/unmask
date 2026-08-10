@@ -201,8 +201,13 @@ func TestBanDecideFromSource(t *testing.T) {
 		{"honeypot + DefaultAction=pow_then_captcha", "", "honeypot", cfgHpPoWCap, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
 		{"honeypot + empty -> default pow_then_captcha", "", "honeypot", cfgHpEmpty, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
 		{"manual ban + empty default -> captcha_only", "", "manual", cfgHpEmpty, sevCaptchaOnly, "ban:manual:captcha_only"},
-		{"community_bans ban + empty default -> captcha_only", "", "community_bans", cfgHpEmpty, sevCaptchaOnly, "ban:community_bans:captcha_only"},
 		{"unknown source -> hard deny", "", "future_src", cfgHpEmpty, sevDeny, "ban:future_src:deny"},
+		// The community feed is NOT a ban source: its entries are never copied
+		// into unmask_ban (ban.Manager.Start deletes any legacy rows), and its
+		// action lives on CommunityBans.Action, resolved by communityBansDecide.
+		// A row claiming that source therefore reaches this resolver only by
+		// hand, and is treated like any other unrecognised source.
+		{"community_bans is not a ban source -> hard deny", "", "community_bans", cfgHpEmpty, sevDeny, "ban:community_bans:deny"},
 		// per-row action override wins over the source default (B1): a manual ban
 		// explicitly set to "deny" must hard-403 even though manual's default is
 		// captcha_only -- matching native's EffectiveAction precedence.
