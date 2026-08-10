@@ -459,6 +459,12 @@ type Row struct {
 	// challenged?"); empty on most rows (bots omit it, and native passes never
 	// reach the daemon).  Sourced from payload_json "referer".
 	Referer string `json:"referer,omitempty"`
+	// LocalPort: the port this nginx accepted the request on, recorded ONLY when
+	// it disagrees with Port -- which happens exactly when a load balancer
+	// forwarded a proto but no port, making Port an inference from the scheme.
+	// 0 on every unproxied install (and on rows written before this shipped).
+	// The hunt popover shows it beside Port so that inference can be checked.
+	LocalPort int `json:"local_port,omitempty"`
 	// BeaconToken: identifier minted per challenge HTML serve and echoed by
 	// every subsequent beacon from that challenge session.  Used by the hunt
 	// UI's "session view" to collapse 3-5 rows of one challenge fire into a
@@ -577,6 +583,7 @@ func extractReason(payload string) string {
 func decorateRowFromPayload(row *Row, payload string) {
 	row.Path = extractPath(payload)
 	row.Referer = extractStringField(payload, "referer", 300)
+	row.LocalPort = extractIntField(payload, "local_port")
 	row.BeaconToken = extractBeaconToken(payload)
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)

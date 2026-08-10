@@ -1669,6 +1669,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if refr := refererForEvent(r); refr != "" {
 			payload["referer"] = refr
 		}
+		// local_port: only when an LB made the client-facing port an inference
+		// (see localPortNote).  Absent on every unproxied install.
+		if lp := localPortNote(r, portFromRequest(r)); lp > 0 {
+			payload["local_port"] = lp
+		}
 		// Note: we record every serve hit verbatim, including the cases where
 		// a client (= Chrome prerender / double-click / LB retry) reaches us
 		// twice within milliseconds.  Suppressing the second row would hide

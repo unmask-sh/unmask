@@ -311,6 +311,11 @@ location @unmask_rate_challenge {
     # fall back to local $scheme/$server_port so the hunt page's URLs keep https.
     proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;
     proxy_set_header   X-Forwarded-Port  $unmask_forwarded_port;
+    # The port THIS nginx accepted on, always -- the client-facing port above is
+    # inferred from the scheme when an LB forwards a proto but no port, and the
+    # hunt popover contrasts the two so that inference can be checked (a
+    # disagreement is also how an LB hop becomes visible at all).
+    proxy_set_header   X-Unmask-Local-Port $server_port;
     proxy_set_header   X-Client-JA4     $effective_ja4;
     # Strip a client-supplied X-Unmask-Conn-Peer: that header is the Apache
     # forward-auth LB-gate input, and native already feeds the plugin-gated
