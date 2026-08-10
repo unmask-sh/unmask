@@ -292,3 +292,23 @@
 .popover-rsz-nw{top:-4px;left:-4px;width:13px;height:13px;cursor:nwse-resize}
 .popover-rsz-se{bottom:-4px;right:-4px;width:13px;height:13px;cursor:nwse-resize}
 .popover-rsz-sw{bottom:-4px;left:-4px;width:13px;height:13px;cursor:nesw-resize}
+
+/* ---------------------------------------------------------------------------
+ * cellpop: a table cell whose text is cut off opens its full value in a
+ * popover.  These rules were copied into every page that has such a table
+ * (dashboard, hunt, overview, and the events-table partial that hunt and
+ * overview include) with identical values -- four copies drifting apart was a
+ * matter of time, and the settings page had already shown what happens when a
+ * page-local copy outlives the shared sheet.  Page-specific pieces stay where
+ * they are used: .cellpop-summary and the query breakdown (.cellpop-q*) appear
+ * on one page each, and .cellpop-note deliberately differs between the events
+ * table and the dashboard.
+ * ------------------------------------------------------------------------- */
+.cellpop{position:relative}
+.cellpop-active{cursor:pointer}
+.cellpop-pop{display:block}
+.cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
+/* Action chips (Open in new tab / Copy URL) inside a cellpop popover. */
+.cellpop-actions{display:flex;gap:.4rem;margin-top:.5rem;font-family:system-ui,sans-serif}
+.cellpop-btn{display:inline-flex;align-items:center;gap:.2rem;padding:.25rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;font-size:.78rem;color:#0f172a;cursor:pointer;text-decoration:none}
+.cellpop-btn:hover{background:#e2e8f0}
