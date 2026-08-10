@@ -683,11 +683,29 @@ func cmdServe(args []string) error {
 		go func() {
 			runPrune := func() {
 				defer safe.Recover("retention-prune") // a panic here must not kill the daemon
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				// 30 minutes, not the old 5: the events prune deletes in short
+				// per-batch transactions now, so a long budget no longer means a
+				// long lock -- and it lets a big retention drop (measured: 7.2M
+				// rows when 30d -> 7d) drain in one run instead of never (the
+				// old single DELETE hit the 5m deadline and rolled back whole).
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 				defer cancel()
 				// One consistent snapshot for this run (settingsPtr is unexported;
 				// SnapshotSettings hot-picks up web UI saves on the next tick).
 				cfg := h.SnapshotSettings()
+				// Admin-action audit log first: it is tiny and must not lose its
+				// daily run to an events prune that used the whole budget.
+				// (Independent retention; checked separately so
+				// events_retention_days=0 doesn't disable it.)
+				if h.UserRepo != nil {
+					if retention := cfg.AuditRetentionDays; retention > 0 {
+						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
+							log.Printf("audit prune: %v", err)
+						} else if n > 0 {
+							log.Printf("audit prune: deleted %d row(s) older than %d days", n, retention)
+						}
+					}
+				}
 				// Raw traffic events.  (The per-hour, per-crawler drill-down that
 				// backs the AI-card trend sparkline is NOT pruned here anymore --
 				// it moved to PruneHourly's fixed 32-day aggregate window so that
@@ -696,20 +714,12 @@ func cmdServe(args []string) error {
 				// the bot-hunt log, --ref lookups, rankings and analyze.)
 				if retention := cfg.EventsRetentionDays; retention > 0 {
 					if n, err := events.PruneOldEvents(ctx, conn, retention); err != nil {
-						log.Printf("events prune: %v", err)
+						// Committed batches survive the error; say how far it got
+						// so a deadline on a huge backlog reads as progress, not
+						// as a prune that does nothing.
+						log.Printf("events prune: %v (deleted %d row(s) first; the next run continues)", err, n)
 					} else if n > 0 {
 						log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
-					}
-				}
-				// Admin-action audit log (independent retention; checked
-				// separately so events_retention_days=0 doesn't disable it).
-				if h.UserRepo != nil {
-					if retention := cfg.AuditRetentionDays; retention > 0 {
-						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
-							log.Printf("audit prune: %v", err)
-						} else if n > 0 {
-							log.Printf("audit prune: deleted %d row(s) older than %d days", n, retention)
-						}
 					}
 				}
 			}
