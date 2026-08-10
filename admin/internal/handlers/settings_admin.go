@@ -5313,6 +5313,15 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	default:
 		c.SubscribeMode = settings.SubscribeOff
 	}
+	// What a hit costs.  Stored blank when the operator leaves it on the
+	// default, so the default can move without rewriting every config that
+	// never expressed an opinion.  Both wires read it through
+	// CommunityBans.ResolvedAction().
+	if act := strings.TrimSpace(r.FormValue("community_bans_action")); settings.IsValidRateChallengeMode(act) {
+		c.Action = act
+	} else {
+		c.Action = ""
+	}
 	// PublishCountry: install-wide opt-out (default ON, set by the Default()
 	// constructor so the feed shows a global picture).  When ON, future
 	// register / submit / vote / comment requests pass publish_country=true

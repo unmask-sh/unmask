@@ -359,7 +359,7 @@ map $unmask_bv_kind $bv_kind          { default $unmask_bv_kind; }
 map $unmask_bv_kind $bv_captcha_valid { default 0;  "captcha" 1; }
 map $unmask_bv_kind $bv_pow_valid     { default 0;  "pow"     1; }
 map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
-{{- if or .CaptchaGradeUAPatterns .ProtectedNeedsCaptchaGrade }}
+{{- if .GradeCheckedPass }}
 
 # -----------------------------------------------------------------------------
 # Grade requirement: which pass cookie counts, for a request whose rule ends in
@@ -388,18 +388,19 @@ map $http_user_agent $unmask_ua_needs_captcha {
     "~*{{ rx . }}" 1;
 {{- end }}
 }
-# Fold the two independent sources of a CAPTCHA-grade requirement into one
+# Fold the three independent sources of a CAPTCHA-grade requirement into one
 # signal: the UA is on a captcha chain ($unmask_ua_needs_captcha), OR the URI hit
-# a protected path whose effective mode ends in a CAPTCHA ($protected_mode_eff =
-# captcha | pow_then_captcha; a community-bans hit also lands here as "captcha").
-# "pow" and "" (no protected match) impose nothing.  ($protected_mode_eff is a
-# map defined further down; nginx resolves map cross-references at request time,
-# so the order of the two map blocks does not matter.)
-map "$unmask_ua_needs_captcha:$protected_mode_eff" $unmask_needs_captcha_grade {
-    default              0;
-    "~^1:"               1;   # UA on a captcha-ending chain (any protected mode)
-    "0:captcha"          1;   # protected path: straight CAPTCHA
-    "0:pow_then_captcha" 1;   # protected path: PoW -> CAPTCHA
+# a protected path whose mode ends in a CAPTCHA ($protected_mode = captcha |
+# pow_then_captcha), OR the client is on the community feed under an action that
+# ends in a CAPTCHA ($unmask_cb_captcha).  "pow" and "" (no match) impose
+# nothing.  (Both companions are maps defined further down; nginx resolves map
+# cross-references at request time, so block order does not matter.)
+map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha" $unmask_needs_captcha_grade {
+    default                 0;
+    "~^1:"                  1;   # UA on a captcha-ending chain (any other source)
+    "~^0:captcha:"          1;   # protected path: straight CAPTCHA
+    "~^0:pow_then_captcha:" 1;   # protected path: PoW -> CAPTCHA
+    "~^0:[^:]*:1$"          1;   # community feed hit on a captcha-ending action
 }
 # "<needs captcha grade>:<kind the cookie verified as>" -> is this request
 # holding a pass that satisfies its rule?
@@ -583,20 +584,6 @@ map $unmask_pp_global $protected_mode {
 }
 {{- end }}
 
-{{- if .CommunityBansSubscribe }}
-# A community bans hit is treated equivalently to protected_mode=captcha (forced
-# CAPTCHA, not a hard block).  If the original protected_mode is explicitly
-# set, respect that (site-side conf wins).
-map "$community_bans_hit:$protected_mode" $protected_mode_eff {
-    default $protected_mode;
-    "~^1:$" "captcha";
-}
-{{- else }}
-# community bans subscribe OFF: protected_mode_eff = passthrough of protected_mode.
-map $protected_mode $protected_mode_eff {
-    default $protected_mode;
-}
-{{- end }}
 
 # -----------------------------------------------------------------------------
 # Country-based decision ($unmask_country / $unmask_geo_action)
@@ -821,13 +808,22 @@ map $effective_ja4 $unmask_ja4_deny {
 # is what lets the undefined-variable guard read this file.
 map "" $unmask_ja4_deny { default 0; }
 {{- end }}
+{{- if .CommunityBansDeny }}
+# The community feed's action is "deny": a hit is a hard block rather than a
+# challenge.  The rescues still sit above it (see the deny dispatch below), so
+# a feed entry cannot take out a search bot or an operator-trusted IP.
+map $community_bans_hit $unmask_cb_deny { default 0; "1" 1; }
+{{- else }}
+map "" $unmask_cb_deny { default 0; }
+{{- end }}
 
-map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny" $unmask_axis_deny {
-    default      0;
-    "~^1:"       1;  # country rule
-    "~^0:1:"     1;  # ASN rule
-    "~^0:0:1:"   1;  # UA black-list row / preset / upstream group
-    "~^0:0:0:1$" 1;  # JA4 verdict set to deny
+map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_deny" $unmask_axis_deny {
+    default        0;
+    "~^1:"         1;  # country rule
+    "~^0:1:"       1;  # ASN rule
+    "~^0:0:1:"     1;  # UA black-list row / preset / upstream group
+    "~^0:0:0:1:"   1;  # JA4 verdict set to deny
+    "~^0:0:0:0:1$" 1;  # community feed hit, action = deny
 }
 
 # The rescues are consulted through a map VALUE, not folded into a key, so they
@@ -887,6 +883,38 @@ map "$community_bans_hit_ipja4$community_bans_hit_ja4$community_bans_hit_ip" $co
     default 0;
     "~1" 1;
 }
+{{- else }}
+# Not subscribing (or subscribing without applying): define the hit variable as
+# a constant so every key that carries it stays a plain string.  Same reason as
+# $unmask_ja4_deny above -- a key free of template conditionals is what lets the
+# undefined-variable guard read this file.
+map "" $community_bans_hit { default 0; }
+{{- end }}
+
+# What a feed hit costs the visitor.  CommunityBans.Action is a render-time
+# constant, so each consequence is wired as its own constant rather than
+# decoded per request:
+#
+#   $unmask_cb_challenge -> the challenge decision, further down
+#   $unmask_cb_captcha   -> the CAPTCHA-grade requirement, so a hit whose action
+#                           ends in a CAPTCHA cannot be satisfied by a PoW-only
+#                           cookie
+#   (the deny action wires a third variable, defined with the other deny
+#    sources so an install that denies nothing never builds it)
+#
+# deny and challenge are mutually exclusive by construction: a denied request
+# never reaches the challenge, and the daemon's ServeChallenge / auth_check
+# resolve the same action from the same setting.
+{{- if .CommunityBansDeny }}
+map "" $unmask_cb_challenge { default 0; }
+map "" $unmask_cb_captcha   { default 0; }
+{{- else }}
+map $community_bans_hit $unmask_cb_challenge { default 0; "1" 1; }
+{{- if .CommunityBansNeedsCaptchaGrade }}
+map $community_bans_hit $unmask_cb_captcha { default 0; "1" 1; }
+{{- else }}
+map "" $unmask_cb_captcha { default 0; }
+{{- end }}
 {{- end }}
 
 # -----------------------------------------------------------------------------
@@ -949,17 +977,24 @@ map $unmask_bp_global $is_bypass_path {
 # -----------------------------------------------------------------------------
 # $final_challenge — final decision on whether to trigger challenge
 # -----------------------------------------------------------------------------
-# 9 input signals:
-#   bv_pass_ok (= bv_any_valid, narrowed to CAPTCHA grade for the UAs whose
-#                rule ends in one) : is_search_bot : is_bypass_ip : is_bypass_path : is_net_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
+# 10 input signals:
+#   bv_pass_ok (= bv_any_valid, narrowed to CAPTCHA grade for the requests whose
+#                rule ends in one) : is_search_bot : is_bypass_ip : is_bypass_path : unmask_cb_challenge : is_net_challenge : protected_mode : is_challenge_target : ja4_action : serve_bot_challenge
 #
 # Decision priority:
 #   1. bv_any_valid=1                 -> exempt (already carries CAPTCHA / PoW pass cookie)
 #   2. is_search_bot / is_bypass_ip   -> exempt (Googlebot accident prevention / trusted IP)
 #   3. is_bypass_path=1               -> exempt (bypass path)
-#   4. is_net_challenge=1             -> challenge (country OR asn veto; chMode picked by admin)
-#   5. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
-#   6. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
+#   4. unmask_cb_challenge=1          -> challenge (client is on the community
+#                                         feed under a challenge action; a deny
+#                                         action blocks earlier, in the deny
+#                                         dispatch.  Listed below the
+#                                         exemptions on purpose: a feed entry
+#                                         must never take out a search bot or a
+#                                         bypass IP the operator trusts.)
+#   5. is_net_challenge=1             -> challenge (country OR asn veto; chMode picked by admin)
+#   6. protected_mode != ""           -> challenge (UA-agnostic; admin-panel gate)
+#   7. is_challenge_target=1          -> challenge (matches ua-filter blacklist;
 #                                         fires regardless of ja4_action (ok /
 #                                         unknown / bot) and honeypot presence.
 #                                         "matches blacklist = must clear PoW"
@@ -967,23 +1002,24 @@ map $unmask_bp_global $is_bypass_path {
 #                                         "skip PoW -> straight to CAPTCHA"
 #                                         decision is made by separate logic
 #                                         based on ja4 bot classification.)
-#   7. honeypot trip                  -> challenge (even for a non-target UA)
-#   8. everything else                -> the Global axis's call
+#   8. honeypot trip                  -> challenge (even for a non-target UA)
+#   9. everything else                -> the Global axis's call
 #                                        ($unmatched_should_challenge: the
 #                                        known/unknown-UA bucket actions)
-map "{{ if or .CaptchaGradeUAPatterns .ProtectedNeedsCaptchaGrade }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$is_net_challenge:$protected_mode_eff:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
-    "~^1:"                          0;  # _bv valid (CAPTCHA or PoW pass, grade-checked) -> exempt
-    "~^0:1:"                        0;  # search bot UA -> exempt
-    "~^0:0:1:"                      0;  # bypass IP -> exempt
-    "~^0:0:0:1:"                    0;  # bypass path -> exempt
-    "~^0:0:0:0:1:"                  1;  # country rule (deny / chain) -> challenge
-    "~^0:0:0:0:0:captcha:"          1;  # protected path (UA-agnostic)
-    "~^0:0:0:0:0:pow:"              1;
-    "~^0:0:0:0:0:pow_then_captcha:" 1;
-    "~^0:0:0:0:0::1:"           1;  # target UA -> always challenge (regardless of ja4 / honeypot)
-    "~^0:0:0:0:0::0:[^:]*:1$"   1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
-    "~^0:0:0:0:0::0:"           $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
+    "~^1:"                            0;  # _bv valid (CAPTCHA or PoW pass, grade-checked) -> exempt
+    "~^0:1:"                          0;  # search bot UA -> exempt
+    "~^0:0:1:"                        0;  # bypass IP -> exempt
+    "~^0:0:0:1:"                      0;  # bypass path -> exempt
+    "~^0:0:0:0:1:"                    1;  # community feed hit -> challenge
+    "~^0:0:0:0:0:1:"                  1;  # country rule (deny / chain) -> challenge
+    "~^0:0:0:0:0:0:captcha:"          1;  # protected path (UA-agnostic)
+    "~^0:0:0:0:0:0:pow:"              1;
+    "~^0:0:0:0:0:0:pow_then_captcha:" 1;
+    "~^0:0:0:0:0:0::1:"         1;  # target UA -> always challenge (regardless of ja4 / honeypot)
+    "~^0:0:0:0:0:0::0:[^:]*:1$" 1;  # honeypot trip (= $serve_bot_challenge=1) -> always challenge
+    "~^0:0:0:0:0:0::0:"         $unmatched_should_challenge;  # fall back to Global axis (known vs unknown UA)
 }
 {{- if .StaleBrowserEnabled }}
 

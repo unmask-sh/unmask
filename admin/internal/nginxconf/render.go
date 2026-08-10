@@ -489,15 +489,25 @@ type renderData struct {
 	// the cookie has to be a CAPTCHA-grade one.  Empty (and the maps then not
 	// emitted at all) on an install that puts no UA on a captcha chain.
 	CaptchaGradeUAPatterns []string
-	// ProtectedNeedsCaptchaGrade: some request can be put on a CAPTCHA-grade
-	// requirement by the PROTECTED-PATH axis (a rule / preset whose mode ends
-	// in a CAPTCHA) or by a community-bans subscription (a hit forces CAPTCHA).
-	// When true the grade maps ($unmask_needs_captcha_grade / $bv_pass_ok) must
-	// be emitted even with no captcha-chain UA patterns, so a PoW cookie cannot
-	// satisfy a captcha-graded protected path.
+	// ProtectedNeedsCaptchaGrade: the PROTECTED-PATH axis puts some request on
+	// a CAPTCHA-grade requirement (a rule / preset whose mode ends in a
+	// CAPTCHA), so a PoW cookie must not satisfy it.
 	ProtectedNeedsCaptchaGrade bool
-	HTTPSRedirect              bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
-	HTTPSRedirectExempt        []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
+	// CommunityBansNeedsCaptchaGrade: same, for a community-feed hit whose
+	// action ends in a CAPTCHA.
+	CommunityBansNeedsCaptchaGrade bool
+	// CommunityBansDeny: the community-feed action is "deny", so a hit is a
+	// hard block ($unmask_axis_deny) rather than a challenge.
+	CommunityBansDeny bool
+	// GradeCheckedPass: ANY of the three grade sources above is live, so the
+	// grade maps must be emitted and $final_challenge must consult
+	// $bv_pass_ok instead of the plain $bv_any_valid.  One field rather than an
+	// or-chain in the template: every source added to the chain and missed in
+	// one of its two use sites silently downgrades every request on the
+	// install back to "any cookie will do".
+	GradeCheckedPass    bool
+	HTTPSRedirect       bool                   // true -> emit an HTTP->HTTPS 301 at the top of server.inc
+	HTTPSRedirectExempt []RedirectExemptClause // rewrite-phase `break`s emitted before the 301 (ACME path + LB-health UA presets + custom rules)
 
 	BypassIPs []string // whitelist that lets challenge / rate_limit pass through (= IP or CIDR)
 	// StatsExcludeIPs: IP/CIDR list dropped entirely from statistics (= own
@@ -1003,10 +1013,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	pp := EffectiveProtectedPathRules(s)
 	d.ProtectedPaths = pp
 	d.ProtectedPathsGlobal, d.ProtectedPathsPerHost = splitProtectedPathsForRender(pp)
-	// A captcha-ending protected mode (or a community-bans subscription, which
-	// forces CAPTCHA on a hit) puts a CAPTCHA-grade requirement on some request
-	// -> emit the grade maps even if no UA sits on a captcha chain.
-	d.ProtectedNeedsCaptchaGrade = s.CommunityBans.ApplyActive()
+	// A captcha-ending protected mode puts a CAPTCHA-grade requirement on some
+	// request -> emit the grade maps even if no UA sits on a captcha chain.
+	d.ProtectedNeedsCaptchaGrade = false
 	for _, r := range pp {
 		if ModeEndsInCaptcha(r.Mode) {
 			d.ProtectedNeedsCaptchaGrade = true
@@ -1433,10 +1442,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 	}
 
-	// Can anything on this install deny?  Computed here because the geo / ASN
-	// rules above are the last of the three sources to be resolved.  When the
-	// answer is no, the whole deny block is left out of both files -- see
-	// HardDenyActive for why that is a cost decision rather than a cosmetic one.
+	// Can anything on this install deny?  Seeded here, where the geo / ASN rules
+	// have just been resolved; the community-feed term is added at the end of
+	// this function, after its action is resolved.  When the answer is no, the
+	// whole deny block is left out of both files -- see HardDenyActive for why
+	// that is a cost decision rather than a cosmetic one.
 	d.HardDenyActive = len(d.HardDenyUAPatterns) > 0 ||
 		len(d.HardDenyJA4Patterns) > 0 ||
 		d.GeoDefaultAction == settings.RateChallengeDeny ||
@@ -1500,6 +1510,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// the host nginx.conf lacks (a duplicate map_hash_* is a fatal nginx -t
 		// error); warn when a host value is present but too small.
 		d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax, d.mapHashWarning = resolveMapHash(s)
+
+		// What a hit costs, from the same resolver the daemon reads live
+		// (auth_check's communityBansDecide, ServeChallenge's chain).  Baked
+		// in here because nginx cannot ask the daemon per request -- but both
+		// sides derive it from CommunityBans.Action, so a render is the only
+		// thing that can put them out of step, and every action change goes
+		// through one.
+		switch act := s.CommunityBans.ResolvedAction(); act {
+		case settings.RateChallengeDeny:
+			d.CommunityBansDeny = true
+		default:
+			d.CommunityBansNeedsCaptchaGrade = act == settings.RateChallengeCaptchaOnly ||
+				act == settings.RateChallengePoWThenCaptcha
+		}
 	}
 
 	// Size the variables hash: unmask's maps push the variable count past
@@ -1508,6 +1532,19 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// one (a duplicate is fatal); an unreadable conf falls through to emitting
 	// and letting any duplicate surface as a clear nginx -t error.
 	d.EmitVariablesHash = !hostHasVariablesHash(s)
+
+	// Grade-checked pass: fold every source of a CAPTCHA-grade requirement into
+	// the single flag the template consults.  Computed here, after all three
+	// have been resolved, so adding a fourth source is one line in one place
+	// instead of two or-chains that must be kept identical.
+	d.GradeCheckedPass = len(d.CaptchaGradeUAPatterns) > 0 ||
+		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade
+
+	// The community feed is the one deny source resolved after the seed above,
+	// so it is folded in here.  Missing this would emit $unmask_cb_deny into a
+	// key nginx never consults: the feed action would read "deny" in the UI and
+	// block nothing.
+	d.HardDenyActive = d.HardDenyActive || d.CommunityBansDeny
 
 	return d, nil
 }
