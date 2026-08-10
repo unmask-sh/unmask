@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -67,5 +69,44 @@ func TestServeChallengeProtectedPathMode(t *testing.T) {
 	base := s.RateLimit.Default.ResolvedChallengeMode()
 	if got := servedChModeReq(t, h, "/unmask/challenge/?_orig=%2Fplain%2F", nil); got != base {
 		t.Errorf("_orig plain: want base %s, got %s", base, got)
+	}
+}
+
+// Both wires must resolve a blank mode identically.  They are different code
+// paths -- the nginx render composes EffectiveProtectedPathRules, the daemon
+// resolves protectedModeForOrig per request -- and a disagreement would serve
+// one chain while the cookie was graded against another, which is the class of
+// bug the CAPTCHA-grade enforcement exists to prevent.
+func TestBlankModeResolvesTheSameOnBothWires(t *testing.T) {
+	for _, def := range []string{"", "captcha", "pow", "pow_then_captcha"} {
+		h := newTestHandler(t)
+		s := *h.cfg()
+		s.Global.KnownBrowserAction = "pass"
+		s.Nginx.ProtectedPaths.DefaultMode = def
+		s.Nginx.ProtectedPaths.EnabledPresets = []string{"unmask"}
+		s.Nginx.ProtectedPaths.Paths = []settings.ProtectedPath{
+			{Path: "^/blank/"},               // follows the default
+			{Path: "^/pinned/", Mode: "pow"}, // keeps its own
+		}
+		h.SetSettings(s)
+
+		render := map[string]string{}
+		for _, r := range nginxconf.EffectiveProtectedPathRules(s) {
+			render[r.Pattern] = r.Mode
+		}
+		for _, pat := range []string{"^/blank/", "^/pinned/", "^/unmask/admin/"} {
+			// The daemon resolves from a URI; strip the anchor for a sample path.
+			uri := strings.TrimPrefix(pat, "^")
+			daemon := protectedModeForOrig(s.Nginx, "", uri)
+			if daemon != render[pat] {
+				t.Errorf("default=%q path=%s: render=%q daemon=%q (the wires must agree)",
+					def, pat, render[pat], daemon)
+			}
+		}
+		// And the served chain follows that same resolution.
+		want := nginxconf.ChModeForProtectedMode(render["^/blank/"])
+		if got := servedChModeReq(t, h, "/unmask/challenge/?_orig=%2Fblank%2Fx", nil); got != want {
+			t.Errorf("default=%q: served chain %q, want %q", def, got, want)
+		}
 	}
 }

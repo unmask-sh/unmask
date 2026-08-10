@@ -2924,6 +2924,26 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <p style="margin:.5rem 0 0">{{ safeHTML (t .Lang "settings.protected.grade_note") }}</p>
     </script>
 
+    {{/* Tab-level default a blank row / preset inherits -- the same knob the geo
+         and ASN tabs call "default rule action".  It only fills a blank; an
+         explicit mode on a row or preset always wins. */}}
+    <div class="field" style="margin:.2rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
+      <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
+        {{ t .Lang "settings.protected.default_mode_h" }}
+        <button type="button" class="ua-help-trigger" data-help-target="protected-default-help" aria-label="?">?</button>
+      </div>
+      {{ $pdm := .ProtectedDefaultMode }}
+      <select name="protected_default_mode" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        {{/* Unset is its own option, so a no-op save cannot pin today's shipped
+             floor into the config (and freeze it against a later change). */}}
+        <option value=""                 {{ if eq $pdm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
+        <option value="pow_then_captcha" {{ if eq $pdm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="pow"              {{ if eq $pdm "pow" }}selected{{ end }}>pow</option>
+        <option value="captcha"          {{ if eq $pdm "captcha" }}selected{{ end }}>captcha</option>
+      </select>
+      <script type="text/html" id="protected-default-help">{{ safeHTML (t .Lang "settings.protected.default_mode_desc") }}</script>
+    </div>
+
     <div class="ua-section">
       <h3><span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span></h3>
       <p class="desc" style="font-size:.78rem;color:#64748b;margin:.2rem 0 .5rem">{{ safeHTML (t .Lang "settings.protected.preset.desc") }}</p>
@@ -2935,6 +2955,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
         </label>
         <select name="protected_preset_mode__{{ .ID }}" title="{{ t $.Lang "settings.protected.mode_title" }}" style="padding:.3rem .5rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
+          <option value=""                 {{ if eq .Mode "" }}selected{{ end }}>{{ tf $.Lang "settings.select.unset_as" $.ProtectedResolvedDefault }}</option>
           <option value="pow_then_captcha" {{ if eq .Mode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="pow"              {{ if eq .Mode "pow" }}selected{{ end }}>pow</option>
           <option value="captcha"          {{ if eq .Mode "captcha" }}selected{{ end }}>captcha</option>
@@ -2956,13 +2977,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="protected_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="protected_updated_at" value="{{ $r.UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.protected.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }} <span class="action-pill action-{{ $r.Mode }}" data-pill="mode">{{ $r.Mode }}</span>{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
+          <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.protected.empty_pattern" }}">{{ if $r.Pattern }}{{ $r.Pattern }}{{ else }}{{ t $.Lang "settings.protected.empty_pattern" }}{{ end }} <span class="action-pill action-{{ if $r.Mode }}{{ $r.Mode }}{{ else }}suspect inherit{{ end }}" data-pill="mode">{{ if $r.Mode }}{{ $r.Mode }}{{ else }}{{ $.ProtectedResolvedDefault }}{{ end }}</span>{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="protected_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="protected_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="protected_site" list="protected-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
         <select name="protected_mode" class="rule-mode-sel" title="{{ t $.Lang "settings.protected.mode_title" }}">
+          <option value=""                 {{ if eq $r.Mode "" }}selected{{ end }} data-inherit-pill>{{ tf $.Lang "settings.select.unset_as" $.ProtectedResolvedDefault }}</option>
           <option value="pow_then_captcha" {{ if eq $r.Mode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="pow"              {{ if eq $r.Mode "pow" }}selected{{ end }}>pow</option>
           <option value="captcha"          {{ if eq $r.Mode "captcha" }}selected{{ end }}>captcha</option>
@@ -2984,7 +3006,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <span class="rule-pat-wrap"><input type="text" name="protected_path" value="" placeholder="{{ t .Lang "settings.protected.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="protected_site" list="protected-site-candidates" value="" placeholder="{{ t .Lang "settings.protected.site_all" }}" class="rule-action" style="width:7rem">
           <select name="protected_mode" class="rule-mode-sel" title="{{ t .Lang "settings.protected.mode_title" }}">
-            <option value="pow_then_captcha" selected>pow_then_captcha</option>
+            <option value="" selected data-inherit-pill>{{ tf .Lang "settings.select.unset_as" .ProtectedResolvedDefault }}</option>
+            <option value="pow_then_captcha">pow_then_captcha</option>
             <option value="pow">pow</option>
             <option value="captcha">captcha</option>
           </select>
