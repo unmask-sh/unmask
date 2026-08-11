@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -136,4 +138,55 @@ func chModeFromChallengeHTML(body string) string {
 		return ""
 	}
 	return rest[:j]
+}
+
+// The shipped defaults must not lock a new operator out of their own admin.
+//
+// This is the configuration a first install actually runs: the "unmask itself"
+// preset ON, no mode pinned anywhere (so the tab default, which ends in a
+// CAPTCHA), and known browsers on a PoW-only screen.  On nginx forward-auth
+// the challenge arrives with the URI only in X-Original-URI, so every input to
+// this decision is a shipped default -- nobody has to misconfigure anything to
+// reach it.  The first thing a new user does is open the admin, so a loop here
+// is the first thing they would ever see.
+//
+// Reading the settings through Load() rather than building a struct is the
+// point: it is defaults() that has to be safe, not a config a test invented.
+func TestFreshInstallDoesNotLockTheOperatorOutOnForwardAuth(t *testing.T) {
+	h := newTestHandler(t)
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.yml")
+	if err := os.WriteFile(empty, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := settings.Load(empty) // = defaults()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SetSettings(s)
+
+	// Guard the premise: if a later release changes these, this test should
+	// say so rather than quietly stop covering the case it was written for.
+	if len(s.Nginx.ProtectedPaths.EnabledPresets) == 0 {
+		t.Fatal("premise: the shipped protected preset is no longer on by default")
+	}
+	if s.Global.KnownBrowserAction != settings.RateChallengePoWOnly {
+		t.Logf("note: known_browser_action default is now %q", s.Global.KnownBrowserAction)
+	}
+
+	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+	req := httptest.NewRequest(http.MethodGet, "/unmask/challenge/", nil)
+	req.Header.Set("User-Agent", ua)
+	req.Header.Set("X-Original-URI", "/unmask/admin/")
+	rr := httptest.NewRecorder()
+	h.ServeChallenge(rr, req)
+
+	served := chModeFromChallengeHTML(rr.Body.String())
+	if !requestNeedsCaptchaGrade(ua, "/unmask/admin/", "", h.snapshotSettings()) {
+		t.Fatal("premise: the shipped admin gate no longer requires a CAPTCHA-grade pass")
+	}
+	if !chainEndsInCaptcha(served) {
+		t.Errorf("a fresh install serves %q for its own admin while demanding a CAPTCHA-grade pass "+
+			"-- the operator solves it, is refused, and is served it again, forever", served)
+	}
 }
